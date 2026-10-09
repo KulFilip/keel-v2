@@ -35,8 +35,11 @@ Private keys never go into this repo. The catalog key is the Actions secret `KEE
 
 ## Add your plugin
 
-1. Make it with `keel-plugin new <name>`, check it with `keel-plugin lint`, and make a key pair with
-   `keel-plugin keygen <you>` (keep the `.key` file secret).
+The whole path, in simple steps, is keel's guide
+[17-publish-your-plugin.md](https://github.com/MiladNalbandi/keel-v2/blob/plugin-base/docs/plugins/17-publish-your-plugin.md).
+
+1. Make it with `keel-plugin new <name>`, try it in your own keel with `keel-plugin dev .`, check it with
+   `keel-plugin lint`, and make a key pair with `keel-plugin keygen <you>` (keep the `.key` file secret).
 2. Release it in a public GitHub repo: `<name>-<version>.kplug` and its `.kplug.minisig`
    (`keel-plugin pack`, then `keel-plugin sign`).
 3. Open a pull request here with `publishers/<you>.yml` (your **public** key) and `plugins/<name>.yml`.
