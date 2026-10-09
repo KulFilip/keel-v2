@@ -15,6 +15,7 @@ import {
   post,
   useApp,
   useLoad,
+  usePages,
   type PillTone,
 } from "@keel/web-sdk";
 
@@ -204,6 +205,8 @@ function RunDetail({ pid, id }: { pid: string; id: number }) {
     live: false,
   });
   const { toast } = useApp();
+  // KeelBot is a plugin CI/CD does not need: "Ask KeelBot why" only when its page is there
+  const keelbot = usePages().some((p) => p.id === "helper");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(
     null,
@@ -282,7 +285,7 @@ function RunDetail({ pid, id }: { pid: string; id: number }) {
             Run the failed jobs again
           </button>
         )}
-        {r.failed && (
+        {r.failed && keelbot && (
           <button
             type="button"
             className="btn sm ghost"

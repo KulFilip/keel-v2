@@ -173,6 +173,8 @@ export type KeyRow = {
   /** keys written out as they are ("⇧⇧", "Esc Esc", "@") */
   raw?: readonly string[];
   note?: string;
+  /** the page whose part the keys use (KeelBot's "helper"): the row shows only when this keel has that page */
+  needs?: string;
 };
 export type KeyArea = {
   id: string;
@@ -246,9 +248,9 @@ export const AREAS: KeyArea[] = [
         raw: [`${keyLabel("meta+1")} … ${keyLabel("meta+9")}`],
       },
       { label: "All actions of the result", keys: [LAUNCHER.actions] },
-      { label: "Ask KeelBot about it", keys: [LAUNCHER.ask] },
+      { label: "Ask KeelBot about it", keys: [LAUNCHER.ask], needs: "helper" },
       { label: "Copy it", keys: [LAUNCHER.copy] },
-      { label: "Ask KeelBot a question", raw: ["?"], note: "type ? first" },
+      { label: "Ask KeelBot a question", raw: ["?"], note: "type ? first", needs: "helper" },
       { label: "Clear, step back, then close", keys: ["escape"] },
     ],
   },
@@ -291,9 +293,13 @@ export const AREAS: KeyArea[] = [
   },
 ];
 
-/** keel's areas and the parts' (slot keys.area), by their order. */
-export const allAreas = (parts: readonly KeyArea[]): KeyArea[] =>
-  [...AREAS, ...parts].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+/** keel's areas and the parts' (slot keys.area), by their order. `has(page)`: this keel has the page (step 6: without
+ *  the Map and the Graph there is no diagram area, without KeelBot no row that asks it). */
+export const allAreas = (parts: readonly KeyArea[], has: (page: string) => boolean = () => true): KeyArea[] =>
+  [...AREAS, ...parts]
+    .filter((a) => !a.pages || a.pages.some(has))
+    .map((a) => ({ ...a, rows: (k: Keymap) => a.rows(k).filter((r) => !r.needs || has(r.needs)) }))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
 /** The words a row is found by: its label, its note and its keys as shown. */
 export const rowText = (r: KeyRow) =>

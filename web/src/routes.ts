@@ -2,7 +2,7 @@
 // every page (keel's own and the parts') registers in the page registry (sdk/registry.ts) with its group and order, so
 // the menu and the router read one list. Aliases (#/code, #/keelbot) come from the pages too.
 
-import { allPages, pageFor, pageOf } from "./sdk/registry";
+import { allPages, hasPage, pageFor, pageOf } from "./sdk/registry";
 
 /** A screen's id: one of keel's own (SCREEN) or a registered page's (#/map, #/repo). */
 export type ScreenId = string;
@@ -59,6 +59,9 @@ export function menuGroups(): Group[] {
 
 export const isScreen = (s: string): s is ScreenId =>
   OWN.has(s) || pageOf(s) !== null;
+/** A link to this page opens it in this keel: keel's own screens, and a page in the registry (by its id or an alias).
+ *  Step 6: a keel with only its core has no Wiki or Tasks page, so a core page does not link to them. */
+export const canOpen = (s: string): boolean => OWN.has(s) || hasPage(s);
 export const groupOf = (id: ScreenId) =>
   menuGroups().find((g) => g.pages.some(([p]) => p === id));
 

@@ -77,7 +77,6 @@ RUN set -e; mkdir -p /out /tmp/plugins; \
 # ---------- runtime: Ubuntu 24.04 with a full JDK 21 (projects compile and test inside) ----------
 FROM eclipse-temurin:21-jdk-noble
 ARG INSTALL_CLIS=1
-ARG EDITION=full
 ARG NODE_MAJOR=20
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive \
@@ -85,8 +84,7 @@ ENV LANG=C.UTF-8 \
     KEEL_DATA=/data KEEL_WORKSPACE=/workspace KEEL_CONTENT=/opt/keel-v2/content \
     KEEL_ENGINE_URL=http://127.0.0.1:8090 KEEL_API_URL=http://127.0.0.1:8080 \
     UV_PROJECT_ENVIRONMENT=/opt/engine/.venv UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
-    CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1 \
-    KEEL_EDITION=${EDITION}
+    CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1
 
 # System tools, Python 3.12, Node.js (NodeSource) and the Docker CLI with compose + buildx (Docker's apt repo).
 # python3-pytest + python-is-python3: a plain Python project (and keel's demo) runs `python -m pytest` out of the box;
@@ -124,6 +122,10 @@ RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --froze
 COPY --from=api /app.jar /opt/api/app.jar
 # keel v2's own agents, skills, stacks, packs and templates (content/README.md)
 COPY content /opt/keel-v2/content
+# The edition only from here on (docs/plugins/19-step6-report.md): every layer above is the same for full, product and
+# core, so the images share them (one download when a person changes edition, one build cache).
+ARG EDITION=full
+ENV KEEL_EDITION=${EDITION}
 # The plugins inside the image (docs/plugins): <name>/<version>/keel-plugin.yml. Every plugin of plugins/ (and keel
 # Product with EDITION=product; none with EDITION=core). keel-start resolves them at every start, together with the
 # ones a person installed (/data/plugins/store).

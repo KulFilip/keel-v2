@@ -42,13 +42,15 @@ The parity e2e (`e2e/parity/`, see its README) also compared 0.15.1 with itself:
 
 ## Known for later
 
-- **Core only (`EDITION=core` or `KEEL_PLUGINS=off`):** a few core links point to plugin pages, for example "Add a
-  task" → `#/tasks` and the Wiki links in Flow. The full image has the plugins; the core image needs a check before
-  step 6.
-- **Core only, wave C:** without the Graph plugin `/index` and `/graph*` answer 404, so the Code page's index tag, the
-  launcher's symbol search and KeelBot's @symbols find nothing. Without the Code plugin KeelBot's @ file list is empty
-  and ⌘K has no code preview. They call over HTTP (no imports), so nothing breaks, but the core image check must cover
-  them.
+- ~~**Core only (`EDITION=core` or `KEEL_PLUGINS=off`):** a few core links point to plugin pages, for example "Add a
+  task" → `#/tasks` and the Wiki links in Flow.~~ **Done in step 6** ([19-step6-report.md](19-step6-report.md)): a
+  page links to another page only when the page registry has it (`hasPage(id)` in the SDK). `e2e/core/e2e.py` checks
+  every core page of the core image, and of the full image with `KEEL_PLUGINS=off`.
+- ~~**Core only, wave C:** without the Graph plugin `/index` and `/graph*` answer 404, so the Code page's index tag, the
+  launcher's symbol search and KeelBot's @symbols find nothing. Without the Code plugin ⌘K has no code preview.~~
+  **Done in step 6:** without the Graph the Code page shows no index row, and neither the launcher nor KeelBot's @
+  searches the code graph; without the Code page ⌘K reads no file and KeelBot's @ lists no files. No request goes to a
+  plugin that is not there.
 - **Plugin-to-plugin uses:** Jira → Tasks classes; Product → Tasks and Jira. They work because all jars share one
   `loader.path`. In step 5, when the plugins get their own repos, this needs a published API.
 

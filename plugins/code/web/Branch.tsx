@@ -3,7 +3,7 @@
 // with Switch to it (keel's switch: git refuses when uncommitted changes would be lost) and Ask KeelBot to review it.
 
 import { useState } from "react";
-import { askAssistant, ErrorBox, errorParts, Pill, useApp, useLoad } from "@keel/web-sdk";
+import { askAssistant, ErrorBox, errorParts, Pill, SLOTS, useApp, useLoad, useSlot } from "@keel/web-sdk";
 import { codeApi as api } from "./codeApi";
 import { DiffPane, type DiffMode } from "./Editor";
 import { FileIcon, Icon } from "./icons";
@@ -20,6 +20,8 @@ export function BranchTab({ pid, name, mode, onOpenCommitFile, onOpenLog }: {
 }) {
   const b = useLoad(`branch:${pid}:${name}`, () => api.gitBranch(pid, name));
   const { toast } = useApp();
+  // the assistant that answers askAssistant (KeelBot, a plugin): its button only when this keel has one
+  const assistant = useSlot(SLOTS.assistant).length > 0;
   const [file, setFile] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
@@ -57,7 +59,7 @@ export function BranchTab({ pid, name, mode, onOpenCommitFile, onOpenLog }: {
               {busy ? "Switching…" : `Switch to ${v.name}`}
             </button>
           )}
-          {!isBase && v.files.length > 0 && (
+          {assistant && !isBase && v.files.length > 0 && (
             <button type="button" className="btn sm ghost"
               onClick={() => askAssistant(`Review the branch ${v.name} against ${v.base} (git diff ${v.base}...${v.name}): what it changes, and anything that looks wrong, with file:line.`)}>
               Ask KeelBot to review it

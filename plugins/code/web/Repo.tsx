@@ -3,13 +3,15 @@
 // "Update from <base>", the one action here that changes the repo (a git merge that stops on a conflict).
 
 import { useEffect, useState } from "react";
-import { ErrorBox, errorParts, go, isMac, keyLabel, PageHead, plural, useApp, useLoad } from "@keel/web-sdk";
+import { ErrorBox, errorParts, go, isMac, keyLabel, PageHead, plural, useApp, useLoad, usePages } from "@keel/web-sdk";
 import { codeApi as api, type IndexStatus, type RepoInfo, type UpdateFromBase } from "./codeApi";
 import { RepoIde } from "./Ide";
 import { FOCUS_EVENT, FOCUS_KEYS } from "./model";
 
 export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
+  // KeelBot's own page is a plugin's (plugins/keelbot): its button only when this keel has it
+  const keelbot = usePages().some((p) => p.id === "helper");
   const repo = useLoad(`repo:${pid}`, () => api.repo(pid));
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
   /** Bumped after a merge brought new files: the explorer reads the tree again. */
@@ -62,7 +64,7 @@ export function RepoPage({ pid }: { pid: string }) {
               if ("merged" in x && x.merged) setVersion((v) => v + 1);
             }} />
           )}
-          <button className="btn sm" type="button" onClick={() => go("helper")} title="Only KeelBot, on a page of its own">KeelBot only</button>
+          {keelbot && <button className="btn sm" type="button" onClick={() => go("helper")} title="Only KeelBot, on a page of its own">KeelBot only</button>}
           <button className="btn sm ghost" type="button" onClick={() => setFocus(true)}
             title={`Focus mode (${keyLabel(FOCUS_KEYS)}): only the code, like an IDE; Esc twice comes back`}>Focus</button>
         </>} />}
@@ -73,8 +75,14 @@ export function RepoPage({ pid }: { pid: string }) {
   );
 }
 
-/** "Index: ready · 412 files · 3,100 symbols · 5 min ago" and Rebuild: the code graph agents query instead of grep. */
+/** "Index: ready · 412 files · 3,100 symbols · 5 min ago" and Rebuild: the code graph agents query instead of grep. The
+ *  index is the Graph plugin's api (/index): without the Graph (the Review set) there is no row and no request. */
 export function IndexBadge({ pid }: { pid: string }) {
+  const graph = usePages().some((p) => p.id === "graph");
+  return graph ? <IndexRow pid={pid} /> : null;
+}
+
+function IndexRow({ pid }: { pid: string }) {
   const { toast } = useApp();
   const idx = useLoad(`index:${pid}`, () => api.index(pid));
   const [busy, setBusy] = useState(false);

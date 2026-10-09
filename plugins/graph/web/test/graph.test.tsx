@@ -4,12 +4,13 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { fileHref, pageFor } from "@keel/web-sdk";
 // keel's own app and test harness: this test runs the Graph inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import { parseHash } from "../../../../web/src/routes";
 import * as fx from "../../../../web/src/test/fixtures";
+import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
 import { db } from "../../../../web/src/test/setup";
 import { GraphPage } from "../Graph";
 import type { GraphOverview } from "../graphApi";
@@ -191,5 +192,24 @@ describe("Graph page", () => {
     await user.click(main().getByRole("button", { name: "Build the index" }));
     await waitFor(() => expect(db.calls.some((c) => c.method === "POST" && c.path.endsWith("/index/rebuild"))).toBe(true));
     await act(async () => undefined);
+  });
+});
+
+// Step 6: a symbol's file and its uses open in the Code page, a plugin. Without it (the Knowledge set) they are text.
+describe("Graph without the Code page", () => {
+  afterEach(() => restorePlugins());
+
+  it("shows the file and the uses' places as text, not as links", async () => {
+    withoutPages("repo");
+    location.hash = "#/graph/class:svc";
+    render(<App />);
+    const panel = await screen.findByRole("complementary", { name: "About ScoreService" });
+    expect(within(panel).getByText("app/ScoreService.java:3")).toBeInTheDocument();
+    expect(within(panel).queryByRole("link", { name: "app/ScoreService.java:3" })).toBeNull();
+    const usedBy = within(panel).getByRole("heading", { name: /Used by/ }).parentElement!;
+    expect(usedBy).toHaveTextContent("ScoreController3×ScoreController.java:12");
+    expect(within(usedBy).queryByRole("link", { name: "ScoreController.java:12" })).toBeNull();
+    // the graph's own links stay
+    expect(within(panel).getByRole("link", { name: "save" })).toHaveAttribute("href", "#/graph/method%3Asave");
   });
 });

@@ -7,7 +7,7 @@ import {
 } from "./api";
 import { inboxApi } from "./inboxApi";
 import { desktopPop, NOTIFY_DEFAULTS, playSound, shouldAlert, unlockAudio, withDefaults } from "./notify";
-import { hashFor, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
+import { hashFor, hashForScreen, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
 import { usePagesVersion } from "./sdk/registry";
 
 // ---------- route ----------
@@ -185,8 +185,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (project && project !== pidRef.current && projectsRef.current.some((p) => p.id === project)) {
         setProjectId(project);
       }
+      // a page that is neither keel's own nor registered (an add-on's, or a plugin's this keel does not have: the Graph's
+      // "Index ready" names the Code page): its own link, and the router shows the add-on's page, or Flow (step 6)
+      if (r.page === "addon" && r.screen) {
+        const h = hashForScreen(r.screen, r.arg);
+        if (location.hash !== h) location.hash = h;
+      }
       // v0.15.3 a flow's notification opens that flow (its thread), not just the project's newest one
-      go(r.page, r.arg ?? (r.page === "flow" && n.thread_id ? n.thread_id : undefined));
+      else go(r.page, r.arg ?? (r.page === "flow" && n.thread_id ? n.thread_id : undefined));
     },
     [setProjectId],
   );

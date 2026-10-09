@@ -550,6 +550,7 @@ export const tasksLauncher: LauncherSourceItem = {
   id: "tasks",
   title: "Tasks",
   order: 30,
+  kinds: ["task"],
   load: (pid, notes) => tasksApi.list(pid).then((v) => v.tasks, notes.failed("Tasks")),
   items: (ctx, data, q) => (q.kinds.includes("task") ? ((data as Task[] | null) ?? []).map((t) => taskItem(ctx, t)) : []),
 };

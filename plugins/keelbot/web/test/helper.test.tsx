@@ -4,11 +4,12 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 // keel's own app and test harness: the panel runs inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import { eventLine } from "../../../../web/src/components/events";
-import { db, FakeEventSource } from "../../../../web/src/test/setup";
+import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
+import { db, FakeEventSource, server } from "../../../../web/src/test/setup";
 import { fileLink, replaceTyping, starters, typingAt, usageText } from "../model";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
@@ -352,3 +353,30 @@ describe("Helper side sessions (their own worktree and branch)", () => {
   });
 });
 
+// Step 6: KeelBot's @ mentions read the Code plugin's files and the Graph plugin's search. Without the Graph (the Review
+// set) @ offers the files and no symbol, and asks nothing of the graph.
+describe("KeelBot's @ without the Graph plugin", () => {
+  afterEach(() => restorePlugins());
+
+  it("offers files, no symbols, and does not search the code graph", async () => {
+    const user = userEvent.setup();
+    const asked: string[] = [];
+    const on = ({ request }: { request: Request }) => void asked.push(new URL(request.url).pathname);
+    server.events.on("request:start", on);
+    try {
+      withoutPages("graph");
+      location.hash = "#/repo";
+      localStorage.setItem("keel2.repo.helper", "true");
+      render(<App />);
+      const box = within(await panel()).getByRole("textbox", { name: "Ask KeelBot" });
+      await user.type(box, "why @Score");
+      const opts = await screen.findByRole("listbox", { name: "Mentions" });
+      await waitFor(() => expect(within(opts).getAllByRole("option").some((o) => o.textContent?.includes("ScoreController.kt"))).toBe(true));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(within(opts).queryByRole("option", { name: /class · domain\/Score.java:3/ })).toBeNull();
+      expect(asked.filter((p) => p.endsWith("/graph/search"))).toEqual([]);
+    } finally {
+      server.events.removeListener("request:start", on);
+    }
+  });
+});

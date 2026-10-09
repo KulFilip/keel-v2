@@ -13,7 +13,7 @@ import type { ComponentType } from "react";
 import type { GraphHit, HelperSelection } from "../api";
 import type { KeyArea } from "../keys";
 import type { InboxItem } from "../inboxApi";
-import type { Item, Query, Recent } from "../components/launcher/model";
+import type { Item, Kind, Query, Recent } from "../components/launcher/model";
 import type { Ctx, LauncherNotes } from "../components/launcher/sources";
 import type { SlotItem } from "./registry";
 
@@ -275,6 +275,9 @@ export type SettingsBrowserItem = SlotItem & { component: ComponentType };
 
 /** What a part adds to the launcher. Every function is optional; the launcher keeps what `load` read for 30 s. */
 export type LauncherSourceItem = SlotItem & {
+  /** the kinds of results it gives ("file", "symbol", "pr", "task"): the launcher shows a scope (Files, Code, Pull
+   *  requests, Tasks) only when a source gives its kinds. Not said: it may give any kind. */
+  kinds?: Kind[];
   /** what it reads when the launcher opens; `notes.failed("Files")` turns a failure into one line under the results */
   load?: (pid: string, notes: LauncherNotes) => Promise<unknown>;
   /** its results for the query (`data` is what load read, null before; `code` is the code graph's hits) */

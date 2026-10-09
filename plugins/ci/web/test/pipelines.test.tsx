@@ -4,10 +4,11 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 // keel's own app and test harness: this test runs the tab inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import { slotItems, SLOTS } from "../../../../web/src/sdk";
+import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
 import { db } from "../../../../web/src/test/setup";
 import plugin from "../index";
 import { runTone, type CiRun } from "../Pipelines";
@@ -120,5 +121,24 @@ describe("Run › Jobs › Pipelines", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Jobs" });
     expect(screen.queryByRole("tab", { name: "Pipelines" })).toBeNull();
+  });
+});
+
+// Step 6: CI/CD needs Git, not KeelBot. Without KeelBot's page a failed run has no "Ask KeelBot why" (it would open a
+// page this keel does not have); Fix it and Run again stay.
+describe("Pipelines without KeelBot", () => {
+  afterEach(() => restorePlugins());
+
+  it("a failed run offers no Ask KeelBot why", async () => {
+    const user = userEvent.setup();
+    withoutPages("helper");
+    db.plugins.ci = true;
+    db.ciRuns = [ciRun(12, true)];
+    location.hash = "#/jobs/pipelines";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open run #12" }));
+    const run = await screen.findByRole("group", { name: "Run #12" });
+    expect(within(run).getByRole("button", { name: "Run the failed jobs again" })).toBeInTheDocument();
+    expect(within(run).queryByRole("button", { name: "Ask KeelBot why" })).toBeNull();
   });
 });

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Provider } from "../api";
 import { dur, PROV } from "../format";
-import { groupOf, type ScreenId } from "../routes";
+import { canOpen, groupOf, type ScreenId } from "../routes";
+import { usePagesVersion } from "../sdk/registry";
 import { useApp, useRoute, type Loaded } from "../state";
 
 export function PageHead({ title, sub, actions }: { title: ReactNode; sub?: ReactNode; actions?: ReactNode }) {
@@ -150,8 +151,11 @@ export function Drawer({ title, onClose, children, footer, id }: {
   );
 }
 
-/** Go-to link used for in-app navigation from buttons. */
+/** Go-to link used for in-app navigation from buttons. Nothing when this keel has no such page (step 6: the Wiki without
+ *  its plugin); it shows as soon as the page registers. */
 export function GoButton({ to, children, className = "btn sm", arg }: { to: ScreenId; children: ReactNode; className?: string; arg?: string }) {
+  usePagesVersion();
+  if (!canOpen(to)) return null;
   return (
     <a className={className} href={`#/${to}${arg ? "/" + encodeURIComponent(arg) : ""}`} style={{ textDecoration: "none", display: "inline-block" }}>
       {children}
