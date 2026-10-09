@@ -438,6 +438,18 @@ def main() -> int:
                      "--build-arg", "INSTALL_CLIS=0", "--build-context", f"plugins-lock={ctx}", *extra,
                      "-t", IMAGE_LOCK, "."], "lock", tmp / "logs")
         check(True, "docker build --build-arg PLUGINS=lock (the test lock and test key as the plugins-lock context)")
+        # the same lock without keel.pub, and the repo's own (empty) lock: the build stops and says why
+        nokey = tmp / "lockctx-nokey"
+        nokey.mkdir()
+        shutil.copy(ctx / "plugins.lock", nokey / "plugins.lock")
+        for what, context, why in (("no keel.pub", f"plugins-lock={nokey}", "content/trust/keel.pub is missing"),
+                                   ("the repo's empty lock", None, "locks no plugin")):
+            f = tmp / "logs" / f"docker-refused-{what.replace(' ', '-').replace(chr(39), '')}.log"
+            cmd = ["docker", "build", "--progress=plain", "--target", "plugins", "--build-arg", "PLUGINS=lock",
+                   "--build-arg", "PLUGINS_LOCK_ALLOW_HTTP=1", *(["--build-context", context] if context else []), *extra, "."]
+            with open(f, "w") as out:
+                rc = subprocess.run(cmd, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT).returncode
+            check(rc != 0 and why in f.read_text(), f"docker build PLUGINS=lock with {what}: refused ('{why}')")
         listing = sh("docker", "run", "--rm", "--name", f"{NAME}-check", "--entrypoint", "sh", IMAGE_LOCK, "-c",
                      "cd /opt/keel-v2/plugins && ls -d */*")
         check(sorted(listing.split()) == ["jira/1.0.0", "tasks/1.0.0", "wiki/1.0.0"],
