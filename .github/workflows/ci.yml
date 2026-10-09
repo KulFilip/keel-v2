@@ -16,8 +16,11 @@ jobs:
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
       - run: shellcheck -S error keel2 install.sh docker/keel-start product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh
-      # the plugin publishing scripts (docs/plugins/14-publishing.md)
+      # the plugin publishing scripts (docs/plugins/14-publishing.md), and step 5's: the plugin repos and plugins.lock
       - run: shellcheck -S error docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
+      - run: shellcheck -S error docs/plugins/tools/split-plugin.sh scripts/build-plugin-repo.sh scripts/fetch-locked-plugins.sh scripts/update-plugins-lock.sh
+      # plugins.lock's lines (PLUGINS=lock reads them; the keel-plugin job tests the download and its refusals)
+      - run: scripts/fetch-locked-plugins.sh --check plugins.lock
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel-start, the supervisor loop (restart on exit 75, fallback to the last good plugins), with stub commands
       - run: docker/tests/keel-start.test.sh

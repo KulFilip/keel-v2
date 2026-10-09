@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+node_modules/
+web/dist/
+build/
+.gradle/
+dist/
+*.kplug
+*.minisig
+*.key

@@ -1,0 +1,5 @@
+# The keel-v2 commit this plugin is built and tested against (MiladNalbandi/keel-v2). CI checks keel-v2 out at it and
+# builds the plugin with keel's own build machinery (scripts/build-plugin-repo.sh). docs/plugins/tools/split-plugin.sh
+# writes it; to build against a newer keel, put a newer commit on the last line (in a pull request: CI shows if the
+# plugin still builds). Lines that start with # are comments.
+0000000000000000000000000000000000000000

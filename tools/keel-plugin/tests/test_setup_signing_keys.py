@@ -138,3 +138,30 @@ def test_unknown_options_and_help(env):
     assert r.returncode == 1 and "unknown option --push" in r.stderr
     r = subprocess.run(["bash", str(SCRIPT), "--help"], env=env, capture_output=True, text=True, check=False)
     assert r.returncode == 0 and "--dry-run" in r.stdout and "KEEL_CATALOG_KEY" in r.stdout
+
+
+def test_org_also_stores_the_keel_key_as_keel_studios_organisation_secret(env):
+    # step 5 (docs/plugins/16-steps5-7-contract.md): the plugin repos' release.yml signs with the org secret
+    r = setup(env, "--org")
+    assert r.returncode == 0, r.stderr
+    assert calls(env) == [
+        "auth status",
+        "secret set KEEL_CATALOG_KEY --repo keel-studio/keel-marketplace",
+        "secret set KEEL_PUBLISHER_KEY --repo MiladNalbandi/keel-v2",
+        "secret set KEEL_PUBLISHER_KEY --org keel-studio --visibility all",
+    ]
+    # the same key in both places: the one content/trust/keel.pub checks
+    gh_dir = Path(env["PB_GH_DIR"])
+    assert minisign.SecretKey.parse((gh_dir / "KEEL_PUBLISHER_KEY.value").read_text()).public() == \
+        public_keys(Path(env["PB_ROOT"]))[1]
+    assert "organisation secret KEEL_PUBLISHER_KEY in keel-studio" in r.stdout
+    assert "KEEL_PUBLISHER_KEY of keel-studio: stored (--org)." in r.stdout
+    assert minisign.SECRET_PREFIX not in r.stdout + r.stderr
+
+
+def test_without_org_it_says_how_to_store_the_org_secret(env):
+    r = setup(env, "--dry-run")
+    assert r.returncode == 0
+    assert "Run this script with --org instead" in r.stdout
+    r = setup(env, "--dry-run", "--org")
+    assert "gh secret set KEEL_PUBLISHER_KEY --org keel-studio --visibility all" in r.stdout

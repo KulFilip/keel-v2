@@ -150,9 +150,10 @@ keel-plugin keygen you          you.key (secret, mode 0600) and you.pub (public)
 ```
 
 - **The secret key** signs your releases. Put it into your repo's **Actions secrets**, with the name your release
-  workflow reads (`KEEL_PUBLISHER_KEY` in keel's own repos and in the template):
-  `gh secret set KEEL_PUBLISHER_KEY < you.key`. Then keep the file in a safe place, offline. Never commit it, never
-  paste it anywhere. (The template's `.gitignore` has `*.key`.)
+  workflow reads (`PUBLISHER_KEY` in the template; keel's own repos use keel's `KEEL_PUBLISHER_KEY`):
+  `gh secret set PUBLISHER_KEY < you.key`. Then keep the file in a safe place, offline. Never commit it, never
+  paste it anywhere. (The template's `.gitignore` has `*.key`.) Commit the public key as `.github/publisher.pub`, so
+  each release checks it signs with the key the marketplace knows.
 - **The public key** is the second line of `you.pub` (it starts with `RW`). It goes into `publishers/you.yml`.
 - **A new key** (you lost the old one, or someone saw it): make a new pair, and open a pull request that changes
   `keys` in `publishers/you.yml`. A maintainer checks with you first.
