@@ -67,10 +67,10 @@ class PluginChanges(
         return res
     }
 
-    fun installFile(path: String, by: String = PERSON): JsonNode {
+    fun installFile(path: String, by: String = PERSON, force: Boolean = false): JsonNode {
         val file = path.trim().substringAfterLast('/')
         val guess = FILE_NAME.find(file)?.groupValues?.get(1) ?: file
-        val res = waiting(guess) { marketplace.installFile(path, by) }
+        val res = waiting(guess) { marketplace.installFile(path, by, force) }
         val name = res.path("name").asText("").ifBlank { guess }
         done("plugin.installed", name, res, null, by, mapOf("source" to "file", "path" to path))
         return res

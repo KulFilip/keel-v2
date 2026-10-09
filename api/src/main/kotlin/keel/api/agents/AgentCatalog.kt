@@ -2,6 +2,7 @@ package keel.api.agents
 
 import keel.api.common.KeelProperties
 import keel.api.common.Yaml
+import keel.api.pluginhost.PluginHost
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 import java.nio.file.Files
@@ -88,10 +89,18 @@ fun interface AgentFiles {
     fun files(): List<Path>
 }
 
-/** keel's agents (one markdown file per agent in content/agents, plus the parts' [AgentFiles]) and which keel phases
- *  each one works in. */
+/**
+ * keel's agents (one markdown file per agent in content/agents, plus the parts' [AgentFiles]) and which keel phases
+ * each one works in. v0.16.0: also the agents of the plugins a person installed (from the marketplace or a file:
+ * resolved.json source marketplace or file), from their content/agents, as the engine loads them. A plugin that came in
+ * keel's image shows only what its [AgentFiles] list, as before. keel's own names always win.
+ */
 @Component
-class AgentCatalog(private val props: KeelProperties, private val parts: ObjectProvider<AgentFiles>) {
+class AgentCatalog(
+    private val props: KeelProperties,
+    private val parts: ObjectProvider<AgentFiles>,
+    private val host: PluginHost? = null,
+) {
 
     fun defaults(): List<AgentDef> {
         val dir = props.contentDir.resolve("agents")
@@ -102,8 +111,25 @@ class AgentCatalog(private val props: KeelProperties, private val parts: ObjectP
             .filter { it.fileName.toString().endsWith(".md") && it.fileName.toString() !in names && Files.isRegularFile(it) }
             .distinctBy { it.fileName.toString() }
         // one list in file-name order, as keel's own folder listed them
-        return (own + more).sortedBy { it.fileName.toString() }.mapNotNull { read(it) }
+        val base = (own + more).sortedBy { it.fileName.toString() }.mapNotNull { f -> read(f)?.let { f to it } }
+        val taken = names + more.map { it.fileName.toString() }
+        val ids = base.map { it.second.id }.toMutableSet()
+        val installed = installedPluginFiles()
+            .filter { it.fileName.toString() !in taken }
+            .distinctBy { it.fileName.toString() }
+            .mapNotNull { f -> read(f)?.let { f to it } }
+            .filter { (_, d) -> ids.add(d.id) }   // a plugin's agent never takes a name keel (or an earlier plugin) has
+        return (base + installed).sortedBy { it.first.fileName.toString() }.map { it.second }
     }
+
+    /** The agent files of the plugins a person installed (marketplace or file) that keel-start loaded. */
+    private fun installedPluginFiles(): List<Path> = (host?.plugins ?: emptyList())
+        .filter { it.source in INSTALLED && !it.content.isNullOrBlank() }
+        .flatMap { p ->
+            val dir = runCatching { Path.of(p.content!!).resolve("agents") }.getOrNull()
+            if (dir == null || !Files.isDirectory(dir)) emptyList()
+            else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) }.sorted().toList() }
+        }
 
     fun find(id: String): AgentDef? = defaults().firstOrNull { it.id == id }
 
@@ -129,6 +155,9 @@ class AgentCatalog(private val props: KeelProperties, private val parts: ObjectP
     }
 
     companion object {
+        /** The resolved.json sources of plugins a person installed; "image" plugins came with keel. */
+        val INSTALLED = setOf("marketplace", "file")
+
         val PHASES: Map<String, List<String>> = mapOf(
             "explorer" to listOf("spec", "contract"),
             "test-author" to listOf("red"),

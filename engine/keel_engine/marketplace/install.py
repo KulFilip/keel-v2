@@ -265,7 +265,22 @@ def _check_package(file: Path, step: Step) -> Manifest:
                           "keel installs only what you were shown. Tell the publisher.",
                           manifest=m.permissions, catalog=v.permissions)
     _refuse_python(m, files)
+    need = trust_of(m)
+    if catalog.TRUST.index(need) > catalog.TRUST.index(step.entry.trust):
+        what = "adds pages to keel" if need == "web" else "runs code inside keel"
+        raise MarketError(502, f"{m.title} {m.version} {what}, but the catalog {step.index.source} lists it as "
+                               f"'{step.entry.trust}'.",
+                          "keel installed nothing: it installs only what the catalog says the plugin is. Tell the "
+                          "catalog's maintainers.", trust=need, catalog_trust=step.entry.trust)
     return m
+
+
+def trust_of(m: Manifest) -> str:
+    """What a package can do (docs/plugins/03-security.md 3.1): code (an engine or api part), web (a web part) or content
+    (only workflows, agents, skills and commands), as keel-plugin lint names it."""
+    if m.engine or m.api:
+        return "code"
+    return "web" if m.web else "content"
 
 
 # ------------------------------------------------------------------ permissions

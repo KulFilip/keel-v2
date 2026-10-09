@@ -24,7 +24,8 @@ data class InstallBody(val name: String = "", val version: String? = null)
 data class VersionBody(val version: String? = null)
 data class SwitchBody(val on: Boolean? = null)
 data class RestartBody(val now: Boolean? = null)
-data class InstallFileBody(val path: String = "")
+/** force: install the same version again over the one keel has (keel-plugin dev, while a publisher works on a plugin). */
+data class InstallFileBody(val path: String = "", val force: Boolean = false)
 
 /** GET /api/marketplace?q=&category=, one plugin, refresh: the catalogs, as the engine reads them. */
 @RestController
@@ -64,7 +65,7 @@ class InstalledPluginsController(
     fun install(@RequestBody body: InstallBody): JsonNode = changes.install(body.name, body.version)
 
     @PostMapping("/install-file")
-    fun installFile(@RequestBody body: InstallFileBody): JsonNode = changes.installFile(body.path)
+    fun installFile(@RequestBody body: InstallFileBody): JsonNode = changes.installFile(body.path, force = body.force)
 
     /** A new version that asks for more permissions is not installed: a request with the difference waits in the Inbox. */
     @PostMapping("/{name}/update")
