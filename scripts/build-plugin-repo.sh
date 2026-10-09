@@ -106,19 +106,27 @@ while [ -n "$todo" ]; do
   kept="$kept$dep "
   url="$repos/keel-plugin-$dep"
   tags="$(GIT_TERMINAL_PROMPT=0 git ls-remote --tags --refs "$url" 2> /dev/null | sed -n 's|.*refs/tags/v||p' || true)"
-  # shellcheck disable=SC2086 # one tag per word
-  best="$("${versions[@]}" pick "$spec" $tags || true)"
   ddir="$(dest_of "$dep")"
-  if [ -n "$best" ]; then
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/build-plugin-repo.XXXXXX")"
-    GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 --branch "v$best" "$url" "$tmp/repo" 2> /dev/null ||
-      { rm -rf "$tmp"; die "$dep: cannot clone $url at v$best"; }
+  # the newest tag that fits; a tag whose manifest is another version (its release was refused) is passed over
+  best="" tmp="$(mktemp -d "${TMPDIR:-/tmp}/build-plugin-repo.XXXXXX")"
+  while true; do
+    # shellcheck disable=SC2086 # one tag per word
+    try="$("${versions[@]}" pick "$spec" $tags || true)"
+    [ -n "$try" ] || break
+    rm -rf "$tmp/repo"
+    GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 --branch "v$try" "$url" "$tmp/repo" 2> /dev/null ||
+      { rm -rf "$tmp"; die "$dep: cannot clone $url at v$try"; }
     got="$(top "$tmp/repo/keel-plugin.yml" name | tr -d ' ')/$(top "$tmp/repo/keel-plugin.yml" version | tr -d ' ')"
-    [ "$got" = "$dep/$best" ] || { rm -rf "$tmp"; die "$url v$best holds $got, not $dep $best"; }
+    if [ "$got" = "$dep/$try" ]; then best="$try"; break; fi
+    echo "warning: the tag v$try of $url holds $got, not $dep $try: passed over" >&2
+    tags="$(printf '%s\n' "$tags" | grep -vxF "$try" || true)"
+  done
+  if [ -n "$best" ]; then
     place "$tmp/repo" "$ddir"
     rm -rf "$tmp"
     echo "$dep $best: its repo keel-plugin-$dep at v$best (needs ${spec:-any version})"
   else
+    rm -rf "$tmp"
     [ -f "$ddir/keel-plugin.yml" ] ||
       die "$dep ${spec:-(any version)} is needed, but $url has no tag v<version> that fits and keel-v2 has no ${ddir#"$keel"/}"
     best="$(top "$ddir/keel-plugin.yml" version | tr -d ' ')"

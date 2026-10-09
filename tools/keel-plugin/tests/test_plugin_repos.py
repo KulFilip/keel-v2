@@ -199,9 +199,11 @@ def test_build_takes_a_needed_plugin_from_its_repo_at_the_newest_tag_that_fits(k
         git(repo, "add", "-A")
         git(repo, "commit", "-q", "-m", f"base {v}")
         git(repo, "tag", f"v{v}")
+    git(repo, "tag", "v1.5.0", "v1.2.0")       # a wrong tag (its release was refused): passed over
     plugin = content_only(tmp_path / "src", "needer", needs='base: ">=1.0.0,<2.0.0"')
     r = build(keel, plugin, tmp_path / "dist", kp, "--throwaway", repos=repos)
     assert r.returncode == 0, r.stdout + r.stderr
+    assert "the tag v1.5.0 of" in r.stderr and "holds base/1.2.0, not base 1.5.0: passed over" in r.stderr
     assert "base 1.2.0: its repo keel-plugin-base at v1.2.0" in r.stdout
     assert "version: 1.2.0" in (keel / "plugins/base/keel-plugin.yml").read_text()
     assert not (keel / "plugins/base/.git").exists()
