@@ -8,7 +8,7 @@
 #   1. the plugin goes into this checkout's plugins/<name>/ (keel Product: product/), in place of keel's own copy
 #   2. the plugins it requires (requires.plugins, and the plugins they require): each from its own repo
 #      $KEEL_PLUGIN_REPOS/keel-plugin-<name> at the newest tag v<version> that fits the range, else keel's own copy in
-#      plugins/<name>. Every other plugin leaves plugins/, so the build sees only these.
+#      plugins/<name>. keel's other plugins stay (some tests run the plugin inside keel's full web).
 #   3. keel's tests and build, for each part the plugin has:
 #        engine tests  scripts/test-plugins.sh <name>              (when it has engine/tests)
 #        api           ./gradlew <name>Test <name>PluginJar       (keel Product: productTest productPluginJar)
@@ -129,14 +129,8 @@ while [ -n "$todo" ]; do
   more="$("${versions[@]}" needs "$ddir/keel-plugin.yml")" || die "$ddir/keel-plugin.yml: requires.plugins cannot be read"
   if [ -n "$more" ]; then todo="$(printf '%s\n%s' "$todo" "$more" | sed '/^$/d')"; fi
 done
-# only these plugins stay in plugins/ (keel Product stays in product/ unless it is the one being built)
-if [ -d "$keel/plugins" ]; then
-  for d in "$keel"/plugins/*/; do
-    [ -d "$d" ] || continue
-    n="$(basename "$d")"
-    case "$kept" in *" $n "*) ;; *) rm -rf "$d" ;; esac
-  done
-fi
+# keel's other plugins stay as they are at keel.ref: some tests run a plugin inside keel's full web (the menu
+# with every plugin), as the image has it
 echo "plugins/: $(cd "$keel/plugins" 2> /dev/null && find . -mindepth 1 -maxdepth 1 -type d | sed 's|^\./||' | LC_ALL=C sort | paste -sd' ' - || true)"
 
 # ---- 3. keel's tests and build, part by part

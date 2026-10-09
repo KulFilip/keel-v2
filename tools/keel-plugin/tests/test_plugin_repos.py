@@ -160,8 +160,8 @@ def test_build_a_content_only_plugin(keel, tmp_path, kp, run):
     kplug = tmp_path / "dist/solo-1.2.0.kplug"
     assert f"built: {kplug} sha256:{hashlib.sha256(kplug.read_bytes()).hexdigest()}" in r.stdout
     assert run("lint", kplug)[0] == 0
-    # the plugin is in keel's tree (without its repo files), and only it: the other plugins left plugins/
-    assert sorted(p.name for p in (keel / "plugins").iterdir()) == ["solo"]
+    # the plugin is in keel's tree (without its repo files), next to keel's own plugins
+    assert sorted(p.name for p in (keel / "plugins").iterdir()) == ["base", "other", "solo"]
     assert not (keel / "plugins/solo/keel.ref").exists() and not (keel / "plugins/solo/.github").exists()
     assert "== api" not in r.stdout and "== web" not in r.stdout and "== engine" not in r.stdout
 
@@ -184,7 +184,7 @@ def test_build_takes_a_needed_plugin_from_keel_when_its_repo_has_no_release(keel
     r = build(keel, plugin, tmp_path / "dist", kp, "--throwaway")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "base 1.0.0: keel-v2's plugins/base (no tag of keel-plugin-base fits >=1.0.0,<2.0.0)" in r.stdout
-    assert sorted(p.name for p in (keel / "plugins").iterdir()) == ["base", "needer"]
+    assert sorted(p.name for p in (keel / "plugins").iterdir()) == ["base", "needer", "other"]
 
 
 def test_build_takes_a_needed_plugin_from_its_repo_at_the_newest_tag_that_fits(keel, tmp_path, kp):

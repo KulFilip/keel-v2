@@ -53,7 +53,7 @@ keel.ref       (a keel-v2 commit sha)      3 keel's build and tests for it      
 - The CI steps live in keel-v2, as `scripts/build-plugin-repo.sh` (at `keel.ref`); the repos' `ci.yml` and
   `release.yml` check keel out and call it. A change to the build needs no change in the plugin repos. A needed plugin
   comes from its repo at the newest **release** tag that fits (a pre-release only when no release fits), else from
-  keel-v2's copy; every other plugin leaves `keel/plugins/` for the build.
+  keel-v2's copy. keel's other plugins stay (a plugin's web tests run inside keel's full menu).
 - `PLUGINS=lock` gives the image **exactly** the lock's plugins (no mix with `plugins/`). A plugin a locked plugin
   needs must be locked too (Jira → Tasks), or the build stops. It also lints each file, and checks that its manifest is
   the lock's name and version. The web and api stages build no plugin then.

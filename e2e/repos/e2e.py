@@ -370,7 +370,6 @@ def main() -> int:
             if name == "jira":
                 check("tasks 1.0.0: its repo keel-plugin-tasks at v1.0.0" in text,
                       "jira: its CI takes tasks (it needs tasks) from tasks' repo at the release tag v1.0.0")
-                check("plugins/: jira tasks" in text, "jira: only jira and tasks are in keel's plugins/ for its build")
             if name == "wiki":
                 check("== engine tests: scripts/test-plugins.sh wiki" in text and "== api: ./gradlew wikiTest wikiPluginJar" in text
                       and "== web tests: vitest run" in text and "== web: npm run build:plugin -- wiki" in text,
