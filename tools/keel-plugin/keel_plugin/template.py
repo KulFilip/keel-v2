@@ -1,6 +1,8 @@
-"""keel-plugin new <name>: a plugin folder from a small template (manifest, content/, engine/, web/, README).
+"""keel-plugin new <name> [--parts …]: a plugin folder from a small template (manifest, content/, engine/, web/, README).
 
-The result passes `keel-plugin lint` as it is, and `keel-plugin pack` makes a package of it.
+The result passes `keel-plugin lint` as it is, and `keel-plugin pack` makes a package of it. --parts picks the parts
+(default engine,web,content: the same files as before the option). A plugin without an engine part gets an example
+workflow and agent in content/, so keel has something to load (keel-plugin dev shows it in a running keel).
 """
 
 from __future__ import annotations
@@ -10,15 +12,72 @@ from pathlib import Path
 from . import PluginToolError
 from .manifest import NAME
 
+PARTS = ("engine", "web", "content")
+
 
 def _title(name: str) -> str:
     return " ".join(w.capitalize() for w in name.split("-"))
 
 
-def files(name: str, publisher: str) -> dict[str, str]:
+def parts_of(text: str) -> tuple[str, ...]:
+    """'content,web' → ('web', 'content'): the parts in keel's order. PluginToolError for an unknown part or none."""
+    chosen = {p.strip() for p in text.split(",") if p.strip()}
+    unknown = sorted(chosen - set(PARTS))
+    if unknown or not chosen:
+        raise PluginToolError(f"--parts {text!r}: choose from {', '.join(PARTS)}, for example --parts content "
+                              "(an api part is built in a keel checkout; see the plugin guide)")
+    return tuple(p for p in PARTS if p in chosen)
+
+
+def _manifest_parts(package: str, parts: tuple[str, ...]) -> str:
+    lines = {"engine": f"  engine: {{ path: engine, package: {package} }}", "web": "  web: { entry: web/index.js }",
+             "content": "  content: content"}
+    return "\n".join(lines[p] for p in parts)
+
+
+def _tree(package: str, parts: tuple[str, ...]) -> str:
+    lines = {"engine": f"engine/           {package}: the Python part (actions, agent tools, hooks)",
+             "web": "web/              index.js: the web part (pages and slots), an ES module",
+             "content": "content/          workflows, agents, skills"}
+    return "\n".join(["keel-plugin.yml   the manifest: name, version, what it needs, its parts, its permissions"]
+                     + [lines[p] for p in parts])
+
+
+def _examples(name: str, title: str) -> dict[str, str]:
+    """An example workflow and agent, for a plugin without an engine part."""
+    return {
+        f"content/workflows/{name}-flow.yaml": f"""\
+# A workflow of {title}: one agent step. keel lists it with each project's workflows. Its id must not be one of keel's.
+id: {name}-flow
+name: {title}
+keel_rules: false
+version: 1
+steps:
+  - id: look
+    kind: agent
+    name: look at the project
+    agent: {name}-agent
+    phase: review
+""",
+        f"content/agents/{name}-agent.md": f"""\
+---
+name: {name}-agent
+description: {title}'s agent. It reads the project and says what it is, in three short lines.
+tools: Read, Grep, Glob
+disallowedTools: Write, Edit
+maxTurns: 5
+---
+
+You are {title}'s agent. Read the project's README and its top folders. Then say in three short lines what the project
+is and how it is built. Change nothing.
+""",
+    }
+
+
+def files(name: str, publisher: str, parts: tuple[str, ...] = PARTS) -> dict[str, str]:
     package = "keel_plugin_" + name.replace("-", "_")
     title = _title(name)
-    return {
+    out = {
         "keel-plugin.yml": f"""\
 # The plugin's manifest (keel's docs/plugins/02-plugin-package.md). Check it with: keel-plugin lint .
 schema: 1
@@ -36,9 +95,7 @@ requires:
 
 # Write each part on one line. Remove the parts you do not use.
 parts:
-  engine: {{ path: engine, package: {package} }}
-  web: {{ entry: web/index.js }}
-  content: content
+{_manifest_parts(package, parts)}
 
 per_project: false
 
@@ -50,10 +107,7 @@ permissions: {{}}                # what it may do; keel shows it before install 
 A keel plugin. {title} does … (say it in one or two sentences).
 
 ```
-keel-plugin.yml   the manifest: name, version, what it needs, its parts, its permissions
-engine/           {package}: the Python part (actions, agent tools, hooks)
-web/              index.js: the web part (pages and slots), an ES module
-content/          workflows, agents, skills
+{_tree(package, parts)}
 ```
 
 ## Check, pack and sign
@@ -98,9 +152,18 @@ them after its own; a plugin cannot replace one of keel's with the same name.
 """,
         ".gitignore": "__pycache__/\n*.pyc\ndist/\n*.kplug\n*.minisig\n*.key\n",
     }
+    if "engine" not in parts:
+        out.pop(f"engine/{package}/__init__.py")
+    if "web" not in parts:
+        out.pop("web/index.js")
+    if "content" not in parts:
+        out.pop("content/README.md")
+    elif "engine" not in parts:
+        out.update(_examples(name, title))
+    return out
 
 
-def new(name: str, where: Path, publisher: str = "you") -> Path:
+def new(name: str, where: Path, publisher: str = "you", parts: tuple[str, ...] = PARTS) -> Path:
     """Write the template into <where>/<name>; refuses a folder that is not empty."""
     if not NAME.match(name):
         raise PluginToolError(f"'{name}' is not a plugin name: a-z, 0-9 and '-', starts with a letter, 32 at most")
@@ -109,7 +172,7 @@ def new(name: str, where: Path, publisher: str = "you") -> Path:
     root = where / name
     if root.exists() and any(root.iterdir()):
         raise PluginToolError(f"{root} is there already and not empty")
-    for rel, text in files(name, publisher).items():
+    for rel, text in files(name, publisher, parts).items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")

@@ -140,6 +140,10 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(events("plugin.installed").last()["source"].asText()).isEqualTo("file")
         assertThat(events("plugin.installed").last()["name"].asText()).isEqualTo("hello")
         assertThat(events("plugin.installed").last()["version"].asText()).isEqualTo("0.1.0-beta.1")
+        assertThat(engine.lastBody("/marketplace/install-file")!!.has("force")).isFalse()
+        // keel-plugin dev installs the same version again while a publisher works on it
+        post("/api/plugins/install-file", mapOf("path" to "/data/plugins/dev/hello-0.1.0-beta.1.kplug", "force" to true)).andExpect(status().isOk)
+        assertThat(engine.lastBody("/marketplace/install-file")!!["force"].asBoolean()).isTrue()
     }
 
     @Test

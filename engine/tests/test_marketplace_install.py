@@ -6,7 +6,7 @@ import shutil
 
 import pytest
 
-from keel_engine.marketplace import MarketError, catalog, install, local, sources
+from keel_engine.marketplace import MarketError, catalog, install, local, signing, sources
 from keel_engine.pluginhost import resolver, state, store as host_store
 from marketplace_kit import market, server  # noqa: F401 - fixtures
 from test_pluginhost import data, image, plugin  # noqa: F401 - fixtures and helpers
@@ -133,6 +133,41 @@ def test_an_unverified_publishers_web_and_code_plugins_wait_for_the_rule(market,
         assert "Allow unverified publishers" in exc.value.hint
         sources.write_rules({"allow_unverified": True})
     assert install.install("notes")["version"] == "1.0.0"
+
+
+@pytest.mark.parametrize("publisher, listed, package, does", [
+    ("ana", "content", {"web": True}, "adds pages to keel"),
+    ("ana", "content", {"engine": "keel_plugin_notes"}, "runs code inside keel"),
+    ("keel", "web", {"engine": "keel_plugin_notes"}, "runs code inside keel"),
+])
+def test_a_package_that_does_more_than_its_catalog_says_is_refused(market, publisher, listed, package, does):
+    """An unverified publisher's content plugin installs without the rule, so a catalog that lists a package as less than
+    it is would get around the rule: keel checks the package's parts against the catalog's trust (also when verified)."""
+    other = signing.keygen()
+    market.publishers["ana"] = {"title": "Ana K", "keys": [other.public().line()], "verified": False}
+    market.publish("notes", "1.0.0", publisher=publisher, trust=listed,
+                   sign_with=other if publisher == "ana" else None, **package)
+    market.ready()
+    with pytest.raises(MarketError, match=f"Notes 1.0.0 {does}, but the catalog test lists it as '{listed}'") as exc:
+        install.install("notes")
+    assert exc.value.status == 502 and "installed nothing" in exc.value.hint
+    assert not (state.store_dir() / "notes").exists() and "notes" not in state.read_installed()["plugins"]
+
+
+def test_an_unverified_publishers_content_plugin_installs_without_the_rule(market):
+    """The community path (docs/plugins/17-publish-your-plugin.md): content-only plugins of an unverified publisher
+    install with the rule off; its code plugin waits for the rule."""
+    other = signing.keygen()
+    market.publishers["ana"] = {"title": "Ana K", "keys": [other.public().line()], "verified": False}
+    market.publish("notes", "1.0.0", publisher="ana", trust="content", sign_with=other)
+    market.publish("tools", "1.0.0", publisher="ana", sign_with=other, engine="keel_plugin_tools")
+    market.ready()
+    assert sources.read_rules()["allow_unverified"] is False
+    assert install.install("notes")["version"] == "1.0.0"
+    assert state.read_installed()["plugins"]["notes"]["trust"] == "content"
+    with pytest.raises(MarketError, match="Tools is from Ana K, an unverified publisher, and it runs code inside keel"):
+        install.install("tools")
+    assert "tools" not in state.read_installed()["plugins"]
 
 
 def test_a_plugin_that_asks_for_python_libraries_is_refused(market):

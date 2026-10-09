@@ -7,7 +7,8 @@
     keel-plugin lint <kplug|dir> …                            exit 1 when there are errors
     keel-plugin index <marketplace-dir> --releases SRC --key-env VAR [--out DIR]
     keel-plugin index <marketplace-dir> --check               only check the marketplace files
-    keel-plugin new <name> [--dir D] [--publisher P]
+    keel-plugin new <name> [--dir D] [--publisher P] [--parts engine,web,content]
+    keel-plugin dev <dir> [--keel URL] [--container NAME] [--keel-src DIR]   try it in a running keel (unsigned)
 
 A secret key is never printed, and never part of an error message.
 """
@@ -19,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import PluginToolError, __version__, catalog, minisign, template
+from . import PluginToolError, __version__, catalog, dev, minisign, template
 from .lint import lint
 from .package import pack
 
@@ -164,9 +165,17 @@ def cmd_index(args) -> int:
 
 
 def cmd_new(args) -> int:
-    root = template.new(args.name, Path(args.dir), args.publisher)
+    parts = template.parts_of(args.parts) if args.parts else template.PARTS
+    root = template.new(args.name, Path(args.dir), args.publisher, parts)
     _out(f"made {root}: check it with 'keel-plugin lint {root}', pack it with 'keel-plugin pack {root}'")
     return 0
+
+
+def cmd_dev(args) -> int:
+    d = dev.Dev(keel=args.keel, container=dev.container_name(args.container),
+                keel_src=Path(args.keel_src) if args.keel_src else None, timeout=args.timeout, say=_out)
+    _out(f"keel-plugin dev: {args.dir} → {d.keel} (container {d.container})")
+    return 0 if d.go(Path(args.dir)) else 1
 
 
 def _key_options(p: argparse.ArgumentParser) -> None:
@@ -224,7 +233,18 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--dir", default=".", help="where to make the folder <name> (default: here)")
     p.add_argument("--publisher", default="you", help="your publisher id (default: you)")
+    p.add_argument("--parts", help="the parts, a comma list of engine, web, content (default: all three); "
+                                   "without engine it gets an example workflow and agent")
     p.set_defaults(fn=cmd_new)
+
+    p = sub.add_parser("dev", help="build, pack (unsigned) and install a plugin into a running keel, then restart it")
+    p.add_argument("dir", help="the plugin folder")
+    p.add_argument("--keel", default=dev.DEFAULT_KEEL, help=f"keel's address (default: {dev.DEFAULT_KEEL})")
+    p.add_argument("--container", help="keel's container (default: $KEEL_NAME, else keel-v2)")
+    p.add_argument("--keel-src", metavar="DIR",
+                   help="a keel checkout: builds the plugin's api and web parts with keel's build")
+    p.add_argument("--timeout", type=float, default=300, help="seconds to wait for keel after the restart (default 300)")
+    p.set_defaults(fn=cmd_dev)
     return ap
 
 

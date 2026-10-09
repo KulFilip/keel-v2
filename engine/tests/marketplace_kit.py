@@ -72,13 +72,19 @@ class Market:
 
     def package(self, name: str, version: str, *, permissions: dict | None = None, needs: dict | None = None,
                 title: str | None = None, publisher: str = "keel", extra: dict | None = None,
-                files: dict | None = None, engine: str | None = None) -> Path:
-        """A .kplug of a small plugin with a web part (and an engine package when `engine` names one)."""
+                files: dict | None = None, engine: str | None = None, web: bool = True) -> Path:
+        """A .kplug of a small plugin with a web part (and an engine package when `engine` names one). web=False: a
+        content-only plugin (one agent in content/agents)."""
         d = self.root / "src" / f"{name}-{version}"
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
-        parts: dict = {"web": {"entry": "web/index.js"}}
-        all_files = {"web/index.js": f"export default {{ name: '{name}' }}\n", **(files or {})}
+        if web:
+            parts: dict = {"web": {"entry": "web/index.js"}}
+            all_files = {"web/index.js": f"export default {{ name: '{name}' }}\n", **(files or {})}
+        else:
+            parts = {"content": "content"}
+            all_files = {f"content/agents/{name}-agent.md": f"---\nname: {name}-agent\n---\n\nThe {name} agent.\n",
+                         **(files or {})}
         if engine:
             parts["engine"] = {"path": "engine", "package": engine}
             all_files[f"engine/{engine}/__init__.py"] = f'ADDON = {{"name": "{name}", "version": "{version}"}}\n'
@@ -95,12 +101,16 @@ class Market:
         (self.root / "pkg").mkdir(parents=True, exist_ok=True)
         return kplug(self.root / "pkg" / f"{name}-{version}.kplug", d)
 
-    def publish(self, name: str, version: str, *, trust: str = "web", publisher: str = "keel", category: str = "code",
+    def publish(self, name: str, version: str, *, trust: str | None = None, publisher: str = "keel", category: str = "code",
                 permissions: dict | None = None, needs: dict | None = None, title: str | None = None,
                 sign_with=None, catalog_permissions: dict | None = None, size: int | None = None,
                 sha256: str | None = None, sdk: int = SDK, keel: str | None = None, file: Path | None = None,
                 **package) -> dict:
-        """Build, sign and serve a package, and add its version to the index (call serve() after)."""
+        """Build, sign and serve a package, and add its version to the index (call serve() after). The trust is what
+        the package holds (code with an engine part, else web), unless given; trust content packs a content-only one."""
+        if trust == "content" and file is None:
+            package.setdefault("web", False)
+        trust = trust or ("code" if package.get("engine") else "web" if package.get("web", True) else "content")
         file = file or self.package(name, version, permissions=permissions, needs=needs, title=title,
                                     publisher=publisher, **package)
         data = file.read_bytes()

@@ -5,6 +5,9 @@
     <add-on content>/plugins/<name>/plugin.yml  keel's own too, brought by a loaded add-on or plugin package (its ADDON
                                                 content, e.g. plugins/ci/content/plugins/ci): listed with keel's, in name
                                                 order; content/plugins wins when both have a name
+    <plugin content>/plugins/<name>/plugin.yml  a loaded plugin's that has no engine part (addons.plugin_folders, a
+                                                content-only plugin from the marketplace or a file): text only, like a
+                                                project's, and it never replaces a command or a folder name of keel's
     <project>/.keel/plugins/<name>/plugin.yml   the project's own: text only (a command with the same name replaces keel's)
 
     name: db
@@ -42,16 +45,28 @@ def keel_files() -> list[Path]:
     """keel's own plugin.yml files: content/plugins/*, then each loaded add-on's content/plugins/*; one per folder name
     (keel's content first), in name order."""
     by: dict[str, Path] = {}
-    for d in [config.content_dir() / "plugins", *(d for _addon, d in addons.folders("plugins"))]:
+    for d in [config.content_dir() / "plugins", *(d for _addon, d in addons.addon_folders("plugins"))]:
         if d.is_dir():
             for f in sorted(d.glob("*/plugin.yml")):
                 by.setdefault(f.parent.name, f)
     return [by[name] for name in sorted(by)]
 
 
+def plugin_files() -> list[Path]:
+    """The plugin.yml files of loaded plugins without an engine part (their content/plugins/*): one per folder name, never
+    one of keel_files()' names, in name order."""
+    taken = {f.parent.name for f in keel_files()}
+    by: dict[str, Path] = {}
+    for _name, d in addons.plugin_folders("plugins"):
+        for f in sorted(d.glob("*/plugin.yml")):
+            if f.parent.name not in taken:
+                by.setdefault(f.parent.name, f)
+    return [by[name] for name in sorted(by)]
+
+
 def _found(root: str | None) -> list[dict]:
-    """keel's plugins, then the project's, each read with its problems."""
-    found = [_one("keel", f) for f in keel_files()]
+    """keel's plugins, then the loaded plugins' (text only), then the project's, each read with its problems."""
+    found = [_one("keel", f) for f in keel_files()] + [_one("plugin", f) for f in plugin_files()]
     d = Path(root) / ".keel" / "plugins" if root else None
     if d and d.is_dir():
         found += [_one("project", f) for f in sorted(d.glob("*/plugin.yml"))]
@@ -142,6 +157,8 @@ def commands(root: str | None, enabled: list[str] | None = None) -> list[dict]:
     by: dict[str, dict] = {}
     for p in load(root, enabled):
         for c in p["commands"]:
+            if p["source"] == "plugin" and c["name"] in by:
+                continue   # a plugin cannot replace one of keel's commands (a project's own command can)
             by[c["name"]] = c
     return [by[k] for k in sorted(by)]
 
