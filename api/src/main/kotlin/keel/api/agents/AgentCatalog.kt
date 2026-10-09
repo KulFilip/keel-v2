@@ -113,7 +113,7 @@ class AgentCatalog(
         // one list in file-name order, as keel's own folder listed them
         val base = (own + more).sortedBy { it.fileName.toString() }.mapNotNull { f -> read(f)?.let { f to it } }
         val taken = names + more.map { it.fileName.toString() }
-        val ids = base.map { it.second.id }.toMutableSet()
+        val ids = (base.map { it.second.id } + BUILTIN).toMutableSet()
         val installed = installedPluginFiles()
             .filter { it.fileName.toString() !in taken }
             .distinctBy { it.fileName.toString() }
@@ -157,6 +157,8 @@ class AgentCatalog(
     companion object {
         /** The resolved.json sources of plugins a person installed; "image" plugins came with keel. */
         val INSTALLED = setOf("marketplace", "file")
+        /** Agents keel has without a file (the engine's runtime/prompts.py BUILTIN_ROLES): a plugin cannot bring one. */
+        val BUILTIN = setOf("contract-author")
 
         val PHASES: Map<String, List<String>> = mapOf(
             "explorer" to listOf("spec", "contract"),

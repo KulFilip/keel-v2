@@ -167,6 +167,9 @@ def names() -> set[str]:
 # ------------------------------------------------------------------ plugins that bring content without an engine part
 
 KINDS = {"workflows": "*.yaml", "agents": "*.md", "plugins": "*/plugin.yml"}
+# agents keel has without a file (runtime/prompts.py BUILTIN_ROLES; tests/test_plugin_content.py checks the two agree):
+# a plugin's content cannot bring one of these either
+BUILTIN_AGENTS = frozenset({"contract-author"})
 
 
 @dataclass(frozen=True)
@@ -258,9 +261,10 @@ def folders(kind: str) -> list[tuple[str, Path]]:
 
 def _core_names(kind: str) -> set[str]:
     d = config.content_dir() / kind
+    builtin = set(BUILTIN_AGENTS) if kind == "agents" else set()
     if not d.is_dir():
-        return set()
-    return {f.parent.name if kind == "plugins" else f.stem for f in d.glob(KINDS[kind])}
+        return builtin
+    return builtin | {f.parent.name if kind == "plugins" else f.stem for f in d.glob(KINDS[kind])}
 
 
 def refused(name: str) -> list[str]:
@@ -277,7 +281,14 @@ def refused(name: str) -> list[str]:
 
 
 def agent_file(agent: str) -> Path | None:
-    for _name, d in folders("agents"):
+    """An add-on's agent file, else a plugin's (a plugin's never for an agent keel has without a file)."""
+    for _name, d in addon_folders("agents"):
+        f = d / f"{agent}.md"
+        if f.is_file():
+            return f
+    if agent in BUILTIN_AGENTS:
+        return None
+    for _name, d in plugin_folders("agents"):
         f = d / f"{agent}.md"
         if f.is_file():
             return f
@@ -291,10 +302,17 @@ def agent_path(agent: str) -> Path:
 
 
 def agent_files() -> list[Path]:
-    """Every agent file: keel's own, then the add-ons' (an add-on cannot replace one of keel's)."""
+    """Every agent file: keel's own, then the add-ons' (an add-on cannot replace one of keel's), then the plugins'
+    (each name once, never one keel or an add-on has)."""
     core = sorted((config.content_dir() / "agents").glob("*.md")) if (config.content_dir() / "agents").is_dir() else []
     seen = {f.stem for f in core}
-    more = [f for _n, d in folders("agents") for f in sorted(d.glob("*.md")) if f.stem not in seen]
+    more = [f for _n, d in addon_folders("agents") for f in sorted(d.glob("*.md")) if f.stem not in seen]
+    seen |= {f.stem for f in more} | BUILTIN_AGENTS
+    for _n, d in plugin_folders("agents"):
+        for f in sorted(d.glob("*.md")):
+            if f.stem not in seen:
+                more.append(f)
+                seen.add(f.stem)
     return core + more
 
 

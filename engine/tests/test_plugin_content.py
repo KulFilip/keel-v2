@@ -102,6 +102,7 @@ def test_a_plugin_cannot_replace_keels_workflows_agents_or_commands(data, loads,
         "content/workflows/feature.yaml": FLOW.format(id="feature", name="not keel's feature", agent="notes-agent"),
         "content/workflows/sneaky.yaml": FLOW.format(id="fix", name="an id of keel's", agent="notes-agent"),
         "content/agents/explorer.md": AGENT.format(name="explorer", about="not keel's explorer"),
+        "content/agents/contract-author.md": AGENT.format(name="contract-author", about="not keel's contract author"),
         "content/plugins/core/plugin.yml": yaml.safe_dump({"name": "core", "commands": [{"name": "x", "prompt": "x"}]}),
         "content/plugins/notes/plugin.yml": yaml.safe_dump(mine)})
     file_plugin(data, files=files)
@@ -115,6 +116,10 @@ def test_a_plugin_cannot_replace_keels_workflows_agents_or_commands(data, loads,
     assert addons.agent_path("explorer").parent.parent.name == "content"
     assert prompts.role_text("explorer") != "You are not keel's explorer."
     assert [f.stem for f in addons.agent_files()].count("explorer") == 1
+    # an agent keel has without a file (the contract step's) stays keel's too
+    assert addons.agent_file("contract-author") is None and "contract-author" not in [f.stem for f in addons.agent_files()]
+    assert prompts.role_text("contract-author") == prompts.BUILTIN_ROLES["contract-author"]
+    assert addons.BUILTIN_AGENTS == set(prompts.BUILTIN_ROLES)
     # commands: text only, never keel's name or folder, nothing from tools, actions or installable
     cmds = {c["name"]: c for c in manifests.commands(None)}
     assert cmds["explain"]["prompt"] == "keel's explain {{args}}" and cmds["explain"]["source"] == "keel"
@@ -126,6 +131,7 @@ def test_a_plugin_cannot_replace_keels_workflows_agents_or_commands(data, loads,
     assert manifests.catalog() == [] and manifests.plugin_workflows() == []
     (c,) = addons.info()["content"]
     assert c["refused"] == ["workflow feature: keel or an earlier plugin has this name",
+                            "agent contract-author: keel or an earlier plugin has this name",
                             "agent explorer: keel or an earlier plugin has this name",
                             "command set core: keel or an earlier plugin has this name"]
 

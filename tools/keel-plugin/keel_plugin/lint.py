@@ -28,6 +28,17 @@ WEB_RULES = [
      "makes a function from text (new Function): a web part may not run code made from text"),
 ]
 PYTHON_LIBRARIES = ("requirements.lock", "requirements.txt")
+# keel's own names (keel-v2's content/workflows, content/agents and the agents it has without a file): a plugin's
+# content with one of them never loads, because keel keeps its own (03-security.md 3.4, rule 2).
+# tests/test_lint_names.py checks the lists against keel-v2's content/.
+KEEL_WORKFLOWS = frozenset({"change", "cover", "diagnose", "feature", "fix", "hunt", "hunt-next", "init",
+                            "knowledge-refresh", "lint", "review", "ship"})
+KEEL_AGENTS = frozenset({"ac-reviewer", "arch-surveyor", "bulk-reader", "code-reviewer", "contract-author",
+                         "dependency-triager", "e2e-author", "explorer", "hunter", "implementer", "investigator",
+                         "lane-runner", "librarian", "prover", "reproducer", "reviewer", "security-auditor",
+                         "setup-doctor", "test-author"})
+FRONT_NAME = re.compile(r"^name:\s*['\"]?([^'\"\s#]+)", re.M)
+WORKFLOW_ID = re.compile(r"^id:\s*['\"]?([^'\"\s#]+)", re.M)
 
 
 @dataclass
@@ -80,6 +91,33 @@ def _scan_web(folder: Path, m: Manifest, files: list[str], report: Report) -> No
                 break
 
 
+def _front_matter_name(text: str) -> str | None:
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    m = FRONT_NAME.search(text[3:end] if end > 0 else "")
+    return m.group(1) if m else None
+
+
+def _content_names(folder: Path, m: Manifest, report: Report) -> None:
+    """A workflow, agent or command set with one of keel's names never loads: keel keeps its own."""
+    rel = m.parts.get("content")
+    if not isinstance(rel, str) or not (folder / rel).is_dir():
+        return
+    base = folder / rel
+    hint = f"keel keeps its own, so this one never loads: give it another name (start it with '{m.name}-')"
+    for f in sorted((base / "workflows").glob("*.yaml")) if (base / "workflows").is_dir() else []:
+        found = WORKFLOW_ID.search(f.read_text(encoding="utf-8", errors="replace"))
+        for name in sorted({f.stem} | ({found.group(1)} if found else set())):
+            if name in KEEL_WORKFLOWS:
+                report.errors.append(f"{rel}/workflows/{f.name}: keel has a workflow called {name}; {hint}")
+    for f in sorted((base / "agents").glob("*.md")) if (base / "agents").is_dir() else []:
+        own = _front_matter_name(f.read_text(encoding="utf-8", errors="replace"))
+        for name in sorted({f.stem} | ({own} if own else set())):
+            if name in KEEL_AGENTS:
+                report.errors.append(f"{rel}/agents/{f.name}: keel has an agent called {name}; {hint}")
+
+
 def lint_dir(folder: Path, report: Report, packaged: bool) -> Report:
     """The checks on an unpacked plugin: a package (packaged) or a plugin folder."""
     if not (folder / MANIFEST).is_file():
@@ -112,6 +150,7 @@ def lint_dir(folder: Path, report: Report, packaged: bool) -> Report:
                 report.errors.append(f"{engine}/{name}: keel does not install Python libraries for a plugin yet, "
                                      "so it refuses this plugin")
     _scan_web(folder, m, files, report)
+    _content_names(folder, m, report)
     return report
 
 
