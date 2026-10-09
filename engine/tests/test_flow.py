@@ -194,14 +194,14 @@ def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeyp
 
     def slow(req):
         if req.agent == "contract-author":
-            release.wait(10)        # holds the contract step until the test has looked
+            release.wait(30)        # holds the contract step until the test has looked
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", slow)
     tid = start(client, repo)
     to_loop(client, tid, upto="spec_gate")
     client.post(f"/threads/{tid}/resume", json={"decision": "approve"})       # the options menu
     seen = None
-    for _ in range(100):            # poll: no fixed sleep, so a fast or slow machine sees the same thing
+    for _ in range(400):            # poll (up to 20 s, CI machines can be slow): no fixed sleep
         seen = client.get(f"/threads/{tid}").json()
         if seen["status"] == "running" and seen.get("current") == "contract":
             break
