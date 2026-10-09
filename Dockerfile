@@ -6,8 +6,11 @@
 #   docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .        (no claude/codex/copilot/opencode)
 #   docker build --build-arg EDITION=product -t keel-v2:product .    (also the keel Product plugin inside: beta)
 #   docker build --build-arg EDITION=core -t keel-v2:core .          (keel's core only, no plugin inside)
+#   docker build --build-arg PLUGINS=lock -t keel-v2 .               (the released plugins of plugins.lock, not plugins/)
 # EDITION (docs/plugins/11-step3-contract.md): full (the default; the old value dev means full) bakes every plugin in
 # plugins/ into /opt/keel-v2/plugins, product = full + keel Product, core = none.
+# PLUGINS (docs/plugins/16-steps5-7-contract.md, step 5): source (the default) builds those plugins from this repo; lock
+# takes the released, signed plugins that plugins.lock lists instead (each checked: sha256, signature, lint).
 # Run:
 #   docker run -p 127.0.0.1:8080:8080 -v /path/to/project:/workspace -v keel-data:/data keel-v2
 
@@ -25,9 +28,11 @@ RUN npm run build
 # EDITION=core; keel Product's only with EDITION=product.
 COPY plugins /src/plugins
 COPY product/web /src/product/web
+# with PLUGINS=lock the plugins come built in their releases: nothing to build here
+ARG PLUGINS=source
 RUN rm -rf /src/product/web/dist /src/plugins/*/web/dist && mkdir -p /src/product/web/dist \
-    && if [ "$EDITION" != "core" ]; then npm run build:plugins; fi \
-    && if [ "$EDITION" = "product" ]; then npm run build:product; fi
+    && if [ "$EDITION" != "core" ] && [ "$PLUGINS" != "lock" ]; then npm run build:plugins; fi \
+    && if [ "$EDITION" = "product" ] && [ "$PLUGINS" != "lock" ]; then npm run build:product; fi
 
 # ---------- build the api (with the web app inside) ----------
 FROM eclipse-temurin:21-jdk AS api
@@ -45,20 +50,35 @@ COPY plugins /src/plugins
 COPY --from=web /src/web/dist ./src/main/resources/static
 RUN ./gradlew --no-daemon -q bootJar -x test && cp build/libs/*.jar /app.jar
 # The plugins' api parts are thin plugin jars (pluginJars: every plugins/<name>/api; productPluginJar), never inside
-# keel's jar. /plugin stays empty with EDITION=core.
-RUN mkdir -p /plugin && case "$EDITION" in \
-      core) ;; \
-      product) ./gradlew --no-daemon -q pluginJars productPluginJar ;; \
+# keel's jar. /plugin stays empty with EDITION=core (and with PLUGINS=lock: the releases hold their jars).
+ARG PLUGINS=source
+RUN mkdir -p /plugin && case "$PLUGINS/$EDITION" in \
+      lock/* | */core) ;; \
+      */product) ./gradlew --no-daemon -q pluginJars productPluginJar ;; \
       *) ./gradlew --no-daemon -q pluginJars ;; \
     esac && find build/libs -name 'keel-plugin-*.jar' -exec cp {} /plugin/ \;
 
-# ---------- the plugins: /out/<name>/<version>/, each packed by scripts/build-plugin.sh ----------
-# (the same script as on a computer, with the parts built above). Every plugins/<name> unless EDITION=core, and keel
-# Product (product/build-plugin.sh) with EDITION=product. /out stays empty with EDITION=core.
+# ---------- the plugins: /out/<name>/<version>/ ----------
+# PLUGINS=source (the default): each packed by scripts/build-plugin.sh (the same script as on a computer, with the
+# parts built above). Every plugins/<name> unless EDITION=core, and keel Product (product/build-plugin.sh) with
+# EDITION=product.
+# PLUGINS=lock: the released plugins plugins.lock lists instead (docs/plugins/16-steps5-7-contract.md, step 5).
+# scripts/fetch-locked-plugins.sh downloads each .kplug and its .minisig, checks the sha256, the signature with keel's
+# public key content/trust/keel.pub (keel-plugin verify) and keel-plugin lint, and unpacks it the same way. keel
+# Product's line only with EDITION=product. PLUGINS_LOCK_ALLOW_HTTP=1 allows http:// to this computer (tests only).
+# /out stays empty with EDITION=core.
+# The lock and the key that checks its files; a test gives its own: --build-context plugins-lock=<folder>.
+FROM scratch AS plugins-lock
+COPY plugins.lock content/trus[t]/keel.pu[b] /
+
 FROM node:20-bookworm-slim AS plugins
 ARG EDITION=full
+ARG PLUGINS=source
+ARG PLUGINS_LOCK_ALLOW_HTTP=0
 WORKDIR /src
-COPY scripts/build-plugin.sh ./scripts/
+COPY scripts/build-plugin.sh scripts/fetch-locked-plugins.sh scripts/plugin_versions.py ./scripts/
+COPY tools/keel-plugin/keel_plugin ./tools/keel-plugin/keel_plugin
+COPY --from=plugins-lock / ./lock/
 COPY --from=web /src/plugins ./plugins
 COPY product/keel-plugin.yml product/README.md product/build-plugin.sh ./product/
 COPY product/engine ./product/engine
@@ -66,12 +86,24 @@ COPY product/content ./product/content
 COPY --from=web /src/product/web/dist ./product/web/dist
 COPY --from=api /plugin ./api/build/libs
 RUN set -e; mkdir -p /out /tmp/plugins; \
-    if [ "$EDITION" != "core" ]; then \
-      for d in plugins/*/; do \
-        if [ -f "$d/keel-plugin.yml" ]; then bash scripts/build-plugin.sh "$d" /tmp/plugins --no-build; fi; \
-      done; \
+    case "$PLUGINS" in source | lock) ;; *) echo "PLUGINS is source or lock, not '$PLUGINS'" >&2; exit 1 ;; esac; \
+    if [ "$PLUGINS" = "lock" ] && [ "$EDITION" != "core" ]; then \
+      apt-get update -qq; \
+      apt-get install -y -qq --no-install-recommends python3 python3-cryptography curl ca-certificates > /dev/null; \
+      rm -rf /var/lib/apt/lists/*; \
+      printf '#!/bin/sh\nPYTHONPATH=/src/tools/keel-plugin exec python3 -m keel_plugin "$@"\n' > /usr/local/bin/keel-plugin; \
+      chmod +x /usr/local/bin/keel-plugin; \
+      skip=product; if [ "$EDITION" = "product" ]; then skip=""; fi; \
+      PLUGINS_LOCK_ALLOW_HTTP="$PLUGINS_LOCK_ALLOW_HTTP" bash scripts/fetch-locked-plugins.sh lock/plugins.lock /tmp/plugins \
+        --pub lock/keel.pub --skip "$skip"; \
+    else \
+      if [ "$EDITION" != "core" ]; then \
+        for d in plugins/*/; do \
+          if [ -f "$d/keel-plugin.yml" ]; then bash scripts/build-plugin.sh "$d" /tmp/plugins --no-build; fi; \
+        done; \
+      fi; \
+      if [ "$EDITION" = "product" ]; then bash product/build-plugin.sh /tmp/plugins --no-build; fi; \
     fi; \
-    if [ "$EDITION" = "product" ]; then bash product/build-plugin.sh /tmp/plugins --no-build; fi; \
     find /tmp/plugins -mindepth 1 -maxdepth 1 -type d -exec mv {} /out/ \;
 
 # ---------- runtime: Ubuntu 24.04 with a full JDK 21 (projects compile and test inside) ----------

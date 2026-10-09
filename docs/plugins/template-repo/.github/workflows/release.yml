@@ -1,0 +1,97 @@
+# Releases your keel plugin when you push a tag v<version> (the steps are in README.md):
+#
+#   1 refuses a tag that is not keel-plugin.yml's version (the tag must be v + version), and a missing signing key
+#   2 the same build and tests as ci.yml: keel at keel.ref, keel/scripts/build-plugin-repo.sh
+#   3 signs <name>-<version>.kplug with YOUR key: the repo secret PUBLISHER_KEY (keel-plugin keygen <you>, then
+#     gh secret set PUBLISHER_KEY < <you>.key), and checks the signature with your public key in .github/publisher.pub
+#   4 the GitHub release v<version> with the .kplug and its .kplug.minisig (this repo's own GITHUB_TOKEN)
+#
+# The keel marketplace lists the new version within the hour, once your plugin is in it (README.md, the last step).
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: plugin, persist-credentials: false }
+      - name: The tag is the manifest's version, and the key is there
+        env:
+          TAG: ${{ github.ref_name }}
+          HAS_KEY: ${{ secrets.PUBLISHER_KEY != '' }}
+        run: |
+          version="$(sed -n 's/^version:[[:space:]]*//p' plugin/keel-plugin.yml | sed 's/[[:space:]]#.*$//' | tr -d "\"' \r")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::The tag $TAG is not this plugin's version: keel-plugin.yml says '$version', so its tag is v$version. Nothing is released."
+            exit 1
+          fi
+          if [ "$HAS_KEY" != true ]; then
+            echo "::error::The repo secret PUBLISHER_KEY is not set: keel-plugin keygen <you>, then gh secret set PUBLISHER_KEY < <you>.key (README.md)."
+            exit 1
+          fi
+      - name: keel.ref
+        id: keel
+        run: |
+          ref="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' plugin/keel.ref | sed '/^$/d' | tail -n 1)"
+          if ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]] || [[ "$ref" =~ ^0+$ ]]; then
+            echo "::error::keel.ref must hold the keel-v2 commit this plugin builds against (40 hex characters), not '$ref'."
+            exit 1
+          fi
+          echo "sha=$ref" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with: { repository: MiladNalbandi/keel-v2, ref: "${{ steps.keel.outputs.sha }}", path: keel, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: keel/web/package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21, cache: gradle }
+      - uses: astral-sh/setup-uv@v6
+      - run: git config --global user.name ci && git config --global user.email ci@localhost
+      - name: keel's build and tests for this plugin
+        run: bash keel/scripts/build-plugin-repo.sh plugin dist --throwaway
+      - name: Sign
+        env:
+          PUBLISHER_KEY: ${{ secrets.PUBLISHER_KEY }}
+        run: |
+          kp=(uv run --quiet --project keel/tools/keel-plugin keel-plugin)
+          for k in dist/*.kplug; do "${kp[@]}" sign "$k" --key-env PUBLISHER_KEY; done
+          if [ -f plugin/.github/publisher.pub ]; then
+            for k in dist/*.kplug; do "${kp[@]}" verify "$k" --pub plugin/.github/publisher.pub; done
+          else
+            echo "::warning::There is no .github/publisher.pub: commit your public key there, so a release checks that PUBLISHER_KEY is the key the marketplace knows."
+          fi
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          KEEL_REF: ${{ steps.keel.outputs.sha }}
+        run: |
+          version="${TAG#v}"
+          title="$(sed -n 's/^title:[[:space:]]*//p' plugin/keel-plugin.yml | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r")"
+          files=(dist/*.kplug dist/*.kplug.minisig)
+          pre=false
+          if [[ "$version" == *-* ]]; then pre=true; fi
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
+            echo "$REPO $TAG: the release has the new files"
+          else
+            gh release create "$TAG" "${files[@]}" --repo "$REPO" --verify-tag --prerelease="$pre" \
+              --title "${title:-$REPO} $version" \
+              --notes "A keel plugin, built against keel-v2 $KEEL_REF. Install it in keel: Control › Plugins › Marketplace."
+            echo "$REPO $TAG: released"
+          fi
+          {
+            echo "| file | sha256 |"
+            echo "| --- | --- |"
+            for k in dist/*.kplug; do echo "| $(basename "$k") | \`$(sha256sum "$k" | cut -d' ' -f1)\` |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
