@@ -1,5 +1,9 @@
 # A pull request: the publisher, plugin and revoked files must be valid, and the newest release of each new or changed
 # plugin must pass `keel-plugin lint` and carry a signature by one of its publisher's keys. No secret is used here.
+# Then it says what keel will do with each plugin (its trust level and whether its publisher is verified), and warns
+# when the pull request makes a publisher verified or changes an existing publisher's keys: a maintainer decides that,
+# after the review in keel's docs/plugins/17-publish-your-plugin.md. tools/keel-plugin/tests/test_check_pr.py runs
+# these steps with a stand-in gh and uvx.
 name: check-pr
 on:
   pull_request:
@@ -40,3 +44,33 @@ jobs:
           uvx --from "$KEEL_PLUGIN" keel-plugin lint releases/*/*/*.kplug
           uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases --only "$(paste -sd, - <<< "$names")" \
             --no-sign --out checked --strict
+      - name: What keel will do with each plugin
+        run: |
+          set -euo pipefail
+          if [ ! -f checked/index.json ]; then echo "no new or changed plugin"; exit 0; fi
+          # trust is what the package holds (keel-plugin index raises it); verified comes from publishers/<id>.yml
+          jq -r '.publishers as $p | .plugins[] | [.name, .trust, .publisher, ($p[.publisher].verified | tostring)] | @tsv' \
+            checked/index.json |
+            while IFS=$'\t' read -r name trust publisher verified; do
+              if [ "$verified" = true ]; then
+                echo "::notice::$name: trust $trust, publisher $publisher (verified): keel installs it"
+              elif [ "$trust" = content ]; then
+                echo "::notice::$name: trust content, publisher $publisher (community, not verified): keel installs it"
+              else
+                echo "::notice::$name: trust $trust, publisher $publisher (community, not verified): listed as unverified; keel installs it only when a person turns on 'Allow unverified publishers'"
+              fi
+            done
+      - name: A pull request does not make a publisher verified or change its keys
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          for f in $(git diff --name-only --diff-filter=AM "$BASE" HEAD -- 'publishers/*.yml'); do
+            before="$(git show "$BASE:$f" 2> /dev/null || true)"
+            if grep -Eq '^verified:[[:space:]]*true' "$f" && ! grep -Eq '^verified:[[:space:]]*true' <<< "$before"; then
+              echo "::warning::$f sets verified: true. Only a maintainer does this, after the review in keel's docs/plugins/17-publish-your-plugin.md"
+            fi
+            if [ -n "$before" ] && [ "$(grep -oE 'RW[A-Za-z0-9+/]{50,}={0,2}' "$f" | sort)" != "$(grep -oE 'RW[A-Za-z0-9+/]{50,}={0,2}' <<< "$before" | sort)" ]; then
+              echo "::warning::$f changes the keys of an existing publisher: check with its owner that they asked for it"
+            fi
+          done
