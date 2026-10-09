@@ -75,7 +75,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-          KEEL_REF: ${{ steps.keel.outputs.sha }}
+          KEEL_COMMIT: ${{ steps.keel.outputs.sha }}
         run: |
           version="${TAG#v}"
           title="$(sed -n 's/^title:[[:space:]]*//p' plugin/keel-plugin.yml | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r")"
@@ -88,7 +88,7 @@ jobs:
           else
             gh release create "$TAG" "${files[@]}" --repo "$REPO" --verify-tag --prerelease="$pre" \
               --title "${title:-$REPO} $version" \
-              --notes "Built against keel-v2 $KEEL_REF and signed with the keel publisher key. Install it in keel: Control › Plugins › Marketplace."
+              --notes "Built against keel-v2 $KEEL_COMMIT and signed with the keel publisher key. Install it in keel: Control › Plugins › Marketplace."
             echo "$REPO $TAG: released"
           fi
           {

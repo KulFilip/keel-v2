@@ -8,7 +8,7 @@
 | version | @VERSION@                        |
 | needs   | keel core (plugin SDK 1)@NEEDS@  |
 | parts   | @PARTS@                          |
-| keel    | built against keel-v2 @KEEL_REF@ |
+| keel    | built against keel-v2 @KEEL_COMMIT@ |
 
 ## Install
 

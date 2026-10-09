@@ -120,7 +120,7 @@ if [ "$template" = 0 ] && [ ! -f "$out/README.md" ]; then
       function rep(s, k, v,   i, o) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
       { s = $0
         s = rep(s, "@TITLE@", ENVIRON["T"]); s = rep(s, "@SUMMARY@", ENVIRON["S"]); s = rep(s, "@NAME@", ENVIRON["N"])
-        s = rep(s, "@VERSION@", ENVIRON["V"]); s = rep(s, "@PARTS@", ENVIRON["P"]); s = rep(s, "@KEEL_REF@", ENVIRON["R"])
+        s = rep(s, "@VERSION@", ENVIRON["V"]); s = rep(s, "@PARTS@", ENVIRON["P"]); s = rep(s, "@KEEL_COMMIT@", ENVIRON["R"])
         s = rep(s, "@NEEDS@", ENVIRON["D"]); print s }' "$files/README.md" > "$out/.github/README.md"
 fi
 
