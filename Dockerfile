@@ -67,9 +67,12 @@ RUN mkdir -p /plugin && case "$PLUGINS/$EDITION" in \
 # public key content/trust/keel.pub (keel-plugin verify) and keel-plugin lint, and unpacks it the same way. keel
 # Product's line only with EDITION=product. PLUGINS_LOCK_ALLOW_HTTP=1 allows http:// to this computer (tests only).
 # /out stays empty with EDITION=core.
-# The lock and the key that checks its files; a test gives its own: --build-context plugins-lock=<folder>.
+# The lock and the key that checks its files (content/trust/keel.pub, when it is there: the whole small content/ folder,
+# since a file that may be missing cannot be copied on its own). A test gives its own folder with plugins.lock and
+# content/trust/keel.pub: --build-context plugins-lock=<folder>.
 FROM scratch AS plugins-lock
-COPY plugins.lock content/trus[t]/keel.pu[b] /
+COPY plugins.lock /
+COPY content/ /content/
 
 FROM node:20-bookworm-slim AS plugins
 ARG EDITION=full
@@ -95,7 +98,7 @@ RUN set -e; mkdir -p /out /tmp/plugins; \
       chmod +x /usr/local/bin/keel-plugin; \
       skip=product; if [ "$EDITION" = "product" ]; then skip=""; fi; \
       PLUGINS_LOCK_ALLOW_HTTP="$PLUGINS_LOCK_ALLOW_HTTP" bash scripts/fetch-locked-plugins.sh lock/plugins.lock /tmp/plugins \
-        --pub lock/keel.pub --skip "$skip"; \
+        --pub lock/content/trust/keel.pub --skip "$skip"; \
     else \
       if [ "$EDITION" != "core" ]; then \
         for d in plugins/*/; do \

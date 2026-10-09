@@ -57,8 +57,8 @@ keel.ref       (a keel-v2 commit sha)      3 keel's build and tests for it      
 - `PLUGINS=lock` gives the image **exactly** the lock's plugins (no mix with `plugins/`). A plugin a locked plugin
   needs must be locked too (Jira → Tasks), or the build stops. It also lints each file, and checks that its manifest is
   the lock's name and version. The web and api stages build no plugin then.
-- The lock and `keel.pub` are a small stage, `plugins-lock`; a test gives its own with
-  `--build-context plugins-lock=<folder>`. No build argument can change the key.
+- The lock and `content/` (for `content/trust/keel.pub`) are a small stage, `plugins-lock`; a test gives its own folder
+  (`plugins.lock`, `content/trust/keel.pub`) with `--build-context plugins-lock=<folder>`. No build argument changes the key.
 - `setup-signing-keys.sh --org` stores the same keel key in keel-v2 **and** as keel-studio's organisation secret.
   `update-plugins-lock.sh` checks each file's signature with `content/trust/keel.pub` and lints it before it locks it.
 - `split-plugin.sh --template` makes the template repo (no history) with `keel.ref` the same way.

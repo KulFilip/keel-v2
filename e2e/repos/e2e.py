@@ -431,7 +431,8 @@ def main() -> int:
         ctx.mkdir()
         (ctx / "plugins.lock").write_text("# the e2e's lock (host.docker.internal: this computer)\n"
                                           + "\n".join(lines.format(host="host.docker.internal") for lines in lock_lines) + "\n")
-        shutil.copy(keel_pub, ctx / "keel.pub")
+        (ctx / "content/trust").mkdir(parents=True)
+        shutil.copy(keel_pub, ctx / "content/trust/keel.pub")
         extra = ["--add-host=host.docker.internal:host-gateway"] if platform.system() == "Linux" else []
         build_image(["--build-arg", "PLUGINS=lock", "--build-arg", "PLUGINS_LOCK_ALLOW_HTTP=1",
                      "--build-arg", "INSTALL_CLIS=0", "--build-context", f"plugins-lock={ctx}", *extra,
