@@ -17,7 +17,7 @@ plugin may do, and asks you before it installs. keel's own image has this plugin
 
 ## How this repo is built
 
-This repo has only the plugin. It is built with **keel's own build**, at the keel-v2 commit in [`keel.ref`](keel.ref):
+This repo has only the plugin. It is built with **keel's own build**, at the keel-v2 commit in [`keel.ref`](../keel.ref):
 
 ```
  this repo                      ci.yml (every push, every pull request)           a tag v<version>: release.yml

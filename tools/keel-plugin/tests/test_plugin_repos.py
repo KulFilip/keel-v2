@@ -276,7 +276,8 @@ def test_split_makes_a_repo_with_the_plugins_history_and_the_repo_files(source, 
             (REPO / "docs/plugins/plugin-repo/.github/workflows" / wf).read_bytes()
     ref_lines = (out / "keel.ref").read_text().splitlines()
     assert ref_lines[-1] == head and all(line.startswith("#") for line in ref_lines[:-1])
-    readme = (out / "README.md").read_text()
+    assert not (out / "README.md").exists()      # the repo page is .github/README.md: never in the package
+    readme = (out / ".github/README.md").read_text()
     assert "@" + "TITLE@" not in readme and "# keel plugin: Hello" in readme and "`base`" in readme
     assert "2.0.0" not in readme and "| parts   | engine · web · content" in readme
     assert f"`{head[:12]}`" in readme

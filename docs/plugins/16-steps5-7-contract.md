@@ -48,6 +48,21 @@ keel.ref       (a keel-v2 commit sha)      3 keel's build and tests for it      
   server, and build an image with `PLUGINS=lock` (pointing at the local server, test key) that loads them. A test in
   CI checks `plugins.lock`'s format and that `PLUGINS=lock` refuses a wrong sha256 and a bad signature.
 
+**Settled when it was built** ([18-step5-report.md](18-step5-report.md)):
+
+- The CI steps live in keel-v2, as `scripts/build-plugin-repo.sh` (at `keel.ref`); the repos' `ci.yml` and
+  `release.yml` check keel out and call it. A change to the build needs no change in the plugin repos. A needed plugin
+  comes from its repo at the newest **release** tag that fits (a pre-release only when no release fits), else from
+  keel-v2's copy; every other plugin leaves `keel/plugins/` for the build.
+- `PLUGINS=lock` gives the image **exactly** the lock's plugins (no mix with `plugins/`). A plugin a locked plugin
+  needs must be locked too (Jira → Tasks), or the build stops. It also lints each file, and checks that its manifest is
+  the lock's name and version. The web and api stages build no plugin then.
+- The lock and `keel.pub` are a small stage, `plugins-lock`; a test gives its own with
+  `--build-context plugins-lock=<folder>`. No build argument can change the key.
+- `setup-signing-keys.sh --org` stores the same keel key in keel-v2 **and** as keel-studio's organisation secret.
+  `update-plugins-lock.sh` checks each file's signature with `content/trust/keel.pub` and lints it before it locks it.
+- `split-plugin.sh --template` makes the template repo (no history) with `keel.ref` the same way.
+
 ## Step 6 · A core image
 
 - `EDITION=core` exists (step 3). New: `keel2 start --core` starts the `:core` image (`KEEL_IMAGE` still wins); `keel2

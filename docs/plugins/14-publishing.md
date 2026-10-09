@@ -72,6 +72,13 @@ with a clear message. Its tests run in CI (the `keel-plugin` job), with the sign
 Until both secrets are set, a push only says so and ends (no red run). By hand, a missing secret stops the workflow
 at its first step with the secret's name.
 
+**When a plugin has its own repo (step 5)**, it is released from there instead: a tag `v<version>` in
+`keel-studio/keel-plugin-<name>` runs that repo's `release.yml` (it builds against keel-v2 at the repo's `keel.ref`,
+signs with the organisation secret `KEEL_PUBLISHER_KEY` and makes the release with the repo's own token). Then this
+repo's `plugins.lock` gets the new line with `scripts/update-plugins-lock.sh <name>`. Do not release the same plugin
+from both places: take it out of `plugins-release.yml`'s list (or remove `plugins/<name>`) when its repo takes over.
+See [18-step5-report.md](18-step5-report.md).
+
 ## How the catalog is built
 
 `sync.yml` in `keel-studio/keel-marketplace` runs every hour, after each push to `main`, and by hand:
@@ -97,8 +104,12 @@ installs a revoked version and warns where one is installed.
 
    ```
    docs/plugins/tools/setup-signing-keys.sh --dry-run    # a try: throw-away keys, writes their public keys, stores nothing
-   docs/plugins/tools/setup-signing-keys.sh              # for real: new keys, written over the try's public keys
+   docs/plugins/tools/setup-signing-keys.sh --org        # for real: new keys, written over the try's public keys
    ```
+
+   `--org` also stores the keel key as the **organisation secret** `KEEL_PUBLISHER_KEY` of keel-studio: the plugins'
+   own repos sign their releases with it (step 5, [16-steps5-7-contract.md](16-steps5-7-contract.md) and
+   [18-step5-report.md](18-step5-report.md)). Without `--org` only `MiladNalbandi/keel-v2` gets it.
 
    It makes both keys in a temporary folder, stores the secret keys with `gh secret set` (as
    `KEEL_CATALOG_KEY` and `KEEL_PUBLISHER_KEY`), deletes them, and writes only the public keys into

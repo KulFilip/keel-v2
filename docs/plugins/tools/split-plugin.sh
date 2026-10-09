@@ -15,7 +15,8 @@
 #   1. git subtree split --prefix=plugins/<name> (or product): the commits that touched the plugin, with the plugin's
 #      folder as the top of the repo, into <out-dir> (branch main)
 #   2. the files of docs/plugins/plugin-repo/: .github/workflows/ci.yml and release.yml, keel.ref (= the commit split
-#      from, HEAD), README.md and .gitignore (when the plugin has none), LICENSE (keel's, when it has none)
+#      from, HEAD), .github/README.md (the repo page, when the plugin has no README.md: never in the package),
+#      .gitignore (when it has none), LICENSE (keel's, when it has none)
 #   3. one commit with them
 # The plugin's folder must have no changes that are not committed: the repo is made from HEAD.
 set -euo pipefail
@@ -30,7 +31,7 @@ while [ $# -gt 0 ]; do
     --push) push=1 ;;
     --template) template=1 ;;
     --root) [ $# -ge 2 ] || die "--root needs a folder"; root="$2"; shift ;;
-    -h | --help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option $1 ($usage)" ;;
     *) if [ "$template" = 0 ] && [ -z "$name" ]; then name="$1"; elif [ -z "$out" ]; then out="$1"; else die "$usage"; fi ;;
   esac
@@ -107,7 +108,7 @@ if [ -f "$out/keel.ref" ]; then head="$out/keel.ref"; fi
 mv "$out/keel.ref.new" "$out/keel.ref"
 [ -f "$out/.gitignore" ] || cp "$files/.gitignore" "$out/.gitignore"
 [ -f "$out/LICENSE" ] || [ ! -f "$root/LICENSE" ] || cp "$root/LICENSE" "$out/LICENSE"
-if [ ! -f "$out/README.md" ]; then
+if [ "$template" = 0 ] && [ ! -f "$out/README.md" ]; then
   # the plugins it needs (requires.plugins, on one line) and its parts
   needs="$(sed -n 's/^[[:space:]]\{1,\}plugins:[[:space:]]*{\(.*\)}.*/\1/p' "$manifest" | sed -n 1p |
     tr ',' '\n' | sed 's/:.*//' | tr -d "\"' " | { grep -E '^[a-z][a-z0-9-]{0,31}$' || true; } | sed 's/.*/`&`/' |
@@ -120,7 +121,7 @@ if [ ! -f "$out/README.md" ]; then
       { s = $0
         s = rep(s, "@TITLE@", ENVIRON["T"]); s = rep(s, "@SUMMARY@", ENVIRON["S"]); s = rep(s, "@NAME@", ENVIRON["N"])
         s = rep(s, "@VERSION@", ENVIRON["V"]); s = rep(s, "@PARTS@", ENVIRON["P"]); s = rep(s, "@KEEL_REF@", ENVIRON["R"])
-        s = rep(s, "@NEEDS@", ENVIRON["D"]); print s }' "$files/README.md" > "$out/README.md"
+        s = rep(s, "@NEEDS@", ENVIRON["D"]); print s }' "$files/README.md" > "$out/.github/README.md"
 fi
 
 # ---- 3. one commit
