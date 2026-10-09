@@ -18,7 +18,8 @@ import {
   type KeyRow,
   type Keymap,
 } from "../keys";
-import { useSlot } from "../sdk/registry";
+import { canOpen } from "../routes";
+import { usePagesVersion, useSlot } from "../sdk/registry";
 import { SLOTS, type KeysAreaItem } from "../sdk/slots";
 import { useRoute } from "../state";
 
@@ -71,6 +72,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const parts = useSlot<KeysAreaItem>(SLOTS.keysArea);
+  const pagesVersion = usePagesVersion();
 
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -89,7 +91,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const needle = q.trim().toLowerCase();
   const areas = useMemo(
     () =>
-      allAreas(parts).filter(
+      allAreas(parts, canOpen).filter(
         (a) => needle || every || !a.pages || a.pages.includes(route.page),
       )
         .map((a) => ({
@@ -101,7 +103,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
         .filter((a) => a.list.length)
         // this page's keys first, then the ones that work everywhere
         .sort((a, b) => Number(!a.pages?.includes(route.page)) - Number(!b.pages?.includes(route.page))),
-    [needle, every, keymap, route.page, parts],
+    [needle, every, keymap, route.page, parts, pagesVersion],
   );
 
   return createPortal(

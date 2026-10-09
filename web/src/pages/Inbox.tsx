@@ -16,7 +16,7 @@ import { PermissionList, TrustTag } from "../components/Permissions";
 import { whoAsked, type InstallRequest } from "../marketplaceApi";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
-import { useSlot } from "../sdk/registry";
+import { useHasPage, useSlot } from "../sdk/registry";
 import { SLOTS, type InboxCardItem } from "../sdk/slots";
 import { go, useApp, useLoad, useRoute } from "../state";
 import "../components/inbox.css";
@@ -72,6 +72,10 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
   // v0.10.0: Claude Code's acting tool (keel2 mcp --write) asks here too, with no KeelBot chat behind it
   const mcp = q.session === "mcp";
   const who = mcp ? "Claude Code" : "KeelBot";
+  // KeelBot's chat is a column of the Code page, or its own page: "Open KeelBot" only when this keel has one (step 6)
+  const code = useHasPage("repo");
+  const keelbot = useHasPage("helper");
+  const chat = code ? "repo" : keelbot ? "helper" : null;
   const answer = async (decision: "once" | "always" | "deny") => {
     setBusy(true);
     setErr(null);
@@ -100,7 +104,7 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
         <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>{mcp ? "Allow" : "Allow once"}</button>
         {!mcp && <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for this command</button>}
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
-        {!mcp && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go("repo"); }}
+        {!mcp && chat && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go(chat); }}
           aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>}
       </div>
       {err && <ErrorBox error={err} />}

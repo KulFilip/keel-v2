@@ -120,11 +120,13 @@ export type { Rect } from "../components/er/route";
 // places in keel's pages where a part puts a piece (live: a page renders again when a piece registers)
 export {
   allPages,
+  hasPage,
   pageFor,
   pageOf,
   registerPage,
   registerSlot,
   slotItems,
+  useHasPage,
   usePages,
   useSlot,
 } from "./registry";

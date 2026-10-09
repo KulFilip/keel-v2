@@ -12,9 +12,9 @@ import {
 import type { NavGroup } from "../../addons";
 import { inboxApi, type InboxItem } from "../../inboxApi";
 import { hashFor, hashForScreen } from "../../routes";
-import { slotItems } from "../../sdk/registry";
+import { hasPage, slotItems } from "../../sdk/registry";
 import { SLOTS, type LauncherSourceItem } from "../../sdk/slots";
-import type { Action, Item, Kind, Query, Recent, Scope } from "./model";
+import { OWN_KINDS, SCOPES, type Action, type Item, type Kind, type Query, type Recent, type Scope } from "./model";
 
 export type Data = {
   inbox: InboxItem[] | null;
@@ -34,6 +34,27 @@ export const emptyData = (): Data => ({
 
 /** The parts' sources, in their order (pull requests, files and code, tasks). */
 const sources = () => slotItems<LauncherSourceItem>(SLOTS.launcherSource);
+
+/** KeelBot is in this keel (its page, #/helper): the launcher asks it (?, ⌘↩, "Ask KeelBot…"). Step 6: a keel with only
+ *  its core has no KeelBot, so the launcher offers no question. */
+export const canAsk = () => hasPage("helper");
+
+/** The kinds of results this keel can find: keel's own, and what each part's source says it gives (a source that does
+ *  not say may give any kind). */
+export function launcherKinds(): Set<Kind> {
+  const all = new Set<Kind>(OWN_KINDS);
+  for (const s of sources())
+    for (const k of s.kinds ?? SCOPES[0].kinds) all.add(k);
+  return all;
+}
+
+/** Without KeelBot an item has no "ask" action and no question for ⌘↩ (a part's items included). */
+function withoutAsk(items: Item[]): Item[] {
+  if (canAsk()) return items;
+  return items
+    .map((it) => ({ ...it, ask: undefined, actions: it.actions.filter((a) => a.id !== "ask") }))
+    .filter((it) => it.actions.length > 0);
+}
 
 /** How a source reports what it could not read: `failed("Files")` for an error, `add(line)` for any line. */
 export type LauncherNotes = {
@@ -96,8 +117,10 @@ export function fileHash(path: string, line?: number): string | null {
   return s?.fileHash ? s.fileHash(path, line) : null;
 }
 
-/** Code (the code graph's search) for this text; [] when the graph is not there. */
+/** Code (the code graph's search) for this text; [] when the graph is not there (without the Graph plugin it is not
+ *  even asked). */
 export async function symbols(pid: string, text: string): Promise<GraphHit[]> {
+  if (!hasPage("graph")) return [];
   try {
     const r = await api.graphSearch(pid, text);
     return r.available ? r.results : [];
@@ -313,9 +336,14 @@ export function actionItems(ctx: Ctx): Item[] {
     sub,
     actions: [{ id: "run", label: title, keys: "enter", run }],
   });
+  // KeelBot, files and tasks only when this keel has them (step 6)
   const own = [
-    a("ask", "Ask KeelBot…", () => ctx.ask(""), "?", "read only, answers here"),
-    a("file", "Go to file…", () => ctx.setScope("files")),
+    ...(canAsk()
+      ? [a("ask", "Ask KeelBot…", () => ctx.ask(""), "?", "read only, answers here")]
+      : []),
+    ...(launcherKinds().has("file")
+      ? [a("file", "Go to file…", () => ctx.setScope("files"))]
+      : []),
     a(
       "new-flow",
       "Start a new flow",
@@ -323,13 +351,17 @@ export function actionItems(ctx: Ctx): Item[] {
       undefined,
       "Flow",
     ),
-    a(
-      "new-task",
-      "Add a task",
-      goHash(ctx, hashFor("tasks")),
-      undefined,
-      "Tasks",
-    ),
+    ...(hasPage("tasks")
+      ? [
+          a(
+            "new-task",
+            "Add a task",
+            goHash(ctx, hashFor("tasks")),
+            undefined,
+            "Tasks",
+          ),
+        ]
+      : []),
     a(
       "theme",
       ctx.dark ? "Switch to the light theme" : "Switch to the dark theme",
@@ -439,7 +471,7 @@ export function itemsFor(
   if (want("page")) out.push(...pageItems(ctx));
   if (want("action")) out.push(...actionItems(ctx));
   if (want("project")) out.push(...projectItems(ctx));
-  return out;
+  return withoutAsk(out);
 }
 
 /** The empty launcher: what waits for you (this project's first, then what the parts add: pull requests to review),
@@ -490,8 +522,8 @@ export function startGroups(
     (i) => ["act:ask", "act:file", "act:new-flow"].includes(i.id) && !mine.some((m) => m.id === i.id),
   );
   return [
-    { label: "Waiting for you", items: [...waits, ...theirs] },
-    { label: "Recent", items: mine },
+    { label: "Waiting for you", items: withoutAsk([...waits, ...theirs]) },
+    { label: "Recent", items: withoutAsk(mine) },
     { label: "Quick actions", items: quick },
   ].filter((g) => g.items.length);
 }

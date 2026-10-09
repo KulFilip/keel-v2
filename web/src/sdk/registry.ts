@@ -111,6 +111,18 @@ export function pageFor(name: string): PageRegistration | null {
   );
 }
 
+/** A page with this id or alias is in this keel now (step 6: a keel with only its core, or a plugin that is off, has
+ *  no Tasks, Code, KeelBot or Wiki page). A page shows a link to another page, or calls the part behind it, only
+ *  when this says yes: hasPage("tasks") before "Add a task". keel's own pages are always there. */
+export const hasPage = (id: string): boolean => pageFor(id) !== null;
+
+/** hasPage, live: the component renders again when a page comes or goes (a plugin's page registers after keel
+ *  started, so a link to it appears a moment later). */
+export function useHasPage(id: string): boolean {
+  usePagesVersion();
+  return hasPage(id);
+}
+
 /** Every page, in the order they registered. */
 export const allPages = (): PageRegistration[] => [...pages.values()];
 
