@@ -6,9 +6,11 @@
 #   keel2 start --with-keel-v1 <keel-checkout> [dir]
 #                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
 #   keel2 start --safe [dir]    same, in safe mode: only the plugins inside the image load (installed ones wait)
+#   keel2 start --core [dir]    same, with keel's core only (the :core image: no plugin inside; add the ones you need
+#                               in Control › Plugins). restart and update keep it
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
 #                               when agents are working; --force does not ask; restart --safe: in safe mode)
-#   keel2 status                is keel running, for which project, on which port
+#   keel2 status                is keel running, for which project, on which port, which edition (core or full)
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
@@ -30,13 +32,16 @@
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
 # KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
-# KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none).
+# KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none). KEEL_IMAGE wins over
+# --core.
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
 KEEL2_VERSION="0.15.6"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
+# keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
+CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
 NAME="${KEEL_NAME:-keel-v2}"
 VOLUME="${KEEL_VOLUME:-keel-data}"
 WANT_PORT="${PORT:-8080}"
@@ -191,12 +196,13 @@ docker_socket() {  # the host's Docker socket path, for --docker
 
 # ---------------------------------------------------------------- commands
 cmd_start() {
-  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" plugins="${KEEL_PLUGINS:-}"
+  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" plugins="${KEEL_PLUGINS:-}" core=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --docker) docker_mode=1 ;;
       --no-docker) docker_mode=0 ;;
       --safe) plugins=image ;;
+      --core) core=1 ;;
       --with-keel-v1)
         [ $# -ge 2 ] || die "--with-keel-v1 needs the folder of a keel v1 checkout" "For example: keel2 start --with-keel-v1 ~/Projects/keel ."
         keel_v1="$(keel_v1_path "$2")"; shift ;;
@@ -208,6 +214,8 @@ cmd_start() {
     shift
   done
   case "$plugins" in ""|on|image|off) ;; *) die "KEEL_PLUGINS must be on, image or off (it is '$plugins')." ;; esac
+  # --core: the core image (no plugin inside); KEEL_IMAGE, when set, still wins
+  if [ "$core" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
   local project; project="$(project_path "${folder:-.}")"
   need_docker
   check_git "$project"
@@ -225,6 +233,7 @@ cmd_start() {
 
   local args=(-d --name "$NAME" --restart unless-stopped -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
               --label "keel2.project=$project" --label "keel2.docker=$docker_mode" --label "keel2.keelv1=$keel_v1"
+              --label "keel2.core=$core"
               -e KEEL_PROJECT_NAME="$(basename "$project")")
   # keel v1 is not part of keel v2: a checkout given with --with-keel-v1 is mounted read-only, and only its MCP
   # server is offered (off) in Tools, like any other MCP server.
@@ -247,6 +256,7 @@ cmd_start() {
   # Plugins (docker/keel-start): on = the image's and the installed ones; image = safe mode; off = none
   if [ -n "$plugins" ]; then args+=(-e "KEEL_PLUGINS=$plugins" --label "keel2.plugins=$plugins"); fi
   if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the image load. 'keel2 restart' loads all again."; fi
+  if [ "$core" = 1 ]; then info "  ${D}keel's core only: add the plugins you need in Control › Plugins (or a set: Developer, Review…).${N}"; fi
 
   info "Starting keel for ${B}$project${N}…"
   docker run "${args[@]}" "$IMAGE" >/dev/null || die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
@@ -287,6 +297,7 @@ cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the n
   local port; port="$(running_port || true)"
   if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
   local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
+  if [ "$(label core)" = 1 ]; then extra+=(--core); fi
   extra+=(${safe[@]+"${safe[@]}"})
   if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }
@@ -304,6 +315,7 @@ cmd_status() {
   info "keel is ${B}running${N} ($health)"
   info "  dashboard  http://localhost:$port"
   [ -n "$version" ] && info "  version    keel v2 $version"
+  info "  edition    $(edition_text)"
   info "  project    $(label project)"
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
   [ -n "$(label keelv1)" ] && info "  keel v1    MCP server offered from $(label keelv1) (Tools, off until turned on)"
@@ -313,6 +325,18 @@ cmd_status() {
   esac
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
   info "  data       volume $VOLUME"
+}
+
+# The edition the running image was built as (its KEEL_EDITION: core, full or product; an image from before the plugins
+# has none, and has every part inside).
+edition_text() {
+  local e; e="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_EDITION=//p' | head -1)"
+  case "$e" in
+    core)    echo "core (keel's core only, no plugin inside: add them in Control › Plugins)" ;;
+    product) echo "product (every plugin inside, and keel Product, beta)" ;;
+    full|dev|"") echo "full (every plugin inside)" ;;
+    *)       echo "$e" ;;
+  esac
 }
 
 cmd_open() {
@@ -360,6 +384,8 @@ cmd_update() {
   need_docker
   # keel v2 does not use keel v1 any more: the old setting does nothing now
   [ -n "${KEEL_HOME:-}" ] && warn "KEEL_HOME is set but ignored since 0.4.1: keel v2 does not use keel v1 (see: keel2 help, --with-keel-v1)."
+  # a keel started with --core gets the newest core image
+  if container_exists && [ "$(label core)" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
   info "Getting the newest image ($IMAGE)…"
   docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
   if container_exists && [ -n "$(label project)" ]; then cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
