@@ -97,6 +97,7 @@ export const reviewLauncher: LauncherSourceItem = {
   id: "review",
   title: "Pull requests",
   order: 10,
+  kinds: ["pr"],
   load: async (pid, notes) => {
     let out: Prs | null = null;
     // the project's plugins, as keel's api.plugins reads them

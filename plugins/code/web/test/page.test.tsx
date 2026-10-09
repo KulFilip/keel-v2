@@ -5,9 +5,11 @@
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 // keel's own app and test harness: this test runs the Code page inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
+import { SLOTS } from "../../../../web/src/sdk/slots";
+import { restorePlugins, withoutPages, withoutSlot } from "../../../../web/src/test/coreOnly";
 import { db } from "../../../../web/src/test/setup";
 
 const at = (hash: string) => {
@@ -171,5 +173,59 @@ describe("Code page: Focus and KeelBot's room", () => {
         { name: "KeelBot" },
       ),
     ).toHaveAttribute("aria-current", "page");
+  });
+});
+
+// Step 6: the Code page with other plugins off (a set without them): its links to their pages go, and its buttons for
+// KeelBot go without the assistant. With every plugin (the tests above) they are as before.
+describe("Code with other plugins off", () => {
+  afterEach(() => restorePlugins());
+
+  it("without KeelBot: no KeelBot only button", async () => {
+    withoutPages("helper");
+    at("#/repo");
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Update from main" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "KeelBot only" })).toBeNull();
+  });
+
+  it("the keel view links to the Wiki only when this keel has it, and Refresh stale goes with it", async () => {
+    const user = userEvent.setup();
+    at("#/repo");
+    const full = render(<App />);
+    await user.click(await screen.findByRole("button", { name: "keel" }));
+    const pages = await screen.findByRole("region", { name: "keel's pages" });
+    expect(within(pages).getByRole("link", { name: /^Wiki/ })).toHaveAttribute("href", "#/wiki");
+    full.unmount();
+    withoutPages("wiki");
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "keel" }));
+    const own = await screen.findByRole("region", { name: "keel's pages" });
+    expect(within(own).getByRole("button", { name: /^Memory/ })).toBeInTheDocument();
+    expect(within(own).queryByRole("link", { name: /^Wiki/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^Wiki/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^Memory/ }));
+    expect(await screen.findByText(/stale/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh stale" })).toBeNull();
+  });
+
+  it("a branch's Ask KeelBot to review it: with an assistant, and not without one", async () => {
+    const user = userEvent.setup();
+    db.plugins.git = true;
+    const branch = async () => {
+      at("#/repo");
+      const r = render(<App />);
+      await user.click(await screen.findByRole("button", { name: "Source control" }));
+      await user.click(await screen.findByRole("button", { name: "Open the branch feat/scores" }));
+      return { r, tab: await screen.findByRole("region", { name: "Branch feat/scores" }) };
+    };
+    const full = await branch();
+    expect(within(full.tab).getByRole("button", { name: "Ask KeelBot to review it" })).toBeInTheDocument();
+    full.r.unmount();
+    withoutPages("helper");
+    withoutSlot(SLOTS.assistant);
+    const off = await branch();
+    expect(within(off.tab).getByRole("region", { name: "Changed files" })).toBeInTheDocument();
+    expect(within(off.tab).queryByRole("button", { name: "Ask KeelBot to review it" })).toBeNull();
   });
 });

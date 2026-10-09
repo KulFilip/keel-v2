@@ -3,10 +3,11 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 // keel's own app and test harness
 import { App } from "../../../../web/src/App";
-import { db } from "../../../../web/src/test/setup";
+import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
+import { db, server } from "../../../../web/src/test/setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
@@ -29,5 +30,28 @@ describe("Repo index badge", () => {
     render(<App />);
     const badge = await screen.findByText("Index: failed: CodeGraph is not installed");
     expect(badge).toHaveAttribute("title", "CodeGraph is not installed");
+  });
+});
+
+// Step 6: the index is the Graph plugin's api; a keel without the Graph (the Review set) shows no index row and asks
+// nothing.
+describe("Repo index badge without the Graph plugin", () => {
+  afterEach(() => restorePlugins());
+
+  it("shows no index row and does not ask /index", async () => {
+    const asked: string[] = [];
+    const on = ({ request }: { request: Request }) => void asked.push(new URL(request.url).pathname);
+    server.events.on("request:start", on);
+    try {
+      withoutPages("graph");
+      location.hash = "#/repo";
+      render(<App />);
+      expect(await screen.findByRole("button", { name: "Update from main" })).toBeInTheDocument();
+      expect(screen.queryByText(/^Index:/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Rebuild" })).toBeNull();
+      expect(asked.filter((p) => /\/index(\/|$)/.test(p))).toEqual([]);
+    } finally {
+      server.events.removeListener("request:start", on);
+    }
   });
 });

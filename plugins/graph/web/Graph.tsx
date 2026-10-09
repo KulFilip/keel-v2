@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  agoText, Async, BoxDiagram, EmptyState, ErrorBox, errorParts, fileHref, go, IconDefs, PageHead, useApp, useLoad, useRoute,
+  agoText, Async, BoxDiagram, EmptyState, ErrorBox, errorParts, fileHref, go, IconDefs, PageHead, useApp, useLoad, usePages, useRoute,
   type GBox,
 } from "@keel/web-sdk";
 import { FocusDiagram } from "./FocusDiagram";
@@ -90,6 +90,7 @@ function Crumbs({ items }: { items: { label: string; href?: string }[] }) {
 /** The panel beside one symbol: what it is, where it is, how much depends on it, and the two lists. */
 function FocusPanel({ data, o, depth, selected }: { data: Focus; o: Overview | null; depth: Depth; selected: string | null }) {
   const f = data.focus;
+  const code = usePages().some((p) => p.id === "repo");
   const sel = selected && selected !== f.id ? data.nodes.find((n) => n.id === selected) : undefined;
   const near = (col: number) => data.nodes.filter((n) => n.col === col).map((n) => {
     const e = data.edges.find((x) => (col < 0 ? x.from === n.id && x.to === f.id : x.from === f.id && x.to === n.id));
@@ -106,8 +107,9 @@ function FocusPanel({ data, o, depth, selected }: { data: Focus; o: Overview | n
             <li key={n.id} className={`gp-use ${selected === n.id ? "on" : ""}`}>
               <a href={`#/graph/${encodeURIComponent(n.id)}`} title={`Put ${n.name} in the middle`}><Glyph kind={n.kind} />{n.name}</a>
               <span className="gp-n" title={e ? usesText(e.k) : ""}>{e?.n ?? ""}×</span>
-              {e?.sites[0] && <a className="gp-site mono" href={fileHref({ rel: e.sites[0].file, line: e.sites[0].line })}
-                title="Open this use in the Code page">{e.sites[0].file.split("/").pop()}:{e.sites[0].line}</a>}
+              {e?.sites[0] && (code ? <a className="gp-site mono" href={fileHref({ rel: e.sites[0].file, line: e.sites[0].line })}
+                title="Open this use in the Code page">{e.sites[0].file.split("/").pop()}:{e.sites[0].line}</a>
+                : <span className="gp-site mono">{e.sites[0].file.split("/").pop()}:{e.sites[0].line}</span>)}
             </li>
           ))}
         </ul>
@@ -124,13 +126,14 @@ function FocusPanel({ data, o, depth, selected }: { data: Focus; o: Overview | n
       </div>
       <dl className="gp-facts">
         <dt>In</dt><dd>{f.unit ? <a href={`#/graph/${encodeURIComponent(f.unit.id)}`}>{f.unit.name}</a> : null}{f.unit ? " · " : ""}{gl(f.group)}</dd>
-        <dt>File</dt><dd><a className="mono" href={fileHref({ rel: f.file, line: f.line })} title="Open in the Code page">{f.file}:{f.line}</a></dd>
+        <dt>File</dt><dd>{code ? <a className="mono" href={fileHref({ rel: f.file, line: f.line })} title="Open in the Code page">{f.file}:{f.line}</a>
+          : <span className="mono">{f.file}:{f.line}</span>}</dd>
         <dt>Impact</dt><dd><b>{data.impact}{data.impact_capped ? "+" : ""}</b> {data.level === "unit" ? (data.impact === 1 ? "unit depends" : "units depend") : (data.impact === 1 ? "symbol depends" : "symbols depend")} on it, directly or through others</dd>
       </dl>
       {f.signature && <pre className="gp-sig mono">{f.signature}</pre>}
       {f.docstring && <p className="gp-doc">{f.docstring}</p>}
       {sel && (
-        <p className="gp-sel">Selected: <b>{sel.name}</b> ({kindWord(sel.kind)}, {gl(sel.group)}) · <a href={`#/graph/${encodeURIComponent(sel.id)}`}>put it in the middle</a> · <a href={fileHref({ rel: sel.file, line: sel.line })}>open the code</a></p>
+        <p className="gp-sel">Selected: <b>{sel.name}</b> ({kindWord(sel.kind)}, {gl(sel.group)}) · <a href={`#/graph/${encodeURIComponent(sel.id)}`}>put it in the middle</a>{code && <> · <a href={fileHref({ rel: sel.file, line: sel.line })}>open the code</a></>}</p>
       )}
       <List title="Used by" rows={users} more={data.more["-1"] ?? 0} />
       <List title="Uses" rows={used} more={data.more["1"] ?? 0} />

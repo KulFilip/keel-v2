@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Async, BoxDiagram, EmptyState, ErDiagram, PageHead, Panel, SLOTS, Tabs, clock, errorParts, get, moduleBoxes, post,
-  schemaOf, systemBoxes, useApp, useLoad, useSlot,
+  schemaOf, systemBoxes, useApp, useLoad, usePages, useSlot,
   type GBox, type KeelMap, type MapErQueryItem, type MapLevel, type MapNode, type MapResponse,
 } from "@keel/web-sdk";
 
@@ -119,6 +119,7 @@ function ErPanels({ pid }: { pid: string }) {
 
 function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => void; busy: boolean; pid: string }) {
   const { project } = useApp();
+  const wiki = usePages().some((p) => p.id === "wiki");
   const schema = useMemo(() => schemaOf(m), [m]);
   const [tab, setTabState] = useState<LevelId>(() => {
     try {
@@ -176,7 +177,7 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
     body = (
       <Panel>
         {level ? <LevelSvg level={level} label={`${LEVELS.find(([k]) => k === tab)?.[1]} map of ${name}`} /> : (
-          <EmptyState title="Nothing to draw here" action={tab === "flow" ? <a className="btn" href="#/wiki">Open the wiki</a> : undefined}>
+          <EmptyState title="Nothing to draw here" action={tab === "flow" && wiki ? <a className="btn" href="#/wiki">Open the wiki</a> : undefined}>
             {tab === "flow" ? `The knowledge base of ${name} has no journeys section yet. The init flow writes it.` : `keel found no source for this level in ${name}.`}
           </EmptyState>
         )}

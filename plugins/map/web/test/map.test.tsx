@@ -13,12 +13,13 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 // keel's own app and test harness: this test runs the Map inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import type { DbSchema } from "../../../../web/src/api";
 import * as fx from "../../../../web/src/test/fixtures";
 import shop from "../../../../web/src/test/fixtures/er-shop.json";
+import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
 import { db, server } from "../../../../web/src/test/setup";
 import plugin from "../index";
 import { missingWhy } from "../Map";
@@ -275,5 +276,31 @@ describe("Map › Query (the Database part's panel in the slot map.er.query)", (
     expect(
       calls("POST", "/api/projects/ludus-engine/db/query").at(-1)?.body,
     ).toMatchObject({ confirm: true });
+  });
+});
+
+// Step 6: Journeys come from the knowledge base; "Open the wiki" only when this keel has the Wiki (the Map alone, or a
+// set without the Wiki, has none).
+describe("Map › Journeys without a journeys section", () => {
+  afterEach(() => restorePlugins());
+  const journeys = async () => {
+    localStorage.setItem("keel2.project", "ludus-engine");
+    localStorage.setItem("keel2.map.ludus-engine.tab", "flow");
+    location.hash = "#/map";
+    const r = render(<App />);
+    expect(await screen.findByText("Nothing to draw here")).toBeInTheDocument();
+    return r;
+  };
+
+  it("with the Wiki: Open the wiki", async () => {
+    await journeys();
+    expect(screen.getByRole("link", { name: "Open the wiki" })).toHaveAttribute("href", "#/wiki");
+  });
+
+  it("without the Wiki: the same words, no link", async () => {
+    withoutPages("wiki");
+    await journeys();
+    expect(screen.getByText(/has no journeys section yet/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open the wiki" })).toBeNull();
   });
 });

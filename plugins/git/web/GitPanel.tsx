@@ -4,7 +4,7 @@
 // The Git plugin's panel part (plugins/git): it imports only react and @keel/web-sdk.
 
 import { useState } from "react";
-import { askAssistant, errorParts, Pill, useApp, useLoad } from "@keel/web-sdk";
+import { askAssistant, errorParts, Pill, SLOTS, useApp, useLoad, useSlot } from "@keel/web-sdk";
 import { gitApi, type PullRequest } from "./gitApi";
 
 const FAILED = new Set([
@@ -35,6 +35,8 @@ export function GitPanel({
   onChanged: () => void;
 }) {
   const { toast } = useApp();
+  // the assistant that answers askAssistant (KeelBot): its buttons only when this keel has one
+  const assistant = useSlot(SLOTS.assistant).length > 0;
   const status = useLoad(`git:${pid}`, () => gitApi.status(pid));
   const branches = useLoad(`git-branches:${pid}`, () => gitApi.branches(pid), {
     live: false,
@@ -217,13 +219,15 @@ export function GitPanel({
             >
               Commit
             </button>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={() => askAssistant("/commit")}
-            >
-              Ask KeelBot to write it
-            </button>
+            {assistant && (
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => askAssistant("/commit")}
+              >
+                Ask KeelBot to write it
+              </button>
+            )}
           </div>
         </form>
       )}
@@ -283,7 +287,7 @@ export function GitPanel({
             <a className="btn sm" href={p.url} target="_blank" rel="noreferrer">
               Open on GitHub
             </a>
-            {p.comments.length > 0 && (
+            {assistant && p.comments.length > 0 && (
               <button
                 type="button"
                 className="btn sm primary"
@@ -292,7 +296,7 @@ export function GitPanel({
                 Ask KeelBot to address the comments
               </button>
             )}
-            {p.checks_failed > 0 && (
+            {assistant && p.checks_failed > 0 && (
               <button
                 type="button"
                 className="btn sm"
@@ -304,6 +308,7 @@ export function GitPanel({
           </div>
         </div>
       ) : (
+        assistant &&
         !onBase &&
         st.upstream && (
           <button

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, StepView, useApp,
-  useLoad, useWide,
+  useLoad, usePages, useWide,
   type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
@@ -143,6 +143,10 @@ function UserMessage({ m }: { m: HelperMessage }) {
 
 export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0, layout = "panel", prefill }: Props) {
   const { recent, liveSteps, toast, tick } = useApp();
+  // @ mentions read the Code plugin's file list and the Graph plugin's search: only from the ones this keel has
+  const pages = usePages();
+  const hasCode = pages.some((p) => p.id === "repo");
+  const hasGraph = pages.some((p) => p.id === "graph");
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
   const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
   const list = useLoad(`helper:${pid}:list`, () => kb.sessions(pid), { live: false });
@@ -325,17 +329,18 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const typing: Typing = useMemo(() => typingAt(text, caret), [text, caret]);
   useEffect(() => {
     if (typing?.kind === "mention" && files === null) {
-      kb.repoFiles(pid).then((r) => setFiles(r.files), () => setFiles([]));
+      if (hasCode) kb.repoFiles(pid).then((r) => setFiles(r.files), () => setFiles([]));
+      else setFiles([]);
     }
-  }, [typing, files, pid]);
+  }, [typing, files, pid, hasCode]);
   useEffect(() => {
-    if (typing?.kind !== "mention" || typing.query.length < 2) { setSymbols([]); return; }
+    if (typing?.kind !== "mention" || typing.query.length < 2 || !hasGraph) { setSymbols([]); return; }
     let live = true;
     const t = window.setTimeout(() => {
       kb.graphSearch(pid, typing.query).then((r) => live && setSymbols(r.results ?? []), () => live && setSymbols([]));
     }, 180);
     return () => { live = false; window.clearTimeout(t); };
-  }, [typing, pid]);
+  }, [typing, pid, hasGraph]);
 
   const acs = flow.data?.thread && ["running", "waiting"].includes(flow.data.thread.status) ? flow.data.thread.acs : [];
   const suggestions: Suggestion[] = useMemo(() => {

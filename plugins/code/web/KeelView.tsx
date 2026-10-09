@@ -3,7 +3,7 @@
 
 import { Fragment, useState } from "react";
 import {
-  Async, clock, Confirm, Drawer, EmptyState, ErrorBox, errorParts, kfmt, Panel, Pill, plural, RefreshStaleButton, useApp, useLoad,
+  Async, clock, Confirm, Drawer, EmptyState, ErrorBox, errorParts, kfmt, Panel, Pill, plural, RefreshStaleButton, useApp, useLoad, usePages,
   type Commit, type Fact, type FactKind, type Memory, type PillTone,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
@@ -29,6 +29,7 @@ export function statusText(mark: string | undefined | null): string {
 type Props = { pid: string; file: RepoFile | null; fileError: { message: string; hint?: string } | null; onOpenDocs: () => void; onOpenMemory: () => void };
 
 export function KeelView({ pid, file, fileError, onOpenDocs, onOpenMemory }: Props) {
+  const wiki = usePages().some((p) => p.id === "wiki");
   return (
     <div className="sv">
       <div className="sv-head"><h2 className="sv-title">keel</h2></div>
@@ -54,7 +55,7 @@ export function KeelView({ pid, file, fileError, onOpenDocs, onOpenMemory }: Pro
           <h3>keel</h3>
           <button type="button" className="kv-link" onClick={onOpenDocs}><Icon name="files" size={16} /><span><b>Files keel wrote</b><span className="sub">specs, knowledge, config: every change is a commit</span></span></button>
           <button type="button" className="kv-link" onClick={onOpenMemory}><Icon name="history" size={16} /><span><b>Memory</b><span className="sub">facts agents get with each step</span></span></button>
-          <a className="kv-link" href="#/wiki"><Icon name="link" size={16} /><span><b>Wiki</b><span className="sub">the knowledge base, readable</span></span></a>
+          {wiki && <a className="kv-link" href="#/wiki"><Icon name="link" size={16} /><span><b>Wiki</b><span className="sub">the knowledge base, readable</span></span></a>}
         </section>
       </div>
     </div>
@@ -137,6 +138,7 @@ const DOC_PILL: Record<string, [PillTone, string]> = { ok: ["ok", "ok"], live: [
 
 export function DocsView({ pid, onOpen }: { pid: string; onOpen: (path: string) => void }) {
   const { project } = useApp();
+  const wiki = usePages().some((p) => p.id === "wiki");
   const docs = useLoad(`keeldocs:${pid}`, () => api.keelDocs(pid));
   return (
     <div className="ed-doc">
@@ -158,7 +160,7 @@ export function DocsView({ pid, onOpen }: { pid: string; onOpen: (path: string) 
           )}
         </Async>
       </Panel>
-      <p className="hint">Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. A flow's state and events live in keel's data, not in <span className="mono">.keel/</span>.</p>
+      <p className="hint">{wiki && <>Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. </>}A flow's state and events live in keel's data, not in <span className="mono">.keel/</span>.</p>
     </div>
   );
 }

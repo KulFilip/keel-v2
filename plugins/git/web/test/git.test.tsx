@@ -5,10 +5,11 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 // keel's own app and test harness: this test runs the panel and the buttons inside keel's web, as keel loads them
 import { App } from "../../../../web/src/App";
 import { slotItems, SLOTS } from "../../../../web/src/sdk";
+import { restorePlugins, withoutPages, withoutSlot } from "../../../../web/src/test/coreOnly";
 import { db } from "../../../../web/src/test/setup";
 import plugin from "../index";
 
@@ -212,5 +213,34 @@ describe("KeelBot's git buttons", () => {
         "KeelBot's git button could not be read. Ask it to give it again.",
       ),
     ).toBeInTheDocument();
+  });
+});
+
+// Step 6: Git does not need KeelBot. Without an assistant (a set without KeelBot) its "Ask KeelBot" buttons go; the rest
+// of the panel works as before.
+describe("Code › Git without KeelBot", () => {
+  afterEach(() => restorePlugins());
+
+  it("has no Ask KeelBot buttons, and still pushes", async () => {
+    const user = userEvent.setup();
+    withoutPages("helper");
+    withoutSlot(SLOTS.assistant);
+    db.plugins.git = true;
+    db.pr = {
+      number: 7, title: "Euro prices", url: "https://github.com/o/r/pull/7", state: "OPEN", review: "CHANGES_REQUESTED",
+      checks: [{ name: "ci / api", state: "failure", url: "" }], checks_done: 1, checks_failed: 1,
+      comments: [{ author: "rev", body: "round half up", path: "src/money.ts", line: 14 }],
+    };
+    location.hash = "#/repo";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Source control" }));
+    const git = await screen.findByLabelText("Git");
+    const pr = await within(git).findByRole("group", { name: "Pull request #7" });
+    expect(pr).toHaveTextContent("1 check failed");
+    expect(within(pr).getByRole("link", { name: "Open on GitHub" })).toBeInTheDocument();
+    expect(within(git).queryByRole("button", { name: /Ask KeelBot/ })).toBeNull();
+    expect(within(pr).queryByRole("button", { name: "Why did CI fail?" })).toBeNull();
+    await user.click(within(git).getByRole("button", { name: "Push" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/git/push")).toHaveLength(1));
   });
 });

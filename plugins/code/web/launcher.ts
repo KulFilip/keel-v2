@@ -109,6 +109,7 @@ export const codeLauncher: LauncherSourceItem = {
   id: "code",
   title: "Files",
   order: 20,
+  kinds: ["file", "symbol"],
   load: (pid, notes) => api.repoFiles(pid).then((v) => v.files, notes.failed("Files")),
   items: (ctx, data, q, { code, filesPer }) => {
     const out: Item[] = [];
