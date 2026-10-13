@@ -1,8 +1,9 @@
 # keel roadmap (from v0.15.7, October 2026)
 
 ```
- main      0.15.7 ──► 0.15.8 ──► 0.16.0 ──► 0.16.1 ──────────────► (plugin track lands) ──► …
-           (now)      layouts    full MCP   native mode                    ▲
+ main      0.15.7 ──► 0.15.8 ──► 0.15.9 ──────► 0.16.0 ──► 0.16.1 ──► (plugin track lands) ──► …
+           (now)      layouts    file history   full MCP   native mode         ▲
+                                 + .keel/ default                              │
                                                                            │ only when equal + tested
  plugin-base (0.15.6) ── merge main 0.15.7, 0.15.8, … ── every plugin tested ┘
  keel v1   0.80.0 ── fixes only ────────────── deprecated ── archived (3-6 months later)
@@ -11,7 +12,8 @@
 | version | goal | size | depends on | plan |
 |---|---|---|---|---|
 | 0.15.8 | read keel v1 layouts; clear "folder not mounted" errors; keel_dashboard, keel_start_flow | M (about 2-3 days) | v0.15.7 | [0.15.8.md](0.15.8.md) |
-| 0.16.0 | full MCP: read, --write, --admin, allowlist, confirm prompts, audit in the timeline | L (about 1 week) | 0.15.8 (keel_dashboard, keel_start_flow, layout-aware specs) | [0.16.0.md](0.16.0.md) |
+| 0.15.9 | every version of keel's files (specs, knowledge, ADRs, runbook) and what each flow applied, in keel's database; history + diff + restore in the app; `.keel/` becomes the default for new projects | M-L (about 3-4 days) | 0.15.8 (the resolver) | [0.15.9.md](0.15.9.md) |
+| 0.16.0 | full MCP: read, --write, --admin, allowlist, confirm prompts, audit in the timeline | L (about 1 week) | 0.15.8 (keel_dashboard, keel_start_flow, layout-aware specs), 0.15.9 (history for keel_specs, keel_restore_doc) | [0.16.0.md](0.16.0.md) |
 | 0.16.1 | native mode: `keel2 start --native`, no Docker, no sudo | L (about 1 week + CI) | 0.16.0 (`keel2 mcp` must work without `docker exec`) | [0.16.1.md](0.16.1.md) |
 | plugin track | every part of keel as a plugin, the same product as main | XL, in progress | each main release merged in first | docs/plugins/ on the track |
 | keel v1 end | freeze, deprecate, archive | S per step | everything above | below |
@@ -27,6 +29,19 @@
   - [ ] CONTRACT v0.15.8, GUIDE / README; version in the five files
   - [ ] the user says "release": merge to main and release/0.4.0, tag v0.15.8, image builds
   - [ ] then merge main into plugin-base (track step, below)
+
+## 0.15.9 — file history, `.keel/` by default
+
+- Goal: keel's files live in `.keel/` (user decision), outside git, so keel's database keeps every version and
+  what each flow applied; the app shows versions, a diff, and restores a lost file.
+- Can be released together with 0.15.8 (one branch, two plans) if the user wants the `.keel/` default at once.
+- Release checklist:
+  - [ ] `V15__doc_history.sql` migrates a 0.15.8 database (upgrade test)
+  - [ ] a new scratch repo gets `.keel/` and `/.keel` in `.git/info/exclude`; an old one with `docs/specs`
+        keeps `docs/`
+  - [ ] real check: a fake feature flow, `rm` the spec, Restore brings it back; the history shows who wrote what
+  - [ ] CONTRACT v0.15.9, GUIDE / README (where keel keeps files, how to restore); version in the five files
+  - [ ] release as usual; then the track merges it and renumbers its own `V15__approvals.sql` to `V16`
 
 ## 0.16.0 — full MCP
 
@@ -60,7 +75,9 @@
   - The track's own migrations always come after main's (main's released ones keep their numbers).
   - This roadmap's sessions never touch plugin-base; the track has its own sessions.
 - Order: take 0.15.7, then **0.15.8 first** (layouts touch KnowledgeService, wiki and map, which are plugins on
-  the track: `plugins/wiki`, `plugins/map`), then 0.16.0 (the MCP tools must call plugin routes), then 0.16.1.
+  the track: `plugins/wiki`, `plugins/map`), then 0.15.9 (its `V15__doc_history.sql` takes V15 on main, so the
+  track's unreleased `V15__approvals.sql` becomes `V16`), then 0.16.0 (the MCP tools must call plugin routes),
+  then 0.16.1.
 - Done when: all plugins (map, wiki, ci, tasks, jira, db, review, git, graph, code, keelbot) pass their own tests,
   the parity e2e against the latest main release shows 0 differences, and an upgrade from the latest release's
   database works. Then one release from the track replaces main.
@@ -71,7 +88,7 @@ keel v1 is at 0.80.0 (repo /Users/mili/Projects/claude/keel).
 
 1. **Freeze (now)**: fixes only, no new features. New ideas go to keel v2.
 2. **Deprecate** when all of these are true:
-   - [ ] v2 reads every v1 layout (0.15.8)
+   - [ ] v2 reads every v1 layout (0.15.8) and uses `.keel/` by default like v1's `keel` layout (0.15.9)
    - [ ] v2 runs native, without Docker (0.16.1)
    - [ ] the plugin track is done and released
    - [ ] every v1 MCP tool exists in v2 (keel_status, keel_projects, keel_timeline, keel_next, keel_explain,
