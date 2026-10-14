@@ -24,4 +24,9 @@ describe("timeline", () => {
     expect(eventLine(started({ via: "mcp" })).text).toBe("flow started via MCP");
     expect(eventLine(started({})).text).toBe("flow started");
   });
+
+  it("says who acted through MCP (v0.16.0)", () => {
+    const ev = { type: "mcp.call", thread_id: "t", project_id: "p", at: "x", data: { client: "Claude Code", tool: "keel_stop_flow", ok: true } } as unknown as EngineEvent;
+    expect(eventLine(ev).text).toBe("via MCP · Claude Code: keel_stop_flow");
+  });
 });

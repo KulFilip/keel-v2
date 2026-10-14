@@ -130,7 +130,11 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         val root = Paths.get(rootText).toAbsolutePath().normalize()
         if (!Files.isDirectory(root)) throw BadRequest(notMounted(root.toString()))
         val existing = jdbc.query("SELECT id, name, root FROM projects WHERE root = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root.toString()).firstOrNull()
-        if (existing != null) return existing
+        if (existing != null) {
+            // v0.16.0 a removed project (hidden) comes back with its history when its folder is added again
+            jdbc.update("UPDATE projects SET hidden = 0 WHERE id = ? AND hidden = 1", existing.id)
+            return existing
+        }
         val base = Slug.of(name?.takeIf { it.isNotBlank() } ?: root.fileName?.toString() ?: "project")
         var id = base
         var n = 2
@@ -148,6 +152,14 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         while (find(id) != null) id = "$base-${n++}"
         jdbc.update("INSERT INTO projects(id, name, root, created_at, hidden) VALUES (?, ?, ?, ?, 1)", id, name, root.toAbsolutePath().normalize().toString(), Time.now())
         return ProjectRow(id, name, root.toAbsolutePath().normalize().toString())
+    }
+
+    /** v0.16.0 off the list, history kept (DELETE /api/projects/{pid}). Not while a flow runs or waits there. */
+    fun remove(pid: String) {
+        require(pid)
+        val busy = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status IN ('running','waiting')", Int::class.java, pid) ?: 0
+        if (busy > 0) throw keel.api.common.Conflict("A flow runs or waits on $pid", "Stop it first, or let it finish.")
+        jdbc.update("UPDATE projects SET hidden = 1 WHERE id = ?", pid)
     }
 
     fun hidden(pid: String): Boolean =

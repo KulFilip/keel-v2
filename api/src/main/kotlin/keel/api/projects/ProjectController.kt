@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.BadRequest
 import keel.api.engine.EngineClient
 import keel.api.events.EventHub
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -45,6 +46,14 @@ class ProjectController(private val projects: ProjectService, private val hub: E
 
     @GetMapping("/{pid}")
     fun get(@PathVariable pid: String): Project = projects.view(projects.require(pid))
+
+    /** v0.16.0 takes a project off the list (keel_remove_project): hidden, its history kept; adding its folder shows it again. */
+    @DeleteMapping("/{pid}")
+    fun remove(@PathVariable pid: String): Map<String, Any> {
+        projects.remove(pid)
+        hub.publish(null, "project.changed", mapOf("id" to pid))
+        return mapOf("ok" to true, "id" to pid)
+    }
 
     /** The code graph index: idle | indexing | ready | failed, with file and symbol counts (engine runtime/scan.py). */
     @GetMapping("/{pid}/index")

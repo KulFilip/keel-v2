@@ -190,18 +190,31 @@ From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to l
 
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
-keel has an MCP server: your Claude can read the flow (status, timeline, next step, phase rules) while keel runs.
+keel has an MCP server with three levels; each includes the one below:
+
+| level | how | adds |
+|---|---|---|
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox, start a flow, restore a spec, git / PR / CI / database writes |
+| admin | `keel2 mcp --admin` | stop and delete flows, add and remove projects, change workflows |
 
 ```bash
-claude mcp add keel-v2 -- "$(command -v keel2)" mcp      # Claude Code, read-only
-keel2 mcp --print-config                                 # the same line + the Claude Desktop JSON
+keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
+claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 ```
 
-Read-only by default. `keel_dashboard` gives the link to a project's flow, map or database diagram. With
-`keel2 mcp --write` (and `--write --print-config`) your Claude can also approve or send back a waiting gate, and start
-a flow (`keel_start_flow`: a type such as feature or fix, and the idea in your words); it runs under keel's guard and
-budget, stops at its first gate, and its timeline says "flow started via MCP". keel's own agents always get it read-only. keel v1 is a separate project; its MCP server can be
-added like any other: `keel2 start --with-keel-v1 <keel checkout>`, then turn on "keel v1 (optional)" in Tools.
+Pushes, database changes, deletes and stops ask you first in the client; a client that cannot ask is refused unless
+you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. Everything the client changes shows
+on the flow's timeline as "via MCP · <client>: <tool>". keel's own agents always get the read level.
+
+| keel v1 MCP | keel v2 MCP |
+|---|---|
+| keel_status, keel_projects, keel_timeline, keel_next, keel_explain | the same names |
+| keel_dashboard (flow, map, er) | keel_dashboard (flow, map, er) |
+| — | keel_flows, keel_inbox, keel_live, keel_budget, keel_specs, keel_knowledge, keel_search, keel_read_file, keel_actions (read); write and admin tools (v1 has none) |
+
+keel v1 is a separate project; its MCP server can be added like any other: `keel2 start --with-keel-v1 <keel
+checkout>`, then turn on "keel v1 (optional)" in Tools.
 
 ## Where keel keeps its files (layouts)
 
