@@ -26,7 +26,8 @@ data class KnowledgeSection(val id: String, val status: String, val words: Int, 
 data class Memory(val facts: List<Fact>, val knowledge: List<KnowledgeSection>)
 data class WikiItem(val id: String, val title: String, val status: String? = null)
 data class WikiSection(val id: String, val title: String, val items: List<WikiItem>)
-data class Wiki(val sections: List<WikiSection>)
+/** notice: a problem with where keel's files are (an external layout whose folder keel cannot see); layout: its name. */
+data class Wiki(val sections: List<WikiSection>, val notice: String? = null, val layout: String? = null)
 data class WikiPage(val id: String, val title: String, val markdown: String, val meta: Map<String, Any?>)
 
 /** keel docs, memory (facts + knowledge base), the wiki and the map of a project. */
@@ -48,25 +49,35 @@ class KnowledgeService(
             val f = root.resolve(rel)
             if (Files.exists(f)) out += KeelDoc(rel, what, by, mtime(f), status)
         }
-        listMd(root.resolve("docs/specs")).forEach { add("docs/specs/${it.fileName}", "Spec — ${countAcs(it)} ACs", "explorer + you") }
+        val lay = Layout.resolve(root)
+        // every spec folder of the layout (a mixed project has .keel/specs and docs/specs: both show)
+        specFiles(root, lay).forEach { add(it, "Spec — ${countAcs(root.resolve(it))} ACs", "explorer + you") }
         val cfg = ClassifyConfig.load(root)
         contractFiles(root, cfg).forEach { add(it, "Contract", "explorer") }
-        listMd(root.resolve("docs/adr")).forEach { add("docs/adr/${it.fileName}", "Decision — ${title(it)}", "you") }
+        lay.adrDirs.forEach { d -> listMd(root.resolve(d)).forEach { add("$d/${it.fileName}", "Decision — ${title(it)}", "you") } }
         val kb = knowledge(root)
         if (kb.any { it.status != "missing" }) {
             val written = kb.count { it.status != "missing" }
             val stale = kb.filter { it.status == "stale" }.map { it.id }
+            val dir = lay.knowledgeDirs.firstOrNull { Files.isDirectory(root.resolve(it)) } ?: lay.knowledge
             out += KeelDoc(
-                "docs/knowledge/", "Knowledge base — $written sections", "librarian",
-                mtime(root.resolve("docs/knowledge")), if (stale.isEmpty()) "ok" else "check",
+                "$dir/", "Knowledge base — $written sections", "librarian",
+                mtime(root.resolve(dir)), if (stale.isEmpty()) "ok" else "check",
             )
         }
         // keel v2's own files only: a flow's state and events live in the engine (/data), not in the project.
         add(".keel/config.yml", "Project config", "init")
         add(".keel/ladder.json", "Ladder results", "init", "live")
-        add("docs/RUNNING.md", "Runbook", "init")
+        lay.runbooks.forEach { add(it, "Runbook", "init") }
         return out
     }
+
+    /** The specs of every spec folder the layout reads, as paths from the root. */
+    fun specFiles(root: Path, lay: Layout = Layout.resolve(root)): List<String> =
+        lay.specDirs.flatMap { d -> listMd(root.resolve(d)).map { "$d/${it.fileName}" } }
+
+    /** Where keel keeps this project's files (GET /api/projects/{pid}/layout). */
+    fun layout(pid: String): Layout = Layout.resolve(projects.root(pid))
 
     private fun contractFiles(root: Path, cfg: ClassifyConfig): List<String> {
         val list = mutableListOf<String>()
@@ -134,16 +145,18 @@ class KnowledgeService(
      * older than the last commit that touched code (a heuristic).
      */
     fun knowledge(root: Path): List<KnowledgeSection> {
-        val dir = root.resolve("docs/knowledge")
-        val extra = listMd(dir).map { it.fileName.toString().removeSuffix(".md") }.filter { it !in SECTIONS && it.lowercase() != "readme" }
+        val lay = Layout.resolve(root)
+        val extra = lay.knowledgeDirs.flatMap { d -> listMd(root.resolve(d)).map { it.fileName.toString().removeSuffix(".md") } }
+            .distinct().filter { it !in SECTIONS && it.lowercase() != "readme" && it != "index" }
         val lastCode = repo.lastCodeCommit(root)
         return (SECTIONS + extra).map { s ->
-            val f = dir.resolve("$s.md")
+            val rel = lay.knowledgeFile(root, s)
+            val f = root.resolve(rel)
             if (!Files.isRegularFile(f)) return@map KnowledgeSection(s, "missing", 0, 0)
             val text = Files.readString(f)
             val words = text.split(Regex("\\s+")).count { it.isNotBlank() }
             val cites = CITATION.findAll(text).count()
-            val written = repo.lastCommitTime(root, "docs/knowledge/$s.md")
+            val written = repo.lastCommitTime(root, rel)
             val stale = written != null && lastCode != null && written < lastCode
             KnowledgeSection(s, if (stale) "stale" else "written", words, cites)
         }
@@ -155,14 +168,19 @@ class KnowledgeService(
         val root = projects.root(pid)
         val kb = knowledge(root).map { WikiItem("kb:${it.id}", it.id.replaceFirstChar { c -> c.uppercase() }, it.status) }
         val wfs = workflows.list(pid).map { WikiItem("wf:${it.id}", it.name) }
-        val adrs = listMd(root.resolve("docs/adr")).map { WikiItem("adr:${it.fileName}", title(it)) }
+        val lay = Layout.resolve(root)
+        val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)) }.map { WikiItem("adr:${it.fileName}", title(it)) }.distinctBy { it.id }
+        val specs = specFiles(root, lay).map { WikiItem("spec:$it", title(root.resolve(it))) }
         return Wiki(
             listOf(
+                WikiSection("specs", "Specs", specs),
                 WikiSection("knowledge", "Knowledge", kb),
                 WikiSection("workflows", "Workflows", wfs),
                 WikiSection("runbook", "Runbook", listOf(WikiItem("runbook", "How to run this project"))),
                 WikiSection("decisions", "Decisions", adrs),
             ),
+            lay.missing,
+            lay.name,
         )
     }
 
@@ -172,13 +190,14 @@ class KnowledgeService(
             id.startsWith("kb:") -> {
                 val name = id.removePrefix("kb:")
                 if (!Regex("^[A-Za-z0-9_-]+$").matches(name)) throw BadRequest("Bad page id")
-                val f = root.resolve("docs/knowledge/$name.md")
+                val rel = Layout.resolve(root).knowledgeFile(root, name)
+                val f = root.resolve(rel)
                 val section = knowledge(root).firstOrNull { it.id == name }
                 if (!Files.isRegularFile(f)) {
                     WikiPage(id, name, "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
                 } else {
                     WikiPage(id, title(f), Files.readString(f), mapOf(
-                        "path" to "docs/knowledge/$name.md", "status" to section?.status, "words" to section?.words,
+                        "path" to rel, "status" to section?.status, "words" to section?.words,
                         "cites" to section?.cites, "updated" to mtime(f),
                     ))
                 }
@@ -191,11 +210,18 @@ class KnowledgeService(
             id.startsWith("adr:") -> {
                 val name = id.removePrefix("adr:")
                 if (name.contains('/') || name.contains("..")) throw BadRequest("Bad page id")
-                val f = root.resolve("docs/adr/$name")
-                if (!Files.isRegularFile(f)) throw NotFound("No decision called $name")
-                WikiPage(id, title(f), Files.readString(f), mapOf("path" to "docs/adr/$name", "updated" to mtime(f)))
+                val rel = Layout.resolve(root).adrDirs.map { "$it/$name" }.firstOrNull { Files.isRegularFile(root.resolve(it)) }
+                    ?: throw NotFound("No decision called $name")
+                val f = root.resolve(rel)
+                WikiPage(id, title(f), Files.readString(f), mapOf("path" to rel, "updated" to mtime(f)))
             }
-            else -> throw NotFound("No wiki page \"$id\"", "Ids look like kb:architecture, wf:<id>, runbook or adr:<file>.")
+            id.startsWith("spec:") -> {
+                val rel = id.removePrefix("spec:")
+                if (rel.split('/').any { it == ".." } || rel !in specFiles(root)) throw NotFound("No spec called $rel", "Ids look like spec:.keel/specs/<file>.md.")
+                val f = root.resolve(rel)
+                WikiPage(id, title(f), Files.readString(f), mapOf("path" to rel, "acs" to countAcs(f), "updated" to mtime(f)))
+            }
+            else -> throw NotFound("No wiki page \"$id\"", "Ids look like kb:architecture, spec:<path>, wf:<id>, runbook or adr:<file>.")
         }
     }
 
@@ -249,8 +275,9 @@ class KnowledgeService(
                 return WikiPage("runbook", "How to run this project", md, mapOf("from" to ".keel/ladder.json"))
             }
         }
-        val running = root.resolve("docs/RUNNING.md")
-        if (Files.isRegularFile(running)) return WikiPage("runbook", "How to run this project", Files.readString(running), mapOf("from" to "docs/RUNNING.md"))
+        Layout.resolve(root).runbooks.firstOrNull()?.let { rel ->
+            return WikiPage("runbook", "How to run this project", Files.readString(root.resolve(rel)), mapOf("from" to rel))
+        }
         val cfg = root.resolve(".keel/config.yml").takeIf { Files.isRegularFile(it) }?.let { Yaml.readMap(Files.readString(it)) }
         val commands = (cfg?.get("commands") as? Map<*, *>)?.filterValues { it != null && it.toString().isNotBlank() }
         val md = if (commands.isNullOrEmpty()) {

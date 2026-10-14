@@ -203,7 +203,8 @@ function AddByPath({ onAdded }: { onAdded: () => void }) {
         />
         <span className="hint">
           A git repo keel can see, like{" "}
-          <span className="mono">/workspace/my-repo</span>.
+          <span className="mono">/workspace/my-repo</span>. If keel can't see your folder, run{" "}
+          <span className="mono">keel2 add &lt;path&gt;</span> in a terminal first, then add it here.
         </span>
       </div>
       <div className="field">

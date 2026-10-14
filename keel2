@@ -23,7 +23,7 @@
 #   keel2 restore <file>        put a backup back (keel is stopped first)
 #   keel2 sql                   open keel's SQLite database
 #   keel2 mcp [--write]         keel's MCP server on stdio, for Claude Code / Claude Desktop to start (read-only;
-#                               --write adds approving gates). keel2 mcp --print-config shows how to add it
+#                               --write adds approving gates and starting flows). keel2 mcp --print-config shows how
 #   keel2 uninstall [--all]     remove the container (--all: also keel's data, after you confirm)
 #   keel2 version | help
 #
@@ -34,7 +34,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.15.7"
+KEEL2_VERSION="0.15.8"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
 VOLUME="${KEEL_VOLUME:-keel-data}"
@@ -357,6 +357,7 @@ cmd_add() {  # keel2 add <folder>… — saves the folders in the list, then res
     new+=("$p")
   done
   if [ ${#new[@]} = 0 ]; then info "Nothing new to add. See the list: keel2 folders"; return 0; fi
+  warn_external_layouts "$main" ${new[@]+"${new[@]}"}
   local file; file="$(folders_file)"
   mkdir -p "$(dirname "$file")"
   printf '%s\n' "${new[@]}" >> "$file"
@@ -367,6 +368,22 @@ cmd_add() {  # keel2 add <folder>… — saves the folders in the list, then res
   else
     info "  ${D}keel is not running. The folders are mounted when it starts: keel2 start /path/to/project (or keel2 restart)${N}"
   fi
+}
+
+warn_external_layouts() {  # warn_external_layouts <main> <new folder>… — keel v1's external layout: .keel links elsewhere
+  local main="$1"; shift
+  local seen; seen="$(printf '%s\n' "$main" "$@"; list_folders)"
+  local f r t inside x
+  for f in "$@"; do
+    for r in "$f" "$f"/*/; do
+      r="${r%/}"
+      [ -L "$r/.keel" ] || continue
+      t="$(readlink "$r/.keel")"; case "$t" in /*) ;; *) t="$r/$t" ;; esac
+      inside=0
+      while IFS= read -r x; do [ -n "$x" ] || continue; case "$t" in "$x"|"$x"/*) inside=1 ;; esac; done <<< "$seen"
+      [ "$inside" = 1 ] || warn "$(basename "$r"): this project keeps keel's files in $t; add that folder too: keel2 add $t"
+    done
+  done
 }
 
 cmd_remove() {  # keel2 remove <folder>… — takes folders off the list, then restarts keel once
@@ -582,7 +599,9 @@ cmd_mcp() {
   if [ "$print" = 1 ]; then print_mcp_config "$mode"; return 0; fi
   need_docker >&2
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
-  exec docker exec -i "$NAME" /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode"
+  # keel_dashboard's links: the dashboard as this computer sees it, not the container's own port
+  local public="${KEEL_PUBLIC_URL:-}"; [ -n "$public" ] || public="http://localhost:$(running_port)"
+  exec docker exec -i -e KEEL_PUBLIC_URL="$public" "$NAME" /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode"
 }
 
 print_mcp_config() {  # print_mcp_config <--read-only|--write>
@@ -601,7 +620,7 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write>
   info "  }"
   info "}"
   info ""
-  if [ -n "$write" ]; then info "${D}--write: the client can approve or send back gates (keel_approve_gate, keel_resume).${N}"
+  if [ -n "$write" ]; then info "${D}--write: the client can approve or send back gates (keel_approve_gate, keel_resume) and start flows (keel_start_flow).${N}"
   else info "${D}Read-only. Add --write (keel2 mcp --write --print-config) to let the client approve gates.${N}"; fi
 }
 

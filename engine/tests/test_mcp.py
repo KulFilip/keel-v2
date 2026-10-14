@@ -13,9 +13,9 @@ from keel_engine.tools import mcp as mcp_tools
 
 READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
               "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status",           # v0.10.0 plugins
-              "keel_ci_runs", "keel_ci_failure"}
+              "keel_ci_runs", "keel_ci_failure", "keel_dashboard"}                                  # v0.15.8 dashboard
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
-               "keel_ci_rerun"}
+               "keel_ci_rerun", "keel_start_flow"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -56,12 +56,17 @@ class StubApi:
             body = json.loads(req.content)
             self.posts.append((path, body))
             return httpx.Response(200, json={**self.thread, "status": "running", "waiting": None, "current": "red", "phase": "red"})
+        if req.method == "POST" and path == "/api/projects/shop/flows":
+            body = json.loads(req.content)
+            self.posts.append((path, body))
+            return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
         routes = {
             "/api/projects": PROJECTS,
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/blog/flow": {"thread": None, "workflow": None},
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,
+            "/api/projects/shop/workflows": [{"id": "feature"}, {"id": "fix"}],
         }
         if req.method == "GET" and path in routes:
             return httpx.Response(200, json=routes[path])
@@ -293,3 +298,38 @@ def test_an_acting_tool_waits_for_the_persons_inbox_answer(monkeypatch):
     assert mcp_server.git_act(api, "push", "shop", sleep=lambda _s: None) == "The person said no in keel's Inbox: not now"
     assert not any(p.endswith("/git/push") for p, _ in no.posts)
 
+
+
+# ---------------------------------------------------------------- v0.15.8 keel_dashboard, keel_start_flow
+
+async def test_dashboard_gives_the_views_url(stub, monkeypatch):
+    monkeypatch.delenv("KEEL_PUBLIC_URL", raising=False)
+    srv = mcp_server.build_server(api=stub.api)
+    assert (await call(srv, "keel_dashboard")).startswith("http://keel.test/#/projects/shop/flow\n")
+    monkeypatch.setenv("KEEL_PUBLIC_URL", "http://localhost:8097/")
+    assert (await call(srv, "keel_dashboard", {"view": "er", "project": "blog"})).startswith("http://localhost:8097/#/projects/blog/map/er")
+    assert (await call(srv, "keel_dashboard", {"view": "map"})).startswith("http://localhost:8097/#/projects/shop/map/system")
+
+
+async def test_start_flow_is_a_write_tool_only(stub):
+    assert "keel_start_flow" not in await tool_names(mcp_server.build_server(write=False, api=stub.api))
+    assert "keel_start_flow" in await tool_names(mcp_server.build_server(write=True, api=stub.api))
+
+
+def test_start_flow_posts_to_the_dashboards_endpoint(stub):
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores\nSave a score and show the top ten.", sleep=lambda s: None)
+    path, body = stub.posts[-1]
+    assert path == "/api/projects/shop/flows"
+    assert body == {"workflow_id": "feature", "title": "Player scores", "request": "Player scores\nSave a score and show the top ten.",
+                    "options": {"started_via": "mcp"}}
+    assert "recorded as started via MCP" in text and "It waits for a human: Approve the spec" in text
+
+
+def test_start_flow_refuses_an_unknown_type_and_an_empty_idea(stub):
+    import pytest as _pytest
+
+    with _pytest.raises(mcp_server.ApiError, match='no flow type "nope". keel has: feature, fix'):
+        mcp_server.start_flow(stub.api, "nope", "x", sleep=lambda s: None)
+    with _pytest.raises(mcp_server.ApiError, match="idea is empty"):
+        mcp_server.start_flow(stub.api, "feature", "  ", sleep=lambda s: None)
+    assert not stub.posts

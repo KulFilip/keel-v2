@@ -7,7 +7,7 @@ const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
 export function eventLine(ev: EngineEvent): { k: string; text: string } {
   const d = ev.data ?? {};
   switch (ev.type) {
-    case "thread.started": return { k: "flow", text: "flow started" };
+    case "thread.started": return { k: "flow", text: d.via === "mcp" ? "flow started via MCP" : "flow started" };
     case "step.started": return { k: "phase", text: `${ev.step ?? "step"} started` };
     case "step.finished": return { k: "phase", text: `${ev.step ?? "step"} finished${d.status ? " · " + str(d.status) : ""}` };
     case "helper.started":

@@ -89,11 +89,12 @@ class AgentService(
     private fun customs(pid: String): List<CustomAgent> =
         jdbc.query("SELECT json FROM custom_agents WHERE project_id = ? ORDER BY id", { rs, _ -> Json.read<CustomAgent>(rs.getString(1)) }, pid)
 
-    /** The docs/knowledge sections that exist in the project → file size / 4. */
+    /** The knowledge sections that exist in the project (where its layout keeps them) → file size / 4. */
     fun knowledgeFiles(root: String): Map<String, Int> {
-        val dir = Paths.get(root).resolve("docs").resolve("knowledge")
+        val base = Paths.get(root)
+        val lay = keel.api.knowledge.Layout.resolve(base)
         return Knowledge.SECTIONS.mapNotNull { sec ->
-            val f = dir.resolve("$sec.md")
+            val f = base.resolve(lay.knowledgeFile(base, sec))
             if (Files.isRegularFile(f)) sec to (Files.size(f) / 4).toInt() else null
         }.toMap()
     }

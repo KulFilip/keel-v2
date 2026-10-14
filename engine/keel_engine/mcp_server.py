@@ -4,8 +4,8 @@
 
 Agents get it read-only (the builtin `keel` server in tools/mcp.py and the api's McpService): an agent never
 approves its own gate. A user's Claude Code / Claude Desktop gets it through `keel2 mcp`; `--write` (or
-KEEL_MCP_WRITE=1 without --read-only) adds keel_approve_gate and keel_resume. Read-only mode does not register
-them at all, so a client cannot even see them.
+KEEL_MCP_WRITE=1 without --read-only) adds keel_approve_gate, keel_resume and (v0.15.8) keel_start_flow. Read-only
+mode does not register them at all, so a client cannot even see them.
 
 Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the project whose root holds the
 working directory (an agent runs in its project), else the only (or first) project.
@@ -19,6 +19,7 @@ import sys
 import time
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 
@@ -32,6 +33,10 @@ BUCKET_TEXT = {
     "e2e": "end-to-end tests", "smoke": "smoke tests", "other": "any other file: docs, build files",
 }
 TIMELINE_FILTERS = ("all", "steps", "agents", "failed")
+# keel_dashboard: the web app's page for each view (web/src/routes.ts; #/projects/<id>/… picks the project)
+DASHBOARD_VIEWS = {"flow": "flow", "map": "map/system", "er": "map/er"}
+START_WAIT = 20         # keel_start_flow waits this long for the flow to reach its first gate
+START_POLL = 2
 
 
 class ApiError(Exception):
@@ -281,7 +286,57 @@ def explain(api: KeelApi | None, phase: str | None = None, project: str | None =
     return "\n".join(out)
 
 
+def dashboard_url(api: KeelApi, view: str = "flow", project: str | None = None) -> str:
+    """The web app's URL for a view of the project: KEEL_PUBLIC_URL (keel2 mcp sets it from the running port), else
+    the api's own address (inside the container that is keel's port 8080, not the one on your machine)."""
+    if view not in DASHBOARD_VIEWS:
+        raise ApiError(f'view must be one of: {", ".join(DASHBOARD_VIEWS)}')
+    p = _project(api, project)
+    base = (os.environ.get("KEEL_PUBLIC_URL") or api.url).rstrip("/")
+    return f"{base}/#/projects/{quote(p['id'], safe='')}/{DASHBOARD_VIEWS[view]}"
+
+
+def dashboard(api: KeelApi, view: str = "flow", project: str | None = None) -> str:
+    url = dashboard_url(api, view, project)
+    what = {"flow": "the flow page", "map": "the map", "er": "the database diagram (ER)"}[view]
+    return f"{url}\nOpen it in a browser: {what} of this project in keel's dashboard."
+
+
 # ---------------------------------------------------------------- write tools (only with --write)
+
+def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, sleep=time.sleep,
+               wait: float = START_WAIT) -> str:
+    """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
+    mode and records as a flow started in the web app. It runs until its first human gate, like any flow."""
+    idea = (idea or "").strip()
+    if not idea:
+        raise ApiError("idea is empty: say in a sentence or two what the flow should build or fix.")
+    p = _project(api, project)
+    known = [w.get("id") for w in api.get(f"/projects/{p['id']}/workflows") or [] if w.get("id")]
+    if known and type not in known:
+        raise ApiError(f'no flow type "{type}". keel has: {", ".join(known)}')
+    first = idea.splitlines()[0].strip()
+    title = first if len(first) <= 72 else first[:71].rstrip() + "…"
+    state = api.post(f"/projects/{p['id']}/flows", {"workflow_id": type, "title": title, "request": idea,
+                                                    "options": {"started_via": "mcp"}}) or {}
+    tid = state.get("thread_id")
+    deadline = time.monotonic() + wait
+    while tid and state.get("status") == "running" and time.monotonic() < deadline:
+        sleep(START_POLL)
+        thread, _ = _flow(api, p["id"])
+        if thread and thread.get("thread_id") == tid:
+            state = thread
+    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}), recorded as started via MCP.',
+           f"The flow is {state.get('status')} at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})."]
+    if state.get("waiting"):
+        out.append(f"It waits for a human: {state['waiting'].get('title')}. Decide it in the dashboard or with keel_approve_gate.")
+    elif state.get("status") == "running":
+        out.append("It is still running; keel_status follows it, and it stops at its first gate for a human.")
+    if state.get("cap_note"):
+        out.append(str(state["cap_note"]))
+    out.append(f"Watch it: {dashboard_url(api, 'flow', p['id'])}")
+    return "\n".join(out)
+
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
                  answers: dict[str, str] | None = None) -> str:
@@ -521,6 +576,12 @@ def build_server(write: bool = False, api: KeelApi | None = None):
         """CI/CD plugin: why a run failed (failed jobs, steps and the end of the log); default the newest failed run."""
         return guard(ci_failure, api, project, run_id)
 
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_dashboard(project: str | None = None, view: Literal["flow", "map", "er"] = "flow") -> str:
+        """The web address of a dashboard view for the project, to open in a browser: flow (the flow page), map (the
+        project map) or er (the database diagram)."""
+        return guard(dashboard, api, view, project)
+
     if write:
         rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
@@ -559,6 +620,13 @@ def build_server(write: bool = False, api: KeelApi | None = None):
             return guard(approve_gate, api, decision, project, why, answers)
 
         @srv.tool(annotations=rw, structured_output=False)
+        def keel_start_flow(type: str, idea: str, project: str | None = None) -> str:
+            """Start a keel flow on the project, as the dashboard's "Start a flow" does: type is the workflow id
+            (feature, change, fix, review, ...), idea says in your words what to build or fix (the first line is the
+            title). It runs under keel's guard, budget and records, and stops at its first human gate."""
+            return guard(start_flow, api, type, idea, project)
+
+        @srv.tool(annotations=rw, structured_output=False)
         def keel_resume(decision: Literal["approve", "reject"], thread_id: str | None = None, project: str | None = None,
                         why: str | None = None, payload: dict[str, Any] | None = None) -> str:
             """Resume a waiting flow thread as the dashboard does (POST /api/threads/{id}/resume with decision, why,
@@ -580,6 +648,6 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m keel_engine.mcp", description="keel v2 MCP server (stdio)")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--read-only", action="store_true", help="only the read tools (default; what agents get)")
-    group.add_argument("--write", action="store_true", help="also keel_approve_gate and keel_resume")
+    group.add_argument("--write", action="store_true", help="also keel_approve_gate, keel_resume and keel_start_flow")
     parser.parse_args(argv)
     build_server(write=write_mode(argv)).run("stdio")

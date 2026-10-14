@@ -137,7 +137,7 @@ class RepoApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/memory").json()["facts"].size()).isEqualTo(0)
 
         val wiki = get("/api/projects/$pid/wiki").json()
-        assertThat(wiki["sections"].map { it["id"].asText() }).containsExactly("knowledge", "workflows", "runbook", "decisions")
+        assertThat(wiki["sections"].map { it["id"].asText() }).containsExactly("specs", "knowledge", "workflows", "runbook", "decisions")
         val page = get("/api/projects/$pid/wiki/page?id=kb:architecture").json()
         assertThat(page["markdown"].asText()).contains("Layers live in")
         val wf = get("/api/projects/$pid/wiki/page?id=wf:feature").json()

@@ -21,6 +21,10 @@ class KnowledgeController(private val knowledge: KnowledgeService) {
     @GetMapping("/keel-docs")
     fun keelDocs(@PathVariable pid: String): List<KeelDoc> = knowledge.keelDocs(pid)
 
+    /** v0.15.8 where keel keeps this project's files (keel v1's `layout:`): the write paths and every folder it reads. */
+    @GetMapping("/layout")
+    fun layout(@PathVariable pid: String): Layout = knowledge.layout(pid)
+
     @GetMapping("/memory")
     fun memory(@PathVariable pid: String): Memory = knowledge.memory(pid)
 

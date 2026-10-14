@@ -11,7 +11,7 @@ import { schemaOf } from "../components/er/model";
 import { EmptyState } from "../components/page";
 import { Async, PageHead, Panel, Tabs } from "../components/ui";
 import { clock } from "../format";
-import { useApp, useLoad } from "../state";
+import { useApp, useLoad, useRoute } from "../state";
 
 type LevelId = "system" | "flow" | "modules" | "classes" | "er";
 const LEVELS: [LevelId, string][] = [["system", "System"], ["flow", "Journeys"], ["modules", "Modules"], ["classes", "Classes"], ["er", "Database (ER)"]];
@@ -115,8 +115,11 @@ const tabKey = (pid: string) => `keel2.map.${pid}.tab`;
 
 function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => void; busy: boolean; pid: string }) {
   const { project } = useApp();
+  const { arg } = useRoute();
   const schema = useMemo(() => schemaOf(m), [m]);
   const [tab, setTabState] = useState<LevelId>(() => {
+    // v0.15.8 #/map/er (a keel_dashboard link) opens that level
+    if (arg && LEVELS.some(([k]) => k === arg)) return arg as LevelId;
     try {
       const v = localStorage.getItem(tabKey(pid)) as LevelId | null;
       if (v && LEVELS.some(([k]) => k === v)) return v;

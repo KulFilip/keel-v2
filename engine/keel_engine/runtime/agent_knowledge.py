@@ -80,8 +80,9 @@ def for_agent(agent: str, sent: dict | None) -> dict:
 
 def files(root: str, sections: list[str]) -> list[Path]:
     """The allowed section files that exist in the project."""
-    d = Path(root) / "docs" / "knowledge"
-    return [d / f"{s}.md" for s in sections if (d / f"{s}.md").is_file()]
+    from .knowledge import section_file
+
+    return [f for f in (section_file(root, s) for s in sections) if f.is_file()]
 
 
 def tokens(root: str, sections: list[str]) -> int:
@@ -112,8 +113,10 @@ def prompt_block(root: str, k: dict, graph: bool) -> str:
                      "file:line citations):")
         lines += [f"- {f}: {PURPOSE[f.stem]}" for f in have]
     elif k["sections"]:
+        from .knowledge import knowledge_dir
+
         lines.append(f"Knowledge you can use: none of your sections ({', '.join(k['sections'])}) exist in "
-                     "docs/knowledge/ yet, so read the code.")
+                     f"{knowledge_dir(root)}/ yet, so read the code.")
     if graph and k["code_graph"]:
         lines.append("Code graph: codegraph_search finds where a class, function or route is (file:line, no code); then "
                      "read only those lines (Read with offset and limit) instead of whole files. codegraph_callers, "

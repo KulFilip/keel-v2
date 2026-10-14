@@ -29,8 +29,9 @@ def compose_file(root: str) -> str | None:
 
 
 def existing_sections(root: str) -> list[str]:
-    k = Path(root) / "docs" / "knowledge"
-    return [s for s in SECTIONS if (k / f"{s}.md").is_file()]
+    from .knowledge import section_file
+
+    return [s for s in SECTIONS if section_file(root, s).is_file()]
 
 
 def defaults(root: str, fast: bool = False) -> dict:
@@ -89,19 +90,24 @@ def plan(root: str, init: dict) -> str:
     cmds = testcmd.config_commands(root)
     cfg_exists = (Path(root) / ".keel" / "config.yml").is_file()
     secs = init.get("knowledge_sections") or []
+    from .. import layout
+
+    lay = layout.resolve(root)
     lines = ["keel will do this, in this order. Approve to start; send back to change it.", "",
              f"1. Write .keel/config.yml" + (" — it exists, so it is left as it is" if cfg_exists else ":"),]
     if not cfg_exists:
-        block = {"version": 4, **({"commands": cmds} if cmds else {}), "init": {k: v for k, v in init.items() if k != "said"}}
+        block = {"version": 4, "layout": lay.name, **({"commands": cmds} if cmds else {}),
+                 "init": {k: v for k, v in init.items() if k != "said"}}
         lines += ["   " + l for l in yaml.safe_dump(block, sort_keys=False).splitlines()]
-    lines += ["2. Run the setup ladder (install, build, tests, services up) and write docs/RUNNING.md with every "
+    lines += [f"2. Run the setup ladder (install, build, tests, services up) and write {lay.runbook} with every "
               "command that passed.",
               f"   test command: {cmds.get('api_test_module') or 'none found — the ladder will say so'}",
               f"   one criterion: {cmds.get('api_test_ac') or '-'}",
               f"   services: {init.get('services')}",
-              (f"3. Write the knowledge sections {', '.join(secs)} under docs/knowledge/ (one librarian each, every claim "
+              (f"3. Write the knowledge sections {', '.join(secs)} under {lay.knowledge}/ (one librarian each, every claim "
                "with a file:line citation), at the same time as the ladder." if secs else
                "3. No knowledge sections (you chose none)."),
-              "4. Check that every citation in docs/knowledge/ points at a real line.",
-              "5. Commit it all as chore(setup): keel init. Nothing is pushed."]
+              f"4. Check that every citation in {lay.knowledge}/ points at a real line.",
+              ("5. Commit it all as chore(setup): keel init. Nothing is pushed." if not lay.hidden else
+               f"5. Record it (layout {lay.name}: keel's files stay out of git, so there is no commit). Nothing is pushed.")]
     return "\n".join(lines)

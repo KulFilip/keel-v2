@@ -183,7 +183,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
 
     fun isKeel(rel: String, cfg: ClassifyConfig): Boolean =
         rel == ".keel" || rel.startsWith(".keel/") ||
-            KEEL_DIRS.any { rel == it || rel.startsWith("$it/") } ||
+            (KEEL_DIRS + cfg.keelDirs).any { rel == it || rel.startsWith("$it/") } ||
             (cfg.contractFile.isNotEmpty() && rel == cfg.contractFile) ||
             Regex("(^|/)openapi\\.(ya?ml|json)$").containsMatchIn(rel)
 

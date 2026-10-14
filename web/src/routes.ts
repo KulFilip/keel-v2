@@ -30,6 +30,9 @@ const ALIASES: Record<string, ScreenId> = { code: "repo", keelbot: "helper" };
 /** "#/flow", "#flow", "#/wiki/kb:architecture" → route. Unknown pages fall back to Flow. */
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#\/?/, "");
+  // v0.15.8 a link that names its project (keel_dashboard): #/projects/<id>/<page>[/<arg>]
+  const pm = raw.match(/^projects\/([^/]+)\/(.+)$/);
+  if (pm) return { ...parseHash("#/" + pm[2]), project: decodeURIComponent(pm[1]) };
   const [first, ...rest] = raw.split("/");
   const page = ALIASES[first] ?? first;
   const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;

@@ -28,7 +28,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from .. import rules
+from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import prompts, spec_check, verdict_actions
@@ -70,9 +70,9 @@ def spec_path(a) -> str | None:
         found = [f for f in git.dirty(a.root) if f.endswith(".md") and "spec" in f.lower() and (root / f).is_file()]
         if found:
             return max(found, key=lambda f: (root / f).stat().st_mtime)
-    cfg = rules.load_config(a.root)
-    for d in [((cfg.get("specs") or {}).get("dir") if isinstance(cfg.get("specs"), dict) else None), "docs/specs", "specs"]:
-        if d and (root / d).is_dir():
+    # every spec folder of the project's layout (keel_engine/layout.py), its own first: a mixed project has two
+    for d in layout.resolve(a.root).spec_dirs:
+        if (root / d).is_dir():
             mine = [p for p in (root / d).glob("*.md") if _slug(a.title, 30) in p.stem]
             if mine:
                 return str(max(mine, key=lambda p: p.stat().st_mtime).relative_to(root))
@@ -222,12 +222,13 @@ def _frontmatter(text: str, values: dict) -> str:
 
 def spec_freeze(a):
     """keel v1: on approval, status frozen and approved/frozen dated today, then `keel commit docs SPEC "spec and plan"`.
-    Only the spec is committed. From here specs/ is refused in red, green and gate: a change is a dated amendment."""
+    Only the spec is committed (in a hidden layout, keel or external, it is recorded instead). From here the spec
+    folders are refused in red, green and gate: a change is a dated amendment."""
     from .actions import commit
 
     spec = spec_path(a)
     if not spec:
-        return _fail("There is no spec file to freeze.", "Write the spec under docs/specs/ first.")
+        return _fail("There is no spec file to freeze.", f"Write the spec under {layout.resolve(a.root).specs}/ first.")
     f = Path(a.root) / spec
     day = _today()
     f.write_text(_frontmatter(f.read_text(errors="replace"), {"status": "frozen", "approved": day, "frozen": day}))
@@ -484,7 +485,8 @@ def close_flow(a):
     done = sum(1 for x in a.acs if x.get("status") in DONE)
     adrs = []
     if git.is_repo(a.root) and a.base:
-        adrs = [f for f in git.git(a.root, "diff", "--name-only", f"{a.base}..HEAD", "--", "docs/adr").stdout.splitlines() if f.strip()]
+        adrs = [f for f in git.git(a.root, "diff", "--name-only", f"{a.base}..HEAD", "--", *layout.resolve(a.root).adr_dirs).stdout.splitlines()
+                if f.strip()]
     note = f"{done}/{len(a.acs)} criteria done; " + (f"ADR: {', '.join(adrs)}" if adrs else "no ADR (no decision had a real alternative)")
     if done < len(a.acs):
         note += "; some criteria are not done: look at the board and the gate log"

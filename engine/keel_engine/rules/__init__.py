@@ -15,7 +15,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import yaml
 
 _DATA = json.loads((Path(__file__).parent / "data" / "keel_rules.json").read_text())
 
@@ -85,17 +84,21 @@ def make_config(overrides: dict | None = None) -> dict:
 
 
 def load_config(root: str | Path | None) -> dict:
-    """The project's `.keel/config.yml` merged over keel's defaults (defaults when absent)."""
-    if root:
-        f = Path(root) / ".keel" / "config.yml"
-        if f.is_file():
-            try:
-                data = yaml.safe_load(f.read_text()) or {}
-                if isinstance(data, dict):
-                    return make_config(data)
-            except yaml.YAMLError:
-                pass
-    return make_config()
+    """The project's `.keel/config.yml` merged over keel's defaults (defaults when absent), with its layout applied:
+    `layout` and `paths` (keel_engine/layout.py), `specs.dir` the folder new specs go to and `specs.dirs` every spec
+    folder the guard protects (a mixed project has .keel/specs and docs/specs)."""
+    if not root:
+        return make_config()
+    from .. import layout
+
+    data = layout.raw_config(root)
+    cfg = make_config(data)
+    lay = layout.resolve(root, data)
+    cfg["layout"] = lay.name
+    cfg["paths"] = {"specs": lay.specs, "knowledge": lay.knowledge, "adr": lay.adr, "runbook": lay.runbook,
+                    "claude": lay.claude}
+    cfg["specs"] = {**cfg["specs"], "dir": lay.specs, "dirs": list(lay.spec_dirs)}
+    return cfg
 
 
 # ---------------------------------------------------------------- phases
@@ -196,7 +199,7 @@ def classify(cfg: dict | None, path: str) -> str:
         return "contract"
     if re.search(r"openapi\.(ya?ml|json)$", rel):
         return "contract"
-    if in_dir(cfg["specs"].get("dir")):
+    if in_dir(cfg["specs"].get("dir")) or any(in_dir(d) for d in cfg["specs"].get("dirs") or []):
         return "specs"
     if in_dir(cfg["e2e"].get("dir")):
         return "e2e"
@@ -318,9 +321,10 @@ def check_read(path: str, cfg: dict | None = None) -> Verdict:
 
 # ---------------------------------------------------------------- per-agent knowledge (strict mode)
 
-# The knowledge base sections an agent can be given (docs/knowledge/<section>.md). index.md is not a section.
+# The knowledge base sections an agent can be given (docs/knowledge/<section>.md, or .keel/knowledge/ in a keel or
+# external layout). index.md is not a section.
 KNOWLEDGE_SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
-_KNOWLEDGE_FILE = re.compile(r"(?:^|[/\s'\"])docs/knowledge/(" + "|".join(KNOWLEDGE_SECTIONS) + r")\.md\b")
+_KNOWLEDGE_FILE = re.compile(r"(?:^|[/\s'\"])(?:docs|\.keel)/knowledge/(" + "|".join(KNOWLEDGE_SECTIONS) + r")\.md\b")
 
 
 def check_knowledge(path_or_command: str, agent: str, allowed: list[str] | None, strict: bool) -> Verdict:

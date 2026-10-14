@@ -57,15 +57,44 @@ def add(root: str, name: str, branch: str, start: str | None = None) -> dict:
 
 
 def remove(root: str, path: str, branch: str | None = None) -> None:
-    """The worktree away (also when its files changed), then its branch unless `branch` is None (kept for a hand-over)."""
+    """The worktree away (also when its files changed), then its branch unless `branch` is None (kept for a hand-over).
+    keel's own files there (a hidden layout keeps them out of git) are copied back to the project folder first."""
     p = Path(path)
     if p.exists():
+        keep_keel_files(root, p)
         r = git.git(root, "worktree", "remove", "--force", str(p))
         if r.returncode != 0 and p.is_relative_to(Path(root) / DIR):
             shutil.rmtree(p, ignore_errors=True)
     git.git(root, "worktree", "prune")
     if branch:
         git.git(root, "branch", "-D", branch)
+
+
+def keep_keel_files(root: str, wt: Path) -> list[str]:
+    """layout keel / external: specs, knowledge, ADRs and the runbook a flow wrote in its worktree are not in git, so
+    they would go with the worktree. Copy each into the project folder, unless the file there is newer."""
+    from .. import layout
+
+    lay = layout.resolve(root)
+    if not lay.hidden:
+        return []
+    copied = []
+    for d in (lay.specs, lay.knowledge, lay.adr):
+        for f in sorted((wt / d).glob("*.md")) if (wt / d).is_dir() else []:
+            rel = f"{d}/{f.name}"
+            if _copy_newer(f, Path(root) / rel):
+                copied.append(rel)
+    if (wt / lay.runbook).is_file() and _copy_newer(wt / lay.runbook, Path(root) / lay.runbook):
+        copied.append(lay.runbook)
+    return copied
+
+
+def _copy_newer(src: Path, dst: Path) -> bool:
+    if dst.is_file() and (dst.stat().st_mtime > src.stat().st_mtime or dst.read_bytes() == src.read_bytes()):
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return True
 
 
 def _text(root: str, base: str, rel: str) -> str | None:

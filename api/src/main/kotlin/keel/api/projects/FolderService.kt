@@ -80,7 +80,7 @@ class FolderService(private val props: KeelProperties, private val projects: Pro
             Paths.get(raw).toAbsolutePath().normalize()
         }
         val root = allowed.filter { path.startsWith(it) }.maxByOrNull { it.nameCount } ?: throw outside(raw)
-        if (!Files.isDirectory(path)) throw NotFound("There is no folder at $path", "GET /api/folders lists the folders keel may look in.")
+        if (!Files.isDirectory(path)) throw NotFound(notMounted(path.toString()))
         val inside = realRoots()
         val real = runCatching { path.toRealPath() }.getOrNull() ?: throw outside(raw)
         if (inside.none { real.startsWith(it) }) throw outside(raw)

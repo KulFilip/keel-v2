@@ -438,7 +438,13 @@ export type KeelMap = {
 };
 export type MapResponse = KeelMap | { missing: string };
 
-export type WikiTree = { sections: { id: string; title: string; items: { id: string; title: string; status?: string }[] }[] };
+export type WikiTree = {
+  sections: { id: string; title: string; items: { id: string; title: string; status?: string }[] }[];
+  /** v0.15.8 an external layout whose folder keel cannot see: what to do */
+  notice?: string | null;
+  /** v0.15.8 where keel keeps the project's files: repo | keel | external */
+  layout?: string | null;
+};
 export type WikiPage = { id: string; title: string; markdown: string; meta: Record<string, unknown> };
 
 export type InstallReview = {

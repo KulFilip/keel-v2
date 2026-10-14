@@ -105,7 +105,7 @@ class FoldersApiTest : ApiTest() {
         val deep = res["added"][0]["id"].asText()
         assertThat(res["skipped"].map { it["root"].asText() }).containsExactly(web, main.resolve("no-such-folder").toString())
         assertThat(res["skipped"][0]["why"].asText()).isEqualTo("already a project ($first)")
-        assertThat(res["skipped"][1]["why"].asText()).contains("There is no folder")
+        assertThat(res["skipped"][1]["why"].asText()).isEqualTo(keel.api.projects.notMounted(main.resolve("no-such-folder").toString()))
 
         // the list marks both as projects now
         val repos = get("/api/folders").json()["repos"]

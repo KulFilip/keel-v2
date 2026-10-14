@@ -128,7 +128,7 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
     fun register(rootText: String, name: String? = null, scan: Boolean = true): ProjectRow {
         if (rootText.isBlank()) throw BadRequest("root is empty", "Send the absolute path of the repo inside the container.")
         val root = Paths.get(rootText).toAbsolutePath().normalize()
-        if (!Files.isDirectory(root)) throw BadRequest("There is no folder at $root", "Mount the project and use the path inside the container.")
+        if (!Files.isDirectory(root)) throw BadRequest(notMounted(root.toString()))
         val existing = jdbc.query("SELECT id, name, root FROM projects WHERE root = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root.toString()).firstOrNull()
         if (existing != null) return existing
         val base = Slug.of(name?.takeIf { it.isNotBlank() } ?: root.fileName?.toString() ?: "project")
@@ -196,6 +196,9 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         return listOf(0, 0)
     }
 }
+
+/** v0.15.8 a folder keel cannot see (not mounted): what the person does about it, in one sentence. */
+fun notMounted(path: String) = "keel can't see $path. Run `keel2 add $path` in a terminal first, then add it here."
 
 /** Marker appended to a parked workspace project's root. */
 const val PARKED = "#parked:"

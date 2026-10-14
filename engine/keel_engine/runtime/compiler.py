@@ -1050,7 +1050,7 @@ class Compiler:
             # Started without a list (the plain "start a flow" form): the sections init chose, else the ones that
             # exist, else all five. A librarian always gets its own section; without one it wanders.
             chosen = (rules.load_config(self.ctx.root).get("init") or {}).get("knowledge_sections")
-            have = [s for s in init_gates.SECTIONS if (Path(self.ctx.root) / "docs" / "knowledge" / f"{s}.md").is_file()]
+            have = init_gates.existing_sections(self.ctx.root)
             secs = list(chosen) if isinstance(chosen, list) and chosen else (have or list(init_gates.SECTIONS))
         return secs
 

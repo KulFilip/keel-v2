@@ -159,6 +159,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // v0.15.8 #/projects/<id>/<page> (a keel_dashboard link) picks that project, then shows the plain #/<page> link
+  useEffect(() => {
+    const pick = () => {
+      const r = parseHash(location.hash);
+      if (!r.project || !projects.some((p) => p.id === r.project)) return;
+      setProjectId(r.project);
+      const h = location.hash.replace(/^#\/?projects\/[^/]+/, "#");
+      history.replaceState(null, "", h);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    };
+    pick();
+    window.addEventListener("hashchange", pick);
+    return () => window.removeEventListener("hashchange", pick);
+  }, [projects, setProjectId]);
+
   // ---- notifications ----
   const nsetRef = useRef(nset);
   nsetRef.current = nset;

@@ -197,9 +197,19 @@ claude mcp add keel-v2 -- "$(command -v keel2)" mcp      # Claude Code, read-onl
 keel2 mcp --print-config                                 # the same line + the Claude Desktop JSON
 ```
 
-Read-only by default. With `keel2 mcp --write` (and `--write --print-config`) your Claude can also approve or send
-back a waiting gate. keel's own agents always get it read-only. keel v1 is a separate project; its MCP server can be
+Read-only by default. `keel_dashboard` gives the link to a project's flow, map or database diagram. With
+`keel2 mcp --write` (and `--write --print-config`) your Claude can also approve or send back a waiting gate, and start
+a flow (`keel_start_flow`: a type such as feature or fix, and the idea in your words); it runs under keel's guard and
+budget, stops at its first gate, and its timeline says "flow started via MCP". keel's own agents always get it read-only. keel v1 is a separate project; its MCP server can be
 added like any other: `keel2 start --with-keel-v1 <keel checkout>`, then turn on "keel v1 (optional)" in Tools.
+
+## Where keel keeps its files (layouts)
+
+keel reads keel v1's `layout:` from `.keel/config.yml`: `repo` (specs in `docs/specs` or `specs`, `docs/knowledge`,
+`docs/adr`, `docs/RUNNING.md`, committed with your code), `keel` (all of it in `.keel/`, which keel hides from git in
+`.git/info/exclude`) or `external` (`.keel` is a link to a folder outside the repo; add that folder too:
+`keel2 add <folder>`). A project that has keel files in `docs/` keeps them there. A project with both `.keel/specs`
+and `docs/specs` shows both in the Wiki and in Code › keel files.
 
 ## Docker mode
 

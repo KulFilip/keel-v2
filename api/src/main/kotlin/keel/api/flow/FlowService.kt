@@ -269,8 +269,10 @@ class FlowService(
         if (allowDirty) return
         val r = repo.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
+        // v0.15.8 layout keel / external: .keel/ holds keel's own files, outside git (the engine hides it at flow start)
+        val hidden = keel.api.knowledge.Layout.resolve(root).hidden
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
-            .filterNot { WorkspaceDoctor.isEngineFile(it) }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
         if (files.isEmpty()) return
         throw Conflict(
             "This project has uncommitted changes (${files.size} file${if (files.size == 1) "" else "s"}): ${files.take(5).joinToString()}${if (files.size > 5) ", …" else ""}",

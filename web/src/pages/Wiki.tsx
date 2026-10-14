@@ -136,6 +136,7 @@ export function WikiPage({ pid }: { pid: string }) {
       <PageHead title="Wiki"
         sub={`What keel knows about ${project?.name ?? pid}: the knowledge base the librarians write, a page for every workflow, the setup runbook and decisions.`}
         actions={<RefreshStaleButton pid={pid} sections={stale} className="btn" />} />
+      {tree.data?.notice && <div className="errbox" role="alert" style={{ marginBottom: 16 }}><b>keel cannot see this project's own files:</b> {tree.data.notice}</div>}
       {tree.error ? <ErrorBox error={tree.error} onRetry={() => void tree.reload()} /> : !tree.data ? <div className="panel"><Skeleton lines={6} label="Loading the wiki" /></div> : (() => {
         const t = tree.data;
         if (!t.sections.some((s) => s.items.length)) {
