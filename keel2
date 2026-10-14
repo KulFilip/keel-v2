@@ -664,7 +664,10 @@ ND="${KEEL_HOME2:-$HOME/.keel2}/$NAME"
 RELEASE_URL="${KEEL_RELEASE_URL:-https://github.com/MiladNalbandi/keel-v2/releases/download}"
 native_mode() { [ -f "$ND/mode" ] && [ "$(cat "$ND/mode" 2>/dev/null)" = native ]; }
 native_pid() { cat "$ND/run/keel.pid" 2>/dev/null || true; }
-native_running() { local p; p="$(native_pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+native_running() {  # the pid file's process is alive and is keel's own start script (not a pid reused after a reboot)
+  local p; p="$(native_pid)"
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null && ps -p "$p" -o command= 2>/dev/null | grep -q "keel-native-start"
+}
 native_port() { sed -n 's/^api=//p' "$ND/run/ports" 2>/dev/null || true; }
 sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 docker_keel_running() { command -v docker >/dev/null 2>&1 && [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null || echo false)" = true ]; }
@@ -897,7 +900,10 @@ cmd_help() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit 
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
-  start)            cmd_start "$@" ;;
+  start)            # a stopped native keel, started with Docker now: forget native mode, then load the Docker helpers again
+                    case " $* " in *" --native "*|*" --from-tarball "*|*" --from-source "*) ;;
+                      *) if native_mode && ! native_running; then rm -f "$ND/mode"; exec "$0" start "$@"; fi ;; esac
+                    cmd_start "$@" ;;
   --docker)         cmd_start --docker "$@" ;;          # keel2 --docker <folder>   (older form)
   stop)             cmd_stop "$@" ;;
   restart)          [ "${1:-}" = "--force" ] && KEEL_FORCE=1; cmd_restart ;;

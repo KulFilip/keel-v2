@@ -64,9 +64,9 @@ class KeelApi:
             return {}
         return {"X-Keel-Via": "mcp", "X-Keel-Client": self.client[:80], "X-Keel-Tool": self.tool[:80]}
 
-    def _raw(self, method: str, path: str, **kw) -> httpx.Response:
+    def _raw(self, method: str, path: str, timeout: float | None = None, **kw) -> httpx.Response:
         try:
-            res = self.http.request(method, path, headers=self._audit(method), **kw)
+            res = self.http.request(method, path, headers=self._audit(method), **({"timeout": timeout} if timeout else {}), **kw)
         except httpx.HTTPError as exc:
             raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}). Is keel running? (keel2 status)") from exc
         if res.status_code >= 400:
@@ -97,8 +97,8 @@ class KeelApi:
         """GET a route; `params` are the query (a `path` query parameter is fine: the route is positional)."""
         return self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
 
-    def post(self, path: str, body: dict) -> Any:
-        return self._send("POST", path, json=body)
+    def post(self, path: str, body: dict, timeout: float | None = None) -> Any:
+        return self._send("POST", path, json=body, timeout=timeout)
 
 
 # ---------------------------------------------------------------- helpers
@@ -740,7 +740,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
         lv = action_docs.action_level(action)
         if lv == "read":
-            return guard(more.run_action, api, action, lvl, args, project)
+            return await anyio.to_thread.run_sync(lambda: guard(more.run_action, api, action, lvl, args, project))
         return await act(ctx, "keel_run_action", f"run the action {action}", more.run_action, api, action, lvl, args, project)
 
     # ---------------------------------------------------------------- write

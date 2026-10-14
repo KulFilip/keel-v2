@@ -435,3 +435,19 @@ def test_read_file_and_spec_history_send_path_as_a_query(stub):
     assert "version 1 · agent explorer" in mcp_more.specs(stub.api, path=".keel/specs/s.md", history=True)
     assert ("/api/projects/shop/repo/raw", "README.md") in asked
     assert ("/api/projects/shop/docs/history/versions", ".keel/specs/s.md") in asked
+
+
+def test_run_action_waits_as_long_as_a_test_suite(stub):
+    from keel_engine import mcp_more
+
+    seen = {}
+
+    def route(req):
+        if req.url.path == "/api/projects/shop/actions/trace":
+            seen["timeout"] = req.extensions.get("timeout", {}).get("read")
+            return httpx.Response(200, json={"ok": True, "note": "traced"})
+        return stub(req)
+
+    stub.api.http._transport = httpx.MockTransport(route)
+    assert "trace: ok" in mcp_more.run_action(stub.api, "trace", "read")
+    assert seen["timeout"] == mcp_more.ACTION_TIMEOUT

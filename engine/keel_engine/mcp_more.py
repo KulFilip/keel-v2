@@ -18,6 +18,7 @@ SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentia
                 ".git-credentials", ".htpasswd", "terraform.tfvars"}
 SECRET_SUFFIX = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks", ".p8", ".kdbx")
 READ_MAX_LINES = 400
+ACTION_TIMEOUT = 900
 
 
 def is_secret(path: str) -> bool:
@@ -188,7 +189,8 @@ def run_action(api: KeelApi, action: str, level: str, args: dict | None = None, 
     if _rank(level) < _rank(lv):
         raise ApiError(f"{action} is a {lv} action; this MCP server runs at level {level}.")
     p = _project(api, project)
-    r = api.post(f"/projects/{p['id']}/actions/{_q(action)}", {"args": args or {}}) or {}
+    # a check like verify_release runs the whole test suite: wait as long as the api waits for the engine
+    r = api.post(f"/projects/{p['id']}/actions/{_q(action)}", {"args": args or {}}, timeout=ACTION_TIMEOUT) or {}
     return f"{action}: {'ok' if r.get('ok') else 'failed'} · {r.get('note') or ''}" + (f"\n{r['detail']}" if r.get("detail") else "")
 
 
