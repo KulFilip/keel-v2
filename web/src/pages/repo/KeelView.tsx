@@ -1,6 +1,7 @@
 // The keel activity: which phase and rule apply to the open file (with its history and an unlock for this phase),
 // and keel's own pages — the files keel wrote and what agents remember (Memory) — which open as editor tabs.
 
+import { DocProblems } from "../../components/DocHistory";
 import { Fragment, useState } from "react";
 import { api, errorParts, type Commit, type Fact, type FactKind, type Memory, type RepoFile } from "../../api";
 import { RefreshStaleButton } from "../../components/RefreshStale";
@@ -159,6 +160,7 @@ export function DocsView({ pid, onOpen }: { pid: string; onOpen: (path: string) 
           )}
         </Async>
       </Panel>
+      <DocProblems pid={pid} />
       <p className="hint">Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. A flow's state and events live in keel's data, not in <span className="mono">.keel/</span>.</p>
     </div>
   );
