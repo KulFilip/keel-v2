@@ -310,6 +310,7 @@ def commit(a: ActionInput) -> ActionResult:
         # layout keel / external: .keel/ is outside git (keel v1 records these steps instead of committing them)
         kept = [p for p in paths if p != ".keel" and not p.startswith(".keel/")]
         if not kept:
+            _applied(a, "recorded", paths[0], f"{a.phase}: {a.title or a.flow}", paths)
             return ActionResult(True, f"Recorded, not committed: layout {lay.name} keeps keel's files out of git.",
                                 "\n".join(paths))
         paths = kept
@@ -409,10 +410,22 @@ def commit(a: ActionInput) -> ActionResult:
         git.git(a.root, "reset", "-q")
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
+    if sha:
+        _applied(a, "commit", sha, message, staged)
     codegraph.sync_later(a.root)            # the code graph follows every keel commit (best effort, in the background)
     tail_note = f" · tools: {'; '.join(tool_notes)}" if tool_notes else ""
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note, "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key)})
+
+
+def _applied(a: ActionInput, kind: str, ref: str, subject: str, files: list[str]) -> None:
+    """v0.15.9 what a flow applied on top of the repo (api DocHistoryService.applied): a commit, or files recorded."""
+    if not a.thread_id:
+        return
+    from ..events import bus
+
+    bus.emit("keel.applied", a.thread_id, a.project or "", data={"kind": kind, "sha": ref if kind == "commit" else None,
+                                                                 "ref": ref, "subject": subject, "files": list(files)})
 
 
 def _pre_commit_tools(a: ActionInput, staged: list[str]):

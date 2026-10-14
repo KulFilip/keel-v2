@@ -29,6 +29,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, models, rules
+from . import doc_history
 from .. import plugins as keel_plugins
 from ..models import catalog
 from ..models import usage as provider_usage
@@ -238,7 +239,12 @@ class Compiler:
             if item:
                 started["item"] = item
             ctx.emit("step.started", step=step.id, data=started)
+            # v0.15.9 keel's file history: what changed before this step (outside keel) and during it (runtime/doc_history.py)
+            docs_before = doc_history.before_step(ctx.emit, ctx.root, phase, step.id)
             update, goto = await fn(i, step, {**state, "phase": phase})
+            by_kind, by_name = doc_history.who(step)
+            doc_history.after_step(ctx.emit, ctx.root, docs_before, by_kind, by_name, phase, step.id,
+                                   (state.get("data") or {}).get("started_via"))
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
             update.setdefault("phase", phase)
