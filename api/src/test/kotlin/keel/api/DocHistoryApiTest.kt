@@ -80,6 +80,46 @@ class DocHistoryApiTest : ApiTest() {
     }
 
     @Test
+    fun `the diff reads only keel's own files with a history, never any other file`() {
+        val (pid, root) = newProject("history-diff-paths", mapOf(".keel/config.yml" to "layout: keel\n", ".env" to "TOKEN=x\n"))
+        send(version(pid, "t-6", "# Scores\n"))
+        for (p in listOf("/etc/passwd", "../../etc/passwd", ".env", ".keel/specs/../../.env", "README.md")) {
+            get("/api/projects/$pid/docs/history/diff?path=$p&from=file&to=file").andExpect(status().isBadRequest)
+        }
+        Files.createDirectories(root.resolve(".keel/specs"))
+        Files.writeString(root.resolve(path), "# Scores\n")
+        get("/api/projects/$pid/docs/history/diff?path=$path&from=file&to=file").andExpect(status().isOk)
+    }
+
+    @Test
+    fun `restore never writes through a symlink, nor a version stored with masked lines`(@Autowired jdbc: JdbcTemplate) {
+        val (pid, root) = newProject("history-symlink", mapOf(".keel/config.yml" to "layout: keel\n"))
+        val outside = Files.createTempFile("keel-outside", ".txt")
+        Files.writeString(outside, "keep me\n")
+        Files.createDirectories(root.resolve(".keel/specs"))
+        Files.createSymbolicLink(root.resolve(path), outside)
+        send(version(pid, "t-7", "# Scores\n"))
+        val id = get("/api/projects/$pid/docs/history/versions?path=$path").json()[0]["id"].asText()
+        post("/api/projects/$pid/docs/history/restore", mapOf("version_id" to id)).andExpect(status().isBadRequest)
+        assertThat(Files.readString(outside)).isEqualTo("keep me\n")
+
+        Files.delete(root.resolve(path))
+        jdbc.update("UPDATE doc_versions SET masked = 1 WHERE id = ?", id)
+        post("/api/projects/$pid/docs/history/restore", mapOf("version_id" to id)).andExpect(status().isConflict)
+    }
+
+    @Test
+    fun `a repeated keel_applied is one row, and a huge diff is not drawn`() {
+        val (pid, _) = newProject("history-dedupe", mapOf(".keel/config.yml" to "layout: keel\n"))
+        val applied = mapOf("type" to "keel.applied", "thread_id" to "t-8", "project_id" to pid, "at" to "2026-10-14T10:01:00Z",
+            "data" to mapOf("kind" to "commit", "sha" to "abc", "subject" to "s", "files" to listOf(path)))
+        send(applied, applied)
+        assertThat(get("/api/threads/t-8/applied").json()["items"]).hasSize(1)
+        val big = (1..2500).joinToString("\n") { "line $it" }
+        assertThat(DocHistoryService.unified(big, big + "\nmore", "x.md")).contains("too big to compare")
+    }
+
+    @Test
     fun `restore only writes keel's own files`(@Autowired jdbc: JdbcTemplate) {
         val (pid, _) = newProject("history-outside", mapOf(".keel/config.yml" to "layout: keel\n"))
         jdbc.update("INSERT INTO doc_versions(id, project_id, path, kind, version, sha256, content, size, by_kind, at) VALUES " +

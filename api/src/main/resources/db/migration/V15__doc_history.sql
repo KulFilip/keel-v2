@@ -11,6 +11,7 @@ CREATE TABLE doc_versions (
     content     TEXT,
     size        INTEGER NOT NULL,
     deleted     INTEGER NOT NULL DEFAULT 0,
+    masked      INTEGER NOT NULL DEFAULT 0,
     by_kind     TEXT NOT NULL,
     by_name     TEXT,
     via         TEXT,
@@ -35,3 +36,4 @@ CREATE TABLE flow_applied (
     at          TEXT NOT NULL
 );
 CREATE INDEX flow_applied_thread ON flow_applied (thread_id, at);
+CREATE UNIQUE INDEX flow_applied_once ON flow_applied (thread_id, kind, ref);

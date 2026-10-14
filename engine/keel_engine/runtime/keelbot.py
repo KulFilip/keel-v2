@@ -35,7 +35,7 @@ ABOUT = {
     "hunt": "read-only bug hunt: hunters per lens, provers reproduce each candidate, a report",
     "hunt-next": "take the top bug of the last hunt into a fix flow",
     "init": "set a project up for keel: architecture, setup checks, knowledge pages",
-    "knowledge-refresh": "refresh the project's knowledge pages (docs/knowledge/)",
+    "knowledge-refresh": "refresh the project's knowledge pages (docs/knowledge/ or .keel/knowledge/)",
 }
 
 MAX_FLOWS = 8

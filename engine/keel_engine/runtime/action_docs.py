@@ -216,15 +216,15 @@ DOCS: dict[str, dict] = {
         ],
     },
     "ladder": {
-        "summary": "Runs the setup ladder (build, test, boot, health ...) rung by rung and writes docs/RUNNING.md.",
+        "summary": "Runs the setup ladder (build, test, boot, health ...) rung by rung and writes the runbook (docs/RUNNING.md or .keel/RUNNING.md).",
         "steps": [
             "Each rung must pass before the next one runs; the first failure stops the ladder.",
-            "Every command that passed is written to docs/RUNNING.md.",
+            "Every command that passed is written to the runbook (docs/RUNNING.md or .keel/RUNNING.md, as the layout says).",
             "Simulated with the fake model.",
         ],
     },
     "knowledge_check": {
-        "summary": "Checks docs/knowledge/: citations resolve, no placeholders, the chosen sections exist; writes the memory "
+        "summary": "Checks the knowledge base (docs/knowledge/ or .keel/knowledge/): citations resolve, no placeholders, the chosen sections exist; writes the memory "
                    "verdict.",
     },
     "memory_check": {
@@ -482,7 +482,7 @@ DOCS: dict[str, dict] = {
     },
     "ladder_soft": {
         "summary": "Runs the setup ladder without stopping the flow; failing rungs go to the setup doctor (marker LADDER).",
-        "steps": ["Runs every rung (see ladder) and writes docs/RUNNING.md.",
+        "steps": ["Runs every rung (see ladder) and writes the runbook (docs/RUNNING.md or .keel/RUNNING.md).",
                   "Failing rungs become data.failed_rungs, one setup-doctor item each; marker LADDER = green | retry | "
                   "stuck (stuck = a rung failed fix_attempts_per_rung times and the rung gate asks you)."],
     },

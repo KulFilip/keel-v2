@@ -81,8 +81,15 @@ def missing_text(target: str) -> str:
 
 
 def _sub(cfg: dict, sec: str, key: str) -> str | None:
+    """A folder or file the config names, relative to the project. One that is absolute, starts with ~ or climbs out
+    with .. is ignored (a cloned repo's config must not point keel at files outside it)."""
     v = (cfg.get(sec) or {}).get(key) if isinstance(cfg.get(sec), dict) else None
-    return str(v).strip().strip("/") or None if v else None
+    if not v:
+        return None
+    raw = str(v).strip()
+    if raw.startswith(("/", "~", "\\")) or ".." in raw.replace("\\", "/").split("/"):
+        return None
+    return raw.strip("/") or None
 
 
 def _existing(root: Path, first: str, others: tuple[str, ...] | list[str], is_file: bool = False) -> tuple[str, ...]:
@@ -100,13 +107,13 @@ def has_legacy_files(root: Path) -> bool:
     return (root / "specs").is_dir() and any((root / "specs").glob("*.md"))
 
 
-def default_name(root: Path, linked: bool) -> str:
+def default_name(root: Path, linked: bool, cfg: dict | None = None) -> str:
     """The layout of a project whose config has no `layout:` key: a .keel link is external (the config may sit behind
-    it, out of sight), keel files in docs/ keep `repo` (existing projects never move by themselves), else the new
-    projects' default."""
+    it, out of sight), keel files in docs/ or a config that names keel's folders (specs.dir, memory.dir,
+    setup.runbook) keep `repo` (existing projects never move by themselves), else the new projects' default."""
     if linked:
         return "external"
-    if has_legacy_files(root):
+    if has_legacy_files(root) or any(_sub(cfg or {}, s, k) for s, k in (("specs", "dir"), ("memory", "dir"), ("setup", "runbook"))):
         return "repo"
     return NEW_PROJECT
 
@@ -125,7 +132,7 @@ def resolve(root: str | Path, cfg: dict | None = None) -> Layout:
     cfg = raw_config(r) if cfg is None else cfg
     name = str(cfg.get("layout") or "").strip()
     if name not in LAYOUTS:
-        name = default_name(r, link is not None)
+        name = default_name(r, link is not None, cfg)
     if name == "repo":
         set_dir = _sub(cfg, "specs", "dir")
         specs = set_dir or next((d for d in REPO_SPEC_DIRS if (r / d).is_dir()), REPO["specs"])

@@ -728,7 +728,6 @@ class HelperRunner:
         def doc_emit(type_: str, step: str | None = None, data: dict | None = None):
             self.bus.emit(type_, sid, project, step=step or "helper", call_id=call_id, data=data or {})
 
-
         know = agent_knowledge.for_agent(AGENT, body.get("agents"))
         cfg = rules.load_config(root)
         flow = body.get("flow") or {}

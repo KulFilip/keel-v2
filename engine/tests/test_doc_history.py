@@ -58,6 +58,7 @@ def test_secrets_are_masked_and_big_files_have_no_content(tmp_path):
                                ".keel/specs/big.md": "x" * (doc_history.MAX_CONTENT + 1)})
     ev = {d["path"]: d for d in doc_history.changes(str(r), {})}
     assert "AKIA" not in ev[".keel/specs/s.md"]["content"] and "ok line" in ev[".keel/specs/s.md"]["content"]
+    assert ev[".keel/specs/s.md"]["masked"] is True and ev.get(".keel/specs/big.md", {}).get("masked") is None
     assert "content" not in ev[".keel/specs/big.md"] and ev[".keel/specs/big.md"]["size"] == doc_history.MAX_CONTENT + 1
 
 
@@ -71,3 +72,10 @@ def test_commits_and_records_are_sent_as_keel_applied(tmp_path, monkeypatch):
     assert res.ok
     ev = [e for e in bus.of("t-h", "keel.applied")]
     assert ev and ev[-1]["data"]["kind"] == "recorded" and ev[-1]["data"]["files"] == [".keel/specs/x.md"]
+
+
+def test_a_private_key_block_is_masked_whole(tmp_path):
+    key = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH PRIVATE KEY-----"  # keel:allow-secret (a fake key)
+    r = _repo(tmp_path / "p", {".keel/config.yml": "layout: keel\n", ".keel/specs/k.md": "# K\n" + key + "\nafter\n"})
+    d = doc_history.changes(str(r), {})[0]
+    assert "b3BlbnNz" not in d["content"] and "after" in d["content"] and d["masked"] is True

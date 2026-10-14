@@ -5,7 +5,7 @@ import { get, post } from "./api";
 
 export type DocVersion = {
   id: string; path: string; kind: string; version: number; sha256: string; size: number; deleted: boolean;
-  by_kind: "agent" | "keelbot" | "user" | "mcp" | "keel" | "outside" | string; by_name?: string | null; via?: string | null;
+  by_kind: "agent" | "keelbot" | "user" | "keel" | "outside" | string; by_name?: string | null; via?: string | null;
   thread_id?: string | null; step?: string | null; phase?: string | null; commit_sha?: string | null; at: string; content?: string | null;
 };
 export type DocFile = { path: string; kind: string; versions: number; at: string; state: "ok" | "missing" | "changed" | "deleted" | "unreadable" };
@@ -25,7 +25,7 @@ export const docHistoryApi = {
 
 /** Who changed a version, in words. */
 export function byText(v: DocVersion): string {
-  const who = { agent: v.by_name ?? "an agent", keelbot: "KeelBot", user: "you", mcp: "MCP", keel: `keel (${v.by_name ?? "a step"})`,
+  const who = { agent: v.by_name ?? "an agent", keelbot: "KeelBot", user: "you", keel: `keel (${v.by_name ?? "a step"})`,
     outside: "outside keel" }[v.by_kind] ?? v.by_kind;
   return v.via === "mcp" ? `${who} · via MCP` : who;
 }

@@ -81,15 +81,19 @@ def keep_keel_files(root: str, wt: Path) -> list[str]:
     copied = []
     for d in (lay.specs, lay.knowledge, lay.adr):
         for f in sorted((wt / d).glob("*.md")) if (wt / d).is_dir() else []:
+            if f.is_symlink():
+                continue
             rel = f"{d}/{f.name}"
             if _copy_newer(f, Path(root) / rel):
                 copied.append(rel)
-    if (wt / lay.runbook).is_file() and _copy_newer(wt / lay.runbook, Path(root) / lay.runbook):
+    if (wt / lay.runbook).is_file() and not (wt / lay.runbook).is_symlink() and _copy_newer(wt / lay.runbook, Path(root) / lay.runbook):
         copied.append(lay.runbook)
     return copied
 
 
 def _copy_newer(src: Path, dst: Path) -> bool:
+    if dst.is_symlink():
+        return False
     if dst.is_file() and (dst.stat().st_mtime > src.stat().st_mtime or dst.read_bytes() == src.read_bytes()):
         return False
     dst.parent.mkdir(parents=True, exist_ok=True)

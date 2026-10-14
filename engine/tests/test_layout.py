@@ -147,3 +147,40 @@ def test_native_mode_gives_agents_their_own_home(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_NATIVE", "1")
     env = cli.safe_env()
     assert env["HOME"].startswith(str(tmp_path / "data")) and env["XDG_CONFIG_HOME"].startswith(env["HOME"])
+
+
+def test_a_config_that_names_keels_folders_stays_repo(tmp_path):
+    r = _repo(tmp_path / "p", {".keel/config.yml": "version: 4\nspecs:\n  dir: design/specs\n"})
+    lay = layout.resolve(r)
+    assert lay.name == "repo" and lay.specs == "design/specs"
+    assert layout.resolve(_repo(tmp_path / "q", {".keel/config.yml": "memory:\n  dir: notes\n"})).knowledge == "notes"
+
+
+def test_memory_and_setup_commits_follow_the_layouts_folders(tmp_path):
+    r = _repo(tmp_path / "p", {".keel/config.yml": "layout: repo\nmemory:\n  dir: notes/kb\nsetup:\n  runbook: RUNNING.md\n"})
+    cfg = rules.load_config(r)
+    assert rules.check_commit("memory", ["notes/kb/domain.md"], cfg).ok
+    assert rules.check_commit("setup", ["RUNNING.md", "notes/kb/data.md", ".keel/config.yml"], cfg).ok
+    assert not rules.check_commit("memory", ["src/app.py"], cfg).ok
+
+
+def test_config_folders_cannot_point_outside_the_project(tmp_path):
+    for bad in ("../../.ssh", "/etc", "~/notes", "docs/../../x"):
+        r = _repo(tmp_path / f"p{abs(hash(bad))}", {".keel/config.yml": f"layout: repo\nmemory:\n  dir: {bad}\nsetup:\n  runbook: {bad}/r.md\n"})
+        lay = layout.resolve(r)
+        assert lay.knowledge == "docs/knowledge" and lay.runbook == "docs/RUNNING.md", bad
+
+
+def test_symlinked_keel_files_are_not_read(tmp_path):
+    from keel_engine.runtime import doc_history
+    from keel_engine.tools import worktrees
+
+    secret = tmp_path / "outside.txt"
+    secret.write_text("private\n")
+    r = _repo(tmp_path / "p", {".keel/config.yml": "layout: keel\n", ".keel/specs/ok.md": "# ok\n"})
+    os.symlink(secret, r / ".keel/specs/leak.md")
+    assert set(doc_history.snapshot(str(r))) == {".keel/specs/ok.md"}
+    wt = tmp_path / "wt"
+    (wt / ".keel/specs").mkdir(parents=True)
+    os.symlink(secret, wt / ".keel/specs/also.md")
+    assert worktrees.keep_keel_files(str(r), wt) == []

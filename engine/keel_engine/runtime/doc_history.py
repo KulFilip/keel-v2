@@ -38,8 +38,9 @@ def files(root: str) -> list[str]:
     out: list[str] = []
     for d in (*lay.spec_dirs, *lay.knowledge_dirs, *lay.adr_dirs):
         if (r / d).is_dir():
-            out += [f"{d}/{p.name}" for p in sorted((r / d).glob("*.md")) if p.is_file()]
-    out += [x for x in lay.runbooks if x not in out]
+            # a symlinked file is skipped: a cloned repo could link a spec to a file outside it
+            out += [f"{d}/{p.name}" for p in sorted((r / d).glob("*.md")) if p.is_file() and not p.is_symlink()]
+    out += [x for x in lay.runbooks if x not in out and not (r / x).is_symlink()]
     return out
 
 
@@ -55,10 +56,20 @@ def snapshot(root: str | None) -> dict[str, str]:
     return out
 
 
-def _masked(text: str) -> str:
-    """A secret in a spec never reaches keel's database: the line is masked (the same check as a commit's diff)."""
+def _masked(text: str) -> tuple[str, bool]:
+    """A secret in a spec never reaches keel's database: the line is masked (the same check as a commit's diff).
+    Returns the text and whether anything was masked (such a version cannot be restored: api DocHistoryService)."""
     lines = text.split("\n")
-    return "\n".join("••• (masked: looks like a secret)" if checks.scan_secrets(x) else x for x in lines)
+    hit = [bool(checks.scan_secrets(x)) for x in lines]
+    inside_key = False
+    for i, x in enumerate(lines):          # a private key's body lines look harmless one by one: mask the block
+        if "-----BEGIN" in x and "PRIVATE KEY" in x:
+            inside_key = True
+        if inside_key:
+            hit[i] = True
+        if "-----END" in x and "PRIVATE KEY" in x:
+            inside_key = False
+    return "\n".join("••• (masked: looks like a secret)" if h else x for x, h in zip(lines, hit)), any(hit)
 
 
 def event(root: str, rel: str, sha: str | None, lay: layout.Layout | None = None) -> dict:
@@ -70,7 +81,7 @@ def event(root: str, rel: str, sha: str | None, lay: layout.Layout | None = None
     raw = f.read_bytes()
     data = {"path": rel, "kind": kind_of(lay, rel), "sha256": sha, "size": len(raw), "deleted": False}
     if len(raw) <= MAX_CONTENT:
-        data["content"] = _masked(raw.decode("utf-8", errors="replace"))
+        data["content"], data["masked"] = _masked(raw.decode("utf-8", errors="replace"))
     return data
 
 

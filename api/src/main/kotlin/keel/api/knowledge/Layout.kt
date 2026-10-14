@@ -34,7 +34,8 @@ data class Layout(
 
     /** The section's file to read: the layout's own, else one in another knowledge folder, else the layout's. */
     fun knowledgeFile(root: Path, section: String): String =
-        knowledgeDirs.map { "$it/$section.md" }.firstOrNull { Files.isRegularFile(root.resolve(it)) } ?: "$knowledge/$section.md"
+        knowledgeDirs.map { "$it/$section.md" }.firstOrNull { Files.isRegularFile(root.resolve(it)) && !Files.isSymbolicLink(root.resolve(it)) }
+            ?: "$knowledge/$section.md"
 
     /** Every folder keel's own files live in (specs, knowledge, ADRs), for "is this a keel file". */
     fun folders(): List<String> = (specDirs + knowledgeDirs + adrDirs).distinct()
@@ -64,14 +65,21 @@ data class Layout(
             return Files.isDirectory(specs) && runCatching { Files.list(specs).use { s -> s.anyMatch { it.toString().endsWith(".md") } } }.getOrDefault(false)
         }
 
-        fun defaultName(root: Path, linked: Boolean): String = when {
+        /** No `layout:` key: a .keel link is external; keel files in docs/, or a config naming keel's folders
+         *  (specs.dir, memory.dir, setup.runbook), stay repo; else the new projects' default (engine default_name). */
+        fun defaultName(root: Path, linked: Boolean, cfg: Map<String, Any?> = emptyMap()): String = when {
             linked -> "external"
             hasLegacyFiles(root) -> "repo"
+            listOf("specs" to "dir", "memory" to "dir", "setup" to "runbook").any { (s, k) -> sub(cfg, s, k) != null } -> "repo"
             else -> NEW_PROJECT
         }
 
-        private fun sub(cfg: Map<String, Any?>, sec: String, key: String): String? =
-            ((cfg[sec] as? Map<*, *>)?.get(key))?.toString()?.trim()?.trim('/')?.ifEmpty { null }
+        /** A folder or file the config names, relative to the project; absolute, ~ or .. is ignored (engine _sub). */
+        private fun sub(cfg: Map<String, Any?>, sec: String, key: String): String? {
+            val raw = ((cfg[sec] as? Map<*, *>)?.get(key))?.toString()?.trim() ?: return null
+            if (raw.startsWith("/") || raw.startsWith("~") || raw.startsWith("\\") || raw.replace('\\', '/').split('/').any { it == ".." }) return null
+            return raw.trim('/').ifEmpty { null }
+        }
 
         private fun existing(root: Path, first: String, others: List<String>, file: Boolean = false): List<String> {
             val out = mutableListOf(first)
@@ -91,7 +99,7 @@ data class Layout(
                 if (!Files.isDirectory(keel)) missing = missingText(link)
             }
             val c = cfg ?: rawConfig(root)
-            val name = c["layout"]?.toString()?.trim()?.takeIf { it in LAYOUTS } ?: defaultName(root, link != null)
+            val name = c["layout"]?.toString()?.trim()?.takeIf { it in LAYOUTS } ?: defaultName(root, link != null, c)
             val p = if (name == "repo") {
                 REPO + mapOf(
                     "specs" to (sub(c, "specs", "dir") ?: REPO_SPEC_DIRS.firstOrNull { Files.isDirectory(root.resolve(it)) } ?: REPO.getValue("specs")),
@@ -103,7 +111,7 @@ data class Layout(
             val knowledgeDirs = existing(root, p.getValue("knowledge"), listOf(REPO.getValue("knowledge"), HIDDEN.getValue("knowledge")))
             val adrDirs = existing(root, p.getValue("adr"), listOf(REPO.getValue("adr"), HIDDEN.getValue("adr")))
             val runbooks = existing(root, p.getValue("runbook"), listOf(REPO.getValue("runbook"), HIDDEN.getValue("runbook")), file = true)
-                .filter { Files.isRegularFile(root.resolve(it)) }
+                .filter { Files.isRegularFile(root.resolve(it)) && !Files.isSymbolicLink(root.resolve(it)) }
             return Layout(name, p.getValue("specs"), p.getValue("knowledge"), p.getValue("adr"), p.getValue("runbook"),
                 p.getValue("claude"), specDirs, knowledgeDirs, adrDirs, runbooks, link, missing)
         }

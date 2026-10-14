@@ -79,6 +79,30 @@ class LayoutApiTest : ApiTest() {
     }
 
     @Test
+    fun `config folders outside the project and symlinked specs are not read`() {
+        val (pid, root) = newProject("layout-hostile", mapOf(
+            ".keel/config.yml" to "layout: repo\nspecs:\n  dir: ../../\nsetup:\n  runbook: ../../.zshrc\nmemory:\n  dir: /etc\n",
+            "docs/specs/ok.md" to "# Ok\n",
+        ))
+        val outside = Files.createTempFile("keel-secret", ".md")
+        Files.writeString(outside, "# secret\n")
+        Files.createSymbolicLink(root.resolve("docs/specs/leak.md"), outside)
+        val lay = get("/api/projects/$pid/layout").json()
+        assertThat(lay["specs"].asText()).isEqualTo("docs/specs")
+        assertThat(lay["runbook"].asText()).isEqualTo("docs/RUNNING.md")
+        assertThat(lay["knowledge"].asText()).isEqualTo("docs/knowledge")
+        assertThat(docs(pid)).contains("docs/specs/ok.md").doesNotContain("docs/specs/leak.md")
+        get("/api/projects/$pid/wiki/page?id=spec:docs/specs/leak.md").andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `a config that names keel's folders stays repo`() {
+        val (_, root) = newProject("layout-specs-dir", mapOf(".keel/config.yml" to "version: 4\nspecs:\n  dir: design/specs\n"))
+        assertThat(Layout.resolve(root).name).isEqualTo("repo")
+        assertThat(Layout.resolve(root).specs).isEqualTo("design/specs")
+    }
+
+    @Test
     fun `the resolver's default without a layout key`() {
         val (_, fresh) = newProject("layout-default-new")
         assertThat(Layout.resolve(fresh).name).isEqualTo(Layout.NEW_PROJECT)

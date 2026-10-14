@@ -130,6 +130,8 @@ jobs:
         with: { distribution: temurin, java-version: "21" }
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
+      # keel2 downloads v<version>/keel-v2-<version>-native.tar.gz: the tag must be the engine's version
+      - run: test "v$(sed -n 's/^version = "\(.*\)"/\1/p' engine/pyproject.toml | head -1)" = "$GITHUB_REF_NAME"
       - run: scripts/build-native.sh dist
       - name: attach to the release
         id: attach

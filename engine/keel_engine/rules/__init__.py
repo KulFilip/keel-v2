@@ -448,6 +448,15 @@ def commit_prefix(ctype: str, ident: str = "") -> str:
     return f"{word}({ident})" if ident else word
 
 
+def _layout_paths(cfg: dict | None) -> tuple[list[re.Pattern], list[re.Pattern]]:
+    """MEMORY_PATHS and SETUP_PATHS plus the knowledge folder and runbook the project's layout names (load_config's
+    `paths`: memory.dir or setup.runbook in a repo layout; .keel/ is covered already)."""
+    p = (cfg or {}).get("paths") or {}
+    extra_k = [re.compile("^" + re.escape(p["knowledge"].rstrip("/")) + "/")] if p.get("knowledge") else []
+    extra_r = [re.compile("^" + re.escape(p["runbook"]) + "$")] if p.get("runbook") else []
+    return MEMORY_PATHS + extra_k, SETUP_PATHS + extra_k + extra_r
+
+
 def check_commit(ctype: str, files: list[str], cfg: dict | None = None) -> CommitVerdict:
     """The bucket rules of `keel commit <type>` for a staged file list (diff-level checks are not here)."""
     rule = COMMIT_RULES.get(ctype)
@@ -466,13 +475,14 @@ def check_commit(ctype: str, files: list[str], cfg: dict | None = None) -> Commi
         risky = [(f, b) for f, b in buckets if b in ("contract", "migration")]
         if risky:
             return CommitVerdict(False, "this is not a trivial change: it touches " + ", ".join(f"{f} ({b})" for f, b in risky), risky)
+    memory_paths, setup_paths = _layout_paths(cfg)
     if rule.get("memoryOnly"):
-        stray = [f for f in files if not any(p.search(f) for p in MEMORY_PATHS)]
+        stray = [f for f in files if not any(p.search(f) for p in memory_paths)]
         if stray:
             return CommitVerdict(False, "a memory commit may only touch docs/knowledge/ and .keel/memory.json:\n" + "\n".join("  " + s for s in stray),
                                  [(s, "other") for s in stray])
     if rule.get("setupOnly"):
-        stray = [f for f in files if not any(p.search(f) for p in SETUP_PATHS)]
+        stray = [f for f in files if not any(p.search(f) for p in setup_paths)]
         if stray:
             return CommitVerdict(False, "a setup commit may only touch what an init writes (.keel/, docs/RUNNING.md, docs/knowledge/, CLAUDE.md, .gitignore):\n"
                                  + "\n".join("  " + s for s in stray), [(s, "other") for s in stray])

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# keel2 — start and manage keel v2 (one Docker container) for your project.
+# keel2 — start and manage keel v2 (one Docker container, or natively with --native) for your project.
 #
 #   keel2 start [folder]        start keel for a project (default: this folder) and open the browser
 #   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
@@ -28,11 +28,13 @@
 #   keel2 mcp [--write|--admin] keel's MCP server on stdio, for Claude Code / Claude Desktop to start: read-only by
 #                               default, --write decides gates and starts flows, --admin also stops flows and changes
 #                               projects (--allow t1,t2 keeps only those tools). keel2 mcp --print-config shows how
-#   keel2 uninstall [--all]     remove the container (--all: also keel's data, after you confirm)
+#   keel2 uninstall [--all]     remove the container, or stop a native keel (--all: also keel's data, after you confirm)
 #   keel2 version | help
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
 # KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker).
+# Native: KEEL_HOME2 (default ~/.keel2), KEEL_YES=1 (yes to the native warning), KEEL_NATIVE_CLIS=0 (no agent CLIs),
+# KEEL_RELEASE_URL (where releases are downloaded from).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
@@ -599,7 +601,7 @@ cmd_uninstall() {
 }
 
 # keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]
-# stdio passthrough to keel's MCP server inside the container. Nothing but MCP may reach stdout here.
+# stdio passthrough to keel's MCP server (in the container, or the native engine's). Nothing but MCP may reach stdout here.
 cmd_mcp() {
   local mode=--read-only print=0 extra=()
   while [ $# -gt 0 ]; do
@@ -693,6 +695,7 @@ native_warn() {  # once per keel: agents run as you
 
 native_install() {  # native_install [tarball] — keel $KEEL2_VERSION from the release (or the given tarball) into app/<version>
   local tgz="${1:-}" tmp dir v name
+  (umask 077; mkdir -p "$ND")
   tmp="$(mktemp -d)"
   if [ -z "$tgz" ]; then
     v="$KEEL2_VERSION"; name="keel-v2-$v-native.tar.gz"
@@ -746,7 +749,9 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   fi
   if [ -n "$tgz" ] || [ ! -f "$ND/current/api.jar" ] || [ "$(cat "$ND/current/VERSION" 2>/dev/null)" != "$KEEL2_VERSION" ]; then native_install "$tgz"; fi
   native_clis
-  mkdir -p "$ND/run" "$ND/logs" "$ND/data"
+  # keel's data (its database, logins, agent homes) and logs are this person's only
+  (umask 077; mkdir -p "$ND/run" "$ND/logs" "$ND/data")
+  chmod 700 "$ND" "$ND/run" "$ND/logs" "$ND/data" 2>/dev/null || true
   local port eport folders f tok
   port="$(native_free "$WANT_PORT")"; eport="$(native_free 8090 "$port")"
   folders="$project"
@@ -810,6 +815,7 @@ native_doctor() {
   if command -v uv >/dev/null 2>&1; then ok "$(uv --version)"; else bad "uv is missing: $(native_hint uv)"; problems=$((problems + 1)); fi
   command -v git >/dev/null 2>&1 && ok "git" || { bad "git is missing"; problems=$((problems + 1)); }
   command -v node >/dev/null 2>&1 && ok "node $(node --version)" || warn "node is missing: keel's agent CLIs need Node 20+ ($(native_hint node))"
+  command -v sqlite3 >/dev/null 2>&1 && ok "sqlite3" || warn "sqlite3 is missing: only keel2 sql needs it ($(native_hint sqlite3))"
   [ -f "$ND/current/api.jar" ] && ok "keel v2 $(cat "$ND/current/VERSION") in $ND/current" || warn "keel is not installed yet (keel2 start --native installs it)"
   [ -x "$ND/npm/bin/codegraph" ] && ok "agent CLIs and codegraph in $ND/npm" || warn "agent CLIs not installed yet (keel2 start --native installs them)"
   mkdir -p "$ND" 2>/dev/null && [ -w "$ND" ] && ok "$ND is writable" || { bad "$ND is not writable"; problems=$((problems + 1)); }
@@ -849,7 +855,10 @@ native_uninstall() {
   native_running && native_stop_quiet
   if [ "${1:-}" = --all ]; then
     ask_yes "Remove $ND (keel's data, logins and history)?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing removed."
-    case "$ND" in */.keel2/*|*keel*) find "$ND" -mindepth 1 -delete 2>/dev/null; rmdir "$ND" 2>/dev/null; ok "removed $ND" ;; *) die "Refusing to remove $ND." ;; esac
+    # only a folder keel made for this name: <KEEL_HOME2>/<KEEL_NAME> with keel's own marker files in it
+    case "$NAME" in ""|.|..|*/*) die "Refusing to remove $ND (KEEL_NAME is \"$NAME\")." ;; esac
+    { [ -f "$ND/project" ] || [ -f "$ND/.warned" ]; } && [ -d "$ND/app" ] || die "Refusing to remove $ND: it does not look like a native keel's folder."
+    find "$ND" -mindepth 1 -delete 2>/dev/null; rmdir "$ND" 2>/dev/null; ok "removed $ND"
     remove_folders_file
   else
     rm -f "$ND/mode"; ok "keel (native) stopped; its data stays in $ND/data (keel2 uninstall --all removes it)"
@@ -906,10 +915,12 @@ case "$cmd" in
   backup)           cmd_backup "$@" ;;
   restore)          cmd_restore "$@" ;;
   mcp)              cmd_mcp "$@" ;;
-  sql)              if native_mode && ! docker_keel_running; then exec sqlite3 -header -column "$ND/data/keel.db"; fi
+  sql)              if native_mode && ! docker_keel_running; then
+                      command -v sqlite3 >/dev/null 2>&1 || die "keel2 sql needs sqlite3 on this computer." "Install it: $(native_hint sqlite3)"
+                      exec sqlite3 -header -column "$ND/data/keel.db"; fi
                     need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
   uninstall)        cmd_uninstall "$@" ;;
-  version|-v|--version) echo "keel2 $KEEL2_VERSION · image $IMAGE" ;;
+  version|-v|--version) if native_mode; then echo "keel2 $KEEL2_VERSION · native ($ND)"; else echo "keel2 $KEEL2_VERSION · image $IMAGE"; fi ;;
   ""|help|-h|--help) cmd_help ;;
   *)
     if [ -d "$cmd" ]; then cmd_start "$cmd" "$@"          # keel2 <folder>   (older form)

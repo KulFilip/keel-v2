@@ -592,7 +592,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/projects/{pid}/actions/{name}")
     async def post_action(pid: str, name: str, body: dict):
         """v0.16.0 one engine action outside a flow (keel_run_action): only an action with a level (action_docs
-        ACTION_LEVELS), on a blank flow input for the project's folder. The api checked who may run it."""
+        ACTION_LEVELS), on a blank flow input for the project's folder. The MCP level is enforced by keel's MCP server
+        (mcp_more.run_action); like the rest of keel's api on 127.0.0.1, this route has no login of its own."""
         from .runtime import action_docs
         from .runtime.actions import ActionInput, run_action
 

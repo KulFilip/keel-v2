@@ -14,8 +14,9 @@ from urllib.parse import quote
 
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project
 
-SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentials.json", "master.key", "secrets.yml", "secrets.yaml"}
-SECRET_SUFFIX = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks")
+SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentials.json", "master.key", "secrets.yml", "secrets.yaml",
+                ".git-credentials", ".htpasswd", "terraform.tfvars"}
+SECRET_SUFFIX = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks", ".p8", ".kdbx")
 READ_MAX_LINES = 400
 
 
@@ -25,7 +26,7 @@ def is_secret(path: str) -> bool:
     if n in (".env.example", ".env.sample", ".env.template"):
         return False
     return (n in SECRET_NAMES or n.startswith(".env.") or n.endswith(SECRET_SUFFIX)
-            or n.startswith(("id_rsa", "id_ed25519", "id_ecdsa")))
+            or n.startswith(("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa")))
 
 
 def _q(x: str) -> str:

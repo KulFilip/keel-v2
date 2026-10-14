@@ -92,7 +92,8 @@ class KnowledgeService(
 
     private fun listMd(dir: Path): List<Path> =
         if (!Files.isDirectory(dir)) emptyList()
-        else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) }.sorted().toList() }
+        // a symlinked .md is skipped: a cloned repo could link docs/specs/x.md to a file outside it
+        else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) && !Files.isSymbolicLink(it) }.sorted().toList() }
 
     private fun mtime(p: Path): String? = runCatching { Time.iso(Files.getLastModifiedTime(p).toMillis()) }.getOrNull()
 
@@ -193,7 +194,7 @@ class KnowledgeService(
                 val rel = Layout.resolve(root).knowledgeFile(root, name)
                 val f = root.resolve(rel)
                 val section = knowledge(root).firstOrNull { it.id == name }
-                if (!Files.isRegularFile(f)) {
+                if (!Files.isRegularFile(f) || Files.isSymbolicLink(f)) {
                     WikiPage(id, name, "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
                 } else {
                     WikiPage(id, title(f), Files.readString(f), mapOf(

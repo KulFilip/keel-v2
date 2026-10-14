@@ -515,7 +515,7 @@ def _detect(root: str) -> dict:
     if cmds:
         cfg["commands"] = cmds
     # where keel keeps its files (keel_engine/layout.py), written down so the choice never changes by itself
-    cfg["layout"] = layout.default_name(r, (r / ".keel").is_symlink())
+    cfg["layout"] = layout.default_name(r, (r / ".keel").is_symlink(), layout.raw_config(r))
     if cfg["layout"] == "repo" and (r / "docs" / "specs").is_dir():
         cfg["specs"] = {"dir": "docs/specs"}
     return cfg

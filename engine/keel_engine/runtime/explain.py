@@ -58,7 +58,7 @@ PHASE_MEANING = {
     "security": "Security review of the branch. Nothing in the code is edited.",
     "ship": "Get the branch ready to push: checks, reviews, PR. No code changes in this phase itself.",
     "final-review": "The final review before the PR. Nothing is edited.",
-    "memory": "Update keel's knowledge base (docs/knowledge/). No code changes.",
+    "memory": "Update keel's knowledge base (docs/knowledge/ or .keel/knowledge/, as the project's layout says). No code changes.",
     "close": "Close the flow: ADRs and the closing note. Only specs and docs change.",
     "hunt-scope": "Bug hunt: choose what to look at. The hunt never changes code.",
     "hunt-sweep": "Bug hunt: hunters propose candidate bugs. The hunt never changes code.",
@@ -242,9 +242,9 @@ def commit_info(phase: str, step: Step, ac: dict | None = None, title: str | Non
     if rule.get("deleteOnlyProd"):
         extra.append("may only delete production lines, never add any, and never touch .keel/config.yml")
     if rule.get("memoryOnly"):
-        extra.append("may only touch docs/knowledge/ and .keel/")
+        extra.append("may only touch the knowledge folder (docs/knowledge/ or .keel/knowledge/) and .keel/")
     if rule.get("setupOnly"):
-        extra.append("may only touch .keel/, docs/RUNNING.md, docs/knowledge/, CLAUDE.md and .gitignore")
+        extra.append("may only touch .keel/, the runbook and the knowledge folder (docs/ or .keel/, as the layout says), CLAUDE.md and .gitignore")
     return {"type": ctype, "about": COMMIT_TYPE_WORDS.get(ctype, ctype), "prefix": prefix, "message": f"{prefix}: {subject}",
             "author": "you, with KeelBot as co-author (Settings › Git)", "may_contain": list(rule.get("allow") or []), "may_not_contain": list(rule.get("deny") or []),
             "extra": extra}
