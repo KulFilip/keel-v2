@@ -151,6 +151,7 @@ class FlowService(
     private val notifications: keel.api.notifications.NotificationService,
     private val capPlanner: CapPlanner,
     private val plugins: keel.api.plugins.PluginService,
+    private val docs: keel.api.knowledge.DocHistoryService,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -243,6 +244,11 @@ class FlowService(
         )
         jdbc.update("UPDATE threads SET workflow_id = ?, title = ?, project_id = ? WHERE id = ?", workflowId, title, pid, tid)
         jdbc.update("UPDATE threads SET worktree = ?, branch = ? WHERE id = ?", wt?.name, wt?.branch, tid)
+        // v0.15.9 what this flow applied on top of the repo starts with where it works (DocHistoryService)
+        runCatching {
+            (wt?.branch ?: projects.branch(root))?.let { docs.add(pid, tid, "branch", it, "the flow's branch") }
+            wt?.let { docs.add(pid, tid, "worktree", it.name, it.path) }
+        }.onFailure { log.warn("could not record the flow's branch for {}: {}", tid, it.message) }
         val state = runCatching { engine.thread(tid) }.getOrElse { res }
         save(tid, state)
         hub.publish(pid, "project.changed", mapOf("id" to pid))

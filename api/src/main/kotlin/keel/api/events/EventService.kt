@@ -33,14 +33,20 @@ class EventService(
     private val hub: EventHub,
     private val usage: ProviderUsageStore,
     private val publisher: ApplicationEventPublisher,
+    private val docs: keel.api.knowledge.DocHistoryService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Synchronized
     fun ingest(events: List<EngineEvent>): Int {
         var stored = 0
-        for (e in events) {
-            if (e.type.isBlank()) continue
+        for (raw in events) {
+            if (raw.type.isBlank()) continue
+            // v0.15.9 a file version goes to doc_versions; the events table and SSE get it without its content
+            val e = if (raw.type == "doc.version") runCatching { docs.record(raw) }.getOrElse {
+                log.warn("could not store a version of {}: {}", raw.data["path"], it.message)
+                raw.copy(data = raw.data - "content")
+            } else raw
             try {
                 apply(e)
                 stored++
@@ -69,6 +75,7 @@ class EventService(
                 jdbc.update("UPDATE threads SET current = ?, phase = COALESCE(?, phase), updated_at = ? WHERE id = ?", e.step, d.str("phase"), at, e.threadId)
             }
             "step.finished" -> upsertThread(e, null, at)
+            "keel.applied" -> docs.applied(e)
 
             "agent.started" -> {
                 val id = e.callId ?: "${e.threadId}:${e.step}:$at"

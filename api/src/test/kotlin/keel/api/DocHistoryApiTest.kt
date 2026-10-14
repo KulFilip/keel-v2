@@ -1,0 +1,82 @@
+package keel.api
+
+import keel.api.knowledge.DocHistoryService
+import keel.api.support.ApiTest
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+import java.nio.file.Files
+
+/** v0.15.9 keel's file history: versions from engine events, diff, restore, and what a flow applied. */
+class DocHistoryApiTest : ApiTest() {
+
+    private val path = ".keel/specs/scores.md"
+
+    private fun version(pid: String, tid: String, text: String, by: String = "agent", name: String? = "explorer") =
+        mapOf("type" to "doc.version", "thread_id" to tid, "project_id" to pid, "step" to "spec", "at" to "2026-10-14T10:00:00Z",
+            "data" to mapOf("path" to path, "kind" to "spec", "sha256" to DocHistoryService.sha256(text.toByteArray()), "content" to text,
+                "size" to text.length, "by_kind" to by, "by_name" to name, "phase" to "spec"))
+
+    private fun send(vararg events: Map<String, Any?>) = post("/internal/events", events.toList(), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+
+    @Test
+    fun `versions come from engine events, the same text twice is one version, and the events table has no content`(@Autowired jdbc: JdbcTemplate) {
+        val (pid, root) = newProject("history-versions", mapOf(".keel/config.yml" to "layout: keel\n"))
+        Files.createDirectories(root.resolve(".keel/specs"))
+        Files.writeString(root.resolve(path), "# Scores v2\n")
+        send(version(pid, "t-1", "# Scores\n"), version(pid, "t-1", "# Scores\n"), version(pid, "t-1", "# Scores v2\n", "keel", "spec_freeze"))
+        val list = get("/api/projects/$pid/docs/history/versions?path=$path").json()
+        assertThat(list.map { it["version"].asInt() }).containsExactly(2, 1)
+        assertThat(list[0]["by_kind"].asText()).isEqualTo("keel")
+        assertThat(list[0].has("content") && !list[0]["content"].isNull).isFalse()
+        val stored = jdbc.queryForObject("SELECT COUNT(*) FROM events WHERE type = 'doc.version' AND data_json LIKE '%\"content\"%'", Int::class.java)
+        assertThat(stored).isEqualTo(0)
+        assertThat(get("/api/projects/$pid/docs/history").json()[0]["state"].asText()).isEqualTo("ok")
+
+        val v1 = list[1]["id"].asText()
+        assertThat(get("/api/projects/$pid/docs/history/versions/$v1").json()["content"].asText()).isEqualTo("# Scores\n")
+        val diff = get("/api/projects/$pid/docs/history/diff?path=$path&from=$v1&to=file").json()["diff"].asText()
+        assertThat(diff).contains("-# Scores\n").contains("+# Scores v2\n")
+    }
+
+    @Test
+    fun `a deleted spec is missing and comes back with restore`() {
+        val (pid, root) = newProject("history-restore", mapOf(".keel/config.yml" to "layout: keel\n"))
+        send(version(pid, "t-2", "# Scores\n- **AC-1** [API] saved\n"))
+        assertThat(get("/api/projects/$pid/docs/history").json()[0]["state"].asText()).isEqualTo("missing")
+        val id = get("/api/projects/$pid/docs/history/versions?path=$path").json()[0]["id"].asText()
+        val r = post("/api/projects/$pid/docs/history/restore", mapOf("version_id" to id)).andExpect(status().isOk).json()
+        assertThat(r["by_kind"].asText()).isEqualTo("user")
+        assertThat(Files.readString(root.resolve(path))).contains("AC-1")
+        assertThat(get("/api/projects/$pid/docs/history").json()[0]["state"].asText()).isEqualTo("ok")
+    }
+
+    @Test
+    fun `restore only writes keel's own files`(@Autowired jdbc: JdbcTemplate) {
+        val (pid, _) = newProject("history-outside", mapOf(".keel/config.yml" to "layout: keel\n"))
+        jdbc.update("INSERT INTO doc_versions(id, project_id, path, kind, version, sha256, content, size, by_kind, at) VALUES " +
+            "('dv-bad', ?, 'src/Main.kt', 'spec', 1, 'x', 'evil', 4, 'agent', '2026-10-14T10:00:00Z')", pid)
+        post("/api/projects/$pid/docs/history/restore", mapOf("version_id" to "dv-bad")).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `a commit sets the sha on the newest version and shows in what the flow applied`() {
+        val (pid, _) = newProject("history-applied", mapOf(".keel/config.yml" to "layout: keel\n"))
+        send(version(pid, "t-3", "# S\n"),
+            mapOf("type" to "keel.applied", "thread_id" to "t-3", "project_id" to pid, "at" to "2026-10-14T10:01:00Z",
+                "data" to mapOf("kind" to "commit", "sha" to "abc1234", "subject" to "docs: spec", "files" to listOf(path))))
+        assertThat(get("/api/projects/$pid/docs/history/versions?path=$path").json()[0]["commit_sha"].asText()).isEqualTo("abc1234")
+        val a = get("/api/threads/t-3/applied").json()["items"]
+        assertThat(a.map { it["kind"].asText() + ":" + it["ref"].asText() }).containsExactly("commit:abc1234")
+        assertThat(a[0]["files"].map { it.asText() }).containsExactly(path)
+    }
+
+    @Test
+    fun `a started flow records its branch`() {
+        val (pid, _) = newProject("history-branch")
+        val tid = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Scores")).andExpect(status().isOk).json()["thread_id"].asText()
+        assertThat(get("/api/threads/$tid/applied").json()["items"].map { it["kind"].asText() }).contains("branch")
+    }
+}
