@@ -499,6 +499,22 @@ DOCS: dict[str, dict] = {
 }
 
 
+# v0.16.0 which MCP level may run an action outside a flow (keel_run_action; mcp_server.py): read only looks, write
+# runs checks and reports, admin changes the project's settings. Everything else needs a flow's criteria and state:
+# "flow-only" (also the default for an action not named here; tests/test_explain.py keeps the list current).
+ACTION_LEVELS: dict[str, str] = {
+    **{n: "read" for n in ("audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope",
+                           "lint_report", "review_lenses")},
+    **{n: "write" for n in ("verify_release", "verify_coverage", "verify_fast", "verify_deps", "verify_lint", "lint_run",
+                            "knowledge_check", "memory_check", "push_check", "pr")},
+    **{n: "admin" for n in ("arch_set", "open_pr")},
+}
+
+
+def action_level(name: str) -> str:
+    return ACTION_LEVELS.get(name, "flow-only")
+
+
 def function_for(name: str):
     """The Python function behind an action name (None for the compiler's own and for run:)."""
     from . import actions

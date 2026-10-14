@@ -175,3 +175,11 @@ def test_the_lint_flow_explains_its_phase_and_its_actions(client):
     assert fix["rules"]["commit"]["prefix"] == "chore(lint)"
     run = explain(client, "run", workflow="lint")
     assert run["code"]["actions"][0]["name"] == "lint_run" and "fixers first" in run["code"]["actions"][0]["summary"]
+
+
+def test_every_action_level_names_a_real_action():
+    names = set(action_docs.dispatch_names())
+    stale = [n for n in action_docs.ACTION_LEVELS if n not in names]
+    assert not stale, f"ACTION_LEVELS names actions keel does not have: {stale}"
+    assert set(action_docs.ACTION_LEVELS.values()) <= {"read", "write", "admin"}
+    assert action_docs.action_level("spec_freeze") == "flow-only"

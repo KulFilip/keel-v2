@@ -13,9 +13,13 @@ from keel_engine.tools import mcp as mcp_tools
 
 READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
               "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status",           # v0.10.0 plugins
-              "keel_ci_runs", "keel_ci_failure", "keel_dashboard"}                                  # v0.15.8 dashboard
+              "keel_ci_runs", "keel_ci_failure", "keel_dashboard",                                 # v0.15.8 dashboard
+              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
+              "keel_search", "keel_read_file", "keel_actions", "keel_run_action"}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
-               "keel_ci_rerun", "keel_start_flow"}
+               "keel_ci_rerun", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"}
+ADMIN_TOOLS = {"keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+               "keel_edit_workflow"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -333,3 +337,79 @@ def test_start_flow_refuses_an_unknown_type_and_an_empty_idea(stub):
     with _pytest.raises(mcp_server.ApiError, match="idea is empty"):
         mcp_server.start_flow(stub.api, "feature", "  ", sleep=lambda s: None)
     assert not stub.posts
+
+
+# ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit
+
+async def test_admin_level_has_every_tool_and_read_only_wins(stub, monkeypatch):
+    assert await tool_names(mcp_server.build_server(level="admin", api=stub.api)) == READ_TOOLS | WRITE_TOOLS | ADMIN_TOOLS
+    assert mcp_server.level(["--admin"]) == "admin" and mcp_server.level(["--write"]) == "write"
+    monkeypatch.setenv("KEEL_MCP_LEVEL", "admin")
+    assert mcp_server.level([]) == "admin"
+    assert mcp_server.level(["--read-only"]) == "read"                  # an agent never gets more through the env
+
+
+async def test_allow_registers_only_the_named_tools(stub):
+    srv = mcp_server.build_server(level="write", api=stub.api, allow={"keel_status", "keel_stop_flow"})
+    assert await tool_names(srv) == {"keel_status"}                     # stop is admin: not at write, even when allowed
+    assert mcp_server.allowed(["--allow", "keel_status,keel_next"]) == {"keel_status", "keel_next"}
+    with pytest.raises(SystemExit, match="no tool called keel_nope"):
+        mcp_server.allowed(["--allow=keel_nope"])
+
+
+async def test_a_risky_tool_is_refused_when_the_client_cannot_confirm(stub):
+    stub.thread = {**THREAD, "status": "running", "waiting": None}
+    text = await call(mcp_server.build_server(level="admin", api=stub.api), "keel_stop_flow")
+    assert "cannot ask you to confirm stop the flow" in text and "--yes" in text
+    assert not [p for p, _ in stub.posts if p.endswith("/stop")]
+
+
+async def test_with_yes_it_runs_and_says_who_acted(stub):
+    seen = []
+    stub.thread = {**THREAD, "status": "running", "waiting": None}
+
+    def record(req):
+        if req.method != "GET":
+            seen.append((req.url.path, req.headers.get("x-keel-via"), req.headers.get("x-keel-tool")))
+        if req.url.path == "/api/threads/t-1/stop":
+            return httpx.Response(200, json={**THREAD, "status": "stopped"})
+        return stub(req)
+
+    stub.api.http._transport = httpx.MockTransport(record)
+    text = await call(mcp_server.build_server(level="admin", api=stub.api, yes=True), "keel_stop_flow")
+    assert "stopped" in text
+    assert seen == [("/api/threads/t-1/stop", "mcp", "keel_stop_flow")]
+
+
+async def test_a_client_that_confirms(stub):
+    from mcp.shared.memory import create_connected_server_and_client_session
+    from mcp.types import ElicitResult
+
+    async def say_yes(context, params):
+        return ElicitResult(action="accept", content={"confirm": True})
+
+    async def say_no(context, params):
+        return ElicitResult(action="decline")
+
+    stub.thread = {**THREAD, "status": "running", "waiting": None}
+    srv = mcp_server.build_server(level="admin", api=stub.api)
+    stub.posts.clear()
+    async with create_connected_server_and_client_session(srv, elicitation_callback=say_no) as s:
+        res = await s.call_tool("keel_stop_flow", {})
+        assert "you said no" in res.content[0].text
+
+
+def test_secret_files_are_never_read(stub):
+    from keel_engine import mcp_more
+
+    with pytest.raises(mcp_server.ApiError, match="holds secrets"):
+        mcp_more.read_file(stub.api, "config/.env")
+    assert mcp_more.is_secret("deploy/id_rsa") and not mcp_more.is_secret(".env.example")
+
+
+def test_actions_have_levels():
+    from keel_engine import mcp_more
+
+    text = mcp_more.actions("read")
+    assert "trace [read]" in text and "verify_release [write] (not at this level)" in text
+    assert "spec_freeze [flow-only] (only inside a flow)" in text
