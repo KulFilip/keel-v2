@@ -84,8 +84,8 @@ class KeelApi:
         res = self._raw(method, path, **kw)
         return res.json() if res.content else None
 
-    def text(self, path: str, **params) -> str:
-        return self._raw("GET", path, params={k: v for k, v in params.items() if v is not None}).text
+    def text(self, route: str, /, **params) -> str:
+        return self._raw("GET", route, params={k: v for k, v in params.items() if v is not None}).text
 
     def put(self, path: str, body: dict) -> Any:
         return self._send("PUT", path, json=body)
@@ -93,8 +93,9 @@ class KeelApi:
     def delete(self, path: str) -> Any:
         return self._send("DELETE", path)
 
-    def get(self, path: str, **params) -> Any:
-        return self._send("GET", path, params={k: v for k, v in params.items() if v is not None})
+    def get(self, route: str, /, **params) -> Any:
+        """GET a route; `params` are the query (a `path` query parameter is fine: the route is positional)."""
+        return self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
 
     def post(self, path: str, body: dict) -> Any:
         return self._send("POST", path, json=body)

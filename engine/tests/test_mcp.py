@@ -413,3 +413,25 @@ def test_actions_have_levels():
     text = mcp_more.actions("read")
     assert "trace [read]" in text and "verify_release [write] (not at this level)" in text
     assert "spec_freeze [flow-only] (only inside a flow)" in text
+
+
+def test_read_file_and_spec_history_send_path_as_a_query(stub):
+    from keel_engine import mcp_more
+
+    asked = []
+
+    def route(req):
+        asked.append((req.url.path, req.url.params.get("path")))
+        if req.url.path == "/api/projects/shop/repo/raw":
+            return httpx.Response(200, text="# demo\nsecond\n")
+        if req.url.path == "/api/projects/shop/wiki/page":
+            return httpx.Response(200, json={"markdown": "# Scores"})
+        if req.url.path == "/api/projects/shop/docs/history/versions":
+            return httpx.Response(200, json=[{"id": "dv-1", "version": 1, "by_kind": "agent", "by_name": "explorer", "at": "x"}])
+        return stub(req)
+
+    stub.api.http._transport = httpx.MockTransport(route)
+    assert mcp_more.read_file(stub.api, "README.md", start=2, lines=1).strip() == "2  second"
+    assert "version 1 · agent explorer" in mcp_more.specs(stub.api, path=".keel/specs/s.md", history=True)
+    assert ("/api/projects/shop/repo/raw", "README.md") in asked
+    assert ("/api/projects/shop/docs/history/versions", ".keel/specs/s.md") in asked

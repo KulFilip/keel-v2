@@ -152,7 +152,7 @@ def read_file(api: KeelApi, path: str, project: str | None = None, start: int = 
         raise ApiError(f"{path} holds secrets; keel never reads it through MCP.")
     p = _project(api, project)
     text = api.text(f"/projects/{p['id']}/repo/raw", path=path)
-    rows = text.split("\n")
+    rows = text[:-1].split("\n") if text.endswith("\n") else text.split("\n")
     start = max(1, int(start or 1))
     n = max(1, min(int(lines or 200), READ_MAX_LINES))
     part = rows[start - 1:start - 1 + n]
