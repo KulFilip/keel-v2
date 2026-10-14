@@ -54,6 +54,32 @@ class DocHistoryApiTest : ApiTest() {
     }
 
     @Test
+    fun `a spec that cannot be read while the list is built gives a state, never an empty answer`() {
+        // On Docker Desktop's file sharing a just-deleted file can still look present while reading it fails; an
+        // unreadable file fails the same read on every machine.
+        val (pid, root) = newProject("history-unreadable", mapOf(".keel/config.yml" to "layout: keel\n"))
+        Files.createDirectories(root.resolve(".keel/specs"))
+        Files.writeString(root.resolve(path), "# Scores\n")
+        send(version(pid, "t-5", "# Scores\n"))
+        val f = root.resolve(path).toFile()
+        f.setReadable(false)
+        try {
+            val res = get("/api/projects/$pid/docs/history").andExpect(status().isOk).andReturn().response.contentAsString
+            assertThat(res).isNotBlank()
+            assertThat(mapper.readTree(res)[0]["state"].asText()).isEqualTo("unreadable")
+        } finally {
+            f.setReadable(true)
+        }
+    }
+
+    @Test
+    fun `a file error on the server is a 500 with words, not an empty 200`() {
+        val r = keel.api.common.ErrorAdvice().other(java.nio.file.NoSuchFileException("/p/.keel/specs/x.md"))
+        assertThat(r).isNotNull()
+        assertThat(r!!.statusCode.value()).isEqualTo(500)
+    }
+
+    @Test
     fun `restore only writes keel's own files`(@Autowired jdbc: JdbcTemplate) {
         val (pid, _) = newProject("history-outside", mapOf(".keel/config.yml" to "layout: keel\n"))
         jdbc.update("INSERT INTO doc_versions(id, project_id, path, kind, version, sha256, content, size, by_kind, at) VALUES " +

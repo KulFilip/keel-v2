@@ -9,6 +9,7 @@ import { ErrorBox, Pill } from "./ui";
 
 const STATE: Record<DocFile["state"], ["ok" | "warn" | "idle", string]> = {
   ok: ["ok", "ok"], changed: ["warn", "changed outside keel"], missing: ["warn", "missing"], deleted: ["idle", "deleted"],
+  unreadable: ["warn", "cannot be read"],
 };
 
 function Diff({ text }: { text: string }) {
@@ -82,7 +83,7 @@ export function DocHistoryPanel({ pid, path, onRestored }: { pid: string; path: 
 export function DocProblems({ pid }: { pid: string }) {
   const { toast } = useApp();
   const files = useLoad(`docfiles:${pid}`, () => docHistoryApi.files(pid));
-  const odd = (files.data ?? []).filter((f) => f.state === "missing" || f.state === "changed");
+  const odd = (files.data ?? []).filter((f) => f.state === "missing" || f.state === "changed" || f.state === "unreadable");
   if (!odd.length) return null;
   const restore = async (f: DocFile) => {
     const newest = (await docHistoryApi.versions(pid, f.path)).find((v) => !v.deleted);

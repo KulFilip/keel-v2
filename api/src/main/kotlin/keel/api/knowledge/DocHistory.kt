@@ -101,12 +101,19 @@ class DocHistoryService(private val jdbc: JdbcTemplate, private val projects: Pr
         return rows.map { (path, kind, n, at) -> DocFile(path, kind, n.toInt(), at, state(pid, root, path)) }
     }
 
-    /** ok | missing (versions, no file: Restore) | changed (the file differs from the newest version) | deleted. */
+    /** ok | missing (versions, no file: Restore) | changed (the file differs from the newest version) | deleted |
+     *  unreadable (the file is there but cannot be read). A file can vanish between the check and the read (on Docker
+     *  Desktop's file sharing a deleted file still looks present for a moment): then it is missing. */
     fun state(pid: String, root: Path, path: String): String {
         val last = newest(pid, path) ?: return "ok"
         val f = root.resolve(path)
         if (!Files.isRegularFile(f)) return if (last.deleted) "deleted" else "missing"
-        return if (sha256(Files.readAllBytes(f)) == last.sha256) "ok" else "changed"
+        val bytes = try {
+            Files.readAllBytes(f)
+        } catch (e: java.io.IOException) {
+            return if (Files.exists(f)) "unreadable" else if (last.deleted) "deleted" else "missing"
+        }
+        return if (sha256(bytes) == last.sha256) "ok" else "changed"
     }
 
     fun versions(pid: String, path: String): List<DocVersion> {
