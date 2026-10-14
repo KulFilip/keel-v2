@@ -208,8 +208,13 @@ added like any other: `keel2 start --with-keel-v1 <keel checkout>`, then turn on
 keel reads keel v1's `layout:` from `.keel/config.yml`: `repo` (specs in `docs/specs` or `specs`, `docs/knowledge`,
 `docs/adr`, `docs/RUNNING.md`, committed with your code), `keel` (all of it in `.keel/`, which keel hides from git in
 `.git/info/exclude`) or `external` (`.keel` is a link to a folder outside the repo; add that folder too:
-`keel2 add <folder>`). A project that has keel files in `docs/` keeps them there. A project with both `.keel/specs`
-and `docs/specs` shows both in the Wiki and in Code › keel files.
+`keel2 add <folder>`). A new project gets `keel`. A project that has keel files in `docs/` keeps them there. A project
+with both `.keel/specs` and `docs/specs` shows both in the Wiki and in Code › keel files.
+
+keel keeps every version of these files in its own database, because `.keel/` is not in git: each Wiki page of a
+spec, a knowledge section or a decision has a **History** (who changed it, in which step, a diff, Restore), Code ›
+keel files shows a file that went missing with a **Restore** button, and the Flow page lists what keel applied
+(branch, commits, files).
 
 ## Docker mode
 

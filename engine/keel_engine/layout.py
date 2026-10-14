@@ -31,9 +31,9 @@ HIDDEN = {"specs": ".keel/specs", "knowledge": ".keel/knowledge", "adr": ".keel/
 REPO_SPEC_DIRS = ("docs/specs", "specs")
 # keel's files in the repo layout's places: a project without a `layout:` key that has one of them stays `repo`
 LEGACY_FILES = ("docs/specs", "docs/knowledge", "docs/adr", "docs/RUNNING.md")
-# The layout of a project with no `layout:` key and no keel files yet (the user's default: `.keel/`, layout keel).
-# It switches to "keel" together with keel's file history in the database (0.15.9).
-NEW_PROJECT = "repo"
+# The layout of a project with no `layout:` key and no keel files yet: `.keel/` (layout keel), the user's default since
+# 0.15.9, when keel's file history in the database came (these files are outside git).
+NEW_PROJECT = "keel"
 
 
 @dataclass(frozen=True)

@@ -726,9 +726,8 @@ class HelperRunner:
 
         # v0.15.9 keel's file history: what KeelBot changes in specs, knowledge, ADRs or the runbook
         def doc_emit(type_: str, step: str | None = None, data: dict | None = None):
-            self.bus.emit(type_, s["thread_id"] or sid, project, step=step or "helper", data=data or {})
+            self.bus.emit(type_, sid, project, step=step or "helper", call_id=call_id, data=data or {})
 
-        docs_before = doc_history.before_step(doc_emit, root, None, "helper")
 
         know = agent_knowledge.for_agent(AGENT, body.get("agents"))
         cfg = rules.load_config(root)
@@ -770,6 +769,7 @@ class HelperRunner:
         t0 = time.monotonic()
         ev("helper.started", {"agent": AGENT, "provider": provider, "model": model.get("model"), "mode": model.get("mode"),
                               "phase": f"helper-{mode}", "session": sid, "n": n})
+        docs_before = doc_history.before_step(doc_emit, root, None, "helper")
 
         def on_session(new: str):
             update(sid, engine_session=new)

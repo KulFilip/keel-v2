@@ -49,7 +49,7 @@ data class Layout(
         private val LEGACY_FILES = listOf("docs/specs", "docs/knowledge", "docs/adr", "docs/RUNNING.md")
 
         /** The layout of a project with no `layout:` key and no keel files yet (engine layout.NEW_PROJECT). */
-        const val NEW_PROJECT = "repo"
+        const val NEW_PROJECT = "keel"
 
         fun missingText(target: String) = "this project keeps keel's files in $target; add that folder too: keel2 add $target"
 
