@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start
+      - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start && bash -n docker/keel-native-start && bash -n scripts/build-native.sh
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
-      - run: shellcheck -S error keel2 install.sh docker/keel-start
+      - run: shellcheck -S error keel2 install.sh docker/keel-start docker/keel-native-start scripts/build-native.sh
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel2 mcp: the client config names this script; --with-keel-v1 refuses a folder without mcp/server.js
       - run: |
@@ -32,6 +32,50 @@ jobs:
           ./keel2 folders | grep -qF "added    $(cd "$repo" && pwd -P)"
           ./keel2 remove "$repo"
           ./keel2 folders | grep -q "No added folders"
+  # v0.16.1 native mode (keel2 start --native): build the release tarball, start keel without Docker on the fake model,
+  # run a flow to its first gate, stop it, and check nothing is left running or written outside its folders
+  native-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - uses: astral-sh/setup-uv@v5
+      - run: scripts/build-native.sh "$RUNNER_TEMP/dist"
+      - name: start, a flow to its gate, stop
+        env:
+          KEEL_NAME: keel-ci-native
+          KEEL_HOME2: ${{ runner.temp }}/k2
+          XDG_CONFIG_HOME: ${{ runner.temp }}/cfg
+          PORT: "8097"
+          KEEL_OPEN: "0"
+          KEEL_YES: "1"
+          KEEL_NATIVE_CLIS: "0"
+          KEEL_FAKEONREALPROJECTS: "true"
+        run: |
+          repo="$RUNNER_TEMP/repo" && mkdir -p "$repo" && git -C "$repo" init -q -b main
+          printf '# demo\n' > "$repo/README.md" && git -C "$repo" add -A && git -C "$repo" -c user.name=ci -c user.email=ci@localhost commit -qm init
+          ./keel2 start --native --from-tarball "$(ls "$RUNNER_TEMP"/dist/*.tar.gz)" "$repo"
+          ./keel2 status | grep -q "running natively"
+          pid="$(curl -fs http://127.0.0.1:8097/api/projects | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+          curl -fs -X POST "http://127.0.0.1:8097/api/projects/$pid/flows" -H 'content-type: application/json' \
+            -d '{"workflow_id":"feature","title":"Scores","request":"Save a score."}' > /dev/null
+          for _ in $(seq 1 60); do
+            st="$(curl -fs "http://127.0.0.1:8097/api/projects/$pid/flow" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("thread") or {}).get("status"))')"
+            [ "$st" = waiting ] && break; sleep 2
+          done
+          test "$st" = waiting
+          ls "$repo/.keel/specs"/*.md
+          ./keel2 mcp --print-config | grep -q "keel2 mcp"
+          ./keel2 stop
+          ! pgrep -f "$RUNNER_TEMP/k2" > /dev/null
+          test ! -e "$HOME/.keel2"
   engine:
     runs-on: ubuntu-latest
     # v0.10.0 the Database plugin's tests run against a real PostgreSQL and MySQL (tests/test_plugins_servers.py)

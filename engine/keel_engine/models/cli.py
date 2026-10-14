@@ -103,8 +103,26 @@ def project_env(env: dict) -> dict:
 def safe_env(extra: dict | None = None) -> dict:
     env = project_env({k: v for k, v in os.environ.items()
                        if (k in SAFE_ENV_VARS or k.startswith(SAFE_ENV_PREFIXES)) and k not in SECRET_VARS})
+    if native():
+        # v0.16.1 native mode: an agent CLI never writes into the person's own home (~/.copilot, ~/.config/…)
+        home = native_home()
+        env.update({"HOME": home, "XDG_CONFIG_HOME": os.path.join(home, ".config"), "XDG_DATA_HOME": os.path.join(home, ".local", "share"),
+                    "XDG_CACHE_HOME": os.path.join(home, ".cache")})
     env.update(extra or {})
     return env
+
+
+def native() -> bool:
+    """keel runs on this computer without Docker (keel2 start --native): agents run as the person."""
+    return os.environ.get("KEEL_NATIVE") == "1"
+
+
+def native_home() -> str:
+    from .. import config
+
+    d = config.data_dir() / "agent-home" / "home"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 
 
 LIMIT_RE = re.compile(r"usage limit|rate limit|\b429\b|limit reached|quota|too many requests")

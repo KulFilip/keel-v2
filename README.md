@@ -89,7 +89,7 @@ keel2 start ~/path/to/your/project
 ## More
 
 - [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,
-  MCP (`keel_dashboard`, `keel_start_flow`), and how to build keel yourself
+  MCP (read, write and admin levels), native mode without Docker (`keel2 start --native`), and how to build keel yourself
 - [How the parts talk](docs/CONTRACT.md)
 
 ## License

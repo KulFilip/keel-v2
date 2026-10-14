@@ -229,6 +229,21 @@ spec, a knowledge section or a decision has a **History** (who changed it, in wh
 keel files shows a file that went missing with a **Restore** button, and the Flow page lists what keel applied
 (branch, commits, files).
 
+## Native mode (no Docker)
+
+```bash
+keel2 start --native ~/Projects/shop        # Java 21, uv and git on this computer; Node 20+ for the agent CLIs
+```
+
+keel runs on your computer instead of in a container: the engine and the api start from `~/.keel2/<KEEL_NAME>/`
+(the release is downloaded and checked once; `keel2 update` gets the next one, `keel2 update --rollback` goes back).
+Every other command works the same: `status`, `stop`, `logs`, `doctor`, `mcp`, `add`, `backup` …
+
+**Agents run as you**: they can read what you can (your SSH keys, other projects, your network). In Docker they only
+see the project folders. Docker stays the default; use native mode only on a computer and projects you trust. keel
+gives the agent CLIs a home of their own under its data folder, so your own `~/.claude`, `~/.codex` and
+`~/.copilot` are never touched.
+
 ## Docker mode
 
 The image has JDK 21, Node 20, Python 3.12 and the Docker CLI (compose, buildx). `keel2 start --docker` mounts your

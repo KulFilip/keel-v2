@@ -3,6 +3,8 @@
 #
 #   keel2 start [folder]        start keel for a project (default: this folder) and open the browser
 #   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
+#   keel2 start --native [dir]  keel on this computer without Docker (Java 21, uv, git; agents run as you).
+#                               --from-tarball <file> or --from-source <keel-v2 checkout> instead of the download
 #   keel2 start --with-keel-v1 <keel-checkout> [dir]
 #                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
@@ -16,7 +18,8 @@
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
-#   keel2 update                get the newest image and restart keel if it is running
+#   keel2 update                get the newest image and restart keel if it is running (native: the newest
+#                               release; keel2 update --rollback goes back one version)
 #   keel2 token <claude|codex|copilot|anthropic|openai|github>   save a login or key (encrypted, input hidden)
 #   keel2 tokens                which logins and keys are saved (hints only)
 #   keel2 backup [file]         save keel's data (database, logins, history) to a .tgz file
@@ -35,7 +38,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.16.0"
+KEEL2_VERSION="0.16.1"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
 VOLUME="${KEEL_VOLUME:-keel-data}"
@@ -240,7 +243,7 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
 
 # ---------------------------------------------------------------- commands
 cmd_start() {
-  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1=""
+  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" native=0 tgz="" src=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --docker) docker_mode=1 ;;
@@ -250,12 +253,23 @@ cmd_start() {
         keel_v1="$(keel_v1_path "$2")"; shift ;;
       --without-keel-v1) keel_v1="" ;;
       --force) KEEL_FORCE=1 ;;
+      --native) native=1 ;;
+      --from-tarball) [ $# -ge 2 ] || die "--from-tarball needs a keel-v2-<version>-native.tar.gz"; native=1; tgz="$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")"; shift ;;
+      --from-source) [ $# -ge 2 ] || die "--from-source needs a keel-v2 checkout"; native=1; src="$(cd "$2" && pwd -P)"; shift ;;
       -*) die "Unknown option $1" "See: keel2 help" ;;
       *) folder="$1" ;;
     esac
     shift
   done
   local project; project="$(project_path "${folder:-.}")"
+  if [ "$native" = 1 ]; then
+    [ "$docker_mode" = 1 ] && info "  ${D}Native mode uses this computer's Docker directly, so --docker is not needed.${N}"
+    check_git "$project"
+    native_start "$project" "$tgz" "$src"
+    return 0
+  fi
+  if native_running; then die "keel runs natively for $NAME." "Stop it first (keel2 stop), or use another KEEL_NAME."; fi
+  rm -f "$ND/mode"
   need_docker
   check_git "$project"
   check_shared "$project"
@@ -521,16 +535,16 @@ cmd_token() {
   [ -n "$value" ] || die "Nothing saved (empty)."
   # JSON is built inside keel's container (it has python3), so this computer needs no python.
   local body out
-  body="$(printf '%s' "$value" | docker exec -i "$NAME" python3 -c 'import json,sys; print(json.dumps({"value": sys.stdin.read()}))')"
+  body="$(printf '%s' "$value" | kpy -c 'import json,sys; print(json.dumps({"value": sys.stdin.read()}))')"
   out="$(printf '%s' "$body" | curl -fsS -X PUT "$(api)/secrets/$name" -H 'content-type: application/json' --data-binary @-)" \
     || die "Could not save $name." "Is it complete? Try the dashboard: Control › Connections."
-  ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | docker exec -i "$NAME" python3 -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')"
+  ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | kpy -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')"
 }
 
 cmd_tokens() {
   need_docker
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
-  curl -fs "$(api)/connections" | docker exec -i "$NAME" python3 -c '
+  curl -fs "$(api)/connections" | kpy -c '
 import json, sys
 for p in json.load(sys.stdin)["providers"]:
     if p["id"] == "fake":
@@ -603,6 +617,12 @@ cmd_mcp() {
     shift
   done
   if [ "$print" = 1 ]; then print_mcp_config "$mode" ${extra[@]+"${extra[@]}"}; return 0; fi
+  if native_mode && ! docker_keel_running; then
+    native_running || die "keel is not running." "Start it first: keel2 start --native /path/to/project"
+    local p; p="$(native_port)"
+    KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN="$(cat "$ND/run/token")" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
+      exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
+  fi
   need_docker >&2
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
   # keel_dashboard's links: the dashboard as this computer sees it, not the container's own port
@@ -634,6 +654,234 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
   info "${D}--allow keel_status,keel_approve_gate keeps only those tools. keel's own agents always get it read-only.${N}"
 }
 
+# ---------------------------------------------------------------- native mode (keel2 start --native, v0.16.1)
+# keel on this computer without Docker: ~/.keel2/<KEEL_NAME>/ holds app/<version> (api.jar, engine/.venv, content),
+# current -> app/<version>, data/ (KEEL_DATA), npm/ (keel's own agent CLIs and codegraph), run/ (pid, ports, token)
+# and logs/. A native keel answers the same commands; when it exists, the Docker helpers below are replaced.
+ND="${KEEL_HOME2:-$HOME/.keel2}/$NAME"
+RELEASE_URL="${KEEL_RELEASE_URL:-https://github.com/MiladNalbandi/keel-v2/releases/download}"
+native_mode() { [ -f "$ND/mode" ] && [ "$(cat "$ND/mode" 2>/dev/null)" = native ]; }
+native_pid() { cat "$ND/run/keel.pid" 2>/dev/null || true; }
+native_running() { local p; p="$(native_pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+native_port() { sed -n 's/^api=//p' "$ND/run/ports" 2>/dev/null || true; }
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+docker_keel_running() { command -v docker >/dev/null 2>&1 && [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null || echo false)" = true ]; }
+
+native_hint() {
+  case "$(os)" in
+    mac) case "$1" in java) echo "brew install openjdk@21" ;; node) echo "brew install node" ;; *) echo "brew install $1" ;; esac ;;
+    linux) case "$1" in java) echo "sudo apt install openjdk-21-jre (or your distribution's Java 21)" ;; uv) echo "curl -LsSf https://astral.sh/uv/install.sh | sh" ;; *) echo "install $1 with your package manager" ;; esac ;;
+    *) echo "install $1" ;;
+  esac
+}
+
+native_need() {  # what native mode needs on this computer: Java 21, uv, git, curl (Node only for the agent CLIs)
+  local v; v="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -1)"
+  { [ -n "$v" ] && [ "$v" -ge 21 ]; } 2>/dev/null || die "Native mode needs Java 21 or newer (java -version)." "Install it: $(native_hint java)"
+  command -v uv >/dev/null 2>&1 || die "Native mode needs uv (it installs keel's Python packages)." "Install it: $(native_hint uv)"
+  command -v git >/dev/null 2>&1 || die "Native mode needs git." "Install it: $(native_hint git)"
+  command -v curl >/dev/null 2>&1 || die "Native mode needs curl." "Install it: $(native_hint curl)"
+}
+
+native_warn() {  # once per keel: agents run as you
+  [ -f "$ND/.warned" ] && return 0
+  warn "Native mode: keel's agents run as you, with your files, your SSH keys and your network."
+  warn "In Docker they only see the project folders. Docker stays the default: use native mode only on a computer and projects you trust."
+  if [ "${KEEL_YES:-0}" = 1 ] || ask_yes "Start keel natively?"; then mkdir -p "$ND"; : > "$ND/.warned"; return 0; fi
+  die "Not started (native mode needs your yes; KEEL_YES=1 gives it without asking)." "Or use Docker: keel2 start [folder]"
+}
+
+native_install() {  # native_install [tarball] — keel $KEEL2_VERSION from the release (or the given tarball) into app/<version>
+  local tgz="${1:-}" tmp dir v name
+  tmp="$(mktemp -d)"
+  if [ -z "$tgz" ]; then
+    v="$KEEL2_VERSION"; name="keel-v2-$v-native.tar.gz"
+    info "Getting keel v2 $v for native mode…"
+    curl -fsSL "$RELEASE_URL/v$v/$name" -o "$tmp/$name" && curl -fsSL "$RELEASE_URL/v$v/$name.sha256" -o "$tmp/$name.sha256" \
+      || die "Could not download keel v2 $v ($RELEASE_URL/v$v/$name)." "Check your internet connection, or build it: keel2 start --native --from-source <keel-v2 checkout>"
+    [ "$(sha256_of "$tmp/$name")" = "$(cut -d' ' -f1 "$tmp/$name.sha256")" ] || die "The download's checksum does not match, so keel does not use it." "Try again later."
+    tgz="$tmp/$name"
+  fi
+  tar -xzf "$tgz" -C "$tmp" || die "Could not unpack $tgz."
+  dir="$(ls -d "$tmp"/keel-v2-*/ 2>/dev/null | head -1)"; dir="${dir%/}"
+  [ -n "$dir" ] && [ -f "$dir/VERSION" ] && [ -f "$dir/api.jar" ] || die "$tgz is not a keel v2 native release."
+  v="$(cat "$dir/VERSION")"
+  mkdir -p "$ND/app"
+  [ -d "$ND/app/$v" ] && mv "$ND/app/$v" "$tmp/old-$v"
+  mv "$dir" "$ND/app/$v"
+  info "Installing keel's engine (uv sync)…"
+  (cd "$ND/app/$v/engine" && UV_PROJECT_ENVIRONMENT="$ND/app/$v/engine/.venv" uv sync --frozen --no-dev -q) || die "uv could not install the engine." "Run it again, or see: keel2 doctor"
+  [ -e "$ND/current" ] && ln -sfn "$(readlink "$ND/current")" "$ND/previous"
+  ln -sfn "$ND/app/$v" "$ND/current"
+  ok "keel v2 $v installed ($ND/app/$v)"
+}
+
+native_clis() {  # keel's own agent CLIs and codegraph, pinned like the image, with npm --prefix (no sudo)
+  [ "${KEEL_NATIVE_CLIS:-1}" = 1 ] || return 0
+  [ -x "$ND/npm/bin/codegraph" ] && return 0
+  command -v npm >/dev/null 2>&1 || { warn "npm is missing, so keel's agent CLIs are not installed. Node 20+: $(native_hint node)"; return 0; }
+  info "Installing the agent CLIs and codegraph into $ND/npm (once)…"
+  npm i -g --prefix "$ND/npm" --no-audit --no-fund @anthropic-ai/claude-code @openai/codex @github/copilot opencode-ai \
+    "@colbymchenry/codegraph@1.6.2" >/dev/null 2>&1 || warn "npm could not install every agent CLI; see: keel2 doctor"
+}
+
+native_free() {  # native_free <from> [taken] — the first free port from <from>
+  local p="$1" i; for i in $(seq 0 20); do
+    if [ "$p" != "${2:-}" ] && ! port_busy "$p"; then echo "$p"; return 0; fi
+    p=$((p + 1))
+  done
+  die "No free port between $1 and $p." "Free one, or choose another: PORT=9090 keel2 start --native"
+}
+
+native_start() {  # native_start <project> <tarball or ""> <source checkout or "">
+  local project="$1" tgz="$2" src="$3"
+  native_need
+  docker_keel_running && die "A Docker keel called $NAME runs already." "Stop it first (keel2 stop), or use another KEEL_NAME."
+  native_warn
+  if native_running; then guard_busy restart; native_stop_quiet; fi
+  if [ -n "$src" ]; then
+    local out; out="$(mktemp -d)"
+    info "Building keel v2 from $src…"
+    tgz="$("$src/scripts/build-native.sh" "$out" | tail -1)" || die "The build failed." "Run $src/scripts/build-native.sh to see why."
+  fi
+  if [ -n "$tgz" ] || [ ! -f "$ND/current/api.jar" ] || [ "$(cat "$ND/current/VERSION" 2>/dev/null)" != "$KEEL2_VERSION" ]; then native_install "$tgz"; fi
+  native_clis
+  mkdir -p "$ND/run" "$ND/logs" "$ND/data"
+  local port eport folders f tok
+  port="$(native_free "$WANT_PORT")"; eport="$(native_free 8090 "$port")"
+  folders="$project"
+  while IFS= read -r f; do
+    [ "$f" = "$project" ] && continue
+    case "$f" in "$project"/*) continue ;; esac
+    if [ -d "$f" ]; then folders="$folders:$f"; else warn "The added folder $f is missing, so keel skips it."; fi
+  done < <(list_folders)
+  [ -f "$ND/logs/keel.log" ] && mv "$ND/logs/keel.log" "$ND/logs/keel.log.1"
+  echo native > "$ND/mode"
+  printf '%s\n' "$project" > "$ND/project"
+  printf 'api=%s\nengine=%s\n' "$port" "$eport" > "$ND/run/ports"
+  tok="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  (umask 077; printf '%s' "$tok" > "$ND/run/token")
+  info "Starting keel natively for ${B}$project${N}…"
+  KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" \
+    KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
+    nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
+  echo $! > "$ND/run/keel.pid"
+  local i; for i in $(seq 1 180); do
+    curl -fs "$(api "$port")/health" >/dev/null 2>&1 && break
+    native_running || { bad "keel did not start. The last lines of its log:"; tail -25 "$ND/logs/keel.log" | sed 's/^/    /'; die "Start failed." "See: keel2 logs, keel2 doctor"; }
+    sleep 1
+  done
+  curl -fs "$(api "$port")/health" >/dev/null 2>&1 || die "keel did not answer in 3 minutes." "See: keel2 logs"
+  ok "keel is running natively: ${B}http://localhost:$port${N}"
+  local added=(); while IFS= read -r f; do [ "$f" != "$project" ] && [ -d "$f" ] && added+=("$f"); done < <(list_folders)
+  register_added "$port" ${added[@]+"${added[@]}"}
+  info "  ${D}Stop: keel2 stop · Status: keel2 status · Logs: keel2 logs${N}"
+  [ "${KEEL_OPEN:-1}" = 1 ] && open_url "http://localhost:$port" || true
+}
+
+native_stop_quiet() {
+  local p; p="$(native_pid)"
+  [ -n "$p" ] || return 0
+  kill -TERM "$p" 2>/dev/null || true
+  local i; for i in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$p" 2>/dev/null; then pkill -KILL -P "$p" 2>/dev/null || true; kill -KILL "$p" 2>/dev/null || true; fi
+  rm -f "$ND/run/keel.pid"
+}
+
+native_status() {
+  if ! native_running; then info "keel (native) is ${B}not running${N}. Start it: keel2 start --native /path/to/project"; return 0; fi
+  local port body version=""; port="$(native_port)"
+  body="$(curl -fs "$(api "$port")/health" 2>/dev/null || true)"
+  version="$(printf '%s' "$body" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  info "keel is ${B}running natively${N} ($([ -n "$body" ] && echo ready || echo starting))"
+  info "  dashboard  http://localhost:$port"
+  [ -n "$version" ] && info "  version    keel v2 $version"
+  info "  project    $(cat "$ND/project" 2>/dev/null)"
+  local f; while IFS= read -r f; do info "  added      $f$([ -d "$f" ] || echo "  (missing)")"; done < <(list_folders)
+  info "  files      $ND"
+  warn "agents run as you (native mode): they can read what you can."
+}
+
+native_doctor() {
+  local problems=0 v
+  info "${B}keel2 doctor${N} (native mode)"
+  v="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -1)"
+  if [ -n "$v" ] && [ "$v" -ge 21 ] 2>/dev/null; then ok "Java $v"; else bad "Java 21 is missing: $(native_hint java)"; problems=$((problems + 1)); fi
+  if command -v uv >/dev/null 2>&1; then ok "$(uv --version)"; else bad "uv is missing: $(native_hint uv)"; problems=$((problems + 1)); fi
+  command -v git >/dev/null 2>&1 && ok "git" || { bad "git is missing"; problems=$((problems + 1)); }
+  command -v node >/dev/null 2>&1 && ok "node $(node --version)" || warn "node is missing: keel's agent CLIs need Node 20+ ($(native_hint node))"
+  [ -f "$ND/current/api.jar" ] && ok "keel v2 $(cat "$ND/current/VERSION") in $ND/current" || warn "keel is not installed yet (keel2 start --native installs it)"
+  [ -x "$ND/npm/bin/codegraph" ] && ok "agent CLIs and codegraph in $ND/npm" || warn "agent CLIs not installed yet (keel2 start --native installs them)"
+  mkdir -p "$ND" 2>/dev/null && [ -w "$ND" ] && ok "$ND is writable" || { bad "$ND is not writable"; problems=$((problems + 1)); }
+  local p; p="$(native_port)"; if native_running; then ok "keel runs on port $p"; elif [ -n "$p" ] && port_busy "$p"; then warn "port $p is used by something else"; fi
+  [ "$problems" = 0 ] && ok "no problems found" || die "$problems problem(s) found."
+}
+
+native_update() {
+  [ "${1:-}" = --rollback ] && {
+    [ -L "$ND/previous" ] || die "There is no earlier version to go back to."
+    local cur; cur="$(readlink "$ND/current")"; ln -sfn "$(readlink "$ND/previous")" "$ND/current"; ln -sfn "$cur" "$ND/previous"
+    ok "back to keel v2 $(cat "$ND/current/VERSION")"
+    native_running && { native_stop_quiet; native_start "$(cat "$ND/project")" "" ""; }
+    return 0
+  }
+  native_install ""
+  native_running && { guard_busy update; native_stop_quiet; native_start "$(cat "$ND/project")" "" ""; } || true
+}
+
+native_backup() {
+  local file="${1:-keel2-backup-$(date +%Y%m%d-%H%M%S).tgz}"
+  case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
+  native_running && warn "keel is running: the backup is taken while it works (stop it first for a quiet copy)."
+  tar -C "$ND/data" -czf "$file" . && ok "saved keel's data to $file"
+}
+
+native_restore() {
+  local file="${1:-}"; [ -f "$file" ] || die "usage: keel2 restore <backup.tgz>"
+  ask_yes "Replace keel's data in $ND/data with $file?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing changed."
+  local was=0; native_running && { was=1; native_stop_quiet; }
+  mkdir -p "$ND/data" && find "$ND/data" -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar -C "$ND/data" -xzf "$file" && ok "restored from $file"
+  [ "$was" = 1 ] && native_start "$(cat "$ND/project")" "" ""
+  return 0
+}
+
+native_uninstall() {
+  native_running && native_stop_quiet
+  if [ "${1:-}" = --all ]; then
+    ask_yes "Remove $ND (keel's data, logins and history)?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing removed."
+    case "$ND" in */.keel2/*|*keel*) find "$ND" -mindepth 1 -delete 2>/dev/null; rmdir "$ND" 2>/dev/null; ok "removed $ND" ;; *) die "Refusing to remove $ND." ;; esac
+    remove_folders_file
+  else
+    rm -f "$ND/mode"; ok "keel (native) stopped; its data stays in $ND/data (keel2 uninstall --all removes it)"
+  fi
+}
+
+kpy() {  # a python for the JSON helpers: the container's, or the native engine's
+  if native_mode; then "$ND/current/engine/.venv/bin/python" "$@"; else docker exec -i "$NAME" python3 "$@"; fi
+}
+
+if native_mode && ! docker_keel_running; then
+  need_docker() { :; }
+  container_exists() { [ -f "$ND/project" ] && native_running; }
+  container_running() { native_running; }
+  running_port() { native_port; }
+  label() { case "$1" in project) cat "$ND/project" 2>/dev/null || true ;; docker) echo 0 ;; *) echo "" ;; esac; }
+  keel_running() { native_running; }
+  cmd_stop() {
+    native_running || { info "keel is not running."; return 0; }
+    [ "${1:-}" = "--force" ] && KEEL_FORCE=1
+    guard_busy stop
+    native_stop_quiet && ok "keel stopped (your data and logins are kept in $ND/data)"
+  }
+  cmd_restart() { native_start "$(cat "$ND/project")" "" ""; }
+  cmd_status() { native_status; }
+  cmd_doctor() { native_doctor; }
+  cmd_update() { native_update "$@"; }
+  cmd_backup() { native_backup "$@"; }
+  cmd_restore() { native_restore "$@"; }
+  cmd_uninstall() { native_uninstall "$@"; }
+fi
+
 cmd_help() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 
 # ---------------------------------------------------------------- main
@@ -649,15 +897,17 @@ case "$cmd" in
   remove|rm)        cmd_remove "$@" ;;
   folders)          cmd_folders ;;
   open)             cmd_open ;;
-  logs)             need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
+  logs)             if native_mode && ! docker_keel_running; then [ -f "$ND/logs/keel.log" ] || die "keel has no log yet."; exec tail -n 100 -F "$ND/logs/keel.log"; fi
+                    need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
   doctor|check)     cmd_doctor "$@" ;;
-  update|upgrade)   cmd_update ;;
+  update|upgrade)   cmd_update "$@" ;;
   token)            cmd_token "$@" ;;
   tokens)           cmd_tokens ;;
   backup)           cmd_backup "$@" ;;
   restore)          cmd_restore "$@" ;;
   mcp)              cmd_mcp "$@" ;;
-  sql)              need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
+  sql)              if native_mode && ! docker_keel_running; then exec sqlite3 -header -column "$ND/data/keel.db"; fi
+                    need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
   uninstall)        cmd_uninstall "$@" ;;
   version|-v|--version) echo "keel2 $KEEL2_VERSION · image $IMAGE" ;;
   ""|help|-h|--help) cmd_help ;;

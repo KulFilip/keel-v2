@@ -135,3 +135,15 @@ def test_a_worktrees_keel_files_come_back_to_the_project_folder(tmp_path):
     assert worktrees.keep_keel_files(str(r), wt) == [".keel/specs/new.md"]
     assert (r / ".keel/specs/new.md").read_text() == "# New\n"
     assert (r / ".keel/specs/kept.md").read_text() == "# newer in the folder\n"
+
+
+def test_native_mode_gives_agents_their_own_home(tmp_path, monkeypatch):
+    from keel_engine.models import cli
+
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("HOME", "/Users/someone")
+    monkeypatch.delenv("KEEL_NATIVE", raising=False)
+    assert cli.safe_env()["HOME"] == "/Users/someone"
+    monkeypatch.setenv("KEEL_NATIVE", "1")
+    env = cli.safe_env()
+    assert env["HOME"].startswith(str(tmp_path / "data")) and env["XDG_CONFIG_HOME"].startswith(env["HOME"])
