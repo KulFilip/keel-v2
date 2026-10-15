@@ -706,3 +706,53 @@ input.mk-sw:disabled {
 .wfm-menu-list button.mk-danger {
   color: var(--bad);
 }
+
+/* ---------- rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md §3) ---------- */
+/* a pack's rules: the table scrolls inside its panel on a narrow screen */
+.rpm-table {
+  min-width: 860px;
+}
+.rpm-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.rpm-who {
+  min-width: 220px;
+  font-size: 12.5px;
+}
+.rpm-who > div + div {
+  margin-top: 4px;
+}
+/* "before the action" / "after the step" */
+.rpm-when {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.rpm-when.before {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.rpm-when.after {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.rpm-enforcers {
+  display: grid;
+  gap: 10px;
+}
+.rpm-enforcers ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.rpm-enforcers p {
+  margin: 6px 0 0;
+}
+.rpm-blocks .perm b {
+  overflow-wrap: anywhere;
+}

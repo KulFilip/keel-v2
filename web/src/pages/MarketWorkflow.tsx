@@ -33,6 +33,7 @@ import {
   type WorkflowHit,
   type WorkflowSearch,
 } from "../workflowMarketApi";
+import { MARKET_RULES } from "../rulePackMarketApi";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
 type Err = { message: string; hint?: string; details?: string[] } | null;
@@ -83,10 +84,12 @@ export function ReviewShort({ h }: { h: Pick<WorkflowHit, "review"> }) {
   );
 }
 
-/** The kind switch of the Marketplace tab: Plugins · Workflows (later Rules). The link keeps ?tab=market. */
-export function KindSwitch({ kind }: { kind: "plugins" | "workflows" }) {
-  const to = (k: "plugins" | "workflows") => {
-    const h = k === "workflows" ? MARKET_WORKFLOWS : "#/plugins?tab=market";
+export type MarketKind = "plugins" | "workflows" | "rules";
+
+/** The kind switch of the Marketplace tab: Plugins · Workflows · Rules. The link keeps ?tab=market. */
+export function KindSwitch({ kind }: { kind: MarketKind }) {
+  const to = (k: MarketKind) => {
+    const h = k === "workflows" ? MARKET_WORKFLOWS : k === "rules" ? MARKET_RULES : "#/plugins?tab=market";
     if (location.hash !== h) location.hash = h;
   };
   return (
@@ -96,6 +99,9 @@ export function KindSwitch({ kind }: { kind: "plugins" | "workflows" }) {
       </button>
       <button type="button" aria-pressed={kind === "workflows"} onClick={() => to("workflows")}>
         Workflows
+      </button>
+      <button type="button" aria-pressed={kind === "rules"} onClick={() => to("rules")}>
+        Rules
       </button>
     </div>
   );

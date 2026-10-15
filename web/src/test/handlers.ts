@@ -8,6 +8,7 @@ import { createTaskDb, taskHandlers } from "./taskHandlers";
 import { createRulesDb, rulesHandlers } from "./rulesHandlers";
 import { createMarket, marketHandlers } from "./marketHandlers";
 import { createMarketWorkflows, marketWorkflowHandlers } from "./marketWorkflowHandlers";
+import { createMarketRulePacks, marketRulePackHandlers } from "./marketRulePackHandlers";
 
 /** v0.15.2 one of KeelBot's chat folders (its type is the KeelBot plugin's, plugins/keelbot/web/keelbotApi.ts) */
 type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
@@ -100,6 +101,8 @@ export function createDb() {
     market: createMarket(),
     /** 0.16.1 plugin track: the marketplace for workflows */
     mw: createMarketWorkflows(),
+    /** rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md): installs land in `rules` */
+    mr: createMarketRulePacks(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -661,6 +664,7 @@ export function handlers(db: Db) {
     ...rulesHandlers(db.rules, log),
     // before the plugin marketplace's: its /api/marketplace/:name would take /api/marketplace/workflows
     ...marketWorkflowHandlers(db.mw, db, log),
+    ...marketRulePackHandlers(db.mr, db.rules, log),
     ...marketHandlers(db.market, log),
   ];
 }
