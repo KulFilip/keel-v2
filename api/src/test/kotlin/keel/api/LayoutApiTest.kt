@@ -7,13 +7,13 @@ import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
-/** v0.15.8 keel v1's layouts (`layout:` in .keel/config.yml): where keel's files are, read in the keel docs and the wiki. */
+/** v0.15.8 keel v1's layouts (`layout:` in .keel/config.yml): where keel's files are, read in the keel docs. The wiki's
+ *  part is the Wiki plugin's (plugins/wiki/api: WikiLayoutApiTest). */
 class LayoutApiTest : ApiTest() {
 
     private val spec = "# Scores\n\n- **AC-1** [API] a score is saved\n- **AC-2** [API] the top ten\n"
 
     private fun docs(pid: String) = get("/api/projects/$pid/keel-docs").andExpect(status().isOk).json().map { it["path"].asText() }
-    private fun wiki(pid: String) = get("/api/projects/$pid/wiki").andExpect(status().isOk).json()
 
     @Test
     fun `repo layout reads docs specs, knowledge, adr and the runbook`() {
@@ -25,13 +25,6 @@ class LayoutApiTest : ApiTest() {
         val lay = get("/api/projects/$pid/layout").json()
         assertThat(lay["name"].asText()).isEqualTo("repo")
         assertThat(lay["specs"].asText()).isEqualTo("docs/specs")
-        val w = wiki(pid)
-        assertThat(w["layout"].asText()).isEqualTo("repo")
-        assertThat(w["sections"].first { it["id"].asText() == "specs" }["items"].map { it["id"].asText() }).containsExactly("spec:docs/specs/scores.md")
-        val page = get("/api/projects/$pid/wiki/page?id=spec:docs/specs/scores.md").andExpect(status().isOk).json()
-        assertThat(page["title"].asText()).isEqualTo("Scores")
-        assertThat(page["meta"]["acs"].asInt()).isEqualTo(2)
-        get("/api/projects/$pid/wiki/page?id=spec:../../etc/passwd").andExpect(status().isNotFound)
     }
 
     @Test
@@ -41,13 +34,8 @@ class LayoutApiTest : ApiTest() {
             ".keel/knowledge/domain.md" to "# Domain\n`README.md:1`\n", ".keel/adr/0002.md" to "# Keep it\n", ".keel/RUNNING.md" to "# Run it\n",
         ))
         assertThat(docs(pid)).contains(".keel/specs/x.md", ".keel/adr/0002.md", ".keel/knowledge/", ".keel/RUNNING.md")
-        val w = wiki(pid)
-        assertThat(w["layout"].asText()).isEqualTo("keel")
-        assertThat(w["sections"].first { it["id"].asText() == "specs" }["items"].map { it["id"].asText() }).containsExactly("spec:.keel/specs/x.md")
-        val kb = w["sections"].first { it["id"].asText() == "knowledge" }["items"].first { it["id"].asText() == "kb:domain" }
+        val kb = get("/api/projects/$pid/memory").json()["knowledge"].first { it["id"].asText() == "domain" }
         assertThat(kb["status"].asText()).isEqualTo("written")
-        assertThat(get("/api/projects/$pid/wiki/page?id=runbook").json()["meta"]["from"].asText()).isEqualTo(".keel/RUNNING.md")
-        assertThat(get("/api/projects/$pid/wiki/page?id=adr:0002.md").json()["meta"]["path"].asText()).isEqualTo(".keel/adr/0002.md")
     }
 
     @Test
@@ -69,13 +57,12 @@ class LayoutApiTest : ApiTest() {
         Files.writeString(target.resolve("specs/e.md"), "# E\n")
         Files.createSymbolicLink(root.resolve(".keel"), target)
         assertThat(docs(pid)).contains(".keel/specs/e.md")
-        assertThat(wiki(pid)["notice"].isNull).isTrue()
 
         val (pid2, root2) = newProject("layout-external-gone")
         Files.createSymbolicLink(root2.resolve(".keel"), root2.resolveSibling("no-such-keel-folder"))
-        val w = wiki(pid2)
-        assertThat(w["layout"].asText()).isEqualTo("external")
-        assertThat(w["notice"].asText()).contains("keel2 add").contains("no-such-keel-folder")
+        val lay = get("/api/projects/$pid2/layout").json()
+        assertThat(lay["name"].asText()).isEqualTo("external")
+        assertThat(lay["missing"].asText()).contains("keel2 add").contains("no-such-keel-folder")
     }
 
     @Test
@@ -92,7 +79,6 @@ class LayoutApiTest : ApiTest() {
         assertThat(lay["runbook"].asText()).isEqualTo("docs/RUNNING.md")
         assertThat(lay["knowledge"].asText()).isEqualTo("docs/knowledge")
         assertThat(docs(pid)).contains("docs/specs/ok.md").doesNotContain("docs/specs/leak.md")
-        get("/api/projects/$pid/wiki/page?id=spec:docs/specs/leak.md").andExpect(status().isNotFound)
     }
 
     @Test

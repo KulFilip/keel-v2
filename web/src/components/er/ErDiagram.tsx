@@ -11,6 +11,7 @@ import { IconDefs, Ic } from "./icons";
 import { layoutGraph, type LEdge, type Pt, type XY } from "./layout";
 import { attr, indexedColumns, relationIndex } from "./model";
 import { elbow, endMark, pathD, routeAround, type EndKind, type Rect } from "./route";
+import { useHasPage } from "../../sdk/registry";
 import { fileHref, Structure } from "./Structure";
 
 // ------------------------------------------------------------------ remembered per project (per browser)
@@ -145,6 +146,8 @@ export type ErProps = {
 
 export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps) {
   const uid = useId().replace(/:/g, "");
+  // the migration opens in the Code page (a plugin): only when this keel has it
+  const code = useHasPage("repo");
   const [prefs, setPrefsState] = useState<Prefs>(() => store.get(prefsKey(pid), DEFAULT_PREFS));
   const setPrefs = (p: Partial<Prefs>) => {
     const next = { ...prefs, ...p };
@@ -615,10 +618,10 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
             </div>
           )}
         </div>
-        {selected?.cite ? (
+        {selected?.cite && code ? (
           <a className="dg-btn" href={fileHref(selected.cite)} title={`Open ${selected.cite.rel}:${selected.cite.line}`}><Ic name="file" /><span>Open migration</span></a>
         ) : (
-          <button type="button" className="dg-btn" disabled title="Select a table to open the migration that creates it"><Ic name="file" /><span>Open migration</span></button>
+          <button type="button" className="dg-btn" disabled title={code ? "Select a table to open the migration that creates it" : "The Code page is a plugin this keel does not have"}><Ic name="file" /><span>Open migration</span></button>
         )}
         <button type="button" className={`dg-btn ${panel ? "on" : ""}`} aria-pressed={panel} onClick={() => setPanel((p) => !p)}
           title="The selected table's columns, keys, relations and indexes"><Ic name="panel" /><span>Structure</span></button>

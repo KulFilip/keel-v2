@@ -35,19 +35,22 @@ READ_ONLY = {"Read", "Glob", "Grep", "LS"}
 SERENA_EDIT = re.compile(r"(replace_symbol_body|insert_after_symbol|insert_before_symbol|insert_at_line|delete_lines|"
                          r"replace_lines|replace_regex|create_text_file|rename_symbol|write_memory)", re.I)
 WRITEISH = re.compile(r"(write|create|insert|update|delete|replace|edit|apply|execute|run|commit|merge|push)", re.I)
-# The read tools of keel's own plugin servers (keel_engine/plugins/server.py): they change nothing (a change is a button
-# for the person), so they are not judged by name ("ci_runs" lists runs). Only these exact tools of these servers pass;
-# kept here, not imported, so the hook stays light. tests/test_hook.py checks the list against the servers.
-PLUGIN_READ_TOOLS = {
-    "keel-db": {"db_connections", "db_schema", "db_query"},
-    "keel-git": {"git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branches", "pr_status"},
-    "keel-ci": {"ci_runs", "ci_failure"},
-}
+# The read tools of keel's parts' servers (each part's read_tools, keel_engine/extensions.py; a plugin's server is its
+# own module, keel_plugin_<name>.server): they change nothing (a change is a button for the person), so they are not
+# judged by name ("ci_runs" lists runs). Only these exact tools of these servers pass. The registry reads only the
+# parts' light declarations, so the hook stays light. Each plugin's tests check the list against its server.
+# A plugin's part (keel-ci, keel-db, keel-git) is not loaded in the hook: the guard context names its read tools
+# (`more`, from the engine).
+def plugin_read_tool(name: str, more: dict | None = None) -> bool:
+    from .extensions import read_tools
 
-
-def plugin_read_tool(name: str) -> bool:
     parts = name.split("__", 2)
-    return len(parts) == 3 and parts[2] in PLUGIN_READ_TOOLS.get(parts[1], set())
+    if len(parts) != 3:
+        return False
+    if parts[2] in read_tools().get(parts[1], set()):
+        return True
+    named = (more or {}).get(parts[1]) if isinstance(more, dict) else None
+    return isinstance(named, list) and parts[2] in named
 
 
 class NoContext(Exception):
@@ -247,13 +250,14 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
                              push_blockers=ctx.get("push_blockers"))
         if not v.ok:
             return v.reason
-        # KeelBot's Fix mode: a command that changes something waits for the person's OK (runtime/permissions.py)
+        # a run that may ask (KeelBot's Fix and side modes): a command that changes something waits for the person's OK
+        # (runtime/permissions.py asks at the context's URL; keel_engine/approvals.py does the waiting)
         if ctx.get("ask") and permissions.needs_ask(str(ti.get("command") or "")):
             ok, why = permissions.ask_engine(ctx["ask"], "command", str(ti.get("command") or ""))
             return None if ok else why
         return None
     if tool.startswith("mcp__"):
-        if plugin_read_tool(tool):
+        if plugin_read_tool(tool, ctx.get("read_tools")):
             return None
         if readonly and (WRITEISH.search(tool.split("__", 2)[-1]) or (re.search("serena", tool, re.I) and SERENA_EDIT.search(tool))):
             return run_mode.READONLY_MCP

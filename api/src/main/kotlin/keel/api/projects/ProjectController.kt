@@ -1,8 +1,6 @@
 package keel.api.projects
 
-import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.BadRequest
-import keel.api.engine.EngineClient
 import keel.api.events.EventHub
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -21,7 +19,7 @@ data class BulkAdded(val added: List<Project>, val skipped: List<Skipped>)
 
 @RestController
 @RequestMapping("/api/projects")
-class ProjectController(private val projects: ProjectService, private val hub: EventHub, private val engine: EngineClient) {
+class ProjectController(private val projects: ProjectService, private val hub: EventHub) {
 
     @GetMapping
     fun list(): List<Project> = projects.rows().map { projects.view(it) }
@@ -55,17 +53,5 @@ class ProjectController(private val projects: ProjectService, private val hub: E
         return mapOf("ok" to true, "id" to pid)
     }
 
-    /** The code graph index: idle | indexing | ready | failed, with file and symbol counts (engine runtime/scan.py). */
-    @GetMapping("/{pid}/index")
-    fun index(@PathVariable pid: String): JsonNode {
-        projects.require(pid)
-        return engine.index(pid)
-    }
-
-    /** Scans the project again with a full re-index; answers at once with status "indexing". */
-    @PostMapping("/{pid}/index/rebuild")
-    fun rebuildIndex(@PathVariable pid: String): JsonNode {
-        val row = projects.require(pid)
-        return engine.scan(row.id, row.root, rebuild = true)
-    }
+    // the index status and its rebuild (/{pid}/index, /{pid}/index/rebuild) are the Graph plugin's (plugins/graph)
 }

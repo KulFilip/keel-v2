@@ -2,6 +2,7 @@ package keel.api.plugins
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.approvals.ApprovalService
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.NotFound
@@ -9,6 +10,7 @@ import keel.api.common.Time
 import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
+import keel.api.flow.FlowContributor
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -27,7 +29,8 @@ data class PluginAskBody(val title: String = "", val command: String = "")
 /**
  * keel's installable plugins (engine `GET /plugins`, content/plugins/<name>/plugin.yml): Database and Git. A project turns
  * one on (or every project does, `*`); a project's own row wins. Flows and KeelBot get the list and the plugins' secrets
- * (keysFor) with every call: `db:<name>` → the connection as JSON, `github` → the GitHub token.
+ * with every call: `github` → the GitHub token (keysFor), and what each plugin's FlowContributor adds (the Database
+ * plugin: `db:<name>` → the connection as JSON).
  */
 @Service
 class PluginService(
@@ -36,7 +39,8 @@ class PluginService(
     private val projects: ProjectService,
     private val secrets: SecretService,
     private val mapper: ObjectMapper,
-) {
+    private val approvals: ApprovalService,
+) : FlowContributor {
     @Volatile private var cache: Pair<Long, JsonNode>? = null
 
     /** The catalog from the engine (kept a minute; an engine that is down gives an empty list). */
@@ -100,21 +104,25 @@ class PluginService(
         return forProject(pid)
     }
 
-    /** The secrets a flow or KeelBot turn of this project carries for its plugins (the engine keeps them in memory). */
+    /**
+     * The secrets a flow or KeelBot turn of this project carries for its plugins (the engine keeps them in memory). A
+     * plugin brings its own as a FlowContributor bean (the Database plugin: DatabaseKeys, `db:<name>`).
+     */
     fun keysFor(pid: String): Map<String, String> {
         val out = linkedMapOf<String, String>()
         githubToken()?.let { out["github"] = it }
-        if (on(pid, "db")) {
-            jdbc.query("SELECT id, name, kind, env FROM db_connections WHERE project_id = ? ORDER BY name",
-                { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)) }, pid,
-            ).forEach { (id, name, kind, env) ->
-                secrets.get("db.$id")?.let { url ->
-                    out["db:$name"] = mapper.writeValueAsString(mapOf("name" to name, "kind" to kind, "url" to url, "env" to env))
-                }
-            }
-        }
         return out
     }
+
+    // ---- FlowContributor: what flows get from the plugins -----------------------------------
+
+    override fun keys(pid: String): Map<String, String> = keysFor(pid)
+
+    /** `plugins`: the ones on for the project (null when none, as the engine always got it). */
+    override fun settings(pid: String): Map<String, Any?> = mapOf("plugins" to enabled(pid).takeIf { it.isNotEmpty() })
+
+    /** A template of a plugin in the catalog shows while that plugin is on; any other plugin is not ours. */
+    override fun templateOn(pid: String, plugin: String): Boolean? = if (plugin in names()) on(pid, plugin) else null
 
     fun ask(pid: String, body: PluginAskBody): JsonNode {
         projects.require(pid)
@@ -123,9 +131,10 @@ class PluginService(
             "command" to body.command.take(4000)))
     }
 
+    /** keel2 mcp polls its question (core approvals): {waiting: true} until the person answers, then the answer. */
     fun asked(qid: String): JsonNode {
         if (!Regex("^p_[0-9a-f]{12}$").matches(qid)) throw BadRequest("That is not a question id")
-        return engine.get("/plugins/ask/$qid")
+        return approvals.asked(qid)
     }
 
     fun github(): Map<String, Any?> {

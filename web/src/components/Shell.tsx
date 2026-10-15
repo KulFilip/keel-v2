@@ -2,21 +2,21 @@
 // that scrolls on its own, then the plan usage, engine + live status and the theme switch). Phones (≤ 900px): one compact bar — menu,
 // project picker, bell — over one horizontally scrollable row of every screen; Theme and the status live in the menu.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { navGroups, saveView, useFeatures, useView, type View } from "../addons";
+import { FOCUS_EVENT, isMac, isTyping, KEYS, keyLabel, matchesAny, menuPageKey, menuPageOf } from "../keys";
 import { hashFor, hashForScreen, type ScreenId } from "../routes";
+import { usePages, useSlot } from "../sdk/registry";
+import { SLOTS, type NavBadgeItem, type ShellWatchItem } from "../sdk/slots";
 import { useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
 import { Launcher, openLauncher } from "./launcher/Launcher";
-import { isMac, keyLabel } from "./review/keymap";
 import { KeySheet } from "./KeySheet";
-import { KEYS, isTyping, matchesAny, menuPageKey, menuPageOf } from "../keys";
-import { FOCUS_EVENT } from "../pages/repo/model";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
-import { KeelBotCount, useKeelBotWatch } from "./helper/unread";
+import { isCoreOnly, NoPagesYet, useCoreOnly } from "./CoreOnly";
 import { ProjectSwitcher, projectLine } from "./ProjectSwitcher";
 
 const THEME_KEY = "keel2.theme";
@@ -94,6 +94,15 @@ const Logo = () => (
   </svg>
 );
 
+/** The tag next to the logo: "v2 studio", or "core" when no plugin added a page (v0.16.0, the mockup's core-only keel). */
+function BrandTag({ className }: { className?: string }) {
+  const { bare } = useCoreOnly();
+  return (
+    <span className={[className, bare ? "brand-core" : ""].filter(Boolean).join(" ") || undefined}
+      title={bare ? "keel with only its core: no plugins" : undefined}>{bare ? "core" : "v2 studio"}</span>
+  );
+}
+
 // v0.15.7 the project picker is a searchable switcher (components/ProjectSwitcher), not a native select any more
 function ProjectPicker() {
   return (
@@ -117,12 +126,28 @@ function keepVisible(box: HTMLElement, el: HTMLElement) {
 /** v0.15.4 a menu link's tooltip names its key: ⌃1–⌃9 open the first nine pages. */
 const keyTip = (label: string, n: number) => (n <= 9 ? `${label} (${keyLabel(menuPageKey(n))})` : label);
 
+/** v0.15.2 a part's count on a menu page (slot nav.badge: KeelBot's new answers on KeelBot), in the menu or the rail. */
+function PartBadges({ page, kind }: { page: string; kind: "nav" | "rail" }) {
+  const items = useSlot<NavBadgeItem>(SLOTS.navBadge).filter((b) => b.page === page);
+  return <>{items.map((b) => <b.component key={b.id} kind={kind} />)}</>;
+}
+
+/** v0.15.2 what the parts watch on every page (slot shell.watch: KeelBot counts its new answers and plays its sound). */
+function PartWatches() {
+  const items = useSlot<ShellWatchItem>(SLOTS.shellWatch);
+  return <>{items.map((w) => <w.component key={w.id} />)}</>;
+}
+
 /** The screens: All projects, then the four groups. `onPick` runs after a link is used (the phone menu closes). */
 function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const route = useRoute();
   const { page } = route;
   const features = useFeatures();
   const view = useView();
+  // the menu follows the page registry (a plugin's page shows when it registers)
+  const pages = usePages();
+  // v0.16.0 a keel with only its core has no Project pages: the group is one small box (+ Add pages) instead
+  const coreOnly = isCoreOnly(features, view, pages);
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
@@ -140,17 +165,20 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
         {waitingAll > 0 && <span className="count" title="waiting for you in all projects">◆ {waitingAll}</span>}
       </a>
       {navGroups(features, view).map((g) => (
-        <div key={g.id} className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
-          <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
-          {g.pages.map((p) => (
-            <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id as ScreenId)} aria-current={current === p.id ? "page" : undefined}
-              onClick={onPick} title={keyTip(p.label, ++n)}>
-              <span className="nav-l">{p.label}</span>
-              {p.addon ? null : badge(p.id as ScreenId)}
-              {p.id === "helper" && <KeelBotCount kind="nav" />}
-            </a>
-          ))}
-        </div>
+        <Fragment key={g.id}>
+          <div className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
+            <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
+            {g.pages.map((p) => (
+              <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id)} aria-current={current === p.id ? "page" : undefined}
+                onClick={onPick} title={keyTip(p.label, ++n)}>
+                <span className="nav-l">{p.label}</span>
+                {p.addon ? null : badge(p.id)}
+                <PartBadges page={p.id} kind="nav" />
+              </a>
+            ))}
+          </div>
+          {coreOnly && g.id === "run" && <NoPagesYet onPick={onPick} />}
+        </Fragment>
       ))}
     </>
   );
@@ -162,6 +190,7 @@ function RailLinks() {
   const { page } = route;
   const features = useFeatures();
   const view = useView();
+  usePages();
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
@@ -171,11 +200,11 @@ function RailLinks() {
       : (id === "jobs" || id === "live") && running > 0 ? <span className="rail-count run" aria-hidden="true">{running}</span> : null;
   let n = 0;
   const link = (id: string, label: string, addon?: string) => (
-    <a key={id} href={addon ? hashForScreen(id) : hashFor(id as ScreenId)} className="rail-link" aria-current={current === id ? "page" : undefined}
+    <a key={id} href={addon ? hashForScreen(id) : hashFor(id)} className="rail-link" aria-current={current === id ? "page" : undefined}
       title={keyTip(label, ++n)} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
       <NavIcon id={addon ? "addon" : id} />
-      {addon ? null : count(id as ScreenId)}
-      {id === "helper" && <KeelBotCount kind="rail" />}
+      {addon ? null : count(id)}
+      <PartBadges page={id} kind="rail" />
     </a>
   );
   return (
@@ -291,7 +320,7 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
       <div className="scrim" onClick={onClose} />
       <div className="menu-sheet" role="dialog" aria-modal="true" aria-label="Menu" id="menu-sheet" ref={ref}>
         <header className="ms-head">
-          <span className="brand"><Logo /><b>keel</b><span>v2 studio</span></span>
+          <span className="brand"><Logo /><b>keel</b><BrandTag /></span>
           <button className="btn sm ghost" type="button" onClick={onClose}>Close</button>
         </header>
         {project && (
@@ -334,8 +363,6 @@ export function Shell({ children }: { children: ReactNode }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const theme = useTheme();
-  // v0.15.2 a KeelBot answer you did not see: a number on KeelBot, and its own sound
-  useKeelBotWatch();
   // a big screen can fold the menu into a thin strip (☰ opens it again, ⌘\ toggles); a phone keeps its own bar
   const [navHidden, setNavHidden] = useState<boolean>(() => {
     try { return localStorage.getItem(NAV_KEY) === "1"; } catch { return false; }
@@ -455,7 +482,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* the phone bar has no Live pill: a dot says when the event stream is not live */}
             {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
           </button>
-          <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span></span>
+          <span className="brand"><Logo /><b>keel</b><BrandTag className="brand-v" /></span>
           <span className="side-tools"><Mascot /><SearchButton className="bell" /><Bell onClick={() => setNotesOpen(true)} />
             <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title={`Hide the menu (${menuKeys})`}>
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -486,6 +513,8 @@ export function Shell({ children }: { children: ReactNode }) {
       <Popups />
       <Launcher dark={theme.dark} toggleTheme={theme.toggle} toggleNav={() => setNavHidden((h) => !h)} openNotes={() => setNotesOpen(true)} />
       <KeySheet />
+      {/* v0.15.2 the parts' watchers (KeelBot: a number on KeelBot and its own sound for an answer you did not see) */}
+      <PartWatches />
     </div>
   );
 }

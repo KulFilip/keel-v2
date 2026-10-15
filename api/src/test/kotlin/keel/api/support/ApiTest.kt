@@ -72,7 +72,6 @@ abstract class ApiTest {
         val foldersDir: Path = Files.createTempDirectory("keel-folders")
         val engine: StubEngine = StubEngine.start()
         val github: StubGitHub = StubGitHub.start()
-        val hosts: StubCodeHost = StubCodeHost.start()
         val contentDir: Path = Paths.get(ApiTest::class.java.getResource("/content-fixture")!!.toURI())
         const val TOKEN = "test-token"
 
@@ -88,16 +87,13 @@ abstract class ApiTest {
             r.add("keel.secret") { "" }
             r.add("keel.fake-on-real-projects") { true }
             r.add("keel.keel-v1-optional") { dataDir.resolve("no-keel-v1").toString() }
-            // v0.5.0 tasks: effects on the event thread, no background polls, GitHub = the stub, no token from the environment
+            // v0.5.0 tasks (the Tasks plugin's keel.tasks.*, for the plugins' tests and Product's): effects on the event
+            // thread, no background polls, GitHub = the stub, no token from the environment
             r.add("keel.tasks.inline-effects") { true }
             r.add("keel.tasks.scheduler") { false }
             r.add("keel.tasks.github-api") { github.url }
             r.add("keel.tasks.github-from-env") { false }
             r.add("keel.tasks.public-url") { "http://keel.test" }
-            // v0.14.0 Code Review: GitHub and GitLab are the stub, AI runs are followed on the event thread
-            r.add("keel.review.github-api") { hosts.url }
-            r.add("keel.review.gitlab-api") { hosts.url + "/api/v4" }
-            r.add("keel.review.inline-effects") { true }
             // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
             r.add("keel.login-pty") { false }
             r.add("keel.login-commands.codex") {

@@ -1,0 +1,23 @@
+# The plugin's manifest (keel's docs/plugins/02-plugin-package.md). Check it with: keel-plugin lint .
+schema: 1
+name: example                   # the id: a-z, 0-9 and '-'; every name the plugin adds starts with it
+title: Example
+version: 0.1.0
+publisher: you                  # must match the key that signs your releases
+summary: One sentence that says what Example does for the person.
+license: MIT
+
+requires:
+  sdk: 1                       # the plugin SDK major version
+  # keel: ">=0.15.4"           # an extra limit on keel's version
+  # plugins: { code: ">=1.0.0" }   # other plugins it needs (on one line)
+
+# Write each part on one line. Remove the parts you do not use.
+parts:
+  engine: { path: engine, package: keel_plugin_example }
+  web: { entry: web/index.js }
+  content: content
+
+per_project: false
+
+permissions: {}                # what it may do; keel shows it before install (docs/plugins/03-security.md)

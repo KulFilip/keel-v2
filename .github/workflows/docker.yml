@@ -4,7 +4,8 @@
 #                                   with write:packages), so installs made before the move keep getting updates
 #   docker.io/<user>/keel-v2        when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist
 # and the product edition (keel Product, beta) to <image>:<version>-product-beta and :product-beta for each ghcr name,
-# which never move :latest.
+# which never move :latest. The core edition (keel's core only, no plugin inside: keel2 start --core) goes next to
+# :latest, to the same names: <image>:<version>-core always, and :core when :latest moves (a real release).
 name: docker
 on:
   push:
@@ -72,6 +73,64 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             INSTALL_CLIS=1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  core:
+    # keel's core only (EDITION=core, docs/plugins/16-steps5-7-contract.md step 6): the plugins are added from the
+    # marketplace. :<version>-core on every tag; :core moves with :latest (not on a pre-release tag such as v0.4.0-rc.1)
+    runs-on: ubuntu-latest
+    env:
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+      HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.HAS_LEGACY != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        if: env.HAS_LEGACY == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ env.LEGACY_USER }}
+          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
+      - uses: docker/login-action@v3
+        if: env.HAS_DOCKERHUB == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: names
+        run: |
+          image="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          images="$image"
+          if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then images="$images $LEGACY_IMAGE"; fi
+          if [ "$HAS_DOCKERHUB" = "true" ]; then images="$images docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
+          version="${GITHUB_REF_NAME#v}"
+          {
+            echo "tags<<EOF"
+            for i in $images; do
+              echo "$i:${version}-core"
+              case "$GITHUB_REF_NAME" in *-*) ;; *) echo "$i:core" ;; esac
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.names.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=keel v2, core only
+            org.opencontainers.image.description=keel's core without plugins: add them from Control › Plugins
+            org.opencontainers.image.licenses=MIT
+          build-args: |
+            INSTALL_CLIS=1
+            EDITION=core
           cache-from: type=gha
           cache-to: type=gha,mode=max
   product:

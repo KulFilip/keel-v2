@@ -1,0 +1,545 @@
+/* v0.16.1 Control › Plugins in the look of docs/plugins/mockup.html: the Installed table (keel core, icons, nested
+   rows, switches), the Marketplace (search, chips, legend, sections, cards) and a plugin's own page. Everything is
+   scoped to mk- classes, so no other page changes. Colours come from the app's tokens (styles.css). */
+
+/* ---------- shared ---------- */
+.mk-tab {
+  margin-top: 14px;
+}
+.mk-tabsrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.mk-tabsrow .tabs {
+  max-width: 100%;
+}
+.mk-ico {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font: 600 12px var(--f-mono);
+  letter-spacing: -0.02em;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mk-ico.sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  font-size: 10.5px;
+}
+.mk-ico.lg {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+.mk-ico.c2 {
+  color: var(--run);
+}
+.mk-ico.c3 {
+  color: var(--ok);
+}
+.mk-ico.c4 {
+  color: var(--warn);
+}
+.mk-tick {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.mk-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--dim);
+}
+.mk-by .faint,
+.mk-legend .faint {
+  color: var(--faint);
+}
+.mk-card .tag.warn,
+.mk-detail .tag.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.btn.mk-danger {
+  color: var(--bad);
+}
+
+/* a switch: the checkbox drawn as the mockup's toggle */
+input.mk-sw {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--rail);
+  border: 0;
+  cursor: pointer;
+  flex: none;
+  vertical-align: middle;
+}
+input.mk-sw::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s;
+}
+input.mk-sw:checked {
+  background: var(--accent);
+}
+input.mk-sw:checked::after {
+  transform: translateX(14px);
+  background: var(--on-accent);
+}
+input.mk-sw:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---------- Installed ---------- */
+.mk-table {
+  width: 100%;
+  /* its sr-only header is positioned: keep it inside the table's scroll box (no page scroll on a phone) */
+  position: relative;
+}
+.mk-table td {
+  vertical-align: middle;
+}
+.mk-installed th:nth-child(6),
+.mk-installed td:nth-child(6) {
+  width: 1%;
+}
+.mk-installed tr.off td {
+  color: var(--faint);
+}
+.mk-installed tr.off .mk-plink {
+  color: var(--faint);
+}
+.mk-installed tr.child td:first-child {
+  padding-left: 34px;
+  position: relative;
+}
+.mk-installed tr.child td:first-child::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 0;
+  bottom: 50%;
+  width: 9px;
+  border-left: 1px solid var(--rail);
+  border-bottom: 1px solid var(--rail);
+  border-bottom-left-radius: 4px;
+}
+.mk-pname {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 190px;
+}
+.mk-pname b,
+.mk-plink {
+  display: block;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+.mk-plink:hover {
+  color: var(--accent);
+}
+.mk-pname .sub {
+  display: block;
+}
+.mk-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mk-rowact {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.mk-right {
+  text-align: right;
+  white-space: nowrap;
+}
+.mk-confirm-row td {
+  background: var(--panel-2);
+}
+.mk-problems {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+/* ---------- Marketplace ---------- */
+.mk-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.mk-market {
+  gap: 12px;
+}
+.mk-searchrow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.mk-search {
+  flex: 1 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.mk-search:focus-within {
+  border-color: var(--accent);
+}
+.mk-search svg {
+  color: var(--faint);
+  flex: none;
+}
+.mk-search input {
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+}
+.mk-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mk-chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 3px 11px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.mk-chip:hover {
+  color: var(--fg);
+}
+.mk-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--fg);
+  background: var(--accent-soft);
+}
+.mk-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  font-size: 12.5px;
+}
+.mk-local {
+  background: var(--accent-soft);
+}
+.mk-sect {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  margin: 10px 0 10px;
+}
+.mk-sect h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.mk-sect p {
+  margin: 0;
+}
+.mk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr));
+  gap: 12px;
+}
+.mk-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.mk-card:hover {
+  border-color: var(--rail);
+  background: color-mix(in srgb, var(--panel) 92%, var(--fg));
+}
+.mk-card:focus-within {
+  border-color: var(--accent);
+}
+.mk-card-h {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+}
+.mk-card h3 {
+  margin: 0;
+  font-size: 14.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* the title's link covers the whole card; the buttons sit above it */
+.mk-card-link {
+  color: var(--fg);
+  text-decoration: none;
+}
+.mk-card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.mk-card-link:focus-visible {
+  outline: none;
+}
+.mk-card .btn,
+.mk-card .pill,
+.mk-card .tag,
+.mk-card .trust {
+  position: relative;
+  z-index: 1;
+}
+.mk-sum {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+.mk-card-f {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mk-card-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.mk-empty {
+  border: 1px dashed var(--rail);
+  border-radius: 10px;
+  padding: 26px;
+  text-align: center;
+  color: var(--dim);
+}
+
+/* ---------- a plugin's own page ---------- */
+.mk-crumb {
+  font-size: 12.5px;
+  color: var(--faint);
+  margin-bottom: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mk-crumb a {
+  color: var(--dim);
+  text-decoration: none;
+}
+.mk-crumb a:hover {
+  color: var(--fg);
+}
+.mk-dhead {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.mk-dhead h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mk-meta {
+  display: flex;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--dim);
+  margin-top: 3px;
+}
+.mk-repo {
+  color: var(--dim);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.mk-repo:hover {
+  color: var(--accent);
+}
+.mk-dact {
+  align-items: center;
+  justify-content: flex-end;
+}
+.mk-dconfirm {
+  margin-bottom: 14px;
+}
+.mk-detail > .mk-note,
+.mk-detail > .errbox {
+  margin-bottom: 14px;
+}
+.mk-note.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.mk-dgrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: start;
+}
+.mk-stack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.mk-about {
+  margin: 0 0 12px;
+}
+.mk-adds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mk-adds li {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+.mk-adds li .tag {
+  justify-self: start;
+}
+.mk-checklist {
+  display: grid;
+  gap: 7px;
+}
+.mk-checklist > div {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+}
+.mk-ok {
+  color: var(--ok);
+  font-weight: 700;
+  font-family: var(--f-mono);
+}
+.mk-detail .perms {
+  gap: 0;
+}
+.mk-detail .perm {
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.mk-detail .perm:last-child {
+  border-bottom: 0;
+}
+.mk-detail .perm b {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.mk-quote {
+  margin: 10px 0 0;
+  border-left: 3px solid var(--rail);
+  padding: 2px 0 2px 12px;
+  color: var(--dim);
+  font-size: 13px;
+}
+.mk-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.mk-kv dt {
+  color: var(--dim);
+}
+.mk-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mk-vtable td:first-child {
+  white-space: nowrap;
+}
+
+/* ---------- Sources and rules ---------- */
+.mk-source .mk-sw {
+  margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .mk-dgrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mk-dhead {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+  .mk-dhead .mk-dact {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}

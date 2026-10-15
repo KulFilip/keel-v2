@@ -7,14 +7,17 @@
 #                               --from-tarball <file> or --from-source <keel-v2 checkout> instead of the download
 #   keel2 start --with-keel-v1 <keel-checkout> [dir]
 #                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
+#   keel2 start --safe [dir]    same, in safe mode: only the plugins inside the image load (installed ones wait)
+#   keel2 start --core [dir]    same, with keel's core only (the :core image: no plugin inside; add the ones you need
+#                               in Control › Plugins). restart and update keep it
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
-#                               when agents are working; --force does not ask)
+#                               when agents are working; --force does not ask; restart --safe: in safe mode)
 #   keel2 add <folder> [<folder> …]
 #                               add more project folders (each a git repo, or a folder of repos); keel restarts once
 #   keel2 remove <folder> [<folder> …]
 #                               take added folders off the list (keel keeps their projects' history)
 #   keel2 folders               the main project folder and the added ones
-#   keel2 status                is keel running, for which project, on which port
+#   keel2 status                is keel running, for which project, on which port, which edition (core or full)
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
@@ -28,11 +31,18 @@
 #   keel2 mcp [--write|--admin] keel's MCP server on stdio, for Claude Code / Claude Desktop to start: read-only by
 #                               default, --write decides gates and starts flows, --admin also stops flows and changes
 #                               projects (--allow t1,t2 keeps only those tools). keel2 mcp --print-config shows how
+#   keel2 plugins list          the plugins keel has: what loads, what is off, what is left out and why
+#   keel2 plugins install <name>[@version]   install a plugin from the marketplace (and the plugins it needs)
+#   keel2 plugins remove <name> [--delete-data]   remove an installed plugin (its tables stay)
+#   keel2 plugins search [words] | update <name> | rollback <name>
+#   keel2 plugins safe          restart keel in safe mode: only the plugins inside the image load
 #   keel2 uninstall [--all]     remove the container, or stop a native keel (--all: also keel's data, after you confirm)
 #   keel2 version | help
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
-# KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker).
+# KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
+# KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none). KEEL_IMAGE wins over
+# --core.
 # Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning), KEEL_NATIVE_CLIS=0 (no agent CLIs),
 # KEEL_RELEASE_URL (where releases are downloaded from).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
@@ -40,8 +50,10 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.16.2"
+KEEL2_VERSION="0.17.2"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
+# keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
+CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
 NAME="${KEEL_NAME:-keel-v2}"
 VOLUME="${KEEL_VOLUME:-keel-data}"
 WANT_PORT="${PORT:-8080}"
@@ -245,11 +257,13 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
 
 # ---------------------------------------------------------------- commands
 cmd_start() {
-  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" native=0 tgz="" src=""
+  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" plugins="${KEEL_PLUGINS:-}" core=0 native=0 tgz="" src=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --docker) docker_mode=1 ;;
       --no-docker) docker_mode=0 ;;
+      --safe) plugins=image ;;
+      --core) core=1 ;;
       --with-keel-v1)
         [ $# -ge 2 ] || die "--with-keel-v1 needs the folder of a keel v1 checkout" "For example: keel2 start --with-keel-v1 ~/Projects/keel ."
         keel_v1="$(keel_v1_path "$2")"; shift ;;
@@ -263,10 +277,17 @@ cmd_start() {
     esac
     shift
   done
+  case "$plugins" in ""|on|image|off) ;; *) die "KEEL_PLUGINS must be on, image or off (it is '$plugins')." ;; esac
+  # --core: the core image (no plugin inside); KEEL_IMAGE, when set, still wins
+  if [ "$core" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
   local project; project="$(project_path "${folder:-.}")"
   if [ "$native" = 1 ]; then
     [ "$docker_mode" = 1 ] && info "  ${D}Native mode uses this computer's Docker directly, so --docker is not needed.${N}"
+    # the release holds every plugin (as the full image does); --core is the core image's, a Docker one
+    [ "$core" = 1 ] && die "--core is for the Docker image (keel's core only)." "Native mode has every plugin: start with --safe for only the release's, or KEEL_PLUGINS=off for none."
     check_git "$project"
+    NATIVE_PLUGINS="$plugins"
+    if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the release load. 'keel2 restart' loads all again."; fi
     native_start "$project" "$tgz" "$src"
     return 0
   fi
@@ -295,6 +316,7 @@ cmd_start() {
 
   local args=(-d --name "$NAME" --restart unless-stopped -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
               --label "keel2.project=$project" --label "keel2.docker=$docker_mode" --label "keel2.keelv1=$keel_v1"
+              --label "keel2.core=$core"
               -e KEEL_PROJECT_NAME="$(basename "$project")")
   # keel v1 is not part of keel v2: a checkout given with --with-keel-v1 is mounted read-only, and only its MCP
   # server is offered (off) in Tools, like any other MCP server.
@@ -322,6 +344,10 @@ cmd_start() {
   local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
   done
+  # Plugins (docker/keel-start): on = the image's and the installed ones; image = safe mode; off = none
+  if [ -n "$plugins" ]; then args+=(-e "KEEL_PLUGINS=$plugins" --label "keel2.plugins=$plugins"); fi
+  if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the image load. 'keel2 restart' loads all again."; fi
+  if [ "$core" = 1 ]; then info "  ${D}keel's core only: add the plugins you need in Control › Plugins (or a set: Developer, Review…).${N}"; fi
 
   info "Starting keel for ${B}$project${N}…"
   [ ${#added[@]} = 0 ] || info "  ${D}and ${#added[@]} added folder(s): ${added[*]}${N}"
@@ -348,7 +374,15 @@ cmd_stop() {
   docker rm -f "$NAME" >/dev/null && ok "keel stopped (your data and logins are kept)"
 }
 
-cmd_restart() {
+cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the next start without --safe
+  local safe=() a
+  for a in "$@"; do
+    case "$a" in
+      --force) KEEL_FORCE=1 ;;
+      --safe) safe=(--safe) ;;
+      *) die "Unknown option $a" "usage: keel2 restart [--safe] [--force]" ;;
+    esac
+  done
   need_docker
   container_exists || die "keel has not been started yet." "Start it: keel2 start /path/to/project"
   local p d v1; p="$(label project)"; d="$(label docker)"; v1="$(label keelv1)"
@@ -356,6 +390,8 @@ cmd_restart() {
   local port; port="$(running_port || true)"
   if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
   local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
+  if [ "$(label core)" = 1 ]; then extra+=(--core); fi
+  extra+=(${safe[@]+"${safe[@]}"})
   if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }
 
@@ -454,14 +490,31 @@ cmd_status() {
   info "keel is ${B}running${N} ($health)"
   info "  dashboard  http://localhost:$port"
   [ -n "$version" ] && info "  version    keel v2 $version"
+  info "  edition    $(edition_text)"
   info "  project    $(label project)"
   local f; while IFS= read -r f; do
     info "  added      $f$([ -d "$f" ] || echo "  (missing)")"
   done < <(list_folders)
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
   [ -n "$(label keelv1)" ] && info "  keel v1    MCP server offered from $(label keelv1) (Tools, off until turned on)"
+  case "$(label plugins)" in
+    image) info "  plugins    safe mode: only the image's (keel2 restart loads all again)" ;;
+    off)   info "  plugins    off (KEEL_PLUGINS=off)" ;;
+  esac
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
   info "  data       volume $VOLUME"
+}
+
+# The edition the running image was built as (its KEEL_EDITION: core, full or product; an image from before the plugins
+# has none, and has every part inside).
+edition_text() {
+  local e; e="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_EDITION=//p' | head -1)"
+  case "$e" in
+    core)    echo "core (keel's core only, no plugin inside: add them in Control › Plugins)" ;;
+    product) echo "product (every plugin inside, and keel Product, beta)" ;;
+    full|dev|"") echo "full (every plugin inside)" ;;
+    *)       echo "$e" ;;
+  esac
 }
 
 cmd_open() {
@@ -509,6 +562,8 @@ cmd_update() {
   need_docker
   # keel v2 does not use keel v1 any more: the old setting does nothing now
   [ -n "${KEEL_HOME:-}" ] && warn "KEEL_HOME is set but ignored since 0.4.1: keel v2 does not use keel v1 (see: keel2 help, --with-keel-v1)."
+  # a keel started with --core gets the newest core image
+  if container_exists && [ "$(label core)" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
   info "Getting the newest image ($IMAGE)…"
   docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
   if container_exists && [ -n "$(label project)" ]; then cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
@@ -624,6 +679,7 @@ cmd_mcp() {
     native_running || die "keel is not running." "Start it first: keel2 start --native /path/to/project"
     local p; p="$(native_port)"
     KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN="$(cat "$ND/run/token")" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
+      KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" \
       exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
   fi
   need_docker >&2
@@ -633,6 +689,30 @@ cmd_mcp() {
   # v0.16.1 the internal token file (docker/keel-start writes it) lets the server ask the api for its level's token
   exec docker exec -i -e KEEL_PUBLIC_URL="$public" -e KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token "$NAME" \
     /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
+}
+
+# keel2 plugins list | install <name>[@version] | remove <name> [--delete-data] | search [words] | update <name>
+#              | rollback <name> | safe
+# The plugin host's command line inside the container (keel-engine plugins, docs/plugins/13-step4-contract.md §5).
+# What it installs or removes loads at the next start: keel2 restart.
+cmd_plugins() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  local engine=(docker exec "$NAME" /opt/engine/.venv/bin/keel-engine plugins)
+  case "$sub" in
+    safe) cmd_restart --safe "$@"; return ;;
+    list|install|remove|search|update|rollback) ;;
+    *) die "Unknown plugins command: $sub" "usage: keel2 plugins list | install <name> | remove <name> | search [words] | update <name> | rollback <name> | safe" ;;
+  esac
+  need_docker
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  case "$sub" in
+    list)     "${engine[@]}" list "$@" ;;
+    search)   "${engine[@]}" search "$@" ;;
+    install)  [ $# -ge 1 ] || die "usage: keel2 plugins install <name>[@version]"; "${engine[@]}" get "$@" ;;
+    remove)   [ $# -ge 1 ] || die "usage: keel2 plugins remove <name> [--delete-data]"; "${engine[@]}" remove "$@" ;;
+    update)   [ $# -ge 1 ] || die "usage: keel2 plugins update <name>"; "${engine[@]}" update "$@" ;;
+    rollback) [ $# -ge 1 ] || die "usage: keel2 plugins rollback <name>"; "${engine[@]}" rollback "$@" ;;
+  esac
 }
 
 print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra args…]
@@ -780,6 +860,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   info "Starting keel natively for ${B}$project${N}…"
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" \
     KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
+    KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" \
     nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"
   local i; for i in $(seq 1 180); do
@@ -904,7 +985,29 @@ if native_mode && ! docker_keel_running; then
     guard_busy stop
     native_stop_quiet && ok "keel stopped (your data and logins are kept in $ND/data)"
   }
-  cmd_restart() { native_start "$(cat "$ND/project")" "" ""; }
+  cmd_restart() {  # keel2 restart [--safe] [--force]
+    local a; NATIVE_PLUGINS=""
+    for a in "$@"; do
+      case "$a" in
+        --force) KEEL_FORCE=1 ;;
+        --safe) NATIVE_PLUGINS=image ;;
+        *) die "Unknown option $a" "usage: keel2 restart [--safe] [--force]" ;;
+      esac
+    done
+    native_start "$(cat "$ND/project")" "" ""
+  }
+  cmd_plugins() {  # the plugin host's command line with the release's engine (the same commands as in Docker)
+    local sub="${1:-list}"; [ $# -gt 0 ] && shift
+    case "$sub" in
+      safe) cmd_restart --safe "$@"; return ;;
+      list|search) ;;
+      install|remove|update|rollback) [ $# -ge 1 ] || die "usage: keel2 plugins $sub <name>" ;;
+      *) die "Unknown plugins command: $sub" "usage: keel2 plugins list | install <name> | remove <name> | search [words] | update <name> | rollback <name> | safe" ;;
+    esac
+    [ "$sub" = install ] && sub=get
+    KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" KEEL_CONTENT="$ND/current/content" \
+      "$ND/current/engine/.venv/bin/keel-engine" plugins "$sub" "$@"
+  }
   cmd_status() { native_status; }
   cmd_doctor() { native_doctor; }
   cmd_update() { native_update "$@"; }
@@ -925,7 +1028,7 @@ case "$cmd" in
                     cmd_start "$@" ;;
   --docker)         cmd_start --docker "$@" ;;          # keel2 --docker <folder>   (older form)
   stop)             cmd_stop "$@" ;;
-  restart)          [ "${1:-}" = "--force" ] && KEEL_FORCE=1; cmd_restart ;;
+  restart)          cmd_restart "$@" ;;
   status|ps)        cmd_status ;;
   add)              cmd_add "$@" ;;
   remove|rm)        cmd_remove "$@" ;;
@@ -940,6 +1043,7 @@ case "$cmd" in
   backup)           cmd_backup "$@" ;;
   restore)          cmd_restore "$@" ;;
   mcp)              cmd_mcp "$@" ;;
+  plugins)          cmd_plugins "$@" ;;
   sql)              if native_mode && ! docker_keel_running; then
                       command -v sqlite3 >/dev/null 2>&1 || die "keel2 sql needs sqlite3 on this computer." "Install it: $(native_hint sqlite3)"
                       exec sqlite3 -header -column "$ND/data/keel.db"; fi

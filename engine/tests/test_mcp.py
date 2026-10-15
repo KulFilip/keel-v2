@@ -1,6 +1,7 @@
 """keel v2's MCP server (keel_engine.mcp): tools/list in read-only and write mode, each tool against a stub api."""
 
 import json
+import os
 import subprocess
 import sys
 
@@ -11,16 +12,18 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from keel_engine import mcp_server
 from keel_engine.tools import mcp as mcp_tools
 
+# (the CI/CD, Database and Git plugins' keel_ci_*, keel_db_*, keel_git_* and keel_pr_* tools come with them, in keel
+# 0.16.1's places: plugins/ci, plugins/db and plugins/git engine tests; tests/test_db_part.py has the whole lists)
+# the marketplace's four tools come last at every level (keel_plugin_request only asks: docs/plugins/13-step4-contract.md §7)
+MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
 READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
-              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status",           # v0.10.0 plugins
-              "keel_ci_runs", "keel_ci_failure", "keel_dashboard",                                 # v0.15.8 dashboard
+              "keel_dashboard",                                                                    # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
-              "keel_search", "keel_read_file", "keel_actions", "keel_run_action",
-              "keel_rules"}                                                                         # v0.16.2
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
-               "keel_ci_rerun", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"}
+              "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
+              *MARKET_TOOLS}
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"}
 ADMIN_TOOLS = {"keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
-               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.16.2 rules
+               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -105,6 +108,28 @@ async def test_read_only_lists_only_the_read_tools(stub):
 
 async def test_write_mode_adds_the_write_tools(stub):
     assert await tool_names(mcp_server.build_server(write=True, api=stub.api)) == READ_TOOLS | WRITE_TOOLS
+
+
+def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_level():
+    import asyncio
+
+    names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
+    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
+            "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
+            "keel_actions", "keel_run_action"]
+    write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"]
+    admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+             "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
+    assert names("read") == read + MARKET_TOOLS
+    assert names("write") == read + write + MARKET_TOOLS
+    assert names("admin") == read + write + admin + MARKET_TOOLS
+
+
+async def test_allow_covers_the_marketplace_tools(stub):
+    srv = mcp_server.build_server(level="read", api=stub.api, allow={"keel_status", "keel_plugin_request"})
+    assert await tool_names(srv) == {"keel_status", "keel_plugin_request"}
+    assert mcp_server.allowed(["--allow", "keel_plugin_info"]) == {"keel_plugin_info"}
+    assert mcp_server.tool_level("keel_plugin_request") == "read"
 
 
 def test_read_only_flag_beats_the_env(monkeypatch):
@@ -249,60 +274,86 @@ def test_agents_get_the_read_only_builtin():
     assert mcp_tools.servers_for([], ["mcp:keel"])[0]["args"][-1] == "--read-only"
 
 
-# ---- v0.10.0 the plugins' tools: through the api, with keel's rules; acting ones wait for the person's Inbox answer
-
-class PluginApi(StubApi):
-    def __init__(self, on=("db", "git"), answer="allow"):
-        super().__init__()
-        self.on, self.answer, self.polls = on, answer, 0
-
-    def __call__(self, req: httpx.Request) -> httpx.Response:
-        path, body = req.url.path, (json.loads(req.content) if req.content else {})
-        if path == "/api/projects/shop/plugins":
-            return httpx.Response(200, json=[{"name": n, "enabled": n in self.on} for n in ("db", "git")])
-        if path == "/api/projects/shop/db/query":
-            self.posts.append((path, body))
-            if body.get("change"):
-                return httpx.Response(200, json={"connection": "local", "sql": body["sql"], "changed": 2, "done": bool(body.get("confirm"))})
-            return httpx.Response(200, json={"connection": "local", "columns": ["name", "api_key"], "rows": [["Ada", "•••"]],
-                                             "count": 1, "truncated": False, "masked": ["api_key"], "ms": 3})
-        if path == "/api/projects/shop/plugins/ask":
-            self.posts.append((path, body))
-            return httpx.Response(200, json={"id": "p_000000000001"})
-        if path == "/api/plugins/asks/p_000000000001":
-            self.polls += 1
-            done = self.polls > 1
-            return httpx.Response(200, json={"id": "p_000000000001", "waiting": True} if not done else
-                                  {"id": "p_000000000001", "decision": self.answer, "why": "" if self.answer == "allow" else "not now"})
-        if path == "/api/projects/shop/git/push":
-            self.posts.append((path, body))
-            return httpx.Response(200, json={"branch": "feat/scores", "sha": "abc1234def"})
-        return super().__call__(req)
+def test_keels_server_gets_the_engines_plugins(monkeypatch):
+    """The plugins' tools are in keel's MCP server too: the engine hands it its plugin variables (that process only)."""
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    assert set(mcp_tools.keel_server_spec()["env"]) == {"KEEL_API_URL"}
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", "/opt/p/ci/1.0.0/engine")
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_ci")
+    env = mcp_tools.keel_server_spec()["env"]
+    assert env["KEEL_PLUGIN_PATHS"] == "/opt/p/ci/1.0.0/engine" and env["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci"
+    seeded = {"name": "keel", "command": "/opt/engine/.venv/bin/python", "args": ["-m", "keel_engine.mcp", "--read-only"]}
+    assert mcp_tools.servers_for([seeded], ["mcp:keel"])[0]["env"]["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci"
 
 
-def test_plugin_tools_read_through_the_api_and_say_when_a_plugin_is_off(monkeypatch):
-    s = PluginApi(on=("db",))
-    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s))
-    text = mcp_server.db_query(api, "select name, api_key from players", "shop")
-    assert text.startswith("1 row from local") and "| Ada | ••• |" in text
-    assert s.posts[-1][1] == {"sql": "select name, api_key from players", "connection": "", "mask": True}
-    with pytest.raises(mcp_server.ApiError, match="The Git plugin is off for shop"):
-        mcp_server.git_status(api, "shop")
+def test_keel2_mcp_beside_the_engine_reads_the_plugins_of_keels_start(monkeypatch, tmp_path):
+    """keel2 mcp is a docker exec, not the engine's child: it reads run/env, as the resolver wrote it at keel's start."""
+    from keel_engine.pluginhost import resolver, state
+
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    mcp_server.plugin_env()                                              # no run/env yet: nothing changes
+    assert "KEEL_PLUGIN_ADDONS" not in os.environ
+    state.write_atomic(state.run_dir() / "env", resolver.env_text(
+        {"KEEL_PLUGIN_PATHS": "/opt/a b/engine:/opt/it's/engine", "KEEL_PLUGIN_ADDONS": "keel_plugin_ci,keel_plugin_map",
+         "KEEL_PLUGIN_LOADER_PATH": "/opt/x.jar"}))
+    assert resolver.read_env()["KEEL_PLUGIN_PATHS"] == "/opt/a b/engine:/opt/it's/engine"     # sh quoting read back
+    try:
+        mcp_server.plugin_env()
+        assert os.environ["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci,keel_plugin_map"
+        assert os.environ["KEEL_PLUGIN_PATHS"] == "/opt/a b/engine:/opt/it's/engine"
+        assert "KEEL_PLUGIN_LOADER_PATH" not in os.environ                 # the api's, not this server's
+        os.environ["KEEL_PLUGIN_ADDONS"] = "keel_other"                    # the engine's own always win
+        mcp_server.plugin_env()
+        assert os.environ["KEEL_PLUGIN_ADDONS"] == "keel_other"
+    finally:
+        # plugin_env writes os.environ itself: clean it by hand (monkeypatch would put it back)
+        os.environ.pop("KEEL_PLUGIN_PATHS", None)
+        os.environ.pop("KEEL_PLUGIN_ADDONS", None)
+        from keel_engine import extensions
+
+        extensions.reload()
 
 
-def test_an_acting_tool_waits_for_the_persons_inbox_answer(monkeypatch):
-    s = PluginApi()
-    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s))
-    out = mcp_server.db_change(api, "update scores set value = 0", "shop", sleep=lambda _s: None)
-    assert out == "2 row(s) changed in local."
-    asked = next(b for p, b in s.posts if p.endswith("/plugins/ask"))
-    assert asked == {"title": "Claude Code: change 2 row(s) in local?", "command": "update scores set value = 0"}
-    assert [b.get("confirm") for p, b in s.posts if p.endswith("/db/query")] == [None, True]
-    no = PluginApi(answer="deny")
-    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(no))
-    assert mcp_server.git_act(api, "push", "shop", sleep=lambda _s: None) == "The person said no in keel's Inbox: not now"
-    assert not any(p.endswith("/git/push") for p, _ in no.posts)
+def test_a_server_with_no_environment_reads_the_plugins_from_keels_image_folder(monkeypatch, tmp_path):
+    """Codex and Copilot start MCP servers with no environment (no KEEL_DATA): the server looks in /data, keel's image
+    folder, so their agents keep the plugins' keel_* tools (as in 0.15.1, where they were part of keel)."""
+    from keel_engine.pluginhost import resolver
 
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    monkeypatch.delenv("KEEL_DATA", raising=False)
+    monkeypatch.chdir(tmp_path)                                          # ./.data has no run/env here
+    image_run = tmp_path / "image-data" / "plugins" / "run"
+    image_run.mkdir(parents=True)
+    (image_run / "env").write_text(resolver.env_text({"KEEL_PLUGIN_PATHS": "/opt/keel-v2/plugins/ci/1.0.0/engine",
+                                                      "KEEL_PLUGIN_ADDONS": "keel_plugin_ci"}))
+    monkeypatch.setattr(mcp_server, "IMAGE_RUN_DIR", image_run)
+    try:
+        mcp_server.plugin_env()
+        assert os.environ["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci"
+    finally:
+        os.environ.pop("KEEL_PLUGIN_PATHS", None)
+        os.environ.pop("KEEL_PLUGIN_ADDONS", None)
+        from keel_engine import extensions
+
+        extensions.reload()
+
+
+def test_with_keel_data_set_the_image_folder_is_not_used(monkeypatch, tmp_path):
+    """A keel outside the image (KEEL_DATA set, no run/env yet) does not pick up some other keel's /data."""
+    from keel_engine.pluginhost import resolver
+
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "data"))
+    image_run = tmp_path / "image-data" / "plugins" / "run"
+    image_run.mkdir(parents=True)
+    (image_run / "env").write_text(resolver.env_text({"KEEL_PLUGIN_ADDONS": "keel_plugin_ci"}))
+    monkeypatch.setattr(mcp_server, "IMAGE_RUN_DIR", image_run)
+    mcp_server.plugin_env()
+    assert "KEEL_PLUGIN_ADDONS" not in os.environ
 
 
 # ---------------------------------------------------------------- v0.15.8 keel_dashboard, keel_start_flow

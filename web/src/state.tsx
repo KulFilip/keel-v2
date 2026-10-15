@@ -2,23 +2,27 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  api, ENGINE_EVENT_TYPES, errorParts,
+  api, ENGINE_CHANNEL, ENGINE_EVENT_TYPES, errorParts,
   type EngineEvent, type Health, type JobStep, type Notification as Note, type NotificationSettings, type Project,
 } from "./api";
 import { inboxApi } from "./inboxApi";
 import { desktopPop, NOTIFY_DEFAULTS, playSound, shouldAlert, unlockAudio, withDefaults } from "./notify";
-import { hashFor, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
+import { hashFor, hashForScreen, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
+import { usePagesVersion } from "./sdk/registry";
 
 // ---------- route ----------
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseHash(location.hash));
+  const [hash, setHash] = useState(() => location.hash);
+  // a plugin's page registers after keel started (its web part loads at start): the same link (#/map) may name it
+  // now, so the link is read again when a page comes or goes
+  const pages = usePagesVersion();
   useEffect(() => {
-    const on = () => setRoute(parseHash(location.hash));
+    const on = () => setHash(location.hash);
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  return route;
+  return useMemo(() => parseHash(hash), [hash, pages]);
 }
 
 export function go(page: ScreenId, arg?: string) {
@@ -196,8 +200,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (project && project !== pidRef.current && projectsRef.current.some((p) => p.id === project)) {
         setProjectId(project);
       }
+      // a page that is neither keel's own nor registered (an add-on's, or a plugin's this keel does not have: the Graph's
+      // "Index ready" names the Code page): its own link, and the router shows the add-on's page, or Flow (step 6)
+      if (r.page === "addon" && r.screen) {
+        const h = hashForScreen(r.screen, r.arg);
+        if (location.hash !== h) location.hash = h;
+      }
       // v0.15.3 a flow's notification opens that flow (its thread), not just the project's newest one
-      go(r.page, r.arg ?? (r.page === "flow" && n.thread_id ? n.thread_id : undefined));
+      else go(r.page, r.arg ?? (r.page === "flow" && n.thread_id ? n.thread_id : undefined));
     },
     [setProjectId],
   );
@@ -320,6 +330,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Browsers allow only 6 connections per server, so every extra stream per tab can freeze other tabs.
       es = new EventSource(api.eventsUrl(pid, true));
       ENGINE_EVENT_TYPES.forEach((t) => es!.addEventListener(t, onEngine as EventListener));
+      es.addEventListener(ENGINE_CHANNEL, onEngine as EventListener);
       es.addEventListener("notification", onNote as EventListener);
       es.addEventListener("project.changed", onChanged);
       es.addEventListener("notification.done", onDone as EventListener);

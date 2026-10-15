@@ -1,5 +1,7 @@
 package keel.api.addons
 
+import keel.api.pluginhost.PluginHost
+import keel.api.pluginhost.PluginWebUrls
 import keel.api.settings.SettingsService
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
@@ -26,17 +28,24 @@ data class AddonScreen(val id: String, val label: String, val group: String, val
 
 data class AddonInfo(val name: String, val version: String, val title: String, val part: String, val on: Boolean)
 
-/** GET /api/features: what this keel does now. `modes` lists what Settings may choose (only "dev" without an add-on). */
+/** A plugin keel-start loaded (keel.api.pluginhost). The web loads its web part from these urls at run time. */
+data class PluginInfo(val name: String, val title: String, val version: String, val web: PluginWebUrls?)
+
+/**
+ * GET /api/features: what this keel does now. `modes` lists what Settings may choose (only "dev" without an add-on).
+ * `plugins` lists every resolved plugin, whatever the mode.
+ */
 data class Features(
     val mode: String,
     val modes: List<String>,
     val parts: Map<String, Boolean>,
     val addons: List<AddonInfo>,
     val screens: List<AddonScreen>,
+    val plugins: List<PluginInfo>,
 )
 
 @Service
-class FeatureService(found: ObjectProvider<KeelAddon>, private val settings: SettingsService) {
+class FeatureService(found: ObjectProvider<KeelAddon>, private val settings: SettingsService, private val host: PluginHost) {
     /** The installed add-ons (none in keel's own image). */
     val addons: List<KeelAddon> = found.orderedStream().toList()
 
@@ -60,14 +69,21 @@ class FeatureService(found: ObjectProvider<KeelAddon>, private val settings: Set
         return if (part == "dev") mode == "dev" || mode == "both" else part in parts() && (mode == part || mode == "both")
     }
 
-    fun addonOn(name: String): Boolean = addons.firstOrNull { it.name == name }?.let { partOn(it.part) } ?: false
+    /**
+     * Whether an engine add-on's workflows show. An add-on that is a part of keel (keel Product: a [KeelAddon]) follows
+     * its part's mode. v0.16.0 a plugin keel-start loaded whose engine part brings workflows but that is no part of keel
+     * (a marketplace plugin: no KeelAddon) shows them while it is loaded. Any other engine add-on stays hidden.
+     */
+    fun addonOn(name: String): Boolean = addons.firstOrNull { it.name == name }?.let { partOn(it.part) }
+        ?: host.plugins.any { it.name == name }
 
     fun features(): Features {
         val offered = parts()
         val modes = if (offered.isEmpty()) listOf("dev") else listOf("dev") + offered.sorted() + "both"
         val on = (setOf("dev") + offered).associateWith { partOn(it) }
         return Features(mode(), modes, on, addons.map { AddonInfo(it.name, it.version, it.title, it.part, partOn(it.part)) },
-            addons.filter { partOn(it.part) }.flatMap { a -> a.screens.map { it.copy(addon = a.name) } })
+            addons.filter { partOn(it.part) }.flatMap { a -> a.screens.map { it.copy(addon = a.name) } },
+            host.plugins.map { PluginInfo(it.name, it.title, it.version, host.webUrls(it)) })
     }
 }
 

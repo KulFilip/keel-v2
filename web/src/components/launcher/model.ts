@@ -39,6 +39,15 @@ export const SCOPES: { id: Scope; label: string; kinds: Kind[] }[] = [
   { id: "actions", label: "Actions", kinds: ["action", "page", "project"] },
 ];
 
+/** The kinds keel itself finds (the inbox, flows, pages, actions, projects). Pull requests, files, code and tasks come
+ *  from the parts (slot launcher.source). */
+export const OWN_KINDS: Kind[] = ["wait", "flow", "page", "action", "project"];
+
+/** The scope chips for the kinds this keel can find: All, Flows and Actions always, the others when a part finds their
+ *  kinds (step 6: a keel with only its core has no Files, Code, Pull requests or Tasks). */
+export const scopesFor = (kinds: ReadonlySet<Kind>) =>
+  SCOPES.filter((s) => s.id === "all" || s.kinds.some((k) => kinds.has(k)));
+
 /** A prefix typed first narrows the search: > actions, @ code, # pull requests and tasks, ! flows and gates, ? ask. */
 export const PREFIXES: Record<string, { label: string; kinds: Kind[] | null }> =
   {
@@ -62,6 +71,10 @@ export const GROUPS: { kind: Kind; label: string }[] = [
   { kind: "project", label: "Projects" },
 ];
 
+/** The prefix a typed character starts, or null. Without KeelBot (ask false) "?" is a plain character. */
+export const prefixFor = (c: string | undefined, ask = true): string | null =>
+  c && PREFIXES[c] && (ask || c !== "?") ? c : null;
+
 export type Query = {
   /** the text to match, without the prefix and the :line */
   text: string;
@@ -73,10 +86,11 @@ export type Query = {
   ask: boolean;
 };
 
-export function parseQuery(raw: string, scope: Scope): Query {
+/** `canAsk`: KeelBot is in this keel, so "?" asks it. */
+export function parseQuery(raw: string, scope: Scope, canAsk = true): Query {
   let text = raw.trimStart();
   let prefix: string | null = null;
-  if (text && PREFIXES[text[0]]) {
+  if (prefixFor(text[0], canAsk)) {
     prefix = text[0];
     text = text.slice(1).trimStart();
   }

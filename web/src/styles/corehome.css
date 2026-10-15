@@ -1,0 +1,100 @@
+/* v0.16.0 a keel with only its core and the Inbox's agent install request, as docs/plugins/mockup.html draws them
+   ("Core-only keel", "Agent install request"). Colours come from the app's tokens (styles.css), so both themes follow. */
+
+.ok-mark { color: var(--ok); font-weight: 700; font-family: var(--f-mono); }
+.go-mark { color: var(--faint); font-family: var(--f-mono); }
+.warn-mark { color: var(--warn); font-weight: 700; font-family: var(--f-mono); }
+
+/* a plugin's small icon: its mark in the code font */
+.pl-ico { width: 40px; height: 40px; border-radius: 9px; display: inline-grid; place-items: center; flex: none;
+  font: 600 12px var(--f-mono); letter-spacing: -.02em; background: var(--panel-2); border: 1px solid var(--border); color: var(--accent); }
+.pl-ico.sm { width: 26px; height: 26px; border-radius: 6px; font-size: 9.5px; }
+.pl-ico.lg { width: 44px; height: 44px; border-radius: 10px; font-size: 12.5px; }
+.pl-ico.c2 { color: var(--run); }
+.pl-ico.c3 { color: var(--ok); }
+.pl-ico.c4 { color: var(--warn); }
+
+/* ---------- the menu: the "core" tag next to the logo (the rail hides "v2 studio" for room; "core" is short) ---------- */
+.side-head .brand:has(.brand-core) { gap: 5px; }
+.side-head .brand:has(.brand-core) svg { width: 24px; height: 14px; }
+.side-head .brand-v.brand-core { display: inline; flex: none; border: 0; padding: 0; margin-left: -1px; align-self: flex-start;
+  font: 600 10px/1 var(--f-mono); color: var(--accent); }
+/* the phone menu's head has room for the usual pill */
+.ms-head .brand .brand-core { display: inline; }
+
+/* ---------- the menu: no Project pages yet ---------- */
+.nav-empty { display: grid; gap: 7px; margin: 0 2px; padding: 10px 11px; border: 1.5px dashed var(--rail); border-radius: 9px;
+  font-size: 12.5px; color: var(--dim); }
+.nav-empty b { color: var(--fg); font-size: 13px; }
+.nav-empty p { margin: 0; }
+.nav-empty .btn { justify-self: start; }
+/* a phone's row of screens: one small chip, "No pages yet  + Add pages" (its menu ☰ shows the whole box) */
+@media (max-width: 900px) {
+  .app .side .nav .nav-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 2px 4px 2px 9px; border-width: 1px;
+    white-space: nowrap; }
+  .app .side .nav .nav-empty p { display: none; }
+  .app .side .nav .nav-empty b { font-weight: 500; font-size: 12.5px; color: var(--dim); }
+  .app .side .nav .nav-empty .btn { padding: 2px 8px; }
+}
+
+/* ---------- Welcome to keel core ---------- */
+.core-home { display: grid; min-width: 0; }
+.ch-hello { border: 1px solid var(--border); border-radius: 12px; padding: 22px; display: grid; gap: 10px; margin-bottom: 8px;
+  background: radial-gradient(120% 140% at 100% 0%, var(--accent-soft) 0%, transparent 55%), var(--panel); min-width: 0; }
+.ch-hello .tag { justify-self: start; }
+.ch-hello h1 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.015em; text-wrap: balance; }
+.ch-hello p { margin: 0; color: var(--dim); max-width: 70ch; }
+.ch-sect { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 0 10px; flex-wrap: wrap; }
+.ch-sect h2 { margin: 0; font-size: 15px; }
+.ch-sect p { margin: 0; }
+.ch-sets { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+.ch-set { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 14px; display: grid; gap: 10px;
+  grid-template-rows: auto auto 1fr auto; min-width: 0; }
+.ch-set h3 { margin: 0; font-size: 14.5px; }
+.ch-set > .sub { margin: 0; }
+.ch-set .btn { justify-self: stretch; }
+.ch-mini { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; min-width: 0; }
+.ch-mini .sub { align-self: center; }
+.ch-core { display: grid; gap: 4px 18px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); list-style: none;
+  padding: 0; margin: 0; font-size: 13px; }
+.ch-core li { display: flex; gap: 8px; align-items: baseline; }
+.ch-how { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.ch-note { border-left: 3px solid var(--rail); padding: 2px 0 2px 12px; color: var(--dim); font-size: 13px; margin: 16px 0 0; }
+
+/* ---------- the Inbox: an agent asks to install a plugin ---------- */
+.inbox-item.req { padding: 0; gap: 0; overflow: hidden; border: 1.5px solid var(--warn); border-radius: 12px; }
+.req-h { display: flex; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; align-items: center; padding: 11px 16px;
+  background: var(--warn-soft); }
+.req-who { display: flex; gap: 6px 9px; align-items: center; font-size: 13px; flex-wrap: wrap; min-width: 0; }
+.req-who .sub { overflow-wrap: anywhere; }
+.req-b { padding: 14px 16px; display: grid; gap: 14px; min-width: 0; }
+.req-title { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center; }
+.req-title h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 4px 7px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.req-v { font-size: 13px; color: var(--dim); font-weight: 500; }
+.req-by { font-weight: 400; }
+.req-tick { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--accent);
+  color: var(--on-accent); font-size: 9px; font-weight: 700; }
+.req-line { display: flex; gap: 4px 10px; flex-wrap: wrap; align-items: baseline; margin-top: 2px; }
+.req-quote { border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 0 8px 8px 0; padding: 9px 12px;
+  font-size: 13.5px; display: grid; gap: 3px; }
+.req-quote p { margin: 0; overflow-wrap: anywhere; }
+.req-cols { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.req-mini { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); font-weight: 600; margin: 0 0 6px; }
+.req-perms { gap: 0; }
+.req-perms .perm { grid-template-columns: 66px minmax(0, 1fr); padding: 6px 0; border-bottom: 1px dashed var(--border); align-items: start; }
+.req-perms .perm:last-child { border-bottom: 0; }
+.req-perms .lvl { padding: 2px 0; font-size: 10.5px; }
+.req-diff { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 3px; font-size: 12.5px; color: var(--ok); }
+.req-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; font-size: 13px; }
+.req-checks li { display: flex; gap: 9px; align-items: baseline; }
+.req .linkish { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--accent); cursor: pointer; font-size: 12.5px; }
+.req .linkish:hover { text-decoration: underline; }
+.req-note { flex: 0 1 240px; min-width: 0; border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 6px 10px;
+  font-size: 13px; }
+.req-note:focus { outline: none; border-color: var(--accent); }
+.req-acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; }
+@media (max-width: 720px) {
+  .req-cols { grid-template-columns: minmax(0, 1fr); }
+  .req-b, .req-h { padding-inline: 12px; }
+  .req-note { flex: 1 1 100%; }
+}

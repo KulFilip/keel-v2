@@ -10,9 +10,10 @@ import { jobMatches, RunSearch, RunTabs, searchWords, useDebounced, useFinished,
 import { StartFlowDrawer } from "../components/StartFlow";
 import { mergeSteps } from "../components/StepFeed";
 import { FilesTouched, Outcome, StepView, useJumpToStep } from "../components/StepView";
-import { PipelinesView } from "../components/plugins/Pipelines";
 import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, StatusPill, Tabs } from "../components/ui";
 import { clock, kfmt, since, usd } from "../format";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type JobsTabItem } from "../sdk/slots";
 import { go, useApp, useLoad, useRoute } from "../state";
 import { useJobSteps } from "./Live";
 
@@ -138,18 +139,22 @@ export function JobsPage({ pid }: { pid: string }) {
   const showCost = list.some((j) => j.cost_usd > 0);
   const cols = 7 + (showProject ? 1 : 0) + (showCost ? 1 : 0);
   const open = tab === "finished" && arg && list.some((j) => j.id === arg) ? arg : null;
+  // the parts' tabs next to Agent calls (the CI/CD plugin's Pipelines), each while its plugin is on
+  const tabItems = useSlot<JobsTabItem>(SLOTS.jobsTab);
   const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
-  const ciOn = !!plugins.data?.find((p) => p.name === "ci")?.enabled;
-  const tabs = ciOn ? (
-    <Tabs value={arg === "pipelines" ? "pipelines" : "calls"} label="Jobs view" onChange={(t) => go("jobs", t === "pipelines" ? "pipelines" : undefined)}
-      options={[["calls", "Agent calls"], ["pipelines", "Pipelines"]]} />
+  const shown = tabItems.filter((t) => !t.plugin || !!plugins.data?.find((p) => p.name === t.plugin)?.enabled);
+  const partTab = shown.find((t) => t.id === arg) ?? null;
+  const tabs = shown.length ? (
+    <Tabs value={partTab ? partTab.id : "calls"} label="Jobs view" onChange={(t) => go("jobs", t === "calls" ? undefined : t)}
+      options={[["calls", "Agent calls"], ...shown.map((t): [string, string] => [t.id, t.title])]} />
   ) : null;
-  if (ciOn && arg === "pipelines") {
+  if (partTab) {
+    const View = partTab.component;
     return (
       <>
-        <PageHead title="Jobs" sub="Agent calls, and the project's CI pipelines (CI/CD plugin)." />
+        <PageHead title="Jobs" sub={partTab.sub} />
         <div style={{ marginBottom: 12 }}>{tabs}</div>
-        <PipelinesView pid={pid} />
+        <View pid={pid} />
       </>
     );
   }
@@ -179,7 +184,7 @@ export function JobsPage({ pid }: { pid: string }) {
           {filtered && <button className="btn sm ghost" type="button" onClick={clear}>Clear filters</button>}
         </div>
       </div>
-      {arg && arg !== "pipelines" && !open && fin.rows && <JobSteps key={arg} id={arg} onClose={() => go("jobs")} />}
+      {arg && !tabItems.some((t) => t.id === arg) && !open && fin.rows && <JobSteps key={arg} id={arg} onClose={() => go("jobs")} />}
       {tab === null ? (
         !running.error && <div className="panel"><Loading what="Loading the calls" /></div>
       ) : tab === "running" ? (

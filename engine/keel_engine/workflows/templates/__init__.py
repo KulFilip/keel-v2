@@ -37,10 +37,17 @@ def get_template(name: str) -> Workflow | None:
 
 
 def templates() -> list[Workflow]:
+    """keel's own workflows, then the add-ons' and the plugins' (addons.folders): each name once, keel's first (a plugin
+    cannot replace one of keel's workflows)."""
     extra = sorted(f.stem for f in folder().glob("*.yaml") if f.stem not in ORDER) if folder().is_dir() else []
     own = set(ORDER + extra)
     more = [f.stem for _a, d in addons.folders("workflows") for f in sorted(d.glob("*.yaml")) if f.stem not in own]
-    return [wf for wf in (get_template(n) for n in ORDER + extra + more) if wf]
+    more = list(dict.fromkeys(more))
+    out: list[Workflow] = []
+    for wf in (get_template(n) for n in ORDER + extra + more):
+        if wf and not any(w.id == wf.id for w in out):   # an id inside the file cannot take one either
+            out.append(wf)
+    return out
 
 
 def clear_cache() -> None:

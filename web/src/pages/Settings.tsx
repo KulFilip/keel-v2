@@ -1,37 +1,24 @@
 // Settings (Control): General settings for every project, and per-project overrides. Settings come in sections, each
 // with one line that says what it is for, and every row says what it does. In the project tab a changed row has a
 // badge, the General value and "Reset to General" (PUT { key: null }). Every change saves at once; the bar at the top
-// (a pill at the bottom on a phone) says Saving… / Saved / Not saved.
+// (a pill at the bottom on a phone) says Saving… / Saved / Not saved. A part adds its own sections after keel's
+// (slot settings.section).
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, errorParts, type Model, type ProjectSettings, type Settings } from "../api";
 import { refreshFeatures, useFeatures } from "../addons";
 import { ModelPicker } from "../components/ModelPicker";
-import { useKeelBotSound } from "../components/helper/unread";
-import { playKeelBot } from "../notify";
 import { Skeleton } from "../components/page";
 import { RUN_MODES, runModeAbout } from "../components/RunMode";
 import { ErrorBox, PageHead, Tabs } from "../components/ui";
 import { kfmt, parseTokens, PROV } from "../format";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type SettingRow, type SettingsBrowserItem, type SettingsSectionItem } from "../sdk/slots";
 import { useApp, useLoad } from "../state";
 
 type Key = keyof Settings;
-type Kind =
-  | { t: "select"; opts: [string, string][] }
-  | { t: "bool"; on?: string; off?: string }
-  | { t: "model" }
-  | { t: "tokens" }
-  | { t: "text"; suggest?: string[]; placeholder?: string }
-  | { t: "list" };
-type Row = {
-  key: Key; label: string; kind: Kind;
-  /** One line: what the setting does (a function when it depends on the value). */
-  help: string | ((v: unknown) => string);
-  /** shown when the api has no value yet (an older api) */
-  def?: unknown;
-  /** The help reads as a warning for this value. */
-  warn?: (v: unknown) => boolean;
-};
+/** A row: its key, label, control (kind), one line of help, the value before the api has one, a warning. */
+type Row = SettingRow & { key: Key };
 type Sec = { id: string; title: string; sub: string; rows: Row[] };
 
 export const SECTIONS: Sec[] = [
@@ -208,8 +195,9 @@ function KeelModePanel({ onSaved, onError }: { onSaved: (text: string) => void; 
 
 /** v0.15.0 choices kept in this browser only, whichever scope is shown. */
 function BrowserPanel() {
-  const { showMascot, setShowMascot, nset } = useApp();
-  const [kbSound, setKbSound] = useKeelBotSound();
+  const { showMascot, setShowMascot } = useApp();
+  // v0.15.2 the parts' rows (slot settings.browser: KeelBot's own sound)
+  const parts = useSlot<SettingsBrowserItem>(SLOTS.settingsBrowser);
   return (
     <section className="panel sg-sec" id="sg-browser" aria-labelledby="sg-browser-h">
       <header className="sg-sec-h">
@@ -222,15 +210,7 @@ function BrowserPanel() {
         </label>
         <span className="hint">The little hull jumps when something arrives and says what it is. Off at first.</span>
       </div>
-      {/* v0.15.2 KeelBot's own sound when an answer is ready */}
-      <div className="field sg-browser">
-        <label className="chk switch">
-          <input type="checkbox" role="switch" checked={kbSound} onChange={(e) => setKbSound(e.target.checked)} /> KeelBot's sound when an answer is ready
-        </label>
-        <span className="hint">Three short rising notes, not the notification chime. It plays when you are not looking at that chat. Do not disturb
-          silences it too. On at first.{" "}
-          <button type="button" className="btn sm" onClick={() => playKeelBot(nset.volume)}>Play it</button></span>
-      </div>
+      {parts.map((p) => <p.component key={p.id} />)}
     </section>
   );
 }
@@ -243,6 +223,9 @@ export function SettingsPage({ pid }: { pid: string }) {
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const [save, setSave] = useState<Save>({ state: "idle", text: "" });
   const [only, setOnly] = useState(false);
+  // the parts' sections come after keel's own (their keys are the parts' settings)
+  const extra = useSlot<SettingsSectionItem>(SLOTS.settingsSection);
+  const sections: Sec[] = [...SECTIONS, ...extra.map((x) => ({ id: x.id, title: x.title, sub: x.sub, rows: x.rows as Row[] }))];
   const timer = useRef<number>();
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const isProj = scope === "project" && !!pid;
@@ -290,7 +273,7 @@ export function SettingsPage({ pid }: { pid: string }) {
   const isChanged = (k: string) => ov[k] !== null && ov[k] !== undefined;
   const changed = isProj && proj.data ? Object.keys(ov).filter(isChanged) : [];
   const filter = isProj && only && changed.length > 0;
-  const shown = SECTIONS.map((s) => ({ ...s, rows: filter ? s.rows.filter((r) => isChanged(r.key)) : s.rows })).filter((s) => s.rows.length);
+  const shown = sections.map((s) => ({ ...s, rows: filter ? s.rows.filter((r) => isChanged(r.key)) : s.rows })).filter((s) => s.rows.length);
   const status = save.state === "saving" ? "Saving…" : save.state === "idle" ? "Changes save as you make them" : save.text;
 
   return (

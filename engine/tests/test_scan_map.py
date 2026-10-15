@@ -1,12 +1,11 @@
-"""Stage 5/5b: verdicts in the engine DB, the knowledge check, the map (ER + endpoints), the scan job and the code graph."""
+"""Stage 5/5b: verdicts in the engine DB, the knowledge check and the scan job. The code graph's index is the Graph
+plugin's (plugins/graph/engine/tests), the map (ER + endpoints) the Map plugin's (plugins/map/engine/tests)."""
 
-import json
-import stat
 import subprocess
 import time
 from pathlib import Path
 
-from keel_engine.runtime import blockers, knowledge, mapper, scan, verdicts
+from keel_engine.runtime import blockers, knowledge, scan, verdicts
 from keel_engine.runtime.actions import ActionInput, knowledge_check
 from keel_engine.tools import mcp
 
@@ -24,35 +23,6 @@ def write(repo, rel, text):
 def commit_all(repo, msg="x"):
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", msg)
-
-
-FAKE_CODEGRAPH = """#!/bin/sh
-# A stand-in for @colbymchenry/codegraph: init/index write .codegraph/codegraph.db, status prints counts.
-cmd="$1"; shift
-for a in "$@"; do case "$a" in -*) ;; *) root="$a";; esac; done
-echo "$cmd $*" >> "$root/../codegraph-calls.log"
-case "$cmd" in
-  init|index) mkdir -p "$root/.codegraph" && echo db > "$root/.codegraph/codegraph.db" && echo "Indexed 3 files" ;;
-  sync) exit 0 ;;
-  status) printf '{"initialized":true,"fileCount":3,"nodeCount":20,"nodesByKind":{"file":3,"import":5,"function":9,"class":3},"journalMode":"wal"}\\n' ;;
-  *) echo "unknown command $cmd" >&2; exit 2 ;;
-esac
-"""
-
-
-def fake_codegraph(tmp_path, monkeypatch, body=FAKE_CODEGRAPH):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir(exist_ok=True)
-    f = bin_dir / "codegraph"
-    f.write_text(body)
-    f.chmod(f.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("KEEL_CODEGRAPH_BIN", str(f))
-    return f
-
-
-def no_codegraph(monkeypatch):
-    monkeypatch.setenv("KEEL_CODEGRAPH_BIN", "")
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
 
 
 # ------------------------------------------------------------------ verdicts + knowledge check
@@ -122,84 +92,7 @@ def test_knowledge_gate_reads_the_memory_verdict(repo):
     assert "changed since" in gates()["knowledge"]["why"]
 
 
-# ------------------------------------------------------------------ map
-
-MIGRATIONS = {
-    "apps/api/src/main/resources/db/migration/V1__players.sql": """
-create table players (
-    id bigserial primary key,
-    name varchar(80) not null
-);
-create table teams (
-    id bigint not null,
-    title text,
-    primary key (id)
-);
-""",
-    "apps/api/src/main/resources/db/migration/V2__scores.sql": """
-CREATE TABLE IF NOT EXISTS scores (
-    id      BIGSERIAL PRIMARY KEY,
-    player_id BIGINT NOT NULL REFERENCES players(id),
-    points  NUMERIC(10,2)
-);
-ALTER TABLE players ADD COLUMN team_id BIGINT;
-ALTER TABLE players ADD CONSTRAINT fk_team FOREIGN KEY (team_id) REFERENCES teams(id);
-CREATE TABLE tmp (id int);
-DROP TABLE tmp;
-""",
-    "apps/api/src/main/resources/db/migration/V10__later.sql": "ALTER TABLE scores ADD COLUMN at timestamp;\n",
-}
-
-OPENAPI = """openapi: 3.0.0
-info: {title: scores, version: '1'}
-paths:
-  /players:
-    get: {summary: list}
-    post: {summary: add}
-  "/players/{id}/scores":
-    get: {summary: scores}
-    description: |
-      get: this line is prose, not an endpoint
-"""
-
-
-def test_map_er_from_migrations_and_endpoints_from_openapi(repo):
-    for rel, text in MIGRATIONS.items():
-        write(repo, rel, text)
-    write(repo, "contracts/openapi.yaml", OPENAPI)
-    commit_all(repo)
-    m = mapper.build(str(repo))
-    assert m["counts"]["tables"] == 3 and m["counts"]["endpoints"] == 3
-    assert m["sha"] == git(repo, "rev-parse", "HEAD").stdout.strip()
-    er = m["levels"]["er"]
-    nodes = {n["title"]: n for n in er["nodes"]}
-    assert set(nodes) == {"players", "teams", "scores"}                    # tmp was dropped
-    rows = [r["t"].split()[0] for r in nodes["players"]["rows"]]
-    assert rows == ["id", "name", "team_id"] and nodes["players"]["rows"][0]["flag"] == "pk"
-    assert nodes["teams"]["rows"][0]["flag"] == "pk"                       # table-level primary key (id)
-    assert [r["t"].split()[0] for r in nodes["scores"]["rows"]] == ["id", "player_id", "points", "at"]  # V10 after V2
-    assert nodes["scores"]["rows"][1]["flag"] == "fk" and nodes["scores"]["cite"]["line"] == 2
-    fks = {(e["from"], e["to"]) for e in er["edges"]}
-    assert fks == {("tbl:players", "tbl:scores"), ("tbl:teams", "tbl:players")}
-    assert all(e["d"].startswith("M ") and e["kind"] == "fk" for e in er["edges"])
-    assert all({"x", "y", "w", "h"} <= set(n) for n in er["nodes"]) and er["width"] > 0 and er["height"] > 0
-    api = next(n for n in m["levels"]["modules"]["nodes"] if n["id"] == "api:contract")
-    assert [r["t"] for r in api["rows"]] == ["GET /players", "POST /players", "GET /players/{id}/scores"]
-    assert api["cite"] == {"rel": "contracts/openapi.yaml", "line": 4}
-    assert {n["title"] for n in m["levels"]["modules"]["nodes"]} >= {"apps/api", "src/scores", "contracts"}  # apps/ and src/ open one level
-    assert [n["id"] for n in m["levels"]["system"]["nodes"]] == ["app:code", "api:contract", "db:main"]
-    assert "flow" not in m["levels"] and "classes" not in m["levels"]
-
-
-def test_map_endpoints_store_and_read(client, repo):
-    assert client.get("/projects/demo/map").json() == {"missing": "No map yet. Build it to draw one."}
-    m = client.post("/projects/demo/map", json={"root": str(repo)}).json()
-    assert m["levels"]["system"]["nodes"] and "er" not in m["levels"]
-    assert client.get("/projects/demo/map").json()["at"] == m["at"]
-    assert client.post("/projects/demo/map", json={"root": "/no/such/folder"}).status_code == 400
-
-
-# ------------------------------------------------------------------ scan + code graph
+# ------------------------------------------------------------------ scan
 
 def scan_and_wait(client, root, rebuild=False, project="demo"):
     r = client.post(f"/projects/{project}/scan", json={"root": str(root), "rebuild": rebuild})
@@ -214,77 +107,17 @@ def scan_and_wait(client, root, rebuild=False, project="demo"):
     raise AssertionError("scan did not finish")
 
 
-def test_scan_with_codegraph(client, repo, tmp_path, monkeypatch):
-    fake_codegraph(tmp_path, monkeypatch)
-    assert client.get("/projects/demo/index").json()["status"] == "idle"
+def test_a_scan_without_a_code_index_part_says_why(client, repo):
+    """keel's core alone (no plugins/graph): the scan finds the stack and the knowledge sections, and its index row says
+    that no part builds a code index (agents then use grep)."""
+    assert client.get("/projects/demo/index").json() == {"project": "demo", "status": "idle", "files": 0, "symbols": 0,
+                                                         "indexed_at": None, "error": None, "available": False}
     s = scan_and_wait(client, repo)
-    assert s["status"] == "ready" and s["files"] == 3 and s["symbols"] == 12 and s["indexed_at"] and not s["error"]
-    assert "python" in s["stack"] and s["knowledge"]["missing"] == knowledge.SECTIONS and s["map"]["counts"]["files"] > 0
-    assert ".codegraph/" in (Path(repo) / ".git/info/exclude").read_text()
-    assert git(repo, "status", "--porcelain").stdout == ""      # nothing of the index shows up as a change
-    assert mapper.load("demo")["counts"]["files"] > 0
+    assert s["status"] == "failed" and s["error"] == scan.NO_INDEX["error"] and s["available"] is False
+    assert "python" in s["stack"] and s["knowledge"]["missing"] == knowledge.SECTIONS
+    assert "map" not in s and s["files"] == 0                    # the map and the index are plugins' (plugins/map, graph)
+    steps = [e["data"].get("step") for e in client.bus.recent if e["type"] == "index.progress"]
+    assert steps == ["stack"]
     done = [e for e in client.bus.recent if e["type"] == "index.done"]
-    assert done[-1]["project_id"] == "demo" and done[-1]["data"]["files"] == 3
-    assert any(e["type"] == "index.progress" and e["data"].get("step") == "graph" for e in client.bus.recent)
-
-    scan_and_wait(client, repo)                                  # already indexed: an incremental sync
-    scan_and_wait(client, repo, rebuild=True)                    # Rebuild: a full index
-    calls = [line.split()[0] for line in (Path(repo).parent / "codegraph-calls.log").read_text().splitlines()]
-    assert [c for c in calls if c != "status"] == ["init", "sync", "index"]
-
-
-def test_scan_without_codegraph_fails_clearly_but_builds_the_map(client, repo, monkeypatch):
-    no_codegraph(monkeypatch)
-    s = scan_and_wait(client, repo)
-    assert s["status"] == "failed" and "not installed" in s["error"] and s["available"] is False
-    assert mapper.load("demo") is not None
+    assert done[-1]["project_id"] == "demo" and done[-1]["data"]["status"] == "failed"
     assert mcp.codegraph_server_spec(str(Path(repo).resolve())) is None
-
-
-def test_index_moves_to_the_data_folder_when_sqlite_cannot_live_in_the_project(client, repo, tmp_path, monkeypatch):
-    # The first init fails like SQLite on a file system without locks; the retry runs with .codegraph linked elsewhere.
-    body = FAKE_CODEGRAPH.replace('init|index) mkdir', 'init|index) if [ ! -L "$root/.codegraph" ]; then echo "SqliteError: '
-                                  'disk I/O error" >&2; exit 1; fi; mkdir')
-    fake_codegraph(tmp_path, monkeypatch, body)
-    s = scan_and_wait(client, repo)
-    assert s["status"] == "ready", s
-    link = Path(repo) / ".codegraph"
-    assert link.is_symlink() and str(link.resolve()).startswith(str((tmp_path / "data" / "index").resolve()))
-    assert s["index_dir"].endswith("index/demo")
-
-
-def test_codegraph_mcp_entry_only_when_the_index_is_ready(client, repo, tmp_path, monkeypatch):
-    root = str(Path(repo).resolve())
-    exe = fake_codegraph(tmp_path, monkeypatch)
-    assert mcp.codegraph_server_spec(root) is None               # never scanned
-    scan_and_wait(client, repo)
-    spec = mcp.codegraph_server_spec(root)
-    assert spec["name"] == "codegraph" and spec["command"] == str(exe) and spec["cwd"] == root
-    assert spec["args"] == ["serve", "--mcp", "--path", root, "--no-watch"]
-    assert spec["env"]["CODEGRAPH_MCP_TOOLS"] == "search,callers,callees,impact" and spec["env"]["CODEGRAPH_NO_DAEMON"] == "0"
-    scan._save("demo", root, "indexing")
-    assert mcp.codegraph_server_spec(root) is None               # re-indexing: not handed out
-
-
-def test_agents_get_the_codegraph_server_when_ready(client, repo, tmp_path, monkeypatch):
-    from conftest import start, wait
-    from keel_engine.models import fake as fake_mod
-
-    fake_codegraph(tmp_path, monkeypatch)
-    scan_and_wait(client, repo)
-    seen = []
-    orig = fake_mod.FakeRunner.run
-
-    async def spy(self, req, emit):
-        seen.append((req.agent, [s["name"] for s in req.mcp_specs], list(req.tools_allow), req.prompt))
-        return await orig(self, req, emit)
-
-    monkeypatch.setattr(fake_mod.FakeRunner, "run", spy)
-    tid = start(client, repo, workflow="knowledge-refresh", title="Refresh",
-                settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "sections": ["architecture"]},
-                agents={"librarian": {"knowledge": {"code_graph": True}}})
-    assert wait(client, tid)["status"] == "done"
-    agent, servers, allow, _ = seen[0]
-    assert agent == "librarian" and "codegraph" in servers and "mcp:codegraph:*" in allow
-    sync = [line for line in (Path(repo).parent / "codegraph-calls.log").read_text().splitlines() if line.startswith("sync")]
-    assert sync                                                  # flow start / keel commit keep the index fresh

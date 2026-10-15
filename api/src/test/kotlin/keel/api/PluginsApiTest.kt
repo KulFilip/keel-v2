@@ -1,20 +1,15 @@
 package keel.api
 
-import keel.api.connections.SecretService
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.10.0: the Database and Git plugins. On per project (or for all), their secrets ride along with every flow and
- *  KeelBot turn, the person's own database and git calls go to the engine, and nothing works while a plugin is off. */
+/** v0.10.0: the Database and Git plugins. On per project (or for all), their secrets ride along with every flow (and
+ *  KeelBot turn: plugins/keelbot/api), and nothing works while a plugin is off. The person's own database and git calls are the plugins' own
+ *  tests (plugins/db/api: DatabaseApiTest, plugins/git/api: GitPluginApiTest). */
 class PluginsApiTest : ApiTest() {
-    @Autowired lateinit var secrets: SecretService
-    @Autowired lateinit var jdbc: JdbcTemplate
-
     private fun del(url: String) = mvc.perform(MockMvcRequestBuilders.delete(url))
 
     @Test
@@ -37,45 +32,10 @@ class PluginsApiTest : ApiTest() {
     }
 
     @Test
-    fun `a connection's password is a secret, the web sees the address without it, and the test result is kept`() {
-        val (pid, _) = newProject("plug-db")
-        get("/api/projects/$pid/db/suggest").andExpect(status().isOk)
-        val made = post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "postgres://app:s3cret@localhost:5432/app", // keel:allow-secret
-            "env" to "local", "source" to "docker-compose.yml (service db)")).andExpect(status().isOk).json()
-        assertThat(made["connection"]["shown"].asText()).isEqualTo("postgres://app:•••@localhost:5432/app") // keel:allow-secret
-        assertThat(made["connection"]["ok"].asBoolean()).isTrue()
-        assertThat(made["connection"]["tables"].asInt()).isEqualTo(23)
-        assertThat(made["connection"]["can_change"].asBoolean()).isTrue()
-        assertThat(made.toString()).doesNotContain("s3cret")
-        val id = jdbc.queryForObject("SELECT id FROM db_connections WHERE project_id = ?", String::class.java, pid)
-        assertThat(secrets.get("db.$id")).isEqualTo("postgres://app:s3cret@localhost:5432/app") // keel:allow-secret
-        post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "postgres://x@y/z")).andExpect(status().isConflict)
-        post("/api/projects/$pid/db/connections", mapOf("name" to "o", "url" to "oracle://x@y/z")).andExpect(status().isBadRequest)
-        val bad = post("/api/projects/$pid/db/connections", mapOf("name" to "prod", "url" to "postgres://app:wrong@db:5432/app", "env" to "prod")) // keel:allow-secret
-            .andExpect(status().isOk).json()
-        assertThat(bad["connection"]["ok"].asBoolean()).isFalse()
-        assertThat(bad["connection"]["can_change"].asBoolean()).isFalse()           // prod: read only, always
-        assertThat(bad["connection"]["error"].asText()).contains("password authentication failed", "Check the password.")
-
-        // the plugin is off: no schema, no query
-        post("/api/projects/$pid/db/query", mapOf("sql" to "select 1")).andExpect(status().isConflict)
-        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
-        assertThat(get("/api/projects/$pid/db/schema").json()["connection"].asText()).isEqualTo("local")   // local by default
-        val q = post("/api/projects/$pid/db/query", mapOf("sql" to "update scores set value = 0", "change" to true)).json()
-        assertThat(q["changed"].asInt()).isEqualTo(2)
-        val sent = engine.lastBody("/plugins/db/query")!!
-        assertThat(sent["connection"]["url"].asText()).contains("s3cret")              // the engine gets it, memory only
-        assertThat(sent["confirm"].asBoolean()).isFalse()
-        del("/api/projects/$pid/db/connections/prod").andExpect(status().isOk)
-        assertThat(get("/api/projects/$pid/db/connections").json().map { it["name"].asText() }).containsExactly("local")
-    }
-
-    @Test
-    fun `flows and KeelBot turns carry the plugins and their secrets, and KeelBot gets their commands`() {
+    fun `flows carry the plugins and their secrets`() {
         val (pid, _) = newProject("plug-flow")
         put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         put("/api/projects/$pid/plugins/git", mapOf("enabled" to true)).andExpect(status().isOk)
-        post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "sqlite:app.db")).andExpect(status().isOk)
         put("/api/secrets/GITHUB_REPO_TOKEN", mapOf("value" to " ghp_example token ")).andExpect(status().isOk)
         assertThat(get("/api/github").json()["hint"].asText()).isEqualTo("…ken")
 
@@ -86,73 +46,9 @@ class PluginsApiTest : ApiTest() {
         assertThat(body["settings"]["plugins"].map { it.asText() }).containsExactly("db", "git")
         assertThat(body["settings"]["push_pr"].asText()).isEqualTo("ask")
         assertThat(body["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
-        assertThat(body["keys"]["db:local"].asText()).contains("\"url\":\"sqlite:app.db\"", "\"env\":\"local\"")
-        assertThat(body["settings"].toString()).doesNotContain("sqlite:app.db")       // secrets never in the saved settings
-
-        val sid = post("/api/projects/$pid/helper/sessions", emptyMap<String, Any>()).json()["id"].asText()
-        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "How many scores?")).andExpect(status().isOk)
-        val turn = engine.lastBody("/helper/sessions/$sid/turn")!!
-        assertThat(turn["plugins"].map { it.asText() }).containsExactly("db", "git")
-        assertThat(turn["keys"]["db:local"].asText()).contains("sqlite:app.db")
-        get("/api/projects/$pid/helper/commands").andExpect(status().isOk)
-        assertThat(engine.lastBody("/helper/commands")!!["plugins"].map { it.asText() }).containsExactly("db", "git")
+        assertThat(body["settings"].toString()).doesNotContain("ghp_exampletoken")    // secrets never in the saved settings
+        // KeelBot's turns carry them too (plugins/keelbot/api tests that)
         del("/api/secrets/GITHUB_REPO_TOKEN").andExpect(status().isOk)
-    }
-
-    @Test
-    fun `the person's git actions go to the engine with the token and the commit settings`() {
-        val (pid, _) = newProject("plug-git")
-        get("/api/projects/$pid/git/status").andExpect(status().isConflict)
-        put("/api/projects/$pid/plugins/git", mapOf("enabled" to true)).andExpect(status().isOk)
-        put("/api/projects/$pid/settings", mapOf("commit_author" to "Ada Lovelace <ada@example.com>")).andExpect(status().isOk)
-        post("/api/projects/$pid/git/commit", mapOf("message" to "fix: x")).andExpect(status().isOk)
-        val sent = engine.lastBody("/plugins/git/commit")!!
-        assertThat(sent["message"].asText()).isEqualTo("fix: x")
-        assertThat(sent["settings"]["commit_author"].asText()).isEqualTo("Ada Lovelace <ada@example.com>")
-        assertThat(sent["settings"]["commit_coauthor"].asBoolean()).isTrue()
-        post("/api/projects/$pid/git/switch", mapOf("branch" to "feat/x", "create" to true)).andExpect(status().isOk)
-        assertThat(engine.lastBody("/plugins/git/switch")!!["create"].asBoolean()).isTrue()
-        post("/api/projects/$pid/git/pr", mapOf("title" to "X", "body" to "why")).andExpect(status().isOk)
-        assertThat(engine.lastBody("/plugins/git/pr")!!["title"].asText()).isEqualTo("X")
-    }
-
-    @Test
-    fun `a branch shows its own commits and files against the base, and a file's diff, with the Git plugin on`() {
-        val (pid, root) = newProject("plug-branch", mapOf("README.md" to "# demo\n", "Score.kt" to "class Score(val v: Int)\n"))
-        git(root, "checkout", "-q", "-b", "feat/test")
-        java.nio.file.Files.writeString(root.resolve("Score.kt"), "class Score(val v: Long)\n")
-        java.nio.file.Files.writeString(root.resolve("new.txt"), "hello\n")
-        git(root, "add", "-A")
-        git(root, "commit", "-q", "-m", "feat: scores are Long")
-        git(root, "checkout", "-q", "main")
-        java.nio.file.Files.writeString(root.resolve("README.md"), "# demo 2\n")
-        git(root, "commit", "-q", "-am", "docs: readme")      // on main only: not part of the branch's changes
-
-        get("/api/projects/$pid/git/branch?name=feat/test").andExpect(status().isConflict)   // the plugin is off
-        put("/api/projects/$pid/plugins/git", mapOf("enabled" to true)).andExpect(status().isOk)
-        val b = get("/api/projects/$pid/git/branch?name=feat/test").andExpect(status().isOk).json()
-        assertThat(b["base"].asText()).isEqualTo("main")
-        assertThat(b["current"].asBoolean()).isFalse()
-        assertThat(b["ahead"].asInt() to b["behind"].asInt()).isEqualTo(1 to 1)
-        assertThat(b["commits"].map { it["message"].asText() }).containsExactly("feat: scores are Long")
-        assertThat(b["files"].map { it["path"].asText() + " " + it["status"].asText() }).containsExactly("Score.kt M", "new.txt A")
-
-        val d = get("/api/projects/$pid/repo/diff?path=Score.kt&branch=feat/test").andExpect(status().isOk).json()
-        assertThat(d["against"].asText()).isEqualTo("branch")
-        assertThat(d["ref"].asText()).isEqualTo("main…feat/test")
-        assertThat(d["diff"].asText()).contains("-class Score(val v: Int)", "+class Score(val v: Long)")
-        // a file only the branch has, and a file the branch did not touch
-        assertThat(get("/api/projects/$pid/repo/diff?path=new.txt&branch=feat/test").json()["diff"].asText()).contains("+hello")
-        assertThat(get("/api/projects/$pid/repo/diff?path=README.md&branch=feat/test").json()["diff"].asText()).isEmpty()
-
-        val main = get("/api/projects/$pid/git/branch?name=main").json()
-        assertThat(main["current"].asBoolean()).isTrue()
-        assertThat(main["files"].size()).isZero()
-        // a name is a local branch, never an option, a range or another ref
-        get("/api/projects/$pid/git/branch?name=nope").andExpect(status().isNotFound)
-        get("/api/projects/$pid/git/branch?name=-p").andExpect(status().isBadRequest)
-        get("/api/projects/$pid/git/branch?name=main..feat/test").andExpect(status().isBadRequest)
-        get("/api/projects/$pid/repo/diff?path=Score.kt&branch=HEAD~1").andExpect(status().isNotFound)
     }
 
     @Test

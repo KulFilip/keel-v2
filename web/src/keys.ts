@@ -1,17 +1,116 @@
-// v0.15.4 every key of keel in one place. The handlers read these constants (the shell, the launcher, Code's IDE keys
-// in review/keymap.ts), and the key cheat sheet (⌘/ or ?) lists them, so the sheet cannot drift from what the keys do.
-// A combo is the keymap.ts form: "meta+k" is ⌘K on a Mac and Ctrl+K elsewhere.
+// keel's keys (core): the keymap a person picked (IntelliJ's macOS keys or VS Code's), a chord's name ("⌥⌘→"), and
+// whether a key event is a chord. The shell, the launcher and the parts (Code, Code Review) all use these, so a key and
+// its name never disagree. On Windows and Linux ⌘ is Ctrl.
+// v0.15.4 every key of keel in one place. The handlers read these constants (the shell, the launcher), and the key cheat
+// sheet (⌘/ or ?) lists them, so the sheet cannot drift from what the keys do. The parts list their own keys in slot
+// keys.area (Code, Code Review, KeelBot), from the same tables their handlers read. A combo is "meta+k": ⌘K on a Mac
+// and Ctrl+K elsewhere.
 
-import {
-  ACTIONS,
-  IDE_KEYS,
-  isMac,
-  keyLabel,
-  matches,
-  type Keymap,
-} from "./components/review/keymap";
-import { FOCUS_KEYS } from "./pages/repo/model";
-import type { ScreenId } from "./routes";
+export type Keymap = "intellij" | "vscode";
+const KEY = "keel2.keymap";
+
+export const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+export function readKeymap(): Keymap {
+  try {
+    const v = localStorage.getItem(KEY);
+    if (v === "intellij" || v === "vscode") return v;
+  } catch {
+    /* private window */
+  }
+  return "intellij";
+}
+
+export function saveKeymap(k: Keymap) {
+  try {
+    localStorage.setItem(KEY, k);
+  } catch {
+    /* private window */
+  }
+  window.dispatchEvent(new CustomEvent("keel:keymap", { detail: k }));
+}
+
+const NAMES: Record<string, string> = {
+  meta: isMac ? "⌘" : "Ctrl+",
+  ctrl: isMac ? "⌃" : "Ctrl+",
+  alt: isMac ? "⌥" : "Alt+",
+  shift: isMac ? "⇧" : "Shift+",
+  arrowright: "→",
+  arrowleft: "←",
+  arrowdown: "↓",
+  arrowup: "↑",
+  enter: "↩",
+  escape: "Esc",
+  tab: "Tab",
+  home: "Home",
+  end: "End",
+  delete: "Delete",
+  backspace: "⌫",
+  "[": "[",
+  "]": "]",
+};
+
+/** "meta+alt+arrowright" → "⌥⌘→" (Mac order: ⌃ ⌥ ⇧ ⌘). */
+export function keyLabel(combo: string): string {
+  return combo
+    .split(" ")
+    .map((chord) => {
+      const parts = chord.split("+");
+      const key = parts.pop()!;
+      const order = isMac ? ["ctrl", "alt", "shift", "meta"] : ["meta", "ctrl", "alt", "shift"];
+      const mods = order
+        .filter((m) => parts.includes(m))
+        .map((m) => NAMES[m])
+        .join("");
+      return mods + (NAMES[key] ?? key.toUpperCase());
+    })
+    .join(" ");
+}
+
+/** Does this key event match one chord ("meta+b")? On a Mac "meta" is ⌘, elsewhere Ctrl. */
+export function matches(e: KeyboardEvent, chord: string): boolean {
+  const parts = chord.toLowerCase().split("+");
+  const key = parts.pop()!;
+  const want = { meta: parts.includes("meta"), ctrl: parts.includes("ctrl"), alt: parts.includes("alt"), shift: parts.includes("shift") };
+  // off a Mac, ⌘ and ⌃ are both Ctrl
+  const needCmd = isMac ? want.meta : want.meta || want.ctrl;
+  if ((isMac ? e.metaKey : e.ctrlKey) !== needCmd) return false;
+  if (isMac && e.ctrlKey !== want.ctrl) return false;
+  if (e.altKey !== want.alt || e.shiftKey !== want.shift) return false;
+  // ⌥ changes the character on a Mac (⌥V = √): compare the physical key for letters and digits
+  const code = e.code.toLowerCase();
+  if (/^[a-z]$/.test(key)) return code === `key${key}`;
+  if (/^[0-9]$/.test(key)) return code === `digit${key}`;
+  if (key === "[") return code === "bracketleft";
+  if (key === "]") return code === "bracketright";
+  if (key === "-") return code === "minus";
+  if (key === ".") return code === "period";
+  return e.key.toLowerCase() === key;
+}
+
+/** Double Shift (Search everywhere): two Shift presses within 350 ms with no other key between. */
+export function doubleShift(): (e: KeyboardEvent) => boolean {
+  let last = 0;
+  return (e: KeyboardEvent) => {
+    if (e.key !== "Shift" || e.repeat) {
+      if (e.key !== "Shift") last = 0;
+      return false;
+    }
+    const now = Date.now();
+    const hit = now - last < 350;
+    last = hit ? 0 : now;
+    return hit;
+  };
+}
+
+// ---------- v0.15.4 keel's own keys ----------
+
+/** Focus mode (the Code page: only the code): ⇧⌘\ (⌘\ hides the menu, ⇧⌘\ everything but the IDE), and the event that
+ *  toggles it (detail false: leave it). The menu key leaves Focus mode first, so it is keel's, not only the Code page's. */
+export const FOCUS_KEYS = "shift+meta+\\";
+export const FOCUS_EVENT = "keel:focus";
 
 /** Keys that work on every page. */
 export const KEYS = {
@@ -74,22 +173,28 @@ export type KeyRow = {
   /** keys written out as they are ("⇧⇧", "Esc Esc", "@") */
   raw?: readonly string[];
   note?: string;
+  /** the page whose part the keys use (KeelBot's "helper"): the row shows only when this keel has that page */
+  needs?: string;
 };
 export type KeyArea = {
   id: string;
   title: string;
   /** the pages it belongs to; none: every page */
-  pages?: ScreenId[];
+  pages?: string[];
   rows: (k: Keymap) => KeyRow[];
+  /** its place in the sheet: keel's own areas are 10–30 and 70–90, the parts' (slot keys.area) go between */
+  order?: number;
 };
 
 const sh = isMac ? "⇧" : "Shift";
 const mod = isMac ? "⌘" : "Ctrl";
 
+/** keel's own areas. The parts add theirs through slot keys.area: Code (40), Code Review (50), KeelBot (60). */
 export const AREAS: KeyArea[] = [
   {
     id: "everywhere",
     title: "Everywhere",
+    order: 10,
     rows: () => [
       {
         label: "This list of keys",
@@ -113,6 +218,7 @@ export const AREAS: KeyArea[] = [
   {
     id: "menu",
     title: "The menu (after you jump into it)",
+    order: 20,
     rows: () => [
       { label: "Next or previous page", raw: ["↓ ↑"] },
       { label: "First or last page", keys: ["home", "end"] },
@@ -123,6 +229,7 @@ export const AREAS: KeyArea[] = [
   {
     id: "launcher",
     title: "The launcher",
+    order: 30,
     rows: () => [
       { label: "Open or close it", keys: [LAUNCHER.open] },
       {
@@ -141,70 +248,17 @@ export const AREAS: KeyArea[] = [
         raw: [`${keyLabel("meta+1")} … ${keyLabel("meta+9")}`],
       },
       { label: "All actions of the result", keys: [LAUNCHER.actions] },
-      { label: "Ask KeelBot about it", keys: [LAUNCHER.ask] },
+      { label: "Ask KeelBot about it", keys: [LAUNCHER.ask], needs: "helper" },
       { label: "Copy it", keys: [LAUNCHER.copy] },
-      { label: "Ask KeelBot a question", raw: ["?"], note: "type ? first" },
+      { label: "Ask KeelBot a question", raw: ["?"], note: "type ? first", needs: "helper" },
       { label: "Clear, step back, then close", keys: ["escape"] },
-    ],
-  },
-  {
-    id: "code",
-    title: "Code",
-    pages: ["repo"],
-    rows: (k) => [
-      { label: "Find a file by name (quick open)", keys: ["meta+p"] },
-      ...IDE_KEYS.filter((a) => a.keys[k].length).map((a) => ({
-        label: a.label,
-        keys: a.keys[k],
-        note: a.note,
-      })),
-      {
-        label: "Search everywhere (the launcher)",
-        raw: [isMac ? "⇧⇧" : "Shift Shift"],
-      },
-      { label: "Search every file", keys: ["shift+meta+f"] },
-      { label: "Explorer, with its filter", keys: ["shift+meta+e"] },
-      { label: "Source control (Git)", keys: ["shift+meta+g"] },
-      { label: "Find in the open file", keys: ["meta+f"] },
-      { label: "Go to a line", keys: ["meta+g"] },
-      { label: "Word wrap", keys: ["alt+z"] },
-      {
-        label: "KeelBot: ask about the selected lines (again: close it)",
-        keys: ["meta+i"],
-      },
-      { label: "Focus mode: only the code", keys: [KEYS.focus] },
-      { label: "Leave Focus mode", raw: ["Esc Esc"] },
-      { label: "In the row of tabs: next or previous tab", raw: ["→ ←"] },
-      {
-        label: "In the row of tabs: close or keep the tab",
-        keys: ["delete", "enter"],
-      },
-    ],
-  },
-  {
-    id: "review",
-    title: "Code Review (in a review's file tab)",
-    pages: ["repo"],
-    rows: (k) => ACTIONS.map((a) => ({ label: a.label, keys: a.keys[k] })),
-  },
-  {
-    id: "keelbot",
-    title: "KeelBot",
-    pages: ["repo", "helper"],
-    rows: () => [
-      { label: "Send", keys: ["enter"] },
-      { label: "A new line", keys: ["shift+enter"] },
-      { label: "A command", raw: ["/"] },
-      { label: "Name a file, a symbol or an AC", raw: ["@"] },
-      { label: "Pick a suggestion", raw: ["↓ ↑"] },
-      { label: "Take the suggestion", keys: ["enter", "tab"] },
-      { label: "Hide the suggestions", keys: ["escape"] },
     ],
   },
   {
     id: "flow",
     title: "Flow",
     pages: ["flow"],
+    order: 70,
     rows: () => [
       { label: "Next or previous step", raw: ["↓ ↑"] },
       { label: "First or last step", keys: ["home", "end"] },
@@ -216,6 +270,7 @@ export const AREAS: KeyArea[] = [
     id: "workflows",
     title: "Workflows",
     pages: ["workflows"],
+    order: 80,
     rows: () => [
       { label: "Next or previous step", raw: ["↓ ↑"] },
       {
@@ -229,6 +284,7 @@ export const AREAS: KeyArea[] = [
     id: "diagram",
     title: "Map and Graph diagrams",
     pages: ["map", "graph"],
+    order: 90,
     rows: () => [
       { label: "Pan: hold Space and drag", raw: ["Space"] },
       { label: "Zoom", raw: [`${mod} + wheel`] },
@@ -236,6 +292,14 @@ export const AREAS: KeyArea[] = [
     ],
   },
 ];
+
+/** keel's areas and the parts' (slot keys.area), by their order. `has(page)`: this keel has the page (step 6: without
+ *  the Map and the Graph there is no diagram area, without KeelBot no row that asks it). */
+export const allAreas = (parts: readonly KeyArea[], has: (page: string) => boolean = () => true): KeyArea[] =>
+  [...AREAS, ...parts]
+    .filter((a) => !a.pages || a.pages.some(has))
+    .map((a) => ({ ...a, rows: (k: Keymap) => a.rows(k).filter((r) => !r.needs || has(r.needs)) }))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
 /** The words a row is found by: its label, its note and its keys as shown. */
 export const rowText = (r: KeyRow) =>

@@ -7,7 +7,7 @@ project's value (its override merged over that default) in StartThread.agents. T
 sections that exist; the code graph MCP server is only handed to agents with code_graph on; memory off means a
 repeated step starts fresh; strict makes the guard refuse other sections (rules.check_knowledge), else the agent is
 only told; hints (off by default, see FALLBACK) gives the agent keel's own "where to look" lookups in the code graph
-(runtime/graph_hints.py), which cost no tool call.
+(the Graph plugin, plugins/graph: its prompt_context hook), which cost no tool call.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from pathlib import Path
 
 import yaml
 
-from .. import addons, config, rules
+from .. import addons, config, extensions, rules
 
 SECTIONS = rules.KNOWLEDGE_SECTIONS
-CODEGRAPH = "codegraph"   # the MCP server name of the code graph (stage 5b)
+CODEGRAPH = "codegraph"   # the MCP server name of the code graph (stage 5b): the code_graph setting gives it or not
 
 # One line per section for the prompt: what an agent finds there.
 PURPOSE = {
@@ -118,9 +118,10 @@ def prompt_block(root: str, k: dict, graph: bool) -> str:
         lines.append(f"Knowledge you can use: none of your sections ({', '.join(k['sections'])}) exist in "
                      f"{knowledge_dir(root)}/ yet, so read the code.")
     if graph and k["code_graph"]:
-        lines.append("Code graph: codegraph_search finds where a class, function or route is (file:line, no code); then "
-                     "read only those lines (Read with offset and limit) instead of whole files. codegraph_callers, "
-                     "codegraph_callees and codegraph_impact list who calls what and what a change touches.")
+        # how to use the code graph's tools: the code graph part says it (keel_engine/extensions.py, mcp.prompt)
+        told = extensions.server_prompt(CODEGRAPH)
+        if told:
+            lines.append(told)
     if k["memory"]:
         lines.append("Memory: if you ran this step before, you continue that session (or get its summary); do not redo "
                      "finished work.")

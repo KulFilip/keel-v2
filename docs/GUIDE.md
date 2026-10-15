@@ -4,6 +4,7 @@ The [README](../README.md) is the short version. This page has the details.
 
 - [Flows in detail](#flows-in-detail)
 - [KeelBot](#keelbot)
+- [Plugins and the Marketplace](#plugins-and-the-marketplace)
 - [Quality](#quality)
 - [Inbox and run modes](#inbox-and-run-modes)
 - [Tasks and Jira](#tasks-and-jira)
@@ -145,7 +146,7 @@ starts or is saved until you press one.
 - **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the
   running flow; the open file always goes along.
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
-  project can add its own in `.keel/plugins/<name>/plugin.yml` (see `content/plugins/core/plugin.yml`).
+  project can add its own in `.keel/plugins/<name>/plugin.yml` (see `plugins/keelbot/content/plugins/core/plugin.yml`).
 - **Ask mode changes nothing**: no edit, no new file, no command that changes files or git, whatever the model.
 - **Fix mode** (while a flow waits at a gate): switch to **Fix** and tell KeelBot what to change. It works inside the
   rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow
@@ -158,6 +159,44 @@ starts or is saved until you press one.
 - **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.
+
+## Plugins and the Marketplace
+
+From 0.17.0 keel is a small **core** with **plugins**. The core runs flows, workflows, agents, gates, the Inbox,
+the budget and connections. Each other part is a plugin with its own version:
+
+| Plugin | What it adds | Needs |
+|---|---|---|
+| **Code** | the Code page (the IDE) | |
+| **Git**, **Code Review**, **Database**, **CI/CD** | their panels in Code, their workflow steps and agent tools | Code (CI/CD also Git) |
+| **KeelBot** | the chat (⌘I) and its commands | |
+| **Map**, **Graph**, **Wiki** | their pages | |
+| **Tasks**, **Jira** | the task board and Jira tickets | Jira needs Tasks |
+| **keel Product** (beta) | initiatives and teams | Tasks and Jira |
+
+**Control › Plugins** has three tabs:
+
+- **Installed:** every plugin with its version and an On switch. Turning a plugin on or off restarts keel (about 30 s).
+  A plugin that others need goes off together with them, and one that needs others turns them on.
+- **Marketplace:** plugins you can add, with who made them, what they may do ("Runs code in keel"), and what they
+  need. keel checks each package's signature before it installs. The public marketplace opens soon; until then it
+  shows the plugins of the catalogs you add.
+- **Sources and rules:** the catalogs keel reads (add one with its URL and public key), and, for plugin authors, a
+  `.kplug` file from a path in `/data` (keel marks it **unsigned**).
+
+Click a plugin to see its page: its parts (engine, api, web, content), permissions, versions and what it needs.
+Agents cannot install plugins; they can only **ask**, and you approve in the Inbox.
+
+Start keel with fewer plugins:
+
+| Command | What you get |
+|---|---|
+| `keel2 start` | keel with every plugin (the `:latest` image) |
+| `keel2 start --core` | keel's core only (the `:core` image); add plugins in Control › Plugins |
+| `keel2 start --safe` | only the plugins that came with keel, none you installed (when a plugin breaks keel) |
+
+Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publish-your-plugin.md). How it all works:
+[docs/plugins/README.md](plugins/README.md).
 
 ## Plugins: Database, Git and CI/CD
 

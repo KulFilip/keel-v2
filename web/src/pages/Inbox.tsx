@@ -3,24 +3,29 @@
 // Flow page. The list follows the app's event stream (gate events send project.changed to every tab).
 // #/inbox/<project> opens it filtered to one project (the Answer link on All projects). Long details fold with
 // "Show more"; after you answer, the focus moves to the next item so the keyboard can go on.
+// A part shows the items of its own kinds with its own card (the slot inbox.card: the Tasks plugin's task items).
+// v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, errorParts } from "../api";
+import { errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
+import { InstallRequestCard } from "../components/InstallRequestCard";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
-import { inboxApi, type InboxAnswer, type InboxItem, type InboxTask } from "../inboxApi";
+import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
+import { useHasPage, useSlot } from "../sdk/registry";
+import { SLOTS, type InboxCardItem } from "../sdk/slots";
 import { go, useApp, useLoad, useRoute } from "../state";
-import { tasksApi } from "../tasksApi";
 import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
-  task: "task", "jira-manual": "move in Jira", permission: "may it run?",
+  permission: "may it run?", "plugin-install": "install request",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
+const PLUGIN_INSTALL = "plugin-install";
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? it.step}`;
 
 /** Details longer than this fold behind "Show more". */
@@ -55,63 +60,6 @@ function buttonsFor(it: InboxItem): Buttons {
   return { approve: l.approve ?? `Approve${it.ac ? " " + it.ac : ""}`, reject: l.reject ?? "Send back", needWhy: true, whyLabel: "Why (needed to send back)" };
 }
 
-/** v0.5.0: a task's item — confirm PP testing, confirm the release, or say the Jira ticket was moved by hand. */
-function TaskInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
-  const { setProjectId } = useApp();
-  const t = it.task!;
-  const [note, setNote] = useState("");
-  const [askNote, setAskNote] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
-  const hid = `inbox-task-${t.item_id}`;
-  const noteId = `${hid}-note`;
-  const act = async (a: InboxTask["actions"][number]) => {
-    if (a.needs_note && !note.trim()) {
-      setAskNote(true);
-      window.setTimeout(() => document.getElementById(noteId)?.focus(), 0);
-      return;
-    }
-    setBusy(true);
-    setErr(null);
-    try {
-      await tasksApi.act(t.item_id, a.id, note.trim() || undefined);
-      await onDone(a.id === "done" ? `${t.key ?? t.title}: recorded.` : a.id === "send_back" ? `${t.key ?? t.title}: sent back.` : `${t.key ?? t.title}: confirmed.`);
-    } catch (e) {
-      setErr(errorParts(e));
-      setBusy(false);
-    }
-  };
-  const openTask = () => {
-    setProjectId(it.project_id);
-    go("tasks", t.id);
-  };
-  return (
-    <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
-      <div className="inbox-meta">
-        <Pill tone={it.kind === "jira-manual" ? "run" : "warn"}>{kindLabel(it.kind)}</Pill>
-        <span className="sub"><b>{it.project_name}</b> · {t.key ? <span className="mono">{t.key}</span> : "task"} · {t.title}</span>
-        {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
-      </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
-      {it.detail && <p className="sub" style={{ margin: 0 }}>{it.detail}</p>}
-      {(askNote || t.actions.some((a) => a.needs_note)) && (
-        <div className="field">
-          <label htmlFor={noteId}>{t.actions.some((a) => a.needs_note) ? "Note (needed to send back)" : "Note"}</label>
-          <textarea id={noteId} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-      )}
-      <div className="row inbox-actions">
-        {t.actions.map((a, n) => (
-          <button key={a.id} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy} onClick={() => void act(a)}>{a.label}</button>
-        ))}
-        {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in Jira ↗</a>}
-        <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}>Open task ▸</button>
-      </div>
-      {err && <ErrorBox error={err} />}
-    </article>
-  );
-}
-
 /** A Helper's command that waits for the person's OK: Allow once, Always (this command, for the rest of that chat), Deny. */
 function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
   const { setProjectId } = useApp();
@@ -123,11 +71,15 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
   // v0.10.0: Claude Code's acting tool (keel2 mcp --write) asks here too, with no KeelBot chat behind it
   const mcp = q.session === "mcp";
   const who = mcp ? "Claude Code" : "KeelBot";
+  // KeelBot's chat is a column of the Code page, or its own page: "Open KeelBot" only when this keel has one (step 6)
+  const code = useHasPage("repo");
+  const keelbot = useHasPage("helper");
+  const chat = code ? "repo" : keelbot ? "helper" : null;
   const answer = async (decision: "once" | "always" | "deny") => {
     setBusy(true);
     setErr(null);
     try {
-      await api.helperAnswer(it.project_id, q.id, decision, why.trim());
+      await inboxApi.decide(q.id, decision, why.trim());
       await onDone(decision === "deny" ? `Refused: ${who} will not run it.` : `Allowed: ${who} runs it now.`);
     } catch (e) {
       setErr(errorParts(e));
@@ -151,7 +103,7 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
         <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>{mcp ? "Allow" : "Allow once"}</button>
         {!mcp && <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for this command</button>}
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
-        {!mcp && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go("repo"); }}
+        {!mcp && chat && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go(chat); }}
           aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>}
       </div>
       {err && <ErrorBox error={err} />}
@@ -250,6 +202,10 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
 
 export function InboxPage() {
   const { toast, reloadProjects, projects: known } = useApp();
+  // the parts' cards, by the kinds they show (live: a plugin's web part registers after keel started)
+  const cards = useSlot<InboxCardItem>(SLOTS.inboxCard);
+  const cardOf = (kind: string) => cards.find((c) => Object.hasOwn(c.kinds, kind)) ?? null;
+  const labelOf = (kind: string) => KIND_LABEL[kind] ?? cardOf(kind)?.kinds[kind] ?? kind;
   const { arg } = useRoute();
   const r = useLoad("inbox", () => inboxApi.list());
   const [project, setProject] = useState(arg ?? "");
@@ -263,14 +219,14 @@ export function InboxPage() {
   const groups = useMemo(() => {
     const flowsOf = new Map<string, Set<string>>();
     for (const it of items) {
-      if (it.task || it.permission) continue;
+      if (it.task || it.permission || it.kind === PLUGIN_INSTALL) continue;
       flowsOf.set(it.project_id, (flowsOf.get(it.project_id) ?? new Set<string>()).add(it.thread_id));
     }
     if (![...flowsOf.values()].some((x) => x.size > 1)) return null;
     const order: string[] = [];
     const by = new Map<string, InboxItem[]>();
     for (const it of items) {
-      const g = it.task || it.permission ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
+      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
       if (!by.has(g)) { by.set(g, []); order.push(g); }
       by.get(g)!.push(it);
     }
@@ -307,11 +263,15 @@ export function InboxPage() {
     await Promise.all([r.reload(), reloadProjects()]);
   };
 
-  const card = (it: InboxItem) => it.task
-    ? <TaskInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
-    : it.permission
-      ? <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
-      : <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
+  const card = (it: InboxItem) => {
+    const Card = cardOf(it.kind)?.component;
+    if (Card) return <Card key={keyOf(it)} item={it} cardKey={keyOf(it)} kindLabel={labelOf(it.kind)} onDone={(msg) => done(msg, keyOf(it))} />;
+    if (it.permission) return <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
+    if (it.kind === PLUGIN_INSTALL) return <InstallRequestCard key={keyOf(it)} it={it} cardKey={keyOf(it)} onDone={(msg) => done(msg, keyOf(it))} />;
+    // a task's item whose part has not loaded yet: it shows when its card registers
+    if (it.task) return null;
+    return <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
+  };
 
   return (
     <>
@@ -326,7 +286,7 @@ export function InboxPage() {
         <label className="row" htmlFor="inbox-kind"><span className="sub">Kind</span>
           <select id="inbox-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
             <option value="">All kinds</option>
-            {(r.data?.kinds ?? []).map((k) => <option key={k} value={k}>{kindLabel(k)}</option>)}
+            {(r.data?.kinds ?? []).map((k) => <option key={k} value={k}>{labelOf(k)}</option>)}
           </select>
         </label>
         {r.data && <span className="hint" aria-live="polite">{items.length === total ? `${total} waiting` : `${items.length} of ${total} waiting`}</span>}

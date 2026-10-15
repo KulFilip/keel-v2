@@ -1,7 +1,9 @@
-// "Refresh stale": starts the knowledge-refresh flow (one librarian per stale section) and links to Flow.
+// "Refresh stale": starts the knowledge-refresh flow (one librarian per stale section) and links to Flow. The refresh is
+// the Wiki plugin's api (POST /wiki/refresh): without the Wiki (step 6, the Developer set has none) there is no button.
 
 import { useState } from "react";
 import { api, errorParts } from "../api";
+import { useHasPage } from "../sdk/registry";
 import { useApp } from "../state";
 import { ErrorBox, GoButton } from "./ui";
 
@@ -10,6 +12,8 @@ export function RefreshStaleButton({ pid, sections, className = "btn sm" }: { pi
   const [busy, setBusy] = useState(false);
   const [started, setStarted] = useState<string | null>(null);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const wiki = useHasPage("wiki");
+  if (!wiki) return null;
   const run = async () => {
     setBusy(true);
     setErr(null);

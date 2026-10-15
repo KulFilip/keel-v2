@@ -9,8 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from .. import config
-from . import codegraph
+from .. import config, extensions
 
 log = logging.getLogger(__name__)
 
@@ -18,26 +17,25 @@ LIST_TIMEOUT = 30
 SERVER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")     # the api's rule for a server's name (McpService)
 
 
+PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
+
+
+def keel_server_env() -> dict:
+    """What keel's own MCP server needs: the api, and the engine's plugins (their tools in it, like the CI/CD plugin's).
+    Only that process gets the plugin variables: a project's commands never see them (models/cli.py project_env)."""
+    return {"KEEL_API_URL": config.api_url(), **{k: os.environ[k] for k in PLUGIN_ENV if os.environ.get(k)}}
+
+
 def keel_server_spec() -> dict:
     """keel v2's own MCP server, read-only: an agent can read the flow but never approve its own gate."""
     return {"name": "keel", "command": sys.executable, "args": ["-m", "keel_engine.mcp", "--read-only"],
-            "env": {"KEEL_API_URL": config.api_url()}}
+            "env": keel_server_env()}
 
 
 def codegraph_server_spec(root: str) -> dict | None:
-    """The code graph's MCP server (`codegraph serve --mcp`, cwd = the project) when keel indexed this folder and the
-    index is ready; None otherwise (agents then find their way with grep)."""
-    from ..runtime import scan
-
-    if not root or not codegraph.binary() or not codegraph.has_index(root):
-        return None
-    try:
-        if not scan.ready(root):
-            return None
-    except Exception as exc:  # the engine DB is busy or gone: no graph this time, never a failed step
-        log.info("code graph readiness unknown for %s: %s", root, exc)
-        return None
-    return codegraph.server_spec(root)
+    """The code graph's MCP server when keel indexed this folder and the index is ready (the parts' mcp_specs hook,
+    keel_engine/extensions.py); None otherwise (agents then find their way with grep)."""
+    return next((s for s in extensions.mcp_specs(extensions.Agent(""), root) if s.get("name") == "codegraph"), None)
 
 
 def _server_env(spec: dict) -> dict:
@@ -104,9 +102,10 @@ def servers_for(specs: list[dict], allow: list[str] | None) -> list[dict]:
     if "keel" in wanted and "keel" not in by_name:
         by_name["keel"] = keel_server_spec()
     elif "keel" in by_name:
-        # The api's seeded entry: the server finds the api through KEEL_API_URL (its env is otherwise filtered).
+        # The api's seeded entry: the server finds the api through KEEL_API_URL and the plugins through the plugin
+        # variables (its env is otherwise filtered).
         spec = by_name["keel"]
-        by_name["keel"] = {**spec, "env": {"KEEL_API_URL": config.api_url(), **(spec.get("env") or {})}}
+        by_name["keel"] = {**spec, "env": {**keel_server_env(), **(spec.get("env") or {})}}
     return [by_name[n] for n in wanted if n in by_name]
 
 

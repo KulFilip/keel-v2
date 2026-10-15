@@ -1,0 +1,6 @@
+# The keel-v2 commit your plugin is built and tested against (MiladNalbandi/keel-v2). CI checks keel out at it and
+# builds your plugin with keel's own build (scripts/build-plugin-repo.sh). To build against a newer keel, put a newer
+# commit on the last line, for example the newest of plugin-base:
+#   git ls-remote https://github.com/MiladNalbandi/keel-v2 refs/heads/plugin-base
+# Lines that start with # are comments.
+0000000000000000000000000000000000000000

@@ -51,7 +51,7 @@ def demo_client(with_addons):
 
 def test_no_addon_means_nothing_changes():
     assert addons.reload() == ()
-    assert addons.info() == {"addons": [], "problems": []}
+    assert addons.info() == {"addons": [], "content": [], "problems": []}
     assert "demo-flow" not in [t.id for t in templates.templates()]
     assert addons.agent_path("explorer").is_file()
 

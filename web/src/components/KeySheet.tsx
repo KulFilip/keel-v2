@@ -1,25 +1,27 @@
 // v0.15.4 the key cheat sheet: ⌘/ (Ctrl+/ off a Mac) on any page, or ? when you are not typing. It lists the keys for
-// the page you are on (and every page with "Every page" or a search), from the one list in keys.ts, in the keymap
-// chosen for Code (IntelliJ or VS Code). Esc closes it and the focus goes back where it was.
+// the page you are on (and every page with "Every page" or a search), from the one list in keys.ts and the parts' areas
+// (slot keys.area: Code, Code Review, KeelBot), in the keymap chosen for Code (IntelliJ or VS Code). Esc closes it and
+// the focus goes back where it was.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  AREAS,
+  allAreas,
   KEYS,
   isTyping,
-  modalOpen,
-  rowText,
-  type KeyRow,
-} from "../keys";
-import { useRoute } from "../state";
-import {
   keyLabel,
   matches,
+  modalOpen,
   readKeymap,
+  rowText,
   saveKeymap,
+  type KeyRow,
   type Keymap,
-} from "./review/keymap";
+} from "../keys";
+import { canOpen } from "../routes";
+import { usePagesVersion, useSlot } from "../sdk/registry";
+import { SLOTS, type KeysAreaItem } from "../sdk/slots";
+import { useRoute } from "../state";
 
 /** Mounted once by the shell. */
 export function KeySheet() {
@@ -69,6 +71,8 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const parts = useSlot<KeysAreaItem>(SLOTS.keysArea);
+  const pagesVersion = usePagesVersion();
 
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -87,7 +91,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const needle = q.trim().toLowerCase();
   const areas = useMemo(
     () =>
-      AREAS.filter(
+      allAreas(parts, canOpen).filter(
         (a) => needle || every || !a.pages || a.pages.includes(route.page),
       )
         .map((a) => ({
@@ -99,7 +103,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
         .filter((a) => a.list.length)
         // this page's keys first, then the ones that work everywhere
         .sort((a, b) => Number(!a.pages?.includes(route.page)) - Number(!b.pages?.includes(route.page))),
-    [needle, every, keymap, route.page],
+    [needle, every, keymap, route.page, parts, pagesVersion],
   );
 
   return createPortal(

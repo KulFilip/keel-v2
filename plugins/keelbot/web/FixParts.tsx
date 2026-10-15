@@ -1,0 +1,157 @@
+// KeelBot's Fix mode (a flow waits at a gate) and side sessions (their own worktree): the command that waits for the
+// person's OK, the files KeelBot changed in this chat (Diff, Undo, Undo all), Done / Keep, where keel runs the checks
+// and commits only those files, and a side session's hand-overs (a task, a flow on its branch, throw away).
+
+import { useState } from "react";
+import {
+  DiffView, errorParts, FoldedText, type HelperChange, type HelperDone, type HelperHandover, type HelperQuestion,
+  type HelperSession,
+} from "@keel/web-sdk";
+import { kb } from "./keelbotApi";
+
+/** "May KeelBot run this?" Allow once, Always (this command, for the rest of the chat), or Deny with a reason. */
+export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQuestion; onAnswered: () => void }) {
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const answer = async (decision: "once" | "always" | "deny") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await kb.answer(pid, q.id, decision, why.trim());
+      onAnswered();
+    } catch (e) {
+      setErr(errorParts(e).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="hp-perm" role="group" aria-label="KeelBot asks to run a command">
+      <p className="hp-perm-q"><b>May KeelBot run this?</b> It changes something, so keel asks you first.</p>
+      <pre className="hp-perm-cmd">{q.command}</pre>
+      <input className="hp-perm-why" value={why} onChange={(e) => setWhy(e.target.value)} aria-label="Why not (optional)"
+        placeholder="Why not (optional, KeelBot reads it)" />
+      <div className="hp-perm-btns">
+        <button type="button" className="btn sm warn" disabled={busy} onClick={() => void answer("once")}>Allow once</button>
+        <button type="button" className="btn sm" disabled={busy} onClick={() => void answer("always")}
+          title="Allow this exact command for the rest of this chat">Always</button>
+        <button type="button" className="btn sm" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
+      </div>
+      {err && <p className="hp-err" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+/** The files KeelBot changed in this chat, against what they were before its first change. */
+export function ChangesBox({ changes, busy, title, doneLabel = "Done: run the checks and commit", onOpen, onUndo, onDone }: {
+  changes: HelperChange[];
+  busy: boolean;
+  /** the commit's subject when the person writes none (the chat's title) */
+  title: string;
+  doneLabel?: string;
+  /** open the file in the editor; without it (a side session's file is not in the project folder) the name shows the diff */
+  onOpen?: (path: string) => void;
+  onUndo: (path?: string) => void;
+  onDone: (message: string) => void;
+}) {
+  const [shown, setShown] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  return (
+    <section className="hp-changes" aria-label="What KeelBot changed">
+      <header className="hp-changes-head">
+        <b>Changed files</b><span className="hp-sub">{changes.length}</span>
+        <button type="button" className="hp-tb" disabled={busy} onClick={() => onUndo()}>Undo all</button>
+      </header>
+      <ul className="hp-files">
+        {changes.map((c) => (
+          <li key={c.path}>
+            <div className="hp-file">
+              <button type="button" className="hp-file-name" title={onOpen ? `Open ${c.path} in the editor (its changes)` : `Show the changes in ${c.path}`}
+                onClick={() => (onOpen ? onOpen(c.path) : setShown(shown === c.path ? null : c.path))}>
+                {c.path}
+              </button>
+              {c.status !== "modified" && <span className="hp-sub">{c.status}</span>}
+              <span className="hp-plus" aria-label={`${c.added} lines added`}>+{c.added}</span>
+              <span className="hp-minus" aria-label={`${c.removed} lines removed`}>−{c.removed}</span>
+              <button type="button" className="hp-tb" aria-expanded={shown === c.path} aria-label={`Diff of ${c.path}`}
+                onClick={() => setShown(shown === c.path ? null : c.path)}>Diff</button>
+              <button type="button" className="hp-tb" disabled={busy} aria-label={`Undo ${c.path}`} onClick={() => onUndo(c.path)}>Undo</button>
+            </div>
+            {shown === c.path && <DiffView diff={c.diff} path={c.path} fold={40} />}
+          </li>
+        ))}
+      </ul>
+      <input className="hp-perm-why" value={message} onChange={(e) => setMessage(e.target.value)} aria-label="Commit message"
+        placeholder={`Commit message (empty: ${title})`} maxLength={200} />
+      <button type="button" className="btn sm primary hp-done" disabled={busy} onClick={() => onDone(message)}>
+        {busy ? "Checking…" : doneLabel}
+      </button>
+    </section>
+  );
+}
+
+/** A side session: where it works, what is kept on its branch, and how it ends (a task, a flow on the branch, thrown away). */
+export function SideBar({ s, handover, busy, onTask, onFlow, onThrow }: {
+  s: HelperSession | null;
+  handover: HelperHandover | null;
+  busy: boolean;
+  onTask: () => void;
+  onFlow: () => void;
+  onThrow: () => void;
+}) {
+  if (!s) {
+    return (
+      <div className="hp-fixbar side">
+        <p>A side session works in its own copy of the project: a git worktree on a new branch. Nothing it does touches the
+          project folder or a flow running there.</p>
+      </div>
+    );
+  }
+  if (!s.worktree) {
+    return (
+      <div className="hp-fixbar side">
+        <p><b>Handed over.</b> Branch <code>{s.branch}</code> stays; its worktree is gone. Start a new chat to go on.</p>
+      </div>
+    );
+  }
+  const kept = handover?.commits ?? [];
+  return (
+    <div className="hp-fixbar side">
+      <p>Side session on branch <b className="mono">{s.branch}</b>, in its own copy of the project. The project folder and
+        any flow in it are untouched.</p>
+      {kept.length > 0 && (
+        <p className="hp-hint">Kept on the branch: {kept.length} commit{kept.length === 1 ? "" : "s"} · last <code>{kept[kept.length - 1].sha.slice(0, 7)}</code> {kept[kept.length - 1].subject}</p>
+      )}
+      <div className="hp-perm-btns">
+        <button type="button" className="btn sm" disabled={busy} onClick={onTask} title="A task that says what was done and names the branch">Make a task</button>
+        <button type="button" className="btn sm" disabled={busy || !kept.length} onClick={onFlow}
+          title={kept.length ? "A change flow on this branch: it writes the tests for what the branch does" : "Keep a change first"}>Start a flow on the branch</button>
+        <button type="button" className="btn sm ghost" disabled={busy} onClick={onThrow}>Throw away</button>
+      </div>
+    </div>
+  );
+}
+
+/** Done did not commit: why, the checks' output, and a way to hand the failure back to KeelBot. */
+export function DoneFailed({ res, onAskFix, onClose }: { res: Extract<HelperDone, { ok: false }>; onAskFix: () => void; onClose: () => void }) {
+  return (
+    <div className="hp-failed" role="alert">
+      <p><b>Not committed.</b> {res.error}</p>
+      {res.command && <p className="hp-sub">Checks: <code>{res.command}</code></p>}
+      {res.output && <FoldedText text={res.output} fold={20} className="hp-out" />}
+      <div className="hp-perm-btns">
+        {res.step !== "changes" && <button type="button" className="btn sm primary" onClick={onAskFix}>Ask KeelBot to fix it</button>}
+        <button type="button" className="btn sm ghost" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+/** What KeelBot reads when the person hands a failed Done back to it. */
+export function fixRequest(res: Extract<HelperDone, { ok: false }>): string {
+  const tail = (res.output ?? "").split("\n").slice(-60).join("\n").trim();
+  const head = res.step === "checks"
+    ? `The checks failed after your change${res.command ? ` (\`${res.command}\`)` : ""}. Find why and fix it.`
+    : `keel did not commit your change: ${res.error} Fix it.`;
+  return tail ? `${head}\n\n\`\`\`\n${tail}\n\`\`\`` : head;
+}

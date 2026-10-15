@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.16.0 MCP admin: who acted is recorded, a project can be removed and comes back, secret files stay private. */
+/** v0.16.0 MCP admin: who acted is recorded, a project can be removed and comes back (secret files: plugins/code). */
 class McpAdminApiTest : ApiTest() {
 
     private val mcp by lazy {
@@ -35,10 +35,5 @@ class McpAdminApiTest : ApiTest() {
         assertThat(get("/api/projects").json().map { it["id"].asText() }).contains(pid)
     }
 
-    @Test
-    fun `a secret file is never served`() {
-        val (pid, _) = newProject("mcp-secret", mapOf(".env" to "TOKEN=x\n", ".env.example" to "TOKEN=\n"))
-        get("/api/projects/$pid/repo/raw?path=.env").andExpect(status().isForbidden)
-        get("/api/projects/$pid/repo/raw?path=.env.example").andExpect(status().isOk)
-    }
+    // a secret file is never served: the Code page's route (plugins/code/api: RepoSecretApiTest)
 }

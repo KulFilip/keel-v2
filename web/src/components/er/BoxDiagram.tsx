@@ -10,6 +10,7 @@ import { IconDefs, Ic } from "./icons";
 import { layoutGraph, type Pt, type XY } from "./layout";
 import { elbow, endMark, pathD, routeAround, type Rect } from "./route";
 import { attr } from "./model";
+import { useHasPage } from "../../sdk/registry";
 import { fileHref } from "./Structure";
 
 const SUB = 18, PAD = 6, MIN_W = 190, MAX_W = 420;
@@ -186,6 +187,8 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
   label?: string;
 }) {
   const uid = useId().replace(/:/g, "");
+  // the selected box's file opens in the Code page (a plugin): a link only when this keel has it
+  const code = useHasPage("repo");
   const key = `keel2.map.${pid}.${level}.pos`;
   const [moved, setMoved] = useState<Record<string, XY>>(() => {
     try { return JSON.parse(localStorage.getItem(key) ?? "{}"); } catch { return {}; }
@@ -421,7 +424,8 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
             {selected.sub && <span>{selected.sub}</span>}
             {selected.drill && <button type="button" className="dg-link" onClick={() => onDrill(selected)}>{selected.drill === "er" ? "Open in the database diagram" : "Open the modules"}</button>}
             {!selected.drill && selected.open && <button type="button" className="dg-link" onClick={() => onDrill(selected)}>Open {selected.title}</button>}
-            {selected.cite && <a className="dg-link" href={fileHref(selected.cite)}>{selected.cite.rel}:{selected.cite.line}</a>}
+            {selected.cite && (code ? <a className="dg-link" href={fileHref(selected.cite)}>{selected.cite.rel}:{selected.cite.line}</a>
+              : <span className="mono">{selected.cite.rel}:{selected.cite.line}</span>)}
           </>
         ) : <span>{boxes.length} boxes{edges.length ? `, ${edges.length} lines` : ""}</span>}
         <span id={`${uid}-help`} className="dg-help">Drag the background to pan, Ctrl/⌘ + wheel to zoom, arrow keys to move, Enter or a double click opens.</span>

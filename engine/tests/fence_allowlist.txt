@@ -1,0 +1,12 @@
+# The fence allowlist (engine): today's places where keel's core imports a part that becomes a plugin.
+# Checked by tests/test_fence.py. See docs/plugins/07-step1-contract.md §9 and docs/plugins/01-today.md.
+#
+# Rule: this list may only shrink.
+#   - A new import from core into a plugin fails. Do not add a line here: use an extension point instead,
+#     see docs/plugins/02-plugin-package.md.
+#   - A line whose import is gone fails too: delete that line.
+#   - keel_product can never be here.
+#
+# Format: "core.module -> plugin.module", one per line, sorted. '#' starts a comment.
+
+# (empty since step 3, wave C: KeelBot took the last line, app.py -> its routes and runner, into plugins/keelbot)

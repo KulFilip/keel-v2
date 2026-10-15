@@ -13,6 +13,12 @@ token and sends it as X-Keel-Mcp-Token (api McpLevelGuard); without it (agents) 
 
 Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the project whose root holds the
 working directory (an agent runs in its project), else the only (or first) project.
+
+The plugins' tools (Database, Git, CI/CD: keel_db_*, keel_git_*, keel_pr_*, keel_ci_*) come from the plugins, through
+their `keel_mcp` (keel_engine/extensions.py), at the level each part gives them, in keel 0.16.1's places.
+The marketplace's four tools come last, at every level (docs/plugins/13-step4-contract.md §7):
+keel_marketplace_search, keel_plugin_info, keel_plugins_installed read; keel_plugin_request only opens a request a
+person approves in keel's Inbox. There is no install tool: agents ask, people decide.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from __future__ import annotations
 import argparse
 import copy
 import os
+from pathlib import Path
 import sys
 import time
 from datetime import datetime
@@ -31,7 +38,8 @@ import httpx
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
-from . import rules
+from . import extensions, rules
+from .addons import NAME
 
 API_TIMEOUT = 15
 BUCKETS = ["api-main", "api-test", "web-src", "web-test", "contract", "specs", "migration", "e2e", "smoke", "other"]
@@ -51,7 +59,9 @@ MCP_TOKEN_HEADER = "X-Keel-Mcp-Token"
 
 
 class ApiError(Exception):
-    pass
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status     # the api's HTTP status, when it answered
 
 
 def internal_token() -> str:
@@ -127,7 +137,7 @@ class KeelApi:
                     msg += f" ({body['hint']})"
             except ValueError:
                 msg = res.text[:300]
-            raise ApiError(f"{method} {path}: {res.status_code} {msg}")
+            raise ApiError(f"{method} {path}: {res.status_code} {msg}", res.status_code)
         return res
 
     def _send(self, method: str, path: str, **kw) -> Any:
@@ -460,9 +470,135 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
     return f"{done}{what} on thread {tid}. The flow is {after}."
 
 
+# ---------------------------------------------------------------- the marketplace (step 4): agents find and ask
+
+ASK_IN_PLUGINS = "Ask the person to install it in Control › Plugins."
+
+
+def _items(body, key: str = "plugins") -> list:
+    return body if isinstance(body, list) else (body or {}).get(key) or []
+
+
+def _perms(perms: dict | None) -> str:
+    parts = [f"{k}: {', '.join(str(x) for x in v) if isinstance(v, list) else v}" for k, v in (perms or {}).items()]
+    return "; ".join(parts) or "none"
+
+
+def _source_lines(body) -> list[str]:
+    srcs = body.get("sources") if isinstance(body, dict) else None
+    return [f"source {s.get('id')}: {s.get('problem') or 'the catalog is old (installs wait for a refresh)'}"
+            for s in srcs or [] if s.get("on", True) and (s.get("problem") or s.get("old"))]
+
+
+def marketplace_search(api: KeelApi, q: str = "", category: str | None = None) -> str:
+    body = api.get("/marketplace", q=q or None, category=category or None)
+    out = _source_lines(body)
+    hits = _items(body)
+    if not hits:
+        out.append("no plugin in the catalogs matches" + (f' "{q}"' if q else "") + ".")
+    for h in hits:
+        have = (f"installed {h['installed']}" + (f", update {h['update']}" if h.get("update") else "")
+                if h.get("installed") else "not installed")
+        fits = f"version {h['version']}" if h.get("version") else f"does not fit: {h.get('why_not') or '?'}"
+        out.append(f"{h.get('name')}  {h.get('title')} · trust {h.get('trust')} · {have} · {fits}")
+        if h.get("summary"):
+            out.append(f"  {h['summary']}")
+    if hits:
+        out.append("More with keel_plugin_info; keel_plugin_request asks a person to install one.")
+    return "\n".join(out)
+
+
+def _name(name: str) -> str:
+    if not isinstance(name, str) or not NAME.match(name):
+        raise ApiError(f"'{name}' is not a plugin name (a-z, 0-9 and '-', like db).")
+    return name
+
+
+def plugin_info(api: KeelApi, name: str) -> str:
+    p = api.get(f"/marketplace/{_name(name)}") or {}
+    pub = f"{p.get('publisher_title') or p.get('publisher')} ({'verified' if p.get('verified') else 'unverified'})"
+    out = [f"{p.get('name')}  {p.get('title')} · publisher {pub} · trust {p.get('trust')} · category {p.get('category')}"]
+    if p.get("summary"):
+        out.append(p["summary"])
+    have = (f"installed {p['installed']}" + (f" ({p['installed_from']})" if p.get("installed_from") else "")
+            if p.get("installed") else "not installed")
+    if p.get("update"):
+        have += f"; update {p['update']}"
+    if p.get("revoked"):
+        have += f"; the installed version is revoked: {p['revoked'].get('why')}"
+    out.append(have)
+    out.append("versions:")
+    for v in p.get("versions") or []:
+        req = v.get("requires") or {}
+        needs = ", ".join(f"{k} {s}".strip() for k, s in (req.get("plugins") or {}).items())
+        state = ("revoked: " + v["revoked"]) if v.get("revoked") else "fits" if v.get("fits") else f"does not fit: {v.get('why_not')}"
+        out.append(f"  {v.get('version')}  {v.get('released') or ''} · keel {req.get('keel') or 'any'}"
+                   + (f" · needs {needs}" if needs else "") + f" · permissions {_perms(v.get('permissions'))} · {state}")
+    plan = p.get("plan")
+    if plan:
+        steps = ", ".join(f"{s['name']} {s['version']}" + (f" (needed by {s['needed_by']})" if s.get("needed_by") else "")
+                          for s in plan.get("install") or [])
+        out.append(f"an install adds: {steps}" + (f"; turns on {', '.join(plan['turn_on'])}" if plan.get("turn_on") else ""))
+    elif p.get("refused"):
+        r = p["refused"]
+        out.append(f"keel would refuse an install: {r.get('error')}" + (f" ({r['hint']})" if r.get("hint") else ""))
+    out.append("Agents cannot install plugins: keel_plugin_request asks a person.")
+    return "\n".join(out)
+
+
+def plugins_installed(api: KeelApi, project: str | None = None) -> str:
+    body = api.get("/plugins/installed") or {}
+    out = ["keel has:"]
+    for p in _items(body):
+        out.append(f"  {p.get('name')} {p.get('version')}  {p.get('title')} · from {p.get('from')} · "
+                   f"{'on' if p.get('on') else 'off'} · {p.get('status')}"
+                   + (f" · update {p['update']}" if p.get("update") else "")
+                   + (f" · problem: {'; '.join(p['problems'])}" if p.get("problems") else ""))
+    if len(out) == 1:
+        out = ["keel has no plugins (a core-only keel)."]
+    if isinstance(body, dict) and any((body.get(k) or {}).get("pending") for k in ("restart", "pending_restart")):
+        out.append("changes wait for a restart of keel.")
+    try:
+        p = _project(api, project)
+        on = [x["name"] for x in api.get(f"/projects/{p['id']}/plugins") or [] if x.get("enabled")]
+        out.append(f"on in {p['id']}: {', '.join(on) or 'none of the per-project plugins'}")
+    except ApiError:
+        pass
+    return "\n".join(out)
+
+
+def plugin_request(api: KeelApi, name: str, reason: str, version: str | None = None, project: str | None = None) -> str:
+    _name(name)
+    if not (reason or "").strip():
+        return "Give a reason: the person reads it on the request card in keel's Inbox."
+    try:
+        if (api.get("/plugins/rules") or {}).get("agents_may_ask") is False:
+            return ASK_IN_PLUGINS
+    except ApiError:
+        pass
+    body: dict[str, Any] = {"name": name, "reason": reason.strip()[:2000], "source": "agent"}
+    if version:
+        body["version"] = version
+    try:
+        body["project"] = _project(api, project)["id"]
+    except ApiError:
+        pass
+    try:
+        r = api.post("/plugins/requests", body) or {}
+    except ApiError as exc:
+        if exc.status == 409:
+            return f"{ASK_IN_PLUGINS} (keel did not open a request: {exc})"
+        raise
+    joined = " (it joined the request that already waits)" if r.get("joined") else ""
+    return (f"Asked a person to install {name}{' ' + version if version else ''}: request {r.get('id')}{joined}. It "
+            "waits in keel's Inbox. The plugin can be used only after a person approves it and keel restarts, so go on "
+            "without it.")
+
+
 # ---------------------------------------------------------------- server
 
-# ---- v0.10.0 plugins (Tools › Plugins): the Database and Git plugins' tools, through the api and keel's rules
+# ---- v0.10.0 plugins (Tools › Plugins): each part adds its tools (its `keel_mcp`, keel_engine/extensions.py), through
+# the api and keel's rules; these are what they share
 
 ASK_WAIT = 600          # an acting tool waits this long for the person's answer in keel's Inbox
 ASK_POLL = 3
@@ -471,71 +607,7 @@ ASK_POLL = 3
 def _plugin_on(api: KeelApi, pid: str, name: str):
     on = [p["name"] for p in api.get(f"/projects/{pid}/plugins") or [] if p.get("enabled")]
     if name not in on:
-        title = {"db": "Database", "git": "Git"}[name]
-        raise ApiError(f"The {title} plugin is off for {pid}: turn it on in keel (Tools › Plugins).")
-
-
-def db_schema(api: KeelApi, project: str | None = None, connection: str | None = None, table: str | None = None) -> str:
-    from .plugins.db.tools import _schema_text
-
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "db")
-    return _schema_text(api.get(f"/projects/{pid}/db/schema", connection=connection), table or "")
-
-
-def db_query(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None) -> str:
-    from .plugins.db.tools import query_text
-
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "db")
-    return query_text(api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "mask": True}))
-
-
-def git_status(api: KeelApi, project: str | None = None) -> str:
-    from .plugins.git.tools import status_text
-
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "git")
-    return status_text(api.get(f"/projects/{pid}/git/status"))
-
-
-def pr_status(api: KeelApi, project: str | None = None) -> str:
-    from .plugins.git.tools import pr_text
-
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "git")
-    return pr_text((api.get(f"/projects/{pid}/git/pr") or {}).get("pr"))
-
-
-def ci_runs(api: KeelApi, project: str | None = None, branch: str | None = None) -> str:
-    from .plugins.ci.tools import runs_text
-
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "ci")
-    return runs_text(api.get(f"/projects/{pid}/ci/runs", branch=branch))
-
-
-def ci_failure(api: KeelApi, project: str | None = None, run_id: int | None = None) -> str:
-    from .plugins.ci.tools import failure_text
-
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "ci")
-    if not run_id:
-        failed = [r for r in api.get(f"/projects/{pid}/ci/runs") or [] if r.get("failed")]
-        if not failed:
-            return "No failed pipeline: they pass, or none ran yet."
-        run_id = failed[0]["id"]
-    return failure_text(api.get(f"/projects/{pid}/ci/runs/{int(run_id)}"))
-
-
-def ci_rerun(api: KeelApi, run_id: int, project: str | None = None, sleep=time.sleep) -> str:
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "ci")
-    ok, why = _ask_person(api, pid, f"Claude Code: run the failed jobs of run #{int(run_id)} again?", f"gh run rerun {int(run_id)} --failed", sleep)
-    if not ok:
-        return f"The person said no in keel's Inbox: {why}".strip()
-    api.post(f"/projects/{pid}/ci/runs/{int(run_id)}/rerun", {})
-    return f"The failed jobs of run #{int(run_id)} run again."
+        raise ApiError(f"The {extensions.title(name)} plugin is off for {pid}: turn it on in keel (Tools › Plugins).")
 
 
 def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sleep) -> tuple[bool, str]:
@@ -550,38 +622,12 @@ def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sle
     return False, "Nobody answered in keel's Inbox in 10 minutes."
 
 
-def db_change(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None, sleep=time.sleep) -> str:
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "db")
-    dry = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "change": True})
-    ok, why = _ask_person(api, pid, f"Claude Code: change {dry['changed']} row(s) in {dry['connection']}?", dry["sql"], sleep)
-    if not ok:
-        return f"The person said no in keel's Inbox: {why}".strip()
-    r = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "change": True, "confirm": True})
-    return f"{r['changed']} row(s) changed in {r['connection']}."
-
-
-def git_act(api: KeelApi, op: str, project: str | None = None, sleep=time.sleep, **body) -> str:
-    pid = _project(api, project)["id"]
-    _plugin_on(api, pid, "git")
-    what = {"commit": f"commit: {body.get('message', '')}", "push": "push the branch",
-            "pr": f"open the pull request: {body.get('title', '')}"}[op]
-    ok, why = _ask_person(api, pid, f"Claude Code: {what.split(':')[0]}?", what, sleep)
-    if not ok:
-        return f"The person said no in keel's Inbox: {why}".strip()
-    r = api.post(f"/projects/{pid}/git/{op}", body)
-    if op == "commit":
-        return f"Committed {r['sha'][:7]} {r['subject']} ({len(r['files'])} file(s))."
-    if op == "push":
-        return f"Pushed {r['branch']} ({r['sha'][:7]})."
-    return f"{'Updated' if r.get('updated') else 'Opened'} the pull request: {r.get('url')}"
-
-
 LEVELS = ("read", "write", "admin")
 RANK = {"read": 0, "write": 1, "admin": 2}
 # Tools that change something hard to undo: the client asks the person first (MCP elicitation), or with --yes not.
-CONFIRM = {"keel_git_push", "keel_db_change", "keel_delete_run", "keel_stop_flow", "keel_remove_project",
-           "keel_edit_workflow", "keel_restore_doc", "keel_rule_edit"}
+# A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
+CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
+           "keel_rule_edit"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -591,23 +637,70 @@ class Confirm(BaseModel):
 
 
 def tool_level(name: str) -> str | None:
-    """The level a tool is registered at (None: not a keel tool)."""
+    """The level a tool is registered at (None: not a keel tool): keel's own (TOOLS), a part's (part_tools), the
+    marketplace's (read)."""
     for lv, names in TOOLS.items():
+        if name in names:
+            return lv
+    if name in MARKET_TOOLS:
+        return "read"
+    for lv, names in part_tools().items():
         if name in names:
             return lv
     return None
 
 
+class PartServer:
+    """What a part's `keel_mcp(server, api, guard, write)` gets as `server` (keel_engine/extensions.py): `tool()`
+    registers a tool as keel's own are (only within this server's level and --allow; the part's read tools at read,
+    its acting ones at write), and `act()` runs an acting tool as keel's own do (who acts, for the api's audit; with
+    `confirm`, the person's OK through the client first)."""
+
+    def __init__(self, reg, act, level: str):
+        self._reg, self._act, self.level = reg, act, level
+
+    def tool(self, annotations=None, structured_output: bool = False, **_kw):
+        return self._reg(annotations, self.level)
+
+    async def act(self, ctx, name: str, what: str, fn, *a, confirm: bool = False, **kw) -> str:
+        return await self._act(ctx, name, what, fn, *a, confirm=confirm, **kw)
+
+
+class _Names:
+    """A stand-in server that only notes the names a part's keel_mcp registers (part_tools)."""
+
+    def __init__(self):
+        self.names: list[str] = []
+
+    def tool(self, *_a, **_kw):
+        def deco(fn):
+            self.names.append(fn.__name__)
+            return fn
+        return deco
+
+
+def part_tools() -> dict[str, list[str]]:
+    """The parts' tools in keel's MCP server by level: their read tools, and their acting ones (write)."""
+    out: dict[str, list[str]] = {}
+    for lv, write in (("read", False), ("write", True)):
+        rec = _Names()
+        extensions.keel_mcp(rec, None, None, write=write)
+        out[lv] = rec.names
+    return out
+
+
+# keel's own tools by level, in 0.16.1's order. The parts' tools (Database, Git, CI/CD) come from the parts, in 0.16.1's
+# places: their read tools after keel_dashboard, their acting ones after keel_restore_doc (part_tools, build_server).
 TOOLS: dict[str, tuple[str, ...]] = {
     "read": ("keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
-             "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure",
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
              "keel_read_file", "keel_actions", "keel_run_action", "keel_rules"),
-    "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
-              "keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"),
+    "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"),
     "admin": ("keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
+# the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
+MARKET_TOOLS = ("keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request")
 
 
 def build_server(write: bool = False, api: KeelApi | None = None, level: str | None = None,
@@ -623,7 +716,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     lvl = level or ("write" if write else "read")
     if lvl not in LEVELS:
         raise ValueError(f"level must be one of {', '.join(LEVELS)}")
-    api.use_level(lvl)
+    if hasattr(api, "use_level"):      # (a stand-in object lists the tools without an api)
+        api.use_level(lvl)
     ro = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
     rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
     rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
@@ -632,10 +726,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                                                                           "admin": " Admin tools can also stop flows and change projects and workflows."}[lvl],
                   log_level="WARNING")
 
-    def reg(ann):
+    def reg(ann, at: str | None = None):
+        """Registers a tool within the level and --allow. `at`: a part's tool's level (else keel's own, TOOLS)."""
         def deco(fn):
             name = fn.__name__
-            if RANK[lvl] < RANK[tool_level(name) or "admin"] or (allow is not None and name not in allow):
+            if RANK[lvl] < RANK[at or tool_level(name) or "admin"] or (allow is not None and name not in allow):
                 return fn
             return srv.tool(annotations=ann, structured_output=False)(fn)
         return deco
@@ -646,8 +741,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         except ApiError as exc:
             return f"keel: {exc}"
 
-    async def act(ctx: Context | None, name: str, what: str, fn, *a, **kw) -> str:
-        """A write or admin call: says who acts (audit headers), asks the person first when the tool needs it."""
+    async def act(ctx: Context | None, name: str, what: str, fn, *a, confirm: bool | None = None, **kw) -> str:
+        """A write or admin call: says who acts (audit headers), asks the person first when the tool needs it (CONFIRM,
+        or a part's `confirm`)."""
         try:
             params = ctx.session.client_params if ctx else None
             client = (params.clientInfo.name if params and params.clientInfo else None) or "an MCP client"
@@ -655,7 +751,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             client = "an MCP client"
         mine = api.acting(client, name)
         a = tuple(mine if x is api else x for x in a)
-        if name in CONFIRM and not yes:
+        if (name in CONFIRM if confirm is None else confirm) and not yes:
             can = False
             try:
                 can = bool(ctx and ctx.session.client_params and ctx.session.client_params.capabilities.elicitation)
@@ -712,36 +808,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         project map) or er (the database diagram)."""
         return guard(dashboard, api, view, project)
 
-    @reg(ro)
-    def keel_db_schema(project: str | None = None, connection: str | None = None, table: str | None = None) -> str:
-        """Database plugin: the project's tables with columns, primary keys (*) and foreign keys; with `table`, one table."""
-        return guard(db_schema, api, project, connection, table)
-
-    @reg(ro)
-    def keel_db_query(sql: str, project: str | None = None, connection: str | None = None) -> str:
-        """Database plugin: one read-only query (SELECT, EXPLAIN, SHOW) under keel's rules: at most 200 rows and 15
-        seconds; columns named like a secret show as •••."""
-        return guard(db_query, api, sql, project, connection)
-
-    @reg(ro)
-    def keel_git_status(project: str | None = None) -> str:
-        """Git plugin: the project's branch, how far it is from the base branch and its remote, and what changed."""
-        return guard(git_status, api, project)
-
-    @reg(ro)
-    def keel_pr_status(project: str | None = None) -> str:
-        """Git plugin: the branch's pull request: state, review, CI checks and review comments."""
-        return guard(pr_status, api, project)
-
-    @reg(ro)
-    def keel_ci_runs(project: str | None = None, branch: str | None = None) -> str:
-        """CI/CD plugin: the project's newest pipeline runs on GitHub Actions (workflow, branch, result, link)."""
-        return guard(ci_runs, api, project, branch)
-
-    @reg(ro)
-    def keel_ci_failure(project: str | None = None, run_id: int | None = None) -> str:
-        """CI/CD plugin: why a run failed (failed jobs, steps and the end of the log); default the newest failed run."""
-        return guard(ci_failure, api, project, run_id)
+    # the parts' read tools (Database, Git, CI/CD), in the parts' order, where keel 0.16.1 listed them
+    extensions.keel_mcp(PartServer(reg, act, "read"), api, guard, write=False)
 
     @reg(ro)
     def keel_flows(project: str | None = None, limit: int = 10) -> str:
@@ -844,32 +912,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """Put back a spec, knowledge section, ADR or runbook as it was in a stored version (default: the newest)."""
         return await act(ctx, "keel_restore_doc", f"restore {path}", more.restore_doc, api, path, version, project)
 
-    @reg(rw)
-    async def keel_ci_rerun(run_id: int, project: str | None = None, ctx: Context | None = None) -> str:
-        """CI/CD plugin: run the failed jobs of a pipeline again, after the person's OK in keel's Inbox."""
-        return await act(ctx, "keel_ci_rerun", "rerun the pipeline", ci_rerun, api, run_id, project)
-
-    @reg(rx)
-    async def keel_db_change(sql: str, project: str | None = None, connection: str | None = None, ctx: Context | None = None) -> str:
-        """Database plugin: change data (INSERT, UPDATE, DELETE) on a local or test database. keel counts the rows,
-        then waits up to 10 minutes for the person's OK in keel's Inbox."""
-        return await act(ctx, "keel_db_change", "change data in the database", db_change, api, sql, project, connection)
-
-    @reg(rw)
-    async def keel_git_commit(message: str, project: str | None = None, ctx: Context | None = None) -> str:
-        """Git plugin: commit every change (keel's secret check, the author from keel's settings), after the person's
-        OK in keel's Inbox."""
-        return await act(ctx, "keel_git_commit", "commit", git_act, api, "commit", project, message=message)
-
-    @reg(rx)
-    async def keel_git_push(project: str | None = None, ctx: Context | None = None) -> str:
-        """Git plugin: push the branch (never with force, never to main or master), after the person's OK."""
-        return await act(ctx, "keel_git_push", "push the branch", git_act, api, "push", project)
-
-    @reg(rw)
-    async def keel_pr_create(title: str, body: str = "", project: str | None = None, ctx: Context | None = None) -> str:
-        """Git plugin: open the branch's pull request (or update its title and body), after the person's OK."""
-        return await act(ctx, "keel_pr_create", "open the pull request", git_act, api, "pr", project, title=title, body=body)
+    # the parts' acting tools (CI/CD, Database, Git: by name, as keel 0.16.1 listed them); each asks in keel's Inbox first
+    extensions.keel_mcp(PartServer(reg, act, "write"), api, guard, write=True)
 
     # ---------------------------------------------------------------- admin
 
@@ -920,6 +964,35 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                 "off": f"switch off {rule}", "on": f"switch on {rule}"}.get(op, op)
         return await act(ctx, "keel_rule_edit", what, more.rule_edit, api, op, pack, yaml, rule, project)
 
+    # ---------------------------------------------------------------- the marketplace (step 4)
+    # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only
+
+    @reg(ro)
+    def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
+        """Search the plugin catalogs keel reads: each plugin's name, title, trust level (content, web or code),
+        summary, and whether this keel has it. category: code, knowledge, tickets, review, product or other."""
+        return guard(marketplace_search, api, q, category)
+
+    @reg(ro)
+    def keel_plugin_info(name: str) -> str:
+        """One plugin of the catalogs: its versions, the permissions each asks for, the plugins it needs, and what an
+        install would add."""
+        return guard(plugin_info, api, name)
+
+    @reg(ro)
+    def keel_plugins_installed(project: str | None = None) -> str:
+        """The plugins this keel has (version, from the image or the marketplace, on or off, loaded or waiting for a
+        restart) and the ones that are on in the project."""
+        return guard(plugins_installed, api, project)
+
+    ask = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+
+    @reg(ask)
+    def keel_plugin_request(name: str, reason: str, version: str | None = None, project: str | None = None) -> str:
+        """Ask a person to install a plugin: it opens a request in keel's Inbox with your reason (required, in your
+        own words) and never installs anything itself. One request per plugin; a second one joins it."""
+        return guard(plugin_request, api, name, reason, version, project)
+
     return srv
 
 
@@ -952,8 +1025,31 @@ def allowed(argv: list[str]) -> set[str] | None:
     names = {t.strip() for t in text.split(",") if t.strip()}
     unknown = sorted(n for n in names if tool_level(n) is None)
     if unknown:
-        raise SystemExit(f"keel mcp: no tool called {', '.join(unknown)}. Tools: {', '.join(sorted(n for v in TOOLS.values() for n in v))}")
+        every = {n for v in TOOLS.values() for n in v} | set(MARKET_TOOLS) | {n for v in part_tools().values() for n in v}
+        raise SystemExit(f"keel mcp: no tool called {', '.join(unknown)}. Tools: {', '.join(sorted(every))}")
     return names
+
+
+PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
+IMAGE_RUN_DIR = Path("/data/plugins/run")   # keel's image keeps its data in /data (Dockerfile KEEL_DATA)
+
+
+def plugin_env() -> None:
+    """The plugins whose tools this server adds (their `keel_mcp`). The engine hands its own to the servers it starts
+    (tools/mcp.py keel_server_env). `keel2 mcp` runs beside the engine (docker exec), not as its child: then the ones
+    keel's last start resolved ($KEEL_DATA/plugins/run/env), so the person gets the same tools as before. Codex and
+    Copilot start MCP servers with no environment at all (no KEEL_DATA either): then keel's image folder, /data."""
+    if any(os.environ.get(k) for k in PLUGIN_ENV):
+        return
+    from .pluginhost import resolver
+
+    env = resolver.read_env()
+    if not env and not os.environ.get("KEEL_DATA"):
+        env = resolver.read_env(IMAGE_RUN_DIR)
+    found = {k: v for k, v in env.items() if k in PLUGIN_ENV and v}
+    if found:
+        os.environ.update(found)
+        extensions.reload()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -966,4 +1062,5 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--allow", help="only these tools, comma-separated (within the level)")
     parser.add_argument("--yes", action="store_true", help="no confirm question for push, DB change, delete, stop (when the client cannot ask)")
     args = parser.parse_args(argv)
+    plugin_env()                    # before allowed(): --allow may name a plugin's tool
     build_server(level=level(argv), allow=allowed(argv), yes=bool(args.yes)).run("stdio")

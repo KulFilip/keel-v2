@@ -211,6 +211,8 @@ type Job = { id, project_id, thread_id, agent, provider, model, step, phase, ac,
 type JobStep = { n, at, kind, text, tool?, server?, path?, diff?, ms?, ok? }
 
 # repo (Project)
+# since step 3 the Code plugin's (plugins/code: api keel.api.repo.RepoController and RepoSearch in keel-plugin-code.jar,
+# web plugins/code/web); RepoService (the repo's info, tree, files and diffs) stays core: Git and Code Review read the repo with it
 GET    /api/projects/{pid}/repo                       → { branch, base, ahead, behind, remote, worktrees: {branch,path}[], branches: {name, note}[] }
 GET    /api/projects/{pid}/repo/tree?depth=4&dir=     → TreeNode[]   { path, name, depth, kind: "dir"|"file", mark?: "A"|"M"|"D", keel: bool, frozen: bool, ac?: string }
                                                         (dir: lazy loading — that folder's subtree, depth levels down; depth 1 = the root's children)
@@ -231,7 +233,7 @@ GET    /api/projects/{pid}/repo/diff?path=&against=head|base&sha=
                                                       → { path, against, ref, diff (unified), binary, truncated }   (head: work tree vs HEAD; base: work tree vs the merge-base
                                                          with main/master; sha: that commit's change; an untracked file diffs against nothing)
 GET    /api/projects/{pid}/repo/commit?sha=           → { sha, message, body, author, at, keel, files: { path, status: "A"|"M"|"D"|"R", from? }[] }
-# web (pages/Repo.tsx + pages/repo/): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
+# web (pages/Repo.tsx + pages/repo/; since step 3 plugins/code/web): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
 # tab replaced by the next one, double click = pinned), a status bar. Deep links: #/repo/<path> opens a file, #/repo/<path>:<line>
 # opens it at that line and highlights it (the Map links a table to its migration this way); the URL follows the active tab.
 # Keys: Ctrl/⌘+P quick open (":12" = line), +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find in file,
@@ -1163,13 +1165,13 @@ allow it per agent. Saving the connection refreshes its env; deleting the connec
 `ThreadState` gains `pr_url` (from `data.pr_url`, which `open_pr` sets when it opened the PR).
 
 ### Web
-- **Run › Tasks** (`pages/Tasks.tsx`, `tasksApi.ts`): the board (To do, In progress, In review, Testing (PP), Ready, Done; Blocked
+- **Run › Tasks** (the Tasks plugin: `plugins/tasks/web/Tasks.tsx`, `tasksApi.ts`): the board (To do, In progress, In review, Testing (PP), Ready, Done; Blocked
   when a task is blocked; cancelled under Done), cards (key or "local", type, assignee, flow status, PR, reviewers, "needs
   you"), Mine / All, source and text filters, Sync now and the last sync (or "Connect Jira"), New task, and the task drawer
   (status, Jira link and status, flow with Open flow, PR, reviewers, its Inbox items with their buttons, Start flow with the
   workflow by type and the run mode, PR link, Mark approved, Confirm PP, Ship, Send back with a reason, Cancel, Reopen,
   Delete, the history). `#/tasks/<id>` opens a task (and switches to its project).
-- **Inbox**: task items with their buttons and "Open task ▸". **Connections › Jira** (`components/JiraCard.tsx`): a card per
+- **Inbox**: task items with their buttons and "Open task ▸". **Connections › Jira** (the Jira plugin: `plugins/jira/web/JiraCard.tsx`): a card per
   project (Cloud / Server, URL, email, token, project key, board, poll, JQL, Test, Connect/Save/Remove; when connected: the
   status mapping found from Jira with a select per keel status, the reviewer field, Jira and GitHub reviewers).
   **Tools › Catalog**: the optional Jira MCP server.
@@ -1204,6 +1206,13 @@ FlowSpend = { thread_id, title, status, tokens, cost_usd, cap_tokens: number|nul
 - The sidebar no longer has the compact provider cards: the bar shows the same windows.
 
 ## v0.5.3: the Graph page
+
+**The code graph since step 3** is the plugin folder `plugins/graph` (id `graph`): engine `keel_plugin_graph` (its
+`codegraph.py`, `codegraph_view.py`, `graph_hints.py` and the hooks on_scan, on_commit, on_thread_start, mcp_specs,
+prompt_context, index_available), api `keel-plugin-graph.jar` (`keel.api.graph`: `/graph`, `/graph/search`,
+`/graph/node`, `/index`, `/index/rebuild` and the `index.done` notification), web `plugins/graph/web` (the page and its
+stylesheet). The urls and the JSON are the same. The project scan and its `project_index` row, each agent's
+`code_graph` setting and the CodeGraph CLI in the image stay keel's.
 
 **Project › Graph** (`web/src/pages/Graph.tsx`, `components/graph/*`) draws the code graph keel keeps for agents (the
 CodeGraph index, `engine/keel_engine/tools/codegraph.py`). The engine reads it read only and rolls it up
@@ -1256,20 +1265,23 @@ GET /api/projects/{pid}/graph/node?id=…&depth=1|2 → GraphFocus
 ## v0.6.0: the Helper
 
 A chat in the Repo page (⌘I, or the Helper button in the activity bar) with an agent that reads the project and answers
-with `file:line` links. keel runs it with its own harness (`engine/keel_engine/runtime/helper.py`): one answer is one
-agent run on the model's runner (claude, codex, copilot / opencode, an API key, or the fake model), with keel's guarded
-tools, the MCP servers the `helper` agent may use plus the code graph, the guard context the hook reads on every tool
-call, and the diff guard as the backstop for engines without a hook.
+with `file:line` links. keel runs it with its own harness (the KeelBot plugin's engine,
+`plugins/keelbot/engine/keel_plugin_keelbot/helper.py`): one answer is one agent run on the model's runner (claude, codex,
+copilot / opencode, an API key, or the fake model), with keel's guarded tools, the MCP servers the `helper` agent may use
+plus the code graph, the guard context the hook reads on every tool call, and the diff guard as the backstop for engines
+without a hook.
 
 - **Modes**: `ask` (read only: the guard's readonly; codex runs in its read-only sandbox, copilot without its write and
   shell tools; anything that still changes is put back). More modes come in later releases.
 - **Sessions continue**: claude and codex continue their own CLI session (the first turn of a claude session pins
   `--session-id`, the next ones `--resume`); the API-key runner gets the earlier messages; other CLIs get the conversation
   so far in the prompt (`TRANSCRIPT_CHARS`).
-- **The prompt** carries the mode, the knowledge sections the `helper` agent uses (`content/agents/helper.md`), the
-  plugins' context files, the project's running or waiting flow (title, phase, spec, criteria, the waiting gate), what
+- **The prompt** carries the mode, the knowledge sections the `helper` agent uses
+  (`plugins/keelbot/content/agents/helper.md`), the plugins' context files, the project's running or waiting flow (title, phase, spec, criteria, the waiting gate), what
   the person points at (`@` mentions, selected lines, the open file), and the question.
-- **Plugins** (`engine/keel_engine/runtime/plugins.py`): `content/plugins/<name>/plugin.yml` (keel's) and
+- **Plugins** (`engine/keel_engine/runtime/plugins.py`): `content/plugins/<name>/plugin.yml` (keel's, and since
+  step 3 the same folder in a loaded plugin package's content, like `plugins/ci/content/plugins/ci`; listed together in
+  name order) and
   `<project>/.keel/plugins/<name>/plugin.yml` (the project's; a command with the same name replaces keel's):
   `commands` (`/name` sends the template; `{{args}}` is the rest of the line) and `context` (project files every prompt
   names). A broken plugin is listed with its problems and never used.
@@ -1305,7 +1317,8 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
 - One answer at a time per session (409 while one runs); `stop` cancels it at any moment and leaves a `note` message.
 
 ### Web
-- `components/helper/HelperPanel.tsx` in `pages/repo/Ide.tsx` (a column on the right; a phone shows it over the page):
+- `components/helper/HelperPanel.tsx` in `pages/repo/Ide.tsx` (since step 3 the Code plugin's `plugins/code/web/Ide.tsx`,
+  through the slot `assistant`; a column on the right; a phone shows it over the page):
   the chat list, the model, what the chat used, the answers (Markdown; `file:line` chips open the editor there), each
   answer's steps (live while it runs from `helper.step`, stored ones on demand from `/jobs/{call_id}/steps`), the open
   file and the selected lines that go along, `/` commands and `@` mentions (criteria of the flow, code-graph symbols,
@@ -1316,10 +1329,14 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
 - v0.15.2 chats: leaving the page (or closing the panel) and coming back keeps the open chat (`keel2.helper.<pid>.session`),
   each chat's draft with its mentions (`keel2.helper.<pid>.drafts`, localStorage) and where it was scrolled to, the new
   chat's mode and whether the list is open (`keel2.helper.<pid>.tab`, sessionStorage); a chat is forgotten only on a 404.
-  **Chats** (`components/helper/ChatList.tsx`; a column on `#/keelbot` of a wide screen, over the conversation in the
+  **Chats** (`components/helper/ChatList.tsx`, on the plugin track `plugins/keelbot/web/ChatList.tsx`; the folder
+  routes are the KeelBot plugin's, engine `keel_plugin_keelbot/routes.py` and api `keel.api.helper`, while the table
+  `helper_folders` stays in core's `runtime/migrate.py`; a column on `#/keelbot` of a wide screen, over the conversation in the
   panel) lists every chat by folder with search, new / rename / delete folder, and per chat rename, move to a folder and
   delete; every delete asks in the page, never `window.confirm`. A new Ask chat shows how to use KeelBot.
-- v0.15.2 new answers (`components/helper/unread.tsx`): a `helper.finished` (not `stopped`) for a chat nobody looks at (no
+- v0.15.2 new answers (`components/helper/unread.tsx`; on the plugin track `plugins/keelbot/web/unread.tsx`, through the
+  slots `nav.badge`, `shell.watch`, `notes.setting`, `settings.browser` and the assistant's `count`, so core never imports
+  KeelBot): a `helper.finished` (not `stopped`) for a chat nobody looks at (no
   panel shows it, or the tab is hidden) counts as new (`keel2.keelbot.unread`: project → chat → call ids) on the menu's
   KeelBot entry, its folded-menu icon, the Code page's KeelBot button and the chat's row; showing the chat clears it.
   It also plays KeelBot's own sound (`notify.playKeelBot`: three short rising sine notes), unless Do not disturb is on or
@@ -1551,8 +1568,8 @@ in + out + cached ÷ 10):
 - **KeelBot's view of keel**: every turn (`POST /helper/sessions/{sid}/turn`) carries
   `keel: { workflows: [{id, name, source, based_on, folder, last_run?: {title, status}, steps: [{id, kind, name, agent}]}],
   flows: [{thread_id, title, workflow, status, phase, step, waiting?: {title}, acs_done, acs_total, tokens, where, branch,
-  error, updated_at}] }` (the 8 newest flows). The engine (`runtime/keelbot.py`) puts them in the prompt with what each
-  keel template is for, and how to give buttons; a question about writing a workflow also gets the format, the phases,
+  error, updated_at}] }` (the 8 newest flows). The engine (the KeelBot plugin's `keel_plugin_keelbot/keelbot.py`) puts
+  them in the prompt with what each keel template is for, and how to give buttons; a question about writing a workflow also gets the format, the phases,
   the code-step actions and the agents.
 - **Buttons**: KeelBot never starts or saves anything. Its answer ends with fenced blocks the web turns into cards
   (`components/helper/Actions.tsx`): ` ```keel-start ` with JSON `{workflow, title, request}` (Start the flow →
@@ -1591,22 +1608,31 @@ shows_in: [connections, map, workflows, keelbot, inbox]
   (memory only, never in the saved settings) get `db:<connection>` → `{name, kind, url, env}` as JSON and `github` → the
   token. A KeelBot turn gets `plugins` and the same keys; `/helper/commands` gets `plugins` (their `/commands`).
 - **Read tools for models.** For one agent call or KeelBot turn the engine opens a key (`plugins.open_call`, memory only)
-  and starts `python -m keel_engine.plugins.server db|git` (stdio MCP) with `KEEL_PLUGIN_URL` and `KEEL_PLUGIN_KEY`
+  and starts `python -m keel_engine.plugins.server db|git` (stdio MCP; since step 3 the Database and Git
+  plugins' own `python -m keel_plugin_db.server` and `python -m keel_plugin_git.server`, with the plugin's folder on
+  `PYTHONPATH`) with `KEEL_PLUGIN_URL` and `KEEL_PLUGIN_KEY`
   only; each tool call comes back as `POST /plugins/call {key, tool, args}` → `{text}`. KeelBot gets the tools of every
   plugin that is on; a flow agent only when it is ticked on Tools › "Who may use what" (`keel-db`, `keel-git`). The
   allow list now also takes a bare server name (the Tools page saves those; before, the engine dropped them).
+- **The Database plugin since step 3** is the plugin folder `plugins/db`: engine `keel_plugin_db` (its MCP server
+  `python -m keel_plugin_db.server`), content `plugins/db/content/plugins/db`, api `keel-plugin-db.jar` (the keys
+  `db:<connection>` come from its FlowContributor), web `plugins/db/web` (KeelBot's `keel-query` card is its item in
+  the slot `keelbot.card`). Its table `db_connections` and the secrets `db.<id>` stay in core.
 - **Database rules** (`plugins/db/core.py`): sqlglot reads the SQL: `read` (SELECT, EXPLAIN without ANALYZE, SHOW,
   DESCRIBE, PRAGMA) runs in a read-only transaction, 200 rows, 15 s; `change` (INSERT, UPDATE, DELETE, MERGE) only on
   a `local` or `test` connection, first run and rolled back to count the rows, then for real with `confirm`; `schema`
   (CREATE, ALTER, DROP TABLE) and `never` (DROP DATABASE, TRUNCATE, GRANT, more than one statement, a read that also
   writes, server functions like pg_terminate_backend) are refused. Columns named like a secret show as `•••` to models.
   In Docker, `localhost` in an address means the person's computer (host.docker.internal).
-- **Git rules** (`plugins/git/core.py`): never force, never push to the base branch, main or master; commit = every
+- **Git rules** (`plugins/git/core.py`; since step 3 the plugin folder `plugins/git`: engine `keel_plugin_git`, content
+  `content/plugins/git`, api `keel-plugin-git.jar`, web `plugins/git/web`): never force, never push to the base branch, main or master; commit = every
   change but keel's files, the secret check, the author and KeelBot line from Settings; a merge of the base that
   conflicts is undone at once; cleanup deletes only merged local branches.
 - **Buttons, not actions.** KeelBot never changes data or git: `keel-query {sql, connection?}` and
   `keel-git {op: commit|push|pr|switch|sync, ...}` blocks become cards the person presses (web
-  `components/helper/Actions.tsx`).
+  `components/helper/Actions.tsx`; since step 3 a block no core card handles is a plugin's card from the slot
+  `keelbot.card`, `{id, kind: "keel-git", component}` with the props `{block: {kind, body}, pid}`: the Git plugin's
+  `plugins/git/web/GitCard.tsx`).
 - **Workflow steps** (`with:` on a code step; `workflows/validate.py` checks required and unknown keys):
   `db:query` (rows to data.<step>), `db:check` (`expect: none | some | <n>`, soft + a branch on RESULT), `db:change`
   (asks: "Change data in local?", once per fingerprint, unless run mode auto on a local database), `db:migrate`
@@ -1639,8 +1665,9 @@ POST /api/projects/{pid}/plugins/ask { title, command } → { id } · GET /api/p
 
 ## v0.11.0: the CI/CD plugin, and the Database tool on the Code page
 
-**CI/CD plugin** (`content/plugins/ci`, `engine/keel_engine/plugins/ci`): the project's pipelines on GitHub Actions
-through `gh` and the token of Connections › GitHub.
+**CI/CD plugin** (since step 3 the plugin folder `plugins/ci`: engine `keel_plugin_ci`, content `content/plugins/ci`, api
+`keel-plugin-ci.jar`, web `plugins/ci/web`): the project's pipelines on GitHub Actions through `gh` and the token of
+Connections › GitHub.
 
 - A plugin may bring its own workflows (`workflows: [ci-fix]` → `content/plugins/ci/workflows/ci-fix.yaml`). The
   engine's `GET /templates` lists them after keel's with `"plugin": "ci"`; the api lists one only for the projects that
@@ -1712,7 +1739,9 @@ GET /api/projects/{pid}/repo/diff?path=…&branch=feat/test   → FileDiff { aga
 
 ## v0.14.0: Code Review
 
-An installable plugin (`review`, content/plugins/review). With it on, Code gets a **Review** tool window (⇧⌘9): the
+An installable plugin (`review`; since step 3 the plugin folder `plugins/review`: engine `keel_plugin_review` (its
+content `content/plugins/review` and the fake model's answers for its runs), api `keel-plugin-review.jar`, web
+`plugins/review/web` with its own `style.css`). With it on, Code gets a **Review** tool window (⇧⌘9): the
 branch you are on, and the pull requests (GitHub) or merge requests (GitLab) to review, assigned to you, yours or all.
 One opens in the tool window (Approve, Submit review, Merge your own, Check out; tabs Changes as a folder tree with
 viewed marks, Commits, Overview, Findings, Threads, Checklist) and each file as an editor tab (`kind: review`, path
@@ -1787,6 +1816,8 @@ and path; "Uncommitted changes (N files)" on top for the current branch; commits
 ones it has are dimmed. A commit shows its message, its files and one file's diff; a double click opens the file's
 change as a commit tab. A branch in Source control (without the Git plugin) and a branch tab ("Show in the log") open
 the log on that branch. The filters and the chosen commit stay per project in this browser tab (`keel2.repo.log.<pid>`).
+On the plugin track it is the Code plugin's: web `plugins/code/web/Log.tsx`, `gitLog.ts`, `gitLogApi.ts`, api
+`keel.api.repo.RepoLog` / `RepoLogController` in `keel-plugin-code.jar` (on core's `RepoService`).
 
 ```
 GET /api/projects/{pid}/repo/refs   → RefsView { head (null when detached), base, local: RefItem[], remote: RefItem[], tags: RefItem[] }
@@ -1823,7 +1854,9 @@ keel's version shows at the menu's foot. In the Flow page the graph scrolls with
 - Keyboard first: ⌘/ (or ?) opens the key cheat sheet for the page (searchable, IntelliJ or VS Code keymap). Code:
   ⌘1 / ⌘9 / ⇧⌘9 (also ⌥1 / ⌥9 / ⌥⇧9) show and hide their panel, ⇧Esc hides the active tool window, ⌥W closes the tab,
   ⌥⇧[ / ⌥⇧] previous / next tab, ⌘E recent files. The menu: F6 or ⌃⌘M jumps in (↑↓, ↩, Esc back), ⌃1–⌃9 open the
-  first pages (Ctrl+Alt+1–9 off a Mac).
+  first pages (Ctrl+Alt+1–9 off a Mac). On the plugin track the sheet's areas for Code, Code Review and KeelBot come from
+  those plugins through the slot `keys.area` (core keeps Everywhere, the menu, the launcher, Flow, Workflows and the
+  diagrams in `src/keys.ts`); Focus mode's key and event are core's (`FOCUS_KEYS`, `FOCUS_EVENT`, through @keel/web-sdk).
 - A notification opens where it came from: the api's `/projects/<id>/<page>` link goes to that project's page (a flow's notification to its own thread), not to All projects.
 
 ## v0.15.4: run history

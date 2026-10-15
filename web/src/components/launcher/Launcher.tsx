@@ -4,48 +4,48 @@
 // A prefix narrows it: > actions, @ code, # pull requests and tasks, ! flows and gates, ? asks KeelBot (read only)
 // and shows the answer right here.
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, errorParts, type GraphHit, type HelperSession } from "../../api";
 import { navGroups, useFeatures, useView } from "../../addons";
-import { repoHash } from "../../pages/repo/model";
+import { fileLink } from "../../format";
+import { isMac, keyLabel, LAUNCHER, matches } from "../../keys";
+import { hasPage } from "../../sdk/registry";
 import { go, useApp } from "../../state";
-import { fileLink } from "../helper/model";
 import { Markdown } from "../Markdown";
-import { isMac, keyLabel, matches } from "../review/keymap";
-// v0.15.4 its keys come from the one list the key cheat sheet shows
-import { LAUNCHER } from "../../keys";
 import {
   flat,
   groupJump,
   parseQuery,
   PREFIXES,
+  prefixFor,
   rank,
   readRecent,
   remember,
   runs,
-  SCOPES,
+  scopesFor,
   type Action,
   type Group,
   type Item,
   type Scope,
 } from "./model";
 import {
+  canAsk,
   copyText,
+  emptyData,
+  fileHash,
   itemsFor,
+  launcherKinds,
   load,
   startGroups,
   symbols,
   type Ctx,
   type Data,
 } from "./sources";
+import { LAUNCHER_EVENT } from "./open";
 
-export const LAUNCHER_EVENT = "keel:launcher";
-
-/** Open the launcher from anywhere (⇧⇧ in Code), in a scope or with text already typed. */
-export function openLauncher(detail: { scope?: Scope; text?: string } = {}) {
-  window.dispatchEvent(new CustomEvent(LAUNCHER_EVENT, { detail }));
-}
+// open the launcher from anywhere (the shell's button; ⇧⇧ in Code, a plugin, through @keel/web-sdk)
+export { LAUNCHER_EVENT, openLauncher } from "./open";
 
 type Props = {
   dark: boolean;
@@ -89,15 +89,7 @@ export function Launcher(props: Props) {
   );
 }
 
-const EMPTY: Data = {
-  inbox: null,
-  prs: null,
-  host: null,
-  files: null,
-  tasks: null,
-  flows: null,
-  notes: [],
-};
+const EMPTY: Data = emptyData();
 
 type Ask = {
   status: "idle" | "sending" | "running" | "done" | "failed";
@@ -133,10 +125,15 @@ function Dialog({
   } = useApp();
   const features = useFeatures();
   const view = useView();
+  // step 6: KeelBot (? and ⌘↩) and the parts' scopes only when this keel has them (useFeatures renders this again when
+  // a plugin's page registers)
+  const askOn = canAsk();
+  const kinds = launcherKinds();
+  const scopes = scopesFor(kinds);
   const input = useRef<HTMLInputElement>(null);
   const panelInput = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const first = start.text && PREFIXES[start.text[0]] ? start.text[0] : null;
+  const first = prefixFor(start.text?.[0], askOn);
   const [prefix, setPrefix] = useState<string | null>(first);
   const [text, setText] = useState(
     first ? start.text!.slice(1) : (start.text ?? ""),
@@ -160,7 +157,7 @@ function Dialog({
     };
   }, [pid]);
 
-  const q = parseQuery((prefix ?? "") + text, scope);
+  const q = parseQuery((prefix ?? "") + text, scope, askOn);
   const wide = scope === "all" && !prefix;
   // code: the code graph's search, a moment after the typing stops
   const wantCode = !!pid && !q.ask && q.kinds.includes("symbol") && q.text.length >= 2;
@@ -381,9 +378,9 @@ function Dialog({
       return move(e.altKey ? groupJump(groups, at, -1) : at - 1);
     if (e.key === "Tab") {
       e.preventDefault();
-      const i = SCOPES.findIndex((s) => s.id === scope);
+      const i = Math.max(0, scopes.findIndex((s) => s.id === scope));
       setScope(
-        SCOPES[(i + (e.shiftKey ? SCOPES.length - 1 : 1)) % SCOPES.length].id,
+        scopes[(i + (e.shiftKey ? scopes.length - 1 : 1)) % scopes.length].id,
       );
       setPrefix(null);
       return;
@@ -395,6 +392,7 @@ function Dialog({
     }
     if (matches(k, LAUNCHER.ask)) {
       e.preventDefault();
+      if (!askOn) return;
       if (sel?.ask && pid) ctx.ask(sel.ask);
       else if (sel)
         toast(
@@ -436,7 +434,7 @@ function Dialog({
   };
 
   const onChange = (v: string) => {
-    if (!prefix && v && PREFIXES[v[0]]) {
+    if (!prefix && v && prefixFor(v[0], askOn)) {
       setPrefix(v[0]);
       setText(v.slice(1).trimStart());
     } else setText(v);
@@ -508,6 +506,20 @@ function Dialog({
   };
 
   const scopeLabel = prefix ? PREFIXES[prefix].label : null;
+  // what the field searches, and the prefixes that narrow it: only what this keel can find
+  const finds = [
+    kinds.has("file") && "files",
+    kinds.has("symbol") && "code",
+    kinds.has("pr") && "pull requests",
+    kinds.has("task") && "tasks",
+  ].filter(Boolean);
+  const prefixKeys = [
+    ">",
+    ...(kinds.has("symbol") ? ["@"] : []),
+    ...(kinds.has("pr") || kinds.has("task") ? ["#"] : []),
+    "!",
+    ...(askOn ? ["?"] : []),
+  ];
   const loading = !data;
   const count = rows.length;
   return (
@@ -574,7 +586,9 @@ function Dialog({
             placeholder={
               q.ask
                 ? "Ask about this project, then press ↩"
-                : "Search files, code, pull requests, tasks, actions…"
+                : finds.length
+                  ? `Search ${[...finds, "actions"].join(", ")}…`
+                  : "Search flows, pages and actions…"
             }
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKey}
@@ -592,7 +606,7 @@ function Dialog({
 
         {!q.ask && (
           <div className="lx-scopes" role="tablist" aria-label="Scope">
-            {SCOPES.map((s) => (
+            {scopes.map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -619,7 +633,9 @@ function Dialog({
             lastStep={steps[steps.length - 1]?.text}
             onOpen={(path, line) => {
               onClose();
-              location.hash = repoHash(path, line);
+              // the part that shows files (Code) knows their link
+              const hash = fileHash(path, line);
+              if (hash) location.hash = hash;
             }}
             onAgain={() => {
               setAsk({ status: "idle", question: "" });
@@ -719,12 +735,19 @@ function Dialog({
               <span>
                 <kbd>{keyLabel(LAUNCHER.actions)}</kbd> actions
               </span>
-              <span>
-                <kbd>{keyLabel(LAUNCHER.ask)}</kbd> ask KeelBot
-              </span>
+              {askOn && (
+                <span>
+                  <kbd>{keyLabel(LAUNCHER.ask)}</kbd> ask KeelBot
+                </span>
+              )}
               <span className="lx-right">
-                Prefixes <kbd>&gt;</kbd> <kbd>@</kbd> <kbd>#</kbd> <kbd>!</kbd>{" "}
-                <kbd>?</kbd>
+                Prefixes{" "}
+                {prefixKeys.map((p, i) => (
+                  <Fragment key={p}>
+                    {i > 0 && " "}
+                    <kbd>{p}</kbd>
+                  </Fragment>
+                ))}
               </span>
             </>
           )}
@@ -907,6 +930,11 @@ function PreviewPane({ pid, it }: { pid: string | null; it: Item }) {
     const known = texts.get(key);
     if (known !== undefined) {
       setText(known);
+      return;
+    }
+    // the file comes from the Code plugin's api: without it there is no preview (and no request)
+    if (!hasPage("repo")) {
+      setErr(true);
       return;
     }
     setText(null);

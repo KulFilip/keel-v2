@@ -3,15 +3,20 @@
 
 import type { Cite, DbRelation, DbTable } from "../../api";
 import { hashFor } from "../../routes";
+import { useHasPage } from "../../sdk/registry";
 import { shortType } from "./geometry";
 import { Ic } from "./icons";
 import { indexedColumns, schemaLabel, type Neighbours } from "./model";
 
+/** A file at a line in the Code page (a plugin: show the link only when useHasPage("repo")). */
 export const fileHref = (c: Cite) => hashFor("repo", `${c.rel}:${c.line}`);
 const base = (rel: string) => rel.split("/").pop() ?? rel;
 
 function CiteLink({ c, label }: { c: Cite | null | undefined; label?: string }) {
+  // step 6: without the Code page (a plugin) the place is plain text
+  const code = useHasPage("repo");
   if (!c) return null;
+  if (!code) return <span className="st-cite mono">{label ?? `${base(c.rel)}:${c.line}`}</span>;
   return (
     <a className="st-cite mono" href={fileHref(c)} title={`Open ${c.rel} at line ${c.line} in the Code page`}>
       {label ?? `${base(c.rel)}:${c.line}`}

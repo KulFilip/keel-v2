@@ -63,12 +63,15 @@ class McpLevelsApiTest : ApiTest() {
         assertThat(post("/api/projects/$pid/actions/verify_fast", emptyMap<String, Any>(), mcp("write")).andReturn().response.status).isNotEqualTo(403)
     }
 
+    // the Database plugin's query route at the read level: plugins/db/api DatabaseMcpLevelApiTest
+
     @Test
-    fun `a read-level MCP server may query the database but not change it`() {
-        val (pid, _) = newProject("lv-db")
-        val read = mapOf("sql" to "select 1", "connection" to "db", "mask" to true)
-        assertThat(post("/api/projects/$pid/db/query", read, mcp()).andReturn().response.status).isNotEqualTo(403)
-        post("/api/projects/$pid/db/query", read + mapOf("change" to true), mcp()).andExpect(status().isForbidden)
+    fun `an agent at the read level may ask for a plugin, never install one`() {
+        // keel_plugin_request is a read-level tool (step 4): its POST only opens an Inbox request a person approves
+        val ask = mapOf("name" to "lv-hello", "reason" to "the flow needs it", "source" to "agent")
+        assertThat(post("/api/plugins/requests", ask, mcp()).andReturn().response.status).isNotEqualTo(403)
+        assertThat(post("/api/plugins/requests", ask, mcp("read")).andReturn().response.status).isNotEqualTo(403)
+        post("/api/plugins/install", mapOf("name" to "lv-hello"), mcp("read")).andExpect(status().isForbidden)
     }
 
     @Test

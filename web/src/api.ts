@@ -194,8 +194,12 @@ export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
   "mcp.call",
 ];
+/** v0.16.0: the one generic channel. The api sends every engine event the web does not list above (approval.*, a plugin's
+ *  own events) as `event: engine`, its type inside; it lands in `recent` like the others. */
+export const ENGINE_CHANNEL = "engine";
 export type EngineEvent = {
-  type: EngineEventType;
+  /** one of ENGINE_EVENT_TYPES, or any other engine event from the generic channel */
+  type: EngineEventType | (string & {});
   thread_id: string;
   project_id: string;
   step?: string;
@@ -309,7 +313,8 @@ export type JobStep = {
 };
 export type JobDetail = Job & { steps: JobStep[] };
 
-/** The engine's code graph index of a project (engine runtime/scan.py). */
+/** The engine's code graph index of a project (engine runtime/scan.py), read over http from the Graph plugin's
+ *  /index route (plugins/graph): the Code page's status bar and index row show it. */
 export type IndexStatus = {
   project: string;
   status: "idle" | "indexing" | "ready" | "failed";
@@ -320,55 +325,10 @@ export type IndexStatus = {
   available?: boolean;
 };
 
-export type RepoInfo = {
-  branch: string;
-  base: string;
-  ahead: number;
-  behind: number;
-  remote: string;
-  worktrees: { branch: string; path: string }[];
-  branches: { name: string; note: string }[];
-};
-export type TreeNode = {
-  path: string;
-  name: string;
-  depth: number;
-  kind: "dir" | "file";
-  mark?: "A" | "M" | "D";
-  keel: boolean;
-  frozen: boolean;
-  ac?: string;
-};
-export type RepoFile = {
-  path: string;
-  size: number;
-  mark?: "A" | "M" | "D";
-  frozen: boolean;
-  keel: boolean;
-  ac?: string | null;
-  head: string;
-  last_commit?: Commit | null;
-  /** v0.5.1: a NUL byte in the first 8 KB; mtime; the keel rule that applies in the active phase. */
-  binary?: boolean;
-  modified?: number;
-  phase?: string;
-  bucket?: string;
-  verdict?: string;
-};
+// (the Code page's repo types and calls are its own since step 3: plugins/code/web/codeApi.ts)
 export type Commit = { sha: string; message: string; author: string; at: string; keel?: boolean };
-/** v0.5.1 Repo IDE: git status, diffs, a commit's files, search (git grep), the quick-open file list. */
-export type Change = { path: string; from?: string; staged?: string; unstaged?: string; untracked?: boolean; conflict?: boolean };
+/** A file's diff (the Code plugin's GET /repo/diff; the Code Review plugin's diffs have the same shape). */
 export type FileDiff = { path: string; against: string; ref: string; diff: string; binary: boolean; truncated: boolean };
-export type CommitView = Commit & { body: string; keel: boolean; files: { path: string; status: string; from?: string }[] };
-/** v0.12.0 one local branch against the base (Git plugin): its own commits and the files it changed since it left the base. */
-export type BranchView = {
-  name: string; base: string | null; current: boolean; ahead: number; behind: number;
-  commits: Commit[]; files: { path: string; status: string; from?: string }[]; truncated?: boolean;
-};
-export type SearchMatch = { line: number; column: number; length: number; text: string; ranges: [number, number][] };
-export type SearchResult = { results: { path: string; matches: SearchMatch[] }[]; matches: number; files: number; truncated: boolean; timed_out: boolean; took_ms: number };
-export type SearchQuery = { q: string; regex?: boolean; case?: boolean; word?: boolean; include?: string; exclude?: string; max?: number };
-export type UpdateFromBase = { ok: boolean; merged: boolean; conflicts: string[]; output: string };
 export type Unlock = { path: string; phase: string };
 export type KeelDoc = { path: string; what: string; by: string; updated: string; status: "ok" | "live" | "check" };
 export type FactKind = "fact" | "rule" | "flaky" | "unlock";
@@ -592,26 +552,7 @@ export type Plugin = {
   actions: PluginAction[]; shows_in: string[]; commands: { name: string; description: string }[];
   enabled?: boolean; scope?: "project" | "all" | null;
 };
-export type DbConnection = {
-  name: string; kind: "postgres" | "mysql" | "sqlite"; env: "local" | "test" | "staging" | "prod"; shown: string; source?: string | null;
-  ok?: boolean | null; server?: string | null; tables?: number | null; error?: string | null; checked_at?: string | null;
-  /** a change of data may run here: local and test only */
-  can_change: boolean;
-};
-export type DbSuggestion = { name: string; kind: DbConnection["kind"]; url: string; shown: string; env: "local"; source: string; password: boolean };
-export type LiveTable = { name: string; columns: { name: string; type: string; nullable: boolean; pk: boolean }[]; fks: { column: string; table: string; ref: string }[] };
-export type LiveSchema = { connection: string; kind: string; tables: LiveTable[] };
-/** A query's result: a read (columns, rows) or a change (changed; done: run for real, else counted and rolled back). */
-export type DbResult = {
-  connection: string; env?: string; kind: "read" | "change"; sql: string; ms?: number;
-  columns?: string[]; rows?: unknown[][]; count?: number; truncated?: boolean; masked?: string[];
-  changed?: number; done?: boolean;
-};
-export type GitStatus = {
-  branch: string | null; base: string | null; upstream: string | null; ahead: number; behind: number; base_ahead: number; base_behind: number;
-  pushed: boolean; changes: { path: string; status: string }[];
-};
-export type GitBranch = { name: string; current: boolean; ahead: number; behind: number; date: string; subject: string };
+// (the Database and Git plugins' types and calls are their own: plugins/db/web/dbApi.ts, plugins/git/web/gitApi.ts)
 /** v0.11.0 CI/CD plugin: a pipeline run on GitHub Actions; a run's detail adds its jobs and the failed steps' log. */
 export type CiRun = {
   id: number; workflow: string; title: string; branch: string; sha: string; event: string; status: string;
@@ -619,12 +560,6 @@ export type CiRun = {
   jobs?: { id: number; name: string; status: string; conclusion: string | null; url: string; failed_steps: string[] }[];
   log?: string;
 };
-export type PullRequest = {
-  number: number; title: string; url: string; state: string; draft?: boolean; review?: string | null; base?: string; branch?: string;
-  checks: { name: string; state: string; url: string }[]; checks_done: number; checks_failed: number;
-  comments: { author: string; body: string; path?: string | null; line?: number | null }[];
-};
-
 export type CapScope = "day" | "flow" | "step" | "api_month";
 export type Cap = { id: string; scope: CapScope; limit: number; unit: "tokens" | "usd"; action: "pause" | "cheaper" | "stop" };
 /** v0.4.2 `GET /api/projects/{pid}/caps/left`: what each cap leaves for a flow that starts now. */
@@ -713,40 +648,18 @@ export type HelperSession = {
   tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
   created_at: string; updated_at: string;
   messages?: HelperMessage[]; busy?: boolean;
-  /** v0.15.2 the folder it is in (a HelperFolder id), or none */
+  /** v0.15.2 the folder it is in (one of KeelBot's chat folders, plugins/keelbot), or none */
   folder?: string | null;
 };
-/** v0.15.2 a folder for KeelBot's chats, in one project (the engine keeps them; every browser sees the same). */
-export type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };
 export type HelperCommand = { name: string; description: string; plugin: string; source: "keel" | "project" | string };
 export type HelperTurnStarted = { session: string; call_id: string; n: number; command?: string | null };
 
-/** v0.5.3 the code graph (`GET /api/projects/{pid}/graph`): the CodeGraph index rolled up into units and groups. */
-export type GraphGroup = { id: string; kind: "package" | "folder"; name: string; label: string; path: string[] };
-export type GraphUnit = { id: string; name: string; kind: string; group: string; file: string; line: number; members: number };
-/** from uses to: n uses in all, k by kind (calls, instantiates, implements, extends, references). */
-export type GraphLink = { from: string; to: string; n: number; k: Record<string, number> };
-export type GraphUnavailable = { available: false; status: string; reason: string };
-export type GraphOverview = {
-  available: true; status?: string; indexed_at?: string | null;
-  counts: { files: number; symbols: number; units: number; links: number; uses: number };
-  groups: GraphGroup[]; units: GraphUnit[]; links: GraphLink[];
-} | GraphUnavailable;
+/** A symbol the code graph finds by name (`GET /api/projects/{pid}/graph/search`, the Graph plugin's route): the
+ *  launcher, KeelBot's @ and the Code page search with it. The Graph page's own types are the plugin's
+ *  (plugins/graph/web/graphApi.ts). */
 export type GraphHit = { id: string; name: string; kind: string; file: string; line: number; unit: string; group: string };
-export type GraphNodeRef = { id: string; name: string; kind: string; unit: string; group: string; file: string; line: number; col: number };
-export type GraphEdge = GraphLink & { sites: { file: string; line: number }[] };
-export type GraphMember = { id: string; name: string; kind: string; line: number; in: number; out: number };
-export type GraphFocus = {
-  available: true; level: "unit" | "member"; depth: number; missing?: undefined;
-  focus: {
-    id: string; name: string; kind: string; qualified: string; signature?: string | null; docstring?: string | null;
-    file: string; line: number; end_line?: number | null; group: string; unit: { id: string; name: string; kind: string } | null; members: GraphMember[];
-  };
-  /** col -2 / -1: who uses it (two steps, one step); 1 / 2: what it uses */
-  nodes: GraphNodeRef[]; edges: GraphEdge[]; more: Record<string, number>; impact: number; impact_capped: boolean;
-} | { available: true; missing: string } | GraphUnavailable;
 
 /** v0.5.2 `GET /api/projects/{pid}/budget/now`, for the budget bar on every page: caps = the day and month caps. */
 export type BudgetNow = { today: Spend; month: Spend; flows: FlowSpend[]; caps: CapLeft[] };
@@ -929,7 +842,12 @@ export type Features = {
   parts: Record<string, boolean>;
   addons: { name: string; version: string; title: string; part: string; on: boolean }[];
   screens: AddonScreen[];
+  /** The plugins this keel loaded, with their web part's urls (absolute) when they have one. */
+  plugins: PluginInfo[];
 };
+/** A plugin's web part: its ES module and its stylesheets, served by the api under /plugins/<name>/<version>/web/. */
+export type PluginWeb = { entry: string; css: string[] };
+export type PluginInfo = { name: string; title: string; version: string; web: PluginWeb | null };
 
 export const api = {
   health: () => get<Health>("/health"),
@@ -994,24 +912,12 @@ export const api = {
   jobSteps: (id: string, after = 0) => get<{ steps: JobStep[]; running: boolean }>(`/jobs/${e(id)}/steps${q({ after })}`),
   stopJob: (id: string) => post<void>(`/jobs/${e(id)}/stop`),
 
-  // repo
-  repo: (pid: string) => get<RepoInfo>(`/projects/${e(pid)}/repo`),
-  tree: (pid: string, depth = 4, dir?: string) => get<TreeNode[]>(`/projects/${e(pid)}/repo/tree${q({ depth, dir })}`),
-  file: (pid: string, path: string) => get<RepoFile>(`/projects/${e(pid)}/repo/file${q({ path })}`),
-  commits: (pid: string, limit = 30, range?: "branch") => get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit, range })}`),
-  rawUrl: (pid: string, path: string) => `/api/projects/${e(pid)}/repo/raw${q({ path })}`,
+  // repo: the Code plugin's endpoints (its own calls are in plugins/code/web/codeApi.ts); keel's core reads a file
+  // for the launcher's preview and the file list for KeelBot's @ mentions
   raw: (pid: string, path: string) => getText(`/projects/${e(pid)}/repo/raw${q({ path })}`),
   repoFiles: (pid: string) => get<{ files: string[]; truncated: boolean }>(`/projects/${e(pid)}/repo/files`),
-  search: (pid: string, s: SearchQuery) =>
-    get<SearchResult>(`/projects/${e(pid)}/repo/search${q({ q: s.q, regex: s.regex ? "true" : null, case: s.case ? "true" : null, word: s.word ? "true" : null, include: s.include, exclude: s.exclude, max: s.max })}`),
-  changes: (pid: string) => get<Change[]>(`/projects/${e(pid)}/repo/changes`),
-  diff: (pid: string, path: string, against: "head" | "base", sha?: string, branch?: string) =>
-    get<FileDiff>(`/projects/${e(pid)}/repo/diff${q({ path, against: sha || branch ? null : against, sha, branch })}`),
-  commit: (pid: string, sha: string) => get<CommitView>(`/projects/${e(pid)}/repo/commit${q({ sha })}`),
-  updateFromBase: (pid: string) => post<UpdateFromBase>(`/projects/${e(pid)}/repo/update-from-base`),
   index: (pid: string) => get<IndexStatus>(`/projects/${e(pid)}/index`),
   rebuildIndex: (pid: string) => post<IndexStatus>(`/projects/${e(pid)}/index/rebuild`),
-  fileHistory: (pid: string, path: string) => get<Commit[]>(`/projects/${e(pid)}/repo/history${q({ path })}`),
   unlock: (pid: string, path: string, phase?: string) =>
     post<{ unlocks: Unlock[] }>(`/projects/${e(pid)}/unlock`, phase ? { path, phase } : { path }),
   keelDocs: (pid: string) => get<KeelDoc[]>(`/projects/${e(pid)}/keel-docs`),
@@ -1021,11 +927,7 @@ export const api = {
     put<Fact>(`/projects/${e(pid)}/memory/${e(fid)}`, f),
   forgetFact: (pid: string, fid: string) => del(`/projects/${e(pid)}/memory/${e(fid)}`),
 
-  // map + wiki
-  map: (pid: string) => get<MapResponse>(`/projects/${e(pid)}/map`),
-  rebuildMap: (pid: string) => post<MapResponse>(`/projects/${e(pid)}/map/rebuild`),
-  wiki: (pid: string) => get<WikiTree>(`/projects/${e(pid)}/wiki`),
-  wikiPage: (pid: string, id: string) => get<WikiPage>(`/projects/${e(pid)}/wiki/page${q({ id })}`),
+  // "Refresh stale" (the Wiki and the Code page): the Wiki plugin's api starts the knowledge refresh (plugins/wiki)
   refreshWiki: (pid: string, sections?: string[]) =>
     post<ThreadState>(`/projects/${e(pid)}/wiki/refresh`, sections?.length ? { sections } : {}),
 
@@ -1077,37 +979,14 @@ export const api = {
 
   // control
   budget: (pid: string) => get<Budget>(`/projects/${e(pid)}/budget`),
-  helperSessions: (pid: string) => get<HelperSession[]>(`/projects/${e(pid)}/helper/sessions`),
+  // KeelBot (plugins/keelbot, its own calls: keelbotApi.ts): the launcher's read-only question (⌘K, Ask)
   helperCreate: (pid: string, body: { mode?: HelperMode; model?: Model; title?: string } = {}) =>
     post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
   helperSession: (pid: string, sid: string) => get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
-  helperPatch: (pid: string, sid: string, body: { title?: string; model?: Model; folder?: string }) =>
-    patch<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`, body),
-  helperDelete: (pid: string, sid: string) => del<{ ok: boolean }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
-  // v0.15.2 folders for the chats (a chat moves with helperPatch {folder}; "" takes it out)
-  helperFolders: (pid: string) => get<HelperFolder[]>(`/projects/${e(pid)}/helper/folders`),
-  helperFolderCreate: (pid: string, name: string) => post<HelperFolder>(`/projects/${e(pid)}/helper/folders`, { name }),
-  helperFolderRename: (pid: string, fid: string, name: string) => patch<HelperFolder>(`/projects/${e(pid)}/helper/folders/${e(fid)}`, { name }),
-  helperFolderDelete: (pid: string, fid: string) => del<{ ok: boolean; moved: number }>(`/projects/${e(pid)}/helper/folders/${e(fid)}`),
   helperTurn: (pid: string, sid: string, body: { text: string; model?: Model; mentions?: HelperMention[]; selection?: HelperSelection; open_file?: string }) =>
     post<HelperTurnStarted>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/turn`, body),
-  helperStop: (pid: string, sid: string) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/stop`),
-  helperCommands: (pid: string) => get<HelperCommand[]>(`/projects/${e(pid)}/helper/commands`),
-  helperChanges: (pid: string, sid: string) => get<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/changes`),
-  helperUndo: (pid: string, sid: string, path?: string) => post<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/undo`, path ? { path } : {}),
-  helperDone: (pid: string, sid: string, message = "") =>
-    post<HelperDone>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/done`, message.trim() ? { message: message.trim() } : {}),
-  helperHandover: (pid: string, sid: string) => get<HelperHandover>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/handover`),
-  helperToTask: (pid: string, sid: string, body: { title?: string; type?: string } = {}) =>
-    post<{ id: string; title: string }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/task`, body),
-  helperToFlow: (pid: string, sid: string, body: { title?: string; workflow_id?: string } = {}) =>
-    post<ThreadState>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/flow`, body),
-  helperPermissions: (pid: string) => get<HelperQuestion[]>(`/projects/${e(pid)}/helper/permissions`),
-  helperAnswer: (pid: string, qid: string, decision: "once" | "always" | "deny", why = "") =>
-    post<{ id: string; decision: string }>(`/projects/${e(pid)}/helper/permissions/${e(qid)}`, { decision, why }),
-  graph: (pid: string) => get<GraphOverview>(`/projects/${e(pid)}/graph`),
+  // the Graph plugin's search (plugins/graph), over http: the launcher, KeelBot's @ and the Code page use it
   graphSearch: (pid: string, q: string) => get<{ available: boolean; reason?: string; results: GraphHit[] }>(`/projects/${e(pid)}/graph/search?q=${e(q)}`),
-  graphNode: (pid: string, id: string, depth = 1) => get<GraphFocus>(`/projects/${e(pid)}/graph/node?id=${e(id)}&depth=${depth}`),
   budgetNow: (pid: string) => get<BudgetNow>(`/projects/${e(pid)}/budget/now`),
   caps: (pid: string) => get<Cap[]>(`/projects/${e(pid)}/caps`),
   capsLeft: (pid: string) => get<CapsLeft>(`/projects/${e(pid)}/caps/left`),
@@ -1132,33 +1011,6 @@ export const api = {
   setPlugin: (pid: string, name: string, enabled: boolean, scope: "project" | "all" = "project") =>
     put<Plugin[]>(`/projects/${e(pid)}/plugins/${e(name)}`, { enabled, scope }),
   github: () => get<{ set: boolean; hint: string | null; from: "keel" | "env" | null }>("/github"),
-  dbConnections: (pid: string) => get<DbConnection[]>(`/projects/${e(pid)}/db/connections`),
-  dbSuggest: (pid: string) => get<DbSuggestion[]>(`/projects/${e(pid)}/db/suggest`),
-  dbAdd: (pid: string, body: { name: string; url: string; env: string; source?: string }) =>
-    post<{ connection: DbConnection; test: { ok: boolean; error?: string; hint?: string } }>(`/projects/${e(pid)}/db/connections`, body),
-  dbUpdate: (pid: string, name: string, body: { url?: string; env?: string }) =>
-    put<DbConnection>(`/projects/${e(pid)}/db/connections/${e(name)}`, body),
-  dbDelete: (pid: string, name: string) => del(`/projects/${e(pid)}/db/connections/${e(name)}`),
-  dbTest: (pid: string, name: string) =>
-    post<{ connection: DbConnection; test: { ok: boolean; error?: string; hint?: string } }>(`/projects/${e(pid)}/db/connections/${e(name)}/test`),
-  dbSchema: (pid: string, connection?: string) => get<LiveSchema>(`/projects/${e(pid)}/db/schema${q({ connection })}`),
-  dbQuery: (pid: string, body: { connection?: string; sql: string; change?: boolean; confirm?: boolean }) =>
-    post<DbResult>(`/projects/${e(pid)}/db/query`, body),
-  ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
-  ciRun: (pid: string, id: number) => get<CiRun>(`/projects/${e(pid)}/ci/runs/${id}`),
-  ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
-  ciFix: (pid: string, run?: number) => post<ThreadState>(`/projects/${e(pid)}/ci/fix`, run ? { run } : {}),
-  ciCheck: (pid: string) => post<{ told: number[] }>(`/projects/${e(pid)}/ci/check`),
-  gitStatus: (pid: string) => get<GitStatus>(`/projects/${e(pid)}/git/status`),
-  gitBranches: (pid: string) => get<GitBranch[]>(`/projects/${e(pid)}/git/branches`),
-  gitPr: (pid: string) => get<{ pr: PullRequest | null }>(`/projects/${e(pid)}/git/pr`),
-  gitSwitch: (pid: string, branch: string, create = false) => post<{ branch: string }>(`/projects/${e(pid)}/git/switch`, { branch, create }),
-  gitBranch: (pid: string, name: string) => get<BranchView>(`/projects/${e(pid)}/git/branch${q({ name })}`),
-  gitCommit: (pid: string, message: string) => post<{ sha: string; subject: string; files: string[] }>(`/projects/${e(pid)}/git/commit`, { message }),
-  gitSync: (pid: string) => post<{ merged: boolean; from: string; branch: string }>(`/projects/${e(pid)}/git/sync`),
-  gitPush: (pid: string) => post<{ branch: string; sha: string }>(`/projects/${e(pid)}/git/push`),
-  gitOpenPr: (pid: string, body: { title: string; body: string; draft?: boolean }) =>
-    post<{ url?: string; number?: number; updated: boolean }>(`/projects/${e(pid)}/git/pr`, body),
   testConnection: (provider: string) => post<TestResult>(`/connections/${e(provider)}/test`),
 
   // notifications

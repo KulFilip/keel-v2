@@ -1,0 +1,11 @@
+# The fence allowlist (web): today's places where keel's core web code imports a part that becomes a plugin.
+# Checked by src/test/fence.test.ts. See docs/plugins/07-step1-contract.md §9 and docs/plugins/01-today.md.
+#
+# Rule: this list may only shrink.
+#   - A new import from core into a plugin part fails. Do not add a line here: use an extension point (a slot)
+#     instead, see docs/plugins/02-plugin-package.md.
+#   - A line whose import is gone fails too: delete that line.
+#   - Nothing in product/ can ever be here.
+#
+# Format: "core file -> plugin file", paths relative to web/, one per line, sorted. '#' starts a comment.
+

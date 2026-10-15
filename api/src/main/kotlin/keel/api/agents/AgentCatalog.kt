@@ -2,6 +2,8 @@ package keel.api.agents
 
 import keel.api.common.KeelProperties
 import keel.api.common.Yaml
+import keel.api.pluginhost.PluginHost
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 import java.nio.file.Files
 import java.nio.file.Path
@@ -79,16 +81,55 @@ object FrontMatter {
     }
 }
 
-/** keel's agents (one markdown file per agent in content/agents) and which keel phases each one works in. */
+/**
+ * A part's own agent files (`<id>.md` in its plugin's content/agents), listed with keel's on the Agents page and used
+ * like them: KeelBot's `helper` agent (plugins/keelbot). keel's own file wins when both have a name.
+ */
+fun interface AgentFiles {
+    fun files(): List<Path>
+}
+
+/**
+ * keel's agents (one markdown file per agent in content/agents, plus the parts' [AgentFiles]) and which keel phases
+ * each one works in. v0.16.0: also the agents of the plugins a person installed (from the marketplace or a file:
+ * resolved.json source marketplace or file), from their content/agents, as the engine loads them. A plugin that came in
+ * keel's image shows only what its [AgentFiles] list, as before. keel's own names always win.
+ */
 @Component
-class AgentCatalog(private val props: KeelProperties) {
+class AgentCatalog(
+    private val props: KeelProperties,
+    private val parts: ObjectProvider<AgentFiles>,
+    private val host: PluginHost? = null,
+) {
 
     fun defaults(): List<AgentDef> {
         val dir = props.contentDir.resolve("agents")
-        if (!Files.isDirectory(dir)) return emptyList()
-        return Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") }.sorted().toList() }
-            .mapNotNull { read(it) }
+        val own = if (Files.isDirectory(dir)) Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") }.toList() } else emptyList()
+        val names = own.map { it.fileName.toString() }.toSet()
+        val more = parts.orderedStream().toList()
+            .flatMap { runCatching { it.files() }.getOrDefault(emptyList()) }
+            .filter { it.fileName.toString().endsWith(".md") && it.fileName.toString() !in names && Files.isRegularFile(it) }
+            .distinctBy { it.fileName.toString() }
+        // one list in file-name order, as keel's own folder listed them
+        val base = (own + more).sortedBy { it.fileName.toString() }.mapNotNull { f -> read(f)?.let { f to it } }
+        val taken = names + more.map { it.fileName.toString() }
+        val ids = (base.map { it.second.id } + BUILTIN).toMutableSet()
+        val installed = installedPluginFiles()
+            .filter { it.fileName.toString() !in taken }
+            .distinctBy { it.fileName.toString() }
+            .mapNotNull { f -> read(f)?.let { f to it } }
+            .filter { (_, d) -> ids.add(d.id) }   // a plugin's agent never takes a name keel (or an earlier plugin) has
+        return (base + installed).sortedBy { it.first.fileName.toString() }.map { it.second }
     }
+
+    /** The agent files of the plugins a person installed (marketplace or file) that keel-start loaded. */
+    private fun installedPluginFiles(): List<Path> = (host?.plugins ?: emptyList())
+        .filter { it.source in INSTALLED && !it.content.isNullOrBlank() }
+        .flatMap { p ->
+            val dir = runCatching { Path.of(p.content!!).resolve("agents") }.getOrNull()
+            if (dir == null || !Files.isDirectory(dir)) emptyList()
+            else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) }.sorted().toList() }
+        }
 
     fun find(id: String): AgentDef? = defaults().firstOrNull { it.id == id }
 
@@ -114,6 +155,11 @@ class AgentCatalog(private val props: KeelProperties) {
     }
 
     companion object {
+        /** The resolved.json sources of plugins a person installed; "image" plugins came with keel. */
+        val INSTALLED = setOf("marketplace", "file")
+        /** Agents keel has without a file (the engine's runtime/prompts.py BUILTIN_ROLES): a plugin cannot bring one. */
+        val BUILTIN = setOf("contract-author")
+
         val PHASES: Map<String, List<String>> = mapOf(
             "explorer" to listOf("spec", "contract"),
             "test-author" to listOf("red"),
