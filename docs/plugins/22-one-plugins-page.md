@@ -88,3 +88,10 @@ Fix in `web/src/styles.css`: `.view-switch` gets `grid-column: 1 / -1` and `repe
 - api and engine: the hints' new words (no test pinned the old ones).
 - e2e/parity: `web #/tools *` and `web #/repo *` differ from 0.17.0 only by what is gone (allow.yml, reason
   "0.17.1, …").
+
+## 4 · A plugin's web files are never stale (found on the try-out keel)
+
+keel serves a plugin's web files `immutable` for a year, under `/plugins/<name>/<version>/web/…`. 0.17.1 changes the
+Code plugin's page without a new plugin version (still 1.0.0), so a browser that had loaded it kept the old toolbar.
+Since 0.17.1 the urls in `/api/features` end with `?v=<the file's sha256, 12 hex>`: a changed file gets a new url,
+an unchanged one keeps its cache. (`PluginHost.webUrl`; `PluginHostApiTest`.)
