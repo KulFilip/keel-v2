@@ -476,6 +476,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             out["dry_run"] = await asyncio.to_thread(rules_view.dry_run, body.yaml, body.calls)
         return out
 
+    # the marketplace's preview of a pack: keel's own reading, each rule with who enforces it (no project needed)
+    @app.post("/rules/read")
+    async def post_rules_read(body: RuleCheckBody):
+        return await asyncio.to_thread(rules_view.reading, body.yaml)
+
     @app.post("/rules/packs")
     async def post_rule_pack(body: RulePackBody):
         root = project_root(body.root)

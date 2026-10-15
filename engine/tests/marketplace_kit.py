@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from keel_engine.marketplace import catalog, signing, sources
+from keel_engine.marketplace import catalog, kinds, signing, sources
 from keel_engine.pluginhost import SDK
 from test_pluginhost import write_sums
 from test_pluginhost_install import kplug
@@ -28,9 +28,16 @@ steps:
 """
 
 
-RULES = """id: {name}
-name: No new dependencies ({version})
-description: Agents never add a package.
+# a rule pack in the final format of keel 0.17.2 (docs/rules/pack-format.md, schema 1)
+RULES = """schema: 1
+kind: rules
+name: {name}
+title: No new dependencies ({version})
+version: {version}
+publisher: {publisher}
+summary: Agents never add a package.
+requires:
+  keel: ">=0.17.0"
 rules:
   - id: no-install
     kind: bash
@@ -193,7 +200,7 @@ class Market:
                       category: str = "safety", keel: str | None = None, review: dict | None = None, sign_with=None,
                       size: int | None = None, sha256: str | None = None, title: str | None = None) -> dict:
         """Serve a signed rule pack YAML and add its version to the index's rules (call serve() after)."""
-        text = text if text is not None else RULES.format(name=name, version=version)
+        text = text if text is not None else RULES.format(name=name, version=version, publisher=publisher)
         data = text.encode()
         path = f"/rules/{name}-{version}.yaml"
         self.server.files[path] = data
@@ -201,8 +208,7 @@ class Market:
                                                             f"{name}-{version}.yaml").encode()
         v = {"version": version, "released": "2026-10-15", "requires": {"keel": keel} if keel else {},
              "url": self.url + path, "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
-             "review": review or {"rules": 2, "kinds": {"bash": 1, "edit": 1}, "phases": ["all", "green", "refactor"],
-                                  "lanes": ["web"]}}
+             "review": review or kinds.pack_review(yaml.safe_load(text))}
         entry = self.rules.setdefault(name, {
             "name": name, "kind": "rules", "title": title or name.replace("-", " ").capitalize(),
             "publisher": publisher, "summary": f"The {name} rule pack for tests.", "category": category,

@@ -9,6 +9,12 @@ from keel_engine.marketplace import catalog, kinds, rulepacks, workflows
 from marketplace_kit import RULES, market, server  # noqa: F401 - fixtures
 from test_pluginhost import data, image  # noqa: F401 - fixtures
 
+BLOCKS = [{"id": "no-install", "kind": "bash", "match": [r"\bnpm\s+install\s+[^-\s]"], "how": "regex", "phases": "all"},
+          {"id": "no-lockfile", "kind": "edit", "match": ["**/package-lock.json"], "how": "glob",
+           "phases": ["green", "refactor"], "lanes": ["web"]}]
+REVIEW = {"rules": 2, "kinds": {"bash": 1, "edit": 1}, "phases": ["all", "green", "refactor"], "lanes": ["web"],
+          "blocks": BLOCKS}
+
 
 def test_the_kinds_table():
     assert [(k.name, k.list, k.suffix, k.max_size) for k in kinds.TABLE] == [
@@ -30,8 +36,7 @@ def test_an_index_with_all_three_kinds(market):
     assert sorted(index.rules) == ["no-new-deps", "notes"] and list(index.entries("rules")) == list(index.rules)
     pack = index.rules["no-new-deps"]
     assert [v.version for v in pack.versions] == ["1.1.0", "1.0.0"] and pack.category == "safety"
-    assert pack.versions[0].review == {"rules": 2, "kinds": {"bash": 1, "edit": 1},
-                                      "phases": ["all", "green", "refactor"], "lanes": ["web"]}
+    assert pack.versions[0].review == REVIEW
     # one name in three lists: three entries, each of its own kind
     assert catalog.lookup_kind("plugin", "notes")[1].trust == "web"
     assert catalog.lookup_kind("workflow", "notes")[1].kind == "workflow"
@@ -59,6 +64,7 @@ def test_broken_rules_entries_are_left_out_and_the_rest_is_used(market):
     market.rules["noreview"]["versions"][0].pop("review")
     market.publish_rules("badsum", "1.0.0", review={"rules": 3, "kinds": {"bash": 1}, "phases": [], "lanes": []})
     market.publish_rules("badphases", "1.0.0", review={"rules": 1, "kinds": {"bash": 1}, "phases": "all"})
+    market.publish_rules("badblocks", "1.0.0", review={**REVIEW, "blocks": BLOCKS[:1]})
     market.publish_rules("plainhttp", "1.0.0")
     market.rules["plainhttp"]["versions"][0]["url"] = "http://example.com/x.yaml"
     market.publish_rules("badversion", "1.0.0")
@@ -80,6 +86,7 @@ def test_broken_rules_entries_are_left_out_and_the_rest_is_used(market):
                  "rule pack stranger: its publisher 'nobody' is not listed", "rule pack noreview 1.0.0: review is missing",
                  "rule pack badsum 1.0.0: review.kinds does not add up to review.rules",
                  "rule pack badphases 1.0.0: review.phases is not a list of text", "rule pack plainhttp 1.0.0:",
+                 "rule pack badblocks 1.0.0: review.blocks is not one item per rule",
                  "rule pack badversion: version '1.1'", "rule pack kinded: its kind is 'workflow', in the rules list",
                  "rule pack name 'Bad_Name' does not follow keel's name rule", "rule pack good is listed twice",
                  "a rule pack is not an object"):
@@ -118,8 +125,7 @@ def test_search_by_kind_and_the_hit_shape(client, market):
         "name": "strict-git", "kind": "rules", "title": "Strict git", "publisher": "keel", "publisher_title": "keel",
         "verified": True, "version": "1.0.0", "summary": "The strict-git rule pack for tests.", "category": "git",
         "tags": ["strict-git", "test"],
-        "review": {"rules": 2, "kinds": {"bash": 1, "edit": 1}, "phases": ["all", "green", "refactor"],
-                   "lanes": ["web"]},
+        "review": REVIEW,
         "requires": {}, "fits": True, "refused": None, "source": "test",
         "repo": "https://github.com/keel-studio/keel-rules", "latest": "1.0.0", "old": False, "why_not": None,
         "trust": "content"}
@@ -155,8 +161,8 @@ def test_one_rule_pack(client, market):
     r = client.get("/marketplace/rule-packs/nope")
     assert r.status_code == 404 and r.json()["error"] == "There is no rule pack nope in the catalogs keel reads."
     assert client.get("/marketplace/rule-packs/Bad_Name").status_code == 400
-    # no install route for a pack (the rules session's api installs it)
-    assert client.post("/marketplace/rule-packs/no-new-deps/fetch", json={}).status_code in (404, 405)
+    # no install route for a pack (the rules api installs what fetch gives back)
+    assert client.post("/marketplace/rule-packs/no-new-deps/install", json={}).status_code in (404, 405)
 
 
 def test_no_version_for_this_keel_and_an_old_catalog_are_refused(client, market):
@@ -174,18 +180,25 @@ def test_no_version_for_this_keel_and_an_old_catalog_are_refused(client, market)
 
 def test_the_pack_review_keel_builds_from_a_yaml():
     import yaml
-    assert kinds.pack_review(yaml.safe_load(RULES.format(name="x", version="1.0.0"))) == {
-        "rules": 2, "kinds": {"bash": 1, "edit": 1}, "phases": ["all", "green", "refactor"], "lanes": ["web"]}
+    assert kinds.pack_review(yaml.safe_load(RULES.format(name="x", version="1.0.0", publisher="keel"))) == REVIEW
     doc = {"id": "p", "name": "P", "owner": "someone",         # unknown fields are read past
            "rules": [{"id": "a", "kind": "mcp", "how": "name", "match": "db_change", "reason": "x", "severity": 3},
                      {"id": "b", "kind": "read", "phases": "in-flow", "lanes": "api"},
                      {"id": "c", "kind": "bash", "phases": ["green"]},
                      {"id": "d", "kind": "teleport"},
                      "not a rule"]}
-    assert kinds.pack_review(doc) == {"rules": 4, "kinds": {"bash": 1, "read": 1, "mcp": 1, "teleport": 1},
-                                      "phases": ["all", "in-flow", "green"], "lanes": ["api"]}
-    assert kinds.pack_review({"rules": "none"}) == {"rules": 0, "kinds": {}, "phases": [], "lanes": []}
-    assert kinds.pack_review(None) == {"rules": 0, "kinds": {}, "phases": [], "lanes": []}
+    assert kinds.pack_review(doc) == {
+        "rules": 4, "kinds": {"bash": 1, "read": 1, "mcp": 1, "teleport": 1}, "phases": ["all", "in-flow", "green"],
+        "lanes": ["api"],
+        "blocks": [{"id": "a", "kind": "mcp", "match": ["db_change"], "how": "name", "phases": "all"},
+                   {"id": "b", "kind": "read", "match": [], "how": "glob", "phases": "in-flow", "lanes": ["api"]},
+                   {"id": "c", "kind": "bash", "match": [], "how": "contains", "phases": ["green"]},
+                   {"id": "d", "kind": "teleport", "match": [], "how": "contains", "phases": "all"}]}
+    # one phase name reads as a list of it (the final format's parser does the same)
+    assert kinds.pack_review({"rules": [{"id": "e", "kind": "edit", "match": "x/**", "phases": "green"}]})["blocks"] \
+        == [{"id": "e", "kind": "edit", "match": ["x/**"], "how": "glob", "phases": ["green"]}]
+    assert kinds.pack_review({"rules": "none"}) == {"rules": 0, "kinds": {}, "phases": [], "lanes": [], "blocks": []}
+    assert kinds.pack_review(None) == {"rules": 0, "kinds": {}, "phases": [], "lanes": [], "blocks": []}
     assert kinds.RULES.summarise is kinds.pack_review
 
 
@@ -222,3 +235,150 @@ def test_plugin_and_workflow_answers_are_the_same_with_rule_packs_in_the_index(c
     assert len(catalog.indexes()[0].rules) == 2
     assert _answers(client) == before
     assert workflows.search()["workflows"][0]["version"] == "1.0.0"
+
+
+# ------------------------------------------------------------------ the final format (docs/rules/pack-format.md)
+
+def test_a_pack_name_follows_the_pack_rule_not_the_plugin_rule(client, market):
+    long = "keep-the-database-migrations-inside-a-flow-and-never-by-hand"      # 59 characters: a pack may, a plugin not
+    market.publish_rules(long, "1.0.0")
+    market.publish_rules("2fa-secrets", "1.0.0")                                # a pack's name may start with a digit
+    [_, test] = market.ready()
+    assert test["problems"] == []
+    assert sorted(catalog.indexes()[0].rules) == ["2fa-secrets", long]
+    assert client.get(f"/marketplace/rule-packs/{long}").json()["name"] == long
+    assert client.post("/marketplace/rule-packs/2fa-secrets/fetch").json()["name"] == "2fa-secrets"
+
+
+def test_an_older_catalog_without_blocks_reads(client, market):
+    market.publish_rules("no-new-deps", "1.0.0", review={k: v for k, v in REVIEW.items() if k != "blocks"})
+    market.ready()
+    hit = client.get("/marketplace/rule-packs/no-new-deps").json()
+    assert "blocks" not in hit["review"]
+    assert client.post("/marketplace/rule-packs/no-new-deps/fetch").json()["review"] == REVIEW
+
+
+# ------------------------------------------------------------------ fetch: the verified YAML for the rules api
+
+def test_fetch_gives_the_verified_yaml_as_published(client, market):
+    market.publish_rules("no-new-deps", "1.0.0")
+    market.publish_rules("no-new-deps", "1.1.0")
+    market.ready()
+    got = client.post("/marketplace/rule-packs/no-new-deps/fetch", json={}).json()
+    text = RULES.format(name="no-new-deps", version="1.1.0", publisher="keel")
+    assert got == {"name": "no-new-deps", "version": "1.1.0", "title": "No new deps", "publisher": "keel",
+                   "catalog": "test", "yaml": text, "review": REVIEW, "requires": {"keel": ">=0.17.0"},
+                   "publisher_title": "keel", "verified": True, "sha256": got["sha256"], "size": len(text.encode())}
+    one = client.post("/marketplace/rule-packs/no-new-deps/fetch", json={"version": "1.0.0"}).json()
+    assert one["version"] == "1.0.0" and "(1.0.0)" in one["yaml"]
+    r = client.post("/marketplace/rule-packs/no-new-deps/fetch", json={"version": "9.9.9"})
+    assert r.status_code == 404 and "Its versions: 1.1.0, 1.0.0" in r.json()["hint"]
+    assert client.post("/marketplace/rule-packs/Bad_Name/fetch").status_code == 400
+    assert client.post("/marketplace/rule-packs/nope/fetch").status_code == 404
+
+
+def test_fetch_refuses_a_bad_signature_a_changed_file_and_a_file_that_is_not_the_pack(client, market):
+    other = __import__("keel_engine.marketplace.signing", fromlist=["keygen"]).keygen()
+    market.publish_rules("signed-wrong", "1.0.0", sign_with=other)
+    market.publish_rules("changed", "1.0.0", sha256="0" * 64)
+    market.publish_rules("not-a-pack", "1.0.0", text="schema: 1\nname: not-a-pack\nrules: []\n",
+                         review={"rules": 0, "kinds": {}, "phases": [], "lanes": []})
+    market.publish_rules("renamed", "1.0.0", text=RULES.format(name="something-else", version="1.0.0", publisher="keel"))
+    market.publish_rules("other-pub", "1.0.0", text=RULES.format(name="other-pub", version="1.0.0", publisher="bob"))
+    market.publish_rules("old-number", "1.1.0", text=RULES.format(name="old-number", version="1.0.0", publisher="keel"))
+    market.ready()
+
+    def refused(name):
+        r = client.post(f"/marketplace/rule-packs/{name}/fetch")
+        return r.status_code, r.json()
+
+    status, body = refused("signed-wrong")
+    assert status == 502 and body["error"].startswith("The signature of signed-wrong 1.0.0 does not match")
+    status, body = refused("changed")
+    assert status == 502 and "does not match the catalog's sha256" in body["error"]
+    status, body = refused("not-a-pack")
+    assert status == 502 and body["error"].startswith("not-a-pack 1.0.0 is not a rule pack keel can read")
+    assert any("rules: a list with at least one rule" in e for e in body["errors"])
+    status, body = refused("renamed")
+    assert status == 502 and "its name is something-else, the catalog says renamed" in body["error"]
+    status, body = refused("other-pub")
+    assert status == 502 and "its publisher is bob, the catalog says keel" in body["error"]
+    status, body = refused("old-number")
+    assert status == 502 and "its version is 1.0.0, the catalog says 1.1.0" in body["error"]
+
+
+def test_fetch_refuses_a_review_that_is_not_the_catalogs(client, market):
+    market.publish_rules("hides-a-rule", "1.0.0", review={
+        "rules": 1, "kinds": {"bash": 1}, "phases": ["all"], "lanes": [], "blocks": BLOCKS[:1]})
+    market.ready()
+    r = client.post("/marketplace/rule-packs/hides-a-rule/fetch")
+    body = r.json()
+    assert r.status_code == 409 and body["error"] == "keel's review of Hides a rule 1.0.0 is not the catalog's."
+    assert body["review"] == REVIEW and body["catalog_review"]["rules"] == 1
+    assert any(d.startswith("rules: keel finds 2") for d in body["differences"])
+
+
+def test_fetch_refuses_an_old_catalog_a_revoked_version_and_a_pack_for_another_keel(client, market):
+    market.publish_rules("strict", "1.0.0")
+    market.revoked.append({"name": "strict", "version": "1.0.0", "kind": "rules", "why": "it blocks git commit"})
+    market.publish_rules("future", "1.0.0", text=RULES.format(name="future", version="1.0.0", publisher="keel")
+                         .replace('keel: ">=0.17.0"', 'keel: ">=99.0.0"'))
+    market.ready()
+    r = client.post("/marketplace/rule-packs/strict/fetch")
+    assert r.status_code == 409 and r.json()["error"].startswith("No version of Strict can be installed")
+    r = client.post("/marketplace/rule-packs/strict/fetch", json={"version": "1.0.0"})
+    assert r.status_code == 409 and "revoked: it blocks git commit" in r.json()["error"]
+    # the catalog says nothing about keel's version, the pack does: keel reads the pack's own requires.keel
+    r = client.post("/marketplace/rule-packs/future/fetch")
+    assert r.status_code == 409 and "needs keel >=99.0.0" in r.json()["error"]
+    market.expires = "2020-01-01T00:00:00Z"
+    market.built = "2026-10-10T06:00:00Z"
+    market.ready()
+    r = client.post("/marketplace/rule-packs/future/fetch")
+    assert r.status_code == 409 and r.json()["error"].startswith("The catalog test is old")
+
+
+# ------------------------------------------------------------------ keel's own reading: who enforces each rule
+
+def test_keel_reads_a_pack_and_says_who_enforces_each_rule(client, monkeypatch):
+    from keel_engine.models import cli_runners
+    monkeypatch.setattr(cli_runners, "codex_hooks", lambda: False)        # an older codex: no hook, the wrappers
+    text = RULES.format(name="no-new-deps", version="1.0.0", publisher="keel") + """  - id: no-db
+    kind: mcp
+    match: db_change
+    reason: The database changes through a migration.
+  - id: no-keys
+    kind: read
+    match: ["**/*.pem"]
+    reason: Keys stay out of the conversation.
+"""
+    body = client.post("/rules/read", json={"yaml": text}).json()
+    assert body["pack"]["name"] == "no-new-deps" and body["pack"]["publisher"] == "keel" and "rules" not in body["pack"]
+    assert body["fits"] is True and body["why_not"] is None
+    by_id = {r["id"]: r for r in body["rules"]}
+    assert set(by_id) == {"no-install", "no-lockfile", "no-db", "no-keys"}
+    bash = by_id["no-install"]
+    assert bash["how"] == "regex" and bash["phases"] == "all" and bash["reason"] == "Adding a package is a person's decision."
+    # a regex naming npm (a program keel wraps): the wrappers check it for copilot and the older codex
+    assert bash["enforced"]["before"] == ["claude", "opencode", "codex", "copilot", "api"]
+    assert bash["enforced"]["after"] is False
+    assert [(b["who"], b["engines"]) for b in bash["enforced"]["by"]] == [
+        ("hook", ["claude", "opencode"]), ("toolbox", ["api"]), ("wrappers", ["codex", "copilot"])]
+    edit = by_id["no-lockfile"]
+    assert edit["enforced"]["before"] == ["claude", "opencode", "api"] and edit["enforced"]["after"] is True
+    assert edit["enforced"]["by"][-1] == {"when": "after", "who": "diff-guard", "label": "the diff guard",
+                                          "engines": ["claude", "opencode", "codex", "copilot", "api"]}
+    assert edit["lanes"] == ["web"] and edit["phases"] == ["green", "refactor"]
+    mcp = by_id["no-db"]
+    assert mcp["enforced"]["before"] == ["claude", "opencode"] and mcp["enforced"]["engines"]["api"] == "none"
+    assert [b["who"] for b in mcp["enforced"]["by"]] == ["mcp-guard"]
+    read = by_id["no-keys"]
+    assert read["enforced"]["engines"]["copilot"] == "none" and read["enforced"]["after"] is False
+    assert [e["title"] for e in body["engines"]] == ["Claude Code", "OpenCode", "Codex", "Copilot", "API-key models"]
+    assert {e["who"] for e in body["enforcers"]} == {"hook", "mcp-guard", "toolbox", "wrappers", "diff-guard"}
+    # with codex's hooks the hook checks codex too
+    monkeypatch.setattr(cli_runners, "codex_hooks", lambda: True)
+    body = client.post("/rules/read", json={"yaml": text}).json()
+    assert [b["engines"] for b in body["rules"][0]["enforced"]["by"]][0] == ["claude", "opencode", "codex"]
+    bad = client.post("/rules/read", json={"yaml": "schema: 1\nname: x\n"})
+    assert bad.status_code == 422 and bad.json()["error"] == "The rule pack is not valid."

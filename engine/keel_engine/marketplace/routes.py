@@ -5,8 +5,9 @@ token, like every other engine route. A refusal answers 4xx {"error", "hint", ..
     GET    /marketplace/workflows?q=&category=        workflows (21-workflow-marketplace.md §9)
     GET    /marketplace/workflows/{name}              one workflow: versions, review, needs, checks
     POST   /marketplace/workflows/{name}/fetch {version?}   its verified YAML (the api installs it)
-    GET    /marketplace/rule-packs?q=&category=       rule packs (23-rules-in-marketplace.md §2; no install route yet)
+    GET    /marketplace/rule-packs?q=&category=       rule packs (23-rules-in-marketplace.md)
     GET    /marketplace/rule-packs/{name}             one rule pack: versions, review, checks
+    POST   /marketplace/rule-packs/{name}/fetch {version?}  its verified YAML (the api installs it with the rules api)
     GET    /marketplace/plugins/{name}                one plugin: versions, permissions, needs, checks, plan
     POST   /marketplace/refresh?source=               read every source now (or one)
     GET    /marketplace/installed                     installed + image plugins, and what waits for a restart
@@ -130,7 +131,8 @@ async def post_workflow_fetch(name: str, body: FetchBody | None = None):
 
 # ------------------------------------------------------------------ rule packs (23-rules-in-marketplace.md §2)
 # /marketplace/rules is the four marketplace rules (13-step4-contract.md §12), so the packs are /marketplace/rule-packs.
-# No install route: a pack goes into a project through the rules session's api, called by the Rules tab later.
+# No install route: a pack goes into a project through the rules api (the api's /rule-packs/market/install), which takes
+# the YAML fetch gives back.
 
 @router.get("/marketplace/rule-packs")
 async def get_rule_packs(q: str = "", category: str | None = None):
@@ -140,6 +142,11 @@ async def get_rule_packs(q: str = "", category: str | None = None):
 @router.get("/marketplace/rule-packs/{name}")
 async def get_rule_pack(name: str):
     return await asyncio.to_thread(rulepacks.detail, name)
+
+
+@router.post("/marketplace/rule-packs/{name}/fetch")
+async def post_rule_pack_fetch(name: str, body: FetchBody | None = None):
+    return await asyncio.to_thread(rulepacks.fetch, name, (body.version if body else None) or None)
 
 
 def _detail(name: str) -> dict:

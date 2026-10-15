@@ -3,7 +3,8 @@
     kind       list         file      max size   review                                       install goes to
     plugin     plugins      .kplug    200 MB     permissions (each version's), trust          the plugin store (restart)
     workflow   workflows    .yaml     256 KB     steps, gates, agents, mcp, commands, edits   the api's workflows table
-    rules      rules        .yaml      64 KB     rules, rules by kind, phases, lanes          the rules session's api (later)
+    rules      rules        .yaml      64 KB     rules by kind, phases, lanes, what each      the rules api (per project)
+                                                 rule blocks
 
 Each row gives its list name, its file suffix, its size limit, its categories, the check of a version's catalog
 `review`, and its own checks of an entry and a version (the hooks below). catalog.py reads every list through this
@@ -13,10 +14,22 @@ kind is one more row (and its install call).
 The problems a broken entry gets keep the words of 0.16 / 0.17 (a plugin's without a prefix, a workflow's with
 "workflow "), so an index reads exactly as before.
 
-Rule packs: a pack is one YAML file (23 §1): {id, name, description, rules: [{id, kind: bash|edit|read|mcp,
-how: contains|glob|name|regex, match: [..], phases: all|in-flow|none|[phase, ..], lanes?: [..], except?: [..],
-reason}]}. `pack_review` summarises one for the catalog's review, read-only and tolerant of fields it does not know
-(the rules session owns the format).
+Rule packs: a pack is one YAML file in the final format of keel 0.17.2 (docs/rules/pack-format.md, schema 1), shaped
+like a plugin's keel-plugin.yml so the marketplace ships it unchanged:
+
+    schema: 1
+    kind: rules                    a rule pack, not a plugin
+    name: no-new-dependencies      the id, the file name (.keel/rules/<name>.yaml) and the marketplace name
+    title: No new dependencies
+    version: 1.0.0
+    publisher: keel
+    summary: ...
+    requires: {keel: ">=0.17.2", plugins: {...} or [...]}
+    rules: [{id, kind: bash|edit|read|mcp, match, how?, phases?, lanes?, except?, reason}]
+
+A pack's name follows the pack rule ([a-z0-9-], at most 64: PACK_NAME), not the plugin rule. `pack_review` summarises
+one for the catalog's review, read-only and tolerant of fields it does not know: the rules by kind, the phases and lanes,
+and what each rule blocks (`blocks`). keel's own parser (keel_engine.rules.packs) checks a fetched pack before install.
 """
 
 from __future__ import annotations
@@ -31,6 +44,8 @@ AGENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 TRUST = ("content", "web", "code")
 RESERVED = ("workflows", "rules", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
 RULE_KINDS = ("bash", "edit", "read", "mcp")
+PACK_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")      # a rule pack's name (docs/rules/pack-format.md)
+DEFAULT_HOW = {"bash": "contains", "edit": "glob", "read": "glob", "mcp": "name"}
 
 
 # ------------------------------------------------------------------ what an entry reads as, per kind
@@ -190,6 +205,7 @@ class Kind:
     check_requires: Callable[[dict, str], dict]         # a version's requires, before keel's range (plugins: sdk)
     check_version: Callable[[dict, dict, str], dict]    # a version's own fields (raw, requires, where)
     summarise: Callable[[Any], dict] | None = None      # a file's review, as the catalog lists it (rules)
+    name_rule: re.Pattern = NAME                        # an entry's name (rules: a pack's name, PACK_NAME)
 
 
 def _kind_named(kind: str, lst: str, label: str) -> Callable[[dict, str], None]:
@@ -277,9 +293,33 @@ def _count(v) -> bool:
     return not isinstance(v, bool) and isinstance(v, int) and v >= 0
 
 
+def _phases_ok(v) -> bool:
+    return isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, str) for x in v))
+
+
+def _blocks(raw, rules: int, where: str) -> list[dict]:
+    """review.blocks: what each rule blocks, one per rule: {id, kind, match: [text], how, phases} (+ lanes, except)."""
+    if not isinstance(raw, list) or len(raw) != rules:
+        raise ValueError(f"{where}: review.blocks is not one item per rule")
+    out = []
+    for b in raw:
+        if not (isinstance(b, dict) and all(isinstance(b.get(k), str) for k in ("id", "kind", "how"))
+                and isinstance(b.get("match"), list) and all(isinstance(m, str) for m in b["match"])
+                and _phases_ok(b.get("phases"))):
+            raise ValueError(f"{where}: review.blocks has an item that is not {{id, kind, match, how, phases}}")
+        item = {"id": b["id"], "kind": b["kind"], "match": list(b["match"]), "how": b["how"],
+                "phases": b["phases"] if isinstance(b["phases"], str) else list(b["phases"])}
+        for key in ("lanes", "except"):
+            if isinstance(b.get(key), list) and all(isinstance(x, str) for x in b[key]):
+                item[key] = list(b[key])
+        out.append(item)
+    return out
+
+
 def rules_review(raw, where: str) -> dict:
-    """A rule pack version's review as the catalog's sync computed it: {rules, kinds: {kind: count}, phases, lanes}.
-    Other keys are left out (a newer sync may add some)."""
+    """A rule pack version's review as the catalog's sync computed it: {rules, kinds: {kind: count}, phases, lanes,
+    blocks?}. `blocks` (what each rule blocks) is optional: a catalog built before it reads without it. Other keys are
+    left out (a newer sync may add some)."""
     if not isinstance(raw, dict):
         raise ValueError(f"{where}: review is missing (rules, kinds, phases, lanes)")
     if not _count(raw.get("rules")):
@@ -295,6 +335,8 @@ def rules_review(raw, where: str) -> dict:
         if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
             raise ValueError(f"{where}: review.{key} is not a list of text")
         out[key] = list(v)
+    if raw.get("blocks") is not None:
+        out["blocks"] = _blocks(raw["blocks"], raw["rules"], where)
     return out
 
 
@@ -308,15 +350,31 @@ def _texts(value) -> list[str]:
     return [x for x in value if isinstance(x, str)] if isinstance(value, list) else []
 
 
+def _block(r: dict, kind: str) -> dict:
+    how = r.get("how") if isinstance(r.get("how"), str) and r.get("how") else DEFAULT_HOW.get(kind, "contains")
+    phases = r.get("phases", "all")
+    if isinstance(phases, str) and phases not in ("all", "in-flow", "none"):
+        phases = [phases]
+    out = {"id": r.get("id") if isinstance(r.get("id"), str) else "", "kind": kind, "match": _texts(r.get("match")),
+           "how": how, "phases": phases if isinstance(phases, str) else _texts(phases)}
+    for key in ("lanes", "except"):
+        if r.get(key) is not None:
+            out[key] = _texts(r.get(key))
+    return out
+
+
 def pack_review(doc) -> dict:
-    """What a rule pack blocks, in short (23 §2's review): {rules, kinds: {kind: count}, phases, lanes}. Read-only and
-    tolerant: a rule that is not a mapping is not counted, an unknown kind counts as itself, a rule without phases
-    reads as "all"; the phases and lanes are listed in the order they first appear."""
+    """What a rule pack blocks, in short (23 §2's review): {rules, kinds: {kind: count}, phases, lanes, blocks}.
+    Read-only and tolerant: a rule that is not a mapping is not counted, an unknown kind counts as itself, a rule
+    without phases reads as "all" (one phase name reads as a list of it), a rule without `how` takes its kind's
+    default; the phases and lanes are listed in the order they first appear; `blocks` is what each rule blocks
+    ({id, kind, match, how, phases, lanes?, except?}, in the pack's order)."""
     listed = doc.get("rules") if isinstance(doc, dict) else None
     rules = [r for r in listed if isinstance(r, dict)] if isinstance(listed, list) else []
     kinds: dict[str, int] = {}
     phases: list[str] = []
     lanes: list[str] = []
+    blocks: list[dict] = []
     for r in rules:
         kind = r.get("kind") if isinstance(r.get("kind"), str) and r.get("kind").strip() else "unknown"
         kinds[kind] = kinds.get(kind, 0) + 1
@@ -326,9 +384,10 @@ def pack_review(doc) -> dict:
         for lane in _texts(r.get("lanes")):
             if lane not in lanes:
                 lanes.append(lane)
+        blocks.append(_block(r, kind))
     order = {k: i for i, k in enumerate(RULE_KINDS)}
     return {"rules": len(rules), "kinds": dict(sorted(kinds.items(), key=lambda kv: (order.get(kv[0], 99), kv[0]))),
-            "phases": phases, "lanes": lanes}
+            "phases": phases, "lanes": lanes, "blocks": blocks}
 
 
 # -- the rows
@@ -342,7 +401,7 @@ WORKFLOW = Kind("workflow", "workflows", "workflow", "workflow ", ".yaml", 256 <
 RULES = Kind("rules", "rules", "rule pack", "rule pack ", ".yaml", 64 << 10,
              ("safety", "code", "git", "files", "secrets", "other"), RulesEntry, RulesVersion,
              lambda _raw: None, _kind_named("rules", "rules", "rule pack "), _none, _none, _rules_version,
-             summarise=pack_review)
+             summarise=pack_review, name_rule=PACK_NAME)
 
 TABLE: tuple[Kind, ...] = (PLUGIN, WORKFLOW, RULES)
 BY_NAME: dict[str, Kind] = {k.name: k for k in TABLE}

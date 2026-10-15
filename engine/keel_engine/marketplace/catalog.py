@@ -196,7 +196,7 @@ def _entry(kind: Kind, raw, publishers: dict[str, Publisher], source: str, probl
         raise ValueError(f"a {kind.noun} is not an object")
     kind.precheck(raw)
     name = raw.get("name")
-    if not isinstance(name, str) or not NAME.match(name):
+    if not isinstance(name, str) or not kind.name_rule.match(name):
         raise ValueError(f"{kind.noun} name {name!r} does not follow keel's name rule")
     kind.check_name(raw, name)
     pub = raw.get("publisher")
