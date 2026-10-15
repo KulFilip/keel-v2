@@ -8,7 +8,7 @@ export type DocVersion = {
   by_kind: "agent" | "keelbot" | "user" | "keel" | "outside" | string; by_name?: string | null; via?: string | null;
   thread_id?: string | null; step?: string | null; phase?: string | null; commit_sha?: string | null; at: string; content?: string | null;
 };
-export type DocFile = { path: string; kind: string; versions: number; at: string; state: "ok" | "missing" | "changed" | "deleted" | "unreadable" };
+export type DocFile = { path: string; kind: string; versions: number; at: string; state: "ok" | "missing" | "changed" | "deleted" | "unreadable" | "conflict"; conflict?: [string, string] | null };
 export type Applied = { kind: string; ref: string; subject?: string | null; files: string[]; at: string };
 
 const e = encodeURIComponent;

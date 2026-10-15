@@ -1093,3 +1093,4 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .dh-diff .dh-del { background: var(--del-bg); display: block; }
 .dh-problems { list-style: none; padding: 0; margin: 12px 0; }
 .dh-applied { margin-top: 16px; }
+.dh-pick { margin: 8px 0 12px; }

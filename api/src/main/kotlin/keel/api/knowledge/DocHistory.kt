@@ -26,7 +26,9 @@ data class DocVersion(
     val deleted: Boolean, val masked: Boolean, val byKind: String, val byName: String?, val via: String?, val threadId: String?,
     val step: String?, val phase: String?, val commitSha: String?, val at: String, val content: String? = null,
 )
-data class DocFile(val path: String, val kind: String, val versions: Int, val at: String, val state: String)
+data class DocFile(val path: String, val kind: String, val versions: Int, val at: String, val state: String,
+    /** state "conflict": [newest version id, the other thread's version id that was overwritten]. */
+    val conflict: List<String>? = null)
 data class Applied(val kind: String, val ref: String, val subject: String?, val files: List<String>, val at: String)
 data class FlowApplied(val threadId: String, val items: List<Applied>)
 data class DocDiff(val path: String, val from: String, val to: String, val diff: String)
@@ -102,7 +104,11 @@ class DocHistoryService(private val jdbc: JdbcTemplate, private val projects: Pr
                 "COUNT(*), MAX(d.at), MAX(d.version) FROM doc_versions d WHERE d.project_id = ? GROUP BY d.path ORDER BY d.path",
             { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getInt(3).toString(), rs.getString(4)) }, pid,
         )
-        return rows.map { (path, kind, n, at) -> DocFile(path, kind, n.toInt(), at, state(pid, root, path)) }
+        return rows.map { (path, kind, n, at) ->
+            val st = state(pid, root, path)
+            val two = if (st == "ok") conflictOf(pid, path) else null
+            DocFile(path, kind, n.toInt(), at, if (two != null) "conflict" else st, two)
+        }
     }
 
     /** ok | missing (versions, no file: Restore) | changed (the file differs from the newest version) | deleted |
@@ -118,6 +124,16 @@ class DocHistoryService(private val jdbc: JdbcTemplate, private val projects: Pr
             return if (Files.exists(f)) "unreadable" else if (last.deleted) "deleted" else "missing"
         }
         return if (sha256(bytes) == last.sha256) "ok" else "changed"
+    }
+
+    /** The two newest versions written by different flows (both known) while the file is the newest text: the other
+     *  flow's text was overwritten. [newest id, other id], else null. */
+    private fun conflictOf(pid: String, path: String): List<String>? {
+        val two = jdbc.query("$SELECT WHERE project_id = ? AND path = ? ORDER BY version DESC LIMIT 2", { rs, _ -> row(rs, false) }, pid, path)
+        if (two.size < 2) return null
+        val (a, b) = two
+        val differ = a.threadId != null && b.threadId != null && a.threadId != b.threadId
+        return if (differ && !a.deleted && !b.deleted && a.sha256 != b.sha256) listOf(a.id, b.id) else null
     }
 
     fun versions(pid: String, path: String): List<DocVersion> {

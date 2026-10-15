@@ -42,6 +42,34 @@ class DocHistoryApiTest : ApiTest() {
     }
 
     @Test
+    fun `two flows that wrote the same spec make a conflict, and restoring the other version ends it`() {
+        val (pid, root) = newProject("history-conflict", mapOf(".keel/config.yml" to "layout: keel\n"))
+        Files.createDirectories(root.resolve(".keel/specs"))
+        Files.writeString(root.resolve(path), "# Scores from the folder\n")
+        send(version(pid, "t-a", "# Scores from the worktree\n"))
+        assertThat(get("/api/projects/$pid/docs/history").json()[0]["state"].asText()).isEqualTo("changed")
+        send(version(pid, "t-b", "# Scores from the folder\n"))
+        val f = get("/api/projects/$pid/docs/history").json()[0]
+        assertThat(f["state"].asText()).isEqualTo("conflict")
+        val versions = get("/api/projects/$pid/docs/history/versions?path=$path").json()
+        assertThat(f["conflict"].map { it.asText() }).containsExactly(versions[0]["id"].asText(), versions[1]["id"].asText())
+        post("/api/projects/$pid/docs/history/restore", mapOf("version_id" to f["conflict"][1].asText())).andExpect(status().isOk)
+        assertThat(Files.readString(root.resolve(path))).contains("worktree")
+        val after = get("/api/projects/$pid/docs/history").json()[0]
+        assertThat(after["state"].asText()).isEqualTo("ok")
+        assertThat(after.has("conflict") && !after["conflict"].isNull).isFalse()
+    }
+
+    @Test
+    fun `the same flow writing twice is not a conflict`() {
+        val (pid, root) = newProject("history-no-conflict", mapOf(".keel/config.yml" to "layout: keel\n"))
+        Files.createDirectories(root.resolve(".keel/specs"))
+        Files.writeString(root.resolve(path), "# Two\n")
+        send(version(pid, "t-a", "# One\n"), version(pid, "t-a", "# Two\n"))
+        assertThat(get("/api/projects/$pid/docs/history").json()[0]["state"].asText()).isEqualTo("ok")
+    }
+
+    @Test
     fun `a deleted spec is missing and comes back with restore`() {
         val (pid, root) = newProject("history-restore", mapOf(".keel/config.yml" to "layout: keel\n"))
         send(version(pid, "t-2", "# Scores\n- **AC-1** [API] saved\n"))

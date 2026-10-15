@@ -57,6 +57,46 @@ describe("file history", () => {
     expect(screen.getAllByRole("button", { name: "Restore" })).toHaveLength(1);
   });
 
+  it("offers 'Two versions — pick one' for a conflict, shows the diff and restores the other version", async () => {
+    let restored = "";
+    server.use(
+      http.get("/api/projects/p1/docs/history", () => HttpResponse.json([
+        { path, kind: "spec", versions: 3, at: "x", state: "conflict", conflict: ["dv-3", "dv-2"] },
+      ])),
+      http.get("/api/projects/p1/docs/history/diff", ({ request }) => {
+        const q = new URL(request.url).searchParams;
+        expect([q.get("from"), q.get("to")]).toEqual(["dv-2", "dv-3"]);
+        return HttpResponse.json({ diff: "--- a\n+++ b\n-# From the worktree\n+# From the folder\n" });
+      }),
+      http.post("/api/projects/p1/docs/history/restore", async ({ request }) => {
+        restored = ((await request.json()) as { version_id: string }).version_id;
+        return HttpResponse.json(v(4, { by_kind: "user" }));
+      }),
+    );
+    render(<AppProvider><DocProblems pid="p1" /></AppProvider>);
+    await userEvent.click(await screen.findByRole("button", { name: "Two versions — pick one" }));
+    expect(await screen.findByText("+# From the folder")).toBeInTheDocument();
+    expect(screen.getByText("-# From the worktree")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Keep this one (the other flow's)" }));
+    await waitFor(() => expect(restored).toBe("dv-2"));
+  });
+
+  it("keeping the newest version writes nothing and closes the panel", async () => {
+    let posts = 0;
+    server.use(
+      http.get("/api/projects/p1/docs/history", () => HttpResponse.json([
+        { path, kind: "spec", versions: 3, at: "x", state: "conflict", conflict: ["dv-3", "dv-2"] },
+      ])),
+      http.get("/api/projects/p1/docs/history/diff", () => HttpResponse.json({ diff: "+# New\n" })),
+      http.post("/api/projects/p1/docs/history/restore", () => { posts++; return HttpResponse.json(v(4)); }),
+    );
+    render(<AppProvider><DocProblems pid="p1" /></AppProvider>);
+    await userEvent.click(await screen.findByRole("button", { name: "Two versions — pick one" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Keep this one (in the file now)" }));
+    await waitFor(() => expect(screen.queryByRole("group")).not.toBeInTheDocument());
+    expect(posts).toBe(0);
+  });
+
   it("lists what a flow applied", async () => {
     server.use(http.get("/api/threads/t1/applied", () => HttpResponse.json({ thread_id: "t1", items: [
       { kind: "branch", ref: "feat/scores", files: [], at: "x" },

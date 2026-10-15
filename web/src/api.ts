@@ -207,7 +207,7 @@ export type EngineEvent = {
 // ---------- api types ----------
 
 /** `version` is keel v2's own version. */
-export type Health = { ok: boolean; engine: boolean; version: string; fake: boolean };
+export type Health = { ok: boolean; engine: boolean; version: string; fake: boolean; native?: boolean };
 
 export type Project = {
   id: string;

@@ -9,7 +9,7 @@ import { ErrorBox, Pill } from "./ui";
 
 const STATE: Record<DocFile["state"], ["ok" | "warn" | "idle", string]> = {
   ok: ["ok", "ok"], changed: ["warn", "changed outside keel"], missing: ["warn", "missing"], deleted: ["idle", "deleted"],
-  unreadable: ["warn", "cannot be read"],
+  unreadable: ["warn", "cannot be read"], conflict: ["warn", "two versions"],
 };
 
 function Diff({ text }: { text: string }) {
@@ -79,11 +79,37 @@ export function DocHistoryPanel({ pid, path, onRestored }: { pid: string; path: 
   );
 }
 
+/** Two flows wrote the same file: both texts as a diff (other -> newest), and which one to keep. */
+function PickOne({ pid, file, newest, other, onDone }: { pid: string; file: DocFile; newest: string; other: string; onDone: () => void }) {
+  const { toast } = useApp();
+  const diff = useLoad(`docconflict:${pid}:${file.path}:${other}:${newest}`, () => docHistoryApi.diff(pid, file.path, other, newest));
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const keepOther = async () => {
+    try {
+      await docHistoryApi.restore(pid, other);
+      toast(`${file.path}: the other version is back.`);
+      onDone();
+    } catch (e) {
+      setErr(errorParts(e));
+    }
+  };
+  return (
+    <div className="dh-pick" role="group" aria-label={`Two versions of ${file.path}`}>
+      <p className="sub">The other flow's text is shown with <span className="mono">-</span>, the text in the file now with <span className="mono">+</span>.</p>
+      {diff.data ? <Diff text={diff.data.diff} /> : diff.error ? <ErrorBox error={diff.error} /> : <p className="sub">Loading…</p>}
+      {err && <ErrorBox error={err} />}
+      <button type="button" className="btn sm" onClick={onDone}>Keep this one (in the file now)</button>{" "}
+      <button type="button" className="btn sm" onClick={() => void keepOther()}>Keep this one (the other flow's)</button>
+    </div>
+  );
+}
+
 /** keel's files that are missing (Restore) or were changed outside keel. Nothing when all is well. */
 export function DocProblems({ pid }: { pid: string }) {
   const { toast } = useApp();
   const files = useLoad(`docfiles:${pid}`, () => docHistoryApi.files(pid));
-  const odd = (files.data ?? []).filter((f) => f.state === "missing" || f.state === "changed" || f.state === "unreadable");
+  const [picking, setPicking] = useState<string | null>(null);
+  const odd = (files.data ?? []).filter((f) => f.state === "missing" || f.state === "changed" || f.state === "unreadable" || f.state === "conflict");
   if (!odd.length) return null;
   const restore = async (f: DocFile) => {
     const newest = (await docHistoryApi.versions(pid, f.path)).find((v) => !v.deleted);
@@ -98,6 +124,12 @@ export function DocProblems({ pid }: { pid: string }) {
         <li key={f.path}>
           <span className="mono">{f.path}</span> <Pill tone={STATE[f.state][0]}>{STATE[f.state][1]}</Pill>{" "}
           {f.state === "missing" && <button type="button" className="btn sm" onClick={() => void restore(f)}>Restore</button>}
+          {f.state === "conflict" && f.conflict && (
+            <button type="button" className="btn sm" onClick={() => setPicking(picking === f.path ? null : f.path)}>Two versions — pick one</button>
+          )}
+          {picking === f.path && f.conflict && (
+            <PickOne pid={pid} file={f} newest={f.conflict[0]} other={f.conflict[1]} onDone={() => { setPicking(null); void files.reload(); }} />
+          )}
         </li>
       ))}
     </ul>
