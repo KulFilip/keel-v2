@@ -56,6 +56,20 @@ keel2 start ~/path/to/your/project
 | **Quality** | how well each flow works with each model, run on small test projects; a drop shows in red |
 | **Budget** | tokens and cost (a small bar shows it on top of every page) |
 
+## Plugins
+
+keel is a small **core**. Everything else is a **plugin** that you turn on or off.
+
+```
+ keel core     flows, workflows, agents, gates, Inbox, budget, connections
+   + Code      with Git, Code Review, Database and CI/CD inside
+   + KeelBot   + Map   + Graph   + Wiki   + Tasks (with Jira)
+   + keel Product (beta)
+```
+
+**Control › Plugins** shows them. All plugins come with keel and are on. Turn one off, or add one from the
+**Marketplace**, and keel restarts in about 30 seconds. `keel2 start --core` starts keel with no plugin inside.
+
 ## Flows
 
 | Flow | Use it to |
@@ -90,6 +104,8 @@ keel2 start ~/path/to/your/project
 
 - [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,
   MCP (read, write and admin levels), native mode without Docker (`keel2 start --native`), and how to build keel yourself
+- [Plugins](docs/GUIDE.md#plugins-and-the-marketplace): keel core, turning plugins on and off, installing and
+  publishing a plugin
 - [How the parts talk](docs/CONTRACT.md)
 
 ## License
