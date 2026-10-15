@@ -19,7 +19,7 @@ keel Product has its own version, apart from keel's:
 |                   | where                                                                                                | now                |
 | ----------------- | ---------------------------------------------------------------------------------------------------- | ------------------ |
 | keel Product      | `engine/keel_product/__init__.py` `VERSION`, `api/.../ProductAutoConfiguration.kt` `PRODUCT_VERSION` | 0.1.0-beta.1       |
-| the keel it needs | `engine/keel_product/__init__.py` `requires`                                                         | `>=0.13.0,<0.15.0` |
+| the keel it needs | `engine/keel_product/__init__.py` `requires`                                                         | `>=0.13.0,<0.17.0` |
 
 keel's engine loads the add-on only when its version fits `requires` (else `GET /addons` lists it under problems), so a
 keel upgrade never runs an add-on that was not made for it. keel's own code knows nothing about Product: the add-on
