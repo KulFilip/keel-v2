@@ -8,6 +8,7 @@
     keel-plugin index <marketplace-dir> --releases SRC --key-env VAR [--out DIR]
     keel-plugin index <marketplace-dir> --check               only check the marketplace files
     keel-plugin workflow lint <file.yaml> … [--name N --version V]   a marketplace workflow: checks and its review
+    keel-plugin rules lint <file.yaml> … [--name N --version V]      a marketplace rule pack: checks and its review
     keel-plugin new <name> [--dir D] [--publisher P] [--parts engine,web,content]
     keel-plugin dev <dir> [--keel URL] [--container NAME] [--keel-src DIR]   try it in a running keel (unsigned)
 
@@ -21,7 +22,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import PluginToolError, __version__, catalog, dev, minisign, template, workflow
+from . import PluginToolError, __version__, catalog, dev, minisign, rules, template, workflow
 from .lint import lint
 from .package import pack
 
@@ -124,7 +125,8 @@ def cmd_index(args) -> int:
         for e in cat.errors:
             _out(f"  error    {e}")
         _out(f"marketplace: {len(cat.publishers)} publishers, {len(cat.plugins)} plugins, "
-             f"{len(cat.revoked)} revoked, {len(cat.errors)} errors; {len(cat.workflows)} workflows")
+             f"{len(cat.revoked)} revoked, {len(cat.errors)} errors; {len(cat.workflows)} workflows, "
+             f"{len(cat.rules)} rule packs")
         return 1 if cat.errors else 0
     if not args.releases:
         raise PluginToolError("give the releases with --releases <folder or url map> (or use --check)")
@@ -136,9 +138,10 @@ def cmd_index(args) -> int:
     tmp = catalog.tempdir()
     try:
         releases, problems = catalog.collect(args.releases, tmp, allow_http)
-        flows = catalog.workflow_releases_in(Path(args.releases)) if Path(args.releases).is_dir() else []
-        flows += catalog.marketplace_workflow_files(root, args.files_url)
-        built = catalog.build(cat, releases, days=args.days, only=only, allow_http=allow_http, workflow_files=flows)
+        files = catalog.yaml_releases_in(Path(args.releases)) if Path(args.releases).is_dir() else {}
+        for kind in catalog.FILE_KINDS:
+            files.setdefault(kind.name, []).extend(catalog.marketplace_files(kind, root, args.files_url))
+        built = catalog.build(cat, releases, days=args.days, only=only, allow_http=allow_http, files=files)
     finally:
         catalog.cleanup(tmp)
     built.problems[:0] = problems
@@ -163,9 +166,11 @@ def cmd_index(args) -> int:
     plugins = built.index["plugins"]
     versions = sum(len(p["versions"]) for p in plugins)
     flows = built.index["workflows"]
+    packs = built.index["rules"]
     _out(f"index: {len(plugins)} plugins, {versions} versions, {len(built.problems)} left out: {out / 'index.json'}"
          f"{signed}, expires {built.index['expires']}; {len(flows)} workflows, "
-         f"{sum(len(w['versions']) for w in flows)} workflow versions")
+         f"{sum(len(w['versions']) for w in flows)} workflow versions; {len(packs)} rule packs, "
+         f"{sum(len(r['versions']) for r in packs)} rule pack versions")
     return 1 if args.strict and built.problems else 0
 
 
@@ -178,6 +183,20 @@ def cmd_workflow_lint(args) -> int:
         if not path.is_file():
             raise PluginToolError(f"there is no file {path}")
         report = workflow.lint(path, args.name, args.version)
+        _out(report.text())
+        failed = failed or not report.ok
+    return 1 if failed else 0
+
+
+def cmd_rules_lint(args) -> int:
+    if (args.name or args.version) and len(args.files) > 1:
+        raise PluginToolError("--name and --version are for one file")
+    failed = False
+    for f in args.files:
+        path = Path(f)
+        if not path.is_file():
+            raise PluginToolError(f"there is no file {path}")
+        report = rules.lint(path, args.name, args.version)
         _out(report.text())
         failed = failed or not report.ok
     return 1 if failed else 0
@@ -247,7 +266,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--strict", action="store_true", help="exit 1 when a version is left out")
     p.add_argument("--check", action="store_true", help="only check the marketplace files")
     p.add_argument("--files-url", metavar="URL",
-                   help="where the workflow files kept in the marketplace repo are served (workflows/<name>/<version>"
+                   help="where the workflow and rule pack files kept in the marketplace repo are served "
+                        "(workflows/<name>/<version>.yaml and rules/<name>/<version>"
                         ".yaml under it; the sync's GitHub Pages address)")
     p.set_defaults(fn=cmd_index)
 
@@ -258,6 +278,14 @@ def parser() -> argparse.ArgumentParser:
     w.add_argument("--name", help="the marketplace name, when the file name does not say it")
     w.add_argument("--version", help="the marketplace version, when the file name does not say it")
     w.set_defaults(fn=cmd_workflow_lint)
+
+    p = sub.add_parser("rules", help="marketplace rule packs: lint")
+    rsub = p.add_subparsers(dest="rules_command", required=True, metavar="command")
+    r = rsub.add_parser("lint", help="check a rule pack YAML for the marketplace and print its review")
+    r.add_argument("files", nargs="+", metavar="file.yaml", help="<name>-<version>.yaml (or rules/<name>/<version>.yaml)")
+    r.add_argument("--name", help="the marketplace name, when the file name does not say it")
+    r.add_argument("--version", help="the marketplace version, when the file name does not say it")
+    r.set_defaults(fn=cmd_rules_lint)
 
     p = sub.add_parser("new", help="a new plugin folder from the template")
     p.add_argument("name")
