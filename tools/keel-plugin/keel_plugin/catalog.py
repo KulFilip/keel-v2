@@ -200,7 +200,7 @@ def _file_entry(kind: "FileKind", path: Path, cat: Catalog) -> None:
         if key not in kind.keys:
             cat.warnings.append(f"{where}: '{key}' is not a {kind.noun} field ({', '.join(sorted(kind.keys))})")
     name = data.get("name")
-    if name != path.stem or not isinstance(name, str) or not NAME.match(name):
+    if name != path.stem or not isinstance(name, str) or not kind.name_rule.match(name):
         cat.errors.append(f"{where}: name must be the file's name ({path.stem}) and a valid name (a-z, 0-9, '-')")
         return
     title = _text(data, "title", where, errors)
@@ -244,7 +244,8 @@ def _revoked(path: Path, cat: Catalog) -> None:
         cat.errors.append("revoked.yml: revoked must be a list ('revoked: []' when nothing is revoked)")
         return
     for i, item in enumerate(items):
-        ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and NAME.match(item["name"])
+        rule = rulelint.PACK if isinstance(item, dict) and item.get("kind") == "rules" else NAME
+        ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and rule.match(item["name"])
               and isinstance(item.get("version"), str) and VERSION.match(item["version"])
               and isinstance(item.get("why"), str) and item["why"].strip()
               and item.get("kind", "plugin") in KINDS)
@@ -380,8 +381,19 @@ def _workflow_requires(entry: dict, report) -> dict:
     return requires
 
 
-def _rules_requires(entry: dict, _report) -> dict:
-    return {"keel": entry["keel"]} if entry.get("keel") else {}
+def _rules_requires(entry: dict, report) -> dict:
+    """The pack's own requires (it ships unchanged, so keel reads the same); the entry's keel only when the pack has
+    none."""
+    keel = report.requires.get("keel") or entry.get("keel")
+    return {**({"keel": keel} if keel else {}),
+            **({"plugins": dict(report.requires["plugins"])} if report.requires.get("plugins") else {})}
+
+
+def _rules_agree(entry: dict, report) -> str | None:
+    """A pack names its publisher: it must be the entry's (keel refuses the file otherwise)."""
+    if report.publisher != entry.get("publisher"):
+        return f"its publisher is {report.publisher}, the entry rules/{entry['name']}.yml says {entry.get('publisher')}"
+    return None
 
 
 @dataclass(frozen=True)
@@ -395,6 +407,8 @@ class FileKind:
     lint: Callable                  # (file, name, version) → a report with errors and review
     name_version: Callable          # a file → (name, version) from its file name
     requires: Callable              # (entry, report) → the version's requires
+    agrees: Callable | None = None  # (entry, report) → why a file is not the entry's, or None
+    name_rule: re.Pattern = NAME    # an entry's name (rule packs: keel's pack name rule)
 
     def entries(self, cat: Catalog) -> dict[str, dict]:
         return getattr(cat, self.list)
@@ -403,7 +417,7 @@ class FileKind:
 WORKFLOWS = FileKind("workflow", "workflows", "workflow", frozenset(WORKFLOW_KEYS), WORKFLOW_CATEGORIES, wflint.lint,
                      wflint.name_version, _workflow_requires)
 RULES = FileKind("rules", "rules", "rule pack", frozenset(RULES_KEYS), RULES_CATEGORIES, rulelint.lint,
-                 rulelint.name_version, _rules_requires)
+                 rulelint.name_version, _rules_requires, _rules_agree, rulelint.PACK)
 FILE_KINDS = (WORKFLOWS, RULES)
 
 
@@ -412,7 +426,7 @@ def yaml_releases_in(folder: Path) -> dict[str, list[ItemFile]]:
     by kind: a rule pack (a mapping with a list of rules and no steps) or a workflow (anything else)."""
     out: dict[str, list[ItemFile]] = {k.name: [] for k in FILE_KINDS}
     for f in sorted(folder.rglob("*.yaml")):
-        if not wflint.FILE.match(f.name):
+        if not wflint.FILE.match(f.name) and not rulelint.FILE.match(f.name):
             continue
         meta: dict = {}
         side = f.with_name(f.name + ".json")
@@ -471,6 +485,9 @@ def build_files(kind: FileKind, cat: Catalog, files: list[ItemFile], *, only: se
         report = kind.lint(item.file, name, version)
         if report.errors:
             problems.append(f"{label} left out: " + "; ".join(report.errors[:3]))
+            continue
+        if kind.agrees and (why := kind.agrees(entry, report)):
+            problems.append(f"{label} left out: {why}")
             continue
         if not item.sig.is_file():
             problems.append(f"{label} left out: there is no signature {item.sig.name}")

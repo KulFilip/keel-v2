@@ -12,9 +12,17 @@ from conftest import write
 from keel_plugin import catalog, minisign, rules
 from keel_plugin.manifest import file_sha256
 
-GOOD = """id: no-new-deps
-name: No new dependencies
-description: Agents never add a package, inside or outside a flow.
+# keel's final rule pack format (keel v2 0.17.2, docs/rules/pack-format.md, schema 1): shipped unchanged
+GOOD = """schema: 1
+kind: rules
+name: no-new-deps
+title: No new dependencies
+version: 1.0.0
+publisher: keel
+summary: Agents never add a package, inside or outside a flow.
+requires:
+  keel: ">=0.17.2"
+  plugins: [db]
 rules:
   - id: no-install
     kind: bash
@@ -24,7 +32,6 @@ rules:
     reason: Adding a package is a person's decision.
   - id: no-lockfile
     kind: edit
-    how: glob
     match: ["**/package-lock.json"]
     phases: [green, refactor]
     lanes: [web]
@@ -50,16 +57,28 @@ def test_lint_a_good_pack_and_its_review(tmp_path, run):
     assert report.ok, report.errors
     assert report.warnings == []
     assert (report.name, report.version, report.title) == ("no-new-deps", "1.0.0", "No new dependencies")
-    assert report.review == {"rules": 3, "kinds": {"bash": 1, "edit": 1, "mcp": 1},
-                             "phases": ["all", "green", "refactor", "in-flow"], "lanes": ["web"]}
+    assert report.publisher == "keel" and report.requires == {"keel": ">=0.17.2", "plugins": {"db": ""}}
+    assert report.review == {
+        "rules": 3, "kinds": {"bash": 1, "edit": 1, "mcp": 1}, "phases": ["all", "green", "refactor", "in-flow"],
+        "lanes": ["web"],
+        "blocks": [{"id": "no-install", "kind": "bash", "match": [r"\bnpm\s+install\s+[^-\s]", r"\bpip\s+install\b"],
+                    "how": "regex", "phases": "all"},
+                   {"id": "no-lockfile", "kind": "edit", "match": ["**/package-lock.json"], "how": "glob",
+                    "phases": ["green", "refactor"], "lanes": ["web"], "except": ["web/fixtures/**"]},
+                   {"id": "no-db-change", "kind": "mcp", "match": ["keel_db_change"], "how": "name", "phases": "in-flow"}]}
     code, out, _ = run("rules", "lint", f)
     assert code == 0
     assert "(no-new-deps 1.0.0)" in out and "review   3 rules (bash 1, edit 1, mcp 1)" in out
     assert "phases   all, green, refactor, in-flow" in out and "lanes    web" in out and out.rstrip().endswith("ok")
+    assert "blocks   no-lockfile: edit glob **/package-lock.json (green, refactor)" in out
     # a file kept in the marketplace repo: rules/<name>/<version>.yaml
     g = write(tmp_path / "rules/no-new-deps/1.0.0.yaml", GOOD)
     assert rules.name_version(g) == ("no-new-deps", "1.0.0") and rules.lint(g).ok
     assert rules.is_pack(f) and not rules.is_pack(write(tmp_path / "notes-1.0.0.yaml", WORKFLOW))
+    # a pack's name is keel's pack name: up to 64, a digit first is fine (a plugin's is not)
+    long = "2fa-keep-the-database-migrations-inside-a-flow-and-never-by-hand"
+    h = write(tmp_path / f"{long}-1.0.0.yaml", GOOD.replace("name: no-new-deps", f"name: {long}"))
+    assert rules.name_version(h) == (long, "1.0.0") and rules.lint(h).ok
 
 
 def test_the_review_is_the_engines():
@@ -70,15 +89,27 @@ def test_the_review_is_the_engines():
                      {"id": "c", "kind": "bash", "phases": ["green"]},
                      {"id": "d", "kind": "teleport"},
                      "not a rule"]}
-    assert rules.review(doc) == {"rules": 4, "kinds": {"bash": 1, "read": 1, "mcp": 1, "teleport": 1},
-                                 "phases": ["all", "in-flow", "green"], "lanes": ["api"]}
-    assert rules.review({"rules": "none"}) == {"rules": 0, "kinds": {}, "phases": [], "lanes": []}
+    assert rules.review(doc) == {
+        "rules": 4, "kinds": {"bash": 1, "read": 1, "mcp": 1, "teleport": 1}, "phases": ["all", "in-flow", "green"],
+        "lanes": ["api"],
+        "blocks": [{"id": "a", "kind": "mcp", "match": ["db_change"], "how": "name", "phases": "all"},
+                   {"id": "b", "kind": "read", "match": [], "how": "glob", "phases": "in-flow", "lanes": ["api"]},
+                   {"id": "c", "kind": "bash", "match": [], "how": "contains", "phases": ["green"]},
+                   {"id": "d", "kind": "teleport", "match": [], "how": "contains", "phases": "all"}]}
+    assert rules.review({"rules": [{"id": "e", "kind": "edit", "match": "x/**", "phases": "green"}]})["blocks"] \
+        == [{"id": "e", "kind": "edit", "match": ["x/**"], "how": "glob", "phases": ["green"]}]
+    assert rules.review({"rules": "none"}) == {"rules": 0, "kinds": {}, "phases": [], "lanes": [], "blocks": []}
 
 
 def test_lint_finds_what_keel_would_refuse_and_warns_on_what_it_does_not_know(tmp_path, run):
-    bad = """id: Other_Name
-name: ""
+    bad = """schema: 2
+kind: plugin
+name: Other_Name
+title: ""
+version: 1.0
+publisher: Not A Publisher
 owner: someone
+requires: {keel: "soon", plugins: [Bad_Plugin]}
 rules:
   - id: a
     kind: teleport
@@ -89,13 +120,13 @@ rules:
     kind: bash
     how: regex
     match: ['(unclosed']
-    phases: sometimes
+    phases: sometimes sometimes
     reason: x
   - kind: edit
     how: glob
     match: ["*.lock"]
     phases: [Green Phase]
-    lanes: web
+    lanes: mobile
   - id: d
     kind: bash
     how: glob
@@ -108,11 +139,14 @@ rules:
     f = write(tmp_path / "strict-1.0.0.yaml", bad)
     report = rules.lint(f)
     text = "\n".join(report.errors)
-    for words in ("id must be the pack's name", "name is missing", "rule a: kind 'teleport'", "rule a: how 'magic'",
+    for words in ("schema must be 1", "kind must be rules", "name must be the pack's id", "title is missing",
+                  "version must be a version like 1.0.0", "publisher 'Not A Publisher' must be lower-case",
+                  "requires.keel must be a version range", "requires.plugins: 'Bad_Plugin' is not a plugin name",
+                  "rule a: kind 'teleport'", "rule a: how 'magic'",
                   "rule a: match must be a pattern or a list", "rule a: two rules share this id",
-                  "is not a regular expression", "phases 'sometimes' is not one of all, in-flow, none",
+                  "is not a regular expression", "phases 'sometimes sometimes' is not one of all, in-flow, none",
                   "rules[2] has no id", "rules[2]: phases must be all, in-flow, none, or a list",
-                  "rules[2]: lanes must be a list of text", "rules[2]: reason is missing", "rules[4] is not a mapping"):
+                  "rules[2]: lanes must be api and/or web", "rules[2]: reason is missing", "rules[4] is not a mapping"):
         assert words in text, words
     warned = "\n".join(report.warnings)
     for words in ("'owner' is not a rule pack field", "rule d: 'severity' is not a rule field",
@@ -120,14 +154,20 @@ rules:
         assert words in warned, words
     code, out, _ = run("rules", "lint", f)
     assert code == 1 and "error(s)" in out
-    # the id is the marketplace name
+    # the name and the version are the marketplace's
     other = rules.lint(write(tmp_path / "strict-2.0.0.yaml", GOOD))
-    assert other.errors == ["id no-new-deps is not the marketplace name strict (the file name, or --name)"]
+    assert other.errors == ["name no-new-deps is not the marketplace name strict (the file name, or --name)",
+                            "version 1.0.0 is not the marketplace version 2.0.0 (the file name, or --version)"]
     assert rules.lint(write(tmp_path / "pack.yaml", GOOD)).errors[0].startswith("the file name must be")
     assert rules.lint(write(tmp_path / "pack.yaml", GOOD), "no-new-deps", "1.0.0").ok
-    assert rules.lint(write(tmp_path / "x-1.0.0.yaml", "id: x\nname: X\nrules: []\n")).errors == [
-        "rules is missing: a pack has a list of rules"]
-    big = write(tmp_path / "no-new-deps-1.0.1.yaml", GOOD + "# " + "x" * (64 << 10) + "\n")
+    assert rules.lint(write(tmp_path / "x-1.0.0.yaml",
+                            "schema: 1\nname: x\ntitle: X\nversion: 1.0.0\npublisher: keel\nrules: []\n")).errors == [
+        "rules is missing: a pack has a list of at least one rule"]
+    # keel defaults the publisher to local; a marketplace pack must name it
+    nopub = rules.lint(write(tmp_path / "no-new-deps-1.0.0.yaml", GOOD.replace("publisher: keel\n", "")))
+    assert nopub.errors == ["publisher is missing: a marketplace pack names its publisher (the entry's publisher)"]
+    big = write(tmp_path / "no-new-deps-1.0.1.yaml", GOOD.replace("version: 1.0.0", "version: 1.0.1")
+                + "# " + "x" * (64 << 10) + "\n")
     assert any("bigger than 64 KB" in e for e in rules.lint(big).errors)
     code, _, err = run("rules", "lint", tmp_path / "nope-1.0.0.yaml")
     assert code == 1 and "there is no file" in err
@@ -161,13 +201,19 @@ def test_index_lists_rule_packs_from_releases_and_from_the_marketplace_repo(tmp_
     write(good.with_name(good.name + ".json"), json.dumps({
         "url": "https://github.com/keel-studio/keel-rules/releases/download/no-new-deps-v1.0.0/no-new-deps-1.0.0.yaml",
         "released": "2026-10-16T09:00:00Z"}))
-    _sign(write(rel / "no-new-deps/v1.1.0/no-new-deps-1.1.0.yaml", GOOD), other)              # not the publisher's key
-    write(rel / "no-new-deps/v1.2.0/no-new-deps-1.2.0.yaml", GOOD)                             # no signature
+    def v(version: str, text: str = GOOD) -> str:
+        return text.replace("version: 1.0.0", f"version: {version}")
+
+    _sign(write(rel / "no-new-deps/v1.1.0/no-new-deps-1.1.0.yaml", v("1.1.0")), other)        # not the publisher's key
+    write(rel / "no-new-deps/v1.2.0/no-new-deps-1.2.0.yaml", v("1.2.0"))                       # no signature
     _sign(write(rel / "no-new-deps/v1.3.0/no-new-deps-1.3.0.yaml",
-                GOOD.replace("    reason: Adding a package is a person's decision.\n", "")), keel_key)   # a rule without reason
+                v("1.3.0").replace("    reason: Adding a package is a person's decision.\n", "")), keel_key)   # no reason
+    _sign(write(rel / "no-new-deps/v1.4.0/no-new-deps-1.4.0.yaml",
+                v("1.4.0").replace("publisher: keel", "publisher: bob")), keel_key)           # not the entry's publisher
     _sign(write(rel / "stranger/stranger-1.0.0.yaml", GOOD.replace("no-new-deps", "stranger")), keel_key)
     _sign(write(rel / "notes/notes-1.0.0.yaml", WORKFLOW), keel_key)                           # a workflow, next to them
-    _sign(write(root / "rules/strict/1.0.0.yaml", GOOD.replace("id: no-new-deps", "id: strict")), keel_key)
+    _sign(write(root / "rules/strict/1.0.0.yaml",
+                GOOD.replace("name: no-new-deps", "name: strict").replace('  keel: ">=0.17.2"\n', "")), keel_key)
     monkeypatch.setenv("GK_CATALOG_KEY", catalog_key.text())
     code, out, err = run("index", root, "--releases", rel, "--key-env", "GK_CATALOG_KEY", "--out", tmp_path / "site/v1",
                          "--files-url", "https://keel-studio.github.io/keel-marketplace")
@@ -183,13 +229,15 @@ def test_index_lists_rule_packs_from_releases_and_from_the_marketplace_repo(tmp_
         "summary": "Agents never add a package.", "category": "safety", "tags": ["dependencies"],
         "repo": "https://github.com/keel-studio/keel-rules"}
     [v] = deps["versions"]
-    assert v == {"version": "1.0.0", "released": "2026-10-16", "requires": {"keel": ">=0.17.0"},
+    # the pack's own requires: its keel range wins over the entry's, its plugins (a list) read as a map
+    assert v == {"version": "1.0.0", "released": "2026-10-16", "requires": {"keel": ">=0.17.2", "plugins": {"db": ""}},
                  "url": "https://github.com/keel-studio/keel-rules/releases/download/no-new-deps-v1.0.0/no-new-deps-1.0.0.yaml",
                  "sha256": file_sha256(good), "size": good.stat().st_size, "review": rules.lint(good).review}
     assert strict["versions"][0]["url"] == "https://keel-studio.github.io/keel-marketplace/rules/strict/1.0.0.yaml"
-    assert strict["versions"][0]["requires"] == {} and "repo" not in strict
+    assert strict["versions"][0]["requires"] == {"plugins": {"db": ""}} and "repo" not in strict
     for words in ("no-new-deps-1.1.0.yaml left out", "no-new-deps-1.2.0.yaml left out: there is no signature",
                   "no-new-deps-1.3.0.yaml left out: rule no-install: reason is missing",
+                  "no-new-deps-1.4.0.yaml left out: its publisher is bob, the entry rules/no-new-deps.yml says keel",
                   "stranger-1.0.0.yaml left out: there is no rules/stranger.yml"):
         assert words in out, words
     assert "1 workflows, 1 workflow versions; 2 rule packs, 2 rule pack versions" in out
