@@ -84,9 +84,10 @@ starts or is saved until you press one.
   and shows what it runs. **Save the workflow** (into a folder if you like), or **Ask KeelBot to fix it** when the
   check finds a problem.
 
-- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (Code page header, or **Hide the header** in
-  the status bar) hides the Code header; **KeelBot only** (or ⤢ in the panel, or **KeelBot** in the menu) opens the
-  KeelBot alone on its own page, where a `file:line` link opens the Code page at that line.
+- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (in
+  the status bar at the bottom, or ⇧⌘\) hides everything but the code; ⤢ in the panel (or **KeelBot** in the menu)
+  opens KeelBot alone on its own page, where a `file:line` link opens the Code page at that line. The status bar also
+  shows the code graph index and **↻ Rebuild**.
 - **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the
   running flow; the open file always goes along.
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A

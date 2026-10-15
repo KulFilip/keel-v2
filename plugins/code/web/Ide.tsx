@@ -16,6 +16,7 @@ import {
   type Cmd, type Cursor, type DiffMode, type Target,
 } from "./Editor";
 import { Explorer } from "./Explorer";
+import { IndexItem } from "./IndexStatus";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
@@ -748,6 +749,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
             </button>
           </>
         )}
+        <IndexItem pid={pid} />
         {project && !fileTab && <span className="sb-i sb-wide">{project.name}</span>}
         {onFocus && (
           <button type="button" className="sb-i sb-focus" onClick={() => onFocus(!focus)}
