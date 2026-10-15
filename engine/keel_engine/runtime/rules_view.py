@@ -1,0 +1,388 @@
+"""The Rules page and "Rules now" (v0.16.2): every rule a project has, in plain words, and changes to them.
+
+    view(root)                    built-in rules, the project's lists (.keel/config.yml), its rule packs, the engines
+    set_config(root, patch)       change guards / mcp / rules / boundaries in .keel/config.yml (only those blocks)
+    library()                     the shipped rule packs (content/rules/*.yaml)
+    save_pack(root, text, ...)    add or replace .keel/rules/<id>.yaml;  remove_pack(root, id)
+    dry_run(text, calls)          which of these recent tool calls the pack would have refused
+    now(root, phase, lane, ...)   what agents may change right now, for the Flow page
+
+Rules are files in the project (docs/plans/0.16.2.md decision 2): the guard reads them on every tool call.
+"""
+
+from __future__ import annotations
+
+import copy
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .. import config, layout, rules
+from ..models import cli_runners
+from ..rules import packs as packs_mod
+from ..shim import NAMES as WRAPPED
+from . import explain
+
+ENGINES = ["claude", "opencode", "codex", "copilot", "api"]
+CONFIG = ".keel/config.yml"
+OWNED = ("guards", "mcp", "rules", "boundaries")      # the top-level blocks the Rules page may rewrite
+
+
+class RulesError(Exception):
+    def __init__(self, status: int, error: str, errors: list[str] | None = None):
+        super().__init__(error)
+        self.status, self.error, self.errors = status, error, errors or []
+
+
+# ------------------------------------------------------------------ who checks what, when
+
+def enforced(kind: str, match: list[str] | None = None) -> dict[str, str]:
+    """Per engine, when a rule of this kind is checked: before (the action is stopped), wrapped (shell: only commands of
+    the programs keel wraps), after (the diff guard puts the file back after the step), none (not checked)."""
+    codex_before = cli_runners.codex_hooks()
+    out: dict[str, str] = {}
+    for e in ENGINES:
+        p = cli_runners.protection(e, "api" if e == "api" else None)
+        if e == "codex" and not codex_before:
+            p = "partial"
+        if kind == "edit":
+            out[e] = "before" if p == "before" else "after"
+        elif kind == "shell":
+            if p == "before":
+                out[e] = "before"
+            else:
+                first = {str(m).split()[0] for m in match or [] if str(m).split()}
+                out[e] = "wrapped" if not first or first <= set(WRAPPED) else "none"
+        elif kind == "read":
+            out[e] = "before" if p == "before" else "none"
+        elif kind == "mcp":
+            out[e] = "none" if e == "api" or p != "before" else "before"
+        else:
+            out[e] = "before" if p == "before" else "after"
+    return out
+
+
+def _kinds(kind: str) -> list[str]:
+    return [k.strip() for k in kind.replace("bash", "shell").split(",")]
+
+
+def _merge_enforced(kind: str, match: list[str] | None = None) -> dict[str, str]:
+    """A rule of several kinds (edit, read, shell): the weakest per engine."""
+    order = ["before", "wrapped", "after", "none"]
+    got = [enforced(k, match) for k in _kinds(kind)]
+    return {e: max((g[e] for g in got), key=order.index) for e in ENGINES}
+
+
+def engines() -> list[dict]:
+    words = {"before": "every edit, shell command, read and MCP call is checked before it runs",
+             "partial": "shell commands of git, gh, the package managers and file printers are checked before they run; "
+                        "file edits are checked after each step (the diff guard puts a refused file back)"}
+    out = []
+    for e in ENGINES:
+        p = cli_runners.protection(e, "api" if e == "api" else None)
+        out.append({"engine": e, "protection": p, "words": words.get(p, "only checked after each step")})
+    return out
+
+
+# ------------------------------------------------------------------ the page
+
+LISTS = [
+    ("guards.protected", "edit, read, shell", "Files that hold secrets. Agents never read, print or change them.", "globs"),
+    ("guards.generated", "edit", "Generated files: changed through their source, never by hand.", "globs"),
+    ("guards.read_block", "read", "Build output agents do not read (it wastes their context).", "globs"),
+    ("guards.bash_deny_always", "shell", "Shell commands refused always (keel adds git push --force, git push -f and "
+                                         "--no-verify even if you remove them).", "texts"),
+    ("guards.bash_deny_in_flow", "shell", "Shell commands refused during a flow (keel adds git reset --hard and git rebase -i).",
+     "texts"),
+    ("guards.read_guard_max_lines", "read", "A file with more lines than this is read in parts (offset and limit). 0 = off.",
+     "number"),
+    ("mcp.allow", "mcp", "MCP tools that may change things during a flow (a part of the tool's name is enough).", "texts"),
+    ("rules.push_gate", "shell", "The push gate: an agent's git push or gh pr create waits until keel's push blockers are clear.",
+     "bool"),
+    ("rules.push_gate_commands", "shell", "The commands the push gate holds back.", "texts"),
+    ("boundaries.rules", "edit", "Architecture rules: which folders may import which (checked by keel's arch check after the "
+                                 "step and at ship).", "boundaries"),
+]
+
+
+def _get(d: dict, dotted: str) -> Any:
+    cur: Any = d
+    for k in dotted.split("."):
+        if not isinstance(cur, dict) or k not in cur:
+            return None
+        cur = cur[k]
+    return cur
+
+
+def view(root: str) -> dict:
+    cfg = rules.load_config(root)
+    raw = layout.raw_config(root)
+    off = set((cfg.get("rules") or {}).get("off") or [])
+    builtins = [{**b, "off": b["id"] in off and b["can_off"], "enforced": _merge_enforced(b["kind"]),
+                 "saved_in": "keel (built in)" + ("; switched off in .keel/config.yml (rules.off)" if b["id"] in off and b["can_off"] else "")}
+                for b in rules.BUILTINS]
+    lists = []
+    for key, kind, words, form in LISTS:
+        mine = _get(raw, key)
+        value = _get(cfg, key) if key != "boundaries.rules" else _boundaries(raw)
+        lists.append({"key": key, "kind": kind, "words": words, "form": form, "value": value,
+                      "default": _get(rules.DEFAULT_CONFIG, key), "enforced": _merge_enforced(kind, value if form == "texts" else None),
+                      "saved_in": CONFIG if mine is not None else "keel's default (saved to .keel/config.yml when you change it)"})
+    packs = [{**p, "off": f"pack/{p['id']}" in off, "saved_in": p["file"],
+              "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None)}
+                        for r in p["rules"]]} for p in cfg.get("packs") or []]
+    return {"configured": bool(cfg.get("configured")), "config_file": CONFIG, "rules_folder": packs_mod.FOLDER.as_posix(),
+            "builtins": builtins, "lists": lists, "packs": packs, "pack_errors": cfg.get("pack_errors") or [],
+            "engines": engines(), "buckets": [{"bucket": b, "what": w} for b, w in explain.BUCKETS],
+            "phases": [{"phase": p, "meaning": explain.PHASE_MEANING.get(p, ""),
+                        "matrix": rules.MATRIX.get(p, rules.CLOSED)} for p in rules.PHASES if p in rules.MATRIX]}
+
+
+def _boundaries(raw: dict) -> list[dict]:
+    from .verdict_actions import boundary_rules
+
+    return boundary_rules(raw)
+
+
+# ------------------------------------------------------------------ change .keel/config.yml
+
+def _check_patch(patch: dict) -> dict:
+    if not isinstance(patch, dict) or not patch or set(patch) - set(OWNED):
+        raise RulesError(400, f"Only these parts of .keel/config.yml change here: {', '.join(OWNED)}.")
+    g = patch.get("guards")
+    if g is not None:
+        if not isinstance(g, dict):
+            raise RulesError(400, "guards is a map.")
+        for k in ("protected", "generated", "read_block", "bash_deny_always", "bash_deny_in_flow"):
+            if k in g and not (isinstance(g[k], list) and all(isinstance(x, str) and x.strip() for x in g[k])):
+                raise RulesError(400, f"guards.{k} is a list of texts.")
+        if "read_guard_max_lines" in g and (not isinstance(g["read_guard_max_lines"], int) or g["read_guard_max_lines"] < 0):
+            raise RulesError(400, "guards.read_guard_max_lines is a whole number, 0 or more.")
+        if "protected" in g and not any(p.lstrip("!").endswith(".env") or ".env" in p for p in g["protected"] if not p.startswith("!")):
+            raise RulesError(400, "guards.protected must keep the .env files (**/.env, **/.env.*): they hold secrets.")
+    r = patch.get("rules")
+    if r is not None:
+        if not isinstance(r, dict):
+            raise RulesError(400, "rules is a map.")
+        off = r.get("off")
+        if off is not None:
+            if not isinstance(off, list) or not all(isinstance(x, str) for x in off):
+                raise RulesError(400, "rules.off is a list of rule ids.")
+            never = [x for x in off if x in rules.BUILTIN_IDS and x not in rules.CAN_OFF]
+            if never:
+                raise RulesError(400, f"These rules always stay on: {', '.join(never)}. They protect secrets, history or keel's record.")
+            unknown = [x for x in off if x not in rules.BUILTIN_IDS and not x.startswith("pack/")]
+            if unknown:
+                raise RulesError(400, f"Unknown rule ids: {', '.join(unknown)}.")
+        if "push_gate" in r and not isinstance(r["push_gate"], bool):
+            raise RulesError(400, "rules.push_gate is true or false.")
+    m = patch.get("mcp")
+    if m is not None and not (isinstance(m, dict) and isinstance(m.get("allow", []), list)):
+        raise RulesError(400, "mcp.allow is a list of tool names.")
+    b = patch.get("boundaries")
+    if b is not None:
+        items = b.get("rules") if isinstance(b, dict) else None
+        if not isinstance(items, list) or not all(isinstance(x, dict) and isinstance(x.get("from"), str) for x in items):
+            raise RulesError(400, "boundaries.rules is a list of {from, deny_imports, allow_imports}.")
+    return patch
+
+
+def _blocks(lines: list[str]) -> dict[str, tuple[int, int]]:
+    """Top-level key -> (first line, end line) in a YAML file's lines."""
+    out: dict[str, tuple[int, int]] = {}
+    starts = [(i, m.group(1)) for i, line in enumerate(lines) if (m := re.match(r"^([A-Za-z_][\w-]*)\s*:", line))]
+    for n, (i, key) in enumerate(starts):
+        end = starts[n + 1][0] if n + 1 < len(starts) else len(lines)
+        # a comment at column 0 just before the next key belongs to that key
+        while end > i + 1 and lines[end - 1].startswith("#"):
+            end -= 1
+        out[key] = (i, end)
+    return out
+
+
+def set_config(root: str, patch: dict) -> dict:
+    """Merge `patch` into the owned blocks of .keel/config.yml and write only those blocks back; other lines stay."""
+    _check_patch(patch)
+    f = Path(root) / CONFIG
+    if not f.is_file():
+        raise RulesError(409, "This project has no .keel/config.yml yet. Run keel init (Flow page) first; rule packs "
+                              "work without it.")
+    text = f.read_text()
+    try:
+        raw = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise RulesError(409, f".keel/config.yml is not valid YAML ({str(exc).splitlines()[0]}). Fix it by hand first.")
+    if not isinstance(raw, dict):
+        raise RulesError(409, ".keel/config.yml is not a YAML map. Fix it by hand first.")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    for key in OWNED:
+        if key not in patch:
+            continue
+        new = copy.deepcopy(raw.get(key)) if isinstance(raw.get(key), dict) else {}
+        if key == "boundaries":
+            new = dict(new, **patch[key])
+        else:
+            new.update(patch[key])
+        raw[key] = new
+        dumped = yaml.safe_dump({key: new}, sort_keys=False, default_flow_style=False, allow_unicode=True).rstrip("\n").split("\n")
+        blocks = _blocks(lines)
+        if key in blocks:
+            a, b = blocks[key]
+            lines = lines[:a] + dumped + lines[b:]
+        else:
+            lines = lines + dumped
+    tmp = f.with_name(f.name + ".keel-tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    os.replace(tmp, f)
+    return view(root)
+
+
+# ------------------------------------------------------------------ packs
+
+def library() -> list[dict]:
+    d = config.content_dir() / "rules"
+    out = []
+    for f in sorted(d.glob("*.yaml")) if d.is_dir() else []:
+        text = f.read_text()
+        pack, errors = packs_mod.parse_pack(text)
+        if pack:
+            out.append({**pack, "yaml": text, "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None)}
+                                                         for r in pack["rules"]]})
+    return out
+
+
+def library_pack(pack_id: str) -> str:
+    item = next((p for p in library() if p["id"] == pack_id), None)
+    if not item:
+        raise RulesError(404, f"No rule pack {pack_id} in keel's library.")
+    return item["yaml"]
+
+
+def check_pack(text: str) -> dict:
+    pack, errors = packs_mod.parse_pack(text)
+    return {"ok": not errors, "errors": errors, **({"pack": pack} if pack else {})}
+
+
+def save_pack(root: str, text: str, replace: str | None = None) -> dict:
+    """Write .keel/rules/<id>.yaml as given (comments kept). `replace`: the id being edited (a rename removes the old)."""
+    pack, errors = packs_mod.parse_pack(text)
+    if errors:
+        raise RulesError(422, "The rule pack is not valid.", errors)
+    d = packs_mod.folder(root)
+    target = d / f"{pack['id']}.yaml"
+    if target.exists() and replace != pack["id"]:
+        raise RulesError(409, f"This project already has a rule pack {pack['id']}. Edit it, or give the new one another id.")
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".keel-tmp")
+    tmp.write_text(text if text.endswith("\n") else text + "\n")
+    os.replace(tmp, target)
+    if replace and replace != pack["id"]:
+        for old in (d / f"{replace}.yaml", d / f"{replace}.yml"):
+            old.unlink(missing_ok=True)
+    return pack
+
+
+def remove_pack(root: str, pack_id: str) -> None:
+    if not packs_mod.ID.match(pack_id or ""):
+        raise RulesError(400, "Not a rule pack id.")
+    gone = False
+    for f in (packs_mod.folder(root) / f"{pack_id}.yaml", packs_mod.folder(root) / f"{pack_id}.yml"):
+        if f.is_file():
+            f.unlink()
+            gone = True
+    if not gone:
+        raise RulesError(404, f"This project has no rule pack {pack_id}.")
+
+
+def pack_text(root: str, pack_id: str) -> str:
+    for f in (packs_mod.folder(root) / f"{pack_id}.yaml", packs_mod.folder(root) / f"{pack_id}.yml"):
+        if packs_mod.ID.match(pack_id or "") and f.is_file():
+            return f.read_text()
+    raise RulesError(404, f"This project has no rule pack {pack_id}.")
+
+
+SHELL_TOOLS = {"Bash", "run_command", "bash", "shell", "exec_command"}
+READ_TOOLS = {"Read", "read_file", "read"}
+EDIT_KINDS = {"write", "edit"}
+
+
+def call_target(call: dict) -> tuple[str, str] | None:
+    """(kind, target) of one recorded tool call (an agent.step event's data), or None when no pack rule applies."""
+    tool = str(call.get("tool") or "")
+    kind = str(call.get("kind") or "")
+    if kind == "guard":
+        return None          # an agent step that only reports a refusal; its guard.refused event carries the call
+    if call.get("command"):
+        return "bash", str(call["command"])
+    if (kind in EDIT_KINDS or tool in ("Write", "Edit", "MultiEdit", "write_file", "diff-guard")) and call.get("path"):
+        return "edit", str(call["path"])
+    if tool in SHELL_TOOLS:
+        return "bash", str(call.get("command") or call.get("text") or "")
+    if tool in READ_TOOLS and call.get("path"):
+        return "read", str(call["path"])
+    if call.get("server") or tool.startswith("mcp__"):
+        return "mcp", f"mcp__{call['server']}__{tool}" if call.get("server") else tool
+    return None
+
+
+def dry_run(text: str, calls: list[dict]) -> dict:
+    """Which of these recorded calls ({tool, kind, path?, command?, phase, lane?, at?, agent?, thread?}) the pack refuses."""
+    pack, errors = packs_mod.parse_pack(text)
+    if errors:
+        raise RulesError(422, "The rule pack is not valid.", errors)
+    blocked, checked = [], 0
+    for c in calls or []:
+        t = call_target(c)
+        if not t:
+            continue
+        checked += 1
+        v = packs_mod.pack_verdict({}, t[0], c.get("phase"), t[1], c.get("lane"), packs=[pack])
+        if v:
+            blocked.append({**{k: c.get(k) for k in ("at", "thread", "agent", "phase", "tool") if c.get(k)},
+                            "kind": t[0], "target": t[1][:300], "reason": v.reason})
+    return {"checked": checked, "blocked": blocked, "pack": pack}
+
+
+# ------------------------------------------------------------------ the Flow page: rules now
+
+def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dict] | None = None,
+        provider: str | None = None, mode: str | None = None, last_failure: dict | None = None) -> dict:
+    """What agents may and may not change in this phase, in words, with the rules that add to it."""
+    cfg = rules.load_config(root)
+    phase = phase or "none"
+    flow = phase != "none"
+    row = rules.MATRIX.get(phase, rules.CLOSED) if flow else {"*": "allow"}
+    may, may_not = [], []
+    for b, what in explain.BUCKETS:
+        rule = row.get(b) or row.get("*") or "deny"
+        if b in ("protected-env", "generated"):
+            continue
+        if b == "migration" and rule == "allow":
+            rule = "new-only"
+        if lane and phase in rules.LANE_SCOPED_PHASES and rules.LANE_OF.get(b) and rules.LANE_OF[b] != lane:
+            rule = "deny"
+        item = {"bucket": b, "what": what, "rule": rule, "words": explain.MAY.get(rule, explain.MAY["deny"])[1]}
+        (may_not if rule == "deny" else may).append(item)
+    always = [{"bucket": "protected-env", "what": ".env files (secrets)", "words": "never read or changed"},
+              {"bucket": "keel-rules", "what": ".keel/config.yml and .keel/rules/", "words": "never changed by an agent"}]
+    if not rules.is_off(cfg, "generated"):
+        always.append({"bucket": "generated", "what": "generated code", "words": "changed through its source only"})
+    active = [{"pack": p["id"], "name": p["name"], "rule": r["id"], "kind": r["kind"], "reason": r["reason"]}
+              for p in cfg.get("packs") or [] if f"pack/{p['id']}" not in set((cfg.get("rules") or {}).get("off") or [])
+              for r in p["rules"] if packs_mod.phase_ok(r.get("phases"), phase) and (not r.get("lanes") or lane in r["lanes"])]
+    prot = cli_runners.protection(provider, mode) if provider else None
+    return {"phase": phase, "meaning": explain.PHASE_MEANING.get(phase, "No flow phase: only keel's always-on rules apply.")
+            if flow else "No flow phase: only keel's always-on rules apply.", "lane": lane,
+            "may": may, "may_not": may_not, "always": always, "packs": active,
+            "unlocks": [{"path": u.get("path"), "phase": u.get("phase"), "reason": u.get("reason")}
+                        for u in unlocks or [] if u.get("phase") == phase],
+            "shell": [b["words"] for b in rules.BUILTINS if b["kind"] == "shell" and (flow or b["phases"] == "always")
+                      and not rules.is_off(cfg, b["id"])],
+            "engine": {"provider": provider, "protection": prot,
+                       "words": next((e["words"] for e in engines() if e["protection"] == prot), None) if prot else None},
+            "last_command_failure": last_failure}

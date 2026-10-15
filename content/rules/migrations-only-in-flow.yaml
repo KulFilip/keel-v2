@@ -1,0 +1,10 @@
+# keel rule pack: database migrations only inside a flow (where a gate sees them).
+id: migrations-only-in-flow
+name: Migrations only in a flow
+description: Outside a keel flow (KeelBot, a side session) no agent writes a database migration; in a flow the phase rules decide.
+rules:
+  - id: no-migration-outside-flow
+    kind: edit
+    match: ["**/db/migration/**", "**/migrations/**", "**/alembic/versions/**", "**/prisma/migrations/**"]
+    phases: none
+    reason: A migration changes the database for everyone. Start a feature flow so a gate sees it.

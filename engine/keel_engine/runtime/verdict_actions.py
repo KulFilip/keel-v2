@@ -33,12 +33,8 @@ from . import run_mode as run_modes
 from . import tools, verdicts
 
 GAP = 8               # uncovered lines closer than this belong to one group (one test can cover them)
-TEST_FILE = re.compile(r"Test\.(kt|java)$|Tests\.(kt|java)$|\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)test_[^/]+\.py$|_test\.py$")
-DISABLED = [(re.compile(r"^\+.*@Disabled", re.M), "@Disabled"), (re.compile(r"^\+.*@Ignore", re.M), "@Ignore"),
-            (re.compile(r"^\+.*\.skip\(", re.M), ".skip("), (re.compile(r"^\+.*\.only\(", re.M), ".only("),
-            (re.compile(r"^\+.*\bxit\(", re.M), "xit("), (re.compile(r"^\+.*test\.fixme", re.M), "test.fixme"),
-            (re.compile(r"^\+.*assumeTrue\(false\)", re.M), "assumeTrue(false)"),
-            (re.compile(r"^\+.*@pytest\.mark\.skip\b", re.M), "@pytest.mark.skip")]
+TEST_FILE = checks.TEST_FILE
+DISABLED = checks.DISABLED
 
 
 def _now() -> str:

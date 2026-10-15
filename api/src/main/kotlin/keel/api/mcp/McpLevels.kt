@@ -105,6 +105,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         }
         val path = request.requestURI.trimEnd('/')
         if (method == "POST" && DB_QUERY.matches(path)) return "read"     // a change needs write: DatabaseController checks the body
+        if (method == "POST" && READ_POSTS.any { it.matches(path) }) return "read"
         if (ADMIN.any { (m, re) -> m == method && re.matches(path) }) return "admin"
         return "write"
     }
@@ -137,6 +138,14 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             "DELETE" to Regex("^/api/projects/[^/]+$"),
             "PUT" to Regex("^/api/workflows/[^/]+$"),
             "DELETE" to Regex("^/api/workflows/[^/]+$"),
+            // v0.16.2 keel's rules: a change decides what agents may do
+            "PUT" to Regex("^/api/projects/[^/]+/rules/config$"),
+            "POST" to Regex("^/api/projects/[^/]+/rules/library/[^/]+/install$"),
+            "POST" to Regex("^/api/projects/[^/]+/rules/packs$"),
+            "PUT" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
+            "DELETE" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
         )
+        /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
+        private val READ_POSTS = listOf(Regex("^/api/projects/[^/]+/rules/check$"))
     }
 }

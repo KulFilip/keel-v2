@@ -20,7 +20,7 @@ from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import codegraph_view, evals, helper, hunt, mapper, scan
+from .runtime import codegraph_view, evals, helper, hunt, mapper, rules_view, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp, worktrees
@@ -310,6 +310,22 @@ class YamlBody(BaseModel):
     yaml: str
 
 
+class RulesConfigBody(BaseModel):
+    root: str
+    patch: dict[str, Any]
+
+
+class RulePackBody(BaseModel):
+    root: str
+    yaml: str
+    replace: str | None = None     # the id of the pack being edited
+
+
+class RuleCheckBody(BaseModel):
+    yaml: str
+    calls: list[dict[str, Any]] = Field(default_factory=list)   # recorded tool calls for the dry-run
+
+
 class EstimateBody(BaseModel):
     yaml: str
     acs: int = 3
@@ -411,6 +427,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.exception_handler(EngineError)
     async def engine_error(_req, exc: EngineError):
         return _err(exc.status, exc.error, exc.hint)
+
+    @app.exception_handler(rules_view.RulesError)
+    async def rules_error(_req, exc: rules_view.RulesError):
+        return _err(exc.status, exc.error, "; ".join(exc.errors) or None, exc.errors or None)
 
     @app.exception_handler(RequestValidationError)
     async def bad_request(_req, exc: RequestValidationError):
@@ -524,6 +544,50 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.get("/threads/{tid}/unlocks")
     async def get_unlocks(tid: str, request: Request):
         return await engine(request).unlocks(tid)
+
+    # ---- v0.16.2 rules: the Rules page and "Rules now" (runtime/rules_view.py)
+    @app.get("/threads/{tid}/rules-now")
+    async def get_rules_now(tid: str, request: Request):
+        return await engine(request).rules_now(tid)
+
+    @app.get("/rules")
+    async def get_rules(root: str):
+        return await asyncio.to_thread(rules_view.view, project_root(root))
+
+    @app.put("/rules/config")
+    async def put_rules_config(body: RulesConfigBody):
+        return await asyncio.to_thread(rules_view.set_config, project_root(body.root), body.patch)
+
+    @app.get("/rules/library")
+    async def get_rules_library():
+        return await asyncio.to_thread(rules_view.library)
+
+    @app.get("/rules/library/{pack_id}")
+    async def get_rules_library_pack(pack_id: str):
+        return {"yaml": await asyncio.to_thread(rules_view.library_pack, pack_id)}
+
+    @app.post("/rules/check")
+    async def post_rules_check(body: RuleCheckBody):
+        out = rules_view.check_pack(body.yaml)
+        if out["ok"] and body.calls:
+            out["dry_run"] = await asyncio.to_thread(rules_view.dry_run, body.yaml, body.calls)
+        return out
+
+    @app.post("/rules/packs")
+    async def post_rule_pack(body: RulePackBody):
+        root = project_root(body.root)
+        pack = await asyncio.to_thread(rules_view.save_pack, root, body.yaml, body.replace)
+        return {"pack": pack, "view": await asyncio.to_thread(rules_view.view, root)}
+
+    @app.get("/rules/packs/{pack_id}")
+    async def get_rule_pack(pack_id: str, root: str):
+        return {"yaml": await asyncio.to_thread(rules_view.pack_text, project_root(root), pack_id)}
+
+    @app.delete("/rules/packs/{pack_id}")
+    async def delete_rule_pack(pack_id: str, root: str):
+        root = project_root(root)
+        await asyncio.to_thread(rules_view.remove_pack, root, pack_id)
+        return await asyncio.to_thread(rules_view.view, root)
 
     @app.post("/threads/{tid}/unlocks")
     async def post_unlock(tid: str, body: UnlockBody, request: Request):

@@ -40,6 +40,7 @@ from ..models.base import AgentRequest, AgentResult
 from ..tools import git, guard, mcp, testcmd, worktrees
 from ..tools.agent_tools import ToolBox, command_env
 from .. import plugins as keel_plugins
+from .blockers import for_agents as push_blockers_for
 from . import agent_knowledge, db, doc_history, graph_hints, guard_ctx, keelbot, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
@@ -755,6 +756,9 @@ class HelperRunner:
         else:
             phase, unlocks, ac = "none", [], None
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
+        if mode in ("fix", "side"):
+            # keel v1's push gate for KeelBot's own `git push` / `gh pr create` (rules.push_gate)
+            toolbox.push_blockers = await asyncio.to_thread(push_blockers_for, root, flow.get("base_head"), project)
         resumable = model.get("mode") != "api" and provider in RESUMABLE
         session = s["engine_session"] if resumable else None
         resume = bool(session)

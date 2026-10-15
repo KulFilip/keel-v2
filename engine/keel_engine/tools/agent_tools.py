@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import rules
+from ..rules import checks as _checks  # noqa: F401  (rules.checks.added_text)
 from ..runtime import permissions, run_mode
 from . import testcmd
 
@@ -30,6 +31,12 @@ def unified_diff(rel: str, old: str, new: str) -> str:
     lines = difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                  fromfile=f"a/{rel}" if old else "/dev/null", tofile=f"b/{rel}")
     return "".join(lines)[:80_000]
+
+
+def failed(command: str, output: str, code=None) -> dict:
+    """keel v1 post-failure (state.last_failure): the command and the first line of what it said."""
+    first = next((line.strip() for line in str(output or "").splitlines() if line.strip()), "")
+    return {"command": str(command or "")[:300], "output": (first or (f"exit {code}" if code is not None else "failed"))[:300]}
 
 
 class ToolBox:
@@ -57,6 +64,8 @@ class ToolBox:
         self.asker = asker
         # KeelBot's side session: the hook also refuses a write outside the root (its worktree); this ToolBox always does
         self.confine = confine
+        self.push_blockers: list[dict] = []   # runtime/blockers.py for_agents: the push gate for this run
+        self.failed_command: dict | None = None   # the last shell command that failed (keel v1 post-failure)
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -87,7 +96,7 @@ class ToolBox:
         if not r:
             return self._refuse("read_file", path, f"{path} is outside the project.")
         full, rel = r
-        v = rules.check_read(rel, self.cfg)
+        v = rules.check_read(rel, self.cfg, full=full, ranged=offset is not None or limit is not None, phase=self.phase)
         if v.ok and self.knowledge:
             v = rules.check_knowledge(rel, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
         if not v.ok:
@@ -96,7 +105,7 @@ class ToolBox:
             return f"ERROR: {rel} does not exist."
         st = full.stat()
         key, now = f"{rel}|{offset or ''}|{limit or ''}", (st.st_mtime_ns, st.st_size)
-        if self._reads.get(key) == now:   # same rule as the Claude hook (hook.already_read): saves tokens
+        if self._reads.get(key) == now and not rules.is_off(self.cfg, "read-twice"):   # as hook.already_read: saves tokens
             return (f"NOTE: you already read {rel} in this step and it has not changed since: use what you read. "
                     "To see another part, read a different range (offset/limit).")
         self._reads[key] = now
@@ -115,9 +124,11 @@ class ToolBox:
         if self.readonly:
             return self._refuse("write_file", rel, run_mode.READONLY_EDIT)
         v = rules.check_edit(self.phase, rel, self.cfg, exists=full.exists(), lane=self.lane, unlocks=self.unlocks)
+        old = full.read_text(errors="replace") if full.is_file() else ""
+        if v.ok:
+            v = rules.check_content(rel, rules.checks.added_text(old, content), self.cfg)
         if not v.ok:
             return self._refuse("write_file", rel, v.reason)
-        old = full.read_text(errors="replace") if full.is_file() else ""
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content)
         diff = unified_diff(rel, old, content)
@@ -129,7 +140,8 @@ class ToolBox:
         if why:
             return self._refuse("run_command", "", why, command=command)
         v = rules.check_bash(self.phase, command, self.cfg,
-                             exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks)
+                             exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks,
+                             push_blockers=self.push_blockers)
         if not v.ok:
             # path is the file the command tried to write (empty for a refused command with no target).
             return self._refuse("run_command", v.path, v.reason, command=command)
@@ -138,6 +150,8 @@ class ToolBox:
             if not ok:
                 return self._refuse("run_command", "", why, command=command)
         code, out = testcmd.run(self.root, command, timeout=timeout, env=command_env())
+        if code != 0:
+            self.failed_command = failed(command, out, code)
         return f"exit {code}\n{out[-8000:]}"
 
     def run_tests(self, ac: str | None = None) -> str:

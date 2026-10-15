@@ -1,7 +1,9 @@
 """keel's PreToolUse hook: `python -m keel_engine.hook pre-tool`.
 
-Claude Code (and the opencode plugin keel generates) runs it before Edit, Write, MultiEdit, NotebookEdit,
-Bash, Read and MCP tool calls, with the call as JSON on stdin ({tool_name, tool_input, cwd}). What the
+Claude Code, codex (its hooks, 0.150+) and the opencode plugin keel generates run it before Edit, Write, MultiEdit,
+NotebookEdit, Bash, Read and MCP tool calls, with the call as JSON on stdin ({tool_name, tool_input, cwd}); codex's
+own tool names (shell, exec_command, apply_patch) are read as Bash and Edit. The command wrappers keel puts on codex's
+and copilot's PATH (keel_engine/shim.py) ask the same `decide` as Bash. What the
 phase allows comes from the guard context named by KEEL_GUARD_CTX (runtime/guard_ctx.py) and the
 project's `.keel/config.yml`; the decision is keel's rules (check_edit, check_read, check_bash).
 
@@ -21,6 +23,7 @@ import sys
 from pathlib import Path
 
 from . import rules
+from .rules import checks as _checks  # noqa: F401  (rules.checks for the content check)
 from .runtime import permissions, run_mode
 from .runtime.guard_ctx import ENV
 
@@ -82,8 +85,74 @@ def _locate(root: str, path: str) -> tuple[str, Path]:
         return str(full), full
 
 
+SHELL_NAMES = {"shell", "exec_command", "local_shell", "unified_exec", "container.exec", "Shell", "run_shell_command"}
+PATCH_NAMES = {"apply_patch", "ApplyPatch", "patch"}
+
+
+def _shell_command(ti: dict) -> str:
+    cmd = ti.get("command") if "command" in ti else ti.get("cmd")
+    if isinstance(cmd, list):
+        words = [str(w) for w in cmd]
+        # ["bash", "-lc", "<script>"]: the script is the command
+        if len(words) >= 3 and words[1] in ("-c", "-lc") and words[0].rsplit("/", 1)[-1] in ("bash", "sh", "zsh"):
+            return words[-1]
+        import shlex
+
+        return shlex.join(words)
+    return str(cmd or "")
+
+
+def patch_files(text: str) -> dict[str, str]:
+    """{file: the lines the patch adds} for an apply_patch envelope (`*** Update File: x`) or a unified diff."""
+    out: dict[str, list[str]] = {}
+    cur = None
+    for line in str(text or "").split("\n"):
+        m = re.match(r"^\*\*\*\s+(?:Add|Update|Delete)\s+File:\s*(.+?)\s*$", line) or \
+            re.match(r"^\*\*\*\s+Move to:\s*(.+?)\s*$", line)
+        if m:
+            cur = m.group(1)
+            out.setdefault(cur, [])
+            continue
+        m = re.match(r"^\+\+\+\s+(?:b/)?(.+?)\s*$", line)
+        if m:
+            cur = None if m.group(1) == "/dev/null" else m.group(1)
+            if cur:
+                out.setdefault(cur, [])
+            continue
+        if cur and line.startswith("+") and not line.startswith("+++"):
+            out[cur].append(line[1:])
+    return {f: "\n".join(lines) for f, lines in out.items()}
+
+
+def _patch_text(ti: dict) -> str:
+    for v in [ti.get("input"), ti.get("patch"), ti.get("patchText"), ti.get("command"), *ti.values()]:
+        if isinstance(v, list):
+            v = next((x for x in v if isinstance(x, str) and ("*** Begin Patch" in x or "\n+++ " in x)), None)
+        if isinstance(v, str) and ("*** Begin Patch" in v or "+++ " in v or "*** Update File" in v):
+            return v
+    return ""
+
+
+def normalize(tool: str, ti: dict) -> list[tuple[str, dict]]:
+    """codex's tool calls in Claude's terms: its shell is Bash, a patch is one Edit per file (with the added text)."""
+    if tool in SHELL_NAMES:
+        cmd = _shell_command(ti)
+        if cmd.lstrip().startswith("apply_patch") or "*** Begin Patch" in cmd:
+            return normalize("apply_patch", {"input": cmd})
+        return [("Bash", {"command": cmd})]
+    if tool in PATCH_NAMES:
+        files = patch_files(_patch_text(ti))
+        if not files:
+            return [("Edit", {"file_path": "", "_unreadable_patch": True})]
+        return [("Edit", {"file_path": f, "new_string": added}) for f, added in files.items()]
+    return [(tool, ti)]
+
+
 def check_mcp(name: str, ti: dict, phase: str, cfg: dict, edit) -> str | None:
     """MCP tools (keel v1 checkMcp): serena's edits are edits; other write-ish tools need `mcp.allow` in a flow."""
+    v = rules.pack_verdict(cfg, "mcp", phase, name)
+    if v:
+        return v.reason
     if re.search("serena", name, re.I) and SERENA_EDIT.search(name):
         if re.search("write_memory", name, re.I):
             return "Serena memories are off inside keel flows: the spec, the flow state and git are the record."
@@ -94,7 +163,7 @@ def check_mcp(name: str, ti: dict, phase: str, cfg: dict, edit) -> str | None:
         return f"via {name}: {reason}" if reason else None
     if phase in ("", "none"):
         return None
-    if any(a and a in name for a in (cfg.get("mcp") or {}).get("allow") or []):
+    if any(a and a in name for a in (cfg.get("mcp") or {}).get("allow") or []) or rules.is_off(cfg, "mcp-writes"):
         return None
     # Judged on the tool's own name (mcp__<server>__<tool>), so a server called "runner" does not make every tool write-ish.
     if WRITEISH.search(name.split("__", 2)[-1]):
@@ -105,6 +174,15 @@ def check_mcp(name: str, ti: dict, phase: str, cfg: dict, edit) -> str | None:
 
 def decide(tool: str, ti: dict, ctx: dict) -> str | None:
     """None to allow the call, else the reason it is refused."""
+    calls = normalize(tool, ti)
+    if len(calls) != 1 or calls[0][0] != tool:
+        if any(t.get("_unreadable_patch") for _n, t in calls):
+            return "no file could be read out of this patch, so keel cannot check it. Name the files in the patch."
+        for name, t in calls:
+            refused = decide(name, t, ctx)
+            if refused:
+                return refused
+        return None
     root, phase = ctx["root"], ctx.get("phase") or "none"
     lane, unlocks = ctx.get("lane"), list(ctx.get("unlocks") or [])
     cfg = rules.load_config(root)
@@ -125,25 +203,48 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         v = rules.check_edit(phase, rel, cfg, exists=full.exists(), lane=lane, unlocks=unlocks)
         return None if v.ok else v.reason
 
+    def content(path: str) -> str | None:
+        # keel v1 H16/H6 at write time: what this call adds may not be a secret or a disabled test
+        rel, full = _locate(root, path)
+        if tool == "Write":
+            old = None
+            try:
+                old = full.read_text(errors="replace") if full.is_file() else None
+            except OSError:
+                pass
+            added = rules.checks.added_text(old, str(ti.get("content") or ""))
+        elif tool == "MultiEdit":
+            added = "\n".join(rules.checks.added_text(str(e.get("old_string") or ""), str(e.get("new_string") or ""))
+                              for e in ti.get("edits") or [] if isinstance(e, dict))
+        elif tool == "NotebookEdit":
+            added = str(ti.get("new_source") or "")
+        else:
+            added = rules.checks.added_text(str(ti.get("old_string") or ""), str(ti.get("new_string") or ti.get("content") or ""))
+        v = rules.check_content(rel, added, cfg)
+        return None if v.ok else v.reason
+
     if readonly and tool in WRITE_TOOLS:
         return run_mode.READONLY_EDIT
     if tool in WRITE_TOOLS:
         path = _path_arg(ti)
-        return edit(path) if path else None
+        return (edit(path) or content(path)) if path else None
     if tool == "Read":
         path = _path_arg(ti)
         if not path:
             return None
         rel, full = _locate(root, path)
-        v = rules.check_read(rel, cfg)
+        v = rules.check_read(rel, cfg, full=full, ranged=ti.get("offset") is not None or ti.get("limit") is not None, phase=phase)
         refused = knowledge(rel) if v.ok else v.reason
-        return refused or already_read(ctx.get("_path"), rel, full, ti.get("offset"), ti.get("limit"))
+        if refused or rules.is_off(cfg, "read-twice"):
+            return refused
+        return already_read(ctx.get("_path"), rel, full, ti.get("offset"), ti.get("limit"))
     if tool == "Bash":
         refused = knowledge(str(ti.get("command") or "")) or (run_mode.readonly_bash(str(ti.get("command") or "")) if readonly else None)
         if refused:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg,
-                             exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks)
+                             exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks,
+                             push_blockers=ctx.get("push_blockers"))
         if not v.ok:
             return v.reason
         # KeelBot's Fix mode: a command that changes something waits for the person's OK (runtime/permissions.py)

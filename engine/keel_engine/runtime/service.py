@@ -498,6 +498,28 @@ class Engine:
 
     # ------------------------------------------------------------ unlocks
 
+    async def rules_now(self, tid: str) -> dict:
+        """v0.16.2 "Rules now" on the Flow page: what agents may change in the thread's phase (runtime/rules_view.py),
+        with the engine of its last agent and the last shell command an agent saw fail."""
+        from . import rules_view
+
+        st = await self.state(tid)
+        ctx = await self._context(tid)
+        graph = await self._graph(tid)
+        v = (await graph.aget_state(self._cfg(tid))).values or {}
+        ac_id = st.get("ac") if isinstance(st.get("ac"), str) else (st.get("ac") or {}).get("id")
+        ac = next((a for a in st.get("acs") or [] if a["id"] == ac_id), None)
+        lane = rules.ac_lane(ac) if ac else None
+        started = self.bus.of(tid, "agent.started")
+        last = (started[-1].get("data") or {}) if started else {}
+        if not last:
+            m = (ctx.models or {}).get("default") or {}
+            last = {"provider": m.get("provider"), "mode": m.get("mode")}
+        unlocks = merge_unlocks(list(v.get("unlocks") or []), ctx.api_unlocks)
+        out = await asyncio.to_thread(rules_view.now, ctx.root, st.get("phase"), lane, unlocks, last.get("provider"),
+                                      last.get("mode"), (v.get("data") or {}).get("last_command_failure"))
+        return {**out, "thread_id": tid, "status": st.get("status"), "current": st.get("current")}
+
     async def unlocks(self, tid: str) -> list[dict]:
         """The thread's unlocks: those in its graph state plus those granted since its last step."""
         await self._row(tid)

@@ -1,0 +1,10 @@
+# keel rule pack: a frontend criterion never touches the backend.
+id: frontend-not-api
+name: Frontend can't touch the API
+description: While an agent works on a web criterion, the backend, the contract and the migrations are off limits.
+rules:
+  - id: web-lane-no-api
+    kind: edit
+    match: ["apps/api/**", "api/**", "backend/**", "server/**", "**/openapi.yaml", "**/openapi.json", "**/db/migration/**"]
+    lanes: [web]
+    reason: This is a web criterion. If the API must change, say so; it becomes its own API criterion.

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .. import rules
+from ..rules import checks as _checks  # noqa: F401  (rules.checks.added_text)
 from . import git
 
 
@@ -71,11 +72,35 @@ def _restore(root: str, rel: str, before: Snapshot):
             parent = parent.parent
 
 
+def _old_text(root: str, rel: str, before: Snapshot) -> str | None:
+    if rel in before.content:
+        old = before.content[rel]
+        return old.decode(errors="replace") if old is not None else None
+    if git.tracked_in_head(root, rel):
+        r = git.git(root, "show", f"HEAD:{rel}")
+        return r.stdout if r.returncode == 0 else None
+    return None
+
+
+def content_refusal(root: str, rel: str, before: Snapshot, cfg: dict) -> str | None:
+    """keel v1 H16/H6 for every engine: a changed file whose new lines hold a secret or a disabled-test marker."""
+    f = Path(root) / rel
+    try:
+        if not f.is_file() or f.stat().st_size > 2_000_000:
+            return None
+        new = f.read_text(errors="replace")
+    except OSError:
+        return None
+    v = rules.check_content(rel, rules.checks.added_text(_old_text(root, rel, before), new), cfg)
+    return None if v.ok else v.reason
+
+
 def guard_diff(root: str, phase: str, before: Snapshot | None, cfg: dict | None = None,
                lane: str | None = None, unlocks: list[dict] | None = None, readonly: bool = False) -> list[dict]:
     """Revert disallowed changes. Returns [{path, bucket, reason}] for each file put back.
 
-    `readonly` (run mode readonly): every change is put back, in any phase, unlocks or not."""
+    `readonly` (run mode readonly): every change is put back, in any phase, unlocks or not. A file whose new lines hold
+    a secret or a disabled test is put back too (rules.check_content), in any phase."""
     if before is None or ((not phase or phase == "none") and not readonly):
         return []
     cfg = cfg or rules.load_config(root)
@@ -87,7 +112,10 @@ def guard_diff(root: str, phase: str, before: Snapshot | None, cfg: dict | None 
         if readonly:
             v = rules.Verdict(False, v.bucket, f"{rel}: this flow runs read-only (run mode readonly); no file may change.")
         if v.ok:
-            continue
+            why = content_refusal(root, rel, before, cfg)
+            if not why:
+                continue
+            v = rules.Verdict(False, "content", why)
         _restore(root, rel, before)
         refused.append({"path": rel, "bucket": v.bucket, "reason": v.reason})
     return refused

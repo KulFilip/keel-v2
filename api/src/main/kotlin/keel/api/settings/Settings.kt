@@ -15,7 +15,6 @@ data class Settings(
     val gatesMode: String = "every-ac",
     /** v0.4.1: how much keel decides by itself (manual | important | auto | readonly); a flow may pick another at start. */
     val runMode: String = "manual",
-    val keelRules: Boolean = true,
     val fixAttempts: Int = 3,
     val coverageMin: Int = 80,
     val defaultModel: Model = Model(),
@@ -46,7 +45,7 @@ data class Settings(
     companion object {
         val RUN_MODES = setOf("manual", "important", "auto", "readonly")
         val KEYS = listOf(
-            "gates_mode", "run_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
+            "gates_mode", "run_mode", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
             "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "keel_mode",
         )

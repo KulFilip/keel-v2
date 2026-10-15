@@ -1,9 +1,10 @@
 """Subscription-mode runners: claude, codex, copilot (Copilot CLI) and opencode.
 
 Each turns its CLI's stream into steps, like Yegi's activity.py: text, thinking, tool, write, edit,
-result, answer. CLI agents edit files directly. claude and opencode run keel's PreToolUse hook
-(keel_engine.hook) before every guarded tool call; codex and copilot have no such hook, so for them the
-runtime's after-step diff guard (tools/guard.py) is what enforces the phase rules.
+result, answer. CLI agents edit files directly. claude, opencode and codex 0.150+ (its hooks) run keel's PreToolUse
+hook (keel_engine.hook) before every guarded tool call. copilot (and an older codex) has no hook keel can load: its
+shell commands go through keel's command wrappers (keel_engine/shim.py), and its own file edits are judged by the
+runtime's after-step diff guard (tools/guard.py), which backs up every engine. PROTECTION says which is which.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 
 from .. import config
 from ..tools import git, mcp
-from ..tools.agent_tools import unified_diff
+from ..tools.agent_tools import failed as failed_command, unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
 from .. import hook
 from ..runtime import guard_ctx, permissions, prompts
@@ -34,6 +35,44 @@ HOOK_REFUSAL = re.compile(re.escape(hook.MARKER) + r"\s*(.+)", re.S)
 def hook_refusal(text: str) -> str | None:
     m = HOOK_REFUSAL.search(text)
     return " ".join(m.group(1).split())[:600] if m else None
+
+# How much of keel's guard runs before an agent's action, per engine (the Rules page and "Rules now" show it):
+#   before   every edit, shell command, read and MCP call is checked before it runs (and the diff guard after the step)
+#   partial  shell commands are checked before they run (wrappers); file edits only after the step (diff guard)
+#   after    only the after-step diff guard
+PROTECTION = {"claude": "before", "opencode": "before", "api": "before", "fake": "before", "codex": "before",
+              "copilot": "partial"}
+CODEX_HOOKS_FROM = (0, 150, 0)
+_codex_version: dict = {}
+
+
+def codex_version() -> tuple[int, ...] | None:
+    """`codex --version` ("codex-cli 0.160.0"), asked once per engine process."""
+    if "v" not in _codex_version:
+        v = None
+        try:
+            r = subprocess.run([find("codex"), "--version"], capture_output=True, text=True, timeout=10)
+            m = re.search(r"(\d+)\.(\d+)\.(\d+)", r.stdout or "")
+            v = tuple(int(x) for x in m.groups()) if m else None
+        except (OSError, subprocess.TimeoutExpired, ModelError):
+            v = None
+        _codex_version["v"] = v
+    return _codex_version["v"]
+
+
+def codex_hooks() -> bool:
+    v = codex_version()
+    return bool(v and v >= CODEX_HOOKS_FROM)
+
+
+def protection(provider: str, mode: str | None = None) -> str:
+    """before | partial | after for one engine (an API-key model always runs keel's ToolBox: before)."""
+    if mode == "api":
+        return "before"
+    if provider == "codex":
+        return "before" if codex_hooks() else "partial"
+    return PROTECTION.get(provider, "after")
+
 
 CLAUDE_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 # Taken out of the model's tool list, so it does not spend turns on calls that print mode refuses anyway:
@@ -247,6 +286,7 @@ class ClaudeStream:
         self.emit, self.root, self.tools, self.result = emit, root, {}, {}
         self.inputs: dict = {}
         self.refusals: list[dict] = []
+        self.failed: dict | None = None    # the last Bash call that failed (keel v1 post-failure)
         self.windows: list[dict] = []      # the plan's usage windows from rate_limit_event lines (models/usage.py)
         self.steps = Steps(emit, root)
 
@@ -294,6 +334,8 @@ class ClaudeStream:
                     self.refusals.append(item)
                     self.emit("guard", reason, tool=name, path=rel or None, ok=False)
                     continue
+                if name == "Bash" and b.get("is_error"):
+                    self.failed = failed_command((self.inputs.get(call_id) or {}).get("command"), text)
                 if name == "TodoWrite":
                     self.steps.pending.pop(call_id, None)
                     continue
@@ -381,6 +423,8 @@ class ClaudeCLIRunner:
         text = res.get("result", "")
         emit("answer", cap(text))
         data: dict = {"refusals": stream.refusals} if stream.refusals else {}
+        if stream.failed:
+            data["failed_command"] = stream.failed
         if stream.windows:
             data["usage_windows"] = stream.windows
         return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached, cost_usd=float(res.get("total_cost_usd") or 0.0),
@@ -425,6 +469,8 @@ def codex_line(emit: Emit, root: str, ev: dict, state: dict):
         code = item.get("exit_code")
         out = item.get("aggregated_output")
         ok = code in (0, None) and item.get("status") != "failed"
+        if not ok:
+            state["failed"] = failed_command(item.get("command"), out or "", code)
         emit("tool", cap(item.get("command") or "", 4000), tool="Bash",
              output=head_lines(out if out else (f"exit {code}" if code not in (0, None) else ""), OUTPUT_LINES), ok=ok, ms=ms)
     elif it == "agent_message" and item.get("text", "").strip():
@@ -457,9 +503,19 @@ def codex_line(emit: Emit, root: str, ev: dict, state: dict):
 
 class CodexCLIRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
-        # codex has no hook for keel's guard: a read-only run (run mode readonly, KeelBot's Ask) gets its read-only sandbox
+        # a read-only run (run mode readonly, KeelBot's Ask) gets codex's read-only sandbox as well as keel's guard
         sandbox = "read-only" if getattr(req.toolbox, "readonly", False) else "workspace-write"
         argv = [find("codex"), "exec", "--json", "-s", sandbox, "--skip-git-repo-check", "-C", req.root]
+        # keel's guard: codex 0.150+ runs keel's PreToolUse hook (given with -c, nothing written to CODEX_HOME); every
+        # codex also gets keel's command wrappers first on its PATH (keel_engine/shim.py)
+        scratch = guard_ctx.scratch(req)
+        hooks = await asyncio.to_thread(codex_hooks)
+        if hooks:
+            argv += guard_ctx.codex_hook_args(permissions.HOOK_TIMEOUT if getattr(req.toolbox, "ask", None) else 10)
+        shims = await asyncio.to_thread(guard_ctx.write_shims, Path(scratch) / "keel-bin")
+        if not hooks:
+            emit("text", "keel checks this codex's shell commands before they run; its file edits are checked after "
+                         "the step (this codex has no hooks: update it for full checks).")
         if req.model.get("model"):
             argv += ["-m", req.model["model"]]
         if req.model.get("effort"):
@@ -479,7 +535,9 @@ class CodexCLIRunner:
 
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         try:
-            await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=safe_env(codex_login_env(req.keys)), timeout=req.timeout, on_line=on_line)
+            env = safe_env({**codex_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch)})
+            env.update(guard_ctx.shim_env(shims, env.get("PATH")))
+            await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
         except ModelError as exc:
             if req.session and req.resume and NO_SESSION.search(str(exc)):
                 emit("text", "Could not continue the earlier session for this step; starting a new one.")
@@ -495,7 +553,8 @@ class CodexCLIRunner:
         text = state.get("text", "")
         emit("answer", cap(text))
         # Subscription use has no per-token price; the plan pays for it.
-        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached)
+        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached,
+                           data={"failed_command": state["failed"]} if state.get("failed") else {})
 
 
 class CopilotCLIRunner:
@@ -507,8 +566,11 @@ class CopilotCLIRunner:
         # agents never need them (keel opens the PR itself)
         argv = [find("copilot"), "-p", prompt, "--allow-all-tools", "--no-color", "--disable-builtin-mcps"]
         if getattr(req.toolbox, "readonly", False):
-            # no hook for keel's guard here either: a read-only run may not write files or run shell commands
+            # no hook for keel's guard here: a read-only run may not write files or run shell commands
             argv += ["--deny-tool", "write", "--deny-tool", "shell"]
+        elif req.phase not in (None, "", "none"):
+            # in a flow keel makes the commits (also refused by the wrappers; this keeps copilot from trying)
+            argv += ["--deny-tool", "shell(git commit)"]
         if req.model.get("model"):
             argv += ["--model", req.model["model"]]
         servers = mcp.servers_for(req.mcp_specs, req.tools_allow)
@@ -517,7 +579,12 @@ class CopilotCLIRunner:
                                   for s in servers}}
             argv += ["--additional-mcp-config", json.dumps(cfg)]
         login = copilot_login_env(req.keys) or ({"GH_TOKEN": req.key, "COPILOT_GITHUB_TOKEN": req.key} if req.key else {})
-        env = safe_env(login)
+        # keel's guard: copilot's shell commands go through keel's command wrappers (keel_engine/shim.py); its own file
+        # edits are judged after the step by the diff guard
+        scratch = guard_ctx.scratch(req)
+        shims = await asyncio.to_thread(guard_ctx.write_shims, Path(scratch) / "keel-bin")
+        env = safe_env({**login, guard_ctx.ENV: guard_ctx.ensure(req, scratch)})
+        env.update(guard_ctx.shim_env(shims, env.get("PATH")))
         lines: list[str] = []
         para: list[str] = []
 
@@ -590,8 +657,11 @@ class OpenCodeRunner:
             raise ModelError(f"opencode reported an error: {state['error']}")
         text = "\n".join(state["text"])
         emit("answer", cap(text))
+        data: dict = {"refusals": refusals} if refusals else {}
+        if getattr(steps, "failed", None):
+            data["failed_command"] = steps.failed
         return AgentResult(text=text, tokens_in=state["in"], tokens_out=state["out"], cost_usd=state["cost"], premium_requests=1,
-                           data={"refusals": refusals} if refusals else {})
+                           data=data)
 
 
 def opencode_tool(steps: "Steps", part: dict) -> dict | None:
@@ -616,6 +686,8 @@ def opencode_tool(steps: "Steps", part: dict) -> dict | None:
     ms = int(tm["end"] - tm["start"]) if isinstance(tm.get("end"), (int, float)) and isinstance(tm.get("start"), (int, float)) else None
     meta = st.get("metadata") or {}
     ok = status != "error"
+    if part.get("tool") == "bash" and (not ok or (isinstance(meta.get("exit"), int) and meta["exit"] != 0)):
+        steps.failed = failed_command((st.get("input") or {}).get("command"), st.get("error") or st.get("output") or "", meta.get("exit"))
     output = st.get("output") if ok else (st.get("error") or st.get("output"))
     if not isinstance(output, str):
         output = json.dumps(output, ensure_ascii=False) if output is not None else None
@@ -645,16 +717,19 @@ const HOOK = __HOOK__;
 const TOOL = { read: 'Read', write: 'Write', edit: 'Edit', bash: 'Bash' };
 const PATCH = new Set(['apply_patch', 'patch']);
 
-// File paths named in a patch body: opencode's `*** Update File:` envelope and plain unified-diff headers.
-function patchPaths(text) {
-  const out = new Set();
+// Files named in a patch body (opencode's `*** Update File:` envelope and unified-diff headers), each with the lines
+// the patch adds (keel checks them for secrets and disabled tests).
+function patchFiles(text) {
+  const out = new Map();
+  let cur = null;
   for (const line of String(text || '').split('\\n')) {
     let m = line.match(/^\\*\\*\\*\\s+(?:Add|Update|Delete)\\s+File:\\s*(.+?)\\s*$/);
-    if (m) { out.add(m[1]); continue; }
+    if (m) { cur = m[1]; if (!out.has(cur)) out.set(cur, []); continue; }
     m = line.match(/^\\+\\+\\+\\s+(?:b\\/)?(.+?)\\s*$/);
-    if (m && m[1] !== '/dev/null') out.add(m[1]);
+    if (m) { cur = m[1] === '/dev/null' ? null : m[1]; if (cur && !out.has(cur)) out.set(cur, []); continue; }
+    if (cur && line.startsWith('+')) out.get(cur).push(line.slice(1));
   }
-  return [...out];
+  return [...out.entries()].map(([file, lines]) => ({ file, added: lines.join('\\n') }));
 }
 
 // null when the hook allows the call, else the reason it does not.
@@ -681,10 +756,10 @@ export const KeelGuard = async ({ directory, worktree }) => {
         refuse('sub-agents are off in keel runs: opencode does not run plugins inside them, so their edits would not be checked.');
       }
       if (PATCH.has(tool)) {
-        const files = patchPaths(args.patchText || args.patch);
+        const files = patchFiles(args.patchText || args.patch);
         if (!files.length) refuse('no file could be read out of this patch, so keel cannot check it. Use the edit or write tool.');
-        for (const file of files) {
-          const reason = ask('Edit', { file_path: file }, cwd);
+        for (const { file, added } of files) {
+          const reason = ask('Edit', { file_path: file, new_string: added }, cwd);
           if (reason) refuse(reason);
         }
         return;
@@ -692,7 +767,9 @@ export const KeelGuard = async ({ directory, worktree }) => {
       let name = TOOL[tool];
       let toolInput;
       if (name === 'Bash') toolInput = { command: args.command };
-      else if (name) toolInput = { file_path: args.filePath || args.path };
+      else if (name === 'Write') toolInput = { file_path: args.filePath || args.path, content: args.content };
+      else if (name === 'Edit') toolInput = { file_path: args.filePath || args.path, old_string: args.oldString, new_string: args.newString };
+      else if (name) toolInput = { file_path: args.filePath || args.path, offset: args.offset, limit: args.limit };
       else if (tool.includes('_')) {
         const at = tool.indexOf('_');     // MCP tools are <server>_<tool>
         name = `mcp__${tool.slice(0, at)}__${tool.slice(at + 1)}`;

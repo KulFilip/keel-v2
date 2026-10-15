@@ -6,12 +6,16 @@ write with its diff. Tokens follow the agent's typical size, so budgets and esti
 
 Model id "fake-rogue" also writes a test file directly to disk, bypassing the tools, the way a CLI
 agent could. The diff guard must catch it; tests use this.
+
+KEEL_FAKE_COMMAND: a shell command every writing agent runs through its tools first (run_command), so a test or a
+real check can watch keel's rules refuse it (v0.16.2 rule packs).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 
@@ -106,7 +110,7 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return f"src/scores/{k}.py", f'def run():\n    return "{ac_id} done"\n', f"GREEN: {ac_id} passes.", {}
     if agent == "e2e-author":
         return f"e2e/test_{key_of(title)}_e2e.py", f'"""E2E for {title}."""\n\n\ndef test_flow():\n    assert True\n', \
-            "E2E spec written and passing.", {}
+            "E2E spec written and passing.\nE2E-RESULT: pass", {}
     if agent == "librarian":
         section = req.section or (SECTIONS[req.index % len(SECTIONS)] if phase in ("setup", "memory") else "architecture")
         kdir = layout.resolve(req.root).knowledge if req.root else "docs/knowledge"
@@ -199,6 +203,13 @@ class FakeRunner:
         await pause()
 
         path, content, answer, data = _plan(req)
+        command = os.environ.get("KEEL_FAKE_COMMAND", "").strip()
+        if path and command:
+            out = req.toolbox.run_command(command, timeout=60)
+            refused = out.startswith("REFUSED")
+            emit("guard" if refused else "tool", out if refused else command, tool="run_command",
+                 **({} if refused else {"output": out[:2000]}), ok=not refused)
+            await pause()
         if path:
             msg = req.toolbox.write_file(path, content)
             if msg.startswith("REFUSED"):

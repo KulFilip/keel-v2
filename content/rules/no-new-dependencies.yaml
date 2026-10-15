@@ -1,0 +1,14 @@
+# keel rule pack: no new dependencies, in any phase (keel's own rule only covers a flow).
+id: no-new-dependencies
+name: No new dependencies
+description: Agents never add a package, inside or outside a flow. A person adds it and the lockfile follows.
+rules:
+  - id: no-install
+    kind: bash
+    how: regex
+    match: ['\b(npm|pnpm|yarn|bun)\s+(add|install|i)\s+[^-\s]', '\b(pip|pip3|uv\s+pip)\s+install\s+[^-\s]', '\b(uv|poetry|cargo)\s+add\b', '\bgo\s+get\b', '\bgem\s+install\b']
+    reason: Adding a package is a person's decision. Say which package you need and why in your answer.
+  - id: no-lockfile-by-hand
+    kind: edit
+    match: ["**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock", "**/uv.lock", "**/poetry.lock", "**/Cargo.lock", "**/go.sum", "**/gradle.lockfile"]
+    reason: A lockfile is written by the package manager, not by hand.
