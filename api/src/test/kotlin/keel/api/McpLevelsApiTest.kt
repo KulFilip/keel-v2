@@ -66,6 +66,15 @@ class McpLevelsApiTest : ApiTest() {
     // the Database plugin's query route at the read level: plugins/db/api DatabaseMcpLevelApiTest
 
     @Test
+    fun `an agent at the read level may ask for a plugin, never install one`() {
+        // keel_plugin_request is a read-level tool (step 4): its POST only opens an Inbox request a person approves
+        val ask = mapOf("name" to "lv-hello", "reason" to "the flow needs it", "source" to "agent")
+        assertThat(post("/api/plugins/requests", ask, mcp()).andReturn().response.status).isNotEqualTo(403)
+        assertThat(post("/api/plugins/requests", ask, mcp("read")).andReturn().response.status).isNotEqualTo(403)
+        post("/api/plugins/install", mapOf("name" to "lv-hello"), mcp("read")).andExpect(status().isForbidden)
+    }
+
+    @Test
     fun `the read actions are the engine's`() {
         // Twin of engine tests/test_mcp.py test_read_actions_match_the_api: both pin action_docs.ACTION_LEVELS.
         assertThat(McpLevelGuard.READ_ACTIONS).containsExactlyInAnyOrder("audit", "trace", "trace_strict", "arch", "arch_detect",

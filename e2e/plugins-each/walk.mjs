@@ -90,6 +90,18 @@ page.on("response", (res) => {
   if (res.status() >= 400) seen.failed.push(`${res.request().method()} ${rel(res.url())} → ${res.status()}`);
 });
 
+// Failed requests keel 0.16.1 makes too (parity.py lists them as notes): the fixture has no GitHub remote, so CI/CD's
+// runs and Git's pull request answer 400. They are not a plugin problem; each takes its console line with it.
+const KNOWN = [/^GET \/api\/projects\/[^/]+\/ci\/runs(\?\S*)? → 400$/, /^GET \/api\/projects\/[^/]+\/git\/pr(\?\S*)? → 400$/];
+const LOAD_400 = /^Failed to load resource: the server responded with a status of 400/;
+
+function withoutKnown(failed, consoleLines) {
+  const left = failed.filter((f) => !KNOWN.some((re) => re.test(f)));
+  let drop = failed.length - left.length;
+  const lines = consoleLines.filter((c) => !(drop > 0 && LOAD_400.test(c) && drop--));
+  return [left, lines];
+}
+
 async function check(what, ok, detail = "") {
   let file = "";
   if (!ok) {
@@ -175,7 +187,8 @@ async function visit(hash) {
       }
     }
   }
-  return { console: [...new Set(seen.console)], failed: [...new Set(seen.failed)], offAsked: [...new Set(seen.offAsked)],
+  const [failed, lines] = withoutKnown(seen.failed, seen.console);
+  return { console: [...new Set(lines)], failed: [...new Set(failed)], offAsked: [...new Set(seen.offAsked)],
     dead: [...dead], missing, tabs };
 }
 
@@ -198,7 +211,8 @@ try {
   await wait(2500);
   pages = await page.evaluate(() => (window.__keel?.sdk?.allPages?.() ?? []).map((p) => p.id).sort());
   menu = await page.evaluate(() => [...document.querySelectorAll("nav#nav .nav-sec a")].map((a) => a.getAttribute("href")));
-  const startBad = [...seen.console, ...seen.failed, ...seen.offAsked.map((x) => `off plugin asked: ${x}`)];
+  const [startFailed, startConsole] = withoutKnown(seen.failed, seen.console);
+  const startBad = [...startConsole, ...startFailed, ...seen.offAsked.map((x) => `off plugin asked: ${x}`)];
   await check("start: no console error, failed request or request to an off plugin", !startBad.length, startBad.join(" | "));
 
   // ---- every page

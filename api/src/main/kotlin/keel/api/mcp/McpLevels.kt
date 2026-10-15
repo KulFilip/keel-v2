@@ -105,6 +105,9 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         }
         val path = request.requestURI.trimEnd('/')
         if (method == "POST" && DB_QUERY.matches(path)) return "read"     // a change needs write: DatabaseController checks the body
+        // step 4: keel_plugin_request is a read-level tool (agents run keel2 mcp --read-only); it only opens an Inbox
+        // request a person approves, and the marketplace rule "agents may ask" still decides (PluginRequests)
+        if (method == "POST" && path == PLUGIN_REQUESTS) return "read"
         if (ADMIN.any { (m, re) -> m == method && re.matches(path) }) return "admin"
         return "write"
     }
@@ -129,6 +132,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
 
         private val ACTION = Regex("^/api/projects/[^/]+/actions/([^/]+)$")
         private val DB_QUERY = Regex("^/api/projects/[^/]+/db/query$")
+        private const val PLUGIN_REQUESTS = "/api/plugins/requests"
         private val ADMIN = listOf(
             "POST" to Regex("^/api/threads/[^/]+/stop$"),
             "DELETE" to Regex("^/api/projects/[^/]+/flows/[^/]+$"),
