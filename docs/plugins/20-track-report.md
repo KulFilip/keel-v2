@@ -149,7 +149,19 @@ Full image `keel-v2:fin` (run of 2026-10-15, 54.8 min for both phases; the walk 
 A plugin's own pages (the page registry): code → `repo`, keelbot → `helper`, map → `map`, graph → `graph`, wiki → `wiki`,
 tasks → `tasks`. Git, db, review, ci and jira have no page of their own: they add slots and views to other pages.
 
-PRODUCT_ROWS
+Product image `keel-v2:fin-product` (`--only product`, on `2bd1d9f`; 198 checks, 0 issues, 15.6 min). Here "off" means
+every other plugin of the product image is on.
+
+| plugin  | alone          | off            | differences found                                   |
+| ------- | -------------- | -------------- | --------------------------------------------------- |
+| tasks   | ok (21 checks) | ok (23 checks) | none (off = jira and product off too)               |
+| jira    | ok (22 checks) | ok (23 checks) | none (alone = with tasks; off = product off too)    |
+| product | ok (22 checks) | ok (23 checks) | none (alone = with tasks and jira)                  |
+| all on  | ok (20 + 23)   |                | none                                                |
+| core    | ok (21 checks) |                | none (every plugin off)                             |
+
+Product's own pages are `initiatives` and `teams` (add-on screens), there only when Product is on. The earlier Product
+runs found only the two test bugs (fixes 3 and 4 above); no keel difference.
 
 ## Every check
 
@@ -177,7 +189,10 @@ PRODUCT_ROWS
 | Product e2e (`fin-product`) | PASSED, 27 checks |
 | plugin host (`e2e/plugins`: core-only, image, install, safe, broken, upgrade from 0.14.0-product-beta) | PASSED, 36 checks |
 
-CORE_NATIVE_ROWS
+| e2e (image) | result |
+| ----------- | ------ |
+| core image `keel-v2:fin-core` (`e2e/core --only core`) | PASSED, 37 checks, first try: no plugin inside, no plugin page, "Start with a set" with its four sets, every core page without errors or dead links, the launcher and key sheet without plugin pieces. Image 3.7 GB (978 MB packed) |
+| native mode (`scripts/build-native.sh`, a real `keel2 start --native` with a temp `KEEL2_HOME` on its own port) | PASSED: the native package holds the 11 plugins; `/api/plugin-host` lists them with no problems; the plugin apis answer; `keel2 mcp` lists the db, git and ci tools; `--native --core` is refused with a clear message; `keel2 stop` stops it all |
 
 ## What is left only for Milad
 
@@ -210,9 +225,10 @@ These steps go outside this computer (keys, GitHub, releases). Nothing here did 
    with a path, `keel_knowledge` with a section and `keel_search` for symbols answer the api's **404**. They are still
    listed (0.16.1's list must stay the same with every plugin on). Keep it so, or hide them / give a clearer message
    when the plugin is off?
-4. From [15-step4-report.md](15-step4-report.md#open): a plugin's agents are not on the Agents page; a content-only
-   plugin does not load its workflows and agents yet.
+4. **Agents of plugins on the Agents page:** step 7 shows the agents of plugins installed from the marketplace or a
+   file; the image's plugins keep 0.16.1's list exactly (so Product's image does not change). Show all plugins' agents
+   later? (Content-only plugins load their workflows and agents since step 7.)
 
 ## Disk
 
-The run built one image at a time and removed each one after its tests. Free space on the data disk: DISK_LINE.
+The run built one image at a time and removed each one after its tests. Free space on the data disk: 58 GB at the start of the run, 38 GB at the end (all test images, containers, volumes and scratch folders removed; only the released 0.16.1 and 0.15.7 images stay).
