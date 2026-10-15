@@ -10,8 +10,6 @@ import keel.api.engine.EngineClient
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * v0.16.2 keel's rules for one project (the Rules page, "Rules now" on the Flow page, MCP keel_rules).
@@ -28,7 +26,6 @@ class RulesService(
     private val projects: ProjectService,
     private val mapper: ObjectMapper,
 ) {
-    private fun q(s: String) = URLEncoder.encode(s, StandardCharsets.UTF_8)
     private fun root(pid: String) = projects.root(pid).toString()
 
     private fun packId(id: String): String {
@@ -36,7 +33,7 @@ class RulesService(
         return id
     }
 
-    fun view(pid: String): JsonNode = engine.get("/rules?root=${q(root(pid))}")
+    fun view(pid: String): JsonNode = engine.get("/rules", mapOf("root" to root(pid)))
 
     fun setConfig(pid: String, patch: Map<String, Any?>): JsonNode =
         engine.post("/rules/config", mapOf("root" to root(pid), "patch" to patch))
@@ -53,10 +50,10 @@ class RulesService(
         return engine.post("/rules/packs", mapOf("root" to root(pid), "yaml" to yaml, "replace" to replace?.let { packId(it) }))
     }
 
-    fun remove(pid: String, id: String): JsonNode = engine.delete("/rules/packs/${packId(id)}?root=${q(root(pid))}")
+    fun remove(pid: String, id: String): JsonNode = engine.delete("/rules/packs/${packId(id)}", mapOf("root" to root(pid)))
 
     fun export(pid: String, id: String): String =
-        engine.get("/rules/packs/${packId(id)}?root=${q(root(pid))}").get("yaml")?.asText() ?: ""
+        engine.get("/rules/packs/${packId(id)}", mapOf("root" to root(pid))).get("yaml")?.asText() ?: ""
 
     /** Validate a pack and run it against the project's recent tool calls (what it would have refused). */
     fun check(pid: String, yaml: String): JsonNode {
@@ -92,7 +89,7 @@ class RulesService(
     fun now(tid: String): JsonNode {
         val pid = jdbc.query("SELECT project_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) }, tid).firstOrNull()
             ?: throw NotFound("No flow $tid")
-        val out = engine.get("/threads/${q(tid)}/rules-now") as ObjectNode
+        val out = engine.get("/threads/$tid/rules-now") as ObjectNode
         val rows = jdbc.query(
             "SELECT at, step, data_json FROM events WHERE thread_id = ? AND type = 'guard.refused' ORDER BY id",
             { rs, _ -> Triple(rs.getString(1), rs.getString(2), Json.readMap(rs.getString(3))) }, tid,

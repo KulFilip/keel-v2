@@ -28,7 +28,7 @@ export function LibraryDrawer({ pid, installed, onClose, onView }: {
       const r = await rulesApi.install(pid, p.id);
       onView(r.view);
       setHave((h) => [...h, p.id]);
-      toast(`${p.name} installed in .keel/rules/${p.id}.yaml. Agents meet it at their next tool call.`);
+      toast(`${p.name} installed in .keel/rules/${p.id}.yaml. Agents meet it at their next tool call; commit the file to share it with the team.`);
     } catch (e) {
       setErr(toErr(e));
     } finally {

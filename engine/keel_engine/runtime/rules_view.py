@@ -39,7 +39,18 @@ class RulesError(Exception):
 
 # ------------------------------------------------------------------ who checks what, when
 
-def enforced(kind: str, match: list[str] | None = None) -> dict[str, str]:
+def wrapped_only(match: list[str] | None, how: str | None = None) -> bool:
+    """Does every pattern of a shell rule name a program keel wraps (shim.NAMES)? A regex counts when it names one."""
+    names = set(WRAPPED)
+    if not match:
+        return True
+    if how == "regex":
+        return all(any(re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", re.sub(r"\\[bsSwWdD]", " ", m)) for n in names)
+                   for m in match)
+    return all(str(m).split() and str(m).split()[0] in names for m in match)
+
+
+def enforced(kind: str, match: list[str] | None = None, how: str | None = None) -> dict[str, str]:
     """Per engine, when a rule of this kind is checked: before (the action is stopped), wrapped (shell: only commands of
     the programs keel wraps), after (the diff guard puts the file back after the step), none (not checked)."""
     codex_before = cli_runners.codex_hooks()
@@ -54,8 +65,7 @@ def enforced(kind: str, match: list[str] | None = None) -> dict[str, str]:
             if p == "before":
                 out[e] = "before"
             else:
-                first = {str(m).split()[0] for m in match or [] if str(m).split()}
-                out[e] = "wrapped" if not first or first <= set(WRAPPED) else "none"
+                out[e] = "wrapped" if wrapped_only(match, how) else "none"
         elif kind == "read":
             out[e] = "before" if p == "before" else "none"
         elif kind == "mcp":
@@ -69,10 +79,10 @@ def _kinds(kind: str) -> list[str]:
     return [k.strip() for k in kind.replace("bash", "shell").split(",")]
 
 
-def _merge_enforced(kind: str, match: list[str] | None = None) -> dict[str, str]:
+def _merge_enforced(kind: str, match: list[str] | None = None, how: str | None = None) -> dict[str, str]:
     """A rule of several kinds (edit, read, shell): the weakest per engine."""
     order = ["before", "wrapped", "after", "none"]
-    got = [enforced(k, match) for k in _kinds(kind)]
+    got = [enforced(k, match, how) for k in _kinds(kind)]
     return {e: max((g[e] for g in got), key=order.index) for e in ENGINES}
 
 
@@ -132,7 +142,7 @@ def view(root: str) -> dict:
                       "default": _get(rules.DEFAULT_CONFIG, key), "enforced": _merge_enforced(kind, value if form == "texts" else None),
                       "saved_in": CONFIG if mine is not None else "keel's default (saved to .keel/config.yml when you change it)"})
     packs = [{**p, "off": f"pack/{p['id']}" in off, "saved_in": p["file"],
-              "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None)}
+              "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None, r.get("how"))}
                         for r in p["rules"]]} for p in cfg.get("packs") or []]
     return {"configured": bool(cfg.get("configured")), "config_file": CONFIG, "rules_folder": packs_mod.FOLDER.as_posix(),
             "builtins": builtins, "lists": lists, "packs": packs, "pack_errors": cfg.get("pack_errors") or [],
@@ -251,8 +261,8 @@ def library() -> list[dict]:
         text = f.read_text()
         pack, errors = packs_mod.parse_pack(text)
         if pack:
-            out.append({**pack, "yaml": text, "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None)}
-                                                         for r in pack["rules"]]})
+            out.append({**pack, "yaml": text, "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None,
+                                                                                             r.get("how"))} for r in pack["rules"]]})
     return out
 
 
@@ -360,8 +370,8 @@ def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dic
     may, may_not = [], []
     for b, what in explain.BUCKETS:
         rule = row.get(b) or row.get("*") or "deny"
-        if b in ("protected-env", "generated"):
-            continue
+        if b in ("protected-env", "generated", "keel-rules"):
+            continue          # listed under "always" instead
         if b == "migration" and rule == "allow":
             rule = "new-only"
         if lane and phase in rules.LANE_SCOPED_PHASES and rules.LANE_OF.get(b) and rules.LANE_OF[b] != lane:

@@ -120,6 +120,7 @@ def test_a_pack_refuses_a_fake_agent_and_rules_now_shows_it(client, repo, monkey
     assert now["engine"]["provider"] == "fake" and now["engine"]["protection"] == "before"
     assert {i["bucket"] for i in now["may"]} | {i["bucket"] for i in now["may_not"]} >= {"api-main", "api-test"}
     assert any(a["bucket"] == "keel-rules" for a in now["always"])
+    assert not any(b["bucket"] in ("keel-rules", "protected-env") for b in now["may"] + now["may_not"])
 
 
 def test_rules_now_outside_a_phase(tmp_path):
@@ -208,3 +209,12 @@ def test_mcp_rules_text_and_edits(tmp_path):
     assert mcp_more.rule_edit(api, "off", rule="read-twice") == "read-twice is off."
     assert api.sent[-1] == ("PUT", "/projects/shop/rules/config", {"rules": {"off": ["read-twice"]}})
     assert "no rule pack nope" in mcp_more.rule_install(api, "nope")
+
+
+def test_shell_rules_say_when_only_the_wrappers_check_them():
+    assert rules_view.wrapped_only(["npm install", "git push"]) and not rules_view.wrapped_only(["kubectl apply"])
+    assert rules_view.wrapped_only([r"\b(npm|pnpm)\s+add", r"\bgo\s+get\b"], "regex")
+    assert not rules_view.wrapped_only([r"(^|;)\s*printenv"], "regex")
+    lib = {p["id"]: p for p in rules_view.library()}
+    install = next(r for r in lib["no-new-dependencies"]["rules"] if r["id"] == "no-install")
+    assert install["enforced"]["claude"] == "before" and install["enforced"]["copilot"] == "wrapped"

@@ -64,3 +64,6 @@
 @media (max-width: 640px) {
   .rl-lists, .rl-engines { grid-template-columns: minmax(0, 1fr); }
 }
+
+.rl-engine { align-content: start; }
+.rl-page .panel-head h2 .sub, .rl-matrix .panel-head h2 .sub { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }

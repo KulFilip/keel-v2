@@ -59,6 +59,21 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
         fast.delete().uri(path).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
     }
 
+    /** v0.16.2 GET with query parameters (a folder path): the builder encodes each value once. */
+    fun get(path: String, params: Map<String, String>): JsonNode = call {
+        fast.get().uri { b -> withQuery(b, path, params) }.retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
+    fun delete(path: String, params: Map<String, String>): JsonNode = call {
+        fast.delete().uri { b -> withQuery(b, path, params) }.retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
+    private fun withQuery(b: org.springframework.web.util.UriBuilder, path: String, params: Map<String, String>): java.net.URI {
+        b.path(path)
+        params.keys.forEach { k -> b.queryParam(k, "{$k}") }
+        return b.build(params)
+    }
+
     /** True when GET /health answers within a short time. */
     fun health(): JsonNode? = try {
         client(Duration.ofSeconds(2)).get().uri("/health").retrieve().body(JsonNode::class.java)

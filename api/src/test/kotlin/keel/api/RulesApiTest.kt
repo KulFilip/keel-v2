@@ -26,7 +26,9 @@ class RulesApiTest : ApiTest() {
         engine.extraRoutes["/rules/library/no-new-dependencies"] = { _ -> 200 to mapOf("yaml" to "id: no-new-dependencies\n") }
         engine.extraRoutes["/rules/config"] = { _ -> 200 to mapOf("ok" to true) }
         get("/api/projects/$pid/rules").andExpect(status().isOk)
-        assertThat(engine.calls.last { it.path == "/rules" }.query).contains("root=").contains(root.fileName.toString())
+        // the folder is encoded once: decoded, the query is the folder itself (a double encoding leaves %2F in it)
+        val query = engine.calls.last { it.path == "/rules" }.query ?: ""
+        assertThat(java.net.URLDecoder.decode(query, Charsets.UTF_8)).isEqualTo("root=$root")
 
         post("/api/projects/$pid/rules/library/no-new-dependencies/install").andExpect(status().isOk)
         assertThat(engine.lastBody("/rules/packs")!!["root"].asText()).isEqualTo(root.toString())

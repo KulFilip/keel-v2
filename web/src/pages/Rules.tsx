@@ -122,7 +122,8 @@ function Packs({ pid, v, onView, onEdit, onLibrary }: { pid: string; v: RulesVie
       ) : v.packs.map((p) => (
         <div key={p.id} className={`rl-pack${p.off ? " rl-off" : ""}`} data-pack={p.id}>
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div><b>{p.name}</b> {p.off && <span className="tag">off</span>}<div className="sub">{p.description}</div></div>
+            <div><b>{p.name}</b> {p.off && <span className="tag">off</span>}<div className="sub">{p.description}</div>
+              <div className="hint">saved in <span className="mono">{p.file}</span></div></div>
             <div className="row">
               <label className="chk"><input type="checkbox" checked={!p.off} onChange={() => switchPack(p)} aria-label={`${p.name} on`} /> on</label>
               <button className="btn sm" type="button" onClick={() => onEdit(p)}>Edit</button>
@@ -135,7 +136,7 @@ function Packs({ pid, v, onView, onEdit, onLibrary }: { pid: string; v: RulesVie
             key: r.id, what: <><span className="tag">{KIND_WORDS[r.kind]}</span> {r.reason}</>,
             detail: <span className="mono">{r.match.join(", ")}{r.except?.length ? ` · except ${r.except.join(", ")}` : ""}</span>,
             when: phasesWords(r.phases) + (r.lanes?.length ? ` · ${r.lanes.join(", ")} lane` : ""), enforced: r.enforced, saved: p.file ?? "",
-          }))} />
+          }))} saved={false} />
         </div>
       ))}
     </Panel>
@@ -149,18 +150,18 @@ function phasesWords(p: string | string[]): string {
 
 type Row = { key: string; what: ReactNode; detail?: ReactNode; when: string; enforced?: Enforced; saved: string; action?: ReactNode };
 
-function RuleTable({ rules }: { rules: Row[] }) {
+function RuleTable({ rules, saved = true }: { rules: Row[]; saved?: boolean }) {
   return (
     <div className="rl-scroll">
       <table className="rl-table">
-        <thead><tr><th scope="col">Rule</th><th scope="col">When</th><EngineHead /><th scope="col">Saved in</th>{rules.some((r) => r.action) && <th scope="col" />}</tr></thead>
+        <thead><tr><th scope="col">Rule</th><th scope="col">When</th><EngineHead />{saved && <th scope="col">Saved in</th>}{rules.some((r) => r.action) && <th scope="col" />}</tr></thead>
         <tbody>
           {rules.map((r) => (
             <tr key={r.key} data-rule={r.key}>
               <td>{r.what}{r.detail && <div className="sub">{r.detail}</div>}</td>
               <td className="nowrap">{r.when}</td>
               <EngineCells e={r.enforced} />
-              <td className="sub mono">{r.saved}</td>
+              {saved && <td className="sub mono">{r.saved}</td>}
               {rules.some((x) => x.action) && <td>{r.action}</td>}
             </tr>
           ))}
