@@ -1,0 +1,11 @@
+# An example workflow entry (keel-v2's docs/plugins/21-workflow-marketplace.md). Its files come from the releases of
+# `repo`: release-notes-<version>.yaml and release-notes-<version>.yaml.minisig (signed with a key of the publisher).
+# Without `repo`, the files are kept here: workflows/release-notes/<version>.yaml and .minisig.
+name: release-notes
+title: "Release notes"
+publisher: keel
+repo: https://github.com/keel-studio/keel-workflows
+category: docs
+summary: "Collects the pull requests merged since the last tag and writes release notes for people, then waits for your review."
+tags: [release, changelog]
+keel: ">=0.16.1"

@@ -20,6 +20,14 @@ from test_pluginhost import write_sums
 from test_pluginhost_install import kplug
 
 
+WORKFLOW = """name: {name}
+keel_rules: false
+steps:
+  - {{ id: write, kind: agent, name: write the notes ({version}), agent: librarian, model: default }}
+  - {{ id: review, kind: gate, name: review the notes, back: write }}
+"""
+
+
 class _Files(http.server.BaseHTTPRequestHandler):
     """GET from the server's `files` {path: bytes}; `redirects` {path: location} answer 302."""
 
@@ -58,6 +66,7 @@ class Market:
         self.publisher_key = signing.keygen()
         self.publishers = {"keel": {"title": "keel", "keys": [self.publisher_key.public().line()], "verified": True}}
         self.plugins: dict[str, dict] = {}
+        self.workflows: dict[str, dict] = {}     # 21-workflow-marketplace.md: an index without them reads as before
         self.revoked: list[dict] = []
         self.built = "2026-10-09T06:00:00Z"
         self.expires = "2099-01-01T00:00:00Z"
@@ -130,9 +139,42 @@ class Market:
         entry["versions"].append(v)
         return v
 
+    def publish_workflow(self, name: str, version: str, *, text: str | None = None, publisher: str = "keel",
+                         category: str = "docs", needs: dict | None = None, agents: list | None = None,
+                         keel: str | None = None, review: dict | None = None, sign_with=None, size: int | None = None,
+                         sha256: str | None = None, title: str | None = None) -> dict:
+        """Serve a signed workflow YAML and add its version to the index's workflows (call serve() after)."""
+        text = text if text is not None else WORKFLOW.format(name=name, version=version)
+        data = text.encode()
+        path = f"/wf/{name}-{version}.yaml"
+        self.server.files[path] = data
+        self.server.files[path + ".minisig"] = signing.sign(data, sign_with or self.publisher_key,
+                                                            f"{name}-{version}.yaml").encode()
+        requires: dict = {}
+        if keel:
+            requires["keel"] = keel
+        if needs:
+            requires["plugins"] = dict(needs)
+        if agents:
+            requires["agents"] = list(agents)
+        v = {"version": version, "released": "2026-10-15", "requires": requires, "url": self.url + path,
+             "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
+             "review": review or {"steps": 2, "gates": 1, "agents": ["librarian"], "mcp": [], "commands": [],
+                                  "edits_files": True, "keel_rules": False}}
+        entry = self.workflows.setdefault(name, {
+            "name": name, "kind": "workflow", "title": title or name.replace("-", " ").capitalize(),
+            "publisher": publisher, "summary": f"The {name} workflow for tests.", "category": category,
+            "tags": [name, "test"], "repo": "https://github.com/keel-studio/keel-workflows", "versions": []})
+        entry["versions"].append(v)
+        return v
+
     def index(self) -> dict:
-        return {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
-                "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
+        doc = {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
+               "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
+        if self.workflows:
+            doc["workflows"] = list(self.workflows.values())
+            doc["rules"] = []
+        return doc
 
     def serve(self, doc: dict | None = None, *, sign_with=None, raw: bytes | None = None) -> None:
         """Serve the index (this document, or the built one) and its .minisig."""

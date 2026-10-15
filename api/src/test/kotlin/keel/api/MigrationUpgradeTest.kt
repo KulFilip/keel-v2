@@ -13,8 +13,9 @@ import javax.sql.DataSource
 /**
  * keel's database history across the plugin track. The released keel 0.16.1 ends at V15__doc_history.sql (0.15.9's file
  * history; 0.15.4 added V14__thread_hidden.sql); the plugin track's approvals table comes after it, as
- * V16__approvals.sql (it was V14, then V15, before main's releases took those numbers). A keel that ran 0.16.1 must start
- * on the track: Flyway applies only V16, and 0.16.1's rows and history stay as they were. No Spring: Flyway on a
+ * V16__approvals.sql (it was V14, then V15, before main's releases took those numbers), then the workflow marketplace's
+ * columns, V17__workflow_market.sql (docs/plugins/21-workflow-marketplace.md). A keel that ran 0.16.1 must start on the
+ * track: Flyway applies only V16 and V17, and 0.16.1's rows and history stay as they were. No Spring: Flyway on a
  * throw-away SQLite file, as keel's api runs it.
  */
 class MigrationUpgradeTest {
@@ -50,7 +51,7 @@ class MigrationUpgradeTest {
     fun `core's migrations are 0_16_1's V1 to V15, then the plugin track's V16 approvals`() {
         val names = core().keys
         assertThat(names).containsAll(released)
-        assertThat(names - released.toSet()).containsExactly("V16__approvals.sql")
+        assertThat(names - released.toSet()).containsExactlyInAnyOrder("V16__approvals.sql", "V17__workflow_market.sql")
         // one file per version: a second V15 would stop every keel at start
         val versions = names.map { it.substringBefore("__") }
         assertThat(versions).doesNotHaveDuplicates()
@@ -84,14 +85,14 @@ class MigrationUpgradeTest {
         // the plugin track starts on the same file: Flyway checks 0.16.1's history (same checksums) and adds V16
         val track = flyway(ds, "classpath:db/migration")
         val result = track.migrate()
-        assertThat(result.migrationsExecuted).isEqualTo(1)
-        assertThat(result.migrations.map { it.filepath.substringAfterLast('/') }).containsExactly("V16__approvals.sql")
+        assertThat(result.migrationsExecuted).isEqualTo(2)
+        assertThat(result.migrations.map { it.filepath.substringAfterLast('/') }).containsExactly("V16__approvals.sql", "V17__workflow_market.sql")
         assertThat(track.validateWithResult().validationSuccessful).isTrue()
 
         val h = history(ds)
-        assertThat(h).hasSize(16)
+        assertThat(h).hasSize(17)
         assertThat(h.take(15).map { it.substringAfter(' ').substringBefore(' ') }).containsExactlyElementsOf(released)
-        assertThat(h.last()).isEqualTo("16 V16__approvals.sql 1")
+        assertThat(h.drop(15)).containsExactly("16 V16__approvals.sql 1", "17 V17__workflow_market.sql 1")
         assertThat(tables(ds)).contains("approvals", "threads", "doc_versions", "flow_applied")
         ds.connection.use { c ->
             c.createStatement().executeQuery("SELECT hidden_at FROM threads WHERE id = 't1'").use { rs ->

@@ -24,8 +24,11 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
-private data class WorkflowRow(
+/** market*: where a workflow installed from a catalog came from (V17; null for every other workflow). */
+internal data class WorkflowRow(
     val id: String, val projectId: String?, val version: Int, val yaml: String, val source: String, val libraryId: String?,
+    val marketCatalog: String? = null, val marketName: String? = null, val marketVersion: String? = null,
+    val marketSha256: String? = null,
 )
 
 @Service
@@ -37,6 +40,7 @@ class WorkflowService(
     private val mapper: ObjectMapper,
     private val contributors: ObjectProvider<FlowContributor>,
     private val features: keel.api.addons.FeatureService,
+    private val marketplace: keel.api.marketplace.Marketplace,
 ) {
     // ---- templates (engine) ---------------------------------------------------------------
 
@@ -58,15 +62,39 @@ class WorkflowService(
 
     // ---- stored workflows -----------------------------------------------------------------
 
-    private fun rows(where: String, vararg args: Any?): List<WorkflowRow> =
-        jdbc.query("SELECT id, project_id, version, yaml, source, library_id FROM workflows WHERE $where ORDER BY name", { rs, _ ->
-            WorkflowRow(rs.getString(1), rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), rs.getString(6))
+    internal fun rows(where: String, vararg args: Any?): List<WorkflowRow> =
+        jdbc.query("SELECT id, project_id, version, yaml, source, library_id, market_catalog, market_name, market_version, market_sha256 " +
+            "FROM workflows WHERE $where ORDER BY name", { rs, _ ->
+            WorkflowRow(rs.getString(1), rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), rs.getString(6),
+                rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10))
         }, *args)
 
     private fun toWorkflow(r: WorkflowRow): Workflow {
         val doc = runCatching { WorkflowDoc.parse(r.yaml) }.getOrElse { WorkflowDoc(name = r.id) }
         return Workflow(r.id, doc.name, doc.basedOn, doc.keelRules, r.version, doc.steps, r.yaml, r.source,
-            needsPlugins = doc.needsPlugins?.takeIf { it.isNotEmpty() })
+            needsPlugins = doc.needsPlugins?.takeIf { it.isNotEmpty() },
+            market = r.marketName?.let { MarketOrigin(r.marketCatalog.orEmpty(), it, r.marketVersion.orEmpty()) })
+    }
+
+    /**
+     * The newest fitting version of each marketplace workflow, by name (the engine's search of the catalogs keel has on
+     * disk). Empty when the engine is down or answers an error: the Workflows page still lists everything.
+     */
+    internal fun marketNewest(): Map<String, String> = try {
+        marketplace.workflows(null, null).path("workflows")
+            .filter { it.path("version").isTextual }
+            .associate { it.path("name").asText() to it.path("version").asText() }
+    } catch (e: ApiException) {
+        emptyMap()
+    }
+
+    private fun withUpdates(all: List<Workflow>): List<Workflow> {
+        if (all.none { it.market != null }) return all
+        val newest = marketNewest()
+        return all.map { w ->
+            val m = w.market ?: return@map w
+            w.copy(market = m.copy(update = newest[m.name]?.takeIf { MarketVersions.newer(it, m.version) }))
+        }
     }
 
     /**
@@ -94,7 +122,7 @@ class WorkflowService(
                 runs.merge(wid, 1, Int::plus)
                 last.putIfAbsent(wid, LastRun(rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5)))
             }, pid)
-        return all.map { it.copy(folder = folders[it.id], runs = runs[it.id] ?: 0, lastRun = last[it.id]) }
+        return withUpdates(all).map { it.copy(folder = folders[it.id], runs = runs[it.id] ?: 0, lastRun = last[it.id]) }
     }
 
     /** v0.9.0: the folder a workflow sits in on this project's Workflows page; blank takes it out of its folder. */
@@ -133,7 +161,7 @@ class WorkflowService(
 
     private fun isTemplate(wid: String) = rows("id = ?", wid).isEmpty()
 
-    private fun newId(base: String): String {
+    internal fun newId(base: String): String {
         val b = Slug.of(base)
         var id = b
         var n = 2
@@ -150,6 +178,37 @@ class WorkflowService(
         )
         jdbc.update("INSERT INTO workflow_versions(workflow_id, version, yaml, at) VALUES (?, 1, ?, ?)", id, yaml, now)
         return get(id)
+    }
+
+    // ---- the workflow marketplace (MarketWorkflows): rows that remember their catalog, name, version and sha256
+
+    /** A new row from a catalog: source "marketplace", the origin and the sha256 of the YAML keel wrote. */
+    internal fun insertMarket(projectId: String?, base: String, doc: WorkflowDoc, yaml: String, origin: MarketOrigin, sha256: String): Workflow {
+        val id = newId(base)
+        insert(id, projectId, doc.copy(id = null), yaml, "marketplace", null)
+        jdbc.update("UPDATE workflows SET market_catalog = ?, market_name = ?, market_version = ?, market_sha256 = ? WHERE id = ?",
+            origin.catalog, origin.name, origin.version, sha256, id)
+        return get(id)
+    }
+
+    /** A new version of a marketplace row with the catalog's YAML; the old one stays in workflow_versions (Roll back). */
+    internal fun replaceFromMarket(wid: String, doc: WorkflowDoc, yaml: String, origin: MarketOrigin, sha256: String): Workflow {
+        val row = rows("id = ?", wid).firstOrNull() ?: throw NotFound("No workflow called \"$wid\"")
+        val version = row.version + 1
+        val now = Time.now()
+        jdbc.update(
+            "UPDATE workflows SET name = ?, based_on = ?, keel_rules = ?, version = ?, yaml = ?, updated_at = ?, source = 'marketplace', " +
+                "market_catalog = ?, market_name = ?, market_version = ?, market_sha256 = ? WHERE id = ?",
+            doc.name, doc.basedOn, if (doc.keelRules) 1 else 0, version, yaml, now, origin.catalog, origin.name, origin.version, sha256, wid,
+        )
+        jdbc.update("INSERT OR REPLACE INTO workflow_versions(workflow_id, version, yaml, at) VALUES (?, ?, ?, ?)", wid, version, yaml, now)
+        return get(wid)
+    }
+
+    /** The person's own changed copy after "keep my changes": it is theirs now (source yours, no catalog). */
+    internal fun detachFromMarket(wid: String) {
+        jdbc.update("UPDATE workflows SET source = 'yours', market_catalog = NULL, market_name = NULL, market_version = NULL, " +
+            "market_sha256 = NULL WHERE id = ?", wid)
     }
 
     fun create(pid: String, name: String, from: String, keelRules: Boolean?): Workflow {
