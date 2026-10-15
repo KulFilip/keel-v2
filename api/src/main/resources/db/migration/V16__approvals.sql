@@ -1,5 +1,6 @@
--- v0.16.0 approvals: keel's one place for "ask a person and wait" (docs/plugins/09-step2-contract.md §1). V15: keel
--- 0.15.4 shipped V14__thread_hidden.sql first (MigrationUpgradeTest: a 0.15.4 database migrates to this). A row per
+-- the plugin track's approvals: keel's one place for "ask a person and wait" (docs/plugins/09-step2-contract.md §1).
+-- V16: keel 0.15.4 shipped V14__thread_hidden.sql and 0.15.9 V15__doc_history.sql first (MigrationUpgradeTest: a
+-- 0.16.1 database migrates to this). A row per
 -- question: KeelBot's commands and keel2 mcp's acting tools (the engine's, from approval.* events), and questions the api
 -- asks itself. status: waiting | approved | denied | expired | closed.
 CREATE TABLE approvals (

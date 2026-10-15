@@ -77,6 +77,8 @@ keel2 start ~/path/to/your/project
 |---|---|
 | `keel2 start [folder]` | start keel |
 | `keel2 stop` | stop keel |
+| `keel2 add <folder> [<folder> …]` | add more projects (each a git repo, or a folder of repos) |
+| `keel2 folders` | which project folders keel has |
 | `keel2 status` | is keel running? |
 | `keel2 update` | get the newest version |
 | `keel2 doctor` | find problems and say how to fix them |
@@ -86,7 +88,8 @@ keel2 start ~/path/to/your/project
 
 ## More
 
-- [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, Docker mode, MCP, and how to build keel yourself
+- [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,
+  MCP (read, write and admin levels), native mode without Docker (`keel2 start --native`), and how to build keel yourself
 - [How the parts talk](docs/CONTRACT.md)
 
 ## License

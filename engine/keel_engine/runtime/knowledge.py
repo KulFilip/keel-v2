@@ -17,7 +17,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from .. import rules
+from .. import layout, rules
 
 SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
 
@@ -29,7 +29,13 @@ PROOF = [re.compile(p) for p in (r"(^|/)(test|tests)/", r"(^|/)src/(test|integra
 
 
 def section_file(root: str, name: str) -> Path:
-    return Path(root) / "docs" / "knowledge" / f"{name}.md"
+    """The section's file where the project's layout keeps it (docs/knowledge, .keel/knowledge; keel_engine/layout.py)."""
+    return Path(root) / layout.resolve(root).knowledge_file(root, name)
+
+
+def knowledge_dir(root: str) -> str:
+    """Where the knowledge sections go in this project's layout, e.g. docs/knowledge or .keel/knowledge."""
+    return layout.resolve(root).knowledge
 
 
 def is_proof(rel: str) -> bool:
@@ -63,8 +69,8 @@ def selection(root: str, cfg: dict | None = None) -> list[str] | None:
 
 
 def check_section(root: str, name: str, cfg: dict) -> dict:
-    f = section_file(root, name)
-    rel = f"docs/knowledge/{name}.md"
+    rel = layout.resolve(root).knowledge_file(root, name)
+    f = Path(root) / rel
     if not f.is_file():
         return {"name": name, "missing": True, "problems": [f"{rel} is missing"], "citations": 0, "proofs": 0, "unverified": 0}
     text = f.read_text(errors="replace")
@@ -114,7 +120,7 @@ def check(root: str, only: list[str] | None = None) -> dict:
     problems = [p for s in sections for p in s["problems"]]
     # keel v2 before 0.4 failed an empty knowledge base; a project that chose no sections (init) passes.
     if unanswered:
-        problems.append("docs/knowledge/ has no sections")
+        problems.append(f"{knowledge_dir(root)}/ has no sections")
     return {"pass": not problems, "problems": problems, "sections": sections, "selected": chosen, "unanswered": unanswered}
 
 

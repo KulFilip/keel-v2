@@ -184,7 +184,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
 
     fun isKeel(rel: String, cfg: ClassifyConfig): Boolean =
         rel == ".keel" || rel.startsWith(".keel/") ||
-            KEEL_DIRS.any { rel == it || rel.startsWith("$it/") } ||
+            (KEEL_DIRS + cfg.keelDirs).any { rel == it || rel.startsWith("$it/") } ||
             (cfg.contractFile.isNotEmpty() && rel == cfg.contractFile) ||
             Regex("(^|/)openapi\\.(ya?ml|json)$").containsMatchIn(rel)
 
@@ -549,7 +549,9 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
                 n.endsWith(".p12") || n.endsWith(".pfx") || n.endsWith(".keystore") || n.endsWith(".jks") ||
                 n.startsWith("id_rsa") || n.startsWith("id_ed25519") || n.startsWith("id_ecdsa") ||
                 n == ".npmrc" || n == ".pypirc" || n == ".netrc" || n == "credentials" || n == "credentials.json" ||
-                n == "master.key" || n == "secrets.yml" || n == "secrets.yaml"
+                n == "master.key" || n == "secrets.yml" || n == "secrets.yaml" ||
+                n == ".git-credentials" || n == ".htpasswd" || n == "terraform.tfvars" || n.startsWith("id_dsa") ||
+                n.endsWith(".p8") || n.endsWith(".kdbx")
         }
     }
 }

@@ -1,6 +1,8 @@
 package keel.api.projects
 
+import keel.api.common.BadRequest
 import keel.api.events.EventHub
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -9,6 +11,11 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 data class RegisterProject(val root: String = "", val name: String? = null)
+
+/** v0.15.7 many folders at once; `names` gives some of them a name (by their path as sent). */
+data class RegisterProjects(val roots: List<String> = emptyList(), val names: Map<String, String> = emptyMap())
+
+data class BulkAdded(val added: List<Project>, val skipped: List<Skipped>)
 
 @RestController
 @RequestMapping("/api/projects")
@@ -25,8 +32,26 @@ class ProjectController(private val projects: ProjectService, private val hub: E
         return view
     }
 
+    /** v0.15.7 Add projects: registers every ticked repo; one that is a project already, or not a folder, is skipped with why. */
+    @PostMapping("/bulk")
+    fun bulk(@RequestBody body: RegisterProjects): BulkAdded {
+        if (body.roots.isEmpty()) throw BadRequest("roots is empty", "Send the absolute paths of the repos inside the container.")
+        if (body.roots.size > 500) throw BadRequest("Too many folders at once (${body.roots.size})", "Send at most 500.")
+        val (rows, skipped) = projects.registerMany(body.roots, body.names)
+        val added = rows.map { row -> projects.view(row).also { hub.publish(row.id, "project.changed", it) } }
+        return BulkAdded(added, skipped)
+    }
+
     @GetMapping("/{pid}")
     fun get(@PathVariable pid: String): Project = projects.view(projects.require(pid))
+
+    /** v0.16.0 takes a project off the list (keel_remove_project): hidden, its history kept; adding its folder shows it again. */
+    @DeleteMapping("/{pid}")
+    fun remove(@PathVariable pid: String): Map<String, Any> {
+        projects.remove(pid)
+        hub.publish(null, "project.changed", mapOf("id" to pid))
+        return mapOf("ok" to true, "id" to pid)
+    }
 
     // the index status and its rebuild (/{pid}/index, /{pid}/index/rebuild) are the Graph plugin's (plugins/graph)
 }

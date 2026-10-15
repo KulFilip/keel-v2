@@ -93,17 +93,55 @@ def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(
     assert tools.index("keel_db_query") < tools.index("keel_git_status") < tools.index("keel_ci_runs")
 
 
-def test_keel2_mcp_lists_its_tools_in_keel_0_15_1s_order(with_ci):
-    """keel2 mcp's tools/list, exactly as 0.15.1 listed them (it named each tool in mcp_server.py): the read tools
-    Database, Git, CI/CD; the acting tools CI/CD, Database, Git; then keel's own two. Step 4's four marketplace tools
-    come after all of them, in both modes (docs/plugins/13-step4-contract.md §7)."""
-    names = lambda write: [t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())]
-    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_db_schema", "keel_db_query",
-            "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure"]
+def test_keel2_mcp_lists_its_tools_in_keel_0_16_1s_order(with_ci):
+    """keel2 mcp's tools/list at each level, exactly as 0.16.1 listed them (it named each tool in mcp_server.py): the
+    parts' read tools (Database, Git, CI/CD) after keel_dashboard, their acting tools (CI/CD, Database, Git) after
+    keel_restore_doc. Step 4's four marketplace tools come after all of them, at every level
+    (docs/plugins/13-step4-contract.md §7)."""
+    names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
+    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
+            "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure",
+            "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
+            "keel_read_file", "keel_actions", "keel_run_action"]
+    write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
+             "keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"]
+    admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+             "keel_edit_workflow"]
     market = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-    assert names(False) == read + market
-    assert names(True) == read + ["keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
-                                  "keel_approve_gate", "keel_resume"] + market
+    assert names("read") == read + market
+    assert names("write") == read + write + market
+    assert names("admin") == read + write + admin + market
+    assert mcp_server.build_server(write=True, api=object())                      # write=True is the write level
+
+
+def test_its_tools_have_0_16_1s_levels_and_risk(with_ci):
+    """Each part's tool at 0.16.1's level (--allow knows them), with 0.16.1's hints: a push and a data change are
+    destructive and ask the person through the client first (unless --yes)."""
+    assert mcp_server.part_tools() == {
+        "read": ["keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure"],
+        "write": ["keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"]}
+    assert mcp_server.tool_level("keel_db_change") == "write" and mcp_server.tool_level("keel_db_query") == "read"
+    assert mcp_server.allowed(["--allow", "keel_db_query,keel_git_push"]) == {"keel_db_query", "keel_git_push"}
+    tools = {t.name: t for t in asyncio.run(mcp_server.build_server(level="write", api=object()).list_tools())}
+    destructive = {n for n, t in tools.items() if t.annotations and t.annotations.destructiveHint}
+    assert destructive == {"keel_db_change", "keel_git_push"}
+    assert not tools["keel_db_query"].annotations.destructiveHint and tools["keel_db_query"].annotations.readOnlyHint
+    srv = mcp_server.build_server(level="read", api=object(), allow={"keel_db_query", "keel_db_change"})
+    assert [t.name for t in asyncio.run(srv.list_tools())] == ["keel_db_query"]   # a write tool, not at read
+
+
+def test_a_data_change_asks_the_client_first(with_ci):
+    """keel_db_change is one of 0.16.1's risky tools: a client that cannot ask the person is refused (no --yes)."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    async def go():
+        srv = mcp_server.build_server(level="write", api=mcp_server.KeelApi("http://keel.invalid"))
+        async with create_connected_server_and_client_session(srv) as s:
+            res = await s.call_tool("keel_db_change", {"sql": "delete from scores"})
+            return res.content[0].text
+
+    text = asyncio.run(go())
+    assert "cannot ask you to confirm change data in the database" in text and "--yes" in text
 
 
 # ------------------------------------------------------------------ its content: Tools › Plugins and its command

@@ -34,6 +34,13 @@ class Forbidden(what: String, hint: String? = null) : ApiException(HttpStatus.FO
 class ErrorAdvice {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /** The client closed the connection (Tomcat's ClientAbortException, a broken pipe, a reset), anywhere in the causes. */
+    private fun clientGone(e: Throwable): Boolean = generateSequence(e) { it.cause }.take(8).any { t ->
+        t.javaClass.simpleName.contains("ClientAbort") ||
+            (t is java.io.IOException && t !is java.nio.file.FileSystemException &&
+                (t.message ?: "").let { it.contains("Broken pipe", true) || it.contains("Connection reset", true) })
+    }
+
     @ExceptionHandler(ApiException::class)
     fun api(e: ApiException): ResponseEntity<Any> {
         val extra = e.extra
@@ -75,11 +82,16 @@ class ErrorAdvice {
     @ExceptionHandler(Exception::class)
     fun other(e: Exception): ResponseEntity<ErrorBody>? {
         // A browser tab that closed during a live (SSE) stream is normal, not a server error; nothing can be sent back.
-        if (e is java.io.IOException || e is IllegalStateException && e.message?.startsWith("Cannot start async") == true) {
+        // Only that: an IOException of the server's own (a file that vanished while it was read) is a real error, and
+        // answering it with nothing gave an empty 200 (v0.15.9, the history list right after a spec was deleted).
+        if (clientGone(e) || e is IllegalStateException && e.message?.startsWith("Cannot start async") == true) {
             log.debug("client went away: {}", e.message)
             return null
         }
         log.error("unhandled error", e)
+        if (e is java.nio.file.NoSuchFileException) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ErrorBody("A file went away while keel read it: ${e.file}", "Try again."))
+        }
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(ErrorBody("Something went wrong in the api", e.message?.take(300)))
     }

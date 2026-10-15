@@ -78,7 +78,7 @@ cat > "$BIN/curl" << 'EOF'
 #!/bin/sh
 for a in "$@"; do
   case "$a" in
-    */api/health) echo '{"status":"ok","version":"0.15.6"}'; exit 0 ;;
+    */api/health) echo '{"status":"ok","version":"0.16.1"}'; exit 0 ;;
     */api/jobs*) echo '[]'; exit 0 ;;
   esac
 done

@@ -161,6 +161,7 @@ class FlowService(
     private val capPlanner: CapPlanner,
     private val contributors: ObjectProvider<FlowContributor>,
     private val refusals: ObjectProvider<StartRefusal>,
+    private val docs: keel.api.knowledge.DocHistoryService,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -266,6 +267,11 @@ class FlowService(
         )
         jdbc.update("UPDATE threads SET workflow_id = ?, title = ?, project_id = ? WHERE id = ?", workflowId, title, pid, tid)
         jdbc.update("UPDATE threads SET worktree = ?, branch = ? WHERE id = ?", wt?.name, wt?.branch, tid)
+        // v0.15.9 what this flow applied on top of the repo starts with where it works (DocHistoryService)
+        runCatching {
+            (wt?.branch ?: projects.branch(root))?.let { docs.add(pid, tid, "branch", it, "the flow's branch") }
+            wt?.let { docs.add(pid, tid, "worktree", it.name, it.path) }
+        }.onFailure { log.warn("could not record the flow's branch for {}: {}", tid, it.message) }
         val state = runCatching { engine.thread(tid) }.getOrElse { res }
         save(tid, state)
         hub.publish(pid, "project.changed", mapOf("id" to pid))
@@ -292,8 +298,10 @@ class FlowService(
         if (allowDirty) return
         val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
+        // v0.15.8 layout keel / external: .keel/ holds keel's own files, outside git (the engine hides it at flow start)
+        val hidden = keel.api.knowledge.Layout.resolve(root).hidden
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
-            .filterNot { WorkspaceDoctor.isEngineFile(it) }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
         if (files.isEmpty()) return
         throw Conflict(
             "This project has uncommitted changes (${files.size} file${if (files.size == 1) "" else "s"}): ${files.take(5).joinToString()}${if (files.size > 5) ", …" else ""}",

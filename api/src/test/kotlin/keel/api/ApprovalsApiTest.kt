@@ -227,6 +227,7 @@ class ApprovalsApiTest : ApiTest() {
     fun `engine events go to the handlers whose prefix matches, and a broken one stops nobody`(
         @Autowired notifications: NotificationService, @Autowired usage: ProviderUsageStore,
         @Autowired publisher: ApplicationEventPublisher, @Autowired calls: AgentCalls,
+        @Autowired docs: keel.api.knowledge.DocHistoryService,
     ) {
         val seen = mutableListOf<String>()
         val broken = object : EngineEventHandler {
@@ -239,7 +240,7 @@ class ApprovalsApiTest : ApiTest() {
                 seen += "${event.type}@${event.at != null}"
             }
         }
-        val service = EventService(jdbc, notifications, hub, usage, publisher, calls, Provider(listOf(broken, mine)))
+        val service = EventService(jdbc, notifications, hub, usage, publisher, calls, Provider(listOf(broken, mine)), docs)
         val stored = service.ingest(listOf(
             EngineEvent("plugin.db.query", "t-h", "p-h", data = mapOf("sql" to "select 1")),
             EngineEvent("plugin.git.push", "t-h", "p-h"),

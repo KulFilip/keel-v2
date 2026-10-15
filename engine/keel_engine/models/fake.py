@@ -15,7 +15,7 @@ import json
 import re
 from pathlib import Path
 
-from .. import config
+from .. import config, layout
 from . import catalog
 from .base import AgentRequest, AgentResult, Emit
 
@@ -67,15 +67,16 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     k = key_of(ac_id)
     if agent == "explorer" and req.item:
         return None, "", f"MAP ({req.item.get('id')}): src/scores/__init__.py:1 is the pattern; tests under tests/. MAP-END", {}
+    specs = layout.resolve(req.root).specs if req.root else "docs/specs"   # where the project's layout keeps specs
     if agent == "explorer" and phase == "spec" and req.step_name == "spec amendment":
-        path = f"docs/specs/{slug(title)}.md"
+        path = f"{specs}/{slug(title)}.md"
         old = (Path(req.root) / path).read_text() if (Path(req.root) / path).is_file() else spec_text(title, req.acs or [])
         block = ("\n## Amendments\n\n### 2026-01-01 — AC-1\nWas: the main case works.\nNow: the main case works for ties too.\n"
                  "Why: the test showed ties.\n")
         return path, old.rstrip() + "\n" + block, "Amendment written.\nREOPEN: none\nCONTRACT: no", {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)
-        path = f"docs/specs/{slug(title)}.md"
+        path = f"{specs}/{slug(title)}.md"
         answer = f"Spec written with {len(acs)} acceptance criteria."
         if req.step_name.startswith("plan"):
             answer = "Plan written under the criteria.\nORDER: " + ", ".join(a["id"] for a in acs)
@@ -108,7 +109,8 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
             "E2E spec written and passing.", {}
     if agent == "librarian":
         section = req.section or (SECTIONS[req.index % len(SECTIONS)] if phase in ("setup", "memory") else "architecture")
-        return f"docs/knowledge/{section}.md", f"# {section.title()}\n\nThe package lives in src/scores (`src/scores/__init__.py:1`).\n", \
+        kdir = layout.resolve(req.root).knowledge if req.root else "docs/knowledge"
+        return f"{kdir}/{section}.md", f"# {section.title()}\n\nThe package lives in src/scores (`src/scores/__init__.py:1`).\n", \
             f"Knowledge section {section} written with citations.", {}
     if agent == "ac-reviewer":
         return None, "", f"AC-REVIEW: PASS — the test proves {ac_id}.", {"verdict": "pass"}

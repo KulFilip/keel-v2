@@ -1,12 +1,15 @@
 package keel.api.plugins
 
 import com.fasterxml.jackson.databind.JsonNode
+import jakarta.servlet.http.HttpServletRequest
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Forbidden
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
+import keel.api.mcp.McpLevelGuard
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -204,6 +207,12 @@ class DatabaseController(private val db: DatabaseService) {
     @GetMapping("/schema")
     fun schema(@PathVariable pid: String, @RequestParam(required = false) connection: String?): JsonNode = db.schema(pid, connection)
 
+    /** v0.16.1 an MCP call at the read level may read (keel_db_query), never change (McpLevelGuard lets the route through at read). */
     @PostMapping("/query")
-    fun query(@PathVariable pid: String, @RequestBody body: DbQueryBody): JsonNode = db.query(pid, body)
+    fun query(@PathVariable pid: String, @RequestBody body: DbQueryBody, request: HttpServletRequest): JsonNode {
+        if (body.change && request.getAttribute(McpLevelGuard.LEVEL_ATTR) == "read") {
+            throw Forbidden("This needs the MCP write level: run keel2 mcp --write", "A read-level MCP server can only read the database.")
+        }
+        return db.query(pid, body)
+    }
 }

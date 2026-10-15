@@ -20,6 +20,9 @@ import java.util.concurrent.Executors
 
 data class ProjectRow(val id: String, val name: String, val root: String)
 
+/** v0.15.7 a folder the bulk add did not add, and why. */
+data class Skipped(val root: String, val why: String)
+
 data class Project(
     val id: String,
     val name: String,
@@ -101,13 +104,45 @@ class ProjectService(
 
     fun root(pid: String): Path = Paths.get(require(pid).root)
 
+    /** v0.15.7 every project's folder (not a parked one) → its id, to mark the repos that are projects already. */
+    fun idsByRoot(): Map<String, String> =
+        jdbc.query("SELECT id, root FROM projects WHERE root NOT LIKE '%$PARKED%'") { rs, _ -> rs.getString(2) to rs.getString(1) }.toMap()
+
+    /**
+     * v0.15.7 registers many folders at once, each like [register] (the same checks). A folder that is a project
+     * already, or that [register] refuses, is skipped with the reason; the rest are added and scanned.
+     */
+    fun registerMany(roots: List<String>, names: Map<String, String> = emptyMap()): Pair<List<ProjectRow>, List<Skipped>> {
+        val added = mutableListOf<ProjectRow>()
+        val skipped = mutableListOf<Skipped>()
+        val ids = idsByRoot()
+        for (text in roots.map { it.trim() }.distinct()) {
+            val norm = text.takeIf { it.isNotEmpty() }?.let { Paths.get(it).toAbsolutePath().normalize().toString() }
+            val already = norm?.let { ids[it] } ?: added.firstOrNull { it.root == norm }?.id
+            if (already != null) {
+                skipped += Skipped(text, "already a project ($already)")
+                continue
+            }
+            try {
+                added += register(text, names[text])
+            } catch (e: keel.api.common.ApiException) {
+                skipped += Skipped(text, e.message)
+            }
+        }
+        return added to skipped
+    }
+
     /** Registers a folder (a new one is scanned). Same root again returns the existing project. */
     fun register(rootText: String, name: String? = null, scan: Boolean = true): ProjectRow {
         if (rootText.isBlank()) throw BadRequest("root is empty", "Send the absolute path of the repo inside the container.")
         val root = Paths.get(rootText).toAbsolutePath().normalize()
-        if (!Files.isDirectory(root)) throw BadRequest("There is no folder at $root", "Mount the project and use the path inside the container.")
+        if (!Files.isDirectory(root)) throw BadRequest(notMounted(root.toString()))
         val existing = jdbc.query("SELECT id, name, root FROM projects WHERE root = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root.toString()).firstOrNull()
-        if (existing != null) return existing
+        if (existing != null) {
+            // v0.16.0 a removed project (hidden) comes back with its history when its folder is added again
+            jdbc.update("UPDATE projects SET hidden = 0 WHERE id = ? AND hidden = 1", existing.id)
+            return existing
+        }
         val base = Slug.of(name?.takeIf { it.isNotBlank() } ?: root.fileName?.toString() ?: "project")
         var id = base
         var n = 2
@@ -125,6 +160,14 @@ class ProjectService(
         while (find(id) != null) id = "$base-${n++}"
         jdbc.update("INSERT INTO projects(id, name, root, created_at, hidden) VALUES (?, ?, ?, ?, 1)", id, name, root.toAbsolutePath().normalize().toString(), Time.now())
         return ProjectRow(id, name, root.toAbsolutePath().normalize().toString())
+    }
+
+    /** v0.16.0 off the list, history kept (DELETE /api/projects/{pid}). Not while a flow runs or waits there. */
+    fun remove(pid: String) {
+        require(pid)
+        val busy = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status IN ('running','waiting')", Int::class.java, pid) ?: 0
+        if (busy > 0) throw keel.api.common.Conflict("A flow runs or waits on $pid", "Stop it first, or let it finish.")
+        jdbc.update("UPDATE projects SET hidden = 1 WHERE id = ?", pid)
     }
 
     fun hidden(pid: String): Boolean =
@@ -172,6 +215,9 @@ class ProjectService(
         return listOf(0, 0)
     }
 }
+
+/** v0.15.8 a folder keel cannot see (not mounted): what the person does about it, in one sentence. */
+fun notMounted(path: String) = "keel can't see $path. Run `keel2 add $path` in a terminal first, then add it here."
 
 /** Marker appended to a parked workspace project's root. */
 const val PARKED = "#parked:"

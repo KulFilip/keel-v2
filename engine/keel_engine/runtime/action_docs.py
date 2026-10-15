@@ -219,15 +219,15 @@ DOCS: dict[str, dict] = {
         ],
     },
     "ladder": {
-        "summary": "Runs the setup ladder (build, test, boot, health ...) rung by rung and writes docs/RUNNING.md.",
+        "summary": "Runs the setup ladder (build, test, boot, health ...) rung by rung and writes the runbook (docs/RUNNING.md or .keel/RUNNING.md).",
         "steps": [
             "Each rung must pass before the next one runs; the first failure stops the ladder.",
-            "Every command that passed is written to docs/RUNNING.md.",
+            "Every command that passed is written to the runbook (docs/RUNNING.md or .keel/RUNNING.md, as the layout says).",
             "Simulated with the fake model.",
         ],
     },
     "knowledge_check": {
-        "summary": "Checks docs/knowledge/: citations resolve, no placeholders, the chosen sections exist; writes the memory "
+        "summary": "Checks the knowledge base (docs/knowledge/ or .keel/knowledge/): citations resolve, no placeholders, the chosen sections exist; writes the memory "
                    "verdict.",
     },
     "memory_check": {
@@ -413,7 +413,7 @@ DOCS: dict[str, dict] = {
     },
     "ladder_soft": {
         "summary": "Runs the setup ladder without stopping the flow; failing rungs go to the setup doctor (marker LADDER).",
-        "steps": ["Runs every rung (see ladder) and writes docs/RUNNING.md.",
+        "steps": ["Runs every rung (see ladder) and writes the runbook (docs/RUNNING.md or .keel/RUNNING.md).",
                   "Failing rungs become data.failed_rungs, one setup-doctor item each; marker LADDER = green | retry | "
                   "stuck (stuck = a rung failed fix_attempts_per_rung times and the rung gate asks you)."],
     },
@@ -428,6 +428,22 @@ DOCS: dict[str, dict] = {
                   "Then the ladder runs again."],
     },
 }
+
+
+# v0.16.0 which MCP level may run an action outside a flow (keel_run_action; mcp_server.py): read only looks, write
+# runs checks and reports, admin changes the project's settings. Everything else needs a flow's criteria and state:
+# "flow-only" (also the default for an action not named here; tests/test_explain.py keeps the list current).
+ACTION_LEVELS: dict[str, str] = {
+    **{n: "read" for n in ("audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope",
+                           "lint_report", "review_lenses")},
+    **{n: "write" for n in ("verify_release", "verify_coverage", "verify_fast", "verify_deps", "verify_lint", "lint_run",
+                            "knowledge_check", "memory_check", "push_check", "pr")},
+    **{n: "admin" for n in ("arch_set", "open_pr")},
+}
+
+
+def action_level(name: str) -> str:
+    return ACTION_LEVELS.get(name, "flow-only")
 
 
 def function_for(name: str):

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 
+from mcp.server.fastmcp import Context
 from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
 
 
@@ -35,6 +36,20 @@ def db_change(api: KeelApi, sql: str, project: str | None = None, connection: st
     return f"{r['changed']} row(s) changed in {r['connection']}."
 
 
+
+def _acting(srv, guard):
+    """keel's way to run an acting tool (keel 0.16.1: who acts, and with `confirm` the person's OK through the client
+    first; PartServer.act in keel_engine/mcp_server.py). A keel before 0.16.1 has none: then the tool runs as it did."""
+    act = getattr(srv, "act", None)
+
+    async def run(ctx, name: str, what: str, fn, *a, confirm: bool = False, **kw) -> str:
+        if act is None:
+            return guard(fn, *a, **kw)
+        return await act(ctx, name, what, fn, *a, confirm=confirm, **kw)
+
+    return run
+
+
 def register(srv, api: KeelApi, guard, write: bool) -> None:
     """The read tools, or (write) the acting one."""
     from mcp.types import ToolAnnotations
@@ -54,10 +69,12 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
             return guard(db_query, api, sql, project, connection)
 
         return
-    rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+    rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
+    act = _acting(srv, guard)
 
-    @srv.tool(annotations=rw, structured_output=False)
-    def keel_db_change(sql: str, project: str | None = None, connection: str | None = None) -> str:
+    @srv.tool(annotations=rx, structured_output=False)
+    async def keel_db_change(sql: str, project: str | None = None, connection: str | None = None, ctx: Context | None = None) -> str:
         """Database plugin: change data (INSERT, UPDATE, DELETE) on a local or test database. keel counts the rows,
         then waits up to 10 minutes for the person's OK in keel's Inbox."""
-        return guard(db_change, api, sql, project, connection)
+        return await act(ctx, "keel_db_change", "change data in the database", db_change, api, sql, project, connection,
+                         confirm=True)

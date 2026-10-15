@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import rules
+from .. import layout, rules
 from ..rules import checks
 from ..tools import git
 from . import knowledge, verdicts
@@ -107,7 +107,8 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
                  "run the coverage command on this commit (the flow's verify_coverage step)",
                  "add tests until commands.coverage passes", "no coverage verdict for this commit", "below the threshold")
     out += [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg) if g["required"]]
-    if (Path(root) / "docs" / "knowledge").is_dir():
+    kdirs = [d for d in layout.resolve(root).knowledge_dirs if (Path(root) / d).is_dir()]
+    if kdirs:
         v = verdicts.latest(key, "memory")
         fix = "run the knowledge check (a knowledge refresh ends with it)"
         if not v:
@@ -117,7 +118,7 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
             out.append({"gate": "knowledge", "why": f"the knowledge base has {n} unresolved problem(s)",
                         "fix": "fix the citations the knowledge check lists (Flow page), then run it again"})
         elif v.get("commit") != head and (v.get("detail") or {}).get("content") != knowledge.content_hash(root):
-            out.append({"gate": "knowledge", "why": f"the knowledge check is for {_short(v.get('commit'))}, and docs/knowledge/ "
+            out.append({"gate": "knowledge", "why": f"the knowledge check is for {_short(v.get('commit'))}, and {kdirs[0]}/ "
                                                     "changed since", "fix": fix})
     return out
 

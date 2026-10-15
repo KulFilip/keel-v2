@@ -1083,3 +1083,14 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fr-table tr.on td { background: var(--accent-soft); }
 .fr-table td { vertical-align: middle; }
 
+
+/* v0.15.9 keel's file history (components/DocHistory.tsx) */
+.dh { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 12px; }
+.dh-list { list-style: none; padding: 0; margin: 8px 0; }
+.dh-list li { margin: 4px 0; }
+.dh-diff { white-space: pre-wrap; overflow-x: auto; max-height: 420px; font-size: 13px; padding: 8px; border-radius: 6px; background: var(--term); }
+.dh-diff .dh-add { background: var(--add-bg); display: block; }
+.dh-diff .dh-del { background: var(--del-bg); display: block; }
+.dh-problems { list-style: none; padding: 0; margin: 12px 0; }
+.dh-applied { margin-top: 16px; }
+.dh-pick { margin: 8px 0 12px; }

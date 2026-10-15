@@ -134,7 +134,7 @@ The track forked from 0.15.1 (`eabb525`); `main` released 0.15.2, 0.15.3 and 0.1
 | versions                                                                        | 0.15.4 everywhere (also `web/package.json`, which the track's version test checks)                                                                                   |
 
 **The Flyway clash.** 0.15.4 shipped `V14__thread_hidden.sql`; the track had `V14__approvals.sql` (never released). main's
-V14 stays exactly as released, and the track's became `V15__approvals.sql`. `MigrationUpgradeTest` (api) migrates a
+V14 stays exactly as released, and the track's became `V15__approvals.sql` (`V16__approvals.sql` since the port of 0.16.1, below). `MigrationUpgradeTest` (api) migrates a
 database with 0.15.4's history (V1–V14) to the track: only V15 runs, the rows stay, a second start changes nothing. A
 real check did the same with the images: keel 0.15.4 started on a fresh volume, then `keel-v2:port` on that volume
 started, applied V15, and `/api/approvals` answered.
@@ -180,3 +180,51 @@ new fields), 122 endpoints per round (132 in the flow round), and compares with 
 The only allowed difference is `/api/features.plugins` (the plugin host). The Copilot model count entry matched nothing
 this time (0.15.4's image has the same CLI); it stays, because the CLIs are installed at their newest version when an
 image is built.
+
+## Port of 0.15.7–0.16.1 (main merged into the track)
+
+The track (0.15.6 + steps 1–7, `fbbb886`) got `main`'s 0.15.7, 0.15.8, 0.15.9, 0.16.0 and 0.16.1 (34 commits, up to
+`30c58d3`, tag `v0.16.1`), merged **into** the track. Each change went where that code lives now:
+
+| main's change                                                                      | on the track                                                                                                                                         |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| several project folders, Add projects, the project switcher (0.15.7)                | core, as on main (`FolderService`, `ProjectController` bulk/remove, `AddProjects.tsx`, `ProjectSwitcher.tsx`, `keel2 add/remove/folders`)            |
+| keel v1 layouts, `.keel/` by default (0.15.8, 0.15.9)                               | core (`Layout.kt`, `layout.py`, `KeelRules`, `RepoService`, `KnowledgeService`, prompts, actions); the wiki's specs section, spec pages and layout notice: `plugins/wiki/api` `WikiService` (the wiki moved there); `#/map/er`: `plugins/map/web/Map.tsx` |
+| keel's file history in the database (0.15.9)                                         | core (`DocHistory.kt`, `doc_history.py`, `EventService`, `FlowService`, `DocHistory.tsx`); KeelBot's turns record versions in `plugins/keelbot/engine` `helper.py`; the Wiki's History panel in `plugins/wiki/web`, the Code page's problems in `plugins/code/web/KeelView.tsx` |
+| MCP levels, level tokens, audit, `/actions` (0.16.0, 0.16.1)                         | core (`mcp_server.py`, `mcp_more.py`, `McpLevels.kt`, `McpAudit.kt`, engine `/projects/{pid}/actions/{name}`); the db query guard in `plugins/db/api` `Database.kt`; the parts' MCP tools in `plugins/{db,git,ci}/engine/*/mcp_tools.py` |
+| native mode, `keel2 start --native`, `KEEL2_HOME` (0.16.1)                            | core; the native release now holds every plugin (`scripts/build-native.sh` packs `plugins/*` into `plugins/`), and `docker/keel-native-start` runs `docker/keel-start`'s loop (plugins resolved at every start, restart on exit 75, last good plugins) |
+| versions                                                                            | 0.16.1 everywhere (also `web/package.json` and `package-lock.json`)                                                                                  |
+
+**The Flyway clash, again.** 0.15.9 shipped `V15__doc_history.sql`; the track's (never released) `V15__approvals.sql`
+became `V16__approvals.sql`. `MigrationUpgradeTest` migrates a database with 0.16.1's history (V1–V15, with a file
+version in `doc_versions`) to the track: only V16 runs, the rows stay, a second start changes nothing. (A volume that
+ran an earlier track image, with V15 = approvals, does not validate: those images were never released.)
+
+**MCP levels and the marketplace tools.** Each level lists exactly 0.16.1's tools in 0.16.1's order, then the four
+marketplace tools (all four at every level; `--allow` may name them). The parts' tools still come from the plugins:
+their read tools after `keel_dashboard`, their acting tools after `keel_restore_doc`, as 0.16.1 named them. A part's
+`keel_mcp` now gets a `PartServer` ([09-step2-contract.md](09-step2-contract.md#5-web-page-registry-and-slots)): its
+tools obey the level and `--allow`, and an acting tool runs through `server.act` (who acts; `keel_db_change` and
+`keel_git_push` ask the person through the client first, unless `--yes`, as in 0.16.1).
+`plugins/db/engine/tests/test_db_part.py` pins the three lists. `keel2 mcp` in native mode reads the plugins of keel's
+last start (`KEEL_DATA`). Without the Code, Wiki or Graph plugin, `keel_read_file`, `keel_specs` with a path,
+`keel_knowledge` with a section and `keel_search` for symbols answer the api's 404 (their routes are those plugins').
+
+**Core never imports a plugin.** New SDK exports: `DocHistoryPanel`, `DocProblems`. The fence allowlists (engine, api,
+web) stay empty.
+
+**Tests moved with the code:** the wiki parts of main's `LayoutApiTest` → `plugins/wiki/api` `WikiLayoutApiTest`;
+`McpAdminApiTest`'s secret file → `plugins/code/api` `RepoSecretApiTest`; `McpLevelsApiTest`'s database query →
+`plugins/db/api` `DatabaseMcpLevelApiTest`. New: the MCP order per level (core `test_mcp.py`, `test_db_part.py`), the
+parts' levels and confirm (`test_db_part.py`).
+
+### Check (no images, no e2e: the integrator runs those)
+
+| what                                         | result                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| engine core / plugin engines / Product       | 977 · ci 17, db 27 (+8 skipped), git 22, graph 28, keelbot 43, map 36, review 15, wiki 4 · 15 |
+| api, all source sets                         | 316 passed                                                                                  |
+| web (tsc, vitest, build, plugins, product)   | 551 of 551 passed, all builds ok                                                            |
+| keel-plugin tool                             | 185 passed                                                                                  |
+| no-v1, keel-start, keel2, native update      | clean, all passed                                                                           |
+| `scripts/build-native.sh`                    | the tarball holds the 11 plugins; `keel-engine plugins resolve` loads all of them from it    |

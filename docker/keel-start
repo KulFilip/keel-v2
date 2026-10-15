@@ -13,16 +13,27 @@
 # Tests (docker/tests/keel-start.test.sh) set the commands, health urls and timeouts through the environment:
 # KEEL_RESOLVE_CMD, KEEL_ENGINE_CMD, KEEL_API_CMD, KEEL_ENGINE_HEALTH_URL, KEEL_API_HEALTH_URL,
 # KEEL_ENGINE_START_TIMEOUT (30 s), KEEL_API_START_TIMEOUT (90 s), KEEL_STOP_TIMEOUT (20 s), KEEL_START_POLL (0.5 s).
+#
+# v0.16.1 native mode (keel2 start --native) runs this same loop: docker/keel-native-start sets KEEL_NATIVE=1 and the
+# release's own files (KEEL_ENGINE_EXE, KEEL_API_JAR, KEEL_PYTHON, KEEL_PLUGINS_IMAGE: paths may hold spaces) and the
+# ports (KEEL_ENGINE_PORT, KEEL_PORT), then sources this file. Native mode never writes into $HOME and does not use a
+# Docker socket's container settings.
 set -euo pipefail
 
 export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 mkdir -p "$KEEL_DATA"
+# v0.16.1 keel2 mcp (docker exec) reads it from here to ask the api for its MCP level token (KEEL_INTERNAL_TOKEN_FILE)
+mkdir -p "$KEEL_DATA/run"
+(umask 077; printf '%s' "$KEEL_INTERNAL_TOKEN" > "$KEEL_DATA/run/internal-token")
 
-# Claude Code asks for onboarding on a fresh home; headless runs only need this flag.
-[ -f "$HOME/.claude.json" ] || echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
+# Claude Code asks for onboarding on a fresh home; headless runs only need this flag. (Native mode: the agent CLIs get
+# their own home under $KEEL_DATA, engine models/cli.py; the person's own home is never written.)
+if [ "${KEEL_NATIVE:-0}" != 1 ]; then
+  [ -f "$HOME/.claude.json" ] || echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
+fi
 
 # Host Docker (keel2 --docker): tests inside reach the containers they start through the host.
-if [ -S /var/run/docker.sock ]; then
+if [ "${KEEL_NATIVE:-0}" != 1 ] && [ -S /var/run/docker.sock ]; then
   export TESTCONTAINERS_HOST_OVERRIDE="${TESTCONTAINERS_HOST_OVERRIDE:-host.docker.internal}"
   docker version --format 'docker: client {{.Client.Version}}, host engine {{.Server.Version}}' 2>/dev/null || echo "docker: socket mounted but not usable (permissions?)"
 fi
@@ -31,10 +42,15 @@ echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · content $KEEL_C
 
 RUN="$KEEL_DATA/plugins/run"
 LAST_GOOD="$KEEL_DATA/plugins/last-good.json"
-RESOLVE_CMD="${KEEL_RESOLVE_CMD:-keel-engine plugins resolve}"
-ENGINE_CMD="${KEEL_ENGINE_CMD:-keel-engine}"
-ENGINE_HEALTH="${KEEL_ENGINE_HEALTH_URL:-http://127.0.0.1:8090/health}"
-API_HEALTH="${KEEL_API_HEALTH_URL:-http://127.0.0.1:8080/api/health}"
+ENGINE_EXE="${KEEL_ENGINE_EXE:-keel-engine}"      # one program (a path with spaces is fine)
+RESOLVE_CMD="${KEEL_RESOLVE_CMD:-}"                 # tests: words, run as they are
+ENGINE_CMD="${KEEL_ENGINE_CMD:-}"
+API_JAR="${KEEL_API_JAR:-/opt/api/app.jar}"
+PYTHON="${KEEL_PYTHON:-python3}"
+ENGINE_PORT="${KEEL_ENGINE_PORT:-8090}"
+API_PORT="${KEEL_PORT:-8080}"
+ENGINE_HEALTH="${KEEL_ENGINE_HEALTH_URL:-http://127.0.0.1:$ENGINE_PORT/health}"
+API_HEALTH="${KEEL_API_HEALTH_URL:-http://127.0.0.1:$API_PORT/api/health}"
 ENGINE_TIMEOUT="${KEEL_ENGINE_START_TIMEOUT:-30}"
 API_TIMEOUT="${KEEL_API_START_TIMEOUT:-90}"
 STOP_TIMEOUT="${KEEL_STOP_TIMEOUT:-20}"
@@ -48,7 +64,9 @@ resolve() {
   mkdir -p "$RUN"
   resolved=0
   # shellcheck disable=SC2086  # the command is words on purpose (tests give their own)
-  if $RESOLVE_CMD "$@"; then resolved=1; else no_plugins "the resolver failed (exit $?)"; fi
+  local code=0
+  if [ -n "$RESOLVE_CMD" ]; then $RESOLVE_CMD "$@" || code=$?; else "$ENGINE_EXE" plugins resolve "$@" || code=$?; fi
+  if [ "$code" = 0 ]; then resolved=1; else no_plugins "the resolver failed (exit $code)"; fi
 }
 
 # no_plugins <why>: start with no plugins at all. The api then finds no resolved.json, so it has none either.
@@ -71,14 +89,14 @@ load_env() {
 # plugin_set <json file>: one "name version" line per plugin, sorted; nothing when the file is missing or broken
 plugin_set() {
   [ -f "$1" ] || return 0
-  python3 -c 'import json, sys
+  "$PYTHON" -c 'import json, sys
 for p in sorted(json.load(open(sys.argv[1])).get("plugins") or [], key=lambda p: p["name"]):
     print(p["name"], p["version"])' "$1" 2>/dev/null || true
 }
 
 # save_last_good: the plugins of this healthy start, for the next start that fails
 save_last_good() {
-  python3 - "$RUN/resolved.json" "$LAST_GOOD" << 'EOF' || echo "plugins: could not write $LAST_GOOD"
+  "$PYTHON" - "$RUN/resolved.json" "$LAST_GOOD" << 'EOF' || echo "plugins: could not write $LAST_GOOD"
 import datetime, json, os, sys
 src, dst = sys.argv[1], sys.argv[2]
 plugins = [{"name": p["name"], "version": p["version"]} for p in json.load(open(src)).get("plugins") or []]
@@ -94,7 +112,11 @@ EOF
 
 start_engine() {
   # shellcheck disable=SC2086
-  KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 $ENGINE_CMD &
+  if [ -n "$ENGINE_CMD" ]; then
+    KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT="$ENGINE_PORT" $ENGINE_CMD &
+  else
+    KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT="$ENGINE_PORT" "$ENGINE_EXE" &
+  fi
   engine=$!
 }
 
@@ -106,7 +128,7 @@ start_api() {
     # keel's plain jar; PropertiesLauncher adds the plugin jars (loader.path) and finds Start-Class by itself
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
     KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=60} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
-      -cp /opt/api/app.jar org.springframework.boot.loader.launch.PropertiesLauncher &
+      -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi
   api=$!
 }
@@ -172,7 +194,7 @@ while :; do
   [ "$up" = 0 ] || echo "the engine is not healthy after ${ENGINE_TIMEOUT}s; starting the api anyway"
 
   start_api
-  echo "keel v2 is starting on http://localhost:8080"
+  echo "keel v2 is starting on http://localhost:$API_PORT"
   up=0
   wait_up "$api" "$API_HEALTH" "$API_TIMEOUT" || up=$?
   if [ "$up" = 0 ]; then

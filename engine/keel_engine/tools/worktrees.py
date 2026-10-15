@@ -53,19 +53,79 @@ def add(root: str, name: str, branch: str, start: str | None = None) -> dict:
     r = git.git(root, "worktree", "add", "-q", "-b", branch, str(path), base)
     if r.returncode != 0:
         raise WorktreeError(f"git could not make the worktree {name}.", (r.stderr or r.stdout).strip()[-600:])
+    seed_keel_files(root, path)
     return {"path": str(path), "branch": branch, "base": base}
 
 
+def seed_keel_files(root: str, wt: Path) -> list[str]:
+    """layout keel / external: .keel/ is outside git, so a new worktree would have no config, specs, knowledge, ADRs
+    or runbook, and a flow there would plan against nothing. Copy them in, with their times kept: keep_keel_files
+    brings back only what the flow changed. Symlinked files and keel's own worktrees are left out."""
+    from .. import layout
+
+    lay = layout.resolve(root)
+    if not lay.hidden:
+        return []
+    r = Path(root)
+    copied = []
+    cfg = r / ".keel" / "config.yml"
+    names = [".keel/config.yml"] if cfg.is_file() and not cfg.is_symlink() else []
+    for d in (lay.specs, lay.knowledge, lay.adr):
+        if (r / d).is_dir():
+            names += [f"{d}/{p.name}" for p in sorted((r / d).glob("*.md")) if p.is_file() and not p.is_symlink()]
+    if (r / lay.runbook).is_file() and not (r / lay.runbook).is_symlink():
+        names.append(lay.runbook)
+    for rel in names:
+        dst = wt / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(r / rel, dst)
+        copied.append(rel)
+    return copied
+
+
 def remove(root: str, path: str, branch: str | None = None) -> None:
-    """The worktree away (also when its files changed), then its branch unless `branch` is None (kept for a hand-over)."""
+    """The worktree away (also when its files changed), then its branch unless `branch` is None (kept for a hand-over).
+    keel's own files there (a hidden layout keeps them out of git) are copied back to the project folder first."""
     p = Path(path)
     if p.exists():
+        keep_keel_files(root, p)
         r = git.git(root, "worktree", "remove", "--force", str(p))
         if r.returncode != 0 and p.is_relative_to(Path(root) / DIR):
             shutil.rmtree(p, ignore_errors=True)
     git.git(root, "worktree", "prune")
     if branch:
         git.git(root, "branch", "-D", branch)
+
+
+def keep_keel_files(root: str, wt: Path) -> list[str]:
+    """layout keel / external: specs, knowledge, ADRs and the runbook a flow wrote in its worktree are not in git, so
+    they would go with the worktree. Copy each into the project folder, unless the file there is newer."""
+    from .. import layout
+
+    lay = layout.resolve(root)
+    if not lay.hidden:
+        return []
+    copied = []
+    for d in (lay.specs, lay.knowledge, lay.adr):
+        for f in sorted((wt / d).glob("*.md")) if (wt / d).is_dir() else []:
+            if f.is_symlink():
+                continue
+            rel = f"{d}/{f.name}"
+            if _copy_newer(f, Path(root) / rel):
+                copied.append(rel)
+    if (wt / lay.runbook).is_file() and not (wt / lay.runbook).is_symlink() and _copy_newer(wt / lay.runbook, Path(root) / lay.runbook):
+        copied.append(lay.runbook)
+    return copied
+
+
+def _copy_newer(src: Path, dst: Path) -> bool:
+    if dst.is_symlink():
+        return False
+    if dst.is_file() and (dst.stat().st_mtime > src.stat().st_mtime or dst.read_bytes() == src.read_bytes()):
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return True
 
 
 def _text(root: str, base: str, rel: str) -> str | None:

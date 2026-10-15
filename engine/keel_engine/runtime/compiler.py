@@ -29,6 +29,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, extensions, models, rules
+from . import doc_history
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
@@ -237,7 +238,12 @@ class Compiler:
             if item:
                 started["item"] = item
             ctx.emit("step.started", step=step.id, data=started)
+            # v0.15.9 keel's file history: what changed before this step (outside keel) and during it (runtime/doc_history.py)
+            docs_before = doc_history.before_step(ctx.emit, ctx.root, phase, step.id)
             update, goto = await fn(i, step, {**state, "phase": phase})
+            by_kind, by_name = doc_history.who(step)
+            doc_history.after_step(ctx.emit, ctx.root, docs_before, by_kind, by_name, phase, step.id,
+                                   (state.get("data") or {}).get("started_via"))
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
             update.setdefault("phase", phase)
@@ -1049,7 +1055,7 @@ class Compiler:
             # Started without a list (the plain "start a flow" form): the sections init chose, else the ones that
             # exist, else all five. A librarian always gets its own section; without one it wanders.
             chosen = (rules.load_config(self.ctx.root).get("init") or {}).get("knowledge_sections")
-            have = [s for s in init_gates.SECTIONS if (Path(self.ctx.root) / "docs" / "knowledge" / f"{s}.md").is_file()]
+            have = init_gates.existing_sections(self.ctx.root)
             secs = list(chosen) if isinstance(chosen, list) and chosen else (have or list(init_gates.SECTIONS))
         return secs
 

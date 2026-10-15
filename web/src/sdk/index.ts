@@ -225,3 +225,6 @@ export { MarkdownView } from "../components/Markdown";
 export { ProviderIcon } from "../components/ProviderIcon";
 export { useWide } from "../components/useWide";
 export { playKeelBot } from "../notify";
+// 0.15.7–0.16.1 (main's releases, ported to the plugin track): keel's file history (0.15.9), the panels the Wiki plugin
+// (a page's versions, restore) and the Code page's keel view (files keel could not read or write) show
+export { DocHistoryPanel, DocProblems } from "../components/DocHistory";

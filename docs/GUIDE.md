@@ -190,22 +190,80 @@ From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to l
 
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
-keel has an MCP server: your Claude can read the flow (status, timeline, next step, phase rules) while keel runs.
+keel has an MCP server with three levels; each includes the one below:
+
+| level | how | adds |
+|---|---|---|
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox, start a flow, restore a spec, git / PR / CI / database writes |
+| admin | `keel2 mcp --admin` | stop and delete flows, add and remove projects, change workflows |
 
 ```bash
-claude mcp add keel-v2 -- "$(command -v keel2)" mcp      # Claude Code, read-only
-keel2 mcp --print-config                                 # the same line + the Claude Desktop JSON
+keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
+claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 ```
 
-Read-only by default. With `keel2 mcp --write` (and `--write --print-config`) your Claude can also approve or send
-back a waiting gate. keel's own agents always get it read-only. keel v1 is a separate project; its MCP server can be
-added like any other: `keel2 start --with-keel-v1 <keel checkout>`, then turn on "keel v1 (optional)" in Tools.
+Pushes, database changes, deletes and stops ask you first in the client; a client that cannot ask is refused unless
+you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. Everything the client changes shows
+on the flow's timeline as "via MCP · <client>: <tool>". keel's own agents always get the read level.
+
+| keel v1 MCP | keel v2 MCP |
+|---|---|
+| keel_status, keel_projects, keel_timeline, keel_next, keel_explain | the same names |
+| keel_dashboard (flow, map, er) | keel_dashboard (flow, map, er) |
+| — | keel_flows, keel_inbox, keel_live, keel_budget, keel_specs, keel_knowledge, keel_search, keel_read_file, keel_actions (read); write and admin tools (v1 has none) |
+
+keel v1 is a separate project; its MCP server can be added like any other: `keel2 start --with-keel-v1 <keel
+checkout>`, then turn on "keel v1 (optional)" in Tools.
+
+## Where keel keeps its files (layouts)
+
+keel reads keel v1's `layout:` from `.keel/config.yml`: `repo` (specs in `docs/specs` or `specs`, `docs/knowledge`,
+`docs/adr`, `docs/RUNNING.md`, committed with your code), `keel` (all of it in `.keel/`, which keel hides from git in
+`.git/info/exclude`) or `external` (`.keel` is a link to a folder outside the repo; add that folder too:
+`keel2 add <folder>`). A new project gets `keel`. A project that has keel files in `docs/` keeps them there. A project
+with both `.keel/specs` and `docs/specs` shows both in the Wiki and in Code › keel files.
+
+keel keeps every version of these files in its own database, because `.keel/` is not in git: each Wiki page of a
+spec, a knowledge section or a decision has a **History** (who changed it, in which step, a diff, Restore), Code ›
+keel files shows a file that went missing with a **Restore** button, and the Flow page lists what keel applied
+(branch, commits, files).
+
+## Native mode (no Docker)
+
+```bash
+keel2 start --native ~/Projects/shop        # Java 21, uv and git on this computer; Node 20+ for the agent CLIs
+```
+
+keel runs on your computer instead of in a container: the engine and the api start from `~/.keel2/<KEEL_NAME>/`
+(the release is downloaded and checked once; `keel2 update` gets the next one, `keel2 update --rollback` goes back).
+Every other command works the same: `status`, `stop`, `logs`, `doctor`, `mcp`, `add`, `backup` …
+
+**Agents run as you**: they can read what you can (your SSH keys, other projects, your network). In Docker they only
+see the project folders. Docker stays the default; use native mode only on a computer and projects you trust. keel
+gives the agent CLIs a home of their own under its data folder, so your own `~/.claude`, `~/.codex` and
+`~/.copilot` are never touched.
 
 ## Docker mode
 
 The image has JDK 21, Node 20, Python 3.12 and the Docker CLI (compose, buildx). `keel2 start --docker` mounts your
 Docker socket and the project at the **same path** as on your computer, so Testcontainers and compose bind mounts
 work. Docker access is as strong as root on your computer: use it only for projects you trust.
+
+## Several project folders
+
+`keel2 start <folder>` gives keel one folder. To add projects from other places, name them, several at once:
+
+```bash
+keel2 add ~/Projects/api ~/Work/web ~/Projects/clients   # each a git repo, or a folder of git repos
+keel2 folders                                            # the main folder and the added ones
+keel2 remove ~/Work/web                                  # off the list; keel keeps its history
+```
+
+The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs, `add` and `remove` restart it once
+(they ask first when agents are working). Each added folder is mounted at the **same path** as on your computer, and
+every git repo in it becomes a project (a folder of repos: each repo directly inside it). More repos later? All
+projects › Add projects lets you pick them. A folder that no longer exists is skipped (`keel2 folders` marks it).
 
 ## Problems
 
@@ -226,6 +284,7 @@ All commands: `keel2 help` (logs, tokens, backup, restore, uninstall …).
 | Folder | What |
 |---|---|
 | `/workspace` | your project (one git repo, or a folder of repos); its real path with `--docker` |
+| the same path as on your computer | each folder added with `keel2 add` |
 | `/data` | keel's database, flow checkpoints, encrypted logins |
 | `/opt/keel-v2/content` | keel v2's agents, skills, stacks, packs, templates and workflows |
 | `/opt/keel-v1-optional` | only with `--with-keel-v1`: that keel v1 checkout, read-only, for its MCP server |

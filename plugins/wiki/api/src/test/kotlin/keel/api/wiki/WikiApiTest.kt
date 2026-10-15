@@ -10,7 +10,7 @@ import java.nio.file.Files
 class WikiApiTest : ApiTest() {
 
     @Test
-    fun `the wiki lists the knowledge base, the workflows, the runbook and the decisions, and reads each page`() {
+    fun `the wiki lists the specs, the knowledge base, the workflows, the runbook and the decisions, and reads each page`() {
         val (pid, _) = newProject(
             "repo-knowledge",
             mapOf(
@@ -22,8 +22,8 @@ class WikiApiTest : ApiTest() {
             ),
         )
         val wiki = get("/api/projects/$pid/wiki").json()
-        assertThat(wiki["sections"].map { it["id"].asText() }).containsExactly("knowledge", "workflows", "runbook", "decisions")
-        val knowledge = wiki["sections"][0]["items"]
+        assertThat(wiki["sections"].map { it["id"].asText() }).containsExactly("specs", "knowledge", "workflows", "runbook", "decisions")
+        val knowledge = wiki["sections"][1]["items"]          // 0.15.8: Specs come first
         assertThat(knowledge.first { it["id"].asText() == "kb:architecture" }["status"].asText()).isEqualTo("written")
         assertThat(knowledge.first { it["id"].asText() == "kb:domain" }["status"].asText()).isEqualTo("missing")
         val page = get("/api/projects/$pid/wiki/page?id=kb:architecture").json()

@@ -1,16 +1,22 @@
 """keel v2's own MCP server (stdio): the flow's status, timeline, next action and phase rules, read over the api.
 
-    python -m keel_engine.mcp [--read-only | --write]
+    python -m keel_engine.mcp [--read-only | --write | --admin] [--allow t1,t2] [--yes]
 
-Agents get it read-only (the builtin `keel` server in tools/mcp.py and the api's McpService): an agent never
-approves its own gate. A user's Claude Code / Claude Desktop gets it through `keel2 mcp`; `--write` (or
-KEEL_MCP_WRITE=1 without --read-only) adds keel_approve_gate and keel_resume. Read-only mode does not register
-them at all, so a client cannot even see them.
+v0.16.0 three levels, each with the one below (TOOLS lists them): read (default; what agents get), write (decide
+gates, answer the Inbox, start flows, git / PR / CI / DB writes), admin (stop and delete flows, projects, workflows).
+A tool above the level, or not in --allow, is not registered at all, so a client cannot even see it. Agents get
+--read-only (the builtin `keel` server in tools/mcp.py and the api's McpService), which always wins over the env.
+Push, DB changes, deletes and stops ask the person through the client first (MCP elicitation); a client that cannot
+ask is refused unless --yes. Every write says who acted (X-Keel-Via / X-Keel-Client / X-Keel-Tool; api McpAudit).
+v0.16.1 the api checks the level too: with the internal token this server asks POST /api/mcp/token for its level's
+token and sends it as X-Keel-Mcp-Token (api McpLevelGuard); without it (agents) the api treats it as read.
 
 Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the project whose root holds the
 working directory (an agent runs in its project), else the only (or first) project.
 
-The marketplace's four tools come last, in read-only and write mode alike (docs/plugins/13-step4-contract.md §7):
+The plugins' tools (Database, Git, CI/CD: keel_db_*, keel_git_*, keel_pr_*, keel_ci_*) come from the plugins, through
+their `keel_mcp` (keel_engine/extensions.py), at the level each part gives them, in keel 0.16.1's places.
+The marketplace's four tools come last, at every level (docs/plugins/13-step4-contract.md §7):
 keel_marketplace_search, keel_plugin_info, keel_plugins_installed read; keel_plugin_request only opens a request a
 person approves in keel's Inbox. There is no install tool: agents ask, people decide.
 """
@@ -18,14 +24,19 @@ person approves in keel's Inbox. There is no install tool: agents ask, people de
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 from pathlib import Path
 import sys
 import time
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import quote
 
+import anyio
 import httpx
+from mcp.server.fastmcp import Context
+from pydantic import BaseModel, Field
 
 from . import extensions, rules
 from .addons import NAME
@@ -38,6 +49,13 @@ BUCKET_TEXT = {
     "e2e": "end-to-end tests", "smoke": "smoke tests", "other": "any other file: docs, build files",
 }
 TIMELINE_FILTERS = ("all", "steps", "agents", "failed")
+# keel_dashboard: the web app's page for each view (web/src/routes.ts; #/projects/<id>/… picks the project)
+DASHBOARD_VIEWS = {"flow": "flow", "map": "map/system", "er": "map/er"}
+START_WAIT = 20         # keel_start_flow waits this long for the flow to reach its first gate
+START_POLL = 2
+
+
+MCP_TOKEN_HEADER = "X-Keel-Mcp-Token"
 
 
 class ApiError(Exception):
@@ -46,17 +64,69 @@ class ApiError(Exception):
         self.status = status     # the api's HTTP status, when it answered
 
 
+def internal_token() -> str:
+    """KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE names (keel2 mcp in Docker: docker/keel-start writes it)."""
+    tok = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
+    path = os.environ.get("KEEL_INTERNAL_TOKEN_FILE", "")
+    if not tok and path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                tok = f.read().strip()
+        except OSError:
+            tok = ""
+    return tok
+
+
 class KeelApi:
     """The keel v2 api over HTTP (KEEL_API_URL). Public /api routes; the api only listens on 127.0.0.1."""
 
     def __init__(self, url: str | None = None, transport: httpx.BaseTransport | None = None):
         self.url = (url or os.environ.get("KEEL_API_URL") or "http://127.0.0.1:8080").rstrip("/")
-        headers = {"X-Keel-Token": os.environ["KEEL_INTERNAL_TOKEN"]} if os.environ.get("KEEL_INTERNAL_TOKEN") else {}
-        self.http = httpx.Client(base_url=self.url + "/api", timeout=API_TIMEOUT, headers=headers, transport=transport)
+        self.http = httpx.Client(base_url=self.url + "/api", timeout=API_TIMEOUT, transport=transport)
+        # v0.16.1 the api checks the level: with the internal token (keel2 mcp has it, agents never do) this asks the api
+        # for its level's token once and sends it as X-Keel-Mcp-Token; without it, no token, so the api treats it as read.
+        # A dict, so the copies acting() makes share it.
+        self._proof = {"internal": internal_token(), "level": "read", "asked": False}
+        # v0.16.0 who acts: every write the api gets from here says "via MCP · <client>: <tool>" (api McpAudit)
+        self.client = "an MCP client"
+        self.tool = ""
 
-    def _send(self, method: str, path: str, **kw) -> Any:
+    def acting(self, client: str, tool: str) -> "KeelApi":
+        """A copy for one tool call (the same HTTP client) that says who acts: two calls at once never swap names."""
+        c = copy.copy(self)
+        c.client, c.tool = client, tool
+        return c
+
+    def use_level(self, level: str) -> None:
+        """The level to ask the api's token for (build_server sets it); asked on the first request."""
+        self._proof.update(level=level, asked=False)
+        self.http.headers.pop(MCP_TOKEN_HEADER, None)
+
+    def _prove(self) -> None:
+        p = self._proof
+        if p["asked"] or not p["internal"]:
+            return
         try:
-            res = self.http.request(method, path, **kw)
+            res = self.http.post("/mcp/token", json={"level": p["level"]}, headers={"X-Keel-Token": p["internal"]})
+        except httpx.HTTPError:
+            return                                          # the api is not up yet: ask again on the next request
+        p["asked"] = True
+        try:
+            token = res.json().get("token") if res.status_code == 200 else None
+        except ValueError:
+            token = None
+        if token:
+            self.http.headers[MCP_TOKEN_HEADER] = token
+
+    def _audit(self, method: str) -> dict:
+        if method == "GET":
+            return {}
+        return {"X-Keel-Via": "mcp", "X-Keel-Client": self.client[:80], "X-Keel-Tool": self.tool[:80]}
+
+    def _raw(self, method: str, path: str, timeout: float | None = None, **kw) -> httpx.Response:
+        self._prove()
+        try:
+            res = self.http.request(method, path, headers=self._audit(method), **({"timeout": timeout} if timeout else {}), **kw)
         except httpx.HTTPError as exc:
             raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}). Is keel running? (keel2 status)") from exc
         if res.status_code >= 400:
@@ -68,13 +138,27 @@ class KeelApi:
             except ValueError:
                 msg = res.text[:300]
             raise ApiError(f"{method} {path}: {res.status_code} {msg}", res.status_code)
+        return res
+
+    def _send(self, method: str, path: str, **kw) -> Any:
+        res = self._raw(method, path, **kw)
         return res.json() if res.content else None
 
-    def get(self, path: str, **params) -> Any:
-        return self._send("GET", path, params={k: v for k, v in params.items() if v is not None})
+    def text(self, route: str, /, **params) -> str:
+        return self._raw("GET", route, params={k: v for k, v in params.items() if v is not None}).text
 
-    def post(self, path: str, body: dict) -> Any:
-        return self._send("POST", path, json=body)
+    def put(self, path: str, body: dict) -> Any:
+        return self._send("PUT", path, json=body)
+
+    def delete(self, path: str) -> Any:
+        return self._send("DELETE", path)
+
+    def get(self, route: str, /, **params) -> Any:
+        """GET a route; `params` are the query (a `path` query parameter is fine: the route is positional)."""
+        return self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
+
+    def post(self, path: str, body: dict, timeout: float | None = None) -> Any:
+        return self._send("POST", path, json=body, timeout=timeout)
 
 
 # ---------------------------------------------------------------- helpers
@@ -289,7 +373,57 @@ def explain(api: KeelApi | None, phase: str | None = None, project: str | None =
     return "\n".join(out)
 
 
+def dashboard_url(api: KeelApi, view: str = "flow", project: str | None = None) -> str:
+    """The web app's URL for a view of the project: KEEL_PUBLIC_URL (keel2 mcp sets it from the running port), else
+    the api's own address (inside the container that is keel's port 8080, not the one on your machine)."""
+    if view not in DASHBOARD_VIEWS:
+        raise ApiError(f'view must be one of: {", ".join(DASHBOARD_VIEWS)}')
+    p = _project(api, project)
+    base = (os.environ.get("KEEL_PUBLIC_URL") or api.url).rstrip("/")
+    return f"{base}/#/projects/{quote(p['id'], safe='')}/{DASHBOARD_VIEWS[view]}"
+
+
+def dashboard(api: KeelApi, view: str = "flow", project: str | None = None) -> str:
+    url = dashboard_url(api, view, project)
+    what = {"flow": "the flow page", "map": "the map", "er": "the database diagram (ER)"}[view]
+    return f"{url}\nOpen it in a browser: {what} of this project in keel's dashboard."
+
+
 # ---------------------------------------------------------------- write tools (only with --write)
+
+def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, sleep=time.sleep,
+               wait: float = START_WAIT) -> str:
+    """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
+    mode and records as a flow started in the web app. It runs until its first human gate, like any flow."""
+    idea = (idea or "").strip()
+    if not idea:
+        raise ApiError("idea is empty: say in a sentence or two what the flow should build or fix.")
+    p = _project(api, project)
+    known = [w.get("id") for w in api.get(f"/projects/{p['id']}/workflows") or [] if w.get("id")]
+    if known and type not in known:
+        raise ApiError(f'no flow type "{type}". keel has: {", ".join(known)}')
+    first = idea.splitlines()[0].strip()
+    title = first if len(first) <= 72 else first[:71].rstrip() + "…"
+    state = api.post(f"/projects/{p['id']}/flows", {"workflow_id": type, "title": title, "request": idea,
+                                                    "options": {"started_via": "mcp"}}) or {}
+    tid = state.get("thread_id")
+    deadline = time.monotonic() + wait
+    while tid and state.get("status") == "running" and time.monotonic() < deadline:
+        sleep(START_POLL)
+        thread, _ = _flow(api, p["id"])
+        if thread and thread.get("thread_id") == tid:
+            state = thread
+    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}), recorded as started via MCP.',
+           f"The flow is {state.get('status')} at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})."]
+    if state.get("waiting"):
+        out.append(f"It waits for a human: {state['waiting'].get('title')}. Decide it in the dashboard or with keel_approve_gate.")
+    elif state.get("status") == "running":
+        out.append("It is still running; keel_status follows it, and it stops at its first gate for a human.")
+    if state.get("cap_note"):
+        out.append(str(state["cap_note"]))
+    out.append(f"Watch it: {dashboard_url(api, 'flow', p['id'])}")
+    return "\n".join(out)
+
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
                  answers: dict[str, str] | None = None) -> str:
@@ -488,15 +622,117 @@ def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sle
     return False, "Nobody answered in keel's Inbox in 10 minutes."
 
 
-def build_server(write: bool = False, api: KeelApi | None = None):
+LEVELS = ("read", "write", "admin")
+RANK = {"read": 0, "write": 1, "admin": 2}
+# Tools that change something hard to undo: the client asks the person first (MCP elicitation), or with --yes not.
+# A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
+CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc"}
+NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
+             "it without asking, or do it in keel's dashboard.")
+
+
+class Confirm(BaseModel):
+    confirm: bool = Field(description="Yes, do it")
+
+
+def tool_level(name: str) -> str | None:
+    """The level a tool is registered at (None: not a keel tool): keel's own (TOOLS), a part's (part_tools), the
+    marketplace's (read)."""
+    for lv, names in TOOLS.items():
+        if name in names:
+            return lv
+    if name in MARKET_TOOLS:
+        return "read"
+    for lv, names in part_tools().items():
+        if name in names:
+            return lv
+    return None
+
+
+class PartServer:
+    """What a part's `keel_mcp(server, api, guard, write)` gets as `server` (keel_engine/extensions.py): `tool()`
+    registers a tool as keel's own are (only within this server's level and --allow; the part's read tools at read,
+    its acting ones at write), and `act()` runs an acting tool as keel's own do (who acts, for the api's audit; with
+    `confirm`, the person's OK through the client first)."""
+
+    def __init__(self, reg, act, level: str):
+        self._reg, self._act, self.level = reg, act, level
+
+    def tool(self, annotations=None, structured_output: bool = False, **_kw):
+        return self._reg(annotations, self.level)
+
+    async def act(self, ctx, name: str, what: str, fn, *a, confirm: bool = False, **kw) -> str:
+        return await self._act(ctx, name, what, fn, *a, confirm=confirm, **kw)
+
+
+class _Names:
+    """A stand-in server that only notes the names a part's keel_mcp registers (part_tools)."""
+
+    def __init__(self):
+        self.names: list[str] = []
+
+    def tool(self, *_a, **_kw):
+        def deco(fn):
+            self.names.append(fn.__name__)
+            return fn
+        return deco
+
+
+def part_tools() -> dict[str, list[str]]:
+    """The parts' tools in keel's MCP server by level: their read tools, and their acting ones (write)."""
+    out: dict[str, list[str]] = {}
+    for lv, write in (("read", False), ("write", True)):
+        rec = _Names()
+        extensions.keel_mcp(rec, None, None, write=write)
+        out[lv] = rec.names
+    return out
+
+
+# keel's own tools by level, in 0.16.1's order. The parts' tools (Database, Git, CI/CD) come from the parts, in 0.16.1's
+# places: their read tools after keel_dashboard, their acting ones after keel_restore_doc (part_tools, build_server).
+TOOLS: dict[str, tuple[str, ...]] = {
+    "read": ("keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
+             "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
+             "keel_read_file", "keel_actions", "keel_run_action"),
+    "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"),
+    "admin": ("keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+              "keel_edit_workflow"),
+}
+# the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
+MARKET_TOOLS = ("keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request")
+
+
+def build_server(write: bool = False, api: KeelApi | None = None, level: str | None = None,
+                 allow: set[str] | None = None, yes: bool = False):
+    """The MCP server at a level (read, write, admin: each includes the one below). A tool above the level, or not in
+    `allow` when it is given, is not registered at all, so the client cannot see it."""
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
 
+    from . import mcp_more as more
+
     api = api or KeelApi()
+    lvl = level or ("write" if write else "read")
+    if lvl not in LEVELS:
+        raise ValueError(f"level must be one of {', '.join(LEVELS)}")
+    if hasattr(api, "use_level"):      # (a stand-in object lists the tools without an api)
+        api.use_level(lvl)
     ro = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+    rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+    rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
     srv = FastMCP("keel", instructions="keel v2: the flow on each project (phase, criteria, gates), what happened, what to do next, "
-                                         "and what each phase permits." + (" Write tools can decide a waiting gate." if write else ""),
+                                         "and what each phase permits." + {"read": "", "write": " Write tools can decide gates and start flows.",
+                                                                          "admin": " Admin tools can also stop flows and change projects and workflows."}[lvl],
                   log_level="WARNING")
+
+    def reg(ann, at: str | None = None):
+        """Registers a tool within the level and --allow. `at`: a part's tool's level (else keel's own, TOOLS)."""
+        def deco(fn):
+            name = fn.__name__
+            if RANK[lvl] < RANK[at or tool_level(name) or "admin"] or (allow is not None and name not in allow):
+                return fn
+            return srv.tool(annotations=ann, structured_output=False)(fn)
+        return deco
 
     def guard(fn, *a, **kw) -> str:
         try:
@@ -504,70 +740,222 @@ def build_server(write: bool = False, api: KeelApi | None = None):
         except ApiError as exc:
             return f"keel: {exc}"
 
-    @srv.tool(annotations=ro, structured_output=False)
+    async def act(ctx: Context | None, name: str, what: str, fn, *a, confirm: bool | None = None, **kw) -> str:
+        """A write or admin call: says who acts (audit headers), asks the person first when the tool needs it (CONFIRM,
+        or a part's `confirm`)."""
+        try:
+            params = ctx.session.client_params if ctx else None
+            client = (params.clientInfo.name if params and params.clientInfo else None) or "an MCP client"
+        except Exception:  # noqa: BLE001
+            client = "an MCP client"
+        mine = api.acting(client, name)
+        a = tuple(mine if x is api else x for x in a)
+        if (name in CONFIRM if confirm is None else confirm) and not yes:
+            can = False
+            try:
+                can = bool(ctx and ctx.session.client_params and ctx.session.client_params.capabilities.elicitation)
+            except Exception:  # noqa: BLE001
+                can = False
+            if not can:
+                return "keel: " + NO_ELICIT.format(what=what)
+            res = await ctx.elicit(message=f"keel: {what}?", schema=Confirm)
+            if res.action != "accept" or not getattr(res.data, "confirm", False):
+                return f"keel: not done — you said no to {what}."
+        return await anyio.to_thread.run_sync(lambda: guard(fn, *a, **kw))
+
+    # ---------------------------------------------------------------- read
+
+    @reg(ro)
     def keel_status(project: str | None = None) -> str:
         """The project's flow: branch, workflow, current step and phase, every acceptance criterion with its status,
         what is waiting on a human (title, kind, options, questions), token usage against the cap, and blockers."""
         return guard(status, api, project)
 
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
     def keel_projects() -> str:
         """Every keel project, one line each: id, branch, flow, phase, criteria done, and whether it waits on a human.
         Pass an id as `project` to the other keel tools."""
         return guard(projects, api)
 
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
     def keel_timeline(project: str | None = None, limit: int = 20, filter: Literal["all", "steps", "agents", "failed"] = "all") -> str:
         """Recent events, newest first: flow checkpoints (steps) and agent runs (status, tokens, model).
         filter: all, steps, agents or failed. limit: 1-200 (default 20)."""
         return guard(timeline, api, project, limit, filter)
 
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
     def keel_next(project: str | None = None) -> str:
         """The single next action for a human or an agent (e.g. a gate to approve, a step running), plus what blocks a push."""
         return guard(next_action, api, project)
 
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
     def keel_explain(phase: str | None = None, project: str | None = None) -> str:
         """What a phase permits and refuses (which files may be edited, commit rules, shell rules) and where it sits on
         each flow's rail. phase: e.g. spec, red, green, gate, hunt-sweep; default the project's current phase."""
         return guard(explain, api, phase, project)
 
-    extensions.keel_mcp(srv, api, guard, write=False)      # the parts' read tools: Database, Git, CI/CD
+    @reg(ro)
+    def keel_dashboard(project: str | None = None, view: Literal["flow", "map", "er"] = "flow") -> str:
+        """The web address of a dashboard view for the project, to open in a browser: flow (the flow page), map (the
+        project map) or er (the database diagram)."""
+        return guard(dashboard, api, view, project)
 
-    if write:
-        rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+    # the parts' read tools (Database, Git, CI/CD), in the parts' order, where keel 0.16.1 listed them
+    extensions.keel_mcp(PartServer(reg, act, "read"), api, guard, write=False)
 
-        extensions.keel_mcp(srv, api, guard, write=True)   # the parts' acting tools: each asks in keel's Inbox first
+    @reg(ro)
+    def keel_flows(project: str | None = None, limit: int = 10) -> str:
+        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch."""
+        return guard(more.flows, api, project, limit)
 
-        @srv.tool(annotations=rw, structured_output=False)
-        def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
-                              answers: dict[str, str] | None = None) -> str:
-            """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
-            For a clarify gate pass `answers`: question id -> the chosen option label or your own words."""
-            return guard(approve_gate, api, decision, project, why, answers)
+    @reg(ro)
+    def keel_inbox(project: str | None = None) -> str:
+        """What waits for a person in keel's Inbox (gates, questions, choices), on every project or one."""
+        return guard(more.inbox, api, project)
 
-        @srv.tool(annotations=rw, structured_output=False)
-        def keel_resume(decision: Literal["approve", "reject"], thread_id: str | None = None, project: str | None = None,
-                        why: str | None = None, payload: dict[str, Any] | None = None) -> str:
-            """Resume a waiting flow thread as the dashboard does (POST /api/threads/{id}/resume with decision, why,
-            payload). thread_id defaults to the project's current flow."""
-            return guard(resume, api, decision, thread_id, project, why, payload)
+    @reg(ro)
+    def keel_live(project: str | None = None) -> str:
+        """The agents running now: agent, step, criterion, model, tokens and their last step."""
+        return guard(more.live, api, project)
 
-    # the marketplace's tools, last in both modes (keel 0.15.4's list keeps its order); asking is allowed read-only
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
+    def keel_budget(project: str | None = None) -> str:
+        """Tokens and cost today and this month, each running flow against its cap, and what is left of every cap."""
+        return guard(more.budget, api, project)
+
+    @reg(ro)
+    def keel_specs(project: str | None = None, path: str | None = None, history: bool = False) -> str:
+        """The project's specs (where its layout keeps them) with their criteria counts; with `path`, one spec's text,
+        and with history=true its versions (who, phase, commit)."""
+        return guard(more.specs, api, project, path, history)
+
+    @reg(ro)
+    def keel_knowledge(project: str | None = None, section: str | None = None) -> str:
+        """keel's knowledge of the project: the sections (architecture, domain, ...) with their state, and the memory
+        facts; with `section`, that section's text."""
+        return guard(more.knowledge, api, project, section)
+
+    @reg(ro)
+    def keel_search(query: str, project: str | None = None, kind: Literal["text", "symbol"] = "text") -> str:
+        """Search the project: text in code and docs (file:line), or a class, function or route in the code graph."""
+        return guard(more.search, api, query, project, kind)
+
+    @reg(ro)
+    def keel_read_file(path: str, project: str | None = None, start: int = 1, lines: int = 200) -> str:
+        """One file of the project, with line numbers: `lines` lines (at most 400) from `start`. Secret files are refused."""
+        return guard(more.read_file, api, path, project, start, lines)
+
+    @reg(ro)
+    def keel_actions() -> str:
+        """keel's engine actions (checks, traces, reports ...), each with its level: read, write, admin or flow-only."""
+        return more.actions(lvl)
+
+    @reg(ro)
+    async def keel_run_action(action: str, args: dict[str, Any] | None = None, project: str | None = None,
+                              ctx: Context | None = None) -> str:
+        """Run one engine action on the project (keel_actions lists them). An action above this server's level, or one
+        that only runs inside a flow, is refused."""
+        from .runtime import action_docs
+
+        lv = action_docs.action_level(action)
+        if lv == "read":
+            return await anyio.to_thread.run_sync(lambda: guard(more.run_action, api, action, lvl, args, project))
+        return await act(ctx, "keel_run_action", f"run the action {action}", more.run_action, api, action, lvl, args, project)
+
+    # ---------------------------------------------------------------- write
+
+    @reg(rw)
+    async def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
+                                answers: dict[str, str] | None = None, ctx: Context | None = None) -> str:
+        """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
+        For a clarify gate pass `answers`: question id -> the chosen option label or your own words."""
+        return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers)
+
+    @reg(rw)
+    async def keel_resume(decision: Literal["approve", "reject"], thread_id: str | None = None, project: str | None = None,
+                          why: str | None = None, payload: dict[str, Any] | None = None, ctx: Context | None = None) -> str:
+        """Resume a waiting flow thread as the dashboard does (POST /api/threads/{id}/resume with decision, why,
+        payload). thread_id defaults to the project's current flow."""
+        return await act(ctx, "keel_resume", "resume the flow", resume, api, decision, thread_id, project, why, payload)
+
+    @reg(rw)
+    async def keel_start_flow(type: str, idea: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Start a keel flow on the project, as the dashboard's "Start a flow" does: type is the workflow id
+        (feature, change, fix, review, ...), idea says in your words what to build or fix (the first line is the
+        title). It runs under keel's guard, budget and records, and stops at its first human gate."""
+        return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project)
+
+    @reg(rw)
+    async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
+                          thread_id: str | None = None, why: str | None = None, answers: dict[str, str] | None = None,
+                          choice: str | None = None, item_id: str | None = None, ctx: Context | None = None) -> str:
+        """Answer what waits in keel's Inbox: a gate (approve or reject with why), a clarify question (answers: id ->
+        your words), a choice (choice), or a task item (item_id)."""
+        return await act(ctx, "keel_answer", "answer the Inbox", more.answer, api, decision, project, thread_id, why,
+                         answers, choice, item_id)
+
+    @reg(rw)
+    async def keel_edit_gate(notes: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Send the waiting gate back with notes on what to change; the agent reworks it and the gate asks again."""
+        return await act(ctx, "keel_edit_gate", "send the gate back", more.edit_gate, api, notes, project)
+
+    @reg(rw)
+    async def keel_restore_doc(path: str, version: int | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """Put back a spec, knowledge section, ADR or runbook as it was in a stored version (default: the newest)."""
+        return await act(ctx, "keel_restore_doc", f"restore {path}", more.restore_doc, api, path, version, project)
+
+    # the parts' acting tools (CI/CD, Database, Git: by name, as keel 0.16.1 listed them); each asks in keel's Inbox first
+    extensions.keel_mcp(PartServer(reg, act, "write"), api, guard, write=True)
+
+    # ---------------------------------------------------------------- admin
+
+    @reg(rx)
+    async def keel_stop_flow(project: str | None = None, thread_id: str | None = None, ctx: Context | None = None) -> str:
+        """Stop a running or waiting flow (default: the project's current one). Its work so far stays."""
+        return await act(ctx, "keel_stop_flow", "stop the flow", more.stop_flow, api, project, thread_id)
+
+    @reg(rx)
+    async def keel_delete_run(thread_id: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Delete a finished flow from the project's run history (not one that runs or waits)."""
+        return await act(ctx, "keel_delete_run", f"delete the flow {thread_id} from the history", more.delete_run, api, thread_id, project)
+
+    @reg(rw)
+    async def keel_add_project(path: str, name: str | None = None, ctx: Context | None = None) -> str:
+        """Add a git repo keel can already see (in a folder `keel2 add` mounted) as a project."""
+        return await act(ctx, "keel_add_project", f"add {path}", more.add_project, api, path, name)
+
+    @reg(rx)
+    async def keel_remove_project(project: str, ctx: Context | None = None) -> str:
+        """Take a project off keel's list; its history stays, and adding the folder again shows it again."""
+        return await act(ctx, "keel_remove_project", f"remove the project {project}", more.remove_project, api, project)
+
+    @reg(ro)
+    def keel_workflows(project: str | None = None, workflow: str | None = None) -> str:
+        """The project's workflows (id, name, steps); with `workflow`, its YAML."""
+        return guard(more.workflows, api, project, workflow)
+
+    @reg(rx)
+    async def keel_edit_workflow(workflow: str, yaml: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Change a workflow: the whole YAML (keel_workflows with `workflow` shows it). keel checks it first; nothing is
+        saved when the check finds errors."""
+        return await act(ctx, "keel_edit_workflow", f"change the workflow {workflow}", more.edit_workflow, api, workflow, yaml, project)
+
+    # ---------------------------------------------------------------- the marketplace (step 4)
+    # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only
+
+    @reg(ro)
     def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
         """Search the plugin catalogs keel reads: each plugin's name, title, trust level (content, web or code),
         summary, and whether this keel has it. category: code, knowledge, tickets, review, product or other."""
         return guard(marketplace_search, api, q, category)
 
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
     def keel_plugin_info(name: str) -> str:
         """One plugin of the catalogs: its versions, the permissions each asks for, the plugins it needs, and what an
         install would add."""
         return guard(plugin_info, api, name)
 
-    @srv.tool(annotations=ro, structured_output=False)
+    @reg(ro)
     def keel_plugins_installed(project: str | None = None) -> str:
         """The plugins this keel has (version, from the image or the marketplace, on or off, loaded or waiting for a
         restart) and the ones that are on in the project."""
@@ -575,7 +963,7 @@ def build_server(write: bool = False, api: KeelApi | None = None):
 
     ask = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 
-    @srv.tool(annotations=ask, structured_output=False)
+    @reg(ask)
     def keel_plugin_request(name: str, reason: str, version: str | None = None, project: str | None = None) -> str:
         """Ask a person to install a plugin: it opens a request in keel's Inbox with your reason (required, in your
         own words) and never installs anything itself. One request per plugin; a second one joins it."""
@@ -584,11 +972,38 @@ def build_server(write: bool = False, api: KeelApi | None = None):
     return srv
 
 
-def write_mode(argv: list[str]) -> bool:
-    """--read-only always wins (agents get it), so KEEL_MCP_WRITE=1 in an env cannot give an agent the write tools."""
+def level(argv: list[str]) -> str:
+    """read, write or admin. --read-only always wins (agents get it), so an env setting cannot give an agent more."""
     if "--read-only" in argv:
-        return False
-    return "--write" in argv or os.environ.get("KEEL_MCP_WRITE", "0") == "1"
+        return "read"
+    if "--admin" in argv or os.environ.get("KEEL_MCP_LEVEL") == "admin":
+        return "admin"
+    if "--write" in argv or os.environ.get("KEEL_MCP_WRITE", "0") == "1" or os.environ.get("KEEL_MCP_LEVEL") == "write":
+        return "write"
+    return "read"
+
+
+def write_mode(argv: list[str]) -> bool:
+    return level(argv) != "read"
+
+
+def allowed(argv: list[str]) -> set[str] | None:
+    """--allow t1,t2 (or KEEL_MCP_ALLOW): only these tools. An unknown name is an error, so a typo never hides a tool."""
+    text = None
+    for i, a in enumerate(argv):
+        if a == "--allow" and i + 1 < len(argv):
+            text = argv[i + 1]
+        elif a.startswith("--allow="):
+            text = a.split("=", 1)[1]
+    text = text if text is not None else os.environ.get("KEEL_MCP_ALLOW")
+    if not text:
+        return None
+    names = {t.strip() for t in text.split(",") if t.strip()}
+    unknown = sorted(n for n in names if tool_level(n) is None)
+    if unknown:
+        every = {n for v in TOOLS.values() for n in v} | set(MARKET_TOOLS) | {n for v in part_tools().values() for n in v}
+        raise SystemExit(f"keel mcp: no tool called {', '.join(unknown)}. Tools: {', '.join(sorted(every))}")
+    return names
 
 
 PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
@@ -618,7 +1033,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m keel_engine.mcp", description="keel v2 MCP server (stdio)")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--read-only", action="store_true", help="only the read tools (default; what agents get)")
-    group.add_argument("--write", action="store_true", help="also keel_approve_gate and keel_resume")
-    parser.parse_args(argv)
-    plugin_env()
-    build_server(write=write_mode(argv)).run("stdio")
+    group.add_argument("--write", action="store_true", help="also deciding gates, answering, starting flows, git / PR / CI / DB writes")
+    group.add_argument("--admin", action="store_true", help="also stopping and deleting flows, projects and workflows")
+    parser.add_argument("--allow", help="only these tools, comma-separated (within the level)")
+    parser.add_argument("--yes", action="store_true", help="no confirm question for push, DB change, delete, stop (when the client cannot ask)")
+    args = parser.parse_args(argv)
+    plugin_env()                    # before allowed(): --allow may name a plugin's tool
+    build_server(level=level(argv), allow=allowed(argv), yes=bool(args.yes)).run("stdio")

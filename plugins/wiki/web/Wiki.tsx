@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import {
-  Async, EmptyState, ErrorBox, Loading, Markdown, PageHead, Pill, RefreshStaleButton, SearchBox, Skeleton, StepInfoDrawer,
+  Async, DocHistoryPanel, EmptyState, ErrorBox, Loading, Markdown, PageHead, Pill, RefreshStaleButton, SearchBox, Skeleton, StepInfoDrawer,
   get, go, kfmt, tokensByStep, useApp, useLoad, useNarrow, useRoute,
   type Estimate, type WikiPage as WikiPageData, type WikiTree, type Workflow,
 } from "@keel/web-sdk";
@@ -118,6 +118,7 @@ function Page({ pid, id }: { pid: string; id: string }) {
       </div>
       {facts.length > 0 && <p className="sub" style={{ marginTop: 0 }}>{facts.join(" · ")}</p>}
       <div className="wdoc">{p.markdown ? <Markdown text={p.markdown} /> : <p className="sub">This page is empty.</p>}</div>
+      {typeof meta.path === "string" && /^(spec|kb|adr):/.test(id) && <DocHistoryPanel pid={pid} path={meta.path} onRestored={() => void page.reload()} />}
       {id.startsWith("kb:") && <p className="hint">Every claim cites <span className="mono">file:line</span>. <span className="mono">memory check</span> opens each citation; a broken one fails the check.</p>}
     </>
   );
@@ -156,6 +157,8 @@ export function WikiPage({ pid }: { pid: string }) {
       <PageHead title="Wiki"
         sub={`What keel knows about ${project?.name ?? pid}: the knowledge base the librarians write, a page for every workflow, the setup runbook and decisions.`}
         actions={<RefreshStaleButton pid={pid} sections={stale} className="btn" />} />
+      {tree.data?.notice && <div className="errbox" role="alert" style={{ marginBottom: 16 }}><b>keel cannot see this project's own files:</b> {tree.data.notice}</div>}
+      {tree.data?.layout === "repo" && <p className="hint">keel keeps this project's files in <span className="mono">docs/</span> (layout repo), committed with your code. New projects use <span className="mono">.keel/</span>.</p>}
       {tree.error ? <ErrorBox error={tree.error} onRetry={() => void tree.reload()} /> : !tree.data ? <div className="panel"><Skeleton lines={6} label="Loading the wiki" /></div> : (() => {
         const t = tree.data;
         if (!t.sections.some((s) => s.items.length)) {

@@ -81,6 +81,13 @@ export function parseHash(hash: string): Route {
   const raw = q < 0 ? full : full.slice(0, q);
   const query = q < 0 ? "" : full.slice(q + 1);
   const withQuery = (r: Route): Route => (query ? { ...r, query } : r);
+  // v0.15.8 a link that names its project (keel_dashboard): #/projects/<id>/<page>[/<arg>]
+  const pm = raw.match(/^projects\/([^/]+)\/(.+)$/);
+  if (pm)
+    return withQuery({
+      ...parseHash("#/" + pm[2]),
+      project: decodeURIComponent(pm[1]),
+    });
   const [first, ...rest] = raw.split("/");
   // a page by the name it shows: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper)
   const page = pageFor(first)?.id ?? first;

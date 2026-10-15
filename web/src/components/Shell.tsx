@@ -9,7 +9,7 @@ import { FOCUS_EVENT, isMac, isTyping, KEYS, keyLabel, matchesAny, menuPageKey, 
 import { hashFor, hashForScreen, type ScreenId } from "../routes";
 import { usePages, useSlot } from "../sdk/registry";
 import { SLOTS, type NavBadgeItem, type ShellWatchItem } from "../sdk/slots";
-import { go, useApp, useRoute } from "../state";
+import { useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
 import { Launcher, openLauncher } from "./launcher/Launcher";
@@ -17,6 +17,7 @@ import { KeySheet } from "./KeySheet";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
 import { isCoreOnly, StartWithSet } from "./StartWithSet";
+import { ProjectSwitcher, projectLine } from "./ProjectSwitcher";
 
 const THEME_KEY = "keel2.theme";
 
@@ -93,39 +94,11 @@ const Logo = () => (
   </svg>
 );
 
-/** The project's phase (or "no flow") and branch on one line; `full` adds the flow's name. */
-function projectLine(p: { branch: string; flow: string | null; phase: string }, full = false) {
-  const now = p.flow ? (full ? `${p.flow} · ${p.phase}` : p.phase) : "no flow";
-  return `${now} · ⎇ ${p.branch || "—"}`;
-}
-
+// v0.15.7 the project picker is a searchable switcher (components/ProjectSwitcher), not a native select any more
 function ProjectPicker() {
-  const { projects, project, setProjectId, toast } = useApp();
-  const { page } = useRoute();
   return (
     <div className="projbox">
-      <label htmlFor="projPick" className="sr-only">Project</label>
-      <select
-        id="projPick"
-        value={project?.id ?? ""}
-        disabled={!projects.length}
-        title="The project every screen shows"
-        onChange={(e) => {
-          setProjectId(e.target.value);
-          const name = projects.find((p) => p.id === e.target.value)?.name ?? e.target.value;
-          if (page === "projects") go("flow");
-          toast(`Now showing ${name}`);
-        }}
-      >
-        {!projects.length && <option value="">no projects</option>}
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-      {project && (
-        <span className="pb-sub" title={projectLine(project, true)}>
-          <span className="pb-line mono">{projectLine(project)}</span>
-          {project.waiting > 0 && <b className="amber" title={`${project.waiting} waiting for you`}>◆ {project.waiting}</b>}
-        </span>
-      )}
+      <ProjectSwitcher />
     </div>
   );
 }
@@ -298,6 +271,9 @@ function EngineStatus({ version }: { version?: boolean }) {
   return (
     <>
       <span className={`pill ${tone}`} title={title} data-testid="engine">{label}</span>
+      {health?.native && (
+        <span className="pill p-idle" title="Native mode: keel's agents run as you and can read what you can." data-testid="native">native</span>
+      )}
       {version && <Version />}
     </>
   );
@@ -474,6 +450,8 @@ export function Shell({ children }: { children: ReactNode }) {
               <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
             </svg>
           </button>
+          {/* v0.15.7 the project switcher in the folded rail too */}
+          <ProjectSwitcher rail />
           <RailLinks />
           <div className="rail-foot">
             <SearchButton className="rail-btn" />

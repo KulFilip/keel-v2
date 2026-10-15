@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from ..tools import testcmd
 from functools import lru_cache
@@ -97,7 +98,10 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
              "every turn sends the whole conversation again."]
     if request:
         lines.append("What the user asked for:\n" + request)
-    from pathlib import Path as _P
+    from .. import layout
+
+    lay = layout.resolve(root)
+    kdir = next((d for d in lay.knowledge_dirs if (Path(root) / d).is_dir()), None)
     if knowledge is not None and agent != "librarian" and not section:
         # The agent's own knowledge setting (agent_knowledge.py): the sections it was given, the graph, its memory.
         block = agent_knowledge.prompt_block(root, knowledge, graph)
@@ -108,14 +112,14 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         query = "\n".join(x for x in (title, request, (ac or {}).get("title") or "", feedback or "",
                                        str((item or {}).get("title") or "")) if x)
         lines += extensions.prompt_context(extensions.Agent(agent, knowledge), root, pid, query)
-    elif (_P(root) / "docs" / "knowledge").is_dir() and not section:
-        lines.append("keel's memory of this project is in docs/knowledge/ (start with index.md if it exists, then only the "
+    elif kdir and not section:
+        lines.append(f"keel's memory of this project is in {kdir}/ (start with index.md if it exists, then only the "
                      "section you need). Read it before exploring the code and trust its file:line citations.")
     mine = [u["path"] for u in unlocks or [] if u.get("phase") == phase]
     if mine:
         lines.append("Unlocked for this phase by the user: " + ", ".join(mine))
     if section:
-        lines.append(f"Knowledge section: {section}. Rewrite docs/knowledge/{section}.md from the code, "
+        lines.append(f"Knowledge section: {section}. Rewrite {lay.knowledge}/{section}.md from the code, "
                      "with a file:line citation behind every claim. Touch no other file.")
     if agent == "librarian":
         tpl = config.content_dir() / "templates" / "knowledge"
@@ -124,7 +128,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         chosen = ((rules.load_config(root) or {}).get("init") or {}).get("knowledge_sections")
         if phase == "setup" and not section and isinstance(chosen, list):
             lines.append("Knowledge sections the user chose: " + (", ".join(chosen) if chosen else "none — write nothing")
-                         + ". Write only these, one file each under docs/knowledge/.")
+                         + f". Write only these, one file each under {lay.knowledge}/.")
         if phase == "memory" and not section:
             lines.append("At the end of a flow: update only the knowledge sections this branch changes (see git diff "
                          "against the base branch), and only with facts from this branch. Keep each section short.")
@@ -139,7 +143,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
                      "file to answer the note. Read only what the note needs; do not explore the project again.")
     if phase in ("spec", "triage") and not acs:
-        lines.append("Keep the reading short: the request, the README, docs/knowledge/ if it exists, and the files the "
+        lines.append(f"Keep the reading short: the request, the README, {kdir or lay.knowledge}/ if it exists, and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
                      "a spec that exists beats a perfect map of the code.")
         lines.append("Before the criteria: if something the code cannot answer would change them (what \"user\" means, where a "
@@ -150,7 +154,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "not a step of the work: \"imports are updated\" or \"all calls use the new name\" are steps, and so "
                      "is \"behaviour stays the same\" when the existing tests already prove it. A small change usually "
                      "needs one to three criteria.")
-        where = ("Write the spec under docs/specs/ with numbered criteria" if phase == "spec"
+        where = (f"Write the spec under {lay.specs}/ with numbered criteria" if phase == "spec"
                  else "List the criteria in your answer (no spec file: a small change keeps them inline)")
         lines.append(f"{where}, one per line, in this form:\n"
                      "- **AC-1** [API] <what must be true>\n"

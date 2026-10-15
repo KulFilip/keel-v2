@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import extensions, rules
+from .. import extensions, layout, rules
 from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
@@ -299,7 +299,17 @@ def commit(a: ActionInput) -> ActionResult:
             "type": "readonly", "kind": "fix", "title": "Read-only run: the commit is refused", "detail": detail,
             "labels": {"approve": "Try the commit again", "reject": "Stop the flow"}})
     ctype = rules.commit_type_for(a.phase)
-    git.git(a.root, "add", "-A", "--", *(a.paths or ["."]), *COMMIT_EXCLUDES)
+    paths = a.paths
+    lay = layout.resolve(a.root)
+    if lay.hidden and paths:
+        # layout keel / external: .keel/ is outside git (keel v1 records these steps instead of committing them)
+        kept = [p for p in paths if p != ".keel" and not p.startswith(".keel/")]
+        if not kept:
+            _applied(a, "recorded", paths[0], f"{a.phase}: {a.title or a.flow}", paths)
+            return ActionResult(True, f"Recorded, not committed: layout {lay.name} keeps keel's files out of git.",
+                                "\n".join(paths))
+        paths = kept
+    git.git(a.root, "add", "-A", "--", *(paths or ["."]), *COMMIT_EXCLUDES)
     # Never sweep the user's own uncommitted work into a keel commit: a file that was already changed when the
     # flow started, and that no agent has touched since, is unstaged again.
     theirs = [f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp]
@@ -395,10 +405,27 @@ def commit(a: ActionInput) -> ActionResult:
         git.git(a.root, "reset", "-q")
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
+    if sha:
+        _applied(a, "commit", sha, message, staged)
     extensions.on_commit(a.root)            # the parts follow every keel commit (the code graph syncs in the background)
     tail_note = f" · tools: {'; '.join(tool_notes)}" if tool_notes else ""
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note, "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key)})
+
+
+def _applied(a: ActionInput, kind: str, ref: str, subject: str, files: list[str]) -> None:
+    """v0.15.9 what a flow applied on top of the repo (api DocHistoryService.applied): a commit, or files recorded."""
+    if not a.thread_id:
+        return
+    from ..events import bus
+    from . import doc_history
+
+    # the committed text first (spec_freeze rewrites the spec and commits it in one step): the version the api stamps
+    # with this commit's sha must be the one that went into it, not the text from before the step
+    doc_history.after_step(lambda t, step=None, data=None: bus.emit(t, a.thread_id, a.project or "", step=step, data=data),
+                           a.root, doc_history._LAST.get(a.root, {}), "keel", kind, a.phase)
+    bus.emit("keel.applied", a.thread_id, a.project or "", data={"kind": kind, "sha": ref if kind == "commit" else None,
+                                                                 "ref": ref, "subject": subject, "files": list(files)})
 
 
 def _pre_commit_tools(a: ActionInput, staged: list[str]):
@@ -487,7 +514,9 @@ def _detect(root: str) -> dict:
     cmds = testcmd.config_commands(root)
     if cmds:
         cfg["commands"] = cmds
-    if (r / "docs" / "specs").is_dir():
+    # where keel keeps its files (keel_engine/layout.py), written down so the choice never changes by itself
+    cfg["layout"] = layout.default_name(r, (r / ".keel").is_symlink(), layout.raw_config(r))
+    if cfg["layout"] == "repo" and (r / "docs" / "specs").is_dir():
         cfg["specs"] = {"dir": "docs/specs"}
     return cfg
 
@@ -500,7 +529,10 @@ def write_config(a: ActionInput) -> ActionResult:
     cfg = _detect(a.root)
     if a.init:
         cfg["init"] = {k: v for k, v in a.init.items() if k != "said"}
-    f.write_text("# Written by keel v2 init. Edit freely.\n" + yaml.safe_dump(cfg, sort_keys=False))
+    f.write_text("# Written by keel v2 init. Edit freely.\n"
+                 "# layout: where keel keeps its files: keel (.keel/, out of git), repo (docs/, committed) or external.\n"
+                 + yaml.safe_dump(cfg, sort_keys=False))
+    layout.hide(a.root)
     return ActionResult(True, "Wrote .keel/config.yml.", f.read_text())
 
 
@@ -513,7 +545,7 @@ async def ladder(a: ActionInput) -> ActionResult:
     for r in rungs:
         if r["status"] == "pass" and r["n"] != 1:
             lines += [f"## {r['n']}. {r['name']}", "", *tool_runner.fenced(r["cmd"]), ""]
-    f = Path(a.root) / "docs" / "RUNNING.md"
+    f = Path(a.root) / layout.resolve(a.root).runbook
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lines))
     passed = sum(r["status"] == "pass" for r in rungs)
@@ -533,7 +565,7 @@ def knowledge_check(a: ActionInput) -> ActionResult:
     verdicts.write(a.key, "memory", r["pass"], {
         "problems": r["problems"], "selected": r["selected"], "content": knowledge.content_hash(a.root),
         "sections": [{k: s[k] for k in ("name", "missing", "citations", "proofs", "unverified")} for s in checked],
-        "summary": None if r["pass"] else f"{len(r['problems'])} problem(s) in docs/knowledge/"}, git.head(a.root) if git.is_repo(a.root) else None)
+        "summary": None if r["pass"] else f"{len(r['problems'])} problem(s) in {knowledge.knowledge_dir(a.root)}/"}, git.head(a.root) if git.is_repo(a.root) else None)
     if not r["pass"]:
         return ActionResult(False, f"The knowledge base has {len(r['problems'])} problem(s).", "\n".join(r["problems"]))
     cites = sum(s["citations"] for s in checked)

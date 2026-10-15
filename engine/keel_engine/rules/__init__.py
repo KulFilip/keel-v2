@@ -15,7 +15,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import yaml
 
 _DATA = json.loads((Path(__file__).parent / "data" / "keel_rules.json").read_text())
 
@@ -85,17 +84,21 @@ def make_config(overrides: dict | None = None) -> dict:
 
 
 def load_config(root: str | Path | None) -> dict:
-    """The project's `.keel/config.yml` merged over keel's defaults (defaults when absent)."""
-    if root:
-        f = Path(root) / ".keel" / "config.yml"
-        if f.is_file():
-            try:
-                data = yaml.safe_load(f.read_text()) or {}
-                if isinstance(data, dict):
-                    return make_config(data)
-            except yaml.YAMLError:
-                pass
-    return make_config()
+    """The project's `.keel/config.yml` merged over keel's defaults (defaults when absent), with its layout applied:
+    `layout` and `paths` (keel_engine/layout.py), `specs.dir` the folder new specs go to and `specs.dirs` every spec
+    folder the guard protects (a mixed project has .keel/specs and docs/specs)."""
+    if not root:
+        return make_config()
+    from .. import layout
+
+    data = layout.raw_config(root)
+    cfg = make_config(data)
+    lay = layout.resolve(root, data)
+    cfg["layout"] = lay.name
+    cfg["paths"] = {"specs": lay.specs, "knowledge": lay.knowledge, "adr": lay.adr, "runbook": lay.runbook,
+                    "claude": lay.claude}
+    cfg["specs"] = {**cfg["specs"], "dir": lay.specs, "dirs": list(lay.spec_dirs)}
+    return cfg
 
 
 # ---------------------------------------------------------------- phases
@@ -196,7 +199,7 @@ def classify(cfg: dict | None, path: str) -> str:
         return "contract"
     if re.search(r"openapi\.(ya?ml|json)$", rel):
         return "contract"
-    if in_dir(cfg["specs"].get("dir")):
+    if in_dir(cfg["specs"].get("dir")) or any(in_dir(d) for d in cfg["specs"].get("dirs") or []):
         return "specs"
     if in_dir(cfg["e2e"].get("dir")):
         return "e2e"
@@ -318,9 +321,10 @@ def check_read(path: str, cfg: dict | None = None) -> Verdict:
 
 # ---------------------------------------------------------------- per-agent knowledge (strict mode)
 
-# The knowledge base sections an agent can be given (docs/knowledge/<section>.md). index.md is not a section.
+# The knowledge base sections an agent can be given (docs/knowledge/<section>.md, or .keel/knowledge/ in a keel or
+# external layout). index.md is not a section.
 KNOWLEDGE_SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
-_KNOWLEDGE_FILE = re.compile(r"(?:^|[/\s'\"])docs/knowledge/(" + "|".join(KNOWLEDGE_SECTIONS) + r")\.md\b")
+_KNOWLEDGE_FILE = re.compile(r"(?:^|[/\s'\"])(?:docs|\.keel)/knowledge/(" + "|".join(KNOWLEDGE_SECTIONS) + r")\.md\b")
 
 
 def check_knowledge(path_or_command: str, agent: str, allowed: list[str] | None, strict: bool) -> Verdict:
@@ -444,6 +448,15 @@ def commit_prefix(ctype: str, ident: str = "") -> str:
     return f"{word}({ident})" if ident else word
 
 
+def _layout_paths(cfg: dict | None) -> tuple[list[re.Pattern], list[re.Pattern]]:
+    """MEMORY_PATHS and SETUP_PATHS plus the knowledge folder and runbook the project's layout names (load_config's
+    `paths`: memory.dir or setup.runbook in a repo layout; .keel/ is covered already)."""
+    p = (cfg or {}).get("paths") or {}
+    extra_k = [re.compile("^" + re.escape(p["knowledge"].rstrip("/")) + "/")] if p.get("knowledge") else []
+    extra_r = [re.compile("^" + re.escape(p["runbook"]) + "$")] if p.get("runbook") else []
+    return MEMORY_PATHS + extra_k, SETUP_PATHS + extra_k + extra_r
+
+
 def check_commit(ctype: str, files: list[str], cfg: dict | None = None) -> CommitVerdict:
     """The bucket rules of `keel commit <type>` for a staged file list (diff-level checks are not here)."""
     rule = COMMIT_RULES.get(ctype)
@@ -462,13 +475,14 @@ def check_commit(ctype: str, files: list[str], cfg: dict | None = None) -> Commi
         risky = [(f, b) for f, b in buckets if b in ("contract", "migration")]
         if risky:
             return CommitVerdict(False, "this is not a trivial change: it touches " + ", ".join(f"{f} ({b})" for f, b in risky), risky)
+    memory_paths, setup_paths = _layout_paths(cfg)
     if rule.get("memoryOnly"):
-        stray = [f for f in files if not any(p.search(f) for p in MEMORY_PATHS)]
+        stray = [f for f in files if not any(p.search(f) for p in memory_paths)]
         if stray:
             return CommitVerdict(False, "a memory commit may only touch docs/knowledge/ and .keel/memory.json:\n" + "\n".join("  " + s for s in stray),
                                  [(s, "other") for s in stray])
     if rule.get("setupOnly"):
-        stray = [f for f in files if not any(p.search(f) for p in SETUP_PATHS)]
+        stray = [f for f in files if not any(p.search(f) for p in setup_paths)]
         if stray:
             return CommitVerdict(False, "a setup commit may only touch what an init writes (.keel/, docs/RUNNING.md, docs/knowledge/, CLAUDE.md, .gitignore):\n"
                                  + "\n".join("  " + s for s in stray), [(s, "other") for s in stray])

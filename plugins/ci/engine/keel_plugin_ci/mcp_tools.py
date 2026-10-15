@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 
+from mcp.server.fastmcp import Context
 from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
 
 
@@ -39,6 +40,20 @@ def ci_rerun(api: KeelApi, run_id: int, project: str | None = None, sleep=time.s
     return f"The failed jobs of run #{int(run_id)} run again."
 
 
+
+def _acting(srv, guard):
+    """keel's way to run an acting tool (keel 0.16.1: who acts, and with `confirm` the person's OK through the client
+    first; PartServer.act in keel_engine/mcp_server.py). A keel before 0.16.1 has none: then the tool runs as it did."""
+    act = getattr(srv, "act", None)
+
+    async def run(ctx, name: str, what: str, fn, *a, confirm: bool = False, **kw) -> str:
+        if act is None:
+            return guard(fn, *a, **kw)
+        return await act(ctx, name, what, fn, *a, confirm=confirm, **kw)
+
+    return run
+
+
 def register(srv, api: KeelApi, guard, write: bool) -> None:
     """The read tools, or (write) the acting one."""
     from mcp.types import ToolAnnotations
@@ -58,8 +73,9 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
 
         return
     rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+    act = _acting(srv, guard)
 
     @srv.tool(annotations=rw, structured_output=False)
-    def keel_ci_rerun(run_id: int, project: str | None = None) -> str:
+    async def keel_ci_rerun(run_id: int, project: str | None = None, ctx: Context | None = None) -> str:
         """CI/CD plugin: run the failed jobs of a pipeline again, after the person's OK in keel's Inbox."""
-        return guard(ci_rerun, api, run_id, project)
+        return await act(ctx, "keel_ci_rerun", "rerun the pipeline", ci_rerun, api, run_id, project)

@@ -456,6 +456,26 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             raise EngineError(400, msg)
         return await asyncio.to_thread(hunt.run_view, pid, run)
 
+    @app.post("/projects/{pid}/actions/{name}")
+    async def post_action(pid: str, name: str, body: dict):
+        """v0.16.0 one engine action outside a flow (keel_run_action): only an action with a level (action_docs
+        ACTION_LEVELS), on a blank flow input for the project's folder. The MCP level is enforced by keel's MCP server
+        (mcp_more.run_action); like the rest of keel's api on 127.0.0.1, this route has no login of its own."""
+        from .runtime import action_docs
+        from .runtime.actions import ActionInput, run_action
+
+        if name not in action_docs.dispatch_names():
+            raise EngineError(404, f"No action {name}.")
+        if action_docs.action_level(name) == "flow-only":
+            raise EngineError(409, f"{name} only runs inside a flow.", "Start a flow instead.")
+        root = str(body.get("root") or "")
+        if not root or not Path(root).is_dir():
+            raise EngineError(400, "root is missing or not a folder.")
+        a = ActionInput(root=root, phase="none", title=f"{name} (MCP)", ac=None, acs=[], fake=False, flow="mcp", project=pid,
+                        settings=dict(body.get("settings") or {}))
+        r = await run_action(name, a)
+        return {"ok": r.ok, "note": r.note, "detail": (r.detail or "")[-6000:]}
+
     from .approvals_routes import router as approvals_router   # core: ask a person and wait (keel_engine/approvals.py)
     app.include_router(approvals_router)
     from .marketplace.routes import router as marketplace_router   # core: find, install and update plugins (step 4)

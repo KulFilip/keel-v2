@@ -185,11 +185,14 @@ export type McpServerSpec = { name: string; command: string; args: string[]; env
 export type EngineEventType =
   | "thread.started" | "step.started" | "step.finished" | "agent.started" | "agent.step" | "agent.finished"
   | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed"
-  | "helper.started" | "helper.step" | "helper.finished" | "helper.permission" | "helper.permission.answered" | "helper.commit";
+  | "helper.started" | "helper.step" | "helper.finished" | "helper.permission" | "helper.permission.answered" | "helper.commit"
+  /** v0.16.0 a write keel's MCP server made (api McpAudit) */
+  | "mcp.call";
 export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
   "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
+  "mcp.call",
 ];
 /** v0.16.0: the one generic channel. The api sends every engine event the web does not list above (approval.*, a plugin's
  *  own events) as `event: engine`, its type inside; it lands in `recent` like the others. */
@@ -208,7 +211,7 @@ export type EngineEvent = {
 // ---------- api types ----------
 
 /** `version` is keel v2's own version. */
-export type Health = { ok: boolean; engine: boolean; version: string; fake: boolean };
+export type Health = { ok: boolean; engine: boolean; version: string; fake: boolean; native?: boolean };
 
 export type Project = {
   id: string;
@@ -223,6 +226,14 @@ export type Project = {
   /** v0.7.x: flows that run or wait, in the project folder and in worktrees */
   flows?: number;
 };
+
+// v0.15.7 Add projects from your folders (GET /api/folders, GET /api/folders/browse, POST /api/projects/bulk)
+export type FolderRoot = { path: string; exists: boolean };
+export type FoundRepo = { path: string; name: string; root: string; project_id: string | null };
+export type Folders = { roots: FolderRoot[]; repos: FoundRepo[]; truncated?: boolean };
+export type BrowseDir = { path: string; name: string; repo: boolean; project_id: string | null };
+export type FolderWalk = { path: string; root: string; parent: string | null; dirs: BrowseDir[]; truncated?: boolean };
+export type BulkAdded = { added: Project[]; skipped: { root: string; why: string }[] };
 
 export type FlowView = { thread: ThreadState | null; workflow: Workflow | null };
 /** v0.7.x: one flow on the project's board: in the project folder, or in a worktree of its own next to the others. */
@@ -390,7 +401,13 @@ export type KeelMap = {
 };
 export type MapResponse = KeelMap | { missing: string };
 
-export type WikiTree = { sections: { id: string; title: string; items: { id: string; title: string; status?: string }[] }[] };
+export type WikiTree = {
+  sections: { id: string; title: string; items: { id: string; title: string; status?: string }[] }[];
+  /** v0.15.8 an external layout whose folder keel cannot see: what to do */
+  notice?: string | null;
+  /** v0.15.8 where keel keeps the project's files: repo | keel | external */
+  layout?: string | null;
+};
 export type WikiPage = { id: string; title: string; markdown: string; meta: Record<string, unknown> };
 
 export type InstallReview = {
@@ -844,6 +861,12 @@ export const api = {
   // projects
   projects: () => get<Project[]>("/projects"),
   addProject: (root: string, name?: string) => post<Project>("/projects", { root, name }),
+  /** v0.15.7 the folders keel may look in, and the git repos inside them */
+  folders: () => get<Folders>("/folders"),
+  /** v0.15.7 one folder's sub folders (403 outside the folders keel may look in) */
+  browseFolder: (path?: string) => get<FolderWalk>("/folders/browse" + q({ path })),
+  /** v0.15.7 adds many repos at once; one that is a project already comes back in `skipped` with why */
+  addProjects: (roots: string[], names?: Record<string, string>) => post<BulkAdded>("/projects/bulk", { roots, ...(names ? { names } : {}) }),
   project: (pid: string) => get<Project>(`/projects/${e(pid)}`),
 
   // flow

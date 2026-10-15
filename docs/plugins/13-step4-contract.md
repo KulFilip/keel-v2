@@ -240,7 +240,9 @@ The endpoints of 04-marketplace.md §4.3, proxied to §5's routes, plus:
 | `keel_plugin_request`     | read-safe | `{name, version?, reason}` → a `plugin-install` request; listed in read-only mode too |
 
 They come **after** every tool keel lists today, in this order, so the existing list keeps its order (the parity e2e
-compares it; the four are allowed additions). There is **no** install tool. With `agents_may_ask` off,
+compares it; the four are allowed additions). Since the port of 0.16.1 keel's MCP server has three levels (read, `--write`,
+`--admin`): the four come at the end of each level's list, all four at every level (`keel_plugin_request` too), and
+`--allow` may name them. There is **no** install tool. With `agents_may_ask` off,
 `keel_plugin_request` answers "Ask the person to install it in Control › Plugins".
 
 ## 8 · `needs_plugins` (workflows)

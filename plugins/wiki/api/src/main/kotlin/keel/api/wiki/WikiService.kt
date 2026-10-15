@@ -6,6 +6,7 @@ import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.common.Yaml
 import keel.api.knowledge.KnowledgeService
+import keel.api.knowledge.Layout
 import keel.api.projects.ProjectService
 import keel.api.workflows.Step
 import keel.api.workflows.Workflow
@@ -21,7 +22,8 @@ import java.nio.file.Path
 
 data class WikiItem(val id: String, val title: String, val status: String? = null)
 data class WikiSection(val id: String, val title: String, val items: List<WikiItem>)
-data class Wiki(val sections: List<WikiSection>)
+/** notice: a problem with where keel's files are (an external layout whose folder keel cannot see); layout: its name. */
+data class Wiki(val sections: List<WikiSection>, val notice: String? = null, val layout: String? = null)
 data class WikiPage(val id: String, val title: String, val markdown: String, val meta: Map<String, Any?>)
 
 /**
@@ -41,14 +43,19 @@ class WikiService(
         val root = projects.root(pid)
         val kb = knowledge.knowledge(root).map { WikiItem("kb:${it.id}", it.id.replaceFirstChar { c -> c.uppercase() }, it.status) }
         val wfs = workflows.list(pid).map { WikiItem("wf:${it.id}", it.name) }
-        val adrs = listMd(root.resolve("docs/adr")).map { WikiItem("adr:${it.fileName}", title(it)) }
+        val lay = Layout.resolve(root)
+        val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)) }.map { WikiItem("adr:${it.fileName}", title(it)) }.distinctBy { it.id }
+        val specs = knowledge.specFiles(root, lay).map { WikiItem("spec:$it", title(root.resolve(it))) }
         return Wiki(
             listOf(
+                WikiSection("specs", "Specs", specs),
                 WikiSection("knowledge", "Knowledge", kb),
                 WikiSection("workflows", "Workflows", wfs),
                 WikiSection("runbook", "Runbook", listOf(WikiItem("runbook", "How to run this project"))),
                 WikiSection("decisions", "Decisions", adrs),
             ),
+            lay.missing,
+            lay.name,
         )
     }
 
@@ -58,13 +65,14 @@ class WikiService(
             id.startsWith("kb:") -> {
                 val name = id.removePrefix("kb:")
                 if (!Regex("^[A-Za-z0-9_-]+$").matches(name)) throw BadRequest("Bad page id")
-                val f = root.resolve("docs/knowledge/$name.md")
+                val rel = Layout.resolve(root).knowledgeFile(root, name)
+                val f = root.resolve(rel)
                 val section = knowledge.knowledge(root).firstOrNull { it.id == name }
-                if (!Files.isRegularFile(f)) {
+                if (!Files.isRegularFile(f) || Files.isSymbolicLink(f)) {
                     WikiPage(id, name, "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
                 } else {
                     WikiPage(id, title(f), Files.readString(f), mapOf(
-                        "path" to "docs/knowledge/$name.md", "status" to section?.status, "words" to section?.words,
+                        "path" to rel, "status" to section?.status, "words" to section?.words,
                         "cites" to section?.cites, "updated" to mtime(f),
                     ))
                 }
@@ -77,11 +85,18 @@ class WikiService(
             id.startsWith("adr:") -> {
                 val name = id.removePrefix("adr:")
                 if (name.contains('/') || name.contains("..")) throw BadRequest("Bad page id")
-                val f = root.resolve("docs/adr/$name")
-                if (!Files.isRegularFile(f)) throw NotFound("No decision called $name")
-                WikiPage(id, title(f), Files.readString(f), mapOf("path" to "docs/adr/$name", "updated" to mtime(f)))
+                val rel = Layout.resolve(root).adrDirs.map { "$it/$name" }.firstOrNull { Files.isRegularFile(root.resolve(it)) }
+                    ?: throw NotFound("No decision called $name")
+                val f = root.resolve(rel)
+                WikiPage(id, title(f), Files.readString(f), mapOf("path" to rel, "updated" to mtime(f)))
             }
-            else -> throw NotFound("No wiki page \"$id\"", "Ids look like kb:architecture, wf:<id>, runbook or adr:<file>.")
+            id.startsWith("spec:") -> {
+                val rel = id.removePrefix("spec:")
+                if (rel.split('/').any { it == ".." } || rel !in knowledge.specFiles(root)) throw NotFound("No spec called $rel", "Ids look like spec:.keel/specs/<file>.md.")
+                val f = root.resolve(rel)
+                WikiPage(id, title(f), Files.readString(f), mapOf("path" to rel, "acs" to countAcs(f), "updated" to mtime(f)))
+            }
+            else -> throw NotFound("No wiki page \"$id\"", "Ids look like kb:architecture, spec:<path>, wf:<id>, runbook or adr:<file>.")
         }
     }
 
@@ -135,8 +150,9 @@ class WikiService(
                 return WikiPage("runbook", "How to run this project", md, mapOf("from" to ".keel/ladder.json"))
             }
         }
-        val running = root.resolve("docs/RUNNING.md")
-        if (Files.isRegularFile(running)) return WikiPage("runbook", "How to run this project", Files.readString(running), mapOf("from" to "docs/RUNNING.md"))
+        Layout.resolve(root).runbooks.firstOrNull()?.let { rel ->
+            return WikiPage("runbook", "How to run this project", Files.readString(root.resolve(rel)), mapOf("from" to rel))
+        }
         val cfg = root.resolve(".keel/config.yml").takeIf { Files.isRegularFile(it) }?.let { Yaml.readMap(Files.readString(it)) }
         val commands = (cfg?.get("commands") as? Map<*, *>)?.filterValues { it != null && it.toString().isNotBlank() }
         val md = if (commands.isNullOrEmpty()) {
@@ -155,7 +171,10 @@ class WikiService(
 
     private fun listMd(dir: Path): List<Path> =
         if (!Files.isDirectory(dir)) emptyList()
-        else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) }.sorted().toList() }
+        // a symlinked .md is skipped: a cloned repo could link docs/specs/x.md to a file outside it
+        else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) && !Files.isSymbolicLink(it) }.sorted().toList() }
+
+    private fun countAcs(f: Path) = runCatching { Regex("\\bAC-\\d+").findAll(Files.readString(f)).map { it.value }.distinct().count() }.getOrDefault(0)
 
     private fun mtime(p: Path): String? = runCatching { Time.iso(Files.getLastModifiedTime(p).toMillis()) }.getOrNull()
 
@@ -164,7 +183,7 @@ class WikiService(
     }.getOrNull() ?: f.fileName.toString().removeSuffix(".md")
 }
 
-/** The Wiki page's reads: its table of contents and one page (kb:<section>, wf:<id>, runbook, adr:<file>). */
+/** The Wiki page's reads: its table of contents and one page (kb:<section>, spec:<path>, wf:<id>, runbook, adr:<file>). */
 @RestController
 @RequestMapping("/api/projects/{pid}/wiki")
 class WikiController(private val wiki: WikiService) {

@@ -40,7 +40,7 @@ from pathlib import Path
 from keel_engine import approvals, config, extensions, models, rules
 from keel_engine.models import catalog
 from keel_engine.models.base import AgentRequest, AgentResult
-from keel_engine.runtime import agent_knowledge, db, guard_ctx, permissions, plugins, prompts
+from keel_engine.runtime import agent_knowledge, db, doc_history, guard_ctx, permissions, plugins, prompts
 from keel_engine.tools import git, guard, testcmd, worktrees
 from keel_engine.tools.agent_tools import ToolBox, command_env
 
@@ -685,6 +685,10 @@ class HelperRunner:
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
             emit("guard", reason, tool=tool, path=path or None, ok=False)
 
+        # v0.15.9 keel's file history: what KeelBot changes in specs, knowledge, ADRs or the runbook
+        def doc_emit(type_: str, step: str | None = None, data: dict | None = None):
+            self.bus.emit(type_, sid, project, step=step or "helper", call_id=call_id, data=data or {})
+
         know = agent_knowledge.for_agent(AGENT, body.get("agents"))
         cfg = rules.load_config(root)
         flow = body.get("flow") or {}
@@ -725,6 +729,7 @@ class HelperRunner:
         t0 = time.monotonic()
         ev("helper.started", {"agent": AGENT, "provider": provider, "model": model.get("model"), "mode": model.get("mode"),
                               "phase": f"helper-{mode}", "session": sid, "n": n})
+        docs_before = doc_history.before_step(doc_emit, root, None, "helper")
 
         def on_session(new: str):
             update(sid, engine_session=new)
@@ -797,6 +802,7 @@ class HelperRunner:
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
                tokens_in=cur["tokens_in"] + tin, tokens_out=cur["tokens_out"] + tout, tokens_cached=cur["tokens_cached"] + cached,
                cost_usd=round(cur["cost_usd"] + cost, 6), turns=cur["turns"] + 1)
+        doc_history.after_step(doc_emit, root, docs_before, "keelbot", "KeelBot", None, "helper")
         ev("helper.finished", {"agent": AGENT, "status": status, "tokens_in": tin, "tokens_out": tout, "tokens_cached": cached,
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
                                "result": answer[:2000], "session": sid, "n": n})

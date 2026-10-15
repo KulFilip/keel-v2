@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Async, BoxDiagram, EmptyState, ErDiagram, PageHead, Panel, SLOTS, Tabs, clock, errorParts, get, moduleBoxes, post,
-  schemaOf, systemBoxes, useApp, useLoad, usePages, useSlot,
+  schemaOf, systemBoxes, useApp, useLoad, usePages, useRoute, useSlot,
   type GBox, type KeelMap, type MapErQueryItem, type MapLevel, type MapNode, type MapResponse,
 } from "@keel/web-sdk";
 
@@ -120,8 +120,11 @@ function ErPanels({ pid }: { pid: string }) {
 function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => void; busy: boolean; pid: string }) {
   const { project } = useApp();
   const wiki = usePages().some((p) => p.id === "wiki");
+  const { arg } = useRoute();
   const schema = useMemo(() => schemaOf(m), [m]);
   const [tab, setTabState] = useState<LevelId>(() => {
+    // v0.15.8 #/map/er (a keel_dashboard link) opens that level
+    if (arg && LEVELS.some(([k]) => k === arg)) return arg as LevelId;
     try {
       const v = localStorage.getItem(tabKey(pid)) as LevelId | null;
       if (v && LEVELS.some(([k]) => k === v)) return v;

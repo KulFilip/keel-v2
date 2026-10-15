@@ -4,6 +4,7 @@
 // the budget, the acceptance criteria, what blocks shipping and keel's state. The init workflow adds its ladder and
 // knowledge build.
 
+import { AppliedPanel } from "../components/DocHistory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
@@ -90,7 +91,10 @@ export function FlowPage({ pid }: { pid: string }) {
         ) : isInit(f.workflow) ? (
           <InitFlow pid={pid} f={f as Required<FlowView> & { thread: ThreadState; workflow: Workflow }} onStart={() => setStart(true)} reload={flow.reload} />
         ) : (
-          <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} reload={flow.reload} onStart={() => setStart(true)} />
+          <>
+            <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} reload={flow.reload} onStart={() => setStart(true)} />
+            <AppliedPanel key={f.thread.thread_id} tid={f.thread.thread_id} />
+          </>
         )}
       </Async>
       )}

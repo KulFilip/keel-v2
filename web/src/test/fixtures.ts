@@ -48,7 +48,7 @@ export type GraphFocus = {
   more: Record<string, number>; impact: number; impact_capped: boolean;
 } | { available: true; missing: string } | GraphUnavailable;
 
-export const health: Health = { ok: true, engine: true, version: "0.4.1", fake: true };
+export const health: Health = { ok: true, engine: true, version: "0.4.1", fake: true, native: false };
 
 export const projects: Project[] = [
   { id: "ludus-engine", name: "ludus-engine", root: "/workspace/ludus-engine", branch: "feat/scores", flow: "feature", phase: "ac-gate", acs: [1, 3], waiting: 1, running: 1 },

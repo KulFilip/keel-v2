@@ -19,7 +19,7 @@ import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
-from .. import config, extensions, rules
+from .. import config, extensions, layout, rules
 from ..events import EventBus
 from ..tools import git
 from ..workflows.model import Workflow, from_dict
@@ -291,6 +291,7 @@ class Engine:
             state["git_head"] = git.head(root)
             state["base_head"] = state["git_head"]
             git.exclude_engine_files(root)
+            layout.hide(root)               # keel / external: .keel/ stays out of git (.git/info/exclude)
             state["preexisting"] = git.snapshot(root)
         extensions.on_thread_start(root, tid)   # the parts catch up (the code graph syncs edits since its last index)
         await self._import_legacy_unlocks(tid)
@@ -298,6 +299,8 @@ class Engine:
                    "acs": len(state["acs"]), "fake": ctx.fake}
         if body.get("parent"):
             started["parent"] = body["parent"]
+        if (body.get("data") or {}).get("started_via") == "mcp":
+            started["via"] = "mcp"          # v0.15.8 keel_start_flow (keel2 mcp --write): the timeline says so
         ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid

@@ -12,12 +12,17 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from keel_engine import mcp_server
 from keel_engine.tools import mcp as mcp_tools
 
-# (the CI/CD, Database and Git plugins' keel_ci_*, keel_db_*, keel_git_* and keel_pr_* tools come with them: plugins/ci,
-# plugins/db and plugins/git engine tests)
-# the marketplace's four tools come last in both modes (keel_plugin_request only asks: docs/plugins/13-step4-contract.md §7)
+# (the CI/CD, Database and Git plugins' keel_ci_*, keel_db_*, keel_git_* and keel_pr_* tools come with them, in keel
+# 0.16.1's places: plugins/ci, plugins/db and plugins/git engine tests; tests/test_db_part.py has the whole lists)
+# the marketplace's four tools come last at every level (keel_plugin_request only asks: docs/plugins/13-step4-contract.md §7)
 MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", *MARKET_TOOLS}
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume"}
+READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
+              "keel_dashboard",                                                                    # v0.15.8 dashboard
+              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
+              "keel_search", "keel_read_file", "keel_actions", "keel_run_action", *MARKET_TOOLS}
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"}
+ADMIN_TOOLS = {"keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+               "keel_edit_workflow"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -58,12 +63,17 @@ class StubApi:
             body = json.loads(req.content)
             self.posts.append((path, body))
             return httpx.Response(200, json={**self.thread, "status": "running", "waiting": None, "current": "red", "phase": "red"})
+        if req.method == "POST" and path == "/api/projects/shop/flows":
+            body = json.loads(req.content)
+            self.posts.append((path, body))
+            return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
         routes = {
             "/api/projects": PROJECTS,
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/blog/flow": {"thread": None, "workflow": None},
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,
+            "/api/projects/shop/workflows": [{"id": "feature"}, {"id": "fix"}],
         }
         if req.method == "GET" and path in routes:
             return httpx.Response(200, json=routes[path])
@@ -99,13 +109,26 @@ async def test_write_mode_adds_the_write_tools(stub):
     assert await tool_names(mcp_server.build_server(write=True, api=stub.api)) == READ_TOOLS | WRITE_TOOLS
 
 
-def test_the_marketplace_tools_come_after_every_tool_keel_listed_before():
+def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_level():
     import asyncio
 
-    names = lambda write: [t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())]
-    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain"]
-    assert names(False) == read + MARKET_TOOLS
-    assert names(True) == read + ["keel_approve_gate", "keel_resume"] + MARKET_TOOLS
+    names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
+    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard", "keel_flows",
+            "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
+            "keel_actions", "keel_run_action"]
+    write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"]
+    admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+             "keel_edit_workflow"]
+    assert names("read") == read + MARKET_TOOLS
+    assert names("write") == read + write + MARKET_TOOLS
+    assert names("admin") == read + write + admin + MARKET_TOOLS
+
+
+async def test_allow_covers_the_marketplace_tools(stub):
+    srv = mcp_server.build_server(level="read", api=stub.api, allow={"keel_status", "keel_plugin_request"})
+    assert await tool_names(srv) == {"keel_status", "keel_plugin_request"}
+    assert mcp_server.allowed(["--allow", "keel_plugin_info"]) == {"keel_plugin_info"}
+    assert mcp_server.tool_level("keel_plugin_request") == "read"
 
 
 def test_read_only_flag_beats_the_env(monkeypatch):
@@ -330,3 +353,214 @@ def test_with_keel_data_set_the_image_folder_is_not_used(monkeypatch, tmp_path):
     monkeypatch.setattr(mcp_server, "IMAGE_RUN_DIR", image_run)
     mcp_server.plugin_env()
     assert "KEEL_PLUGIN_ADDONS" not in os.environ
+
+
+# ---------------------------------------------------------------- v0.15.8 keel_dashboard, keel_start_flow
+
+async def test_dashboard_gives_the_views_url(stub, monkeypatch):
+    monkeypatch.delenv("KEEL_PUBLIC_URL", raising=False)
+    srv = mcp_server.build_server(api=stub.api)
+    assert (await call(srv, "keel_dashboard")).startswith("http://keel.test/#/projects/shop/flow\n")
+    monkeypatch.setenv("KEEL_PUBLIC_URL", "http://localhost:8097/")
+    assert (await call(srv, "keel_dashboard", {"view": "er", "project": "blog"})).startswith("http://localhost:8097/#/projects/blog/map/er")
+    assert (await call(srv, "keel_dashboard", {"view": "map"})).startswith("http://localhost:8097/#/projects/shop/map/system")
+
+
+async def test_start_flow_is_a_write_tool_only(stub):
+    assert "keel_start_flow" not in await tool_names(mcp_server.build_server(write=False, api=stub.api))
+    assert "keel_start_flow" in await tool_names(mcp_server.build_server(write=True, api=stub.api))
+
+
+def test_start_flow_posts_to_the_dashboards_endpoint(stub):
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores\nSave a score and show the top ten.", sleep=lambda s: None)
+    path, body = stub.posts[-1]
+    assert path == "/api/projects/shop/flows"
+    assert body == {"workflow_id": "feature", "title": "Player scores", "request": "Player scores\nSave a score and show the top ten.",
+                    "options": {"started_via": "mcp"}}
+    assert "recorded as started via MCP" in text and "It waits for a human: Approve the spec" in text
+
+
+def test_start_flow_refuses_an_unknown_type_and_an_empty_idea(stub):
+    import pytest as _pytest
+
+    with _pytest.raises(mcp_server.ApiError, match='no flow type "nope". keel has: feature, fix'):
+        mcp_server.start_flow(stub.api, "nope", "x", sleep=lambda s: None)
+    with _pytest.raises(mcp_server.ApiError, match="idea is empty"):
+        mcp_server.start_flow(stub.api, "feature", "  ", sleep=lambda s: None)
+    assert not stub.posts
+
+
+# ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit
+
+async def test_admin_level_has_every_tool_and_read_only_wins(stub, monkeypatch):
+    assert await tool_names(mcp_server.build_server(level="admin", api=stub.api)) == READ_TOOLS | WRITE_TOOLS | ADMIN_TOOLS
+    assert mcp_server.level(["--admin"]) == "admin" and mcp_server.level(["--write"]) == "write"
+    monkeypatch.setenv("KEEL_MCP_LEVEL", "admin")
+    assert mcp_server.level([]) == "admin"
+    assert mcp_server.level(["--read-only"]) == "read"                  # an agent never gets more through the env
+
+
+async def test_allow_registers_only_the_named_tools(stub):
+    srv = mcp_server.build_server(level="write", api=stub.api, allow={"keel_status", "keel_stop_flow"})
+    assert await tool_names(srv) == {"keel_status"}                     # stop is admin: not at write, even when allowed
+    assert mcp_server.allowed(["--allow", "keel_status,keel_next"]) == {"keel_status", "keel_next"}
+    with pytest.raises(SystemExit, match="no tool called keel_nope"):
+        mcp_server.allowed(["--allow=keel_nope"])
+
+
+async def test_a_risky_tool_is_refused_when_the_client_cannot_confirm(stub):
+    stub.thread = {**THREAD, "status": "running", "waiting": None}
+    text = await call(mcp_server.build_server(level="admin", api=stub.api), "keel_stop_flow")
+    assert "cannot ask you to confirm stop the flow" in text and "--yes" in text
+    assert not [p for p, _ in stub.posts if p.endswith("/stop")]
+
+
+async def test_with_yes_it_runs_and_says_who_acted(stub):
+    seen = []
+    stub.thread = {**THREAD, "status": "running", "waiting": None}
+
+    def record(req):
+        if req.method != "GET":
+            seen.append((req.url.path, req.headers.get("x-keel-via"), req.headers.get("x-keel-tool")))
+        if req.url.path == "/api/threads/t-1/stop":
+            return httpx.Response(200, json={**THREAD, "status": "stopped"})
+        return stub(req)
+
+    stub.api.http._transport = httpx.MockTransport(record)
+    text = await call(mcp_server.build_server(level="admin", api=stub.api, yes=True), "keel_stop_flow")
+    assert "stopped" in text
+    assert seen == [("/api/threads/t-1/stop", "mcp", "keel_stop_flow")]
+
+
+async def test_a_client_that_confirms(stub):
+    from mcp.shared.memory import create_connected_server_and_client_session
+    from mcp.types import ElicitResult
+
+    async def say_yes(context, params):
+        return ElicitResult(action="accept", content={"confirm": True})
+
+    async def say_no(context, params):
+        return ElicitResult(action="decline")
+
+    stub.thread = {**THREAD, "status": "running", "waiting": None}
+    srv = mcp_server.build_server(level="admin", api=stub.api)
+    stub.posts.clear()
+    async with create_connected_server_and_client_session(srv, elicitation_callback=say_no) as s:
+        res = await s.call_tool("keel_stop_flow", {})
+        assert "you said no" in res.content[0].text
+
+
+def test_secret_files_are_never_read(stub):
+    from keel_engine import mcp_more
+
+    with pytest.raises(mcp_server.ApiError, match="holds secrets"):
+        mcp_more.read_file(stub.api, "config/.env")
+    assert mcp_more.is_secret("deploy/id_rsa") and not mcp_more.is_secret(".env.example")
+
+
+def test_actions_have_levels():
+    from keel_engine import mcp_more
+
+    text = mcp_more.actions("read")
+    assert "trace [read]" in text and "verify_release [write] (not at this level)" in text
+    assert "spec_freeze [flow-only] (only inside a flow)" in text
+
+
+def test_read_file_and_spec_history_send_path_as_a_query(stub):
+    from keel_engine import mcp_more
+
+    asked = []
+
+    def route(req):
+        asked.append((req.url.path, req.url.params.get("path")))
+        if req.url.path == "/api/projects/shop/repo/raw":
+            return httpx.Response(200, text="# demo\nsecond\n")
+        if req.url.path == "/api/projects/shop/wiki/page":
+            return httpx.Response(200, json={"markdown": "# Scores"})
+        if req.url.path == "/api/projects/shop/docs/history/versions":
+            return httpx.Response(200, json=[{"id": "dv-1", "version": 1, "by_kind": "agent", "by_name": "explorer", "at": "x"}])
+        return stub(req)
+
+    stub.api.http._transport = httpx.MockTransport(route)
+    assert mcp_more.read_file(stub.api, "README.md", start=2, lines=1).strip() == "2  second"
+    assert "version 1 · agent explorer" in mcp_more.specs(stub.api, path=".keel/specs/s.md", history=True)
+    assert ("/api/projects/shop/repo/raw", "README.md") in asked
+    assert ("/api/projects/shop/docs/history/versions", ".keel/specs/s.md") in asked
+
+
+def test_run_action_waits_as_long_as_a_test_suite(stub):
+    from keel_engine import mcp_more
+
+    seen = {}
+
+    def route(req):
+        if req.url.path == "/api/projects/shop/actions/trace":
+            seen["timeout"] = req.extensions.get("timeout", {}).get("read")
+            return httpx.Response(200, json={"ok": True, "note": "traced"})
+        return stub(req)
+
+    stub.api.http._transport = httpx.MockTransport(route)
+    assert "trace: ok" in mcp_more.run_action(stub.api, "trace", "read")
+    assert seen["timeout"] == mcp_more.ACTION_TIMEOUT
+
+
+# ---------------------------------------------------------------- v0.16.1 level tokens (api McpLevelGuard)
+
+def _token_api(seen: list, monkeypatch, internal: str | None):
+    if internal is None:
+        monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("KEEL_INTERNAL_TOKEN", internal)
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN_FILE", raising=False)
+    s = StubApi()
+
+    def route(req):
+        seen.append((req.method, req.url.path, req.headers.get("x-keel-token"), req.headers.get("x-keel-mcp-token")))
+        if req.url.path == "/api/mcp/token":
+            if req.headers.get("x-keel-token") != "internal-1":
+                return httpx.Response(403, json={"error": "Wrong or missing X-Keel-Token"})
+            level = json.loads(req.content)["level"]
+            return httpx.Response(200, json={"level": level, "token": "tok-" + level})
+        return s(req)
+
+    return s, mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(route))
+
+
+async def test_the_server_sends_its_level_token_when_it_got_one(monkeypatch):
+    seen: list = []
+    _, api = _token_api(seen, monkeypatch, "internal-1")
+    monkeypatch.chdir("/")
+    srv = mcp_server.build_server(level="write", api=api)
+    assert "shop" in await call(srv, "keel_status", {"project": "shop"})
+    asks = [x for x in seen if x[1] == "/api/mcp/token"]
+    assert asks == [("POST", "/api/mcp/token", "internal-1", None)]           # asked once, for its own level
+    rest = [x for x in seen if x[1] != "/api/mcp/token"]
+    assert rest and all(t == "tok-write" and i is None for _, _, i, t in rest)  # the internal token stays home
+
+
+async def test_without_the_internal_token_it_sends_none_and_still_reads(monkeypatch):
+    seen: list = []
+    _, api = _token_api(seen, monkeypatch, None)
+    monkeypatch.chdir("/")
+    srv = mcp_server.build_server(level="read", api=api)
+    assert "shop" in await call(srv, "keel_status", {"project": "shop"})
+    assert seen and all(p != "/api/mcp/token" and t is None and i is None for _, p, i, t in seen)
+
+
+def test_the_internal_token_can_come_from_a_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    (tmp_path / "tok").write_text("from-file\n")
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(tmp_path / "tok"))
+    assert mcp_server.internal_token() == "from-file"
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(tmp_path / "missing"))
+    assert mcp_server.internal_token() == ""
+
+
+def test_read_actions_match_the_api():
+    # Twin of api McpLevelsApiTest "the read actions are the engine's": McpLevelGuard.READ_ACTIONS / ADMIN_ACTIONS
+    # mirror these names, so a change here needs the same change there.
+    from keel_engine.runtime.action_docs import ACTION_LEVELS
+
+    assert {n for n, lv in ACTION_LEVELS.items() if lv == "read"} == {
+        "audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope", "lint_report", "review_lenses"}
+    assert {n for n, lv in ACTION_LEVELS.items() if lv == "admin"} == {"arch_set", "open_pr"}

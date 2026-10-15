@@ -3,7 +3,7 @@
 
 import { Fragment, useState } from "react";
 import {
-  Async, clock, Confirm, Drawer, EmptyState, ErrorBox, errorParts, kfmt, Panel, Pill, plural, RefreshStaleButton, useApp, useLoad, usePages,
+  Async, clock, Confirm, DocProblems, Drawer, EmptyState, ErrorBox, errorParts, kfmt, Panel, Pill, plural, RefreshStaleButton, useApp, useLoad, usePages,
   type Commit, type Fact, type FactKind, type Memory, type PillTone,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
@@ -160,6 +160,7 @@ export function DocsView({ pid, onOpen }: { pid: string; onOpen: (path: string) 
           )}
         </Async>
       </Panel>
+      <DocProblems pid={pid} />
       <p className="hint">{wiki && <>Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. </>}A flow's state and events live in keel's data, not in <span className="mono">.keel/</span>.</p>
     </div>
   );

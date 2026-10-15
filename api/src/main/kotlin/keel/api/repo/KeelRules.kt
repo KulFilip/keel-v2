@@ -19,13 +19,18 @@ data class ClassifyConfig(
     val specsDir: String = "specs",
     val protected: List<String> = listOf("**/.env", "**/.env.*", "!**/.env.example"),
     val generated: List<String> = listOf("**/generated/**", "**/build/generated/**"),
+    /** v0.15.8 every spec folder the project's layout reads (a mixed project has .keel/specs and docs/specs). */
+    val specsDirs: List<String> = emptyList(),
+    /** v0.15.8 the folders keel's own files live in, for the Code page's keel mark. */
+    val keelDirs: List<String> = emptyList(),
 ) {
     companion object {
         /** Reads `<root>/.keel/config.yml` over keel v1's defaults. */
         fun load(root: Path): ClassifyConfig {
             val f = root.resolve(".keel/config.yml")
             val user = if (Files.isRegularFile(f)) Yaml.readMap(Files.readString(f)) ?: emptyMap() else emptyMap()
-            return from(user)
+            val lay = keel.api.knowledge.Layout.resolve(root, user)
+            return from(user).copy(specsDir = lay.specs, specsDirs = lay.specDirs, keelDirs = lay.folders())
         }
 
         fun from(m: Map<String, Any?>): ClassifyConfig {
@@ -99,7 +104,7 @@ class KeelRules(mapper: ObjectMapper) {
             if (matchGlob(rel, cfg.generated)) return "generated"
             if (cfg.contractFile.isNotEmpty() && rel == cfg.contractFile) return "contract"
             if (Regex("openapi\\.(ya?ml|json)$").containsMatchIn(rel)) return "contract"
-            if (inDir(cfg.specsDir)) return "specs"
+            if (inDir(cfg.specsDir) || cfg.specsDirs.any { inDir(it) }) return "specs"
             if (inDir(cfg.e2eDir)) return "e2e"
             if (inDir(cfg.smokeDir)) return "smoke"
             if (inDir(cfg.backendDir)) {

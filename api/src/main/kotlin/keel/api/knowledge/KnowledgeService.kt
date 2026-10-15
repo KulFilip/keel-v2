@@ -34,25 +34,35 @@ class KnowledgeService(
             val f = root.resolve(rel)
             if (Files.exists(f)) out += KeelDoc(rel, what, by, mtime(f), status)
         }
-        listMd(root.resolve("docs/specs")).forEach { add("docs/specs/${it.fileName}", "Spec — ${countAcs(it)} ACs", "explorer + you") }
+        val lay = Layout.resolve(root)
+        // every spec folder of the layout (a mixed project has .keel/specs and docs/specs: both show)
+        specFiles(root, lay).forEach { add(it, "Spec — ${countAcs(root.resolve(it))} ACs", "explorer + you") }
         val cfg = ClassifyConfig.load(root)
         contractFiles(root, cfg).forEach { add(it, "Contract", "explorer") }
-        listMd(root.resolve("docs/adr")).forEach { add("docs/adr/${it.fileName}", "Decision — ${title(it)}", "you") }
+        lay.adrDirs.forEach { d -> listMd(root.resolve(d)).forEach { add("$d/${it.fileName}", "Decision — ${title(it)}", "you") } }
         val kb = knowledge(root)
         if (kb.any { it.status != "missing" }) {
             val written = kb.count { it.status != "missing" }
             val stale = kb.filter { it.status == "stale" }.map { it.id }
+            val dir = lay.knowledgeDirs.firstOrNull { Files.isDirectory(root.resolve(it)) } ?: lay.knowledge
             out += KeelDoc(
-                "docs/knowledge/", "Knowledge base — $written sections", "librarian",
-                mtime(root.resolve("docs/knowledge")), if (stale.isEmpty()) "ok" else "check",
+                "$dir/", "Knowledge base — $written sections", "librarian",
+                mtime(root.resolve(dir)), if (stale.isEmpty()) "ok" else "check",
             )
         }
         // keel v2's own files only: a flow's state and events live in the engine (/data), not in the project.
         add(".keel/config.yml", "Project config", "init")
         add(".keel/ladder.json", "Ladder results", "init", "live")
-        add("docs/RUNNING.md", "Runbook", "init")
+        lay.runbooks.forEach { add(it, "Runbook", "init") }
         return out
     }
+
+    /** The specs of every spec folder the layout reads, as paths from the root. */
+    fun specFiles(root: Path, lay: Layout = Layout.resolve(root)): List<String> =
+        lay.specDirs.flatMap { d -> listMd(root.resolve(d)).map { "$d/${it.fileName}" } }
+
+    /** Where keel keeps this project's files (GET /api/projects/{pid}/layout). */
+    fun layout(pid: String): Layout = Layout.resolve(projects.root(pid))
 
     private fun contractFiles(root: Path, cfg: ClassifyConfig): List<String> {
         val list = mutableListOf<String>()
@@ -67,7 +77,8 @@ class KnowledgeService(
 
     private fun listMd(dir: Path): List<Path> =
         if (!Files.isDirectory(dir)) emptyList()
-        else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) }.sorted().toList() }
+        // a symlinked .md is skipped: a cloned repo could link docs/specs/x.md to a file outside it
+        else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) && !Files.isSymbolicLink(it) }.sorted().toList() }
 
     private fun mtime(p: Path): String? = runCatching { Time.iso(Files.getLastModifiedTime(p).toMillis()) }.getOrNull()
 
@@ -120,16 +131,18 @@ class KnowledgeService(
      * older than the last commit that touched code (a heuristic).
      */
     fun knowledge(root: Path): List<KnowledgeSection> {
-        val dir = root.resolve("docs/knowledge")
-        val extra = listMd(dir).map { it.fileName.toString().removeSuffix(".md") }.filter { it !in SECTIONS && it.lowercase() != "readme" }
+        val lay = Layout.resolve(root)
+        val extra = lay.knowledgeDirs.flatMap { d -> listMd(root.resolve(d)).map { it.fileName.toString().removeSuffix(".md") } }
+            .distinct().filter { it !in SECTIONS && it.lowercase() != "readme" && it != "index" }
         val lastCode = workspace.lastCodeCommit(root)
         return (SECTIONS + extra).map { s ->
-            val f = dir.resolve("$s.md")
+            val rel = lay.knowledgeFile(root, s)
+            val f = root.resolve(rel)
             if (!Files.isRegularFile(f)) return@map KnowledgeSection(s, "missing", 0, 0)
             val text = Files.readString(f)
             val words = text.split(Regex("\\s+")).count { it.isNotBlank() }
             val cites = CITATION.findAll(text).count()
-            val written = workspace.lastCommitTime(root, "docs/knowledge/$s.md")
+            val written = workspace.lastCommitTime(root, rel)
             val stale = written != null && lastCode != null && written < lastCode
             KnowledgeSection(s, if (stale) "stale" else "written", words, cites)
         }

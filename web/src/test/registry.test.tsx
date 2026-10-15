@@ -66,7 +66,7 @@ describe("registerPage", () => {
 
   it("a page that registers after the first render shows in the menu and opens", async () => {
     render(<App />);
-    await screen.findByRole("option", { name: "ludus-engine" });
+    await screen.findByRole("button", { name: /^Project: ludus-engine/ });
     expect(
       within(nav()).queryByRole("link", { name: "Late page" }),
     ).not.toBeInTheDocument();

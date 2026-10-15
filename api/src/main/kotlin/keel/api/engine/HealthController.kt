@@ -6,12 +6,14 @@ import org.springframework.boot.info.BuildProperties
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 
-/** `version` is keel v2's own version (the api's build-info; "dev" when the build wrote none). */
-data class Health(val ok: Boolean, val engine: Boolean, val version: String, val fake: Boolean)
+/** `native`: keel runs without Docker (`keel2 start --native` sets KEEL_NATIVE=1), so its agents run as the person.
+ *  `version` is keel v2's own version (the api's build-info; "dev" when the build wrote none). */
+data class Health(val ok: Boolean, val engine: Boolean, val version: String, val fake: Boolean, val native: Boolean = false)
 
 @RestController
 class HealthController(private val engine: EngineClient, build: ObjectProvider<BuildProperties>) {
     private val version: String = build.ifAvailable?.version ?: "dev"
+    private val native: Boolean = System.getenv("KEEL_NATIVE") == "1"
 
     @GetMapping("/api/health")
     fun health(): Health {
@@ -21,6 +23,7 @@ class HealthController(private val engine: EngineClient, build: ObjectProvider<B
             engine = h?.get("ok")?.asBoolean() == true,
             version = version,
             fake = h?.get("fake")?.asBoolean() ?: false,
+            native = native,
         )
     }
 
