@@ -716,6 +716,12 @@ input.mk-sw:disabled {
   vertical-align: top;
   overflow-wrap: anywhere;
 }
+/* the rule's id, its kind and how: one word each, never broken */
+.rpm-table td:nth-child(-n + 2),
+.rpm-table td:nth-child(4) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .rpm-who {
   min-width: 220px;
   font-size: 12.5px;
