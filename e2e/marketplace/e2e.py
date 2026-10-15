@@ -16,7 +16,9 @@ command) and, for the web part, Node with npx (headless Chromium through `npx -y
                for one more permission); `keel-plugin index` builds and signs v1/index.json
   keel-mkt     the image under test with the fake model (KEEL_FAKE=1), a small git project at /workspace/hello-repo
 
-The steps: the catalog as a source; needs_plugins (a workflow that needs hello refuses to start and asks); search;
+The steps: the catalog as a source; a workflow round (21-workflow-marketplace.md: notes-flow 1.0.0 and 1.1.0, signed
+release files in the catalog: search, its page, install into the project, the market field, a flow on the fake model,
+update unchanged / replace / keep, remove, a bad signature refused); needs_plugins (a workflow that needs hello refuses to start and asks); search;
 install 1.0.0, restart keel (in the same container), hello loaded (its engine route, web part, workflow and agent);
 update to 1.1.0; update to 1.2.0 refused (more permissions) and asked in the Inbox: denied, asked again, the web
 (Control › Plugins and the Inbox card), approved; roll back; remove; the refusals (a bad index signature, a bad package
