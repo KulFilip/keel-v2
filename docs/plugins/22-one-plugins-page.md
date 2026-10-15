@@ -59,6 +59,24 @@ The person's screenshot of the Code page: the top row had the index status, **Re
 - **KeelBot only** goes: the panel has its own KeelBot toggle and "Open KeelBot full screen". It had no key, so the
   ⌘/ cheat sheet and `keys.ts` do not change.
 
+## The menu's view switch (a bug)
+
+The All / Product / Dev switch (Shell.tsx `ViewSwitch`, shown when keel has both parts) spilled out of the menu. The
+menu head (`.side-head`) is a grid with two columns: the brand and the side tools. The project picker spans both
+columns; the switch did not, so it sat in the narrow left column (about 95 px) and its three buttons spilled over.
+
+```
+  before                         after
+  ┌──────────┬────────┐          ┌───────────────────┐
+  │ keel     │ tools  │          │ keel        tools │
+  │ [project picker  ]│          │ [project picker  ]│
+  │ [All|Prod│uct|Dev]  ← out    │ [All |Product|Dev]│  three equal parts
+  └──────────┴────────┘          └───────────────────┘
+```
+
+Fix in `web/src/styles.css`: `.view-switch` gets `grid-column: 1 / -1` and `repeat(3, minmax(0, 1fr))`, its buttons
+`min-width: 0`, and the focus ring `outline-offset: -2px` (it stays inside the frame).
+
 ## Tests
 
 - web: the Tools page has no Plugins section (and still shows the plugin's server in "Who may use what" once it is
@@ -66,6 +84,7 @@ The person's screenshot of the Code page: the top row had the index status, **Re
   page's Projects section lists each project with its switch; the Workflows note says Control › Plugins.
 - Code plugin (plugins/code/web/test): no Focus or KeelBot only button in the head; Rebuild and the index status in
   the status bar; Focus from the status bar.
+- The view switch (web/src/test/viewswitch.test.tsx): its three buttons, and the CSS rule (jsdom draws no CSS).
 - api and engine: the hints' new words (no test pinned the old ones).
 - e2e/parity: `web #/tools *` and `web #/repo *` differ from 0.17.0 only by what is gone (allow.yml, reason
   "0.17.1, …").
