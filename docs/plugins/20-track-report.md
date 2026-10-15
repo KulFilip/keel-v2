@@ -232,3 +232,29 @@ These steps go outside this computer (keys, GitHub, releases). Nothing here did 
 ## Disk
 
 The run built one image at a time and removed each one after its tests. Free space on the data disk: 58 GB at the start of the run, 38 GB at the end (all test images, containers, volumes and scratch folders removed; only the released 0.16.1 and 0.15.7 images stay).
+
+## keel Product in a native try-out keel (a local catalog)
+
+Milad's native try-out keel (`KEEL_NAME=keel-plugins`, port 8188) did not show keel Product: Product is not inside
+the native package (only the 11 plugins are), and the public catalog is not set up yet. So it got a **local signed
+catalog**, made the way the real one is made:
+
+```
+~/.keel2/keel-plugins/local-catalog/
+  keys/        local-catalog.key + .pub, local-publisher.key + .pub   (keel-plugin keygen; mode 0600, never in a repo)
+  market/      publishers/keel.yml (the local publisher key), plugins/product.yml, revoked.yml
+  releases/    product-0.1.0-beta.1.kplug + .minisig (product/build-plugin.sh, keel-plugin sign)
+  www/         v1/index.json + .minisig (keel-plugin index, signed with the local catalog key) and the release files,
+               served by `python3 -m http.server 8390 --bind 127.0.0.1` (pid in server.pid)
+```
+
+- keel reads it as the source **"Local catalog (this Mac)"** (`http://127.0.0.1:8390/v1/index.json` + the local
+  catalog key), added through `PUT /api/plugins/sources`. http to this computer needs `KEEL_MARKETPLACE_ALLOW_HTTP=1`,
+  so keel was restarted once with it (with Milad's OK); the **Restart keel** button keeps it, but a `keel2 restart`
+  must set it again: `KEEL_MARKETPLACE_ALLOW_HTTP=1 KEEL_NAME=keel-plugins ~/.keel2/keel-plugins/keel2 restart`.
+- The Marketplace shows **keel Product 0.1.0-beta.1** with the **beta** label, "by keel ✓", **Runs code in keel** and
+  **needs Tasks, Jira**. Its install dialog lists Product and "Also turns on what it needs: jira, tasks" (both are in
+  the package, off). It was **not installed**: Milad installs plugins himself.
+- With this catalog the Marketplace's "keel set" lists only what the catalog lists (Product). The real catalog will
+  list all twelve.
+- When the public catalog exists (Milad's one-time steps), remove this source in Sources and rules and stop the server.
