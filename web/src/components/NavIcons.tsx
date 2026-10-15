@@ -60,6 +60,7 @@ const ICONS: Record<ScreenId, ReactElement> = {
     </>
   ),
   workflows: <>{P("M3 4h7v5H3zM14 15h7v5h-7zM6.5 9v3.5h11V15")}</>,
+  rules: <>{P("M12 2.5l7.5 3v6c0 4.5-3.2 8.3-7.5 10-4.3-1.7-7.5-5.5-7.5-10v-6zM8.5 12l2.5 2.5 4.5-5")}</>,
   agents: (
     <>
       {P("M5 9h14v10H5zM12 5v4M9.5 14h.01M14.5 14h.01M2.5 13v3M21.5 13v3")}

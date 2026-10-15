@@ -1,0 +1,66 @@
+/* v0.16.2 Build › Rules and "Rules now" on the Flow page. */
+
+.rl-page { gap: 14px; }
+.rl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--dim); }
+.rl-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+
+.rl-when { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 12px; font-weight: 700; line-height: 1; }
+.rl-before { background: var(--ok-soft); color: var(--ok); }
+.rl-wrapped { background: var(--run-soft); color: var(--run); }
+.rl-after { background: var(--warn-soft); color: var(--warn); }
+.rl-none { background: var(--bad-soft); color: var(--bad); }
+
+.rl-engines { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.rl-engine { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px; font-size: 13px; }
+.rl-p-before { border-left-color: var(--ok); }
+.rl-p-partial { border-left-color: var(--warn); }
+.rl-p-after { border-left-color: var(--bad); }
+
+.rl-scroll { overflow-x: auto; }
+.rl-table { font-size: 13px; min-width: 640px; }
+.rl-table th, .rl-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.rl-table th { font-size: 11.5px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.rl-table .rl-eng { text-align: center; width: 64px; }
+.rl-table .nowrap { white-space: nowrap; }
+
+.rl-pack { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.rl-pack:last-child { border-bottom: 0; }
+.rl-off { opacity: .6; }
+
+.rl-lists { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.rl-list { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.rl-list-meta { justify-content: space-between; flex-wrap: wrap; }
+.rl-mini { display: inline-flex; gap: 3px; }
+.rl-mini .rl-when { width: 16px; height: 16px; font-size: 10px; }
+
+.rl-matrix summary { cursor: pointer; list-style: none; }
+.rl-matrix summary::-webkit-details-marker { display: none; }
+.rl-cell { text-align: center; font-weight: 700; }
+.rl-c-allow { color: var(--ok); }
+.rl-c-new-only, .rl-c-delete-only { color: var(--run); }
+.rl-c-deny { color: var(--faint); }
+
+.rl-libsum { margin: 0; padding-left: 18px; font-size: 12.5px; display: grid; gap: 3px; }
+.rl-check { border: 1.5px solid var(--ok); background: var(--ok-soft); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.rl-dry { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+
+/* Rules now */
+.rn { gap: 10px; font-size: 13px; }
+.rn p { margin: 0; }
+.rn-engine { padding: 8px 10px; border-radius: 8px; }
+.rn-before { background: var(--ok-soft); }
+.rn-partial, .rn-after { background: var(--warn-soft); }
+.rn-ico { font-weight: 700; }
+.rn-row { display: grid; gap: 4px; }
+.rn-lab { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
+.rn-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.rn-chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; font-size: 12px; }
+.rn-ok { border-color: var(--ok); color: var(--ok); }
+.rn-no { color: var(--dim); }
+.rn-lock { border-color: var(--warn); color: var(--warn); }
+.rn-list { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.rn-legend { font-size: 11.5px; }
+
+@media (max-width: 640px) {
+  .rl-lists, .rl-engines { grid-template-columns: minmax(0, 1fr); }
+}

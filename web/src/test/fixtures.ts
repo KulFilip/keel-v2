@@ -297,7 +297,7 @@ export const usage = (): ProviderUsage[] => [
 export const limits: Limit[] = [{ id: "claude", name: "Claude Max", unit: "% of 5-hour window", used: 62, cap: 100, note: "resets in 1h 48m" }];
 
 export const generalSettings: Settings = {
-  gates_mode: "every-ac", keel_rules: true, fix_attempts: 3, coverage_min: 80,
+  gates_mode: "every-ac", fix_attempts: 3, coverage_min: 80,
   default_model: { provider: "fake", mode: "api", model: "fake" },
   implementer_model: { provider: "claude", mode: "subscription", model: "opus" },
   reviewer_model: { provider: "codex", mode: "subscription", model: "gpt-5.6-sol" },

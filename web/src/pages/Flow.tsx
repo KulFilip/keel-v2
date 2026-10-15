@@ -16,6 +16,7 @@ import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
 import { FoldPanel } from "../components/FoldPanel";
+import { RulesNowPanel } from "../components/RulesNow";
 import { FlowBoardView, showBoard } from "../components/FlowBoard";
 import { FlowRuns } from "../components/FlowRuns";
 import { RunHistory } from "../components/RunHistory";
@@ -315,6 +316,7 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
             : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} onCheckpoints={readOnly ? undefined : () => setSide("checkpoints")}
               noResume={readOnly && !readOnly.resumable ? "Only the last stopped flow can be resumed." : undefined} />}
           {job && <JobFeed job={job} />}
+          <RulesNowPanel thread={thread} />
           <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} readOnly={!!readOnly} />
         </div>
       ) : side === "step" ? (

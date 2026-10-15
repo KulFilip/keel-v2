@@ -431,6 +431,13 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
         </select>
       )}
       {source && <span className="hint" data-testid={`${id}-source`}>{SOURCE_HINT[source] ?? source}</span>}
+      {GUARD_NOTE[p] && value.mode !== "api" && <span className="hint amber" data-testid={`${id}-guard`}>{GUARD_NOTE[p]}</span>}
     </div>
   );
 }
+
+/** v0.16.2 engines keel cannot check before every action (Rules page, "How each engine is checked"). */
+const GUARD_NOTE: Record<string, string> = {
+  copilot: "keel checks Copilot's shell commands before they run; its file edits are only checked after each step.",
+  codex: "keel checks Codex before every action from codex 0.150 on; an older codex is only checked after each step.",
+};

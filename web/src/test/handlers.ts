@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, DbConnection, DbResult, GitStatus, HelperChange, HelperDone, HelperFolder, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
+import { createRulesDb, rulesHandlers } from "./rulesHandlers";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -66,6 +67,8 @@ export function createDb() {
     ciRuns: [] as CiRun[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
+    /** v0.16.2 keel's rules (Build › Rules, "Rules now") */
+    rules: createRulesDb(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -624,6 +627,7 @@ export function handlers(db: Db) {
     http.get("/api/notification-settings", () => HttpResponse.json(db.nset)),
     http.put("/api/notification-settings", async ({ request }) => { const b = await log(request); Object.assign(db.nset, b); return HttpResponse.json(db.nset); }),
     ...taskHandlers(db.tk, log),
+    ...rulesHandlers(db.rules, log),
   ];
 }
 

@@ -285,3 +285,97 @@ def edit_workflow(api: KeelApi, workflow: str, yaml_text: str, project: str | No
     api.put(f"/workflows/{_q(workflow)}", {"yaml": yaml_text})
     return f"workflow {workflow} saved."
 
+
+
+# ---------------------------------------------------------------- v0.16.2 rules
+
+WHEN = {"before": "before", "wrapped": "before (some commands)", "after": "after the step", "none": "not checked"}
+
+
+def _engines(e: dict | None) -> str:
+    return ", ".join(f"{k} {WHEN.get(v, v)}" for k, v in (e or {}).items())
+
+
+def rules(api: KeelApi, project: str | None = None, thread: str | None = None) -> str:
+    """keel's rules for the project, in words; with a running flow, what agents may change right now."""
+    p = _project(api, project)
+    v = api.get(f"/projects/{_q(p['id'])}/rules") or {}
+    out = [f"keel's rules for {p.get('name') or p['id']} (saved in {v.get('config_file')} and {v.get('rules_folder')}/):", "",
+           "Engines:"]
+    out += [f"  {e['engine']}: {e['words']}" for e in v.get("engines") or []]
+    out += ["", "Always on:"]
+    out += [f"  {b['id']}: {b['words']} ({b['phases']})" for b in v.get("builtins") or [] if not b.get("can_off")]
+    out += ["", "keel's rules you can switch off (rules.off):"]
+    out += [f"  {b['id']}{' [OFF]' if b.get('off') else ''}: {b['words']} ({b['phases']})" for b in v.get("builtins") or [] if b.get("can_off")]
+    out += ["", "The project's lists:"]
+    out += [f"  {x['key']} = {x['value']}  ({x['saved_in']})" for x in v.get("lists") or []]
+    packs = v.get("packs") or []
+    out += ["", "Rule packs:" if packs else "Rule packs: none (keel_rule_install adds one from the library)."]
+    for pk in packs:
+        out.append(f"  {pk['id']}{' [OFF]' if pk.get('off') else ''} — {pk['name']}: {pk.get('description') or ''} ({pk.get('file')})")
+        out += [f"    {r['kind']} {r['match']} ({r['phases']}): {r['reason']}  [{_engines(r.get('enforced'))}]" for r in pk.get("rules") or []]
+    for err in v.get("pack_errors") or []:
+        out.append(f"  NOT USED {err['file']}: {'; '.join(err['errors'])}")
+    tid = thread
+    if tid is None:
+        try:
+            tid = (_flow(api, p["id"])[0] or {}).get("thread_id")
+        except ApiError:
+            tid = None
+    if tid:
+        try:
+            n = api.get(f"/threads/{_q(tid)}/rules-now") or {}
+            out += ["", f"Now (phase {n.get('phase')}): {n.get('meaning')}",
+                    "  may change: " + (", ".join(b["what"] for b in n.get("may") or []) or "nothing"),
+                    "  may not change: " + (", ".join(b["what"] for b in n.get("may_not") or []) or "—")]
+            out += [f"  stopped {f['count']}x: {f['reason']}" for f in n.get("fired") or []]
+        except ApiError:
+            pass
+    return "\n".join(out)
+
+
+def rule_library(api: KeelApi) -> list[dict]:
+    return api.get("/rules/library") or []
+
+
+def rule_install(api: KeelApi, pack: str, project: str | None = None) -> str:
+    p = _project(api, project)
+    if not any(x.get("id") == pack for x in rule_library(api)):
+        return "keel: no rule pack " + pack + " in the library. There are: " + ", ".join(x["id"] for x in rule_library(api))
+    r = api.post(f"/projects/{_q(p['id'])}/rules/library/{_q(pack)}/install", {}) or {}
+    return f"Installed {r.get('pack', {}).get('name', pack)} in .keel/rules/{pack}.yaml. Agents meet it at their next tool call."
+
+
+def rule_edit(api: KeelApi, op: str, pack: str | None = None, yaml_text: str | None = None, rule: str | None = None,
+              project: str | None = None) -> str:
+    """add | change (a pack's whole YAML) | remove (a pack) | off | on (a built-in rule id or pack/<id>)."""
+    p = _project(api, project)
+    pid = _q(p["id"])
+    if op in ("add", "change"):
+        if not yaml_text:
+            return "keel: give the pack's YAML (id, name, rules)."
+        check = api.post(f"/projects/{pid}/rules/check", {"yaml": yaml_text}) or {}
+        if not check.get("ok"):
+            return "keel did not save it:\n" + "\n".join(f"  {e}" for e in check.get("errors") or [])
+        if op == "add":
+            r = api.post(f"/projects/{pid}/rules/packs", {"yaml": yaml_text}) or {}
+        else:
+            if not pack:
+                return "keel: name the pack to change (pack)."
+            r = api.put(f"/projects/{pid}/rules/packs/{_q(pack)}", {"yaml": yaml_text}) or {}
+        blocked = len(((check.get("dry_run") or {}).get("blocked")) or [])
+        return f"Saved {r.get('pack', {}).get('id')}. On the recent tool calls it would have refused {blocked}."
+    if op == "remove":
+        if not pack:
+            return "keel: name the pack to remove (pack)."
+        api.delete(f"/projects/{pid}/rules/packs/{_q(pack)}")
+        return f"Removed the rule pack {pack}."
+    if op in ("off", "on"):
+        if not rule:
+            return "keel: name the rule (a built-in id like read-twice, or pack/<id>)."
+        v = api.get(f"/projects/{pid}/rules") or {}
+        off = {b["id"] for b in v.get("builtins") or [] if b.get("off")} | {f"pack/{x['id']}" for x in v.get("packs") or [] if x.get("off")}
+        off = off | {rule} if op == "off" else off - {rule}
+        api.put(f"/projects/{pid}/rules/config", {"rules": {"off": sorted(off)}})
+        return f"{rule} is {op}."
+    return "keel: op is add, change, remove, off or on."

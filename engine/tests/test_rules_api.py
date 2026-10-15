@@ -161,3 +161,50 @@ def test_the_marker_is_asked_for_only_once(client, repo, monkeypatch):
                                              "markers": ["BLOCKING"]}]))
     wait(client, tid)
     assert len(said) == 2
+
+
+# ------------------------------------------------------------------ MCP: keel_rules, keel_rule_edit
+
+class _Api:
+    def __init__(self, view, now=None):
+        self.view, self.now, self.sent = view, now, []
+
+    def get(self, route, **_):
+        if route == "/projects":
+            return [{"id": "shop", "name": "shop"}]
+        if route == "/projects/shop/flow":
+            return {"thread": {"thread_id": "t1"}} if self.now else {}
+        if route == "/threads/t1/rules-now":
+            return self.now
+        if route == "/rules/library":
+            return [{"id": "no-new-dependencies"}]
+        return self.view
+
+    def post(self, route, body=None, **_):
+        self.sent.append(("POST", route, body))
+        return {"ok": "rules" in str(body), "errors": ["rules: a list"], "dry_run": {"blocked": [1, 2]}, "pack": {"id": "x"}}
+
+    def put(self, route, body=None, **_):
+        self.sent.append(("PUT", route, body))
+        return {"pack": {"id": "x"}}
+
+    def delete(self, route, **_):
+        self.sent.append(("DELETE", route, None))
+
+
+def test_mcp_rules_text_and_edits(tmp_path):
+    from keel_engine import mcp_more
+
+    root = str(project(tmp_path))
+    view = rules_view.view(root)
+    now = rules_view.now(root, "green")
+    now["fired"] = [{"count": 2, "reason": "Adding a package is a person's decision."}]
+    text = mcp_more.rules(_Api(view, now))
+    assert "Always on:" in text and "env-files" in text and "read-twice" in text
+    assert "Now (phase green)" in text and "stopped 2x" in text
+    api = _Api(view)
+    assert mcp_more.rule_edit(api, "add", yaml_text="id: x").startswith("keel did not save it")
+    assert "would have refused 2" in mcp_more.rule_edit(api, "add", yaml_text="id: x\nrules: []")
+    assert mcp_more.rule_edit(api, "off", rule="read-twice") == "read-twice is off."
+    assert api.sent[-1] == ("PUT", "/projects/shop/rules/config", {"rules": {"off": ["read-twice"]}})
+    assert "no rule pack nope" in mcp_more.rule_install(api, "nope")

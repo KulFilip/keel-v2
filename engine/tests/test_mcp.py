@@ -15,11 +15,12 @@ READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "kee
               "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status",           # v0.10.0 plugins
               "keel_ci_runs", "keel_ci_failure", "keel_dashboard",                                 # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
-              "keel_search", "keel_read_file", "keel_actions", "keel_run_action"}
+              "keel_search", "keel_read_file", "keel_actions", "keel_run_action",
+              "keel_rules"}                                                                         # v0.16.2
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
                "keel_ci_rerun", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"}
 ADMIN_TOOLS = {"keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
-               "keel_edit_workflow"}
+               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.16.2 rules
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",

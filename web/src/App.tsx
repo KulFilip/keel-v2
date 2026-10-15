@@ -15,6 +15,7 @@ import { GraphPage } from "./pages/Graph";
 import { MapPage } from "./pages/Map";
 import { ProjectsPage } from "./pages/Projects";
 import { RepoPage } from "./pages/Repo";
+import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
 import { SkillsPage } from "./pages/Skills";
 import { StacksPage } from "./pages/Stacks";
@@ -40,6 +41,7 @@ const PAGES: Record<Exclude<ScreenId, "projects" | "inbox" | "quality" | "addon"
   graph: GraphPage,
   wiki: WikiPage,
   workflows: WorkflowsPage,
+  rules: RulesPage,
   agents: AgentsPage,
   skills: SkillsPage,
   stacks: StacksPage,

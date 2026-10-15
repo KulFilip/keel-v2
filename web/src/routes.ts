@@ -2,7 +2,7 @@
 
 export type ScreenId =
   | "projects" | "inbox" | "flow" | "tasks" | "live" | "jobs" | "repo" | "helper" | "map" | "graph" | "wiki"
-  | "workflows" | "agents" | "skills" | "stacks" | "tools" | "quality" | "budget" | "settings" | "connections"
+  | "workflows" | "rules" | "agents" | "skills" | "stacks" | "tools" | "quality" | "budget" | "settings" | "connections"
   /** v0.13.0 a page of an add-on (keel Product): the route's `screen` names it. */
   | "addon";
 
@@ -13,7 +13,7 @@ export const GROUPS: Group[] = [
   { id: "know", label: "Project", hint: "what this project is", pages: [["repo", "Code"], ["helper", "KeelBot"], ["map", "Map"], ["graph", "Graph"], ["wiki", "Wiki"]] },
   {
     id: "build", label: "Build", hint: "how agents work",
-    pages: [["workflows", "Workflows"], ["agents", "Agents"], ["skills", "Skill hub"], ["stacks", "Stacks"], ["tools", "Tools (MCP)"], ["quality", "Quality"]],
+    pages: [["workflows", "Workflows"], ["rules", "Rules"], ["agents", "Agents"], ["skills", "Skill hub"], ["stacks", "Stacks"], ["tools", "Tools (MCP)"], ["quality", "Quality"]],
   },
   { id: "control", label: "Control", hint: "cost, limits, accounts", pages: [["budget", "Budget"], ["settings", "Settings"], ["connections", "Connections"]] },
 ];
