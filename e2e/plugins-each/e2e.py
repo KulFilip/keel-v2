@@ -3,6 +3,7 @@
 127.0.0.1:8091 with its own volume keel-each-data. It never touches another keel.
 
     python3 e2e/plugins-each/e2e.py --image keel-v2:fin --product-image keel-v2:fin-product [--only ci,db] [--keep]
+        [--name keel-each --port 8091]   (another name and port let several runs go side by side; the volume is <name>-data)
 
 For each of keel's 11 plugins (and keel Product on the product image) it sets the plugins with
 `keel-engine plugins set <name> on|off` inside the container, then restarts keel (POST /api/plugins/restart
@@ -32,6 +33,7 @@ container, the volume and the temp folder are removed at the end.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import queue
 import shutil
@@ -222,11 +224,12 @@ def flow_to_gate(pid: str) -> str:
     return f"{status} ({tid})"
 
 
-def walk(out: Path, label: str, off: set[str], extra: list[str]) -> dict:
+def walk(out: Path, label: str, off: set[str], extra: list[str], pid: str) -> dict:
     routes = {n: WEB_ROUTES[n] for n in sorted(off)}
     cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "walk.mjs"), f"http://127.0.0.1:{PORT}",
            str(out / label), json.dumps(routes), *extra]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    # the walk opens this project (the product image has a second one, keel Product's own keel-product)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, env={**os.environ, "KEEL_WALK_PROJECT": pid})
     line = next((x for x in reversed(r.stdout.splitlines()) if x.startswith("{")), "")
     if not line:
         raise AssertionError(f"walk.mjs gave no answer ({r.returncode}): {(r.stderr or r.stdout)[-2000:]}")
@@ -298,7 +301,7 @@ def scenario(plugin: str, way: str, on: set[str], every: list[str], pid: str, ou
     except AssertionError as e:
         run.check(False, "a change flow on the fake model runs to its first gate", str(e))
         link = []
-    res = walk(out, f"{plugin}-{way}", off, link)
+    res = walk(out, f"{plugin}-{way}", off, link, pid)
     bad = [c for c in res["checks"] if not c["ok"]]
     run.check(not bad, f"the web: {len(res['checks'])} pages and checks, no console error, failed request, off plugin's "
               "route or dead link", " || ".join(f"{c['what']}: {c['detail']}" for c in bad))
@@ -338,7 +341,7 @@ def phase(image: str, every: list[str], targets: list[str], ws: Path, out: Path,
     print(f"\n==== {image}: {len(every)} plugins")
     start(image, ws)
     projects = wait_until("the project at /workspace", lambda: api("GET", "/projects") or None, timeout=60)
-    pid = projects[0]["id"]
+    pid = next((p["id"] for p in projects if p["id"] == PROJECT), projects[0]["id"])
     for name in PER_PROJECT:
         if name in every:
             api("PUT", f"/projects/{pid}/plugins/{name}", {"enabled": True, "scope": "project"})
@@ -365,7 +368,11 @@ def main() -> int:
     ap.add_argument("--product-image", default="keel-v2:fin-product", help="the product image ('' to skip Product)")
     ap.add_argument("--only", default="", help="only these plugins (comma separated; product for keel Product)")
     ap.add_argument("--keep", action="store_true", help="leave keel-each running at the end")
+    ap.add_argument("--name", default="keel-each", help="the container's name (its volume is <name>-data), so runs can go side by side")
+    ap.add_argument("--port", type=int, default=8091, help="the port on 127.0.0.1 (default 8091)")
     a = ap.parse_args()
+    global NAME, VOLUME, PORT
+    NAME, VOLUME, PORT = a.name, f"{a.name}-data", a.port
     sys.stdout.reconfigure(line_buffering=True)
     if exists(NAME):
         print(f"{NAME} exists already: it may be another run's. Remove it first (docker rm -f {NAME}) when it is not.")

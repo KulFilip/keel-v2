@@ -131,10 +131,14 @@ async function settle(max = 12000) {
   }
 }
 
+// keel Product's pages (#/initiatives, #/teams) are add-on screens (/api/features "screens"), not in the page registry:
+// the router opens them through the add-on loader, as in 0.16.1. They count as pages while Product is on.
+let screens = [];
+
 function deadLinks(where = "main a[href^='#'], nav a[href^='#'], [role=dialog] a[href^='#']") {
-  return page.evaluate((sel) => {
+  return page.evaluate(([sel, extra]) => {
     const sdk = window.__keel?.sdk;
-    const own = new Set(["projects"]);
+    const own = new Set(["projects", ...extra]);
     const out = [];
     for (const a of document.querySelectorAll(sel)) {
       const href = a.getAttribute("href") ?? "";
@@ -147,7 +151,7 @@ function deadLinks(where = "main a[href^='#'], nav a[href^='#'], [role=dialog] a
       out.push(`${href} "${(a.getAttribute("aria-label") || a.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}"`);
     }
     return [...new Set(out)];
-  }, where);
+  }, [where, screens]);
 }
 
 function missingText() {
@@ -196,7 +200,10 @@ let pages = [];
 let menu = [];
 try {
   const projects = await (await ctx.request.get(`${base}/api/projects`)).json().catch(() => []);
-  const pid = projects[0]?.id ?? "";
+  const want = process.env.KEEL_WALK_PROJECT;
+  const pid = (want && projects.find((p) => p.id === want)?.id) || projects[0]?.id || "";
+  const features = await (await ctx.request.get(`${base}/api/features`)).json().catch(() => ({}));
+  screens = (features.screens ?? []).map((x) => x.id);
   await page.goto(`${base}/#/projects`);
   await page.evaluate((p) => localStorage.setItem("keel2.project", p), pid);
   await check("a project to show", !!pid, JSON.stringify(projects.map((p) => p.id)));
@@ -209,7 +216,8 @@ try {
   await page.goto(`${base}/#/flow`);
   await settle();
   await wait(2500);
-  pages = await page.evaluate(() => (window.__keel?.sdk?.allPages?.() ?? []).map((p) => p.id).sort());
+  pages = await page.evaluate(() => (window.__keel?.sdk?.allPages?.() ?? []).map((p) => p.id));
+  pages = [...new Set([...pages, ...screens])].sort();
   menu = await page.evaluate(() => [...document.querySelectorAll("nav#nav .nav-sec a")].map((a) => a.getAttribute("href")));
   const [startFailed, startConsole] = withoutKnown(seen.failed, seen.console);
   const startBad = [...startConsole, ...startFailed, ...seen.offAsked.map((x) => `off plugin asked: ${x}`)];
