@@ -11,6 +11,8 @@ import keel.api.events.EngineEvent
 import keel.api.events.EventService
 import keel.api.projects.ProjectService
 import keel.api.settings.SettingsService
+import org.springframework.core.Ordered
+import org.springframework.core.annotation.Order
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import org.springframework.web.bind.annotation.PathVariable
@@ -25,6 +27,7 @@ import org.springframework.web.filter.OncePerRequestFilter
  * on the project (and thread), so its timeline shows "via MCP · <client>: <tool>". Reads are not recorded.
  */
 @Component
+@Order(Ordered.LOWEST_PRECEDENCE - 1)   // before McpLevelGuard, so a refused call is recorded too
 class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =

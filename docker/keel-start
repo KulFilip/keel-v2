@@ -4,6 +4,9 @@ set -euo pipefail
 
 export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 mkdir -p "$KEEL_DATA"
+# v0.16.1 keel2 mcp (docker exec) reads it from here to ask the api for its MCP level token (KEEL_INTERNAL_TOKEN_FILE)
+mkdir -p "$KEEL_DATA/run"
+(umask 077; printf '%s' "$KEEL_INTERNAL_TOKEN" > "$KEEL_DATA/run/internal-token")
 
 # Claude Code asks for onboarding on a fresh home; headless runs only need this flag.
 [ -f "$HOME/.claude.json" ] || echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"

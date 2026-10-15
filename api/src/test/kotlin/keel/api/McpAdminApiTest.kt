@@ -10,7 +10,10 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 /** v0.16.0 MCP admin: who acted is recorded, a project can be removed and comes back, secret files stay private. */
 class McpAdminApiTest : ApiTest() {
 
-    private val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Client" to "Claude Code", "X-Keel-Tool" to "keel_start_flow")
+    private val mcp by lazy {
+        val write = post("/api/mcp/token", mapOf("level" to "write"), mapOf("X-Keel-Token" to TOKEN)).json()["token"].asText()
+        mapOf("X-Keel-Via" to "mcp", "X-Keel-Client" to "Claude Code", "X-Keel-Tool" to "keel_start_flow", "X-Keel-Mcp-Token" to write)
+    }
 
     @Test
     fun `a write from the MCP server is recorded on the project's timeline, a plain one is not`(@Autowired jdbc: JdbcTemplate) {
