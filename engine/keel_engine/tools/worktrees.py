@@ -53,7 +53,34 @@ def add(root: str, name: str, branch: str, start: str | None = None) -> dict:
     r = git.git(root, "worktree", "add", "-q", "-b", branch, str(path), base)
     if r.returncode != 0:
         raise WorktreeError(f"git could not make the worktree {name}.", (r.stderr or r.stdout).strip()[-600:])
+    seed_keel_files(root, path)
     return {"path": str(path), "branch": branch, "base": base}
+
+
+def seed_keel_files(root: str, wt: Path) -> list[str]:
+    """layout keel / external: .keel/ is outside git, so a new worktree would have no config, specs, knowledge, ADRs
+    or runbook, and a flow there would plan against nothing. Copy them in, with their times kept: keep_keel_files
+    brings back only what the flow changed. Symlinked files and keel's own worktrees are left out."""
+    from .. import layout
+
+    lay = layout.resolve(root)
+    if not lay.hidden:
+        return []
+    r = Path(root)
+    copied = []
+    cfg = r / ".keel" / "config.yml"
+    names = [".keel/config.yml"] if cfg.is_file() and not cfg.is_symlink() else []
+    for d in (lay.specs, lay.knowledge, lay.adr):
+        if (r / d).is_dir():
+            names += [f"{d}/{p.name}" for p in sorted((r / d).glob("*.md")) if p.is_file() and not p.is_symlink()]
+    if (r / lay.runbook).is_file() and not (r / lay.runbook).is_symlink():
+        names.append(lay.runbook)
+    for rel in names:
+        dst = wt / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(r / rel, dst)
+        copied.append(rel)
+    return copied
 
 
 def remove(root: str, path: str, branch: str | None = None) -> None:

@@ -16,6 +16,7 @@ working directory (an agent runs in its project), else the only (or first) proje
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import sys
 import time
@@ -58,6 +59,12 @@ class KeelApi:
         # v0.16.0 who acts: every write the api gets from here says "via MCP · <client>: <tool>" (api McpAudit)
         self.client = "an MCP client"
         self.tool = ""
+
+    def acting(self, client: str, tool: str) -> "KeelApi":
+        """A copy for one tool call (the same HTTP client) that says who acts: two calls at once never swap names."""
+        c = copy.copy(self)
+        c.client, c.tool = client, tool
+        return c
 
     def _audit(self, method: str) -> dict:
         if method == "GET":
@@ -599,10 +606,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """A write or admin call: says who acts (audit headers), asks the person first when the tool needs it."""
         try:
             params = ctx.session.client_params if ctx else None
-            api.client = (params.clientInfo.name if params and params.clientInfo else None) or "an MCP client"
+            client = (params.clientInfo.name if params and params.clientInfo else None) or "an MCP client"
         except Exception:  # noqa: BLE001
-            api.client = "an MCP client"
-        api.tool = name
+            client = "an MCP client"
+        mine = api.acting(client, name)
+        a = tuple(mine if x is api else x for x in a)
         if name in CONFIRM and not yes:
             can = False
             try:

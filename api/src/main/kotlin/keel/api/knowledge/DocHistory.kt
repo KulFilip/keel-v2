@@ -97,7 +97,9 @@ class DocHistoryService(private val jdbc: JdbcTemplate, private val projects: Pr
     fun files(pid: String): List<DocFile> {
         val root = projects.root(pid)
         val rows = jdbc.query(
-            "SELECT path, kind, COUNT(*), MAX(at), MAX(version) FROM doc_versions WHERE project_id = ? GROUP BY path, kind ORDER BY path",
+            // one row per path, with the kind of its newest version (a layout change can give a path another kind)
+            "SELECT d.path, (SELECT kind FROM doc_versions n WHERE n.project_id = d.project_id AND n.path = d.path ORDER BY version DESC LIMIT 1), " +
+                "COUNT(*), MAX(d.at), MAX(d.version) FROM doc_versions d WHERE d.project_id = ? GROUP BY d.path ORDER BY d.path",
             { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getInt(3).toString(), rs.getString(4)) }, pid,
         )
         return rows.map { (path, kind, n, at) -> DocFile(path, kind, n.toInt(), at, state(pid, root, path)) }

@@ -396,6 +396,7 @@ warn_external_layouts() {  # warn_external_layouts <main> <new folder>… — ke
       r="${r%/}"
       [ -L "$r/.keel" ] || continue
       t="$(readlink "$r/.keel")"; case "$t" in /*) ;; *) t="$r/$t" ;; esac
+      [ -d "$t" ] && t="$(cd "$t" && pwd -P)"   # a relative link (../shared/keel) compared as a real path
       inside=0
       while IFS= read -r x; do [ -n "$x" ] || continue; case "$t" in "$x"|"$x"/*) inside=1 ;; esac; done <<< "$seen"
       [ "$inside" = 1 ] || warn "$(basename "$r"): this project keeps keel's files in $t; add that folder too: keel2 add $t"
@@ -669,6 +670,7 @@ native_running() {  # the pid file's process is alive and is keel's own start sc
   [ -n "$p" ] && kill -0 "$p" 2>/dev/null && ps -p "$p" -o command= 2>/dev/null | grep -q "keel-native-start"
 }
 native_port() { sed -n 's/^api=//p' "$ND/run/ports" 2>/dev/null || true; }
+version_newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }   # $1 newer than $2
 sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 docker_keel_running() { command -v docker >/dev/null 2>&1 && [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null || echo false)" = true ]; }
 
@@ -696,12 +698,12 @@ native_warn() {  # once per keel: agents run as you
   die "Not started (native mode needs your yes; KEEL_YES=1 gives it without asking)." "Or use Docker: keel2 start [folder]"
 }
 
-native_install() {  # native_install [tarball] — keel $KEEL2_VERSION from the release (or the given tarball) into app/<version>
-  local tgz="${1:-}" tmp dir v name
+native_install() {  # native_install [tarball] [version] — a release (default $KEEL2_VERSION) or the given tarball into app/<version>
+  local tgz="${1:-}" want="${2:-$KEEL2_VERSION}" tmp dir v name
   (umask 077; mkdir -p "$ND")
   tmp="$(mktemp -d)"
   if [ -z "$tgz" ]; then
-    v="$KEEL2_VERSION"; name="keel-v2-$v-native.tar.gz"
+    v="$want"; name="keel-v2-$v-native.tar.gz"
     info "Getting keel v2 $v for native mode…"
     curl -fsSL "$RELEASE_URL/v$v/$name" -o "$tmp/$name" && curl -fsSL "$RELEASE_URL/v$v/$name.sha256" -o "$tmp/$name.sha256" \
       || die "Could not download keel v2 $v ($RELEASE_URL/v$v/$name)." "Check your internet connection, or build it: keel2 start --native --from-source <keel-v2 checkout>"
@@ -717,7 +719,8 @@ native_install() {  # native_install [tarball] — keel $KEEL2_VERSION from the 
   mv "$dir" "$ND/app/$v"
   info "Installing keel's engine (uv sync)…"
   (cd "$ND/app/$v/engine" && UV_PROJECT_ENVIRONMENT="$ND/app/$v/engine/.venv" uv sync --frozen --no-dev -q) || die "uv could not install the engine." "Run it again, or see: keel2 doctor"
-  [ -e "$ND/current" ] && ln -sfn "$(readlink "$ND/current")" "$ND/previous"
+  if [ -e "$ND/current" ] && [ "$(readlink "$ND/current")" != "$ND/app/$v" ]; then ln -sfn "$(readlink "$ND/current")" "$ND/previous"; fi
+  rm -rf -- "$tmp"
   ln -sfn "$ND/app/$v" "$ND/current"
   ok "keel v2 $v installed ($ND/app/$v)"
 }
@@ -750,7 +753,10 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
     info "Building keel v2 from $src…"
     tgz="$("$src/scripts/build-native.sh" "$out" | tail -1)" || die "The build failed." "Run $src/scripts/build-native.sh to see why."
   fi
-  if [ -n "$tgz" ] || [ ! -f "$ND/current/api.jar" ] || [ "$(cat "$ND/current/VERSION" 2>/dev/null)" != "$KEEL2_VERSION" ]; then native_install "$tgz"; fi
+  # install when there is none, when a tarball is given, or when this script is newer than the installed one
+  # (never back down: keel2 update may have installed a newer release than this script knows)
+  local have; have="$(cat "$ND/current/VERSION" 2>/dev/null || true)"
+  if [ -n "$tgz" ] || [ ! -f "$ND/current/api.jar" ] || version_newer "$KEEL2_VERSION" "$have"; then native_install "$tgz"; fi
   native_clis
   # keel's data (its database, logins, agent homes) and logs are this person's only
   (umask 077; mkdir -p "$ND/run" "$ND/logs" "$ND/data")
@@ -834,8 +840,19 @@ native_update() {
     native_running && { native_stop_quiet; native_start "$(cat "$ND/project")" "" ""; }
     return 0
   }
-  native_install ""
-  native_running && { guard_busy update; native_stop_quiet; native_start "$(cat "$ND/project")" "" ""; } || true
+  # the newest release, not only the one this keel2 script knows
+  local latest have was=0
+  latest="$(curl -fsSL "${KEEL_RELEASES_API:-https://api.github.com/repos/MiladNalbandi/keel-v2/releases/latest}" 2>/dev/null \
+    | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
+  [ -n "$latest" ] || latest="$KEEL2_VERSION"
+  have="$(cat "$ND/current/VERSION" 2>/dev/null || true)"
+  if [ "$latest" = "$have" ]; then ok "keel v2 $have is the newest release already."; return 0; fi
+  # stop first: the running api and engine are never replaced under them
+  if native_running; then guard_busy update; native_stop_quiet; was=1; fi
+  native_install "" "$latest"
+  [ "$was" = 1 ] && native_start "$(cat "$ND/project")" "" ""
+  [ "$latest" = "$KEEL2_VERSION" ] || info "  ${D}This keel2 script is $KEEL2_VERSION; get the newest one too: curl -fsSL …/install.sh | sh${N}"
+  return 0
 }
 
 native_backup() {

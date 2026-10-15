@@ -184,3 +184,24 @@ def test_symlinked_keel_files_are_not_read(tmp_path):
     (wt / ".keel/specs").mkdir(parents=True)
     os.symlink(secret, wt / ".keel/specs/also.md")
     assert worktrees.keep_keel_files(str(r), wt) == []
+
+
+def test_a_worktree_of_a_hidden_layout_gets_keels_files(tmp_path):
+    from keel_engine.tools import worktrees
+
+    r = _repo(tmp_path / "p", {"README.md": "# p\n"})
+    subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@localhost", "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-qm", "init"], check=True)
+    for rel, text in {".keel/config.yml": "layout: keel\ncommands:\n  api_test: pytest\n", ".keel/specs/s.md": "# S\n",
+                      ".keel/knowledge/domain.md": "# D\n", ".keel/RUNNING.md": "# run\n"}.items():
+        (r / rel).parent.mkdir(parents=True, exist_ok=True)
+        (r / rel).write_text(text)
+    layout.hide(r)
+    wt = Path(worktrees.add(str(r), "w1", "feat/w1")["path"])
+    assert (wt / ".keel/config.yml").read_text().startswith("layout: keel")
+    assert layout.resolve(wt).name == "keel" and (wt / ".keel/specs/s.md").is_file()
+    assert (wt / ".keel/knowledge/domain.md").is_file() and (wt / ".keel/RUNNING.md").is_file()
+    assert not (wt / ".keel/worktrees").exists()
+    # an unchanged copy never comes back over the project's file; a changed one does
+    (wt / ".keel/specs/new.md").write_text("# New\n")
+    assert worktrees.keep_keel_files(str(r), wt) == [".keel/specs/new.md"]

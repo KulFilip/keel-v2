@@ -79,3 +79,22 @@ def test_a_private_key_block_is_masked_whole(tmp_path):
     r = _repo(tmp_path / "p", {".keel/config.yml": "layout: keel\n", ".keel/specs/k.md": "# K\n" + key + "\nafter\n"})
     d = doc_history.changes(str(r), {})[0]
     assert "b3BlbnNz" not in d["content"] and "after" in d["content"] and d["masked"] is True
+
+
+def test_a_commit_sends_the_committed_text_as_a_version_first(tmp_path):
+    """spec_freeze rewrites the spec and commits it in one step: the version with the commit must be the frozen text."""
+    from keel_engine.events import bus
+    from keel_engine.runtime.actions import ActionInput, commit
+
+    r = _repo(tmp_path / "p", {"docs/specs/s.md": "# S\n"})
+    subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@localhost", "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-qm", "init"], check=True)
+    doc_history.before_step(lambda *a, **k: None, str(r), "spec", "explore")
+    (r / "docs/specs/s.md").write_text("---\nstatus: frozen\n---\n# S\n")
+    res = commit(ActionInput(root=str(r), phase="spec", title="s", ac=None, acs=[], fake=True, flow="feature",
+                             paths=["docs/specs/s.md"], thread_id="t-c", project="p"))
+    assert res.ok
+    types = [e["type"] for e in bus.of("t-c")]
+    assert types.index("doc.version") < types.index("keel.applied")
+    v = [e for e in bus.of("t-c", "doc.version") if e["data"]["path"] == "docs/specs/s.md"][-1]
+    assert "frozen" in v["data"]["content"]

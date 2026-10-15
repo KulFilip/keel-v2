@@ -423,7 +423,12 @@ def _applied(a: ActionInput, kind: str, ref: str, subject: str, files: list[str]
     if not a.thread_id:
         return
     from ..events import bus
+    from . import doc_history
 
+    # the committed text first (spec_freeze rewrites the spec and commits it in one step): the version the api stamps
+    # with this commit's sha must be the one that went into it, not the text from before the step
+    doc_history.after_step(lambda t, step=None, data=None: bus.emit(t, a.thread_id, a.project or "", step=step, data=data),
+                           a.root, doc_history._LAST.get(a.root, {}), "keel", kind, a.phase)
     bus.emit("keel.applied", a.thread_id, a.project or "", data={"kind": kind, "sha": ref if kind == "commit" else None,
                                                                  "ref": ref, "subject": subject, "files": list(files)})
 
