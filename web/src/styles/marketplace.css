@@ -78,9 +78,6 @@
 }
 
 /* the page */
-.mk-tab {
-  margin-top: 14px;
-}
 .mk-banner {
   display: flex;
   flex-wrap: wrap;
@@ -131,118 +128,16 @@
   align-items: center;
   gap: 6px;
 }
-.mk-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  align-items: center;
-}
-.mk-tab button.chip {
-  cursor: pointer;
-}
-.mk-tab button.chip[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
-}
 .perms + .mk-note,
 .perm-none + .mk-note {
   margin-top: 10px;
 }
 
-.mk-table td {
-  vertical-align: top;
-}
-.mk-table tr.off td {
-  color: var(--dim);
-}
-.mk-parts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.mk-rowact {
-  justify-content: flex-end;
-  flex-wrap: nowrap;
-}
-.mk-table .confirm {
-  margin-top: 8px;
-  min-width: 240px;
-}
-.mk-problems {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 4px;
-}
-
-.mk-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
-  gap: 12px;
-}
-.mk-card {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-  grid-template-rows: auto auto 1fr auto;
-  min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
-}
-.mk-card-h {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.mk-card-h h3 {
-  margin: 0;
-  font-size: 15px;
-}
-.mk-sum {
-  margin: 0;
-  color: var(--dim);
-  font-size: 13px;
-}
-.mk-card-a {
-  justify-content: space-between;
-}
 .tick {
   color: var(--ok);
   font-weight: 700;
 }
 
-.mk-kv {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 12px;
-  margin: 0;
-  font-size: 13px;
-}
-.mk-kv dt {
-  color: var(--dim);
-}
-.mk-kv dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.mk-h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--dim);
-}
-.mk-needs,
-.mk-checks {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 4px;
-  font-size: 13px;
-}
 .mk-install-list {
   list-style: none;
   margin: 0;

@@ -498,6 +498,7 @@ def test_the_installed_list_says_where_each_plugin_is(market, image):
     assert rows["code"] == {**rows["code"], "from": "image", "status": "loaded", "on": True, "parts": ["web"],
                             "can_remove": False, "update": None}
     assert rows["map"]["status"] == "off"
+    assert all(isinstance(p["summary"], str) for p in rows.values())  # 0.16.1: the manifest's summary, for the cards
     assert rows["hello"] == {**rows["hello"], "from": "marketplace", "status": "loaded", "update": "1.1.0",
                              "revoked": {"version": "1.0.0", "why": "a bad bug", "fixed": "1.1.0"},
                              "trust": "web", "catalog": "test", "permissions": {"workspace": "read"}, "can_remove": True}

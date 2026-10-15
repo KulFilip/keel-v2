@@ -37,6 +37,7 @@ def test_search_one_plugin_and_refresh(client, market):
     assert set(body) == {"plugins", "sources", "categories"}
     [hit] = body["plugins"]
     assert (hit["name"], hit["version"], hit["installed"]) == ("hello", "1.1.0", None)
+    assert hit["needs"] == {"code": ">=1.0.0"}                       # 0.16.1: the card says what it needs
     assert client.get("/marketplace/search", params={"category": "knowledge"}).json()["plugins"] == []
     one = client.get("/marketplace/plugins/hello").json()
     assert [v["version"] for v in one["versions"]] == ["1.1.0", "1.0.0"]

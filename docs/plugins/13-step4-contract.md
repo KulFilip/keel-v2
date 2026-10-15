@@ -339,7 +339,8 @@ Source   {id, title, url, official: bool, on: bool, ok: bool, problem: str|null,
 Hit      {name, title, publisher, publisher_title, verified: bool, category, summary, tags: [str], trust, repo,
           source, latest, version: str|null (the newest that fits), permissions: {}, fits: bool, why_not: str|null,
           installed: str|null, installed_from: "image"|"marketplace"|"file"|null, update: str|null,
-          revoked: null | {version, why, fixed: str|null}, old: bool}
+          revoked: null | {version, why, fixed: str|null}, old: bool,
+          needs: {name: range} (0.16.1: of the newest fitting version)}
 Pending  {pending: bool, changes: [{name, now: str|null, next: str|null}]}      (+ problem when installed.json is broken)
 Step     {name, version, title, trust, publisher, publisher_title, verified, permissions, size, needed_by: str|null,
           source}
@@ -361,7 +362,7 @@ GET  /marketplace/plugins/{name}
 POST /marketplace/refresh?source=           → {sources: [Source]}              (source: only that one)
 
 GET  /marketplace/installed
-     → {plugins: [{name, title, version, loaded: str|null, parts: ["engine","api","web","content","migrations"],
+     → {plugins: [{name, title, summary (0.16.1: the manifest's), version, loaded: str|null, parts: ["engine","api","web","content","migrations"],
                    from: "image"|"marketplace"|"file"|null, on: bool,
                    status: "loaded"|"restart"|"off"|"left out"|"removed", problems: [str],
                    revoked: null|{version, why, fixed}, update: str|null, previous: str|null, image_version: str|null,

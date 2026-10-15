@@ -61,7 +61,7 @@ export type MarketHit = {
   update?: string | boolean | null;
   revoked?: Revoked | string | null;
   old?: boolean;
-  /** a hit says what it needs only on the one-plugin answer ({name: range}) */
+  /** what the newest fitting version needs ({name: range}; a search hit says it too since 0.16.1) */
   needs?: Record<string, string> | (string | { name: string })[];
 };
 
@@ -118,6 +118,8 @@ export type MarketPlugin = MarketHit & {
 export type InstalledPlugin = {
   name: string;
   title?: string;
+  /** its manifest's summary (0.16.1) */
+  summary?: string | null;
   version?: string;
   loaded?: string | null;
   parts?: string[];

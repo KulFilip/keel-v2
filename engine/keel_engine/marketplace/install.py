@@ -616,7 +616,8 @@ def installed_view() -> dict:
         needed_by = [n for n, x in sorted(have.items()) if n != name and x.on and name in x.needs]
         prev = h.entry.get("previous") if isinstance(h.entry.get("previous"), dict) else None
         out.append({
-            "name": name, "title": h.title, "version": h.version, "loaded": loaded.get(name),
+            "name": name, "title": h.title, "summary": (m.summary if m else "") or hit.get("summary") or "",
+            "version": h.version, "loaded": loaded.get(name),
             "parts": [k for k in PARTS if m and getattr(m, k)], "from": h.source, "on": h.on, "status": status,
             "problems": problems.get(name, []), "revoked": hit.get("revoked"), "update": hit.get("update"),
             "previous": prev.get("version") if prev else None, "image_version": h.image_version,
@@ -627,7 +628,7 @@ def installed_view() -> dict:
         })
     for name, version in sorted(loaded.items()):
         if name not in have:
-            out.append({"name": name, "title": name, "version": version, "loaded": version, "parts": [], "from": None,
+            out.append({"name": name, "title": name, "summary": "", "version": version, "loaded": version, "parts": [], "from": None,
                         "on": False, "status": "removed", "problems": [], "revoked": None, "update": None,
                         "previous": None, "image_version": None, "can_remove": False, "needed_by": [], "needs": {},
                         "trust": None, "publisher": "", "catalog": None, "permissions": {}, "per_project": False,

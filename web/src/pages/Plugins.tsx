@@ -1,21 +1,24 @@
-// Control › Plugins (v0.16.0, docs/plugins/13-step4-contract.md §9): what this keel has installed, the marketplace,
-// and where plugins come from. Three tabs:
+// Control › Plugins (v0.16.0, docs/plugins/13-step4-contract.md §9; v0.16.1 the look of docs/plugins/mockup.html):
+// what this keel has installed, the marketplace, and where plugins come from. Three tabs, and a page per plugin:
 //
-//   Installed           each plugin: version, parts, from (image / marketplace / file), on/off, status and problems,
-//                       a revoked warning, Update, Roll back, Remove; a banner when changes wait for a restart
-//   Marketplace         search, categories, cards with the trust level; a plugin's details (permissions with their
-//                       levels, the plugins it needs, versions, the checks keel runs); Install opens a dialog that
-//                       lists everything that will be installed and what each one may do
+//   Installed           keel core first, then each plugin with its icon; the plugins that live inside another one's page
+//                       (Git, Code Review, CI/CD and Database in Code) under it; version (and the update that is
+//                       ready), parts, from, a status pill, on/off, Update, Roll back, Remove; "Check for updates"
+//                       reads the catalogs again; a banner when changes wait for a restart
+//   Marketplace         the catalog, search, the category chips, the trust legend; "The keel set" and the community's
+//                       plugins as cards (Install / Update to x / Installed). No catalog yet: keel's own plugins from
+//                       the image, with a note, never an empty page
 //   Sources and rules   the catalogs (add one with its URL and public key, refresh, problems), the four rules, and
 //                       install from a file in /data
+//   #/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs
 //
-// #/plugins?set=developer (the core-only menu's "Start with a set") offers to install what that set adds: the missing
-// plugins, and the image's plugins that are off are turned on.
+// Install opens a dialog that lists everything that will be installed and what each one may do.
+// #/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
+// once (the missing plugins; the image's plugins that are off are turned on); nothing installs before the person presses
+// Install. #/plugins?tab=market|installed|sources opens that tab.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorParts } from "../api";
-import { Toolbar, SearchBox } from "../components/page";
-import { PermissionList, TrustTag } from "../components/Permissions";
 import {
   Confirm,
   Drawer,
@@ -26,8 +29,9 @@ import {
   Pill,
   Tabs,
 } from "../components/ui";
+import { PermissionList, TrustTag } from "../components/Permissions";
+import { clock } from "../format";
 import {
-  CATEGORIES,
   FROM,
   TRUST,
   hitsOf,
@@ -56,27 +60,162 @@ import {
 import { queryValue } from "../routes";
 import type { PageProps } from "../sdk/registry";
 import { useApp, useLoad, useRoute, type Loaded } from "../state";
+import {
+  PluginDetailPage,
+  RemoveConfirm,
+  StatusOf,
+  canRemove,
+  problemsOf,
+  titleOf,
+  usePluginAct,
+  type Err,
+} from "./PluginDetail";
+import {
+  CHIPS,
+  KeelMark,
+  PluginIcon,
+  Publisher,
+  fromKeel,
+  inChip,
+  isBeta,
+  nested,
+  useInside,
+  type Chip,
+} from "./pluginLook";
 
 type Tab = "installed" | "market" | "sources";
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
 /** What the install dialog does: install these (and what they need), then turn these on. */
 type InstallPlan = { install: string[]; turnOn?: string[]; title?: string };
 
+const SUB: Record<Tab, string> = {
+  installed:
+    "What this keel has installed. Turn a plugin off to hide it without losing its data. Plugins that came in the image can be updated from the marketplace.",
+  market:
+    "Plugins add pages, tools, workflows and agents to keel. Each comes from its own git repo. keel checks its signature before it installs it.",
+  sources: "Where plugins come from, and who may install them.",
+};
+
 export function PluginsPage(_props: PageProps) {
   const route = useRoute();
+  // #/plugins/<name>: the router hands a keel-wide page no arg, so the page reads its own link
+  const arg = route.arg;
+  const { toast } = useApp();
   const setId = queryValue(route, "set");
   const view = useLoad("plugins", () => marketApi.installed());
-  const [tab, setTab] = useState<Tab>("installed");
-  const [detail, setDetail] = useState<string | null>(null);
+  // #/plugins?tab=market (the core welcome's "Open the marketplace", the menu's "+ Add pages"), tab=installed|sources
+  const asked = queryValue(route, "tab");
+  const linked: Tab | null =
+    asked === "market" || asked === "installed" || asked === "sources"
+      ? asked
+      : null;
+  const [tab, setTab] = useState<Tab>(linked ?? "installed");
+  useEffect(() => {
+    if (linked) setTab(linked);
+  }, [linked, route.query]);
   const [plan, setPlan] = useState<InstallPlan | null>(null);
+  // the list was shown before a plugin's page: its crumb goes back to the tab the person came from
+  const [listed, setListed] = useState(!arg);
+  useEffect(() => {
+    if (!arg) setListed(true);
+  }, [arg]);
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState<Err>(null);
   const count = view.data?.plugins.length;
+  const waiting = view.data ? (pendingOf(view.data)?.changes ?? []).length : 0;
+
+  const back = (t: Tab) => {
+    setTab(t);
+    if (location.hash !== "#/plugins") location.hash = "#/plugins";
+  };
+  // "Check for updates": read the catalogs again, then show what has an update
+  const check = async () => {
+    setChecking(true);
+    setErr(null);
+    try {
+      await marketApi.refresh();
+      const fresh = await marketApi.installed();
+      view.setData(fresh);
+      const ready = fresh.plugins.filter((p) => updateOf(p));
+      setTab("installed");
+      toast(
+        ready.length
+          ? `${ready.length} update${ready.length === 1 ? "" : "s"} ready: ${ready.map(titleOf).join(", ")}.`
+          : "Every plugin is up to date.",
+      );
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const dialog = plan && (
+    <InstallDialog
+      plan={plan}
+      view={view.data}
+      onClose={() => setPlan(null)}
+      onDone={() => {
+        void view.reload();
+        if (setId) location.hash = "#/plugins";
+      }}
+    />
+  );
+
+  if (arg)
+    return (
+      <>
+        {view.data && (
+          <RestartBanner view={view.data} onDone={() => void view.reload()} />
+        )}
+        <PluginDetailPage
+          key={arg}
+          name={arg}
+          view={view}
+          back={
+            listed
+              ? tab
+              : view.data?.plugins.some((p) => p.name === arg)
+                ? "installed"
+                : "market"
+          }
+          onBack={back}
+          onInstall={(name) => setPlan({ install: [name] })}
+        />
+        {dialog}
+      </>
+    );
+
   return (
     <>
       <PageHead
         title="Plugins"
-        sub="Plugins add pages, tools, workflows and agents to keel. keel checks a plugin's signature before it installs it, and loads it when it starts again."
+        sub={SUB[tab]}
+        actions={
+          tab === "installed" ? (
+            <>
+              <button
+                className="btn"
+                type="button"
+                disabled={checking}
+                onClick={() => void check()}
+              >
+                {checking ? "Checking…" : "Check for updates"}
+              </button>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={() => setTab("market")}
+              >
+                Browse marketplace
+              </button>
+            </>
+          ) : tab === "market" ? (
+            <CatalogLine onSources={() => setTab("sources")} />
+          ) : undefined
+        }
       />
+      {err && <ErrorBox error={err} />}
       {view.data && (
         <RestartBanner view={view.data} onDone={() => void view.reload()} />
       )}
@@ -90,25 +229,29 @@ export function PluginsPage(_props: PageProps) {
           }}
         />
       )}
-      <Tabs<Tab>
-        value={tab}
-        onChange={setTab}
-        label="Plugins"
-        options={[
-          [
-            "installed",
-            count === undefined ? "Installed" : `Installed (${count})`,
-          ],
-          ["market", "Marketplace"],
-          ["sources", "Sources and rules"],
-        ]}
-      />
+      <div className="mk-tabsrow">
+        <Tabs<Tab>
+          value={tab}
+          onChange={setTab}
+          label="Plugins"
+          options={[
+            [
+              "installed",
+              count === undefined ? "Installed" : `Installed (${count})`,
+            ],
+            ["market", "Marketplace"],
+            ["sources", "Sources and rules"],
+          ]}
+        />
+        {waiting > 0 && (
+          <Pill tone="warn">{waiting} waiting for restart</Pill>
+        )}
+      </div>
       <div className="mk-tab">
         {tab === "installed" && <InstalledTab view={view} />}
         {tab === "market" && (
           <MarketTab
             view={view.data}
-            onDetail={setDetail}
             onInstall={(name) => setPlan({ install: [name] })}
             onChanged={() => void view.reload()}
           />
@@ -117,29 +260,34 @@ export function PluginsPage(_props: PageProps) {
           <SourcesTab onChanged={() => void view.reload()} />
         )}
       </div>
-      {detail && (
-        <PluginDetail
-          name={detail}
-          view={view.data}
-          onClose={() => setDetail(null)}
-          onInstall={(name) => {
-            setDetail(null);
-            setPlan({ install: [name] });
-          }}
-        />
-      )}
-      {plan && (
-        <InstallDialog
-          plan={plan}
-          view={view.data}
-          onClose={() => setPlan(null)}
-          onDone={() => {
-            void view.reload();
-            if (setId) location.hash = "#/plugins";
-          }}
-        />
-      )}
+      {dialog}
     </>
+  );
+}
+
+/** "Catalog keel official · Sources": the catalogs keel reads, and a way to them. */
+function CatalogLine({ onSources }: { onSources: () => void }) {
+  const src = useLoad("plugin-sources", () => marketApi.sources(), {
+    live: false,
+  });
+  const on = sourcesOf(src.data).filter((s) => s.on !== false);
+  return (
+    <div className="mk-catalog">
+      <span className="sub">Catalog</span>
+      {on.map((s) => (
+        <span
+          key={s.id}
+          className={`tag ${s.ok === false || s.problem ? "warn" : "keel"}`}
+          title={s.problem ?? undefined}
+        >
+          {s.title || s.id}
+        </span>
+      ))}
+      {src.data && !on.length && <span className="tag warn">none</span>}
+      <button className="btn sm ghost" type="button" onClick={onSources}>
+        Sources
+      </button>
+    </div>
   );
 }
 
@@ -263,6 +411,22 @@ function SetOffer({
   const missing = set ? set.plugins.filter((n) => !have.has(n)) : [];
   const off = set ? set.plugins.filter((n) => have.get(n)?.on === false) : [];
   const title = set?.title ?? id;
+  const plan: InstallPlan = {
+    install: missing,
+    turnOn: off,
+    title: `Install the ${title} set?`,
+  };
+  // a set's link (the core welcome's set card) opens its install question at once, one time; nothing installs
+  // until the person presses Install there
+  const opened = useRef("");
+  const ready = !!set && !!view && missing.length + off.length > 0;
+  useEffect(() => {
+    if (!ready || opened.current === id) return;
+    opened.current = id;
+    onInstall(plan);
+    // the plan is read when the set and the installed plugins are there
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, id]);
   return (
     <Panel
       className="mk-set"
@@ -313,11 +477,7 @@ function SetOffer({
                 className="btn primary"
                 type="button"
                 onClick={() =>
-                  onInstall({
-                    install: missing,
-                    turnOn: off,
-                    title: `Install the ${title} set?`,
-                  })
+                  onInstall(plan)
                 }
               >
                 {missing.length ? `Install ${missing.length}` : ""}
@@ -335,50 +495,19 @@ function SetOffer({
 
 // ---------- Installed ----------
 
-/** A plugin's status in words: loaded (runs now), restart (loads at the next start), off, left out, removed. */
-function StatusOf({ p, problems }: { p: InstalledPlugin; problems: boolean }) {
-  const s = p.status ?? "";
-  if (s === "left out" || (problems && s !== "restart"))
-    return <Pill tone="bad">left out</Pill>;
-  if (s === "restart")
-    return (
-      <Pill tone="warn">
-        {p.on === false ? "off after restart" : "after restart"}
-      </Pill>
-    );
-  if (s === "removed") return <Pill tone="warn">removed at restart</Pill>;
-  if (s === "off" || p.on === false) return <Pill tone="idle">off</Pill>;
-  return <Pill tone="ok">on</Pill>;
-}
+const CORE_PARTS = ["engine", "api", "web", "content"];
 
 function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
-  const { toast } = useApp();
-  const [busy, setBusy] = useState<string | null>(null);
+  const { health } = useApp();
+  const { busy, err, actions } = usePluginAct(view.reload);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [dropData, setDropData] = useState(false);
-  const [err, setErr] = useState<Err>(null);
+  const inside = useInside(view.data?.plugins ?? []);
   if (view.error && !view.data)
     return <ErrorBox error={view.error} onRetry={() => void view.reload()} />;
   if (!view.data) return <Loading what="Reading the installed plugins" />;
   const v = view.data;
-  const act = async (
-    name: string,
-    run: () => Promise<unknown>,
-    done: string,
-  ) => {
-    setBusy(name);
-    setErr(null);
-    try {
-      await run();
-      toast(done);
-      await view.reload();
-    } catch (e) {
-      setErr(errorParts(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-  const titleOf = (p: InstalledPlugin) => p.title || p.name;
+  const titles = new Map(v.plugins.map((p) => [p.name, titleOf(p)]));
+  const rows = nested(v.plugins, inside);
   return (
     <div className="grid">
       {v.engine === false && (
@@ -387,194 +516,211 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
         </p>
       )}
       {err && <ErrorBox error={err} />}
-      {!v.plugins.length ? (
-        <Panel>
-          <p className="sub" style={{ margin: 0 }}>
-            No plugins yet. Find one in the Marketplace tab.
-          </p>
-        </Panel>
-      ) : (
-        <Panel body={false}>
-          <div className="table-wrap">
-            <table className="mk-table">
-              <thead>
-                <tr>
-                  <th>Plugin</th>
-                  <th>Version</th>
-                  <th>Parts</th>
-                  <th>From</th>
-                  <th>Status</th>
-                  <th>On</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {v.plugins.map((p) => {
-                  const upd = updateOf(p);
-                  const revoked = revokedText(p.revoked);
-                  const from = p.from ?? p.source ?? "";
-                  const problems = (p.problems ?? [])
-                    .map((x) => (typeof x === "string" ? x : (x.error ?? "")))
-                    .filter(Boolean);
-                  return (
-                    <tr
-                      key={p.name}
-                      className={p.on === false ? "off" : ""}
-                      data-testid={`plugin-${p.name}`}
-                    >
-                      <td>
-                        <b>{titleOf(p)}</b>
-                        <div className="sub mono">{p.name}</div>
-                      </td>
-                      <td className="mono">
-                        {p.version}
-                        {upd && (
-                          <div>
-                            <span className="tag keel">{upd} ready</span>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div className="mk-parts">
-                          {(p.parts ?? []).map((x) => (
-                            <span key={x} className="tag">
-                              {x}
-                            </span>
-                          ))}
+      <Panel body={false}>
+        <div className="table-wrap">
+          <table className="mk-table mk-installed">
+            <thead>
+              <tr>
+                <th>Plugin</th>
+                <th>Version</th>
+                <th>Parts</th>
+                <th>From</th>
+                <th>Status</th>
+                <th>On</th>
+                <th>
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-testid="keel-core">
+                <td>
+                  <div className="mk-pname">
+                    <KeelMark />
+                    <div>
+                      <b>keel core</b>
+                      <span className="sub">flows, agents, Inbox, settings</span>
+                    </div>
+                  </div>
+                </td>
+                <td className="mono">
+                  {health?.version?.replace(/^v/, "") ?? "—"}
+                </td>
+                <td>
+                  <div className="mk-parts">
+                    {CORE_PARTS.map((x) => (
+                      <span key={x} className="tag">
+                        {x}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="sub">the image</td>
+                <td>
+                  <Pill tone="ok">On</Pill>
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    className="mk-sw"
+                    aria-label="keel core on"
+                    checked
+                    disabled
+                    readOnly
+                  />
+                </td>
+                <td className="sub mk-right">Update the image</td>
+              </tr>
+              {rows.map(({ p, parent, kids }) => {
+                const upd = updateOf(p);
+                const revoked = revokedText(p.revoked);
+                const from = p.from ?? p.source ?? "";
+                const problems = problemsOf(p);
+                const a = actions(p);
+                const off = p.on === false && p.status !== "restart";
+                return [
+                  <tr
+                    key={p.name}
+                    className={[parent ? "child" : "", off ? "off" : ""]
+                      .filter(Boolean)
+                      .join(" ")}
+                    data-testid={`plugin-${p.name}`}
+                  >
+                    <td>
+                      <div className="mk-pname">
+                        <PluginIcon name={p.name} title={p.title} size="sm" />
+                        <div>
+                          <a className="mk-plink" href={`#/plugins/${p.name}`}>
+                            {titleOf(p)}
+                          </a>
+                          <span className="sub">
+                            {parent
+                              ? `in ${titles.get(parent) ?? parent}`
+                              : kids
+                                ? `${kids} plugin${kids === 1 ? "" : "s"} inside`
+                                : p.publisher || p.name}
+                          </span>
                         </div>
-                      </td>
-                      <td className="sub">{FROM[from] ?? from}</td>
-                      <td>
-                        {revoked ? (
-                          <Pill tone="bad">revoked</Pill>
-                        ) : (
-                          <StatusOf p={p} problems={problems.length > 0} />
-                        )}
-                        {revoked && (
-                          <div className="mk-warn">
-                            This version was revoked: {revoked}
-                          </div>
-                        )}
-                        {problems.map((x, i) => (
-                          <div key={i} className="sub">
+                      </div>
+                    </td>
+                    <td className="mono">
+                      {p.version}
+                      {upd && (
+                        <div>
+                          <span className="tag keel">{upd} ready</span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div className="mk-parts">
+                        {(p.parts ?? []).map((x) => (
+                          <span key={x} className="tag">
                             {x}
-                          </div>
+                          </span>
                         ))}
-                        {!!p.needed_by?.length && (
-                          <div className="sub">
-                            {p.needed_by.join(", ")} need
-                            {p.needed_by.length === 1 ? "s" : ""} it
-                          </div>
+                      </div>
+                    </td>
+                    <td className="sub">{FROM[from] ?? from}</td>
+                    <td>
+                      {revoked ? (
+                        <Pill tone="bad">revoked</Pill>
+                      ) : (
+                        <StatusOf p={p} problems={problems.length > 0} />
+                      )}
+                      {revoked && (
+                        <div className="mk-warn">
+                          This version was revoked: {revoked}
+                        </div>
+                      )}
+                      {problems.map((x, i) => (
+                        <div key={i} className="sub">
+                          {x}
+                        </div>
+                      ))}
+                      {!!p.needed_by?.length && (
+                        <div className="sub">
+                          {p.needed_by.join(", ")} need
+                          {p.needed_by.length === 1 ? "s" : ""} it
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        role="switch"
+                        className="mk-sw"
+                        aria-label={`${titleOf(p)} on`}
+                        checked={p.on !== false}
+                        disabled={busy === p.name || p.status === "removed"}
+                        onChange={(e) => void a.setOn(e.target.checked)}
+                      />
+                    </td>
+                    <td>
+                      <div className="mk-rowact">
+                        {upd && (
+                          <button
+                            className="btn sm"
+                            type="button"
+                            disabled={busy === p.name}
+                            onClick={() =>
+                              void a.update(
+                                typeof p.update === "string"
+                                  ? p.update
+                                  : undefined,
+                              )
+                            }
+                          >
+                            Update
+                          </button>
                         )}
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          role="switch"
-                          aria-label={`${titleOf(p)} on`}
-                          checked={p.on !== false}
-                          disabled={busy === p.name}
-                          onChange={(e) =>
-                            void act(
-                              p.name,
-                              () => marketApi.setOn(p.name, e.target.checked),
-                              `${titleOf(p)} is ${e.target.checked ? "on" : "off"} after the next restart.`,
-                            )
+                        {p.previous && (
+                          <button
+                            className="btn sm ghost"
+                            type="button"
+                            disabled={busy === p.name}
+                            onClick={() => void a.rollback()}
+                          >
+                            Roll back
+                          </button>
+                        )}
+                        {canRemove(p) && p.status !== "removed" && (
+                          <button
+                            className="btn sm ghost mk-danger"
+                            type="button"
+                            disabled={busy === p.name}
+                            onClick={() => setRemoving(p.name)}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>,
+                  removing === p.name && (
+                    <tr key={`${p.name}-remove`} className="mk-confirm-row">
+                      <td colSpan={7}>
+                        <RemoveConfirm
+                          p={p}
+                          busy={busy === p.name}
+                          onNo={() => setRemoving(null)}
+                          onYes={(data) =>
+                            void a.remove(data).then(() => setRemoving(null))
                           }
                         />
                       </td>
-                      <td>
-                        <div className="row mk-rowact">
-                          {upd && (
-                            <button
-                              className="btn sm"
-                              type="button"
-                              disabled={busy === p.name}
-                              onClick={() =>
-                                void act(
-                                  p.name,
-                                  () => marketApi.update(p.name),
-                                  `${titleOf(p)} is updated. Restart keel to use it.`,
-                                )
-                              }
-                            >
-                              Update
-                            </button>
-                          )}
-                          {p.previous && (
-                            <button
-                              className="btn sm ghost"
-                              type="button"
-                              disabled={busy === p.name}
-                              onClick={() =>
-                                void act(
-                                  p.name,
-                                  () => marketApi.rollback(p.name),
-                                  `${titleOf(p)} goes back to ${p.previous} after the restart.`,
-                                )
-                              }
-                            >
-                              Roll back
-                            </button>
-                          )}
-                          {(p.can_remove ?? from !== "image") && (
-                            <button
-                              className="btn sm ghost"
-                              type="button"
-                              disabled={busy === p.name}
-                              onClick={() => {
-                                setRemoving(p.name);
-                                setDropData(false);
-                              }}
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                        {removing === p.name && (
-                          <Confirm
-                            busy={busy === p.name}
-                            yes="Remove"
-                            text={
-                              <>
-                                Remove {titleOf(p)}? Its tables in keel's
-                                database stay.
-                                <label className="chk">
-                                  <input
-                                    type="checkbox"
-                                    checked={dropData}
-                                    onChange={(e) =>
-                                      setDropData(e.target.checked)
-                                    }
-                                  />{" "}
-                                  Also delete its files in /data
-                                </label>
-                              </>
-                            }
-                            onNo={() => setRemoving(null)}
-                            onYes={() =>
-                              void act(
-                                p.name,
-                                () =>
-                                  marketApi.remove(
-                                    p.name,
-                                    dropData ? "delete" : "keep",
-                                  ),
-                                `${titleOf(p)} is removed after the restart.`,
-                              ).then(() => setRemoving(null))
-                            }
-                          />
-                        )}
-                      </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
+                  ),
+                ];
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+      {!v.plugins.length && (
+        <p className="sub" style={{ margin: 0 }}>
+          No plugins yet. Find one in the Marketplace tab.
+        </p>
       )}
       {v.problems.length > 0 && (
         <Panel title="Left out at start">
@@ -591,7 +737,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
           </ul>
         </Panel>
       )}
-      <p className="sub">
+      <p className="sub" style={{ margin: 0 }}>
         Data stays when you turn a plugin off. A plugin that came in keel's
         image can be turned off, not removed.
       </p>
@@ -610,35 +756,73 @@ function useDebounced<T>(value: T, ms = 250): T {
   return v;
 }
 
+/** An installed plugin as a card, when no catalog answers: what keel's image (or its copy) knows. */
+const localHit = (p: InstalledPlugin): MarketHit => ({
+  name: p.name,
+  title: p.title,
+  publisher: p.publisher || undefined,
+  verified: (p.publisher ?? "") === "keel",
+  summary: p.summary ?? undefined,
+  trust: p.trust ?? undefined,
+  version: p.version,
+  installed: p.version ?? true,
+  installed_from: (p.from as MarketHit["installed_from"]) ?? null,
+  update: p.update ?? null,
+  needs: p.needs,
+});
+
 function MarketTab({
   view,
-  onDetail,
   onInstall,
   onChanged,
 }: {
   view: PluginsView | null;
-  onDetail: (name: string) => void;
   onInstall: (name: string) => void;
   onChanged: () => void;
 }) {
   const { toast } = useApp();
   const [typed, setTyped] = useState("");
   const q = useDebounced(typed.trim());
-  const [cat, setCat] = useState("");
-  const r = useLoad(`market:${cat}:${q}`, () => marketApi.search(q, cat));
+  const [chip, setChip] = useState<Chip>("all");
+  const r = useLoad(`market:${q}`, () => marketApi.search(q));
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<Err>(null);
-  const hits = hitsOf(r.data);
   const statuses = sourceStatusOf(r.data);
   const have = useMemo(
     () => new Map((view?.plugins ?? []).map((p) => [p.name, p])),
     [view],
   );
+  // no catalog answers (the official one is not set up yet): keel's own plugins from the image, never an empty page
+  const down =
+    !!r.error ||
+    (statuses.length > 0 && statuses.every((s) => s.ok === false));
+  const catalogHits = hitsOf(r.data);
+  const local =
+    !!view && (!!r.data || !!r.error) && !catalogHits.length && (down || !q);
+  const words = typed.trim().toLowerCase();
+  const all = local
+    ? (view?.plugins ?? [])
+        .filter((p) => p.status !== "removed")
+        .map(localHit)
+        .filter(
+          (h) =>
+            !words ||
+            [h.name, h.title, h.summary]
+              .join(" ")
+              .toLowerCase()
+              .includes(words),
+        )
+    : catalogHits;
+  const hits = all.filter((h) => inChip(h, chip));
+  const titles = new Map<string, string>([
+    ...(view?.plugins ?? []).map((p): [string, string] => [p.name, titleOf(p)]),
+    ...catalogHits.map((h): [string, string] => [h.name, h.title ?? h.name]),
+  ]);
   const update = async (h: MarketHit, to: string) => {
     setBusy(h.name);
     setErr(null);
     try {
-      await marketApi.update(h.name, to);
+      await marketApi.update(h.name, to || undefined);
       toast(`${h.title ?? h.name} is updated. Restart keel to use it.`);
       onChanged();
       await r.reload();
@@ -648,36 +832,135 @@ function MarketTab({
       setBusy(null);
     }
   };
-  return (
-    <div className="grid">
-      <Toolbar label="Search the marketplace">
-        <SearchBox
-          value={typed}
-          onChange={setTyped}
-          label="Search plugins: database, review, tickets…"
-        />
-        <div className="chips" role="group" aria-label="Category">
-          {CATEGORIES.map(([id, label]) => (
+  const card = (h: MarketHit) => {
+    const pub = publisherOf(h);
+    const mine = have.get(h.name);
+    const inst = installedVersion(h) ?? mine?.version ?? (mine ? "" : null);
+    const upd = updateOf(h);
+    const needs = needsOf(h);
+    const revoked = revokedText(h.revoked);
+    const title = h.title ?? h.name;
+    const version = h.version ?? h.latest;
+    return (
+      <article key={h.name} className="mk-card" aria-label={`${title} plugin`}>
+        <div className="mk-card-h">
+          <PluginIcon
+            name={h.name}
+            title={title}
+            icon={(h as { icon?: unknown }).icon}
+          />
+          <div style={{ minWidth: 0 }}>
+            <h3>
+              <a className="mk-card-link" href={`#/plugins/${h.name}`}>
+                {title}
+              </a>
+              {isBeta(version) && <span className="tag warn">beta</span>}
+            </h3>
+            <div className="mk-by">
+              <Publisher name={pub.name} verified={pub.verified} />
+              {version && <span className="mono faint">{version}</span>}
+            </div>
+          </div>
+        </div>
+        <p className="mk-sum">{h.summary}</p>
+        {h.fits === false && h.why_not && (
+          <p className="sub mk-sum">{h.why_not}</p>
+        )}
+        <div className="mk-card-f">
+          <span className="mk-card-tags">
+            <TrustTag trust={h.trust} />
+            {needs.length > 0 && (
+              <span className="tag">
+                needs {needs.map((n) => titles.get(n) ?? n).join(", ")}
+              </span>
+            )}
+            {h.fits === false && (
+              <Pill tone="warn" title={h.why_not ?? undefined}>
+                does not fit this keel
+              </Pill>
+            )}
+            {revoked && <Pill tone="bad">revoked</Pill>}
+          </span>
+          {inst !== null ? (
+            upd ? (
+              <button
+                className="btn sm"
+                type="button"
+                disabled={busy === h.name}
+                onClick={() =>
+                  void update(h, typeof h.update === "string" ? h.update : "")
+                }
+              >
+                Update to {upd}
+              </button>
+            ) : mine?.status === "restart" ? (
+              <Pill tone="warn">Restart needed</Pill>
+            ) : mine?.on === false ? (
+              <Pill tone="idle">Installed · off</Pill>
+            ) : (
+              <Pill tone="ok">Installed</Pill>
+            )
+          ) : (
             <button
-              key={id || "all"}
-              className="chip"
+              className="btn sm primary"
               type="button"
-              aria-pressed={cat === id}
-              onClick={() => setCat(id)}
+              disabled={h.fits === false}
+              onClick={() => onInstall(h.name)}
+              aria-label={`Install ${title}`}
+            >
+              Install
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  };
+  const keel = hits.filter((h) => fromKeel(h));
+  const community = hits.filter((h) => !fromKeel(h));
+  return (
+    <div className="grid mk-market">
+      <div className="mk-searchrow">
+        <label className="mk-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4"
+            />
+          </svg>
+          <input
+            type="search"
+            placeholder="Search plugins: database, review, tickets…"
+            aria-label="Search plugins: database, review, tickets…"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+        </label>
+        <div className="mk-chips" role="group" aria-label="Category">
+          {CHIPS.map(([id, label]) => (
+            <button
+              key={id}
+              className="mk-chip"
+              type="button"
+              aria-pressed={chip === id}
+              onClick={() => setChip(id)}
             >
               {label}
             </button>
           ))}
         </div>
-      </Toolbar>
-      <div className="legend mk-legend">
+      </div>
+      <div className="mk-legend">
         {Object.keys(TRUST).map((t) => (
           <TrustTag key={t} trust={t} />
         ))}
-        <span className="sub">· what a plugin may bring</span>
+        <span className="faint">· what a plugin is allowed to bring</span>
       </div>
       {statuses
-        .filter((s) => s.old || s.problem || s.ok === false)
+        // with no catalog at all, the note below says it once
+        .filter((s) => !local && (s.old || s.problem || s.ok === false))
         .map((s) => (
           <p key={s.id} className="mk-note" role="note">
             <b>{s.id}</b>:{" "}
@@ -687,298 +970,64 @@ function MarketTab({
             {s.problem ?? ""}
           </p>
         ))}
+      {local && (
+        <p className="mk-note mk-local" aria-label="No catalog yet">
+          <b>
+            {down
+              ? "The catalog is not set up yet."
+              : "The catalogs list no plugins yet."}
+          </b>{" "}
+          These are the plugins keel already has, from its image. Add a catalog
+          in Sources and rules to find more.
+          {statuses
+            .filter((s) => s.problem)
+            .map((s) => (
+              <span key={s.id} className="sub" style={{ display: "block" }}>
+                {s.id}: {s.problem}
+              </span>
+            ))}
+        </p>
+      )}
       {err && <ErrorBox error={err} />}
-      {r.error && !r.data ? (
+      {r.error && !r.data && !local ? (
         <ErrorBox error={r.error} onRetry={() => void r.reload()} />
-      ) : !r.data ? (
+      ) : !r.data && !local ? (
         <Loading what="Searching the catalogs" />
       ) : !hits.length ? (
-        <Panel>
-          <p className="sub" style={{ margin: 0 }}>
-            {typed.trim()
-              ? `No plugin matches “${typed.trim()}”. Try another word.`
+        <div className="mk-empty">
+          {typed.trim()
+            ? `No plugin matches “${typed.trim()}”. Try another word, or ask an agent to look for one.`
+            : chip !== "all"
+              ? "No plugin in this category yet."
               : "The catalogs list no plugins yet."}
-          </p>
-        </Panel>
-      ) : (
-        <div className="mk-cards">
-          {hits.map((h) => {
-            const pub = publisherOf(h);
-            const mine = have.get(h.name);
-            const inst =
-              installedVersion(h) ?? mine?.version ?? (mine ? "" : null);
-            const upd = updateOf(h);
-            const needs = needsOf(h);
-            const revoked = revokedText(h.revoked);
-            const title = h.title ?? h.name;
-            return (
-              <article
-                key={h.name}
-                className="mk-card"
-                aria-label={`${title} plugin`}
-              >
-                <div className="mk-card-h">
-                  <h3>{title}</h3>
-                  <span className="sub">
-                    {pub.name}
-                    {pub.verified ? (
-                      <span className="tick" title="Verified publisher">
-                        {" "}
-                        ✓
-                      </span>
-                    ) : pub.name ? (
-                      <span className="tag">community</span>
-                    ) : null}
-                    {(h.version ?? h.latest) && (
-                      <span className="mono"> · {h.version ?? h.latest}</span>
-                    )}
-                  </span>
-                </div>
-                {h.summary && <p className="mk-sum">{h.summary}</p>}
-                <div className="row">
-                  <TrustTag trust={h.trust} />
-                  {needs.length > 0 && (
-                    <span className="tag">needs {needs.join(", ")}</span>
-                  )}
-                  {h.fits === false && (
-                    <Pill tone="warn" title={h.why_not ?? undefined}>
-                      does not fit this keel
-                    </Pill>
-                  )}
-                  {revoked && <Pill tone="bad">revoked</Pill>}
-                </div>
-                {h.fits === false && h.why_not && (
-                  <p className="sub mk-sum">{h.why_not}</p>
-                )}
-                <div className="row mk-card-a">
-                  <button
-                    className="btn sm ghost"
-                    type="button"
-                    onClick={() => onDetail(h.name)}
-                    aria-label={`Details of ${title}`}
-                  >
-                    Details
-                  </button>
-                  {inst !== null ? (
-                    upd ? (
-                      <button
-                        className="btn sm"
-                        type="button"
-                        disabled={busy === h.name}
-                        onClick={() =>
-                          void update(
-                            h,
-                            typeof h.update === "string" ? h.update : "",
-                          )
-                        }
-                      >
-                        Update to {upd}
-                      </button>
-                    ) : (
-                      <Pill tone="ok">Installed{inst ? ` ${inst}` : ""}</Pill>
-                    )
-                  ) : (
-                    <button
-                      className="btn sm primary"
-                      type="button"
-                      disabled={h.fits === false}
-                      onClick={() => onInstall(h.name)}
-                      aria-label={`Install ${title}`}
-                    >
-                      Install
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
         </div>
-      )}
-    </div>
-  );
-}
-
-/** A plugin's details: what it does, its permissions with their levels, the plugins it needs, versions, checks. */
-function PluginDetail({
-  name,
-  view,
-  onClose,
-  onInstall,
-}: {
-  name: string;
-  view: PluginsView | null;
-  onClose: () => void;
-  onInstall: (name: string) => void;
-}) {
-  const r = useLoad(`market-plugin:${name}`, () => marketApi.plugin(name), {
-    live: false,
-  });
-  const p = r.data;
-  const mine = view?.plugins.find((x) => x.name === name);
-  const inst = p
-    ? (installedVersion(p) ?? mine?.version ?? (mine ? "" : null))
-    : null;
-  const pub = p ? publisherOf(p) : null;
-  const version = p ? newestVersion(p) : undefined;
-  return (
-    <Drawer
-      title={p?.title ?? name}
-      onClose={onClose}
-      id="plugin-detail"
-      footer={
-        p ? (
-          inst !== null ? (
-            <Pill tone="ok">Installed{inst ? ` ${inst}` : ""}</Pill>
-          ) : (
-            <button
-              className="btn primary"
-              type="button"
-              disabled={!!p.refused}
-              onClick={() => onInstall(name)}
-            >
-              Install{version ? ` ${version}` : ""}
-            </button>
-          )
-        ) : undefined
-      }
-    >
-      {r.error && !p ? (
-        <ErrorBox error={r.error} onRetry={() => void r.reload()} />
-      ) : !p ? (
-        <Loading what="Reading the plugin" />
       ) : (
         <>
-          {p.summary && <p style={{ margin: 0 }}>{p.summary}</p>}
-          {p.refused && inst === null && (
-            <ErrorBox
-              error={{
-                message: p.refused.error,
-                hint: p.refused.hint ?? undefined,
-              }}
-            />
-          )}
-          <dl className="mk-kv">
-            <dt>Publisher</dt>
-            <dd>
-              {pub?.name || "—"}{" "}
-              {pub?.verified ? (
-                <span className="tick">✓ verified</span>
-              ) : (
-                <span className="tag">not verified</span>
-              )}
-            </dd>
-            <dt>Trust</dt>
-            <dd>
-              <TrustTag trust={p.trust} />{" "}
-              <span className="sub">{TRUST[p.trust ?? ""]?.about}</span>
-            </dd>
-            {version && (
-              <>
-                <dt>Version</dt>
-                <dd className="mono">{version}</dd>
-              </>
-            )}
-            {p.repo && (
-              <>
-                <dt>Repo</dt>
-                <dd className="mono">{p.repo}</dd>
-              </>
-            )}
-          </dl>
-          <section aria-label="Permissions">
-            <h3 className="mk-h3">Permissions</h3>
-            <PermissionList permissions={permissionsOf(p)} />
-            {p.trust === "code" && (
-              <p className="mk-note">
-                A plugin that runs code is trusted like keel itself. Install it
-                only from a publisher you trust.
-              </p>
-            )}
-          </section>
-          <section aria-label="Needs">
-            <h3 className="mk-h3">Needs</h3>
-            {needsOf(p).length === 0 ? (
-              <p className="sub">No other plugin.</p>
-            ) : (
-              <ul className="mk-needs">
-                {needsOf(p).map((n) => {
-                  const there = view?.plugins.some((x) => x.name === n);
-                  return (
-                    <li key={n}>
-                      <b>{n}</b>{" "}
-                      <span className="sub">
-                        {there ? "installed" : "will be installed too"}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-          {!!p.versions?.length && (
-            <section aria-label="Versions">
-              <h3 className="mk-h3">Versions</h3>
-              <div className="table-wrap">
-                <table className="mk-table">
-                  <thead>
-                    <tr>
-                      <th>Version</th>
-                      <th>Works with</th>
-                      <th>Released</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {p.versions.map((x) => (
-                      <tr key={x.version}>
-                        <td className="mono">
-                          {x.version}
-                          {x.revoked ? (
-                            <>
-                              {" "}
-                              <Pill
-                                tone="bad"
-                                title={
-                                  typeof x.revoked === "string"
-                                    ? x.revoked
-                                    : undefined
-                                }
-                              >
-                                revoked
-                              </Pill>
-                            </>
-                          ) : null}
-                        </td>
-                        <td className="mono">
-                          {x.requires?.keel ? `keel ${x.requires.keel}` : "—"}
-                          {x.fits === false && (
-                            <div className="sub">
-                              {x.why_not ?? "does not fit"}
-                            </div>
-                          )}
-                        </td>
-                        <td className="sub">{x.released ?? ""}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {keel.length > 0 && (
+            <section aria-labelledby="mk-keelset">
+              <div className="mk-sect">
+                <h2 id="mk-keelset">The keel set</h2>
+                <p className="sub">
+                  Made and signed by keel. Each one was part of keel before.
+                </p>
               </div>
+              <div className="mk-cards">{keel.map(card)}</div>
             </section>
           )}
-          {!!p.checks?.length && (
-            <section aria-label="Checks keel runs">
-              <h3 className="mk-h3">Checks keel runs before it installs</h3>
-              <ul className="mk-checks">
-                {p.checks.map((c, i) => (
-                  <li key={i}>
-                    {typeof c === "string" ? c : (c.text ?? c.name)}
-                  </li>
-                ))}
-              </ul>
+          {community.length > 0 && (
+            <section aria-labelledby="mk-community">
+              <div className="mk-sect">
+                <h2 id="mk-community">From the community</h2>
+                <p className="sub">
+                  Published through a pull request to a catalog repo.
+                </p>
+              </div>
+              <div className="mk-cards">{community.map(card)}</div>
             </section>
           )}
         </>
       )}
-    </Drawer>
+    </div>
   );
 }
 
@@ -1425,14 +1474,17 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
         <Panel
           title="Catalogs"
           extra={
-            <button
-              className="btn sm"
-              type="button"
-              disabled={busy === "refresh"}
-              onClick={() => void refresh()}
-            >
-              {busy === "refresh" ? "Reading…" : "Refresh"}
-            </button>
+            <div className="row">
+              <span className="sub">Each catalog is signed</span>
+              <button
+                className="btn sm"
+                type="button"
+                disabled={busy === "refresh"}
+                onClick={() => void refresh()}
+              >
+                {busy === "refresh" ? "Reading…" : "Refresh"}
+              </button>
+            </div>
           }
         >
           {src.error && !src.data ? (
@@ -1454,7 +1506,14 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
                       <div className="sub">
                         Key <span className="mono">{shortKey(s.key)}</span>
                         {st?.old ? " · the copy is old" : ""}
-                        {st?.ok ? " · read" : ""}
+                        {st?.ok
+                          ? s.fetched_at
+                            ? ` · read at ${clock(s.fetched_at, false)}`
+                            : " · read"
+                          : ""}
+                        {typeof s.plugins === "number"
+                          ? ` · ${s.plugins} plugin${s.plugins === 1 ? "" : "s"}`
+                          : ""}
                       </div>
                       {problem && <div className="mk-warn">{problem}</div>}
                     </div>
@@ -1462,6 +1521,7 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
                       <input
                         type="checkbox"
                         role="switch"
+                        className="mk-sw"
                         aria-label={`${s.title || s.id} on`}
                         checked={s.on !== false}
                         disabled={busy === "sources"}
@@ -1548,10 +1608,10 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
             </div>
           </form>
         </Panel>
-        <Panel title="Install from a file">
+        <Panel title="For plugin authors">
           <p className="sub" style={{ marginTop: 0 }}>
-            For plugin authors: a .kplug file in /data. keel shows it as
-            unsigned.
+            Install a .kplug file you built, from a path in /data. keel shows it
+            as <b>unsigned</b>.
           </p>
           <form
             className="row"
