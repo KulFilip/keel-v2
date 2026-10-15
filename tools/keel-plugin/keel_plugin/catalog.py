@@ -52,7 +52,7 @@ WORKFLOW_KEYS = {"name", "title", "publisher", "repo", "category", "summary", "t
 WORKFLOW_CATEGORIES = ("code", "review", "docs", "release", "quality", "ops", "other")
 RULES_KEYS = WORKFLOW_KEYS
 RULES_CATEGORIES = ("safety", "code", "git", "files", "secrets", "other")      # keel's engine: kinds.RULES
-RESERVED = ("workflows", "rules", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
+RESERVED = ("workflows", "rules", "rule-packs", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
 KINDS = ("plugin", "workflow", "rules")
 RANGE = re.compile(r"^\s*(?:(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)(?:,\s*(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)*$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}

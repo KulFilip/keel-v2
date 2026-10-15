@@ -42,7 +42,7 @@ from ..addons import NAME
 
 AGENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 TRUST = ("content", "web", "code")
-RESERVED = ("workflows", "rules", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
+RESERVED = ("workflows", "rules", "rule-packs", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
 RULE_KINDS = ("bash", "edit", "read", "mcp")
 PACK_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")      # a rule pack's name (docs/rules/pack-format.md)
 DEFAULT_HOW = {"bash": "contains", "edit": "glob", "read": "glob", "mcp": "name"}

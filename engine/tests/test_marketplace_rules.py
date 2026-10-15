@@ -21,7 +21,7 @@ def test_the_kinds_table():
         ("plugin", "plugins", ".kplug", 200 << 20), ("workflow", "workflows", ".yaml", 256 << 10),
         ("rules", "rules", ".yaml", 64 << 10)]
     assert catalog.KINDS == ("plugin", "workflow", "rules") and catalog.MAX_RULES == 64 << 10
-    assert catalog.RESERVED == ("workflows", "rules", "refresh")
+    assert catalog.RESERVED == ("workflows", "rules", "rule-packs", "refresh")
 
 
 def test_an_index_with_all_three_kinds(market):
