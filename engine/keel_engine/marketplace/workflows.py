@@ -23,11 +23,11 @@ import yaml
 
 from .. import config
 from ..addons import NAME, satisfies
-from . import MarketError, catalog, local, needs
+from . import MarketError, catalog, kinds, local, needs
 from .catalog import Index, WorkflowEntry, WorkflowVersion
 from .signing import SignatureError, verify
 
-KIND = "workflow"
+KIND = kinds.WORKFLOW.name
 TRUST = "content"
 CHECKS = [
     "the catalog's signature matches the source's key",

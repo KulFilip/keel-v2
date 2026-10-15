@@ -28,6 +28,26 @@ steps:
 """
 
 
+RULES = """id: {name}
+name: No new dependencies ({version})
+description: Agents never add a package.
+rules:
+  - id: no-install
+    kind: bash
+    how: regex
+    match: ['\\bnpm\\s+install\\s+[^-\\s]']
+    phases: all
+    reason: Adding a package is a person's decision.
+  - id: no-lockfile
+    kind: edit
+    how: glob
+    match: ["**/package-lock.json"]
+    phases: [green, refactor]
+    lanes: [web]
+    reason: The lock file follows package.json.
+"""
+
+
 class _Files(http.server.BaseHTTPRequestHandler):
     """GET from the server's `files` {path: bytes}; `redirects` {path: location} answer 302."""
 
@@ -67,6 +87,7 @@ class Market:
         self.publishers = {"keel": {"title": "keel", "keys": [self.publisher_key.public().line()], "verified": True}}
         self.plugins: dict[str, dict] = {}
         self.workflows: dict[str, dict] = {}     # 21-workflow-marketplace.md: an index without them reads as before
+        self.rules: dict[str, dict] = {}         # 23-rules-in-marketplace.md: rule packs, the third kind
         self.revoked: list[dict] = []
         self.built = "2026-10-09T06:00:00Z"
         self.expires = "2099-01-01T00:00:00Z"
@@ -168,12 +189,33 @@ class Market:
         entry["versions"].append(v)
         return v
 
+    def publish_rules(self, name: str, version: str, *, text: str | None = None, publisher: str = "keel",
+                      category: str = "safety", keel: str | None = None, review: dict | None = None, sign_with=None,
+                      size: int | None = None, sha256: str | None = None, title: str | None = None) -> dict:
+        """Serve a signed rule pack YAML and add its version to the index's rules (call serve() after)."""
+        text = text if text is not None else RULES.format(name=name, version=version)
+        data = text.encode()
+        path = f"/rules/{name}-{version}.yaml"
+        self.server.files[path] = data
+        self.server.files[path + ".minisig"] = signing.sign(data, sign_with or self.publisher_key,
+                                                            f"{name}-{version}.yaml").encode()
+        v = {"version": version, "released": "2026-10-15", "requires": {"keel": keel} if keel else {},
+             "url": self.url + path, "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
+             "review": review or {"rules": 2, "kinds": {"bash": 1, "edit": 1}, "phases": ["all", "green", "refactor"],
+                                  "lanes": ["web"]}}
+        entry = self.rules.setdefault(name, {
+            "name": name, "kind": "rules", "title": title or name.replace("-", " ").capitalize(),
+            "publisher": publisher, "summary": f"The {name} rule pack for tests.", "category": category,
+            "tags": [name, "test"], "repo": "https://github.com/keel-studio/keel-rules", "versions": []})
+        entry["versions"].append(v)
+        return v
+
     def index(self) -> dict:
         doc = {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
                "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
-        if self.workflows:
+        if self.workflows or self.rules:
             doc["workflows"] = list(self.workflows.values())
-            doc["rules"] = []
+            doc["rules"] = list(self.rules.values())
         return doc
 
     def serve(self, doc: dict | None = None, *, sign_with=None, raw: bytes | None = None) -> None:

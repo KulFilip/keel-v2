@@ -1,5 +1,5 @@
-"""Workflows in the marketplace (docs/plugins/21-workflow-marketplace.md): the catalog's kinds (workflows, the reserved
-rules, kind on an entry and on a revoked one), an older index without them, search across kinds, one workflow, and the
+"""Workflows in the marketplace (docs/plugins/21-workflow-marketplace.md): the catalog's kinds (workflows, rules,
+kind on an entry and on a revoked one), an older index without them, search across kinds, one workflow, and the
 fetch with its checks (sha256, signature, size, revoked, old catalog, keel version, needed plugins)."""
 
 import json
@@ -34,12 +34,12 @@ def test_an_older_index_without_workflows_reads_as_before(market):
     assert [h["name"] for h in catalog.search()["plugins"]] == ["hello"]
 
 
-def test_workflows_and_the_reserved_rules_are_read_next_to_plugins(market, loaded):
+def test_workflows_and_rules_are_read_next_to_plugins(market, loaded):
     market.publish("hello", "1.0.0")
     market.publish_workflow("release-notes", "1.0.0")
     market.publish_workflow("release-notes", "1.2.0")
+    market.publish_rules("strict", "1.0.0")     # rule packs, the third kind (23-rules-in-marketplace.md §2)
     doc = market.index()
-    doc["rules"] = [{"name": "strict", "kind": "rules", "versions": []}]      # reserved: read as nothing, no problem
     doc["plugins"][0]["kind"] = "plugin"
     market.serve(doc)
     market.add_source()
@@ -49,6 +49,7 @@ def test_workflows_and_the_reserved_rules_are_read_next_to_plugins(market, loade
     entry = index.workflows["release-notes"]
     assert [v.version for v in entry.versions] == ["1.2.0", "1.0.0"] and entry.kind == "workflow"
     assert "release-notes" not in index.plugins and "hello" not in index.workflows
+    assert list(index.rules) == ["strict"] and index.rules["strict"].kind == "rules"
 
 
 def test_broken_workflow_entries_are_left_out_and_the_rest_is_used(market):

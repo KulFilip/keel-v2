@@ -14,9 +14,10 @@ the rest is used. Any other failure keeps the last good copy and shows the probl
 has is refused, so nobody can hand keel an old catalog. An expired index still searches ("the catalog is old"), but
 install and update wait until a refresh works.
 
-Kinds (docs/plugins/21-workflow-marketplace.md §2): next to `plugins` an index may list `workflows` (one signed workflow
-YAML each, at most 256 KB) and `rules` (reserved for rule packs: read as an empty list today). Every entry may say its
-`kind` (`plugin` when it does not); a `revoked` entry too. An index without these lists reads as before.
+Kinds (docs/plugins/23-rules-in-marketplace.md §2): every list is read through one table, kinds.TABLE: `plugins`
+(.kplug, 200 MB), `workflows` (one signed workflow YAML each, at most 256 KB) and `rules` (one signed rule pack YAML
+each, at most 64 KB). Every entry may say its `kind` (`plugin` when it does not); a `revoked` entry too. An index
+without these lists reads as before.
 """
 
 from __future__ import annotations
@@ -34,7 +35,9 @@ from pathlib import Path
 from .. import config
 from ..addons import NAME, satisfies
 from ..pluginhost import SDK, manifest, state
-from . import MarketError, local, sources
+from . import MarketError, kinds, local, sources
+from .kinds import (Entry, Kind, RulesEntry, RulesVersion, Version, WorkflowEntry,  # noqa: F401 - their home was here
+                    WorkflowVersion)
 from .signing import PublicKey, SignatureError, verify
 
 log = logging.getLogger("keel.marketplace")
@@ -42,16 +45,18 @@ log = logging.getLogger("keel.marketplace")
 FORMAT = 1
 MAX_INDEX = 5 << 20
 MAX_SIG = 64 << 10
-MAX_PACKAGE = 200 << 20
+MAX_PACKAGE = kinds.PLUGIN.max_size
 TIMEOUT = 20
 FRESH = 6 * 3600
-TRUST = ("content", "web", "code")
-CATEGORIES = ("code", "knowledge", "tickets", "review", "product", "other")
-WORKFLOW_CATEGORIES = ("code", "review", "docs", "release", "quality", "ops", "other")
-KINDS = ("plugin", "workflow", "rules")
-MAX_WORKFLOW = 256 << 10
-RESERVED = ("workflows", "rules", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
-AGENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+TRUST = kinds.TRUST
+CATEGORIES = kinds.PLUGIN.categories
+WORKFLOW_CATEGORIES = kinds.WORKFLOW.categories
+RULES_CATEGORIES = kinds.RULES.categories
+KINDS = kinds.NAMES
+MAX_WORKFLOW = kinds.WORKFLOW.max_size
+MAX_RULES = kinds.RULES.max_size
+RESERVED = kinds.RESERVED     # /api/marketplace/<these> are keel's routes, never a plugin's page
+AGENT = kinds.AGENT
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 CHUNK = 1 << 16
 
@@ -105,92 +110,6 @@ def download(url: str, *, limit: int, to: Path | None = None, timeout: float = T
 # ------------------------------------------------------------------ the index
 
 @dataclass
-class Version:
-    version: str
-    released: str
-    sdk: int
-    keel: str
-    plugins: dict[str, str]
-    url: str
-    sha256: str
-    size: int
-    permissions: dict
-
-    def requires(self) -> dict:
-        out: dict = {"sdk": self.sdk}
-        if self.keel:
-            out["keel"] = self.keel
-        if self.plugins:
-            out["plugins"] = dict(self.plugins)
-        return out
-
-    def view(self) -> dict:
-        return {"version": self.version, "released": self.released, "requires": self.requires(), "url": self.url,
-                "sha256": self.sha256, "size": self.size, "permissions": self.permissions}
-
-
-@dataclass
-class Entry:
-    name: str
-    title: str
-    publisher: str
-    category: str
-    summary: str
-    tags: list[str]
-    repo: str
-    trust: str
-    versions: list[Version]       # newest first
-    source: str
-
-    def version(self, v: str) -> Version | None:
-        return next((x for x in self.versions if x.version == v), None)
-
-
-@dataclass
-class WorkflowVersion:
-    version: str
-    released: str
-    keel: str
-    plugins: dict[str, str]
-    agents: list[str]
-    url: str
-    sha256: str
-    size: int
-    review: dict
-
-    def requires(self) -> dict:
-        out: dict = {}
-        if self.keel:
-            out["keel"] = self.keel
-        if self.plugins:
-            out["plugins"] = dict(self.plugins)
-        if self.agents:
-            out["agents"] = list(self.agents)
-        return out
-
-    def view(self) -> dict:
-        return {"version": self.version, "released": self.released, "requires": self.requires(),
-                "review": dict(self.review), "url": self.url, "size": self.size, "sha256": self.sha256}
-
-
-@dataclass
-class WorkflowEntry:
-    name: str
-    title: str
-    publisher: str
-    category: str
-    summary: str
-    tags: list[str]
-    repo: str
-    versions: list[WorkflowVersion]     # newest first
-    source: str
-    kind: str = "workflow"
-
-    def version(self, v: str) -> WorkflowVersion | None:
-        return next((x for x in self.versions if x.version == v), None)
-
-
-@dataclass
 class Publisher:
     title: str
     keys: list[PublicKey]
@@ -206,13 +125,18 @@ class Index:
     plugins: dict[str, Entry]
     revoked: dict[tuple[str, str, str], str] = field(default_factory=dict)   # (kind, name, version) → why
     problems: list[str] = field(default_factory=list)
-    workflows: dict[str, "WorkflowEntry"] = field(default_factory=dict)
+    workflows: dict[str, WorkflowEntry] = field(default_factory=dict)
+    rules: dict[str, RulesEntry] = field(default_factory=dict)
 
     def expired(self) -> bool:
         return _when(self.expires) <= datetime.now(timezone.utc)
 
     def why_revoked(self, name: str, version: str, kind: str = "plugin") -> str | None:
         return self.revoked.get((kind, name, version))
+
+    def entries(self, kind: str) -> dict:
+        """One kind's entries by name (kinds.TABLE: plugin, workflow, rules)."""
+        return getattr(self, kinds.BY_NAME[kind].list)
 
 
 def _when(text) -> datetime:
@@ -226,13 +150,15 @@ def _text(v, default: str = "") -> str:
     return v.strip() if isinstance(v, str) and v.strip() else default
 
 
-def _version(name: str, raw) -> Version:
+def _version(kind: Kind, name: str, raw):
+    """One version of an entry, checked: the checks every kind shares, then the kind's own (kinds.py)."""
+    head = f"{kind.label}{name}: " if kind.label else ""
     if not isinstance(raw, dict):
-        raise ValueError("a version is not an object")
+        raise ValueError(f"{head}a version is not an object")
     v = raw.get("version")
     if not isinstance(v, str) or not manifest.VERSION.match(v):
-        raise ValueError(f"version {v!r} is not a version like 1.0.0 or 0.1.0-beta.1")
-    where = f"{name} {v}"
+        raise ValueError(f"{head}version {v!r} is not a version like 1.0.0 or 0.1.0-beta.1")
+    where = f"{kind.label}{name} {v}"
     sha = raw.get("sha256")
     if not isinstance(sha, str) or not SHA256.match(sha):
         raise ValueError(f"{where}: sha256 is not 64 hex digits")
@@ -241,14 +167,12 @@ def _version(name: str, raw) -> Version:
     if why:
         raise ValueError(f"{where}: {why}")
     size = raw.get("size")
-    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_PACKAGE:
-        raise ValueError(f"{where}: size must be a number of bytes up to {MAX_PACKAGE:,}")
+    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= kind.max_size:
+        raise ValueError(f"{where}: size must be a number of bytes up to {kind.max_size:,}")
     req = raw.get("requires") or {}
     if not isinstance(req, dict):
         raise ValueError(f"{where}: requires is not an object")
-    sdk = req.get("sdk", 1)
-    if isinstance(sdk, bool) or not isinstance(sdk, int):
-        raise ValueError(f"{where}: requires.sdk is not a whole number")
+    own = kind.check_requires(req, where)
     keel = req.get("keel") or ""
     if not isinstance(keel, str) or not manifest.valid_spec(keel):
         raise ValueError(f"{where}: requires.keel {keel!r} is not a version range")
@@ -261,138 +185,40 @@ def _version(name: str, raw) -> Version:
         if not isinstance(dep, str) or not NAME.match(dep) or not isinstance(spec, str) or not manifest.valid_spec(spec):
             raise ValueError(f"{where}: requires.plugins.{dep} is not a plugin name with a version range")
         plugins[dep] = spec.strip()
-    perms = raw.get("permissions") or {}
-    if not isinstance(perms, dict):
-        raise ValueError(f"{where}: permissions is not an object")
-    return Version(v, _text(raw.get("released")), sdk, keel.strip(), plugins, url.strip(), sha, size, perms)
+    own.update(kind.check_version(raw, req, where))
+    return kind.version_type(version=v, released=_text(raw.get("released")), keel=keel.strip(), plugins=plugins,
+                             url=url.strip(), sha256=sha, size=size, **own)
 
 
-def _entry(raw, publishers: dict[str, Publisher], source: str, problems: list[str]) -> Entry:
+def _entry(kind: Kind, raw, publishers: dict[str, Publisher], source: str, problems: list[str]):
+    """One entry of a kind's list, checked; a version that fails is left out and listed in problems."""
     if not isinstance(raw, dict):
-        raise ValueError("a plugin is not an object")
+        raise ValueError(f"a {kind.noun} is not an object")
+    kind.precheck(raw)
     name = raw.get("name")
     if not isinstance(name, str) or not NAME.match(name):
-        raise ValueError(f"plugin name {name!r} does not follow keel's name rule")
-    if name in RESERVED:
-        raise ValueError(f"plugin name {name!r} is taken by keel (/api/marketplace/{name} is the {name} list)")
+        raise ValueError(f"{kind.noun} name {name!r} does not follow keel's name rule")
+    kind.check_name(raw, name)
     pub = raw.get("publisher")
     if pub not in publishers:
-        raise ValueError(f"{name}: its publisher {pub!r} is not listed")
+        raise ValueError(f"{kind.label}{name}: its publisher {pub!r} is not listed")
     if not publishers[pub].keys:
-        raise ValueError(f"{name}: its publisher {pub} has no valid key")
-    trust = raw.get("trust")
-    if trust not in TRUST:
-        raise ValueError(f"{name}: trust {trust!r} is not content, web or code")
-    versions: list[Version] = []
+        raise ValueError(f"{kind.label}{name}: its publisher {pub} has no valid key")
+    own = kind.check_entry(raw, name)
+    versions = []
     for item in raw.get("versions") or []:
         try:
-            versions.append(_version(name, item))
+            versions.append(_version(kind, name, item))
         except ValueError as exc:
             problems.append(f"left out: {exc}")
     if not versions:
-        raise ValueError(f"{name}: it has no valid version")
+        raise ValueError(f"{kind.label}{name}: it has no valid version")
     versions.sort(key=lambda x: version_order(x.version), reverse=True)
-    category = raw.get("category") if raw.get("category") in CATEGORIES else "other"
+    category = raw.get("category") if raw.get("category") in kind.categories else "other"
     tags = [t.strip() for t in raw.get("tags") or [] if isinstance(t, str) and t.strip()]
-    return Entry(name, _text(raw.get("title"), name), pub, category, _text(raw.get("summary")), tags,
-                 _text(raw.get("repo")), trust, versions, source)
-
-
-def _names(value, where: str, what: str, rule=NAME) -> list[str]:
-    if value is None:
-        return []
-    if not isinstance(value, list) or not all(isinstance(x, str) and rule.match(x) for x in value):
-        raise ValueError(f"{where}: {what} must be a list of names")
-    return list(value)
-
-
-def _review(raw, where: str) -> dict:
-    """A version's Install review as the catalog's sync computed it: {steps, gates, agents, mcp, commands, edits_files,
-    keel_rules}."""
-    if not isinstance(raw, dict):
-        raise ValueError(f"{where}: review is missing (steps, gates, agents, mcp, commands, edits_files, keel_rules)")
-    out: dict = {}
-    for key in ("steps", "gates"):
-        v = raw.get(key)
-        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
-            raise ValueError(f"{where}: review.{key} is not a whole number")
-        out[key] = v
-    for key in ("agents", "mcp", "commands"):
-        v = raw.get(key) if raw.get(key) is not None else []
-        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
-            raise ValueError(f"{where}: review.{key} is not a list of text")
-        out[key] = list(v)
-    for key in ("edits_files", "keel_rules"):
-        v = raw.get(key)
-        if not isinstance(v, bool):
-            raise ValueError(f"{where}: review.{key} is not true or false")
-        out[key] = v
-    return out
-
-
-def _workflow_version(name: str, raw) -> WorkflowVersion:
-    if not isinstance(raw, dict):
-        raise ValueError(f"workflow {name}: a version is not an object")
-    v = raw.get("version")
-    if not isinstance(v, str) or not manifest.VERSION.match(v):
-        raise ValueError(f"workflow {name}: version {v!r} is not a version like 1.0.0 or 0.1.0-beta.1")
-    where = f"workflow {name} {v}"
-    sha = raw.get("sha256")
-    if not isinstance(sha, str) or not SHA256.match(sha):
-        raise ValueError(f"{where}: sha256 is not 64 hex digits")
-    url = raw.get("url")
-    why = sources.url_problem(url)
-    if why:
-        raise ValueError(f"{where}: {why}")
-    size = raw.get("size")
-    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_WORKFLOW:
-        raise ValueError(f"{where}: size must be a number of bytes up to {MAX_WORKFLOW:,}")
-    req = raw.get("requires") or {}
-    if not isinstance(req, dict):
-        raise ValueError(f"{where}: requires is not an object")
-    keel = req.get("keel") or ""
-    if not isinstance(keel, str) or not manifest.valid_spec(keel):
-        raise ValueError(f"{where}: requires.keel {keel!r} is not a version range")
-    needs = req.get("plugins") or {}
-    if not isinstance(needs, dict):
-        raise ValueError(f"{where}: requires.plugins is not an object")
-    plugins: dict[str, str] = {}
-    for dep, spec in needs.items():
-        spec = "" if spec is None else spec
-        if not isinstance(dep, str) or not NAME.match(dep) or not isinstance(spec, str) or not manifest.valid_spec(spec):
-            raise ValueError(f"{where}: requires.plugins.{dep} is not a plugin name with a version range")
-        plugins[dep] = spec.strip()
-    agents = _names(req.get("agents"), where, "requires.agents", AGENT)
-    return WorkflowVersion(v, _text(raw.get("released")), keel.strip(), plugins, agents, url.strip(), sha, size,
-                           _review(raw.get("review"), where))
-
-
-def _workflow_entry(raw, publishers: dict[str, Publisher], source: str, problems: list[str]) -> WorkflowEntry:
-    if not isinstance(raw, dict):
-        raise ValueError("a workflow is not an object")
-    name = raw.get("name")
-    if not isinstance(name, str) or not NAME.match(name):
-        raise ValueError(f"workflow name {name!r} does not follow keel's name rule")
-    if raw.get("kind", "workflow") != "workflow":
-        raise ValueError(f"workflow {name}: its kind is {raw.get('kind')!r}, in the workflows list")
-    pub = raw.get("publisher")
-    if pub not in publishers:
-        raise ValueError(f"workflow {name}: its publisher {pub!r} is not listed")
-    if not publishers[pub].keys:
-        raise ValueError(f"workflow {name}: its publisher {pub} has no valid key")
-    versions: list[WorkflowVersion] = []
-    for item in raw.get("versions") or []:
-        try:
-            versions.append(_workflow_version(name, item))
-        except ValueError as exc:
-            problems.append(f"left out: {exc}")
-    if not versions:
-        raise ValueError(f"workflow {name}: it has no valid version")
-    versions.sort(key=lambda x: version_order(x.version), reverse=True)
-    category = raw.get("category") if raw.get("category") in WORKFLOW_CATEGORIES else "other"
-    tags = [t.strip() for t in raw.get("tags") or [] if isinstance(t, str) and t.strip()]
-    return WorkflowEntry(name, _text(raw.get("title"), name), pub, category, _text(raw.get("summary")), tags,
-                         _text(raw.get("repo")), versions, source)
+    return kind.entry_type(name=name, title=_text(raw.get("title"), name), publisher=pub, category=category,
+                           summary=_text(raw.get("summary")), tags=tags, repo=_text(raw.get("repo")),
+                           versions=versions, source=source, **own)
 
 
 def _list(data: dict, key: str) -> list:
@@ -430,37 +256,26 @@ def parse_index(data, source: str) -> Index:
         raise MarketError(502, "The catalog has no valid built and expires dates.") from None
     problems: list[str] = []
     publishers = _publishers(data.get("publishers"), problems)
-    plugins: dict[str, Entry] = {}
-    for raw in _list(data, "plugins"):
-        try:
-            if isinstance(raw, dict) and raw.get("kind", "plugin") != "plugin":
-                raise ValueError(f"{raw.get('name')!r}: its kind is {raw.get('kind')!r}, in the plugins list")
-            e = _entry(raw, publishers, source, problems)
-        except ValueError as exc:
-            problems.append(f"left out: {exc}")
-            continue
-        if e.name in plugins:
-            problems.append(f"left out: {e.name} is listed twice")
-            continue
-        plugins[e.name] = e
-    workflows: dict[str, WorkflowEntry] = {}
-    for raw in _list(data, "workflows"):
-        try:
-            w = _workflow_entry(raw, publishers, source, problems)
-        except ValueError as exc:
-            problems.append(f"left out: {exc}")
-            continue
-        if w.name in workflows:
-            problems.append(f"left out: workflow {w.name} is listed twice")
-            continue
-        workflows[w.name] = w
-    # `rules` (rule packs) is reserved: this keel reads none yet, and an index that lists some still reads
+    lists: dict[str, dict] = {}
+    for kind in kinds.TABLE:
+        found: dict = {}
+        for raw in _list(data, kind.list):
+            try:
+                e = _entry(kind, raw, publishers, source, problems)
+            except ValueError as exc:
+                problems.append(f"left out: {exc}")
+                continue
+            if e.name in found:
+                problems.append(f"left out: {kind.label}{e.name} is listed twice")
+                continue
+            found[e.name] = e
+        lists[kind.list] = found
     revoked: dict[tuple[str, str, str], str] = {}
     for r in _list(data, "revoked"):
         if isinstance(r, dict) and isinstance(r.get("name"), str) and isinstance(r.get("version"), str):
             kind = r.get("kind") if r.get("kind") in KINDS else "plugin"
             revoked[(kind, r["name"], r["version"])] = _text(r.get("why"), "revoked by the catalog")
-    return Index(source, data["built"], data["expires"], publishers, plugins, revoked, problems, workflows)
+    return Index(source, data["built"], data["expires"], publishers, revoked=revoked, problems=problems, **lists)
 
 
 # ------------------------------------------------------------------ the copies on disk
@@ -688,20 +503,20 @@ def hit(index: Index, entry: Entry, have: dict) -> dict:
     }
 
 
-def _matches(entry: Entry | WorkflowEntry, words: list[str]) -> bool:
+def _matches(entry: Entry | WorkflowEntry | RulesEntry, words: list[str]) -> bool:
     text = " ".join([entry.name, entry.title, entry.summary, *entry.tags]).lower()
     return all(w in text for w in words)
 
 
-def matching(kind: str, q: str = "", category: str | None = None) -> list[tuple[Index, Entry | WorkflowEntry]]:
-    """The entries of one kind (plugin or workflow) whose name, title, summary or tags hold each word of q (and that
+def matching(kind: str, q: str = "", category: str | None = None) -> list[tuple[Index, Entry | WorkflowEntry | RulesEntry]]:
+    """The entries of one kind (plugin, workflow or rules) whose name, title, summary or tags hold each word of q (and that
     have this category), in the sources' order; a name two sources list comes from the first. One search for every
     kind (21-workflow-marketplace.md §2)."""
     words = [w for w in (q or "").lower().split() if w]
     seen: set[str] = set()
     out: list = []
     for index in indexes():
-        for entry in (index.workflows if kind == "workflow" else index.plugins).values():
+        for entry in index.entries(kind).values():
             if entry.name in seen:
                 continue
             seen.add(entry.name)
@@ -712,10 +527,10 @@ def matching(kind: str, q: str = "", category: str | None = None) -> list[tuple[
     return out
 
 
-def lookup_kind(kind: str, name: str) -> tuple[Index, Entry | WorkflowEntry] | None:
+def lookup_kind(kind: str, name: str) -> tuple[Index, Entry | WorkflowEntry | RulesEntry] | None:
     """The first source that lists this name in this kind's list."""
     for index in indexes():
-        found = (index.workflows if kind == "workflow" else index.plugins).get(name)
+        found = index.entries(kind).get(name)
         if found:
             return index, found
     return None
