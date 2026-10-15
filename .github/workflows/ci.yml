@@ -54,7 +54,7 @@ jobs:
       - name: start, a flow to its gate, stop
         env:
           KEEL_NAME: keel-ci-native
-          KEEL_HOME2: ${{ runner.temp }}/k2
+          KEEL2_HOME: ${{ runner.temp }}/k2
           XDG_CONFIG_HOME: ${{ runner.temp }}/cfg
           PORT: "8097"
           KEEL_OPEN: "0"

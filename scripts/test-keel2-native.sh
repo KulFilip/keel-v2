@@ -15,13 +15,13 @@ command -v uv >/dev/null 2>&1 || { echo "uv is needed for this test" >&2; exit 1
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 
-export KEEL_HOME2="$scratch/home" KEEL_NAME=keel-test-native XDG_CONFIG_HOME="$scratch/config"
+export KEEL2_HOME="$scratch/home" KEEL_NAME=keel-test-native XDG_CONFIG_HOME="$scratch/config"
 export KEEL_YES=1 KEEL_OPEN=0 KEEL_NATIVE_CLIS=0
 export KEEL_RELEASE_URL="file://$scratch/releases"
 export KEEL_RELEASES_API="file://$scratch/api.json"
 export NO_COLOR=1
-mkdir -p "$KEEL_HOME2" "$XDG_CONFIG_HOME" "$scratch/releases"
-ND="$KEEL_HOME2/$KEEL_NAME"
+mkdir -p "$KEEL2_HOME" "$XDG_CONFIG_HOME" "$scratch/releases"
+ND="$KEEL2_HOME/$KEEL_NAME"
 
 fails=0
 pass() { printf '  ok   %s\n' "$1"; }

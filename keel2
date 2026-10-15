@@ -33,7 +33,7 @@
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
 # KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker).
-# Native: KEEL_HOME2 (default ~/.keel2), KEEL_YES=1 (yes to the native warning), KEEL_NATIVE_CLIS=0 (no agent CLIs),
+# Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning), KEEL_NATIVE_CLIS=0 (no agent CLIs),
 # KEEL_RELEASE_URL (where releases are downloaded from).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
@@ -663,7 +663,7 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
 # keel on this computer without Docker: ~/.keel2/<KEEL_NAME>/ holds app/<version> (api.jar, engine/.venv, content),
 # current -> app/<version>, data/ (KEEL_DATA), npm/ (keel's own agent CLIs and codegraph), run/ (pid, ports, token)
 # and logs/. A native keel answers the same commands; when it exists, the Docker helpers below are replaced.
-ND="${KEEL_HOME2:-$HOME/.keel2}/$NAME"
+ND="${KEEL2_HOME:-$HOME/.keel2}/$NAME"
 RELEASE_URL="${KEEL_RELEASE_URL:-https://github.com/MiladNalbandi/keel-v2/releases/download}"
 native_mode() { [ -f "$ND/mode" ] && [ "$(cat "$ND/mode" 2>/dev/null)" = native ]; }
 native_pid() { cat "$ND/run/keel.pid" 2>/dev/null || true; }
@@ -877,7 +877,7 @@ native_uninstall() {
   native_running && native_stop_quiet
   if [ "${1:-}" = --all ]; then
     ask_yes "Remove $ND (keel's data, logins and history)?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing removed."
-    # only a folder keel made for this name: <KEEL_HOME2>/<KEEL_NAME> with keel's own marker files in it
+    # only a folder keel made for this name: <KEEL2_HOME>/<KEEL_NAME> with keel's own marker files in it
     case "$NAME" in ""|.|..|*/*) die "Refusing to remove $ND (KEEL_NAME is \"$NAME\")." ;; esac
     { [ -f "$ND/project" ] || [ -f "$ND/.warned" ]; } && [ -d "$ND/app" ] || die "Refusing to remove $ND: it does not look like a native keel's folder."
     find "$ND" -mindepth 1 -delete 2>/dev/null; rmdir "$ND" 2>/dev/null; ok "removed $ND"
