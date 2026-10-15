@@ -8,6 +8,8 @@ A tool above the level, or not in --allow, is not registered at all, so a client
 --read-only (the builtin `keel` server in tools/mcp.py and the api's McpService), which always wins over the env.
 Push, DB changes, deletes and stops ask the person through the client first (MCP elicitation); a client that cannot
 ask is refused unless --yes. Every write says who acted (X-Keel-Via / X-Keel-Client / X-Keel-Tool; api McpAudit).
+v0.16.1 the api checks the level too: with the internal token this server asks POST /api/mcp/token for its level's
+token and sends it as X-Keel-Mcp-Token (api McpLevelGuard); without it (agents) the api treats it as read.
 
 Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the project whose root holds the
 working directory (an agent runs in its project), else the only (or first) project.
@@ -45,8 +47,24 @@ START_WAIT = 20         # keel_start_flow waits this long for the flow to reach 
 START_POLL = 2
 
 
+MCP_TOKEN_HEADER = "X-Keel-Mcp-Token"
+
+
 class ApiError(Exception):
     pass
+
+
+def internal_token() -> str:
+    """KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE names (keel2 mcp in Docker: docker/keel-start writes it)."""
+    tok = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
+    path = os.environ.get("KEEL_INTERNAL_TOKEN_FILE", "")
+    if not tok and path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                tok = f.read().strip()
+        except OSError:
+            tok = ""
+    return tok
 
 
 class KeelApi:
@@ -54,8 +72,11 @@ class KeelApi:
 
     def __init__(self, url: str | None = None, transport: httpx.BaseTransport | None = None):
         self.url = (url or os.environ.get("KEEL_API_URL") or "http://127.0.0.1:8080").rstrip("/")
-        headers = {"X-Keel-Token": os.environ["KEEL_INTERNAL_TOKEN"]} if os.environ.get("KEEL_INTERNAL_TOKEN") else {}
-        self.http = httpx.Client(base_url=self.url + "/api", timeout=API_TIMEOUT, headers=headers, transport=transport)
+        self.http = httpx.Client(base_url=self.url + "/api", timeout=API_TIMEOUT, transport=transport)
+        # v0.16.1 the api checks the level: with the internal token (keel2 mcp has it, agents never do) this asks the api
+        # for its level's token once and sends it as X-Keel-Mcp-Token; without it, no token, so the api treats it as read.
+        # A dict, so the copies acting() makes share it.
+        self._proof = {"internal": internal_token(), "level": "read", "asked": False}
         # v0.16.0 who acts: every write the api gets from here says "via MCP · <client>: <tool>" (api McpAudit)
         self.client = "an MCP client"
         self.tool = ""
@@ -66,12 +87,34 @@ class KeelApi:
         c.client, c.tool = client, tool
         return c
 
+    def use_level(self, level: str) -> None:
+        """The level to ask the api's token for (build_server sets it); asked on the first request."""
+        self._proof.update(level=level, asked=False)
+        self.http.headers.pop(MCP_TOKEN_HEADER, None)
+
+    def _prove(self) -> None:
+        p = self._proof
+        if p["asked"] or not p["internal"]:
+            return
+        try:
+            res = self.http.post("/mcp/token", json={"level": p["level"]}, headers={"X-Keel-Token": p["internal"]})
+        except httpx.HTTPError:
+            return                                          # the api is not up yet: ask again on the next request
+        p["asked"] = True
+        try:
+            token = res.json().get("token") if res.status_code == 200 else None
+        except ValueError:
+            token = None
+        if token:
+            self.http.headers[MCP_TOKEN_HEADER] = token
+
     def _audit(self, method: str) -> dict:
         if method == "GET":
             return {}
         return {"X-Keel-Via": "mcp", "X-Keel-Client": self.client[:80], "X-Keel-Tool": self.tool[:80]}
 
     def _raw(self, method: str, path: str, timeout: float | None = None, **kw) -> httpx.Response:
+        self._prove()
         try:
             res = self.http.request(method, path, headers=self._audit(method), **({"timeout": timeout} if timeout else {}), **kw)
         except httpx.HTTPError as exc:
@@ -580,6 +623,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     lvl = level or ("write" if write else "read")
     if lvl not in LEVELS:
         raise ValueError(f"level must be one of {', '.join(LEVELS)}")
+    api.use_level(lvl)
     ro = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
     rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
     rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)

@@ -451,3 +451,65 @@ def test_run_action_waits_as_long_as_a_test_suite(stub):
     stub.api.http._transport = httpx.MockTransport(route)
     assert "trace: ok" in mcp_more.run_action(stub.api, "trace", "read")
     assert seen["timeout"] == mcp_more.ACTION_TIMEOUT
+
+
+# ---------------------------------------------------------------- v0.16.1 level tokens (api McpLevelGuard)
+
+def _token_api(seen: list, monkeypatch, internal: str | None):
+    if internal is None:
+        monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("KEEL_INTERNAL_TOKEN", internal)
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN_FILE", raising=False)
+    s = StubApi()
+
+    def route(req):
+        seen.append((req.method, req.url.path, req.headers.get("x-keel-token"), req.headers.get("x-keel-mcp-token")))
+        if req.url.path == "/api/mcp/token":
+            if req.headers.get("x-keel-token") != "internal-1":
+                return httpx.Response(403, json={"error": "Wrong or missing X-Keel-Token"})
+            level = json.loads(req.content)["level"]
+            return httpx.Response(200, json={"level": level, "token": "tok-" + level})
+        return s(req)
+
+    return s, mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(route))
+
+
+async def test_the_server_sends_its_level_token_when_it_got_one(monkeypatch):
+    seen: list = []
+    _, api = _token_api(seen, monkeypatch, "internal-1")
+    monkeypatch.chdir("/")
+    srv = mcp_server.build_server(level="write", api=api)
+    assert "shop" in await call(srv, "keel_status", {"project": "shop"})
+    asks = [x for x in seen if x[1] == "/api/mcp/token"]
+    assert asks == [("POST", "/api/mcp/token", "internal-1", None)]           # asked once, for its own level
+    rest = [x for x in seen if x[1] != "/api/mcp/token"]
+    assert rest and all(t == "tok-write" and i is None for _, _, i, t in rest)  # the internal token stays home
+
+
+async def test_without_the_internal_token_it_sends_none_and_still_reads(monkeypatch):
+    seen: list = []
+    _, api = _token_api(seen, monkeypatch, None)
+    monkeypatch.chdir("/")
+    srv = mcp_server.build_server(level="read", api=api)
+    assert "shop" in await call(srv, "keel_status", {"project": "shop"})
+    assert seen and all(p != "/api/mcp/token" and t is None and i is None for _, p, i, t in seen)
+
+
+def test_the_internal_token_can_come_from_a_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    (tmp_path / "tok").write_text("from-file\n")
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(tmp_path / "tok"))
+    assert mcp_server.internal_token() == "from-file"
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(tmp_path / "missing"))
+    assert mcp_server.internal_token() == ""
+
+
+def test_read_actions_match_the_api():
+    # Twin of api McpLevelsApiTest "the read actions are the engine's": McpLevelGuard.READ_ACTIONS / ADMIN_ACTIONS
+    # mirror these names, so a change here needs the same change there.
+    from keel_engine.runtime.action_docs import ACTION_LEVELS
+
+    assert {n for n, lv in ACTION_LEVELS.items() if lv == "read"} == {
+        "audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope", "lint_report", "review_lenses"}
+    assert {n for n, lv in ACTION_LEVELS.items() if lv == "admin"} == {"arch_set", "open_pr"}
