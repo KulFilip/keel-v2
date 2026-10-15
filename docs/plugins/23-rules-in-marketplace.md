@@ -8,7 +8,11 @@ remove. Branch `feat/workflow-market` (the marketplace branch), not `main`.
 `GET /api/projects/{pid}/rule-packs`, install / uninstall). This page plans the marketplace side only. **The Rules tab
 is built only after that session says the format is final.** Until then only the generic catalog kind (§2) is built.
 
-## 1 · What a rule pack is (as the rules work has it today)
+**Update:** the format is final (keel 0.17.2, `docs/rules/pack-format.md`, schema 1) and the Rules tab is built on
+branch `feat/marketplace-rules`: §5 "As built". §1's sample is the format the plan started from; the catalog, the tool
+and the tab now read the final one.
+
+## 1 · What a rule pack is (as the rules work had it when this plan started)
 
 ```yaml
 id: no-new-dependencies
@@ -101,7 +105,7 @@ GET /marketplace/search?q=&category=&kind=plugin|workflow|rules|all
 - A Source (`sources`) is unchanged: it has no rule pack count yet (the plugin and workflow answers stay the same);
   the Rules tab can add `rules: int` there.
 - No `POST …/fetch` or install route: the Rules tab will fetch the verified YAML and call the rules session's
-  `POST /api/projects/{pid}/rule-packs`.
+  `POST /api/projects/{pid}/rule-packs`. (Built since: `POST /marketplace/rule-packs/{name}/fetch`, §5.)
 
 ## 3 · The Rules tab (after the format is final)
 
@@ -128,3 +132,139 @@ GET /marketplace/search?q=&category=&kind=plugin|workflow|rules|all
 3. Can a project's own changes to an installed pack be kept on update? → Follow the rules session (packs are files in
    `.keel/rules/`, so "keep my copy" = keep the file and skip the update).
 4. Publishing a pack → the same Publish flow as workflows (a zip with the YAML and the entry, signing by the person).
+
+## 5 · As built (branch `feat/marketplace-rules`)
+
+`feat/workflow-market` (keel 0.17.0 + the workflow marketplace + the kinds table) merged with the rules work (0.17.2,
+the final pack format and its install api). Not on `main`, not released.
+
+### The format
+
+The marketplace ships the pack file **unchanged**: the file a publisher signs is the file keel installs as
+`.keel/rules/<name>.yaml`. It is keel's final format (`docs/rules/pack-format.md`, schema 1):
+
+```yaml
+schema: 1
+kind: rules
+name: no-new-dependencies       # = the pack's id = its file name = the marketplace name ([a-z0-9-], at most 64)
+title: No new dependencies
+version: 1.0.0                  # = the marketplace version
+publisher: keel                 # = the entry's publisher (keel itself defaults it to local; a marketplace pack names it)
+summary: Agents never add a package.
+requires: {keel: ">=0.17.2", plugins: {db: ">=1.0.0"}}      # plugins: a map or a list of names
+rules:
+  - {id: no-install, kind: bash, match: [npm install, pnpm add], reason: Adding a package is a person's decision.}
+```
+
+- **Names**: a rules entry's name follows the pack rule (`kinds.PACK_NAME`, `^[a-z0-9][a-z0-9-]{0,63}$`), not the
+  plugin rule (a digit first and 64 characters are fine). The api checks it the same (`Marketplace.PACK_NAME`).
+  `rule-packs` joins the names a plugin may not take (`/api/marketplace/rule-packs` is keel's route).
+- **The review** (engine `kinds.pack_review`, tool `rules.review`, the same answer): `{rules, kinds: {kind: count},
+  phases, lanes, blocks}`. New: `blocks`, what each rule blocks, one per rule in the pack's order:
+  `{id, kind, match: [text], how, phases, lanes?, except?}` (`how` is the kind's default when the rule has none; one
+  phase name reads as a list of it). The catalog's `blocks` is optional (an index built before reads without it); when
+  it is there it must be one item per rule.
+- **`keel-plugin rules lint`** checks the final format: `schema: 1`, `kind: rules`, `name` (the marketplace name),
+  `title`, `version` (the marketplace version), `publisher` (required here), `summary`/`stack` (text), `requires`
+  (`keel` a range; `plugins` a map or a list of plugin names), rules (`id` [a-z0-9-] and unique; `kind`; `match` a
+  text or a list; `how` optional; `phases` all / in-flow / none / a phase / a list; `lanes` api and/or web; `except`;
+  `reason`). It prints the review and one `blocks` line per rule.
+- **`keel-plugin index`**: a rule pack version's `requires` is the pack's own (`keel` from the pack, else the entry's
+  `keel:`; `plugins` as a map); a file whose `publisher` is not the entry's is left out ("its publisher is bob, the
+  entry rules/x.yml says keel"); release files may use pack names (`FILE` in rules.py).
+
+### Engine (keel_engine)
+
+```
+POST /marketplace/rule-packs/{name}/fetch {version?}
+  → {name, version, title, publisher, catalog, yaml, review, requires, publisher_title, verified, sha256, size}
+```
+
+`rulepacks.fetch`: the newest version that fits (or `version`), refused 409 for an old catalog, a revoked version or a
+version for another keel; the download (≤ the catalog's size, ≤ 64 KB) and its sha256 (502), the `.minisig` with one of
+the publisher's keys (502), UTF-8, then **keel's own parser** (`rules.packs.parse_pack`): not a pack → 502 with
+`errors`; its name, version and publisher must be the catalog's (502); its own `requires.keel` must fit this keel (409);
+keel's review of the file must equal the catalog's (`rules`, `kinds`, `phases`, `lanes`, and `blocks` when the catalog
+lists it) → else 409 `{differences, review, catalog_review}`. `yaml` is the file as published; `requires` is the pack's.
+
+```
+POST /rules/read {yaml}
+  → {pack: {name, title, version, publisher, summary, requires, ...} (no rules), fits, why_not,
+     rules: [{id, kind, match, how, phases, lanes?, except?, reason,
+              enforced: {before: [engine], after: bool, engines: {engine: before|wrapped|after|none},
+                         by: [{when: before|after, who, label, engines: [engine]}]}}],
+     engines: [{engine, title, protection, words}], enforcers: [{who, label}]}          422 not a pack
+```
+
+`rules_view.reading` / `enforcement` read **who enforces a rule** from the real enforcement code, per engine
+(`enforced()`, which asks `cli_runners.protection` and codex's hook support):
+
+| who | label | when | engines |
+| --- | --- | --- | --- |
+| `hook` | keel's PreToolUse hook | before | claude, opencode, codex 0.150+ (protection `before`) for bash, edit, read |
+| `mcp-guard` | keel's MCP guard | before | the same engines, for `mcp` rules (`hook.check_mcp`) |
+| `toolbox` | keel's ToolBox | before | api-key models (`tools/agent_tools.py`; no MCP) |
+| `wrappers` | keel's command wrappers | before | copilot and an older codex, for a bash rule whose patterns all name a program keel wraps (`shim.NAMES`) |
+| `diff-guard` | the diff guard | after | every engine, for `edit` rules (`tools/guard.py guard_diff` → `rules.check_edit`) |
+
+`before` lists the engines that check the rule before the action (`before` or `wrapped`); `after` is true for edit
+rules.
+
+### api
+
+```
+GET  /api/marketplace/rule-packs?q=&category=&project=
+     → the engine's {rules: [RulesHit], sources, categories}, each hit + installed: {version, edited, source} | null
+       (the rules api's GET /api/projects/{pid}/rule-packs) and update: str | null (a newer version that fits)
+GET  /api/marketplace/rule-packs/{name}?project=
+     → the engine's detail + installed, update, catalog_review, and (fetched and verified) yaml, review (keel's),
+       pack, rules (keel's reading, each with enforced), engines, enforcers; fetch_error: {error, hint} | null when the
+       fetch fails (the page still opens); a refused pack (old catalog, no version for this keel) is not fetched
+POST /api/projects/{pid}/rule-packs/market/install {name, version?, replace?}
+     → fetch, then the rules api's install {source: "marketplace", yaml, name, version, replace}:
+       {pack, installed, market: {catalog, name, version, sha256}, review}
+       the rules api's 409 (the same version; another version without replace) and 422 (not valid; requires.keel not
+       met) come back as it gives them; a fetch refusal keeps the engine's status (409, 502)
+remove: POST /api/projects/{pid}/rule-packs/uninstall {name} (the rules api)
+```
+
+`MarketRulePacks.kt` (service + controller, package `keel.api.rules`). Install needs the MCP **admin** level
+(`McpLevels`: `rule-packs/(install|uninstall|market/install)`). keel records `source: marketplace` and the version in
+`.keel/rules/.installed.json`; Build › Rules shows the pack "from the marketplace" (and "edited" after a change there).
+
+### web
+
+- Control › Plugins › Marketplace: the kind switch **Plugins · Workflows · Rules** (`#/plugins?tab=market&kind=rules`).
+- `RulesMarket` (`pages/MarketRulePack.tsx`): search, category chips, cards (icon, title, publisher ✓ / community,
+  version, summary, "3 rules · bash 1 · edit 2 · every phase", lanes; Install / Installed here / Update to x; an
+  "edited" note; a refused pill), From keel / From the community, and a note when no catalog answers.
+- A pack's page `#/plugins/rules/<name>`: every rule in a table (rule, kind, what it matches, how, phases, lanes,
+  except, the reason, **who enforces it**: "before the action keel's PreToolUse hook (Claude Code, OpenCode, Codex),
+  keel's ToolBox (API-key models), …" / "after the step the diff guard (…)", built from the api's `by`), a "Who
+  enforces it" panel (per mechanism, the rules it covers, each engine's protection in words), the YAML (folded),
+  versions, requires, checks; Install (this project, a version), Update (a copy changed here: "Keep my copy" (the
+  default, nothing is sent) or "Replace it with x" → `replace: true`; an unchanged copy updates with replace at once),
+  Remove (confirm; the rules api's uninstall) and **Open in Rules** (`#/rules`). A fetch error shows as an alert and
+  Install is off.
+- `rulePackMarketApi.ts`: the types and calls; `packShort`, `phasesShort`, `whoEnforces`.
+
+### Tests and the e2e
+
+- engine `tests/test_marketplace_rules.py` (17: the final format, names, blocks, fetch and its refusals, keel's reading),
+  tools `tests/test_rules.py`, api `MarketRulePacksApiTest` (4), web `marketRulePacks.test.tsx` (11, MSW:
+  `test/marketRulePackHandlers.ts`; installs land in the rules db).
+- `e2e/marketplace/e2e.py` round `rule_packs` (also alone: `--only rules`): no-npm-install 1.0.0 / 1.1.0 linted, signed
+  and indexed with keel-plugin; search; the page (keel's reading, who enforces it); install into the project; the rules
+  api lists it with source marketplace and Build › Rules shows it; **keel's PreToolUse hook in the container refuses
+  `npm install left-pad` with "(rule no-npm-install/no-install)"** and lets `ls` through; installed here + update;
+  409 again and without replace; update with replace; the web (`rules-web.mjs`: the kind switch, the card, the page's
+  table and who enforces it; it saves `rt_rules_view.png` and `rt_rule_pack_page.png`); uninstall (the guard no
+  longer applies it); a bad signature → the page's `fetch_error` and install 502, nothing installed.
+  `KEEL_NAME` / `KEEL_VOLUME` / `KEEL_PORT` give the e2e's keel other names; it refuses the person's keels' names.
+
+### Not built
+
+- The marketplace repo's `fetch-releases.sh` and `check-pr.yml` for rule packs (a pull request's pack lint and its
+  review for the maintainer), and a Publish flow for packs (question 4).
+- "All projects": the rules api installs into one project.
+- The warning for a pack that blocks a step keel runs (question 2).
