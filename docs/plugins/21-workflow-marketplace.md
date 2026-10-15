@@ -248,3 +248,14 @@ compare). The new rows have `source = "marketplace"`.
 - `docs/plugins/marketplace-repo/workflows/` (README, `release-notes.yml`); `fetch-releases.sh` fetches a workflow's
   releases (tags `<name>-v<version>`); `sync.yml` passes `--files-url` and copies the repo's own workflow files to
   Pages; `check-pr.yml` lints and signature-checks each new or changed workflow and prints its review.
+
+## 10 · Built (branch `feat/workflow-market`, separate from the 0.17.0 release)
+
+- Web: the Plugins · Workflows switch, workflow cards, a workflow's page (steps graph, YAML, Install review, needs,
+  versions, checks), the install dialog, the "from marketplace · version" badge with Update / Remove in Build ›
+  Workflows, Publish to marketplace. Engine + api + tools as in §9. Checks on the merged branch: web 585/585, engine
+  marketplace 109, api 325, tools 193, the marketplace e2e's workflow round 78 checks.
+- On Milad's native try-out keel (:8188, built from this branch) the local signed catalog
+  (`~/.keel2/keel-plugins/local-catalog`, see 20-track-report.md) lists two example workflows from keel's library,
+  signed with the local publisher key: **Release notes 1.0.0** and **Flaky test fixer 0.9.2** (their semver
+  `version:` line dropped, as lint asks). Not installed: Milad installs them himself.
