@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parity: is a new keel the same for people as a released one? (docs/plugins/11-step3-contract.md, "The parity e2e")
 
-    python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.4 --b keel-v2:dev [--keep] [--only api,web]
+    python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.16.1 --b keel-v2:dev [--keep] [--only api,web]
         [--allow more.yml] [--verbose]
 
 It starts two throw-away keels on the same small fixture project and compares them:
@@ -840,7 +840,7 @@ def lacks_programs(a: Keel, b: Keel) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Is keel B the same for people as keel A?")
-    ap.add_argument("--a", required=True, help="the released image, e.g. ghcr.io/miladnalbandi/keel-v2:0.15.4")
+    ap.add_argument("--a", required=True, help="the released image, e.g. ghcr.io/miladnalbandi/keel-v2:0.16.1")
     ap.add_argument("--b", required=True, help="the new image")
     ap.add_argument("--only", default="api,web", help="api, web or both (the default)")
     ap.add_argument("--allow", action="append", default=[], help="another allow list, besides e2e/parity/allow.yml")
