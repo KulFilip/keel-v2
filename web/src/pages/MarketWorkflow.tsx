@@ -609,22 +609,25 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
           Pick a project first: a workflow installs into a project (or all projects).
         </p>
       )}
+      {/* the steps take the page's width: the graph reads as on the builder */}
+      <div className="wfm-steps">
+        <Section id="wfm-steps" title="Steps" extra={<ReviewShort h={w} />}>
+          {w.summary && <p className="mk-about">{w.summary}</p>}
+          {w.steps?.length ? (
+            <Zoom id="market-workflow">
+              <Graph steps={w.steps} per={6} label={`Steps of ${title}`} />
+            </Zoom>
+          ) : (
+            <p className="sub" style={{ margin: 0 }}>The catalog sends no steps for it.</p>
+          )}
+          <details className="wfm-yaml">
+            <summary>The YAML</summary>
+            <pre className="mono" aria-label={`YAML of ${title}`}>{w.yaml}</pre>
+          </details>
+        </Section>
+      </div>
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="wfm-steps" title="Steps" extra={<ReviewShort h={w} />}>
-            {w.summary && <p className="mk-about">{w.summary}</p>}
-            {w.steps?.length ? (
-              <Zoom id="market-workflow">
-                <Graph steps={w.steps} per={6} label={`Steps of ${title}`} />
-              </Zoom>
-            ) : (
-              <p className="sub" style={{ margin: 0 }}>The catalog sends no steps for it.</p>
-            )}
-            <details className="wfm-yaml">
-              <summary>The YAML</summary>
-              <pre className="mono" aria-label={`YAML of ${title}`}>{w.yaml}</pre>
-            </details>
-          </Section>
           <Section id="wfm-versions" title="Versions" extra={<span className="sub">Newest first</span>} body={false}>
             <div className="table-wrap">
               <table className="mk-table mk-vtable">

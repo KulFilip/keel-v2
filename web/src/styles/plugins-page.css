@@ -624,8 +624,14 @@ input.mk-sw:disabled {
 .wfm-review .why {
   display: block;
 }
+.wfm-steps {
+  margin-bottom: 16px;
+}
 .wfm-yaml {
   margin-top: 12px;
+}
+.mk-checklist a {
+  color: var(--accent);
 }
 .wfm-yaml summary {
   cursor: pointer;

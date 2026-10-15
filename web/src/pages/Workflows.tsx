@@ -264,7 +264,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onGon
             <div className="wf-title">
               <h2>{w.name}</h2>
               <span className="wf-sub">
-                {isTemplate(w) ? <span className="tag keel">keel template</span> : w.based_on ? <span className="tag">from {w.based_on}</span> : null}
+                {/* a marketplace workflow says where it came from in its badge */}
+                {listed.market ? null : isTemplate(w) ? <span className="tag keel">keel template</span> : w.based_on ? <span className="tag">from {w.based_on}</span> : null}
                 <MarketBadge w={listed} onUpdate={() => setMarket("update")} />
                 <span>v{w.version}</span><span>{w.steps.length} steps</span>
                 {shownEst ? <span title={`estimated tokens for the whole workflow, ${acs} ${acs === 1 ? "criterion" : "criteria"}`}>≈ {kfmt(shownEst.tokens)} tokens</span> : null}

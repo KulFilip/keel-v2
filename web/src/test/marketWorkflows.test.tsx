@@ -241,6 +241,8 @@ describe("Build › Workflows: a workflow from the marketplace", () => {
     const top = await screen.findByRole("region", { name: "This workflow" });
     expect(await within(top).findByText("from marketplace · 1.0.0")).toBeInTheDocument();
     expect(within(top).getByText("1.1.0 ready")).toBeInTheDocument();
+    // the badge says where it came from: no second "from marketplace/pr-tidy" tag
+    expect(within(top).queryByText("from marketplace/pr-tidy")).toBeNull();
     expect(screen.getByRole("navigation", { name: "Workflows" })).toHaveTextContent("marketplace 1.0.0");
     await user.click(within(top).getByRole("button", { name: "Update" }));
     const dlg = await screen.findByRole("dialog", { name: "Update PR tidy to 1.1.0?" });
