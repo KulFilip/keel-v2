@@ -100,7 +100,7 @@
   why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
 
 - what: web #/repo*
-  detail: 'style only in *'
+  detail: '*style only in *'
   why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
 
 - what: web #/code*
@@ -119,5 +119,5 @@
   detail: '*look(s) only in *'
   why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
 - what: web #/code*
-  detail: 'style only in *'
+  detail: '*style only in *'
   why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
