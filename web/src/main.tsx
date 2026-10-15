@@ -23,6 +23,8 @@ import "./styles/models.css";
 import "./styles/keys.css";
 // v0.16.0 Control › Plugins, the Inbox's install requests and the core-only menu's sets.
 import "./styles/marketplace.css";
+// v0.16.0 the core-only welcome and menu box, and the Inbox's agent install request (docs/plugins/mockup.html).
+import "./styles/corehome.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

@@ -16,7 +16,7 @@ import { Launcher, openLauncher } from "./launcher/Launcher";
 import { KeySheet } from "./KeySheet";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
-import { isCoreOnly, StartWithSet } from "./StartWithSet";
+import { isCoreOnly, NoPagesYet, useCoreOnly } from "./CoreOnly";
 import { ProjectSwitcher, projectLine } from "./ProjectSwitcher";
 
 const THEME_KEY = "keel2.theme";
@@ -94,6 +94,15 @@ const Logo = () => (
   </svg>
 );
 
+/** The tag next to the logo: "v2 studio", or "core" when no plugin added a page (v0.16.0, the mockup's core-only keel). */
+function BrandTag({ className }: { className?: string }) {
+  const { bare } = useCoreOnly();
+  return (
+    <span className={[className, bare ? "brand-core" : ""].filter(Boolean).join(" ") || undefined}
+      title={bare ? "keel with only its core: no plugins" : undefined}>{bare ? "core" : "v2 studio"}</span>
+  );
+}
+
 // v0.15.7 the project picker is a searchable switcher (components/ProjectSwitcher), not a native select any more
 function ProjectPicker() {
   return (
@@ -137,7 +146,7 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const view = useView();
   // the menu follows the page registry (a plugin's page shows when it registers)
   const pages = usePages();
-  // v0.16.0 a keel with only its core has no Project pages: the group offers the sets of plugins instead
+  // v0.16.0 a keel with only its core has no Project pages: the group is one small box (+ Add pages) instead
   const coreOnly = isCoreOnly(features, view, pages);
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
@@ -168,7 +177,7 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
               </a>
             ))}
           </div>
-          {coreOnly && g.id === "run" && <StartWithSet onPick={onPick} />}
+          {coreOnly && g.id === "run" && <NoPagesYet onPick={onPick} />}
         </Fragment>
       ))}
     </>
@@ -311,7 +320,7 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
       <div className="scrim" onClick={onClose} />
       <div className="menu-sheet" role="dialog" aria-modal="true" aria-label="Menu" id="menu-sheet" ref={ref}>
         <header className="ms-head">
-          <span className="brand"><Logo /><b>keel</b><span>v2 studio</span></span>
+          <span className="brand"><Logo /><b>keel</b><BrandTag /></span>
           <button className="btn sm ghost" type="button" onClick={onClose}>Close</button>
         </header>
         {project && (
@@ -473,7 +482,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* the phone bar has no Live pill: a dot says when the event stream is not live */}
             {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
           </button>
-          <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span></span>
+          <span className="brand"><Logo /><b>keel</b><BrandTag className="brand-v" /></span>
           <span className="side-tools"><Mascot /><SearchButton className="bell" /><Bell onClick={() => setNotesOpen(true)} />
             <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title={`Hide the menu (${menuKeys})`}>
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">

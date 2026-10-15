@@ -5,8 +5,8 @@
 // It opens every page of the menu, #/projects and the extra pages it is given (a project's flows: #/flow/<thread>),
 // each with a full load, and clicks every tab of the main area. On each page it records the console errors, the failed
 // requests (a status of 400 or more, or no answer) and every link in the main area and the menu to a page this keel
-// does not have (the page registry: window.__keel.sdk.pageFor). It also reads the menu (the Project group offers
-// "Start with a set"), the launcher (⌘K: only keel's own scopes and actions; "?" asks nobody) and the key sheet (no
+// does not have (the page registry: window.__keel.sdk.pageFor). It also reads the menu (the Project group is the
+// "No pages yet" box, the logo's tag says core; the welcome's sets come from /api/plugins/sets), the launcher (⌘K: only keel's own scopes and actions; "?" asks nobody) and the key sheet (no
 // KeelBot, no diagram keys). It prints one JSON object: {checks: [{what, ok, detail}], pages: {<hash>: {…}}}. A failed
 // check saves a screenshot into <outdir>.
 
@@ -216,17 +216,19 @@ try {
         group: text(sec.querySelector(".nav-h span")),
         pages: [...sec.querySelectorAll("a")].map((a) => ({ label: text(a.querySelector(".nav-l")), href: a.getAttribute("href") })),
       })),
-      start: !!nav?.querySelector("[role=group][aria-label='Start with a set']"),
-      sets: [...(nav?.querySelectorAll("[role=group][aria-label='Start with a set'] button") ?? [])].map(text),
+      box: text(nav?.querySelector("[role=group][aria-label='No pages yet']")),
+      brand: text(document.querySelector(".side .brand")),
     };
   });
+  const sets = await (await ctx.request.get(`${base}/api/plugins/sets`)).json().then((s) => (s.sets ?? s).map((x) => x.title ?? x.id), () => []);
   const groups = menu.groups.map((g) => g.group);
-  await check("the menu has Run, Build and Control, and its Project group is 'Start with a set'",
-    menu.start && groups.join(",") === "Run,Project,Build,Control" && menu.groups[1].pages.length === 0,
-    `groups ${groups.join(", ")}; sets: ${menu.sets.join(", ")}`);
+  await check("the menu has Run, Build and Control, and its Project group is the 'No pages yet' box (+ Add pages)",
+    /No pages yet/.test(menu.box) && /\+ Add pages/.test(menu.box) && groups.join(",") === "Run,Project,Build,Control" && menu.groups[1].pages.length === 0,
+    `groups ${groups.join(", ")}; box: ${menu.box}`);
+  await check("the tag next to the logo says core", /core/.test(menu.brand), menu.brand);
   const pluginPages = menu.groups.flatMap((g) => g.pages).filter((p) => /^#\/(tasks|repo|code|helper|keelbot|map|graph|wiki)\b/.test(p.href));
   await check("no plugin page in the menu", pluginPages.length === 0, JSON.stringify(pluginPages));
-  await check("the sets are offered (Developer, Review, Knowledge, Tickets)", menu.sets.length >= 4, menu.sets.join(", "));
+  await check("the sets are offered (Developer, Review, Knowledge, Tickets)", sets.length >= 4, sets.join(", "));
 
   // ---- every page
   const hashes = [...new Set(["#/projects", ...menu.groups.flatMap((g) => g.pages.map((p) => p.href)), ...extra])];

@@ -15,6 +15,7 @@ import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/Clari
 import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
+import { CoreWelcome, useCoreOnly } from "../components/CoreOnly";
 import { FoldPanel } from "../components/FoldPanel";
 import { FlowBoardView, showBoard } from "../components/FlowBoard";
 import { FlowRuns } from "../components/FlowRuns";
@@ -43,6 +44,8 @@ export function FlowPage({ pid }: { pid: string }) {
   const board = useLoad(`flows:${pid}`, () => api.flowBoard(pid));
   const { project } = useApp();
   const [start, setStart] = useState(false);
+  // v0.16.0 no plugin added a page: a project with no flow opens on "Welcome to keel core"
+  const { bare } = useCoreOnly();
   // v0.15.4 an earlier run, open read only: it changes nothing of the current flow (no rewind or resume when it opens)
   const [viewing, setViewing] = useState<RunRow | null>(null);
   useEffect(() => setViewing(null), [pid, tid]);
@@ -79,6 +82,21 @@ export function FlowPage({ pid }: { pid: string }) {
       ) : (
       <Async r={flow} what="Loading the flow">
         {(f) => !f.thread || !f.workflow ? (
+          bare ? (
+            // v0.16.0 a keel with only its core opens on its welcome; the project's own empty flow follows it
+            <CoreWelcome>
+              <div className="ch-sect">
+                <h2>{project?.name ?? pid}</h2>
+                <p className="sub">{showBoard(board.data) ? "No flow is running in the project folder." : "No flow is running in this project."}</p>
+              </div>
+              <div className="panel">
+                <EmptyState title="Nothing running here yet"
+                  action={<button className="btn primary" type="button" id="startFlow2" onClick={() => setStart(true)}>Start a flow</button>}>
+                  Start a feature, change, fix or hunt. You will see the estimate before it starts.
+                </EmptyState>
+              </div>
+            </CoreWelcome>
+          ) : (
           <>
             <PageHead title={project?.name ?? pid} sub={showBoard(board.data) ? "No flow is running in the project folder." : "No flow is running in this project."} />
             <div className="panel">
@@ -88,6 +106,7 @@ export function FlowPage({ pid }: { pid: string }) {
               </EmptyState>
             </div>
           </>
+          )
         ) : isInit(f.workflow) ? (
           <InitFlow pid={pid} f={f as Required<FlowView> & { thread: ThreadState; workflow: Workflow }} onStart={() => setStart(true)} reload={flow.reload} />
         ) : (

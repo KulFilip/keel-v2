@@ -11,8 +11,8 @@ Each run starts keel-core on a fresh volume with a small git project at /workspa
 checks the api (health, the edition, /api/plugin-host and /api/features list no plugin), runs two flows on the fake
 model (init, and change, which waits at a gate) and walks the web app in headless Chromium (e2e/core/walk.mjs, through
 `npx -y -p playwright@1`): every menu page, #/projects and both flows. No page may log a console error, fail a request
-or ask a plugin's route, no link may lead to a page this keel does not have, and the menu's Project group offers
-"Start with a set". The container and the volume are removed after each run (--keep: the last one stays).
+or ask a plugin's route, no link may lead to a page this keel does not have, and the menu's Project group is
+its "No pages yet" box. The container and the volume are removed after each run (--keep: the last one stays).
 """
 
 from __future__ import annotations

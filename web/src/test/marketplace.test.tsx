@@ -1,13 +1,12 @@
 // v0.16.0 step 4 in the web (docs/plugins/13-step4-contract.md §9): Control › Plugins with its three tabs (Installed,
-// Marketplace, Sources and rules), the install dialog, the restart banner, the Inbox's plugin-install card, and a keel
-// with only its core: the Project group offers the sets, and #/plugins?set=<id> installs one.
+// Marketplace, Sources and rules), the install dialog, the restart banner, and a keel
+// with only its core: #/plugins?set=<id> installs a set. The Inbox card and the core welcome: corehome.test.tsx.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App";
-import type { InboxItem, InboxView } from "../inboxApi";
 import { allPages, registerPage, type PageRegistration } from "../sdk/registry";
 import { db, server } from "./setup";
 
@@ -89,9 +88,9 @@ describe("Control › Plugins: Installed", () => {
       "aria-current",
       "page",
     );
-    // a normal keel has its Project pages: no "Start with a set"
+    // a normal keel has its Project pages: no "No pages yet" box
     expect(
-      within(nav).queryByRole("group", { name: "Start with a set" }),
+      within(nav).queryByRole("group", { name: "No pages yet" }),
     ).toBeNull();
     expect(screen.getByRole("tab", { name: "Installed (4)" })).toHaveAttribute(
       "aria-selected",
@@ -505,162 +504,6 @@ describe("Control › Plugins: Sources and rules", () => {
   });
 });
 
-describe("Inbox: a plugin-install request", () => {
-  const request = (id: string, title = "Database"): InboxItem => ({
-    project_id: "ludus-engine",
-    project_name: "ludus-engine",
-    thread_id: id,
-    flow: "keelbot",
-    workflow_id: null,
-    step: "approval",
-    kind: "plugin-install",
-    title: `Install ${title} 1.4.0?`,
-    detail: "I need the sessions table's schema.",
-    more: false,
-    options: ["approve", "deny"],
-    id,
-    since: new Date(Date.now() - 60_000).toISOString(),
-    payload: {
-      name: "db",
-      title,
-      version: "1.4.0",
-      trust: "code",
-      publisher: "keel",
-      verified: true,
-      summary: "Connect a database.",
-      permissions: { secrets: ["database"], workspace: "read" },
-      needs: ["code"],
-      installs: [{ name: "code", title: "Code", version: "1.0.0" }],
-      source: "keelbot",
-      reasons: [
-        { reason: "I need the sessions table's schema.", source: "keelbot" },
-        { reason: "The flow fix-login needs SQL.", source: "agent" },
-      ],
-    },
-  });
-
-  it("shows what it is, why, what it may do and what comes with it, and Approve and install / Deny answer the approval", async () => {
-    const user = userEvent.setup();
-    const update: InboxItem = {
-      ...request("a_3", "Git"),
-      title: "Update Git to 1.2.0?",
-      payload: {
-        name: "git",
-        title: "Git",
-        version: "1.2.0",
-        installed: "1.1.0",
-        update: true,
-        trust: "code",
-        more: ["+ secrets: gitlab"],
-        permissions: { secrets: ["github", "gitlab"] },
-        source: "keel",
-        reasons: [
-          {
-            reason:
-              "The new version 1.2.0 asks for more permissions: + secrets: gitlab.",
-            source: "keel",
-          },
-        ],
-      },
-    };
-    const state = { list: [request("a_1"), request("a_2", "Wiki"), update] };
-    const decided: { id: string; body: unknown }[] = [];
-    server.use(
-      http.get("/api/inbox", () =>
-        HttpResponse.json({
-          items: state.list,
-          count: state.list.length,
-          kinds: ["plugin-install"],
-          projects: [
-            {
-              id: "ludus-engine",
-              name: "ludus-engine",
-              count: state.list.length,
-            },
-          ],
-        } satisfies InboxView),
-      ),
-      http.post(
-        "/api/approvals/:id/decide",
-        async ({ request: req, params }) => {
-          decided.push({ id: String(params.id), body: await req.json() });
-          state.list = state.list.filter((x) => x.id !== params.id);
-          return HttpResponse.json({ id: params.id, status: "approved" });
-        },
-      ),
-    );
-    location.hash = "#/inbox";
-    render(<App />);
-    const card = (
-      await screen.findByRole("heading", { name: "Install Database 1.4.0?" })
-    ).closest("article")!;
-    expect(card).toHaveTextContent("install request");
-    expect(card).toHaveTextContent("from KeelBot");
-    expect(card).toHaveTextContent("Runs code in keel");
-    expect(card).toHaveTextContent("by keel ✓");
-    expect(within(card).getByLabelText("Why it asks")).toHaveTextContent(
-      "“I need the sessions table's schema.”",
-    );
-    expect(within(card).getByLabelText("Why it asks")).toHaveTextContent(
-      "“The flow fix-login needs SQL.” · An agent",
-    );
-    expect(
-      within(card).getByRole("list", { name: "Permissions" }),
-    ).toHaveTextContent("highRead your database connections");
-    expect(card).toHaveTextContent("Also installs Code: Database needs it.");
-
-    await user.click(
-      within(card).getByRole("button", { name: "Approve and install" }),
-    );
-    await waitFor(() =>
-      expect(decided[0]).toEqual({
-        id: "a_1",
-        body: { decision: "approve", why: "" },
-      }),
-    );
-    expect(
-      await screen.findByText("Database is installed. Restart keel to use it."),
-    ).toBeInTheDocument();
-
-    const wiki = (
-      await screen.findByRole("heading", { name: "Install Wiki 1.4.0?" })
-    ).closest("article")!;
-    await user.type(within(wiki).getByLabelText("Note (optional)"), "not now");
-    await user.click(within(wiki).getByRole("button", { name: "Deny" }));
-    await waitFor(() =>
-      expect(decided[1]).toEqual({
-        id: "a_2",
-        body: { decision: "deny", why: "not now" },
-      }),
-    );
-    expect(
-      await screen.findByText("Denied: Wiki is not installed."),
-    ).toBeInTheDocument();
-
-    // an update that asks for more: the new permissions, then Approve and update
-    const git = (
-      await screen.findByRole("heading", { name: "Update Git to 1.2.0?" })
-    ).closest("article")!;
-    expect(
-      within(git).getByRole("list", { name: "New permissions" }),
-    ).toHaveTextContent("+ secrets: gitlab");
-    expect(git).toHaveTextContent("keel updates it from 1.1.0 to 1.2.0");
-    expect(git).toHaveTextContent("from keel");
-    await user.click(
-      within(git).getByRole("button", { name: "Approve and update" }),
-    );
-    await waitFor(() =>
-      expect(decided[2]).toEqual({
-        id: "a_3",
-        body: { decision: "approve", why: "" },
-      }),
-    );
-    expect(
-      await screen.findByText("Git is updated. Restart keel to use it."),
-    ).toBeInTheDocument();
-  });
-});
-
 describe("a keel with only its core", () => {
   let hidden: PageRegistration[] = [];
   afterEach(() => {
@@ -674,7 +517,7 @@ describe("a keel with only its core", () => {
     for (const p of hidden) registerPage({ ...p })();
   }
 
-  it("offers the sets in the Project group, and a set installs what is missing and turns on what is off", async () => {
+  it("#/plugins?set=<id> (a set's Install N on the core welcome) installs what is missing and turns on what is off", async () => {
     const user = userEvent.setup();
     coreOnly();
     db.market.installed = [
@@ -693,19 +536,8 @@ describe("a keel with only its core", () => {
         on: false,
       },
     ];
-    location.hash = "#/plugins";
+    location.hash = "#/plugins?set=developer";
     render(<App />);
-    const nav = screen.getByRole("navigation", { name: "Screens" });
-    const start = await within(nav).findByRole("group", {
-      name: "Start with a set",
-    });
-    expect(start).toHaveTextContent(
-      "Code, KeelBot, Map, Graph and Wiki are plugins now.",
-    );
-    await user.click(
-      await within(start).findByRole("button", { name: "Developer" }),
-    );
-    await waitFor(() => expect(location.hash).toBe("#/plugins?set=developer"));
 
     const offer = (
       await screen.findByRole("heading", {
