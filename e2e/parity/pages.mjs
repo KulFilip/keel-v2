@@ -84,7 +84,8 @@ async function session(browser, base, side) {
   const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, colorScheme: "light", reducedMotion: "reduce" });
   const page = await ctx.newPage();
   const projects = await (await ctx.request.get(`${base}/api/projects`)).json().catch(() => []);
-  const pid = projects[0]?.id ?? "";
+  // the shop (parity.py adds a second, new project too; its order in the list is not what is compared)
+  const pid = (projects.find?.((p) => p.name === "shop") ?? projects[0])?.id ?? "";
   const s = { side, base, ctx, page, pid, console: [], failed: [], inflight: new Map() };
   const rel = (url) => {
     const u = new URL(url);

@@ -45,6 +45,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 KEELS = {"a": ("keel-parity-a", "keel-parity-a-data", 8094), "b": ("keel-parity-b", "keel-parity-b-data", 8095)}
 PROJECT = "shop"
+# v0.15.9: a new project with no keel files in docs/ gets the "keel" layout (.keel/…, hidden from git). "notes" is one:
+# a git repo with only a README and one file, added through the api like the shop.
+FRESH = "notes"
 # a fixed time for the fixture's commits, so both keels (and every run) see the same history
 GIT_DATE = "2026-01-15T10:00:00+00:00"
 
@@ -65,6 +68,8 @@ class Keel:
         self.name, self.volume, self.port = KEELS[side]
         self.url = f"http://127.0.0.1:{self.port}"
         self.pid = ""
+        self.fid = ""  # the new project (FRESH)
+        self.ws: Path | None = None
 
     def http(self, method: str, path: str, body: object | None = None, timeout: float = 60) -> tuple[int, str, bytes]:
         """(status, content type, body) of one call; never raises for an http status."""
@@ -93,6 +98,7 @@ class Keel:
 
     def start(self, ws: Path) -> None:
         self.remove()
+        self.ws = ws
         sh("docker", "run", "-d", "--name", self.name, "-p", f"127.0.0.1:{self.port}:8080",
            "-v", f"{self.volume}:/data", "-v", f"{ws}:/workspace", self.image)
 
@@ -283,6 +289,13 @@ def fixture(root: Path) -> Path:
         for mig in sorted((repo / "db/migrations").glob("*.sql")):
             db.executescript(mig.read_text())
         db.execute("INSERT INTO products VALUES ('mug', 'Mug', 900, 0.21)")
+    fresh = root / FRESH
+    fresh.mkdir(parents=True)
+    (fresh / "README.md").write_text("# notes\n\nA small notes app.\n")
+    (fresh / "notes.py").write_text("def add(notes: list[str], text: str) -> list[str]:\n    return [*notes, text]\n")
+    for args in (("init", "-q", "-b", "main"), ("add", "-A"), ("commit", "-q", "-m", "Notes")):
+        sh("git", "-c", "user.name=parity", "-c", "user.email=parity@localhost", "-c", "commit.gpgsign=false", *args,
+           cwd=fresh, env=env)
     return repo
 
 
@@ -293,6 +306,7 @@ def prepare(k: Keel) -> None:
     """keel is up and the shop is a project (added through the api), with its code graph index and its map."""
     wait_until(f"{k.name} ({k.image}) to be healthy", lambda: k.api("GET", "/health"), timeout=300)
     k.pid = k.api("POST", "/projects", {"root": f"/workspace/{PROJECT}"})["id"]
+    k.fid = k.api("POST", "/projects", {"root": f"/workspace/{FRESH}"})["id"]
 
     def indexed():
         st = k.api("GET", f"/projects/{k.pid}/index")
@@ -321,26 +335,29 @@ FAKE = {"provider": "fake", "mode": "api", "model": "fake"}
 ROUNDS = ("off", "on", "flow")
 
 
-def where(k: Keel) -> tuple:
+def where(k: Keel, pid: str = "") -> tuple:
     """Where the project's flow is: status, phase, step and what it waits for."""
-    th = k.api("GET", f"/projects/{k.pid}/flow").get("thread") or {}
+    th = k.api("GET", f"/projects/{pid or k.pid}/flow").get("thread") or {}
     w = th.get("waiting") or {}
     return th.get("status"), th.get("phase"), th.get("current"), w.get("kind"), w.get("title")
 
 
-def run_flow(k: Keel) -> list[tuple]:
+def run_flow(k: Keel, pid: str = "") -> list[tuple]:
     """A person runs a flow: "change" with keel's fake model (no login, no token; it writes example files) on the
-    shop. It waits at the scope gate, is approved as "small", runs the test-first loop and waits at the AC gate.
-    Returns where it was at each stop."""
+    shop (or on pid). It waits at the scope gate, is approved as "small", runs the test-first loop and waits at the AC
+    gate. Returns where it was at each stop."""
+    pid = pid or k.pid
     k.api("PUT", "/settings/general", {"cheaper_model": FAKE})  # every agent on the fake model, the same on both
-    k.api("POST", f"/projects/{k.pid}/flows", {"workflow_id": "change", "title": "Refunds for orders", "allow_fake": True,
-                                               "allow_dirty": True, "acs": [{"id": "AC-1", "layer": "API", "title": "A refund marks the order refunded"}]})
-    stops = [wait_until(f"{k.name}: the flow to stop at a gate", lambda: (s := where(k))[0] != "running" and s, timeout=300)]
+    k.api("POST", f"/projects/{pid}/flows", {"workflow_id": "change", "title": "Refunds for orders", "allow_fake": True,
+                                             "allow_dirty": True, "acs": [{"id": "AC-1", "layer": "API", "title": "A refund marks the order refunded"}]})
+    stops = [wait_until(f"{k.name}: the flow to stop at a gate", lambda: (s := where(k, pid))[0] != "running" and s, timeout=300)]
     if stops[0][0] == "waiting":
-        tid = k.api("GET", f"/projects/{k.pid}/flow")["thread"]["thread_id"]
+        tid = k.api("GET", f"/projects/{pid}/flow")["thread"]["thread_id"]
         k.api("POST", f"/threads/{tid}/resume", {"decision": "approve", "payload": {"choice": "small"}})
         stops.append(wait_until(f"{k.name}: the flow to stop again",
-                                lambda: (s := where(k))[0] != "running" and s != stops[0] and s, timeout=300))
+                                lambda: (s := where(k, pid))[0] != "running" and s != stops[0] and s, timeout=300))
+    if pid != k.pid:
+        return stops
     # the code graph follows the flow's commits in the background, when it gets to it: index it now, on both
     k.api("POST", f"/projects/{k.pid}/index/rebuild")
     time.sleep(1)
@@ -459,6 +476,17 @@ ENDPOINTS = [
     "/api/projects/{pid}/git/status", "/api/projects/{pid}/git/branches", "/api/projects/{pid}/git/branch?name=main",
     "/api/projects/{pid}/git/log", "/api/projects/{pid}/git/pr", "/api/projects/{pid}/ci/runs",
     "/api/projects/{pid}/review/prs", "/api/projects/{pid}/review/branch",
+    # v0.15.7 project folders: the repos keel can add, and one folder's sub folders (outside the roots 403, missing 404)
+    "/api/folders", "/api/folders/browse", "/api/folders/browse?path=/workspace", "/api/folders/browse?path=/workspace/shop/web",
+    "/api/folders/browse?path=/etc", "/api/folders/browse?path=/workspace/nope", "/api/folders/browse?path=/workspace/../etc",
+    # v0.15.8 layouts (the shop keeps keel's files in docs/: repo); v0.15.9 the new project gets keel (.keel/)
+    "/api/projects/{pid}/layout", "/api/projects/{fid}/layout", "/api/projects/{fid}", "/api/projects/{fid}/keel-docs",
+    "/api/projects/{fid}/wiki", "/api/projects/{fid}/docs/history", "/api/projects/{pid}/wiki/page?id=spec:{spec}",
+    "/api/projects/{pid}/wiki/page?id=spec:docs/nope.md",
+    # v0.15.9 keel's file history (the files, a file's versions, one version, a diff to the file now)
+    "/api/projects/{pid}/docs/history", "/api/projects/{pid}/docs/history/versions?path={dpath}",
+    "/api/projects/{pid}/docs/history/versions/{ver}", "/api/projects/{pid}/docs/history/diff?path={dpath}&from={ver}&to=file",
+    "/api/projects/{pid}/docs/history/versions?path=docs/nope.md", "/api/projects/{pid}/docs/history/versions/nope",
     # what does not exist
     "/api/nope", "/api/projects/nope", "/api/workflows/nope", "/api/skills/nope", "/api/jobs/nope", "/api/tasks/nope",
     "/api/quality/runs/nope", "/api/logins/nope", "/api/threads/nope/history", "/api/projects/{pid}/hunts/nope",
@@ -477,6 +505,10 @@ FLOW_ENDPOINTS = [
     # v0.15.2 a flow's calls in Finished and their count; v0.15.4 the run history's rows (cost_usd, latest)
     "/api/jobs?project={pid}&status=finished", "/api/jobs/count?project={pid}&status=finished",
     "/api/jobs?project={pid}&q=implementer", "/api/projects/{pid}/runs?workflow=change",
+    # v0.15.9 what keel applied in a flow (a branch, commits or recorded), and the new project's flow in .keel/
+    "/api/threads/{tid}/applied", "/api/threads/nope/applied", "/api/projects/{fid}/flow", "/api/projects/{fid}/docs/history",
+    "/api/projects/{fid}/keel-docs", "/api/projects/{fid}/wiki", "/api/projects/{fid}/wiki/page?id=spec:{fspec}",
+    "/api/projects/{fid}/layout",
 ]
 
 ID_KEY = re.compile(r"^([0-9a-f]{7,64}|[0-9a-f-]{32,36}|\d+|\d{4}-\d{2}-\d{2}.*|[a-z]+:[0-9a-f]{16,64})$")
@@ -484,8 +516,22 @@ ID_KEY = re.compile(r"^([0-9a-f]{7,64}|[0-9a-f-]{32,36}|\d+|\d{4}-\d{2}-\d{2}.*|
 
 def variables(k: Keel) -> dict[str, str]:
     """Values for the endpoints' {names}, read from this keel."""
-    v = {"pid": k.pid}
+    v = {"pid": k.pid, "fid": k.fid}
+
+    def spec(pid: str) -> str:
+        return sorted(re.findall(r'"spec:([^"]+)"', json.dumps(k.api("GET", f"/projects/{pid}/wiki"))))[0]
+
+    def doc() -> dict:
+        files = sorted(k.api("GET", f"/projects/{k.pid}/docs/history"), key=lambda f: f["path"])
+        path = next(f["path"] for f in files if f.get("versions"))
+        versions = k.api("GET", f"/projects/{k.pid}/docs/history/versions?path={urllib.parse.quote(path)}")
+        return {"dpath": path, "ver": str(versions[0]["id"])}
+    try:
+        v.update(doc())
+    except Exception:  # noqa: BLE001 - no history yet (before a flow)
+        pass
     for name, fn in (("wid", lambda: k.api("GET", f"/projects/{k.pid}/workflows")[0]["id"]),
+                     ("spec", lambda: spec(k.pid)), ("fspec", lambda: spec(k.fid)),
                      ("sid", lambda: k.api("GET", f"/projects/{k.pid}/skills")[0]["id"]),
                      ("sha", lambda: k.api("GET", f"/projects/{k.pid}/repo/commits")[0]["sha"]),
                      ("node", lambda: k.api("GET", f"/projects/{k.pid}/graph")["groups"][0]["id"]),
@@ -621,13 +667,19 @@ def web_parity(a: Keel, b: Keel, out: Path, phase: str, sets: bool = False) -> l
 # ---------------------------------------------------------------- the table
 
 
-def mcp_tools(k: Keel, write: bool) -> list[str]:
-    """keel2 mcp's tools/list, as a person's client sees it: the server inside the container, over stdio (MCP). The
-    client keeps the input open until the answer comes (a server may stop at end of input before it answers)."""
+# keel2 mcp's levels (v0.16.0): read (no flag, what keel2 mcp gives by default), --write, --admin; each includes the one below
+MCP_LEVELS = ("--read-only", "--write", "--admin")
+
+
+def mcp_tools(k: Keel, level: str, call: str = "") -> list[str] | str:
+    """keel2 mcp's tools/list at this level, as a person's client sees it: the server inside the container, over stdio
+    (MCP). call: instead, the text of that tool's answer (a tool that needs no arguments, like keel_actions). The client
+    keeps the input open until the answer comes (a server may stop at end of input before it answers)."""
     import queue
     import threading
 
-    args = ["docker", "exec", "-i", k.name, "/opt/engine/.venv/bin/python", "-m", "keel_engine.mcp"] + (["--write"] if write else [])
+    flags = [] if level == "--read-only" else [level]
+    args = ["docker", "exec", "-i", k.name, "/opt/engine/.venv/bin/python", "-m", "keel_engine.mcp"] + flags
     proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     lines: queue.Queue = queue.Queue()
     threading.Thread(target=lambda: [lines.put(x) for x in proc.stdout], daemon=True).start()
@@ -656,6 +708,10 @@ def mcp_tools(k: Keel, write: bool) -> list[str]:
               "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "parity", "version": "1"}}})
         answer(1)
         send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        if call:
+            send({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": call, "arguments": {}}})
+            res = answer(3)
+            return "\n".join(c.get("text", "") for c in (res.get("result") or {}).get("content", [])) or json.dumps(res)
         send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         return [t["name"] for t in answer(2).get("result", {}).get("tools", [])]
     finally:
@@ -667,11 +723,12 @@ def mcp_tools(k: Keel, write: bool) -> list[str]:
 
 
 def mcp_parity(a: Keel, b: Keel, phase: str) -> list[dict]:
-    """The same tools, in the same order, for the read-only server (what agents get) and the write one (keel2 mcp --write)."""
+    """At each level (read, what agents get; --write; --admin): the same tools in the same order, and the same answer
+    of keel_actions (every engine action with its level, the /actions a client may run)."""
     rows = []
-    for write in (False, True):
-        ta, tb = mcp_tools(a, write), mcp_tools(b, write)
-        ident = f"mcp {'--write' if write else '--read-only'} tools/list [{phase}]"
+    for level in MCP_LEVELS:
+        ta, tb = mcp_tools(a, level), mcp_tools(b, level)
+        ident = f"mcp {level} tools/list [{phase}]"
         if ta == tb:
             details = []
         elif tb[:len(ta)] == ta:
@@ -680,6 +737,41 @@ def mcp_parity(a: Keel, b: Keel, phase: str) -> list[dict]:
         else:
             details = [f"A: {', '.join(ta)}", f"B: {', '.join(tb)}"]
         rows.append({"id": ident, "verdict": "same" if not details else "different", "details": details})
+        xa, xb = mcp_tools(a, level, call="keel_actions"), mcp_tools(b, level, call="keel_actions")
+        la, lb = xa.splitlines(), xb.splitlines()
+        details = [] if xa == xb else ([f"only in A: {x}" for x in la if x not in lb] + [f"only in B: {x}" for x in lb if x not in la]
+                                       or ["the same lines in another order"])
+        rows.append({"id": f"mcp {level} keel_actions [{phase}]", "verdict": "same" if not details else "different", "details": details})
+    return rows
+
+
+def tree(root: Path) -> list[str]:
+    """The files of a project folder as keel left them: every path but git's own files (only .git/info/exclude, the
+    file keel hides .keel/ in) and the code graph's cache."""
+    out = []
+    for f in sorted(root.rglob("*")):
+        rel = f.relative_to(root).as_posix()
+        if rel.startswith(".codegraph") or (rel.startswith(".git/") or rel == ".git") and rel != ".git/info/exclude":
+            continue
+        out.append(rel + ("/" if f.is_dir() and not f.is_symlink() else ""))
+    return out
+
+
+def layout_parity(a: Keel, b: Keel, phase: str) -> list[dict]:
+    """v0.15.8/0.15.9 layouts by value (the api rows compare only the shape): each project's layout answer, the new
+    project's files on disk (.keel/ by default) and the lines keel added to its .git/info/exclude."""
+    rows = []
+    for name, pid_of in ((PROJECT, lambda k: k.pid), (FRESH, lambda k: k.fid)):
+        la, lb = a.api("GET", f"/projects/{pid_of(a)}/layout"), b.api("GET", f"/projects/{pid_of(b)}/layout")
+        details = [f"$.{key}: {la.get(key)!r} in A, {lb.get(key)!r} in B" for key in sorted(set(la) | set(lb)) if la.get(key) != lb.get(key)]
+        rows.append({"id": f"layout {name} GET /layout [{phase}]", "verdict": "different" if details else "same", "details": details})
+    for name in (FRESH, PROJECT):
+        ta, tb = tree(a.ws / name), tree(b.ws / name)
+        details = [f"only in A: {x}" for x in ta if x not in tb] + [f"only in B: {x}" for x in tb if x not in ta]
+        ea, eb = ((k.ws / name / ".git/info/exclude").read_text() if (k.ws / name / ".git/info/exclude").exists() else "" for k in (a, b))
+        if ea != eb:
+            details.append(f".git/info/exclude: {ea.splitlines()[-3:]!r} in A, {eb.splitlines()[-3:]!r} in B")
+        rows.append({"id": f"layout {name} files [{phase}]", "verdict": "different" if details else "same", "details": details})
     return rows
 
 
@@ -782,20 +874,26 @@ def main() -> int:
                 print("turning on the plugins (CI/CD, Database, Git, Code Review) and adding the shop's database")
                 both(plugins_on, [a, b])
             if phase == "flow":
-                print("running a flow on both: change, fake model, approved at the scope gate, until the AC gate")
+                print("running a flow on both: change, fake model, approved at the scope gate, until the AC gate"
+                      f" (on {PROJECT}, then on {FRESH}, the new project in .keel/)")
                 stops: dict[str, list] = {}
-                both(lambda k: stops.__setitem__(k.side, run_flow(k)), [a, b])
+                both(lambda k: stops.__setitem__(k.side, (run_flow(k), run_flow(k, k.fid))), [a, b])
                 endpoints = ENDPOINTS + FLOW_ENDPOINTS
-                same = stops["a"] == stops["b"]
-                groups.append(("flow", [{"id": "flow change: where it stopped", "verdict": "same" if same else "different",
-                                         "details": [] if same else [f"A: {stops['a']}", f"B: {stops['b']}"]}]))
+                flow_rows = []
+                for i, name in enumerate((PROJECT, FRESH)):
+                    same = stops["a"][i] == stops["b"][i]
+                    flow_rows.append({"id": f"flow change on {name}: where it stopped", "verdict": "same" if same else "different",
+                                      "details": [] if same else [f"A: {stops['a'][i]}", f"B: {stops['b'][i]}"]})
+                groups.append(("flow", flow_rows))
             if "api" in only:
                 print(f"api [{phase}]: {len(endpoints)} endpoints")
                 # in the flow round a retry may add an agent call or a checkpoint on one keel: no counts, no order
                 groups.append((f"api [{phase}]", api_parity(a, b, phase, endpoints, counts=phase != "flow")))
             if "api" in only:
-                print(f"mcp [{phase}]: keel2 mcp's tools/list, read-only and --write")
+                print(f"mcp [{phase}]: keel2 mcp's tools/list and keel_actions, read, --write and --admin")
                 groups.append((f"mcp [{phase}]", mcp_parity(a, b, phase)))
+                print(f"layout [{phase}]: both projects' layouts and files")
+                groups.append((f"layout [{phase}]", layout_parity(a, b, phase)))
             if "web" in only:
                 print(f"web [{phase}]: the menu and every page (headless Chromium)")
                 groups.append((f"web [{phase}]", web_parity(a, b, out, phase, sets=phase == "flow")))
