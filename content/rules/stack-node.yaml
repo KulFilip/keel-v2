@@ -1,8 +1,14 @@
 # keel rule pack for Node projects (npm, pnpm, yarn).
-id: stack-node
-name: Node
+schema: 1
+kind: rules
+name: stack-node
+title: Node
+version: 1.0.0
+publisher: keel
+summary: Registry settings and the Node version are changed by a person; no global installs.
 stack: node
-description: Registry settings and the Node version are changed by a person; no global installs.
+requires:
+  keel: ">=0.17.2"
 rules:
   - id: no-npmrc
     kind: edit

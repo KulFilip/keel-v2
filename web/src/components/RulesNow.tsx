@@ -1,4 +1,4 @@
-// v0.16.2 "Rules now" on the Flow page: in short sentences, what agents may and may not change in this phase, what you
+// v0.17.2 "Rules now" on the Flow page: in short sentences, what agents may and may not change in this phase, what you
 // allowed, your own rules, which rules stopped something, and how much the running engine is checked before it acts.
 
 import { go, useApp, useLoad } from "../state";

@@ -12,13 +12,24 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
 /**
- * v0.16.2 keel's rules for one project (the Rules page, "Rules now" on the Flow page, MCP keel_rules).
+ * v0.17.2 keel's rules for one project (the Rules page, "Rules now" on the Flow page, MCP keel_rules).
  *
  * The rules are files in the project — `.keel/config.yml` (guards, mcp, rules, boundaries) and `.keel/rules/<id>.yaml`
  * (rule packs) — so the engine's guard reads them on every tool call. The engine owns reading and writing them
  * (runtime/rules_view.py); this service gives it the project's folder and adds what only the api has: the events
  * (recent tool calls for a pack's dry-run, the refusals of a thread).
  */
+/** POST /api/projects/{pid}/rule-packs/install (docs/rules/pack-format.md). */
+data class RulePackInstall(
+    val source: String = "",
+    val name: String? = null,
+    val version: String? = null,
+    val yaml: String? = null,
+    val replace: Boolean = false,
+)
+
+data class RulePackName(val name: String = "")
+
 @Service
 class RulesService(
     private val jdbc: JdbcTemplate,
@@ -33,27 +44,53 @@ class RulesService(
         return id
     }
 
-    fun view(pid: String): JsonNode = engine.get("/rules", mapOf("root" to root(pid)))
+    fun view(pid: String): JsonNode = engine.get("/rules?root={root}", mapOf("root" to root(pid)))
 
     fun setConfig(pid: String, patch: Map<String, Any?>): JsonNode =
         engine.post("/rules/config", mapOf("root" to root(pid), "patch" to patch))
 
     fun library(): JsonNode = engine.get("/rules/library")
 
+    /** The Rules page's library button: install keel's library pack (any version) and answer the page's view. */
     fun install(pid: String, id: String): JsonNode {
-        val yaml = engine.get("/rules/library/${packId(id)}").get("yaml")?.asText() ?: throw NotFound("No rule pack $id in keel's library.")
-        return engine.post("/rules/packs", mapOf("root" to root(pid), "yaml" to yaml))
+        val r = installPack(pid, RulePackInstall(source = "library", name = packId(id)))
+        val out = mapper.createObjectNode()
+        out.set<JsonNode>("pack", r.get("pack"))
+        out.set<JsonNode>("view", view(pid))
+        return out
     }
+
+    /** v0.17.2 rule packs as installable items: the project's packs with their source (library, file, marketplace). */
+    fun installed(pid: String): JsonNode = engine.get("/rules/packs?root={root}", mapOf("root" to root(pid)))
+
+    /** Install a pack from keel's library (name, version?), a file or the marketplace (its YAML). A marketplace install
+     *  calls this with source "marketplace" and the pack file as published. */
+    fun installPack(pid: String, body: RulePackInstall): JsonNode {
+        if (body.source !in SOURCES) throw BadRequest("source is one of ${SOURCES.joinToString()}")
+        body.name?.let { packId(it) }
+        if ((body.yaml?.length ?: 0) > MAX_BYTES) throw BadRequest("A rule pack is at most ${MAX_BYTES / 1024} KB.")
+        return engine.post("/rules/packs/install", mapOf("root" to root(pid), "source" to body.source, "name" to body.name,
+            "version" to body.version, "yaml" to body.yaml, "replace" to body.replace))
+    }
+
+    fun uninstall(pid: String, name: String): JsonNode =
+        engine.post("/rules/packs/uninstall", mapOf("root" to root(pid), "name" to packId(name)))
 
     fun save(pid: String, yaml: String, replace: String?): JsonNode {
         if (yaml.length > MAX_BYTES) throw BadRequest("A rule pack is at most ${MAX_BYTES / 1024} KB.")
         return engine.post("/rules/packs", mapOf("root" to root(pid), "yaml" to yaml, "replace" to replace?.let { packId(it) }))
     }
 
-    fun remove(pid: String, id: String): JsonNode = engine.delete("/rules/packs/${packId(id)}", mapOf("root" to root(pid)))
+    fun remove(pid: String, id: String): JsonNode = engine.delete("/rules/packs/${packId(id)}?root={root}", mapOf("root" to root(pid)))
+
+    /** <name>-<version>.rules.yaml, the name a marketplace item and an import use. */
+    fun exportName(pid: String, id: String): String {
+        val v = installed(pid).firstOrNull { it["name"]?.asText() == id }?.get("version")?.asText()
+        return if (v.isNullOrBlank()) "$id.rules.yaml" else "$id-$v.rules.yaml"
+    }
 
     fun export(pid: String, id: String): String =
-        engine.get("/rules/packs/${packId(id)}", mapOf("root" to root(pid))).get("yaml")?.asText() ?: ""
+        engine.get("/rules/packs/${packId(id)}?root={root}", mapOf("root" to root(pid))).get("yaml")?.asText() ?: ""
 
     /** Validate a pack and run it against the project's recent tool calls (what it would have refused). */
     fun check(pid: String, yaml: String): JsonNode {
@@ -117,6 +154,7 @@ class RulesService(
 
     companion object {
         const val MAX_BYTES = 64 * 1024
+        val SOURCES = setOf("library", "file", "marketplace")
         val CALL_KINDS = setOf("tool", "write", "edit", "read", "refused")
         private val RULE = Regex("\\(rule ([a-z0-9-]+/[a-z0-9-]+)\\)")
 

@@ -93,7 +93,7 @@ export function createDb() {
     ciRuns: [] as CiRun[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
-    /** v0.16.2 keel's rules (Build › Rules, "Rules now") */
+    /** v0.17.2 keel's rules (Build › Rules, "Rules now") */
     rules: createRulesDb(),
     /** v0.16.0 the marketplace: the catalog, what is installed, sources, rules and sets */
     market: createMarket(),

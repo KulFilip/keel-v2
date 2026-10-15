@@ -1,8 +1,15 @@
-"""Rule packs: a project's own rules, as YAML files in `.keel/rules/<id>.yaml` (docs/plans/0.16.2.md).
+"""Rule packs: a project's own rules, as YAML files in `.keel/rules/<name>.yaml` (docs/rules/pack-format.md).
 
-    id: no-new-dependencies
-    name: No new dependencies
-    description: Agents never add a package; a person does.
+The format is final (v0.17.2) and shaped like a plugin manifest, so the same file can be a marketplace item:
+
+    schema: 1
+    kind: rules
+    name: no-new-dependencies        # the id and the file name
+    title: No new dependencies
+    version: 1.0.0
+    publisher: keel
+    summary: Agents never add a package; a person does.
+    requires: {keel: ">=0.17.2", plugins: {}}
     rules:
       - id: no-install
         kind: bash                   # bash | edit | read | mcp
@@ -14,12 +21,14 @@
         reason: Adding a package is a person's decision.
 
 A pack rule only refuses. `load_config` reads the packs, so the PreToolUse hook, the ToolBox and the diff guard all
-apply them through `check_edit` / `check_read` / `check_bash` / `hook.check_mcp`. `rules.off: [pack/<id>]` switches a
-whole pack off.
+apply them through `check_edit` / `check_read` / `check_bash` / `hook.check_mcp`. `rules.off: [pack/<name>]` switches a
+whole pack off. Where an installed pack came from (built-in library, a file, the marketplace) and its version at install
+are kept next to the packs in `.keel/rules/.installed.json`; the pack file stays exactly as published.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -33,8 +42,18 @@ HOWS = ("contains", "regex", "glob", "name")
 DEFAULT_HOW = {"bash": "contains", "edit": "glob", "read": "glob", "mcp": "name"}
 LANES = ("api", "web")
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
+SPEC = re.compile(r"^(>=|<=|==|>|<)\s*[0-9][0-9.]*$")
+PLUGIN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+SCHEMA = 1
+SOURCES = ("library", "file", "marketplace")
 FOLDER = Path(".keel") / "rules"
+INDEX = ".installed.json"
 MAX_BYTES = 64 * 1024
+
+
+def valid_spec(spec: str) -> bool:
+    return all(SPEC.match(p.strip()) for p in str(spec).split(",") if p.strip())
 
 
 def folder(root: str | Path) -> Path:
@@ -60,15 +79,55 @@ def _list(v: Any) -> list[str] | None:
     return None
 
 
+def _requires(data: dict, errors: list[str]) -> dict:
+    req = data.get("requires")
+    if req is None:
+        return {"keel": "", "plugins": {}}
+    if not isinstance(req, dict):
+        errors.append("requires: a map with keel (a version range) and plugins")
+        return {"keel": "", "plugins": {}}
+    keel = req.get("keel") or ""
+    if not isinstance(keel, str) or not valid_spec(keel):
+        errors.append(f"requires.keel: a version range like '>=0.17.2,<1.0.0' (got {keel!r})")
+        keel = ""
+    raw = req.get("plugins") or {}
+    if isinstance(raw, list):
+        raw = {p: "" for p in raw}
+    plugins: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        errors.append("requires.plugins: plugin names, or a map of plugin name to a version range")
+        raw = {}
+    for name, spec in raw.items():
+        spec = "" if spec is None else spec
+        if not isinstance(name, str) or not PLUGIN.match(name):
+            errors.append(f"requires.plugins: {name!r} is not a plugin name")
+        elif not isinstance(spec, str) or not valid_spec(spec):
+            errors.append(f"requires.plugins.{name}: a version range like '>=1.0.0' (got {spec!r})")
+        else:
+            plugins[name] = spec.strip()
+    return {"keel": keel.strip(), "plugins": plugins}
+
+
 def validate_pack(data: Any) -> tuple[dict | None, list[str]]:
     errors: list[str] = []
     if not isinstance(data, dict):
-        return None, ["a rule pack is a YAML map with id, name and rules"]
-    pid = str(data.get("id") or "")
+        return None, ["a rule pack is a YAML map: schema, kind, name, title, version, rules (docs/rules/pack-format.md)"]
+    if data.get("schema") != SCHEMA:
+        errors.append(f"schema: {SCHEMA} (the rule pack format's version)")
+    if data.get("kind", "rules") != "rules":
+        errors.append("kind: rules (a rule pack; a plugin has a keel-plugin.yml instead)")
+    pid = str(data.get("name") or "")
     if not ID.match(pid):
-        errors.append("id: lower-case letters, digits and dashes (it is the file name)")
-    if not str(data.get("name") or "").strip():
-        errors.append("name: say in a few words what the pack does")
+        errors.append("name: lower-case letters, digits and dashes; it is the pack's id and file name")
+    if not str(data.get("title") or "").strip():
+        errors.append("title: say in a few words what the pack does")
+    version = str(data.get("version") or "")
+    if not VERSION.match(version):
+        errors.append(f"version: like 1.0.0 (got {version!r})")
+    publisher = str(data.get("publisher") or "local")
+    if not ID.match(publisher):
+        errors.append("publisher: lower-case letters, digits and dashes (local for your own packs)")
+    requires = _requires(data, errors)
     raw = data.get("rules")
     if not isinstance(raw, list) or not raw:
         errors.append("rules: a list with at least one rule")
@@ -124,8 +183,38 @@ def validate_pack(data: Any) -> tuple[dict | None, list[str]]:
                     "reason": str(r.get("reason") or "").strip()})
     if errors:
         return None, errors
-    return {"id": pid, "name": str(data["name"]).strip(), "description": str(data.get("description") or "").strip(),
+    summary = str(data.get("summary") or "").strip()
+    return {"schema": SCHEMA, "kind": "rules", "id": pid, "name": pid, "title": str(data["title"]).strip(), "version": version,
+            "publisher": publisher, "summary": summary, "requires": requires,
             **({"stack": str(data["stack"])} if data.get("stack") else {}), "rules": out}, []
+
+
+def keel_fits(pack: dict) -> str | None:
+    """Why this keel cannot use the pack (requires.keel), else None."""
+    spec = (pack.get("requires") or {}).get("keel") or ""
+    if not spec:
+        return None
+    from .. import config
+    from ..addons import satisfies
+
+    return None if satisfies(config.VERSION, spec) else f"needs keel {spec}; this keel is {config.VERSION}"
+
+
+def index(root: str | Path) -> dict[str, dict]:
+    """{name: {version, source, at, edited?}} of the installed packs; {} when there is none or it cannot be read."""
+    try:
+        data = json.loads((folder(root) / INDEX).read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_index(root: str | Path, data: dict) -> None:
+    d = folder(root)
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / (INDEX + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    tmp.replace(d / INDEX)
 
 
 def load_packs(root: str | Path | None) -> tuple[list[dict], list[dict]]:
@@ -136,6 +225,7 @@ def load_packs(root: str | Path | None) -> tuple[list[dict], list[dict]]:
     if not d.is_dir():
         return [], []
     packs, errors = [], []
+    installed = index(root)
     for f in sorted(d.glob("*.y*ml")):
         rel = f"{FOLDER.as_posix()}/{f.name}"
         try:
@@ -143,9 +233,14 @@ def load_packs(root: str | Path | None) -> tuple[list[dict], list[dict]]:
         except OSError as exc:
             pack, errs = None, [str(exc)]
         if pack and pack["id"] != f.stem:
-            pack, errs = None, [f"id {pack['id']} is not the file name {f.stem}"]
+            pack, errs = None, [f"name {pack['id']} is not the file name {f.stem}"]
+        if pack and keel_fits(pack):
+            pack, errs = None, [keel_fits(pack)]
         if pack:
-            packs.append({**pack, "file": rel})
+            got = installed.get(pack["id"]) or {}
+            packs.append({**pack, "file": rel, "source": got.get("source") or "file",
+                          **({"installed_at": got["at"]} if got.get("at") else {}),
+                          **({"edited": True} if got.get("edited") or (got.get("version") and got["version"] != pack["version"]) else {})})
         else:
             errors.append({"file": rel, "errors": errs})
     return packs, errors

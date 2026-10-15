@@ -1,8 +1,14 @@
 # keel rule pack for Python projects (uv, poetry, pip).
-id: stack-python
-name: Python
+schema: 1
+kind: rules
+name: stack-python
+title: Python
+version: 1.0.0
+publisher: keel
+summary: The Python version and the lockfiles are changed by a person; no installs outside the project's tool.
 stack: python
-description: The Python version and the lockfiles are changed by a person; no installs outside the project's tool.
+requires:
+  keel: ">=0.17.2"
 rules:
   - id: no-python-version
     kind: edit

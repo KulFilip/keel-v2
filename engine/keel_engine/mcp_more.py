@@ -287,7 +287,7 @@ def edit_workflow(api: KeelApi, workflow: str, yaml_text: str, project: str | No
 
 
 
-# ---------------------------------------------------------------- v0.16.2 rules
+# ---------------------------------------------------------------- v0.17.2 rules
 
 WHEN = {"before": "before", "wrapped": "before (some commands)", "after": "after the step", "none": "not checked"}
 
@@ -312,7 +312,8 @@ def rules(api: KeelApi, project: str | None = None, thread: str | None = None) -
     packs = v.get("packs") or []
     out += ["", "Rule packs:" if packs else "Rule packs: none (keel_rule_install adds one from the library)."]
     for pk in packs:
-        out.append(f"  {pk['id']}{' [OFF]' if pk.get('off') else ''} — {pk['name']}: {pk.get('description') or ''} ({pk.get('file')})")
+        out.append(f"  {pk['id']} {pk.get('version')}{' [OFF]' if pk.get('off') else ''} — {pk['title']}: {pk.get('summary') or ''} "
+                   f"({pk.get('source')}, {pk.get('file')})")
         out += [f"    {r['kind']} {r['match']} ({r['phases']}): {r['reason']}  [{_engines(r.get('enforced'))}]" for r in pk.get("rules") or []]
     for err in v.get("pack_errors") or []:
         out.append(f"  NOT USED {err['file']}: {'; '.join(err['errors'])}")
@@ -342,8 +343,10 @@ def rule_install(api: KeelApi, pack: str, project: str | None = None) -> str:
     p = _project(api, project)
     if not any(x.get("id") == pack for x in rule_library(api)):
         return "keel: no rule pack " + pack + " in the library. There are: " + ", ".join(x["id"] for x in rule_library(api))
-    r = api.post(f"/projects/{_q(p['id'])}/rules/library/{_q(pack)}/install", {}) or {}
-    return f"Installed {r.get('pack', {}).get('name', pack)} in .keel/rules/{pack}.yaml. Agents meet it at their next tool call."
+    r = api.post(f"/projects/{_q(p['id'])}/rule-packs/install", {"source": "library", "name": pack}) or {}
+    got = r.get("pack") or {}
+    return (f"Installed {got.get('title', pack)} {got.get('version', '')} in .keel/rules/{pack}.yaml. Agents meet it at their "
+            "next tool call; commit the file to share it.")
 
 
 def rule_edit(api: KeelApi, op: str, pack: str | None = None, yaml_text: str | None = None, rule: str | None = None,

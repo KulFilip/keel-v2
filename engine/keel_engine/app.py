@@ -215,6 +215,20 @@ class RulePackBody(BaseModel):
     replace: str | None = None     # the id of the pack being edited
 
 
+class RuleInstallBody(BaseModel):
+    root: str
+    source: Literal["library", "file", "marketplace"]
+    name: str | None = None        # the pack's name (its id); a library install needs it
+    version: str | None = None     # optional: install exactly this version
+    yaml: str | None = None        # the pack itself, for a file or a marketplace install
+    replace: bool = False          # another version is installed: replace it (upgrade or downgrade)
+
+
+class RuleUninstallBody(BaseModel):
+    root: str
+    name: str
+
+
 class RuleCheckBody(BaseModel):
     yaml: str
     calls: list[dict[str, Any]] = Field(default_factory=list)   # recorded tool calls for the dry-run
@@ -434,7 +448,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_unlocks(tid: str, request: Request):
         return await engine(request).unlocks(tid)
 
-    # ---- v0.16.2 rules: the Rules page and "Rules now" (runtime/rules_view.py)
+    # ---- v0.17.2 rules: the Rules page and "Rules now" (runtime/rules_view.py)
     @app.get("/threads/{tid}/rules-now")
     async def get_rules_now(tid: str, request: Request):
         return await engine(request).rules_now(tid)
@@ -452,8 +466,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         return await asyncio.to_thread(rules_view.library)
 
     @app.get("/rules/library/{pack_id}")
-    async def get_rules_library_pack(pack_id: str):
-        return {"yaml": await asyncio.to_thread(rules_view.library_pack, pack_id)}
+    async def get_rules_library_pack(pack_id: str, version: str | None = None):
+        return {"yaml": await asyncio.to_thread(rules_view.library_pack, pack_id, version)}
 
     @app.post("/rules/check")
     async def post_rules_check(body: RuleCheckBody):
@@ -465,8 +479,25 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/rules/packs")
     async def post_rule_pack(body: RulePackBody):
         root = project_root(body.root)
-        pack = await asyncio.to_thread(rules_view.save_pack, root, body.yaml, body.replace)
+        pack = await asyncio.to_thread(rules_view.save_pack, root, body.yaml, body.replace, None if body.replace else "file")
         return {"pack": pack, "view": await asyncio.to_thread(rules_view.view, root)}
+
+    # v0.17.2 rule packs as installable items (a marketplace install calls these through the api)
+    @app.get("/rules/packs")
+    async def get_rule_packs(root: str):
+        return await asyncio.to_thread(rules_view.installed, project_root(root))
+
+    @app.post("/rules/packs/install")
+    async def post_rule_pack_install(body: RuleInstallBody):
+        root = project_root(body.root)
+        pack = await asyncio.to_thread(rules_view.install, root, body.source, body.name, body.version, body.yaml, body.replace)
+        return {"pack": pack, "installed": await asyncio.to_thread(rules_view.installed, root)}
+
+    @app.post("/rules/packs/uninstall")
+    async def post_rule_pack_uninstall(body: RuleUninstallBody):
+        root = project_root(body.root)
+        await asyncio.to_thread(rules_view.remove_pack, root, body.name)
+        return {"installed": await asyncio.to_thread(rules_view.installed, root)}
 
     @app.get("/rules/packs/{pack_id}")
     async def get_rule_pack(pack_id: str, root: str):

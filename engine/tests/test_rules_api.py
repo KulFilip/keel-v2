@@ -1,4 +1,4 @@
-"""0.16.2 Rules page and "Rules now": the engine's /rules endpoints (runtime/rules_view.py), the library, pack
+"""0.17.2 Rules page and "Rules now": the engine's /rules endpoints (runtime/rules_view.py), the library, pack
 install/edit/remove, config edits that keep the rest of .keel/config.yml, the dry-run, and a fake agent refused by a
 pack while a flow runs."""
 
@@ -218,3 +218,58 @@ def test_shell_rules_say_when_only_the_wrappers_check_them():
     lib = {p["id"]: p for p in rules_view.library()}
     install = next(r for r in lib["no-new-dependencies"]["rules"] if r["id"] == "no-install")
     assert install["enforced"]["claude"] == "before" and install["enforced"]["copilot"] == "wrapped"
+
+
+# ------------------------------------------------------------------ v0.17.2 installable packs (library, file, marketplace)
+
+def test_install_records_source_and_version_and_upgrades_only_on_purpose(client, tmp_path):
+    r = project(tmp_path)
+    out = client.post("/rules/packs/install", json={"root": str(r), "source": "library", "name": "strict-secrets", "version": "1.0.0"})
+    assert out.status_code == 200, out.text
+    first = out.json()["installed"][0]
+    assert {k: first[k] for k in ("name", "version", "source", "publisher")} == {"name": "strict-secrets", "version": "1.0.0",
+                                                                                 "source": "library", "publisher": "keel"}
+    text = (r / ".keel/rules/strict-secrets.yaml").read_text()
+    assert text == client.get("/rules/library/strict-secrets").json()["yaml"]          # the file as published
+    idx = __import__("json").loads((r / ".keel/rules/.installed.json").read_text())
+    assert idx["strict-secrets"]["source"] == "library" and idx["strict-secrets"]["version"] == "1.0.0"
+    again = client.post("/rules/packs/install", json={"root": str(r), "source": "library", "name": "strict-secrets"})
+    assert again.status_code == 409 and "installed already" in again.json()["error"]
+    assert client.post("/rules/packs/install", json={"root": str(r), "source": "library", "name": "strict-secrets",
+                                                     "version": "9.9.9"}).status_code == 404
+    # the marketplace hands over a newer version of the same pack: it replaces only with replace
+    newer = text.replace("version: 1.0.0", "version: 1.1.0")
+    body = {"root": str(r), "source": "marketplace", "yaml": newer}
+    assert client.post("/rules/packs/install", json=body).status_code == 409
+    got = client.post("/rules/packs/install", json={**body, "replace": True}).json()
+    assert got["pack"]["source"] == "marketplace" and got["installed"][0]["version"] == "1.1.0"
+    # a file install, then an edit through the page: the source stays, a library pack is marked edited
+    mine = "schema: 1\nname: mine\ntitle: Mine\nversion: 0.1.0\nrules: [{id: r, kind: bash, match: [terraform apply], reason: Not here.}]\n"
+    assert client.post("/rules/packs/install", json={"root": str(r), "source": "file", "yaml": mine}).status_code == 200
+    lst = {p["name"]: p for p in client.get("/rules/packs", params={"root": str(r)}).json()}
+    assert lst["mine"]["source"] == "file" and lst["mine"]["publisher"] == "local"
+    client.post("/rules/packs/install", json={"root": str(r), "source": "library", "name": "no-new-dependencies"})
+    lib_text = (r / ".keel/rules/no-new-dependencies.yaml").read_text()
+    client.post("/rules/packs", json={"root": str(r), "yaml": lib_text.replace("Agents never add", "Nobody adds"), "replace": "no-new-dependencies"})
+    lst = {p["name"]: p for p in client.get("/rules/packs", params={"root": str(r)}).json()}
+    assert lst["no-new-dependencies"]["source"] == "library" and lst["no-new-dependencies"]["edited"] is True
+    # uninstall removes the file and the record
+    assert client.post("/rules/packs/uninstall", json={"root": str(r), "name": "mine"}).status_code == 200
+    assert not (r / ".keel/rules/mine.yaml").exists() and "mine" not in __import__("json").loads((r / ".keel/rules/.installed.json").read_text())
+    assert client.post("/rules/packs/uninstall", json={"root": str(r), "name": "mine"}).status_code == 404
+
+
+def test_an_older_library_install_shows_the_update(client, tmp_path):
+    r = project(tmp_path)
+    text = client.get("/rules/library/no-new-dependencies").json()["yaml"].replace("version: 1.0.0", "version: 0.9.0")
+    rules_view.save_pack(str(r), text, None, "library")
+    lst = client.get("/rules/packs", params={"root": str(r)}).json()
+    assert lst[0]["update"] == "1.0.0"
+    assert client.get("/rules", params={"root": str(r)}).json()["packs"][0]["update"] == "1.0.0"
+
+
+def test_a_pack_for_a_newer_keel_is_refused(client, tmp_path):
+    r = project(tmp_path)
+    future = "schema: 1\nname: f\ntitle: F\nversion: 1.0.0\nrequires: {keel: '>=99.0.0'}\nrules: [{id: r, kind: bash, match: [x], reason: y}]\n"
+    out = client.post("/rules/packs/install", json={"root": str(r), "source": "file", "yaml": future})
+    assert out.status_code == 422 and "needs keel >=99.0.0" in out.json()["error"]

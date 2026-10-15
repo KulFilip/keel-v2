@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.16.2 keel's rules: the api gives the engine the project's folder, and adds what only it has (the events). */
+/** v0.17.2 keel's rules: the api gives the engine the project's folder, and adds what only it has (the events). */
 class RulesApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
 
@@ -23,16 +23,17 @@ class RulesApiTest : ApiTest() {
         val (pid, root) = newProject("rules-view")
         engine.extraRoutes["/rules"] = { _ -> 200 to mapOf("builtins" to emptyList<Any>(), "packs" to emptyList<Any>()) }
         engine.extraRoutes["/rules/packs"] = { b -> 200 to mapOf("pack" to mapOf("id" to b?.path("yaml")?.asText()?.substringAfter("id: ")?.substringBefore("\n"))) }
-        engine.extraRoutes["/rules/library/no-new-dependencies"] = { _ -> 200 to mapOf("yaml" to "id: no-new-dependencies\n") }
+        engine.extraRoutes["/rules/packs/install"] = { b -> 200 to mapOf("pack" to mapOf("name" to b?.path("name")?.asText(), "source" to b?.path("source")?.asText())) }
         engine.extraRoutes["/rules/config"] = { _ -> 200 to mapOf("ok" to true) }
         get("/api/projects/$pid/rules").andExpect(status().isOk)
         // the folder is encoded once: decoded, the query is the folder itself (a double encoding leaves %2F in it)
         val query = engine.calls.last { it.path == "/rules" }.query ?: ""
         assertThat(java.net.URLDecoder.decode(query, Charsets.UTF_8)).isEqualTo("root=$root")
 
-        post("/api/projects/$pid/rules/library/no-new-dependencies/install").andExpect(status().isOk)
-        assertThat(engine.lastBody("/rules/packs")!!["root"].asText()).isEqualTo(root.toString())
-        assertThat(engine.lastBody("/rules/packs")!!["yaml"].asText()).isEqualTo("id: no-new-dependencies\n")
+        val lib = post("/api/projects/$pid/rules/library/no-new-dependencies/install").andExpect(status().isOk).json()
+        assertThat(lib["pack"]["source"].asText()).isEqualTo("library")
+        assertThat(engine.lastBody("/rules/packs/install")!!["root"].asText()).isEqualTo(root.toString())
+        assertThat(engine.lastBody("/rules/packs/install")!!["name"].asText()).isEqualTo("no-new-dependencies")
 
         put("/api/projects/$pid/rules/packs/mine", mapOf("yaml" to "id: mine\n")).andExpect(status().isOk)
         assertThat(engine.lastBody("/rules/packs")!!["replace"].asText()).isEqualTo("mine")
@@ -45,10 +46,12 @@ class RulesApiTest : ApiTest() {
     @Test
     fun `export is a yaml download`() {
         val (pid, _) = newProject("rules-export")
-        engine.extraRoutes["/rules/packs/mine"] = { _ -> 200 to mapOf("yaml" to "id: mine\nname: Mine\n") }
+        engine.extraRoutes["/rules/packs/mine"] = { _ -> 200 to mapOf("yaml" to "name: mine\ntitle: Mine\n") }
+        engine.extraRoutes["/rules/packs"] = { _ -> 200 to listOf(mapOf("name" to "mine", "version" to "1.2.0", "source" to "file")) }
         val res = get("/api/projects/$pid/rules/packs/mine/export").andExpect(status().isOk)
-            .andExpect(header().string("Content-Disposition", "attachment; filename=mine.rules.yaml")).andReturn()
-        assertThat(res.response.contentAsString).isEqualTo("id: mine\nname: Mine\n")
+            .andExpect(header().string("Content-Disposition", "attachment; filename=mine-1.2.0.rules.yaml")).andReturn()
+        assertThat(res.response.contentAsString).isEqualTo("name: mine\ntitle: Mine\n")
+        engine.extraRoutes.remove("/rules/packs")
     }
 
     @Test
@@ -94,6 +97,31 @@ class RulesApiTest : ApiTest() {
         val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Client" to "test", "X-Keel-Tool" to "t")
         post("/api/projects/$pid/rules/packs", mapOf("yaml" to "id: x\n"), mcp).andExpect(status().isForbidden)
         assertThat(post("/api/projects/$pid/rules/check", mapOf("yaml" to "id: x\n"), mcp).andReturn().response.status).isNotEqualTo(403)
+    }
+
+    @Test
+    fun `rule packs install, list and uninstall for a marketplace, which needs the admin MCP level`() {
+        val (pid, root) = newProject("rule-packs")
+        engine.extraRoutes["/rules/packs"] = { _ -> 200 to listOf(mapOf("name" to "strict-secrets", "version" to "1.0.0", "source" to "marketplace")) }
+        engine.extraRoutes["/rules/packs/install"] = { b -> 200 to mapOf("pack" to mapOf("name" to "strict-secrets", "source" to b?.path("source")?.asText())) }
+        engine.extraRoutes["/rules/packs/uninstall"] = { _ -> 200 to mapOf("installed" to emptyList<Any>()) }
+        val list = get("/api/projects/$pid/rule-packs").andExpect(status().isOk).json()
+        assertThat(list[0]["source"].asText()).isEqualTo("marketplace")
+        assertThat(java.net.URLDecoder.decode(engine.calls.last { it.path == "/rules/packs" }.query ?: "", Charsets.UTF_8)).isEqualTo("root=$root")
+        val body = mapOf("source" to "marketplace", "yaml" to "schema: 1\nname: strict-secrets\n", "version" to "1.0.0", "replace" to true)
+        post("/api/projects/$pid/rule-packs/install", body).andExpect(status().isOk)
+        val sent = engine.lastBody("/rules/packs/install")!!
+        assertThat(sent["source"].asText()).isEqualTo("marketplace")
+        assertThat(sent["replace"].asBoolean()).isTrue()
+        assertThat(sent["root"].asText()).isEqualTo(root.toString())
+        post("/api/projects/$pid/rule-packs/install", mapOf("source" to "somewhere")).andExpect(status().isBadRequest)
+        post("/api/projects/$pid/rule-packs/install", mapOf("source" to "library", "name" to "Bad Name")).andExpect(status().isBadRequest)
+        post("/api/projects/$pid/rule-packs/uninstall", mapOf("name" to "strict-secrets")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/rules/packs/uninstall")!!["name"].asText()).isEqualTo("strict-secrets")
+        val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Client" to "test", "X-Keel-Tool" to "t")
+        post("/api/projects/$pid/rule-packs/install", body, mcp).andExpect(status().isForbidden)
+        post("/api/projects/$pid/rule-packs/uninstall", mapOf("name" to "x"), mcp).andExpect(status().isForbidden)
+        engine.extraRoutes.remove("/rules/packs")
     }
 
     @Test

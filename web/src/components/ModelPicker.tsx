@@ -436,7 +436,7 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
   );
 }
 
-/** v0.16.2 engines keel cannot check before every action (Rules page, "How each engine is checked"). */
+/** v0.17.2 engines keel cannot check before every action (Rules page, "How each engine is checked"). */
 const GUARD_NOTE: Record<string, string> = {
   copilot: "keel checks Copilot's shell commands before they run; its file edits are only checked after each step.",
   codex: "keel checks Codex before every action from codex 0.150 on; an older codex is only checked after each step.",

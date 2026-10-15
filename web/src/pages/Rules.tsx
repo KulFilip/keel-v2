@@ -1,4 +1,4 @@
-// v0.16.2 Build › Rules: every rule keel applies in this project, in plain words — what it does, when (phases), which
+// v0.17.2 Build › Rules: every rule keel applies in this project, in plain words — what it does, when (phases), which
 // engines check it before the action or only after the step, and where it is saved. Rule packs install from a library
 // like workflows, or you write your own (form or YAML).
 
@@ -8,6 +8,8 @@ import { Async, Confirm, ErrorBox, PageHead, Panel } from "../components/ui";
 import { LibraryDrawer, PackDrawer, ImportPackDrawer } from "../components/RuleDrawers";
 import { useApp, useLoad } from "../state";
 import { rulesApi, KIND_WORDS, WHEN_WORDS, type Engine, type Enforced, type RuleList, type RulePack, type RulesView, type When } from "../rulesApi";
+
+const SOURCE_WORDS: Record<string, string> = { library: "from keel's library", file: "your own", marketplace: "from the marketplace" };
 
 const ENGINES: [Engine, string][] = [["claude", "Claude"], ["opencode", "OpenCode"], ["codex", "Codex"], ["copilot", "Copilot"], ["api", "API key"]];
 const ICON: Record<When, string> = { before: "✓", wrapped: "◐", after: "↺", none: "✗" };
@@ -91,7 +93,7 @@ function Packs({ pid, v, onView, onEdit, onLibrary }: { pid: string; v: RulesVie
     if (p.off) current.delete(`pack/${p.id}`); else current.add(`pack/${p.id}`);
     try {
       onView(await rulesApi.setConfig(pid, { rules: { off: [...current] } }));
-      toast(`${p.name} is ${p.off ? "on" : "off"}. Running flows see it at their next tool call.`);
+      toast(`${p.title} is ${p.off ? "on" : "off"}. Running flows see it at their next tool call.`);
     } catch (e) {
       const x = errorParts(e);
       toast(x.hint ? `${x.message} ${x.hint}` : x.message);
@@ -101,7 +103,7 @@ function Packs({ pid, v, onView, onEdit, onLibrary }: { pid: string; v: RulesVie
     setBusy(true);
     try {
       onView(await rulesApi.remove(pid, p.id));
-      toast(`${p.name} removed (${p.file}).`);
+      toast(`${p.title} removed (${p.file}).`);
     } catch (e) {
       toast(errorParts(e).message);
     } finally {
@@ -122,16 +124,19 @@ function Packs({ pid, v, onView, onEdit, onLibrary }: { pid: string; v: RulesVie
       ) : v.packs.map((p) => (
         <div key={p.id} className={`rl-pack${p.off ? " rl-off" : ""}`} data-pack={p.id}>
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div><b>{p.name}</b> {p.off && <span className="tag">off</span>}<div className="sub">{p.description}</div>
-              <div className="hint">saved in <span className="mono">{p.file}</span></div></div>
+            <div><b>{p.title}</b> <span className="tag">v{p.version}</span> <span className="tag" title="where it came from">{SOURCE_WORDS[p.source ?? "file"]}{p.edited ? ", edited" : ""}</span>
+              {p.off && <span className="tag">off</span>}{p.update && <span className="tag new" title="keel's library has a newer version">update: v{p.update}</span>}
+              <div className="sub">{p.summary}</div>
+              <div className="hint">by {p.publisher} · saved in <span className="mono">{p.file}</span>{p.requires?.keel ? ` · needs keel ${p.requires.keel}` : ""}
+                {p.requires && Object.keys(p.requires.plugins).length ? ` · needs plugins ${Object.keys(p.requires.plugins).join(", ")}` : ""}</div></div>
             <div className="row">
-              <label className="chk"><input type="checkbox" checked={!p.off} onChange={() => switchPack(p)} aria-label={`${p.name} on`} /> on</label>
+              <label className="chk"><input type="checkbox" checked={!p.off} onChange={() => switchPack(p)} aria-label={`${p.title} on`} /> on</label>
               <button className="btn sm" type="button" onClick={() => onEdit(p)}>Edit</button>
               <a className="btn sm ghost" href={rulesApi.exportUrl(pid, p.id)} download={`${p.id}.rules.yaml`} style={{ textDecoration: "none" }}>Export</a>
               <button className="btn sm ghost" type="button" onClick={() => setRemoving(p.id)}>Remove</button>
             </div>
           </div>
-          {removing === p.id && <Confirm text={`Remove ${p.name}? This deletes ${p.file}.`} yes="Remove" busy={busy} onYes={() => remove(p)} onNo={() => setRemoving(null)} />}
+          {removing === p.id && <Confirm text={`Remove ${p.title}? This deletes ${p.file}.`} yes="Remove" busy={busy} onYes={() => remove(p)} onNo={() => setRemoving(null)} />}
           <RuleTable rules={p.rules.map((r) => ({
             key: r.id, what: <><span className="tag">{KIND_WORDS[r.kind]}</span> {r.reason}</>,
             detail: <span className="mono">{r.match.join(", ")}{r.except?.length ? ` · except ${r.except.join(", ")}` : ""}</span>,

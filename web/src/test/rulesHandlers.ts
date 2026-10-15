@@ -1,4 +1,4 @@
-// v0.16.2: MSW handlers for keel's rules (Build › Rules, "Rules now" on the Flow page), over a small in-memory copy of
+// v0.17.2: MSW handlers for keel's rules (Build › Rules, "Rules now" on the Flow page), over a small in-memory copy of
 // the engine's rules view (runtime/rules_view.py).
 
 import { http, HttpResponse } from "msw";
@@ -7,9 +7,13 @@ import type { Enforced, RulePack, RulesNow, RulesView } from "../rulesApi";
 const ALL: Enforced = { claude: "before", opencode: "before", codex: "before", copilot: "after", api: "before" };
 const SHELL: Enforced = { ...ALL, copilot: "wrapped" };
 
-export const NO_DEPS_YAML = `id: no-new-dependencies
-name: No new dependencies
-description: Agents never add a package.
+export const NO_DEPS_YAML = `schema: 1
+kind: rules
+name: no-new-dependencies
+title: No new dependencies
+version: 1.0.0
+publisher: keel
+summary: Agents never add a package.
 rules:
   - id: no-install
     kind: bash
@@ -18,9 +22,11 @@ rules:
 `;
 
 export const libraryPacks = (): RulePack[] => [
-  { id: "no-new-dependencies", name: "No new dependencies", description: "Agents never add a package.", yaml: NO_DEPS_YAML,
+  { id: "no-new-dependencies", name: "no-new-dependencies", title: "No new dependencies", version: "1.0.0", publisher: "keel",
+    summary: "Agents never add a package.", yaml: NO_DEPS_YAML,
     rules: [{ id: "no-install", kind: "bash", match: ["npm install", "pnpm add"], how: "contains", phases: "all", reason: "Adding a package is a person's decision.", enforced: SHELL }] },
-  { id: "strict-secrets", name: "Strict secrets", description: "Key files are never read.", yaml: "id: strict-secrets\n",
+  { id: "strict-secrets", name: "strict-secrets", title: "Strict secrets", version: "1.0.0", publisher: "keel",
+    summary: "Key files are never read.", yaml: "schema: 1\nname: strict-secrets\n",
     rules: [{ id: "no-key-files", kind: "read", match: ["**/*.pem"], how: "glob", phases: "all", reason: "Keys stay out of the conversation.", enforced: { ...ALL, copilot: "none" } }] },
 ];
 
@@ -38,7 +44,8 @@ export function rulesView(packs: RulePack[] = [], off: string[] = []): RulesView
       { key: "guards.read_guard_max_lines", kind: "read", words: "A file with more lines than this is read in parts. 0 = off.", form: "number", value: 2000, default: 2000, enforced: ALL, saved_in: ".keel/config.yml" },
       { key: "rules.push_gate", kind: "shell", words: "The push gate.", form: "bool", value: true, default: true, enforced: SHELL, saved_in: "keel's default (saved to .keel/config.yml when you change it)" },
     ],
-    packs: packs.map((p) => ({ ...p, off: off.includes(`pack/${p.id}`), file: `.keel/rules/${p.id}.yaml`, saved_in: `.keel/rules/${p.id}.yaml` })),
+    packs: packs.map((p) => ({ ...p, off: off.includes(`pack/${p.id}`), file: `.keel/rules/${p.id}.yaml`, saved_in: `.keel/rules/${p.id}.yaml`,
+      source: p.source ?? "file" })),
     pack_errors: [],
     engines: [
       { engine: "claude", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
@@ -92,17 +99,18 @@ export function rulesHandlers(db: RulesDb, log: (req: Request) => Promise<unknow
     }),
     http.post("/api/projects/:pid/rules/library/:id/install", async ({ request, params }) => {
       await log(request);
-      const p = libraryPacks().find((x) => x.id === params.id)!;
+      const p = { ...libraryPacks().find((x) => x.id === params.id)!, source: "library" as const };
       db.installed.push(p);
       return HttpResponse.json({ pack: p, view: view() });
     }),
     http.post("/api/projects/:pid/rules/packs", async ({ request }) => {
       await log(request);
       const { yaml } = (await request.clone().json()) as { yaml: string };
-      const id = /id:\s*(\S+)/.exec(yaml)?.[1] ?? "x";
-      const name = /name:\s*(.+)/.exec(yaml)?.[1] ?? id;
+      const id = /^name:\s*(\S+)/m.exec(yaml)?.[1] ?? "x";
+      const title = /^title:\s*(.+)/m.exec(yaml)?.[1] ?? id;
       if (!/rules:/.test(yaml)) return HttpResponse.json({ error: "The rule pack is not valid.", hint: "rules: a list with at least one rule" }, { status: 422 });
-      const p: RulePack = { id, name, description: "", rules: [{ id: "r", kind: "bash", match: ["x"], how: "contains", phases: "all", reason: "because" }] };
+      const p: RulePack = { id, name: id, title, version: "1.0.0", publisher: "local", summary: "", source: "file",
+        rules: [{ id: "r", kind: "bash", match: ["x"], how: "contains", phases: "all", reason: "because" }] };
       db.installed.push(p);
       return HttpResponse.json({ pack: p, view: view() });
     }),

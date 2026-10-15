@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController
 
 data class RulePackBody(val yaml: String = "")
 
-/** v0.16.2 the Rules page and "Rules now" (RulesService). Writes are admin for MCP clients (McpLevels.kt). */
+/** v0.17.2 the Rules page and "Rules now" (RulesService). Writes are admin for MCP clients (McpLevels.kt). */
 @RestController
 @RequestMapping("/api")
 class RulesController(private val rules: RulesService) {
@@ -48,12 +48,23 @@ class RulesController(private val rules: RulesService) {
     fun export(@PathVariable pid: String, @PathVariable id: String): ResponseEntity<String> =
         ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("text/yaml;charset=UTF-8"))
-            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=$id.rules.yaml")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=${rules.exportName(pid, id)}")
             .body(rules.export(pid, id))
 
     /** Validate a pack and dry-run it on the project's recent tool calls. Saves nothing. */
     @PostMapping("/projects/{pid}/rules/check")
     fun check(@PathVariable pid: String, @RequestBody body: RulePackBody): JsonNode = rules.check(pid, body.yaml)
+
+    // ---- v0.17.2 rule packs as installable items (a marketplace install calls these)
+
+    @GetMapping("/projects/{pid}/rule-packs")
+    fun installed(@PathVariable pid: String): JsonNode = rules.installed(pid)
+
+    @PostMapping("/projects/{pid}/rule-packs/install")
+    fun installPack(@PathVariable pid: String, @RequestBody body: RulePackInstall): JsonNode = rules.installPack(pid, body)
+
+    @PostMapping("/projects/{pid}/rule-packs/uninstall")
+    fun uninstall(@PathVariable pid: String, @RequestBody body: RulePackName): JsonNode = rules.uninstall(pid, body.name)
 
     @GetMapping("/threads/{tid}/rules-now")
     fun now(@PathVariable tid: String): JsonNode = rules.now(tid)

@@ -93,8 +93,10 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
   tool calls it would have refused. Export and Import move a pack between projects.
 
 ```yaml
-id: no-deploys
-name: No deploys
+schema: 1
+name: no-deploys          # the id and the file name: .keel/rules/no-deploys.yaml
+title: No deploys
+version: 1.0.0
 rules:
   - id: no-kubectl
     kind: bash            # bash | edit | read | mcp
@@ -102,6 +104,11 @@ rules:
     phases: all           # all | in-flow | none | [green, refactor]
     reason: Deploys are a person's job.
 ```
+
+The whole format (publisher, summary, `requires`, every field of a rule) is in
+[docs/rules/pack-format.md](rules/pack-format.md). A pack file is shaped like a plugin's manifest, so the same file can
+later come from the Marketplace; the Rules page shows where each pack came from (keel's library, your own, the
+marketplace) and its version.
 
 **Which engine checks what, when.** Each rule on the page shows one sign per engine:
 
@@ -359,6 +366,8 @@ The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs
 (they ask first when agents are working). Each added folder is mounted at the **same path** as on your computer, and
 every git repo in it becomes a project (a folder of repos: each repo directly inside it). More repos later? All
 projects › Add projects lets you pick them. A folder that no longer exists is skipped (`keel2 folders` marks it).
+
+**A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.
 
 ## Problems
 

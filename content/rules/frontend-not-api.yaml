@@ -1,7 +1,13 @@
 # keel rule pack: a frontend criterion never touches the backend.
-id: frontend-not-api
-name: Frontend can't touch the API
-description: While an agent works on a web criterion, the backend, the contract and the migrations are off limits.
+schema: 1
+kind: rules
+name: frontend-not-api
+title: Frontend can't touch the API
+version: 1.0.0
+publisher: keel
+summary: While an agent works on a web criterion, the backend, the contract and the migrations are off limits.
+requires:
+  keel: ">=0.17.2"
 rules:
   - id: web-lane-no-api
     kind: edit

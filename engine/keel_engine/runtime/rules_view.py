@@ -1,4 +1,4 @@
-"""The Rules page and "Rules now" (v0.16.2): every rule a project has, in plain words, and changes to them.
+"""The Rules page and "Rules now" (v0.17.2): every rule a project has, in plain words, and changes to them.
 
     view(root)                    built-in rules, the project's lists (.keel/config.yml), its rule packs, the engines
     set_config(root, patch)       change guards / mcp / rules / boundaries in .keel/config.yml (only those blocks)
@@ -7,7 +7,7 @@
     dry_run(text, calls)          which of these recent tool calls the pack would have refused
     now(root, phase, lane, ...)   what agents may change right now, for the Flow page
 
-Rules are files in the project (docs/plans/0.16.2.md decision 2): the guard reads them on every tool call.
+Rules are files in the project (docs/plans/0.17.2.md decision 2): the guard reads them on every tool call.
 """
 
 from __future__ import annotations
@@ -141,7 +141,8 @@ def view(root: str) -> dict:
         lists.append({"key": key, "kind": kind, "words": words, "form": form, "value": value,
                       "default": _get(rules.DEFAULT_CONFIG, key), "enforced": _merge_enforced(kind, value if form == "texts" else None),
                       "saved_in": CONFIG if mine is not None else "keel's default (saved to .keel/config.yml when you change it)"})
-    packs = [{**p, "off": f"pack/{p['id']}" in off, "saved_in": p["file"],
+    lib = {x["name"]: x for x in installed(root)}
+    packs = [{**p, "off": f"pack/{p['id']}" in off, "saved_in": p["file"], **({"update": lib[p["id"]]["update"]} if lib.get(p["id"], {}).get("update") else {}),
               "rules": [{**r, "enforced": _merge_enforced(r["kind"], r["match"] if r["kind"] == "bash" else None, r.get("how"))}
                         for r in p["rules"]]} for p in cfg.get("packs") or []]
     return {"configured": bool(cfg.get("configured")), "config_file": CONFIG, "rules_folder": packs_mod.FOLDER.as_posix(),
@@ -266,10 +267,12 @@ def library() -> list[dict]:
     return out
 
 
-def library_pack(pack_id: str) -> str:
+def library_pack(pack_id: str, version: str | None = None) -> str:
     item = next((p for p in library() if p["id"] == pack_id), None)
     if not item:
         raise RulesError(404, f"No rule pack {pack_id} in keel's library.")
+    if version and item["version"] != version:
+        raise RulesError(404, f"keel's library has {pack_id} {item['version']}, not {version}.")
     return item["yaml"]
 
 
@@ -278,11 +281,18 @@ def check_pack(text: str) -> dict:
     return {"ok": not errors, "errors": errors, **({"pack": pack} if pack else {})}
 
 
-def save_pack(root: str, text: str, replace: str | None = None) -> dict:
-    """Write .keel/rules/<id>.yaml as given (comments kept). `replace`: the id being edited (a rename removes the old)."""
+def save_pack(root: str, text: str, replace: str | None = None, source: str | None = None) -> dict:
+    """Write .keel/rules/<name>.yaml as given (comments kept) and record where it came from in .installed.json.
+    `replace`: the pack being replaced (edited, upgraded; a rename removes the old). `source`: library | file |
+    marketplace for an install; an edit keeps the pack's source and marks it edited."""
     pack, errors = packs_mod.parse_pack(text)
     if errors:
         raise RulesError(422, "The rule pack is not valid.", errors)
+    why = packs_mod.keel_fits(pack)
+    if why:
+        raise RulesError(422, f"The rule pack {pack['id']} {why}.", [why])
+    if source is not None and source not in packs_mod.SOURCES:
+        raise RulesError(400, f"source is one of {', '.join(packs_mod.SOURCES)}.")
     d = packs_mod.folder(root)
     target = d / f"{pack['id']}.yaml"
     if target.exists() and replace != pack["id"]:
@@ -294,7 +304,71 @@ def save_pack(root: str, text: str, replace: str | None = None) -> dict:
     if replace and replace != pack["id"]:
         for old in (d / f"{replace}.yaml", d / f"{replace}.yml"):
             old.unlink(missing_ok=True)
-    return pack
+    idx = packs_mod.index(root)
+    before = idx.pop(replace, None) if replace else None
+    if source:
+        idx[pack["id"]] = {"version": pack["version"], "source": source, "at": _now()}
+    else:
+        before = before or idx.get(pack["id"]) or {}
+        idx[pack["id"]] = {**before, "version": pack["version"], "source": before.get("source") or "file",
+                           "at": before.get("at") or _now(), **({"edited": True} if before.get("source") not in (None, "file") else {})}
+    packs_mod.write_index(root, idx)
+    return {**pack, "source": idx[pack["id"]]["source"]}
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def install(root: str, source: str, name: str | None = None, version: str | None = None, text: str | None = None,
+            replace: bool = False) -> dict:
+    """Install a pack: from keel's library (name, version?), a file (its YAML) or the marketplace (its YAML, as the
+    marketplace fetched it). The same name and version again → 409; another version needs `replace` (upgrade)."""
+    if source == "library":
+        if not name:
+            raise RulesError(400, "Name the library pack (name).")
+        text = library_pack(name, version)
+    elif source in ("file", "marketplace"):
+        if not text:
+            raise RulesError(400, "Send the pack's YAML (yaml).")
+    else:
+        raise RulesError(400, f"source is one of {', '.join(packs_mod.SOURCES)}.")
+    pack, errors = packs_mod.parse_pack(text)
+    if errors:
+        raise RulesError(422, "The rule pack is not valid.", errors)
+    if name and pack["id"] != name:
+        raise RulesError(422, f"The pack is named {pack['id']}, not {name}.")
+    if version and pack["version"] != version:
+        raise RulesError(422, f"The pack is version {pack['version']}, not {version}.")
+    have = next((p for p in rules.load_packs(root)[0] if p["id"] == pack["id"]), None)
+    if have and have["version"] == pack["version"] and not replace:
+        raise RulesError(409, f"{pack['id']} {pack['version']} is installed already.")
+    if have and not replace:
+        raise RulesError(409, f"{pack['id']} {have['version']} is installed; installing {pack['version']} replaces it (replace).")
+    return save_pack(root, text, pack["id"] if have else None, source)
+
+
+def installed(root: str) -> list[dict]:
+    """The project's packs for a marketplace or the Rules page: name, title, version, publisher, summary, source, file,
+    off, requires, and `update` when keel's library has a newer version."""
+    cfg = rules.load_config(root)
+    off = set((cfg.get("rules") or {}).get("off") or [])
+    lib = {p["id"]: p["version"] for p in library()}
+    out = []
+    for p in cfg.get("packs") or []:
+        newer = lib.get(p["id"]) if p.get("source") == "library" and _newer(lib.get(p["id"]), p["version"]) else None
+        out.append({k: p.get(k) for k in ("name", "title", "version", "publisher", "summary", "requires", "source", "file")}
+                   | {"off": f"pack/{p['id']}" in off, **({"edited": True} if p.get("edited") else {}),
+                      **({"update": newer} if newer else {})})
+    return out
+
+
+def _newer(a: str | None, b: str) -> bool:
+    def nums(v):
+        return tuple(int(x) for x in re.findall(r"\d+", (v or "").split("-")[0])[:3])
+    return bool(a) and nums(a) > nums(b)
 
 
 def remove_pack(root: str, pack_id: str) -> None:
@@ -307,6 +381,9 @@ def remove_pack(root: str, pack_id: str) -> None:
             gone = True
     if not gone:
         raise RulesError(404, f"This project has no rule pack {pack_id}.")
+    idx = packs_mod.index(root)
+    if idx.pop(pack_id, None) is not None:
+        packs_mod.write_index(root, idx)
 
 
 def pack_text(root: str, pack_id: str) -> str:
@@ -382,7 +459,7 @@ def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dic
               {"bucket": "keel-rules", "what": ".keel/config.yml and .keel/rules/", "words": "never changed by an agent"}]
     if not rules.is_off(cfg, "generated"):
         always.append({"bucket": "generated", "what": "generated code", "words": "changed through its source only"})
-    active = [{"pack": p["id"], "name": p["name"], "rule": r["id"], "kind": r["kind"], "reason": r["reason"]}
+    active = [{"pack": p["id"], "name": p["title"], "rule": r["id"], "kind": r["kind"], "reason": r["reason"]}
               for p in cfg.get("packs") or [] if f"pack/{p['id']}" not in set((cfg.get("rules") or {}).get("off") or [])
               for r in p["rules"] if packs_mod.phase_ok(r.get("phases"), phase) and (not r.get("lanes") or lane in r["lanes"])]
     prot = cli_runners.protection(provider, mode) if provider else None

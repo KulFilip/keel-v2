@@ -1,4 +1,4 @@
-// v0.16.2 drawers of the Rules page: the rule library, a new or edited rule pack (form + YAML, check and dry-run), import.
+// v0.17.2 drawers of the Rules page: the rule library, a new or edited rule pack (form + YAML, check and dry-run), import.
 
 import { useState } from "react";
 import { errorParts } from "../api";
@@ -28,7 +28,7 @@ export function LibraryDrawer({ pid, installed, onClose, onView }: {
       const r = await rulesApi.install(pid, p.id);
       onView(r.view);
       setHave((h) => [...h, p.id]);
-      toast(`${p.name} installed in .keel/rules/${p.id}.yaml. Agents meet it at their next tool call; commit the file to share it with the team.`);
+      toast(`${p.title} ${p.version} installed in .keel/rules/${p.id}.yaml. Agents meet it at their next tool call; commit the file to share it with the team.`);
     } catch (e) {
       setErr(toErr(e));
     } finally {
@@ -44,8 +44,10 @@ export function LibraryDrawer({ pid, installed, onClose, onView }: {
           <div className="grid" style={{ gap: 10 }}>
             {items.map((p) => (
               <div key={p.id} className="panel rl-libitem" data-lib={p.id}><div className="panel-body grid" style={{ gap: 6 }}>
-                <div className="row" style={{ justifyContent: "space-between" }}><b>{p.name}</b>{p.stack && <span className="tag">{p.stack}</span>}</div>
-                <span className="sub">{p.description}</span>
+                <div className="row" style={{ justifyContent: "space-between" }}><b>{p.title}</b>
+                  <span className="row"><span className="tag">v{p.version}</span>{p.stack && <span className="tag">{p.stack}</span>}</span></div>
+                <span className="sub">{p.summary}</span>
+                <span className="hint">by {p.publisher}</span>
                 <ul className="rl-libsum">{p.rules.map((r) => <li key={r.id}><span className="tag">{KIND_WORDS[r.kind]}</span> {r.reason}</li>)}</ul>
                 <div className="row">
                   {have.includes(p.id) ? <span className="pill p-ok">installed</span>
@@ -68,7 +70,7 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
   const editing = !!pack;
   const [view, setView] = useState<"form" | "yaml">(editing ? "yaml" : "form");
   const [id, setId] = useState(pack?.id ?? "my-rules");
-  const [name, setName] = useState(pack?.name ?? "My rules");
+  const [name, setName] = useState(pack?.title ?? "My rules");
   const [rule, setRule] = useState<PackRule>(pack?.rules[0] ?? EMPTY_RULE);
   const [match, setMatch] = useState((pack?.rules[0]?.match ?? []).join("\n"));
   const [yaml, setYaml] = useState<string | null>(null);
@@ -76,7 +78,7 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
   const [err, setErr] = useState<Err>(null);
   const [busy, setBusy] = useState(false);
   const loaded = useLoad(`rules:pack:${pid}:${pack?.id ?? ""}`, () => (pack ? rulesApi.text(pid, pack.id) : Promise.resolve("")), { live: false });
-  const fromForm = () => packYaml({ id, name, rules: [{ ...rule, match: match.split("\n").map((s) => s.trim()).filter(Boolean) }] });
+  const fromForm = () => packYaml({ name: id, title: name, rules: [{ ...rule, match: match.split("\n").map((s) => s.trim()).filter(Boolean) }] });
   const text = yaml ?? (editing ? loaded.data ?? "" : fromForm());
   const runCheck = async () => {
     setBusy(true);
@@ -95,7 +97,7 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
     try {
       const r = editing ? await rulesApi.edit(pid, pack!.id, text) : await rulesApi.add(pid, text);
       onView(r.view);
-      toast(`${r.pack.name} saved in .keel/rules/${r.pack.id}.yaml. Agents meet it at their next tool call.`);
+      toast(`${r.pack.title} saved in .keel/rules/${r.pack.id}.yaml. Agents meet it at their next tool call.`);
       onClose();
     } catch (e) {
       setErr(toErr(e));
@@ -105,7 +107,7 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
   };
   const setKind = (kind: PackRule["kind"]) => setRule({ ...rule, kind, how: { bash: "contains", edit: "glob", read: "glob", mcp: "name" }[kind] });
   return (
-    <Drawer title={editing ? `Edit ${pack!.name}` : "New rule"} onClose={onClose} id="packDrawer"
+    <Drawer title={editing ? `Edit ${pack!.title}` : "New rule"} onClose={onClose} id="packDrawer"
       footer={<>
         <button className="btn" type="button" onClick={onClose}>Cancel</button>
         <button className="btn" type="button" id="checkRule" onClick={runCheck} disabled={busy}>Check and try it</button>
@@ -135,7 +137,7 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
       ) : (
         <div className="field"><label htmlFor="rp-yaml">YAML</label>
           <textarea id="rp-yaml" className="yaml-edit" rows={18} spellCheck={false} value={text} onChange={(e) => setYaml(e.target.value)} />
-          <span className="hint">kind: bash | edit | read | mcp · how: contains | glob | name | regex · phases: all | in-flow | none | [green, …] · lanes, except optional</span></div>
+          <span className="hint">schema 1 · name, title, version, publisher, summary, requires · rules: kind bash | edit | read | mcp, how contains | glob | name | regex, phases all | in-flow | none | [green, …] (docs/rules/pack-format.md)</span></div>
       )}
       {check && <CheckResult c={check} />}
       {err && <ErrorBox error={err} />}
@@ -173,7 +175,7 @@ export function ImportPackDrawer({ pid, onClose, onView }: { pid: string; onClos
     try {
       const r = await rulesApi.add(pid, yaml);
       onView(r.view);
-      toast(`${r.pack.name} imported into .keel/rules/${r.pack.id}.yaml.`);
+      toast(`${r.pack.title} imported into .keel/rules/${r.pack.id}.yaml.`);
       onClose();
     } catch (e) {
       setErr(toErr(e));

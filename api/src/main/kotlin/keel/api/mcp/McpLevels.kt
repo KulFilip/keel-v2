@@ -142,12 +142,13 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             "DELETE" to Regex("^/api/projects/[^/]+$"),
             "PUT" to Regex("^/api/workflows/[^/]+$"),
             "DELETE" to Regex("^/api/workflows/[^/]+$"),
-            // v0.16.2 keel's rules: a change decides what agents may do
+            // v0.17.2 keel's rules: a change decides what agents may do
             "PUT" to Regex("^/api/projects/[^/]+/rules/config$"),
             "POST" to Regex("^/api/projects/[^/]+/rules/library/[^/]+/install$"),
             "POST" to Regex("^/api/projects/[^/]+/rules/packs$"),
             "PUT" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
             "DELETE" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
+            "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall)$"),
         )
         /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
         private val READ_POSTS = listOf(Regex("^/api/projects/[^/]+/rules/check$"))

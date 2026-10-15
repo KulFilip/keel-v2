@@ -1,7 +1,13 @@
 # keel rule pack: no new dependencies, in any phase (keel's own rule only covers a flow).
-id: no-new-dependencies
-name: No new dependencies
-description: Agents never add a package, inside or outside a flow. A person adds it and the lockfile follows.
+schema: 1
+kind: rules
+name: no-new-dependencies
+title: No new dependencies
+version: 1.0.0
+publisher: keel
+summary: Agents never add a package, inside or outside a flow. A person adds it and the lockfile follows.
+requires:
+  keel: ">=0.17.2"
 rules:
   - id: no-install
     kind: bash

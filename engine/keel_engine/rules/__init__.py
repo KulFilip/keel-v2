@@ -84,7 +84,7 @@ NEVER_DENY_IN_FLOW = ["git reset --hard", "git rebase -i"]
 SKIP_TEST_FLAGS = ["-x test", "-x check"]
 
 # keel's built-in rules as the Rules page lists them. can_off: the project may switch it off (rules.off); the others
-# protect secrets, history or keel's own record and stay on (docs/plans/0.16.2.md decision 6).
+# protect secrets, history or keel's own record and stay on (docs/plans/0.17.2.md decision 6).
 BUILTINS: list[dict] = [
     {"id": "phase-matrix", "kind": "edit", "phases": "in a flow", "can_off": False,
      "words": "Each phase lets agents change only some kinds of files: tests in RED, code in GREEN, nothing in a review."},

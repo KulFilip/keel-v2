@@ -8,7 +8,7 @@ Model id "fake-rogue" also writes a test file directly to disk, bypassing the to
 agent could. The diff guard must catch it; tests use this.
 
 KEEL_FAKE_COMMAND: a shell command every writing agent runs through its tools first (run_command), so a test or a
-real check can watch keel's rules refuse it (v0.16.2 rule packs).
+real check can watch keel's rules refuse it (v0.17.2 rule packs).
 """
 
 from __future__ import annotations

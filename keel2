@@ -40,7 +40,7 @@
 #   keel2 version | help
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
-# KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
+# KEEL_VOLUME (default keel-data for keel-v2, <KEEL_NAME>-data for any other name), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
 # KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none). KEEL_IMAGE wins over
 # --core.
 # Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning), KEEL_NATIVE_CLIS=0 (no agent CLIs),
@@ -55,7 +55,10 @@ IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
 NAME="${KEEL_NAME:-keel-v2}"
-VOLUME="${KEEL_VOLUME:-keel-data}"
+# v0.17.2 a keel with its own name gets its own data volume: two keels on one volume write one SQLite database at once
+if [ -n "${KEEL_VOLUME:-}" ]; then VOLUME="$KEEL_VOLUME"
+elif [ "$NAME" = keel-v2 ]; then VOLUME=keel-data
+else VOLUME="$NAME-data"; fi
 WANT_PORT="${PORT:-8080}"
 
 # ---------------------------------------------------------------- output
@@ -103,6 +106,27 @@ need_docker() {  # makes sure the docker command exists and the engine answers; 
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }   # something listens on 127.0.0.1:<port>
 
 container_exists() { docker inspect "$NAME" >/dev/null 2>&1; }
+
+# v0.17.2 the data volume of this keel's container, when it has one (a container from before keel2 named volumes after
+# KEEL_NAME keeps the one it has, unless KEEL_VOLUME says otherwise)
+resolve_volume() {
+  [ -n "${KEEL_VOLUME:-}" ] && return 0
+  local was
+  was="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$NAME" 2>/dev/null || true)"
+  if [ -n "$was" ]; then VOLUME="$was"; fi
+}
+
+# The running containers other than this keel's that use its data volume (one name per line).
+volume_users() {
+  docker ps --filter "volume=$VOLUME" --format '{{.Names}}' 2>/dev/null | grep -vx "$NAME" || true
+}
+
+# v0.17.2 refuse a second keel on a data volume another running container uses
+volume_guard() {
+  local other; other="$(volume_users | head -1)"
+  [ -z "$other" ] || die "The data volume $VOLUME is in use by the running container $other." \
+    "Two keels must not share one database. Give this keel its own: KEEL_VOLUME=$NAME-data (or stop $other first)."
+}
 container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null || echo false)" = true ]; }
 label() { docker inspect -f "{{index .Config.Labels \"keel2.$1\"}}" "$NAME" 2>/dev/null || true; }
 running_port() { docker port "$NAME" 8080/tcp 2>/dev/null | head -1 | sed 's/.*://'; }
@@ -304,6 +328,8 @@ cmd_start() {
     else warn "The added folder $f is missing, so keel skips it. Take it off the list: keel2 remove \"$f\""; fi
   done < <(list_folders)
   ensure_image
+  resolve_volume
+  volume_guard
 
   if container_exists; then
     guard_busy restart
@@ -479,6 +505,7 @@ cmd_folders() {
 
 cmd_status() {
   need_docker
+  resolve_volume
   if ! container_exists; then info "keel is ${B}not running${N}. Start it: keel2 start /path/to/project"; return 0; fi
   if ! container_running; then info "keel is ${B}stopped${N} (container $NAME exists). Start it again: keel2 restart"; return 0; fi
   local port; port="$(running_port)"
@@ -614,6 +641,7 @@ for p in json.load(sys.stdin)["providers"]:
 
 cmd_backup() {
   need_docker
+  resolve_volume
   local file="${1:-keel-backup-$(date +%Y%m%d-%H%M%S).tgz}"
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
   docker volume inspect "$VOLUME" >/dev/null 2>&1 || die "There is no keel data yet (volume $VOLUME)."
@@ -630,6 +658,8 @@ cmd_restore() {
   local file="${1:-}"
   [ -f "$file" ] || die "usage: keel2 restore <backup.tgz>"
   need_docker
+  resolve_volume
+  volume_guard
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
   ask_yes "Replace keel's current data (volume $VOLUME) with $file?" || die "Nothing changed."
   local was=0; container_running && was=1
@@ -644,6 +674,9 @@ remove_folders_file() { local f; f="$(folders_file)"; if [ -f "$f" ]; then rm -f
 
 cmd_uninstall() {
   need_docker
+  resolve_volume
+  # never delete a data volume another running keel still uses
+  if [ "${1:-}" = "--all" ]; then volume_guard; fi
   container_exists && docker rm -f "$NAME" >/dev/null && ok "removed the keel container"
   if [ "${1:-}" = "--all" ]; then
     if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then info "No keel data to remove."; remove_folders_file; return 0; fi

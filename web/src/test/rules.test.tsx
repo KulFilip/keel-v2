@@ -1,4 +1,4 @@
-// v0.16.2 Build › Rules: the rules in plain words with when and by which engine they are checked, the library drawer,
+// v0.17.2 Build › Rules: the rules in plain words with when and by which engine they are checked, the library drawer,
 // a new rule (form → YAML, check and dry-run), switches, removal, and "Rules now" on the Flow page.
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -44,6 +44,8 @@ describe("Rules page", () => {
     const pack = document.querySelector('[data-pack="no-new-dependencies"]') as HTMLElement;
     expect(within(pack).getByText(/Adding a package is a person's decision/)).toBeInTheDocument();
     expect(within(pack).getByText(".keel/rules/no-new-dependencies.yaml")).toBeInTheDocument();
+    expect(within(pack).getByText("v1.0.0")).toBeInTheDocument();
+    expect(within(pack).getByText("from keel's library")).toBeInTheDocument();
     expect(within(pack).getByRole("link", { name: "Export" })).toHaveAttribute("href", "/api/projects/ludus-engine/rules/packs/no-new-dependencies/export");
     await user.click(within(pack).getByRole("button", { name: "Remove" }));
     await user.click(within(within(pack).getByRole("group", { name: "Confirm" })).getByRole("button", { name: "Remove" }));
@@ -71,7 +73,7 @@ describe("Rules page", () => {
     expect((within(drawer).getByLabelText("YAML") as HTMLTextAreaElement).value).toContain("match: [kubectl apply]");
     await user.click(within(drawer).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/rules/packs")).toHaveLength(1));
-    expect((calls("POST", "/api/projects/ludus-engine/rules/packs")[0].body as { yaml: string }).yaml).toContain("id: no-deploys");
+    expect((calls("POST", "/api/projects/ludus-engine/rules/packs")[0].body as { yaml: string }).yaml).toContain("name: no-deploys");
   });
 
   it("switches a rule off in .keel/config.yml; never-off rules have no switch", async () => {
@@ -87,8 +89,9 @@ describe("Rules page", () => {
 
 describe("packYaml", () => {
   it("quotes what YAML would misread", () => {
-    const y = packYaml({ id: "p", name: "No: deploys", rules: [{ id: "r", kind: "bash", match: ["a: b", "npm install"], how: "contains", phases: "in-flow", reason: "yes" }] });
-    expect(y).toContain('name: "No: deploys"');
+    const y = packYaml({ name: "p", title: "No: deploys", rules: [{ id: "r", kind: "bash", match: ["a: b", "npm install"], how: "contains", phases: "in-flow", reason: "yes" }] });
+    expect(y).toContain('title: "No: deploys"');
+    expect(y.split("\n").slice(0, 6)).toEqual(["schema: 1", "kind: rules", "name: p", 'title: "No: deploys"', "version: 1.0.0", "publisher: local"]);
     expect(y).toContain('match: ["a: b", npm install]');
     expect(y).toContain("phases: in-flow");
     expect(y).toContain('reason: "yes"');

@@ -503,7 +503,7 @@ class Engine:
     # ------------------------------------------------------------ unlocks
 
     async def rules_now(self, tid: str) -> dict:
-        """v0.16.2 "Rules now" on the Flow page: what agents may change in the thread's phase (runtime/rules_view.py),
+        """v0.17.2 "Rules now" on the Flow page: what agents may change in the thread's phase (runtime/rules_view.py),
         with the engine of its last agent and the last shell command an agent saw fail."""
         from . import rules_view
 

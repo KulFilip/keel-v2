@@ -99,14 +99,14 @@ def test_keel2_mcp_lists_its_tools_in_keel_0_16_1s_order(with_ci):
     keel_restore_doc. Step 4's four marketplace tools come after all of them, at every level
     (docs/plugins/13-step4-contract.md §7)."""
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
-    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
+    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard",
             "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure",
             "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
             "keel_read_file", "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
              "keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"]
     admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
-             "keel_edit_workflow"]
+             "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]       # v0.17.2 rules
     market = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
     assert names("read") == read + market
     assert names("write") == read + write + market

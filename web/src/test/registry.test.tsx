@@ -292,6 +292,7 @@ describe("the menu and the links stay as they were", () => {
       hint: "how agents work",
       pages: [
         ["workflows", "Workflows"],
+        ["rules", "Rules"],          // v0.17.2: a core page, after Workflows
         ["agents", "Agents"],
         ["skills", "Skill hub"],
         ["stacks", "Stacks"],

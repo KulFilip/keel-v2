@@ -1,4 +1,4 @@
-// v0.16.2 keel's rules: the Rules page (Build › Rules) and "Rules now" on the Flow page (docs/CONTRACT.md, "v0.16.2: rules").
+// v0.17.2 keel's rules: the Rules page (Build › Rules) and "Rules now" on the Flow page (docs/CONTRACT.md, "v0.17.2: rules").
 // The rules are files in the project: .keel/config.yml (guards, mcp, rules, boundaries) and .keel/rules/<id>.yaml (packs).
 
 import { del, get, getText, post, put } from "./api";
@@ -18,7 +18,16 @@ export type PackRule = {
   id: string; kind: "bash" | "edit" | "read" | "mcp"; match: string[]; how: string; phases: string | string[];
   lanes?: string[]; except?: string[]; reason: string; enforced?: Enforced;
 };
-export type RulePack = { id: string; name: string; description: string; stack?: string; rules: PackRule[]; file?: string; off?: boolean; saved_in?: string; yaml?: string };
+/** docs/rules/pack-format.md: one YAML file, shaped like a plugin manifest so a marketplace can ship it unchanged. */
+export type PackSource = "library" | "file" | "marketplace";
+export type RulePack = {
+  id: string; name: string; title: string; version: string; publisher: string; summary: string; stack?: string;
+  requires?: { keel: string; plugins: Record<string, string> };
+  rules: PackRule[]; file?: string; off?: boolean; saved_in?: string; yaml?: string;
+  /** where an installed pack came from (.keel/rules/.installed.json); "file" = written or imported here */
+  source?: PackSource; edited?: boolean; update?: string;
+};
+export type InstalledPack = Pick<RulePack, "name" | "title" | "version" | "publisher" | "summary" | "requires" | "source" | "file" | "off" | "edited" | "update">;
 export type EngineProtection = { engine: Engine; protection: Protection; words: string };
 export type RulesView = {
   configured: boolean; config_file: string; rules_folder: string;
@@ -49,6 +58,11 @@ export const rulesApi = {
   setConfig: (pid: string, patch: Record<string, unknown>) => put<RulesView>(`/projects/${e(pid)}/rules/config`, patch),
   library: () => get<RulePack[]>("/rules/library"),
   install: (pid: string, id: string) => post<{ pack: RulePack; view: RulesView }>(`/projects/${e(pid)}/rules/library/${e(id)}/install`, {}),
+  /** v0.17.2 the installable-item routes a marketplace install uses */
+  installed: (pid: string) => get<InstalledPack[]>(`/projects/${e(pid)}/rule-packs`),
+  installPack: (pid: string, body: { source: PackSource; name?: string; version?: string; yaml?: string; replace?: boolean }) =>
+    post<{ pack: RulePack; installed: InstalledPack[] }>(`/projects/${e(pid)}/rule-packs/install`, body),
+  uninstall: (pid: string, name: string) => post<{ installed: InstalledPack[] }>(`/projects/${e(pid)}/rule-packs/uninstall`, { name }),
   add: (pid: string, yaml: string) => post<{ pack: RulePack; view: RulesView }>(`/projects/${e(pid)}/rules/packs`, { yaml }),
   edit: (pid: string, id: string, yaml: string) => put<{ pack: RulePack; view: RulesView }>(`/projects/${e(pid)}/rules/packs/${e(id)}`, { yaml }),
   remove: (pid: string, id: string) => del<RulesView>(`/projects/${e(pid)}/rules/packs/${e(id)}`),
@@ -59,11 +73,11 @@ export const rulesApi = {
 };
 
 /** A pack as YAML, from the New rule form (the engine checks it again before it is saved). */
-export function packYaml(p: { id: string; name: string; description?: string; rules: PackRule[] }): string {
+export function packYaml(p: { name: string; title: string; version?: string; summary?: string; rules: PackRule[] }): string {
   const s = (v: string) => (/^[\w./*!-][\w ./*!@:-]*$/.test(v) && !/^(yes|no|true|false|null|on|off)$/i.test(v) && !/:\s/.test(v) ? v : JSON.stringify(v));
   const list = (xs: string[]) => `[${xs.map(s).join(", ")}]`;
-  const lines = [`id: ${p.id}`, `name: ${s(p.name)}`];
-  if (p.description) lines.push(`description: ${s(p.description)}`);
+  const lines = ["schema: 1", "kind: rules", `name: ${p.name}`, `title: ${s(p.title)}`, `version: ${p.version || "1.0.0"}`, "publisher: local"];
+  if (p.summary) lines.push(`summary: ${s(p.summary)}`);
   lines.push("rules:");
   for (const r of p.rules) {
     lines.push(`  - id: ${r.id}`, `    kind: ${r.kind}`, `    match: ${list(r.match)}`);

@@ -1,4 +1,4 @@
-"""0.16.2 Rules: keel v1's hook gaps (push gate, content at write time, big reads, failed commands, wrappers, codex
+"""0.17.2 Rules: keel v1's hook gaps (push gate, content at write time, big reads, failed commands, wrappers, codex
 hooks) and rule packs (.keel/rules/*.yaml) through every guard path: the hook, the ToolBox and the diff guard."""
 
 import json
@@ -20,9 +20,13 @@ TEST = "apps/api/src/test/kotlin/app/ScoreTest.kt"
 WEB = "apps/web/src/App.tsx"
 AWS = "AKIA" + "ABCDEFGHIJKLMNOP"
 
-PACK = """id: no-new-dependencies
-name: No new dependencies
-description: Agents never add a package.
+PACK = """schema: 1
+kind: rules
+name: no-new-dependencies
+title: No new dependencies
+version: 1.0.0
+publisher: keel
+summary: Agents never add a package.
 rules:
   - id: no-install
     kind: bash
@@ -77,22 +81,31 @@ def test_pack_parses_and_validates():
     pack, errors = rules.parse_pack(PACK)
     assert not errors and pack["id"] == "no-new-dependencies" and len(pack["rules"]) == 5
     assert pack["rules"][0]["how"] == "contains" and pack["rules"][1]["how"] == "glob"
-    _, errors = rules.parse_pack("id: Bad Id\nrules: [{id: x, kind: shell, match: [], reason: ''}]")
+    assert pack["version"] == "1.0.0" and pack["publisher"] == "keel" and pack["requires"] == {"keel": "", "plugins": {}}
+    _, errors = rules.parse_pack("name: Bad Id\nrules: [{id: x, kind: shell, match: [], reason: ''}]")
     joined = "\n".join(errors)
-    for word in ("id:", "name:", "kind:", "match:", "reason:"):
+    for word in ("schema:", "name:", "title:", "version:", "kind:", "match:", "reason:"):
         assert word in joined
-    _, errors = rules.parse_pack("id: p\nname: P\nrules: [{id: r, kind: bash, how: regex, match: ['(('], reason: x}]")
+    head = "schema: 1\nname: p\ntitle: P\nversion: 1.0.0\n"
+    _, errors = rules.parse_pack(head + "rules: [{id: r, kind: bash, how: regex, match: ['(('], reason: x}]")
     assert "regular expression" in errors[0]
-    _, errors = rules.parse_pack("id: p\nname: P\nrules: [{id: r, kind: edit, match: [a], phases: [nope], reason: x}]")
+    _, errors = rules.parse_pack(head + "rules: [{id: r, kind: edit, match: [a], phases: [nope], reason: x}]")
     assert "phases" in errors[0]
+    _, errors = rules.parse_pack(head + "kind: plugin\nrequires: {keel: soon, plugins: {Db: x}}\nrules: [{id: r, kind: edit, match: [a], reason: x}]")
+    assert any("kind: rules" in e for e in errors) and any("requires.keel" in e for e in errors) and any("requires.plugins" in e for e in errors)
+    pack, errors = rules.parse_pack(head + "requires: {keel: '>=0.17.2', plugins: [db]}\nrules: [{id: r, kind: edit, match: [a], reason: x}]")
+    assert not errors and pack["requires"] == {"keel": ">=0.17.2", "plugins": {"db": ""}} and pack["publisher"] == "local"
 
 
 def test_load_config_reads_packs_and_reports_bad_files(root):
-    (root / ".keel/rules/broken.yaml").write_text("id: broken\nrules: nope\n")
+    (root / ".keel/rules/broken.yaml").write_text("name: broken\nrules: nope\n")
+    (root / ".keel/rules/future.yaml").write_text(PACK.replace("no-new-dependencies", "future").replace("rules:\n", "requires: {keel: '>=99.0.0'}\nrules:\n", 1))
     (root / ".keel/rules/other.yaml").write_text(PACK)          # id is not the file name
     cfg = rules.load_config(root)
     assert [p["id"] for p in cfg["packs"]] == ["no-new-dependencies"]
-    assert {e["file"] for e in cfg["pack_errors"]} == {".keel/rules/broken.yaml", ".keel/rules/other.yaml"}
+    assert {e["file"] for e in cfg["pack_errors"]} == {".keel/rules/broken.yaml", ".keel/rules/other.yaml", ".keel/rules/future.yaml"}
+    assert any("needs keel >=99.0.0" in e["errors"][0] for e in cfg["pack_errors"])
+    assert cfg["packs"][0]["source"] == "file"          # no install record: a hand-written file
     assert cfg["configured"] is True
 
 

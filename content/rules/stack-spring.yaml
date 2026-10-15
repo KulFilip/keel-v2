@@ -1,8 +1,14 @@
 # keel rule pack for Spring Boot / Gradle projects.
-id: stack-spring
-name: Spring Boot and Gradle
+schema: 1
+kind: rules
+name: stack-spring
+title: Spring Boot and Gradle
+version: 1.0.0
+publisher: keel
+summary: The Gradle wrapper, production profiles and the build's plugin versions are changed by a person.
 stack: spring
-description: The Gradle wrapper, production profiles and the build's plugin versions are changed by a person.
+requires:
+  keel: ">=0.17.2"
 rules:
   - id: no-wrapper
     kind: edit
