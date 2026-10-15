@@ -543,3 +543,160 @@ input.mk-sw:disabled {
     justify-content: flex-start;
   }
 }
+
+/* ---------- 0.16.1 plugin track: the marketplace for workflows (docs/plugins/21-workflow-marketplace.md §4) ---------- */
+/* the Marketplace's kind switch: Plugins · Workflows (the mockup's segmented control) */
+.mk-kind {
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  margin-bottom: 12px;
+  max-width: 100%;
+  background: var(--panel);
+}
+.mk-kind button {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  padding: 4px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.mk-kind button:hover {
+  color: var(--fg);
+}
+.mk-kind button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+/* "6 steps · 2 gates · runs 1 command": red when it runs shell commands */
+.wfm-short {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.wfm-short.bad {
+  color: var(--bad);
+}
+.wfm-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--bad);
+  color: var(--panel);
+  font: 700 10px/1 var(--f-mono);
+  flex: none;
+}
+.wfm-facts {
+  display: grid;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+/* the Install review: the shell commands in red */
+.wfm-review .perm.wfm-cmd b {
+  color: var(--bad);
+}
+.wfm-cmds {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 2px;
+  min-width: 0;
+}
+.wfm-cmds code {
+  display: block;
+  font: 12px var(--f-mono);
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-radius: 5px;
+  padding: 2px 7px;
+  overflow-wrap: anywhere;
+}
+.wfm-review .why {
+  display: block;
+}
+.wfm-yaml {
+  margin-top: 12px;
+}
+.wfm-yaml summary {
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 13px;
+}
+.wfm-yaml pre,
+.wfm-next pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 360px;
+}
+.wfm-none {
+  display: block;
+}
+.wfm-missing {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.wfm-missing ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.wfm-next {
+  display: grid;
+  gap: 6px;
+}
+.wfm-next ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+/* a workflow's menu on Build › Workflows */
+.wfm-menu {
+  position: relative;
+}
+.wfm-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 15;
+  min-width: 200px;
+  display: grid;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.wfm-menu-list button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--fg);
+  font-size: 13px;
+}
+.wfm-menu-list button:hover,
+.wfm-menu-list button:focus-visible {
+  background: var(--accent-soft);
+}
+.wfm-menu-list button.mk-danger {
+  color: var(--bad);
+}

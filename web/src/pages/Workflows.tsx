@@ -3,6 +3,9 @@
 // click +), or as a table, the graph or YAML. Right: the selected block's editor, "What it does" and the token
 // estimate. On top: the name, version, keel rules, the save state and the save errors (with links to the steps).
 // Under 1100 px the columns stack and the block editor opens in a drawer. Save → PUT /api/workflows/{id}.
+// 0.16.1 plugin track (docs/plugins/21-workflow-marketplace.md §4): a workflow from the marketplace shows the badge
+// "from marketplace · 1.2.0" (and "1.3.0 ready" with Update); its menu has Update and Remove. The person's own
+// workflows have Publish to marketplace in theirs; keel's templates have no menu.
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorParts, type Agent, type Estimate, type OnCap, type Step, type StepKind, type Workflow } from "../api";
@@ -16,6 +19,7 @@ import { Async, Drawer, ErrorBox, Loading, PageHead, Tabs } from "../components/
 import { useWide } from "../components/useWide";
 import { KIND, toYaml, tokensByStep } from "../components/workflow";
 import { ImportDrawer, LibraryTab, NewWorkflowDrawer } from "../components/WorkflowDrawers";
+import { MarketBadge, PublishDialog, RemoveWorkflow, UpdateDialog, WorkflowMenu } from "../components/WorkflowMarket";
 import { Zoom } from "../components/Zoom";
 import { kfmt, PROV, usd } from "../format";
 import { useSlot } from "../sdk/registry";
@@ -78,7 +82,9 @@ export function WorkflowsPage({ pid }: { pid: string }) {
             <Editor key={wid} pid={pid} wid={wid} agents={agents.data ?? []} rail={rail} row={wfs.find((w) => w.id === wid)}
               folders={[...new Set(wfs.map((w) => w.folder).filter((f): f is string => !!f))].sort()}
               onFolder={(f) => list.setData((l) => (l ? l.map((x) => (x.id === wid ? { ...x, folder: f } : x)) : l))}
-              onSaved={(w) => list.setData((l) => (l ? l.map((x) => (x.id === w.id ? { ...x, ...w, folder: x.folder, runs: x.runs, last_run: x.last_run } : x)) : l))} />
+              onSaved={(w) => list.setData((l) => (l ? l.map((x) => (x.id === w.id ? { ...x, ...w, folder: x.folder, runs: x.runs, last_run: x.last_run } : x)) : l))}
+              onGone={() => { void list.reload(); go("workflows"); }}
+              onReplaced={(w) => { void list.reload(); go("workflows", w.id); }} />
           )}
         </Async>
       )}
@@ -124,7 +130,7 @@ function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary }
               <button key={w.id} type="button" className="wf-item" aria-current={w.id === current ? "page" : undefined} onClick={() => onPick(w.id)}>
                 <span className="wf-item-n">{w.name}</span>
                 <span className="wf-item-m">{w.steps.length} steps · v{w.version}{w.keel_rules ? "" : " · rules off"}
-                  {w.runs ? ` · ${w.runs} run${w.runs === 1 ? "" : "s"}` : ""}</span>
+                  {w.runs ? ` · ${w.runs} run${w.runs === 1 ? "" : "s"}` : ""}{w.market ? ` · marketplace ${w.market.version}` : ""}</span>
               </button>
             )) : <span className="sub wf-none">{needle ? "no match" : title === "This project" ? `none yet in ${pid}: start from a template` : "none"}</span>}
           </div>
@@ -164,9 +170,11 @@ function FolderPicker({ pid, wid, folder, folders, onFolder }: {
   );
 }
 
-function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
+function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onGone, onReplaced }: {
   pid: string; wid: string; agents: Agent[]; rail: ReactNode; row?: Workflow; folders: string[];
   onFolder: (folder: string | null) => void; onSaved: (w: Workflow) => void;
+  /** it was removed; an update put this workflow in its place (or next to it) */
+  onGone: () => void; onReplaced: (w: Workflow) => void;
 }) {
   const { toast } = useApp();
   const loaded = useLoad(`wf:${wid}`, () => api.workflow(wid), { live: false });
@@ -179,6 +187,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
     try { const v = localStorage.getItem("keel2.view.builder"); return v === "table" || v === "graph" || v === "yaml" ? v : "blocks"; } catch { return "blocks"; }
   });
   const [side, setSide] = useState<Side>("estimate");
+  // the marketplace: Update (keep my copy or replace), Remove, Publish
+  const [market, setMarket] = useState<"update" | "remove" | "publish" | null>(null);
   // YAML typed by hand in the YAML tab. null = not edited (the tab shows the YAML of the blocks).
   const [yamlText, setYamlText] = useState<string | null>(null);
   const wide = useWide();
@@ -206,6 +216,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
   if (loaded.error) return <Wf>{rail}<div className="wf-main"><ErrorBox error={loaded.error} onRetry={() => void loaded.reload()} /></div></Wf>;
   if (!w) return <Wf>{rail}<div className="wf-main"><Loading what="Loading the workflow" /></div></Wf>;
   const step = w.steps.find((s) => s.id === sel) ?? null;
+  // the list says where a workflow came from (GET /projects/{pid}/workflows)
+  const listed: Workflow = { ...w, market: row?.market ?? w.market ?? null };
 
   const save = async () => {
     setBusy(true);
@@ -253,6 +265,7 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
               <h2>{w.name}</h2>
               <span className="wf-sub">
                 {isTemplate(w) ? <span className="tag keel">keel template</span> : w.based_on ? <span className="tag">from {w.based_on}</span> : null}
+                <MarketBadge w={listed} onUpdate={() => setMarket("update")} />
                 <span>v{w.version}</span><span>{w.steps.length} steps</span>
                 {shownEst ? <span title={`estimated tokens for the whole workflow, ${acs} ${acs === 1 ? "criterion" : "criteria"}`}>≈ {kfmt(shownEst.tokens)} tokens</span> : null}
               </span>
@@ -278,7 +291,9 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
                 {row.runs} run{row.runs === 1 ? "" : "s"} · last: {row.last_run.status} ▸</button>
             )}
             <a className="btn sm" href={api.exportUrl(wid)} download={`${wid}.workflow.yaml`} style={{ textDecoration: "none" }}>Export</a>
+            <WorkflowMenu w={listed} onUpdate={() => setMarket("update")} onRemove={() => setMarket("remove")} onPublish={() => setMarket("publish")} />
           </div>
+          {market === "remove" && <RemoveWorkflow w={listed} onNo={() => setMarket(null)} onDone={onGone} />}
           {err && view !== "yaml" && <StepErrorBox error={err} steps={w.steps} onPick={pick} />}
           {view !== "yaml" && yamlText !== null && <p className="hint amber" style={{ margin: 0 }}>You changed the YAML by hand. Save to see those changes in the blocks.</p>}
           <RemovedNotice b={b} />
@@ -357,6 +372,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
           {side === "explain" ? <ExplainPanel pid={pid} w={w} id={step.id} /> : inspector}
         </Drawer>
       ) : null}
+      {market === "update" && <UpdateDialog pid={pid} w={listed} onClose={() => setMarket(null)} onDone={onReplaced} />}
+      {market === "publish" && <PublishDialog pid={pid} w={saved ?? w} onClose={() => setMarket(null)} />}
     </Wf>
   );
 }

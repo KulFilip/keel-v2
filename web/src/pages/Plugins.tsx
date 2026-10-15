@@ -12,6 +12,10 @@
 //                       install from a file in /data
 //   #/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs
 //
+// 0.16.1 plugin track (docs/plugins/21-workflow-marketplace.md §4): the Marketplace has a kind switch, Plugins ·
+// Workflows (#/plugins?tab=market&kind=workflows); a workflow's own page is #/plugins/workflow/<name>
+// (MarketWorkflow.tsx).
+//
 // Install opens a dialog that lists everything that will be installed and what each one may do.
 // #/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
 // once (the missing plugins; the image's plugins that are off are turned on); nothing installs before the person presses
@@ -82,6 +86,11 @@ import {
   useInside,
   type Chip,
 } from "./pluginLook";
+import {
+  KindSwitch,
+  MarketWorkflowPage,
+  WorkflowsMarket,
+} from "./MarketWorkflow";
 
 type Tab = "installed" | "market" | "sources";
 
@@ -95,6 +104,8 @@ const SUB: Record<Tab, string> = {
     "Plugins add pages, tools, workflows and agents to keel. Each comes from its own git repo. keel checks its signature before it installs it.",
   sources: "Where plugins come from, and who may install them.",
 };
+const SUB_WORKFLOWS =
+  "Workflows made by keel and the community. One installs into a project as an editable copy. keel checks its signature and shows what it runs first.";
 
 export function PluginsPage(_props: PageProps) {
   const route = useRoute();
@@ -110,6 +121,9 @@ export function PluginsPage(_props: PageProps) {
       ? asked
       : null;
   const [tab, setTab] = useState<Tab>(linked ?? "installed");
+  // the Marketplace's kind: #/plugins?tab=market&kind=workflows (the link is the truth)
+  const kind =
+    queryValue(route, "kind") === "workflows" ? "workflows" : "plugins";
   useEffect(() => {
     if (linked) setTab(linked);
   }, [linked, route.query]);
@@ -162,6 +176,16 @@ export function PluginsPage(_props: PageProps) {
     />
   );
 
+  // #/plugins/workflow/<name>: a workflow of the marketplace (a plugin's name never has a "/")
+  if (arg?.startsWith("workflow/"))
+    return (
+      <MarketWorkflowPage
+        key={arg}
+        name={arg.slice("workflow/".length)}
+        view={view.data}
+      />
+    );
+
   if (arg)
     return (
       <>
@@ -190,7 +214,9 @@ export function PluginsPage(_props: PageProps) {
     <>
       <PageHead
         title="Plugins"
-        sub={SUB[tab]}
+        sub={
+          tab === "market" && kind === "workflows" ? SUB_WORKFLOWS : SUB[tab]
+        }
         actions={
           tab === "installed" ? (
             <>
@@ -249,7 +275,11 @@ export function PluginsPage(_props: PageProps) {
       </div>
       <div className="mk-tab">
         {tab === "installed" && <InstalledTab view={view} />}
-        {tab === "market" && (
+        {tab === "market" && <KindSwitch kind={kind} />}
+        {tab === "market" && kind === "workflows" && (
+          <WorkflowsMarket view={view.data} />
+        )}
+        {tab === "market" && kind === "plugins" && (
           <MarketTab
             view={view.data}
             onInstall={(name) => setPlan({ install: [name] })}

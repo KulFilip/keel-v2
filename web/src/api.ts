@@ -71,6 +71,9 @@ export type Workflow = {
   folder?: string | null;
   runs?: number;
   last_run?: { thread_id: string; title: string; status: string; at: string } | null;
+  /** 0.16.1 plugin track: a workflow installed from the marketplace (docs/plugins/21-workflow-marketplace.md §3): its
+   *  catalog, its name there, the version it has, and a newer version that fits (null: none). Absent for the others. */
+  market?: { catalog: string; name: string; version: string; update: string | null } | null;
 };
 
 /** v0.9.0: one flow of a project's history (GET /api/projects/{pid}/runs). */
@@ -766,12 +769,15 @@ export class ApiError extends Error {
   hint?: string;
   /** Extra lines some errors carry, e.g. workflow validation `errors: string[]`. */
   details?: string[];
-  constructor(message: string, status: number, hint?: string, details?: string[]) {
+  /** The whole JSON answer of an error, for the fields some errors add (a 409's missing_plugins, missing_agents). */
+  body?: Record<string, unknown>;
+  constructor(message: string, status: number, hint?: string, details?: string[], body?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.hint = hint;
     this.details = details;
+    this.body = body;
   }
 }
 
@@ -793,7 +799,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
     let err: { error?: string; hint?: string; errors?: unknown } = {};
     if (type.includes("json")) err = await res.json().catch(() => ({}));
     const details = Array.isArray(err.errors) ? err.errors.map(String) : undefined;
-    throw new ApiError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint, details);
+    throw new ApiError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint, details, err as Record<string, unknown>);
   }
   if (opts.text) return (await res.text()) as T;
   if (res.status === 204 || res.headers.get("content-length") === "0") return undefined as T;
