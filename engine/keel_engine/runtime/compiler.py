@@ -38,6 +38,7 @@ from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check
+from . import blockers as push_gates
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
@@ -434,6 +435,8 @@ class Compiler:
                           ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse,
                           unlocks=state.get("unlocks") or [], agent=agent, knowledge=know,
                           readonly=self._readonly() or item_root)
+        # keel v1's push gate for the agent's own `git push` / `gh pr create` (rules.push_gate)
+        toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
             "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
@@ -806,7 +809,16 @@ class Compiler:
                     data["command"] = r["command"]
                 ctx.emit("guard.refused", step=step.id, data=data)
         if agent_results:
+            agent_results = await self._marker_reask(state, step, agent_results, calls, section_of, item_of)
             upd["last_answer"] = (agent_results[-1][0].text or "")[:8000]
+            # keel v1 post-failure: the last shell command an agent saw fail (shown by Explain and "Rules now")
+            fails = [(res.data.get("failed_command") or getattr(tb, "failed_command", None)) for res, _m, tb in agent_results]
+            fail = next((f for f in reversed(fails) if f), None)
+            if fail:
+                data = dict(upd.get("data") or state.get("data") or {})
+                data["last_command_failure"] = {**fail, "step": step.id, "agent": step.agent or calls[0][0]}
+                upd["data"] = data
+                state = {**state, "data": data}
         upd.update(self._outputs(step, state, [r[0] for r in agent_results], item_of))
         said = ((upd.get("markers") or {}).get(step.id) or {}) if step.markers else {}
         if said:
@@ -878,6 +890,34 @@ class Compiler:
                 "ms": r["ms"], "files": r["files"], "cmd": r["cmd"], "dir": r["dir"], "code": r["code"],
                 "source": r.get("source"), "output": r.get("output", "")[:STEP_FIELD_MAX]})
         return emit
+
+    async def _marker_reask(self, state: FlowState, step: Step, results: list, calls: list, section_of: dict,
+                            item_of: dict) -> list:
+        """keel v1 subagent-stop: an agent whose answer has none of the result lines the step reads (BLOCKING: yes | no,
+        ...) is asked once more, in its own session where the provider keeps one, to repeat its whole answer and end with
+        the line. A reply with only the line would lose the findings, so the prompt says so. Still missing: as before.
+        Like keel v1's one contract per agent, one of the step's lines is enough."""
+        wanted = [m.upper() for m in step.markers or [] if markers.REGISTRY.get(m.upper())]
+        if not wanted or len(results) != len(calls):
+            return results
+        out = list(results)
+        for n, (res, _model, _tb) in enumerate(results):
+            if markers.parse(res.text or "", wanted):
+                continue
+            missing = wanted
+            agent, k = calls[n]
+            lines = "\n".join(f"{m}: {' | '.join(markers.REGISTRY[m])}" for m in missing)
+            ask = (f"Your answer did not end with keel's result line. Repeat your full answer (this reply replaces it, so "
+                   f"anything you leave out is lost) and end with:\n{lines}")
+            self.ctx.emit("agent.reask", step=step.id, data={"agent": agent, "missing": missing})
+            try:
+                again = await self._run_agent({**state, "feedback": ask}, step, agent, k, section_of.get(n), item_of.get(n))
+            except Exception as exc:  # noqa: BLE001  the first answer stays
+                log.warning("re-ask of %s failed: %s", agent, exc)
+                continue
+            if markers.parse(again[0].text or "", missing) or not (res.text or "").strip():
+                out[n] = again
+        return out
 
     async def _after_edit(self, step: Step, state: FlowState, before, refused: list[dict]) -> tuple[str, dict | None]:
         """After an agent step that changed files: the project's `edit` and `batch` tools on those files (runtime/tools.py).

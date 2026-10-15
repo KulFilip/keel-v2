@@ -85,6 +85,44 @@ def secrets_in_diff(diff: str) -> list[dict]:
     return found
 
 
+# ---------------------------------------------------------------- at write time (keel v1 post-tool H16, H6)
+
+TEST_FILE = re.compile(r"Test\.(kt|java)$|Tests\.(kt|java)$|\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)test_[^/]+\.py$|_test\.py$")
+DISABLED = [(re.compile(r"^\+.*@Disabled", re.M), "@Disabled"), (re.compile(r"^\+.*@Ignore", re.M), "@Ignore"),
+            (re.compile(r"^\+.*\.skip\(", re.M), ".skip("), (re.compile(r"^\+.*\.only\(", re.M), ".only("),
+            (re.compile(r"^\+.*\bxit\(", re.M), "xit("), (re.compile(r"^\+.*test\.fixme", re.M), "test.fixme"),
+            (re.compile(r"^\+.*assumeTrue\(false\)", re.M), "assumeTrue(false)"),
+            (re.compile(r"^\+.*@pytest\.mark\.skip\b", re.M), "@pytest.mark.skip")]
+# Files whose content is scanned at write time (keel v1 H16); build output and generated code are not.
+SCANNED = re.compile(r"\.(kt|kts|java|ts|tsx|js|jsx|mjs|cjs|py|go|rb|php|cs|rs|swift|yml|yaml|json|properties|sh|env|md|txt|xml|toml|ini|cfg|conf)$")
+NOT_SCANNED = re.compile(r"(^|/)(node_modules|build|dist|target|generated)/|\.env\.example$")
+
+
+def added_text(old: str | None, new: str) -> str:
+    """The lines of `new` that `old` does not have: a secret or a marker that was already there is not the agent's."""
+    if not old:
+        return str(new or "")
+    have = set(str(old).split("\n"))
+    return "\n".join(line for line in str(new or "").split("\n") if line not in have)
+
+
+def check_content(rel: str, text: str, cfg: dict | None = None) -> str | None:
+    """The reason an edit that adds `text` to `rel` is refused (a secret, a disabled test), else None."""
+    rel = str(rel).replace("\\", "/").removeprefix("./")
+    if not text or not SCANNED.search(rel) or NOT_SCANNED.search(rel) or classify(cfg, rel) == "generated":
+        return None
+    for hit in scan_secrets(text):
+        return (f"{rel}: the new text looks like {hit['why']} (its line {hit['line']}). Secrets belong in the env file; read "
+                "the value from an environment variable. A fixture line may carry the marker keel:allow-secret.")
+    if TEST_FILE.search(rel) or classify(cfg, rel) in ("api-test", "web-test", "e2e"):
+        plus = "\n".join("+" + line for line in str(text).split("\n"))
+        found = [name for rx, name in DISABLED if rx.search(plus)]
+        if found:
+            return (f"{rel}: adds {', '.join(found)}. Tests must not be disabled or skipped; fix the code, or reject the AC at "
+                    "the gate if the test is wrong.")
+    return None
+
+
 # ---------------------------------------------------------------- manifests (lib/guards.js)
 
 MANIFESTS = [

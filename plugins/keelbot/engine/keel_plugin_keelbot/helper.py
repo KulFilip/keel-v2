@@ -40,6 +40,7 @@ from pathlib import Path
 from keel_engine import approvals, config, extensions, models, rules
 from keel_engine.models import catalog
 from keel_engine.models.base import AgentRequest, AgentResult
+from keel_engine.runtime.blockers import for_agents as push_blockers_for
 from keel_engine.runtime import agent_knowledge, db, doc_history, guard_ctx, permissions, plugins, prompts
 from keel_engine.tools import git, guard, testcmd, worktrees
 from keel_engine.tools.agent_tools import ToolBox, command_env
@@ -716,6 +717,9 @@ class HelperRunner:
         else:
             phase, unlocks, ac = "none", [], None
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
+        if mode in ("fix", "side"):
+            # keel v1's push gate for KeelBot's own `git push` / `gh pr create` (rules.push_gate)
+            toolbox.push_blockers = await asyncio.to_thread(push_blockers_for, root, flow.get("base_head"), project)
         resumable = model.get("mode") != "api" and provider in RESUMABLE
         session = s["engine_session"] if resumable else None
         resume = bool(session)

@@ -76,7 +76,7 @@ class CoreSlotsApiTest : ApiTest() {
         assertThat(byKey.getValue("push_pr")["choices"].map { it.asText() }).containsExactly("ask", "auto", "never")
         assertThat(shape("cap_tokens")).isEqualTo("int 500000")
         assertThat(shape("usage_warn")).isEqualTo("number 0.8")
-        assertThat(shape("keel_rules")).isEqualTo("bool true")
+        assertThat(byKey).doesNotContainKey("keel_rules")      // v0.17.2: read by nothing, removed (a workflow keeps its own)
         assertThat(shape("branch_pattern")).isEqualTo("text \"feat/{slug}\"")
         assertThat(shape("mcp")).isEqualTo("list [\"keel\"]")
         assertThat(byKey.getValue("default_model")["type"].asText()).isEqualTo("model")

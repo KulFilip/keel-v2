@@ -27,7 +27,6 @@ export const SECTIONS: Sec[] = [
       help: (v) => `${runModeAbout(String(v ?? "manual"))} A running flow can change it on the Flow page.` },
     { key: "gates_mode", label: "Gate mode", kind: { t: "select", opts: [["every-ac", "every AC"], ["end-of-lane", "end of lane"], ["end", "end of flow"]] },
       help: "When the AC gate waits for you: after every criterion, at the end of each lane, or once at the end." },
-    { key: "keel_rules", label: "keel rules", kind: { t: "bool" }, help: "keel's locked steps (spec, contract, guard, final review) stay in every workflow. Off lets a workflow remove them." },
     { key: "fix_attempts", label: "Fix attempts per ladder rung", kind: { t: "select", opts: [["1", "1"], ["3", "3"], ["5", "5"]] },
       help: "How many times an agent may try to fix a failing setup step before it asks you." },
     { key: "coverage_min", label: "Coverage needed before push", kind: { t: "select", opts: [["0", "off"], ["70", "70%"], ["80", "80%"], ["90", "90%"]] },
@@ -325,11 +324,12 @@ export function SettingsPage({ pid }: { pid: string }) {
             ))}
             {isProj && project && !filter && (
               <section className="panel sg-sec" aria-labelledby="sg-where-h">
-                <header className="sg-sec-h"><h2 id="sg-where-h">Where these are saved</h2><p>This project's own values travel with the repo.</p></header>
+                <header className="sg-sec-h"><h2 id="sg-where-h">Where these are saved</h2><p>The settings on this page stay on this machine, in keel's database. The rules agents follow are files in the repo, shared with the team.</p></header>
                 <div className="kv sg-kv">
                   <span>Folder</span><b className="mono pg-wrap">{project.root}</b>
                   <span>Branch</span><b className="mono">{project.branch}</b>
-                  <span>Saved in</span><b className="mono pg-wrap">.keel/config.yml (shared with the team) + keel's data folder</b>
+                  <span>These settings</span><b className="mono pg-wrap">keel's database (data folder), per project</b>
+                  <span>keel's rules</span><b className="mono pg-wrap">.keel/config.yml and .keel/rules/ — <a href="#/rules">Build › Rules</a></b>
                 </div>
               </section>
             )}

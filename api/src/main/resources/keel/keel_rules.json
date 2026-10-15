@@ -731,7 +731,8 @@
     ".env": "protected-env",
     "build/generated/x.kt": "generated",
     "README.md": "other",
-    ".keel/config.yml": "other"
+    ".keel/config.yml": "keel-rules",
+    ".keel/rules/no-new-dependencies.yaml": "keel-rules"
   },
   "EMPTY": {
     "flow": null,

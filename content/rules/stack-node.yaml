@@ -1,0 +1,25 @@
+# keel rule pack for Node projects (npm, pnpm, yarn).
+schema: 1
+kind: rules
+name: stack-node
+title: Node
+version: 1.0.0
+publisher: keel
+summary: Registry settings and the Node version are changed by a person; no global installs.
+stack: node
+requires:
+  keel: ">=0.17.2"
+rules:
+  - id: no-npmrc
+    kind: edit
+    match: ["**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.nvmrc", "**/.node-version"]
+    reason: Registry and Node version settings are changed by a person.
+  - id: no-global-install
+    kind: bash
+    how: regex
+    match: ['\bnpm\s+(i|install)\s+(-g|--global)\b', '\byarn\s+global\s+add\b', '\bpnpm\s+add\s+(-g|--global)\b']
+    reason: A global install changes the machine, not the project.
+  - id: no-audit-fix-force
+    kind: bash
+    match: ["npm audit fix --force"]
+    reason: audit fix --force can jump major versions; a person decides that.

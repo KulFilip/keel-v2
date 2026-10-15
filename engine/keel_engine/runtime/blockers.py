@@ -123,6 +123,18 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
     return out
 
 
+def for_agents(root: str, base: str | None = None, project: str | None = None) -> list[dict]:
+    """The push blockers an agent run starts with (guard context `push_blockers`, ToolBox.push_blockers): the push gate
+    refuses an agent's own `git push` / `gh pr create` while this is not empty. Nothing that changes them (verify steps,
+    keel's commits) runs during an agent run. Only for a project that adopted keel; never fails a run."""
+    try:
+        if not (Path(root) / ".keel" / "config.yml").is_file():
+            return []
+        return [{k: b.get(k) for k in ("gate", "why", "fix")} for b in push_blockers(root, base, project=project)]
+    except Exception:  # noqa: BLE001  the gate is a helper; the release checks before keel's push stay
+        return []
+
+
 def push_warnings(root: str, base: str | None = None) -> list[dict]:
     """Gates keel cannot run in this version and the project does not require: told, not enforced."""
     if not git.is_repo(root) or not (Path(root) / ".keel" / "config.yml").is_file():

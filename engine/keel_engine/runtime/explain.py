@@ -74,7 +74,7 @@ BUCKETS = [
     ("web-test", "frontend tests"), ("migration", "database migrations"), ("contract", "the API contract (openapi)"),
     ("specs", "specs"), ("e2e", "end-to-end tests"), ("smoke", "smoke checks"),
     ("other", "everything else: docs, config, build files"), ("protected-env", ".env files (secrets)"),
-    ("generated", "generated code"),
+    ("generated", "generated code"), ("keel-rules", "keel's rules: .keel/config.yml and .keel/rules/"),
 ]
 MAY = {"allow": ("edit", "edit"), "new-only": ("new-only", "create new files only"),
        "delete-only": ("delete-only", "delete lines only"), "deny": ("read-only", "read only")}
@@ -196,6 +196,8 @@ def phase_rules(phase: str, cfg: dict, step: Step) -> dict:
             may, label, note = "no-access", "never read or written", "it holds secrets; only you change it"
         elif b == "generated":
             may, label, note = "read-only", "read only", "change its source and run the generator instead"
+        elif b == "keel-rules":
+            may, label, note = "read-only", "read only", "an agent never changes its own rules; you do (Rules page)"
         elif b == "migration" and may == "edit":
             may, label, note = "new-only", "create new files only", "an existing migration never changes"
         item = {"bucket": b, "what": what, "may": may, "label": label}

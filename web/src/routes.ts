@@ -16,6 +16,8 @@ export const SCREEN = {
   live: "live",
   jobs: "jobs",
   workflows: "workflows",
+  /** v0.17.2 Build › Rules: keel's rules and the project's rule packs (core: the guard is core) */
+  rules: "rules",
   agents: "agents",
   skills: "skills",
   stacks: "stacks",

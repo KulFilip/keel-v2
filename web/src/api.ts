@@ -691,7 +691,6 @@ export type Settings = {
   gates_mode: GatesMode;
   /** v0.4.1: the run mode a new flow starts with */
   run_mode?: RunMode;
-  keel_rules: boolean;
   fix_attempts: number;
   coverage_min: number;
   default_model: Model;

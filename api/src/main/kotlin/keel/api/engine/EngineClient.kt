@@ -87,6 +87,11 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
         fast.delete().uri(path).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
     }
 
+    /** v0.17.2 DELETE with a template, like [get] with vars: `{name}` takes its value from [vars], encoded once. */
+    fun delete(path: String, vars: Map<String, Any?>): JsonNode = call {
+        fast.delete().uri(path, vars.mapValues { it.value ?: "" }).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
     /** True when GET /health answers within a short time. */
     fun health(): JsonNode? = try {
         client(Duration.ofSeconds(2)).get().uri("/health").retrieve().body(JsonNode::class.java)

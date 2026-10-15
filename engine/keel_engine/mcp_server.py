@@ -626,7 +626,8 @@ LEVELS = ("read", "write", "admin")
 RANK = {"read": 0, "write": 1, "admin": 2}
 # Tools that change something hard to undo: the client asks the person first (MCP elicitation), or with --yes not.
 # A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
-CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc"}
+CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
+           "keel_rule_edit"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -693,10 +694,10 @@ def part_tools() -> dict[str, list[str]]:
 TOOLS: dict[str, tuple[str, ...]] = {
     "read": ("keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
-             "keel_read_file", "keel_actions", "keel_run_action"),
+             "keel_read_file", "keel_actions", "keel_run_action", "keel_rules"),
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"),
     "admin": ("keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
-              "keel_edit_workflow"),
+              "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
 # the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
 MARKET_TOOLS = ("keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request")
@@ -793,6 +794,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """What a phase permits and refuses (which files may be edited, commit rules, shell rules) and where it sits on
         each flow's rail. phase: e.g. spec, red, green, gate, hunt-sweep; default the project's current phase."""
         return guard(explain, api, phase, project)
+
+    @reg(ro)
+    def keel_rules(project: str | None = None) -> str:
+        """keel's rules for the project in plain words: the always-on rules, the ones switched off, the project's lists
+        (.keel/config.yml), its rule packs (.keel/rules/), which engines check them before the action or only after the
+        step, and — with a flow running — what agents may change now and which rules stopped something."""
+        return guard(more.rules, api, project)
 
     @reg(ro)
     def keel_dashboard(project: str | None = None, view: Literal["flow", "map", "er"] = "flow") -> str:
@@ -939,6 +947,22 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """Change a workflow: the whole YAML (keel_workflows with `workflow` shows it). keel checks it first; nothing is
         saved when the check finds errors."""
         return await act(ctx, "keel_edit_workflow", f"change the workflow {workflow}", more.edit_workflow, api, workflow, yaml, project)
+
+    @reg(rw)
+    async def keel_rule_install(pack: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Install a rule pack from keel's library into the project (.keel/rules/<pack>.yaml): strict-secrets,
+        no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python."""
+        return await act(ctx, "keel_rule_install", f"install the rule pack {pack}", more.rule_install, api, pack, project)
+
+    @reg(rx)
+    async def keel_rule_edit(op: Literal["add", "change", "remove", "off", "on"], pack: str | None = None, yaml: str | None = None,
+                             rule: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """Change the project's rules. add / change: a rule pack's whole YAML (keel checks it and says how many recent
+        tool calls it would have refused); remove: a pack; off / on: a built-in rule that may be switched off (e.g.
+        read-twice) or a pack as pack/<id>. Rules that protect secrets or history never switch off."""
+        what = {"add": "add a rule pack", "change": f"change the rule pack {pack}", "remove": f"remove the rule pack {pack}",
+                "off": f"switch off {rule}", "on": f"switch on {rule}"}.get(op, op)
+        return await act(ctx, "keel_rule_edit", what, more.rule_edit, api, op, pack, yaml, rule, project)
 
     # ---------------------------------------------------------------- the marketplace (step 4)
     # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only

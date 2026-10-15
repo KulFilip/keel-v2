@@ -1,0 +1,21 @@
+# keel rule pack for Python projects (uv, poetry, pip).
+schema: 1
+kind: rules
+name: stack-python
+title: Python
+version: 1.0.0
+publisher: keel
+summary: The Python version and the lockfiles are changed by a person; no installs outside the project's tool.
+stack: python
+requires:
+  keel: ">=0.17.2"
+rules:
+  - id: no-python-version
+    kind: edit
+    match: ["**/.python-version", "**/runtime.txt"]
+    reason: The Python version is changed by a person.
+  - id: no-system-pip
+    kind: bash
+    how: regex
+    match: ['\bsudo\s+pip', '\bpip3?\s+install\s+--user\b', '--break-system-packages']
+    reason: Installs go through the project's tool (uv or poetry), not into the system Python.

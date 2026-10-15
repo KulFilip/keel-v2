@@ -12,6 +12,9 @@ ask: {url, key, session} in KeelBot's Fix and side modes: a shell command that c
 OK (runtime/permissions.py asks at `url`, the full address; keel_engine/approvals.py waits); the key only asks, it
 cannot answer.
 
+push_blockers: [{gate, why, fix}] when the run started (runtime/blockers.py for_agents); while not empty the hook refuses
+an agent's `git push` / `gh pr create` (keel v1 gates.pushBlockers). keel's own push action is not an agent call.
+
 knowledge_*: the agent's knowledge setting (runtime/agent_knowledge.py); with strict on, reading a docs/knowledge
 section the agent was not given is refused.
 
@@ -58,6 +61,33 @@ def claude_settings(path: str | Path, timeout: int = 10) -> str:
         "hooks": [{"type": "command", "command": hook_command(), "timeout": timeout}],
     }]}}))
     return str(p)
+
+
+def write_shims(folder: str | Path) -> str:
+    """keel's command wrappers (keel_engine/shim.py) in `folder`: put it first on the PATH of a CLI with no hook keel can
+    load (copilot, older codex). Returns the folder."""
+    from ..shim import NAMES
+
+    d = Path(folder)
+    d.mkdir(parents=True, exist_ok=True)
+    for name in NAMES:
+        p = d / name
+        p.write_text(f'#!/bin/sh\nexec "{sys.executable}" -I -m keel_engine.shim {name} "$@"\n')
+        p.chmod(0o755)
+    return str(d)
+
+
+def shim_env(folder: str, path: str | None = None) -> dict:
+    """PATH (wrappers first) and KEEL_SHIM_DIR for an agent CLI's environment."""
+    return {"PATH": folder + os.pathsep + (path if path is not None else os.environ.get("PATH", "")), "KEEL_SHIM_DIR": folder}
+
+
+def codex_hook_args(timeout: int = 10) -> list[str]:
+    """codex 0.150+ runs Claude-shaped PreToolUse hooks from its config: keel's hook for every tool, given with -c so
+    nothing is written into CODEX_HOME. The trust flag: keel writes this hook itself for this run (codex asks a person
+    to trust a hook it found in a config file)."""
+    entry = '[{matcher=".*",hooks=[{type="command",command=%s,timeout=%d}]}]' % (json.dumps(hook_command()), timeout)
+    return ["-c", f"hooks.PreToolUse={entry}", "--dangerously-bypass-hook-trust"]
 
 
 def write_context(path: str | Path, **ctx) -> str:
@@ -115,7 +145,8 @@ def context_for(req) -> dict:
             "agent": req.agent, "thread": getattr(req, "thread", "") or "",
             "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict")),
             "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
-            "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools()}
+            "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools(),
+            "push_blockers": list(getattr(tb, "push_blockers", None) or [])}
 
 
 def ensure(req, folder: str | None = None) -> str:

@@ -36,7 +36,11 @@ CLOSED = {"other": "allow", "*": "deny"}
 ALWAYS_DENY = {
     "protected-env": "holds secrets. Ask the user to change it.",
     "generated": "is generated. Change the source and rerun codegen.",
+    "keel-rules": "holds keel's rules for this project. Agents never change their own rules; the person does (Rules page).",
 }
+
+# The project's rule files: an agent that could edit them could switch off the guard that judges it.
+RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/")]
 
 LANE_OF = {"api-main": "api", "api-test": "api", "migration": "api", "web-src": "web", "web-test": "web"}
 LANE_SCOPED_PHASES = {"red", "green"}
@@ -65,8 +69,70 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "read_block": ["**/build/**", "**/node_modules/**", "**/playwright-report/**", "**/target/**"],
         "bash_deny_always": ["git push --force", "git push -f", "--no-verify", "-x test", "-x check"],
         "bash_deny_in_flow": ["git commit", "git reset --hard", "git rebase -i"],
+        # keel v1 guards.read_guard_max_lines: a whole-file read of a bigger file is refused (offset/limit pass); 0 = off
+        "read_guard_max_lines": 2000,
     },
+    # keel's own switches (Rules page): `off` names built-in rules (BUILTINS, only can_off ones) or `pack/<id>`;
+    # the push gate refuses an agent's push while push_blockers reports something (keel v1 gates.pushBlockers).
+    "rules": {"off": [], "push_gate": True, "push_gate_commands": ["git push", "gh pr create"]},
+    "mcp": {"allow": []},
 }
+
+# What a project's config cannot take away: these always run, whatever guards.bash_deny_* say.
+NEVER_DENY_ALWAYS = ["git push --force", "git push -f", "--no-verify"]
+NEVER_DENY_IN_FLOW = ["git reset --hard", "git rebase -i"]
+SKIP_TEST_FLAGS = ["-x test", "-x check"]
+
+# keel's built-in rules as the Rules page lists them. can_off: the project may switch it off (rules.off); the others
+# protect secrets, history or keel's own record and stay on (docs/plans/0.17.2.md decision 6).
+BUILTINS: list[dict] = [
+    {"id": "phase-matrix", "kind": "edit", "phases": "in a flow", "can_off": False,
+     "words": "Each phase lets agents change only some kinds of files: tests in RED, code in GREEN, nothing in a review."},
+    {"id": "env-files", "kind": "edit, read, shell", "phases": "always", "can_off": False,
+     "words": ".env files hold secrets: agents never read, print or change them (setup may write the env file)."},
+    {"id": "keel-rules-files", "kind": "edit", "phases": "always", "can_off": False,
+     "words": "Agents never change .keel/config.yml or .keel/rules/: an agent may not change its own rules."},
+    {"id": "migrations-immutable", "kind": "edit", "phases": "always", "can_off": False,
+     "words": "An existing database migration is never changed; a new migration file is added instead."},
+    {"id": "force-push", "kind": "shell", "phases": "always", "can_off": False,
+     "words": "git push --force and git push -f are refused: they can delete other people's work."},
+    {"id": "no-verify", "kind": "shell", "phases": "always", "can_off": False,
+     "words": "--no-verify is refused: it skips the checks keel relies on."},
+    {"id": "commit-in-flow", "kind": "shell", "phases": "in a flow", "can_off": False,
+     "words": "In a flow keel makes every commit after its checks; an agent's own git commit is refused."},
+    {"id": "history-rewrite", "kind": "shell", "phases": "in a flow", "can_off": False,
+     "words": "git reset --hard and git rebase -i are refused in a flow: they throw work away."},
+    {"id": "secrets-at-write", "kind": "edit", "phases": "always", "can_off": False,
+     "words": "An edit that adds what looks like a secret (a key, a token, a password) is refused before it is written."},
+    {"id": "disabled-tests", "kind": "edit", "phases": "always", "can_off": False,
+     "words": "A test may not be switched off: skip, only, @Disabled, xit and the like are refused in test files."},
+    {"id": "generated", "kind": "edit", "phases": "always", "can_off": True,
+     "words": "Generated files are not edited by hand: change the source and run the generator."},
+    {"id": "read-build-output", "kind": "read", "phases": "always", "can_off": True,
+     "words": "Build output (build/, node_modules/, target/ ...) is not read: it wastes the agent's context."},
+    {"id": "skip-test-flags", "kind": "shell", "phases": "always", "can_off": True,
+     "words": "-x test and -x check are refused: they skip the tests in a Gradle build."},
+    {"id": "new-dependency", "kind": "shell", "phases": "in a flow", "can_off": True,
+     "words": "Installing a new package is a decision for the spec and a gate, not for an agent."},
+    {"id": "read-twice", "kind": "read", "phases": "always", "can_off": True,
+     "words": "Reading the same unchanged file twice in one step is refused: the agent already has it."},
+    {"id": "big-file-read", "kind": "read", "phases": "always", "can_off": True,
+     "words": "A big file (more lines than read_guard_max_lines) is read in parts, with offset and limit."},
+    {"id": "push-gate", "kind": "shell", "phases": "always", "can_off": True,
+     "words": "An agent's git push or gh pr create is refused while keel's push blockers say the branch is not ready."},
+    {"id": "mcp-writes", "kind": "mcp", "phases": "in a flow", "can_off": True,
+     "words": "In a flow, an MCP tool that can change things runs only when mcp.allow names it."},
+]
+BUILTIN_IDS = {b["id"] for b in BUILTINS}
+CAN_OFF = {b["id"] for b in BUILTINS if b["can_off"]}
+
+
+def is_off(cfg: dict | None, rule_id: str) -> bool:
+    """Is a built-in rule (or `pack/<id>`) switched off in the project's `rules.off`? A never-off rule never is."""
+    off = ((cfg or {}).get("rules") or {}).get("off") or []
+    if rule_id in BUILTIN_IDS and rule_id not in CAN_OFF:
+        return False
+    return rule_id in off
 
 
 def _merge(base: dict, over: dict) -> dict:
@@ -93,6 +159,8 @@ def load_config(root: str | Path | None) -> dict:
 
     data = layout.raw_config(root)
     cfg = make_config(data)
+    cfg["configured"] = (Path(root) / ".keel" / "config.yml").is_file()
+    cfg["packs"], cfg["pack_errors"] = load_packs(root)
     lay = layout.resolve(root, data)
     cfg["layout"] = lay.name
     cfg["paths"] = {"specs": lay.specs, "knowledge": lay.knowledge, "adr": lay.adr, "runbook": lay.runbook,
@@ -193,7 +261,9 @@ def classify(cfg: dict | None, path: str) -> str:
     guards = cfg["guards"]
     if match_glob(rel, guards["protected"]) and not negated(rel, guards["protected"]):
         return "protected-env"
-    if match_glob(rel, guards["generated"]):
+    if any(r.search(rel) for r in RULE_FILES):
+        return "keel-rules"
+    if match_glob(rel, guards["generated"]) and not is_off(cfg, "generated"):
         return "generated"
     if cfg["contract"].get("file") and rel == cfg["contract"]["file"]:
         return "contract"
@@ -283,14 +353,19 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
     env_file = str(cfg.get("setup", {}).get("env_file") or ".env.local").removeprefix("./")
     if bucket == "protected-env" and rel == env_file and phase == "setup":
         return Verdict(True, bucket, note="setup may write the env file")
+    if bucket == "keel-rules" and phase == "setup" and RULE_FILES[0].search(rel):
+        return Verdict(True, bucket, note="setup writes .keel/config.yml")
     if bucket in ALWAYS_DENY:
         return Verdict(False, bucket, f"{rel} {ALWAYS_DENY[bucket]}")
     if bucket == "migration" and exists:
         return Verdict(False, bucket, f"{rel} is an existing migration and is immutable. Add a new migration file instead.")
-    if not flow_active or phase in (None, "", "none"):
-        return Verdict(True, bucket)
     if unlocked(unlocks, rel, phase):
         return Verdict(True, bucket, note="unlocked")
+    v = pack_verdict(cfg, "edit", phase, rel, lane)
+    if v:
+        return Verdict(False, bucket, v.reason)
+    if not flow_active or phase in (None, "", "none"):
+        return Verdict(True, bucket)
     rules = MATRIX.get(phase, CLOSED)
     rule = rules.get(bucket) or rules.get("*") or "deny"
     if phase in LANE_SCOPED_PHASES and lane and LANE_OF.get(bucket) and LANE_OF[bucket] != lane and rule != "deny":
@@ -308,15 +383,44 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
     return Verdict(False, bucket, f'{rel}: editing {bucket} is blocked in phase "{phase}".{_hint(phase, bucket)}')
 
 
-def check_read(path: str, cfg: dict | None = None) -> Verdict:
+def check_read(path: str, cfg: dict | None = None, *, full: str | Path | None = None, ranged: bool = False,
+               phase: str | None = None) -> Verdict:
+    """May a file be read? `full`: the file on disk, for the big-file rule; `ranged`: the read names offset or limit."""
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     bucket = classify(cfg, path)
     rel = _rel(path, cfg.get("root"))
     if bucket == "protected-env":
         return Verdict(False, bucket, f"Reading {rel} is blocked so secrets stay out of the conversation.")
-    if match_glob(rel, cfg["guards"]["read_block"]):
+    if match_glob(rel, cfg["guards"]["read_block"]) and not is_off(cfg, "read-build-output"):
         return Verdict(False, bucket, f"{rel} is build output; reading it wastes context. Read the source instead.")
+    v = pack_verdict(cfg, "read", phase, rel)
+    if v:
+        return Verdict(False, bucket, v.reason)
+    n = too_long(cfg, full) if full is not None and not ranged else 0
+    if n:
+        return Verdict(False, bucket, f"{rel} has {n} lines (more than read_guard_max_lines "
+                                      f"{cfg['guards'].get('read_guard_max_lines')}). Read the part you need with offset and "
+                                      "limit, or search it (grep) first.")
     return Verdict(True, bucket)
+
+
+def too_long(cfg: dict, full: str | Path) -> int:
+    """The file's line count when it is over guards.read_guard_max_lines (0 = off, or rule big-file-read off), else 0."""
+    try:
+        limit = int((cfg.get("guards") or {}).get("read_guard_max_lines") or 0)
+    except (TypeError, ValueError):
+        return 0
+    if limit <= 0 or is_off(cfg, "big-file-read"):
+        return 0
+    try:
+        p = Path(full)
+        if not p.is_file() or p.stat().st_size > 64 * 1024 * 1024:
+            return 0
+        with p.open("rb") as f:
+            n = sum(chunk.count(b"\n") for chunk in iter(lambda: f.read(1 << 20), b""))
+    except OSError:
+        return 0
+    return n if n > limit else 0
 
 
 # ---------------------------------------------------------------- per-agent knowledge (strict mode)
@@ -390,24 +494,57 @@ def adds_dependency(cmd: str) -> str | None:
     return None
 
 
+def runs_command(cmd: str, command: str) -> bool:
+    """Does a shell line run `command` (its words in order, at the start of a segment)? `keel prune` is not `keel pr`."""
+    words = str(command or "").split()
+    if not words:
+        return False
+    rx = r"(?:^|[;&|(]|\bthen|\bdo)\s*(?:\S+=\S+\s+)*" + r"\s+".join(re.escape(w) for w in words) + r"(?=\s|$|[;&|)])"
+    return bool(re.search(rx, str(cmd)))
+
+
+def push_gate(cfg: dict, cmd: str, blockers: list[dict] | None) -> Verdict | None:
+    """keel v1 H10/H17: a push or a PR while push_blockers reports something. Only in a project that adopted keel."""
+    r = cfg.get("rules") or {}
+    if not blockers or not cfg.get("configured") or r.get("push_gate") is False or is_off(cfg, "push-gate"):
+        return None
+    hit = next((c for c in r.get("push_gate_commands") or [] if runs_command(cmd, c)), None)
+    if not hit:
+        return None
+    first = blockers[0]
+    more = f" ({len(blockers) - 1} more: {', '.join(b.get('gate', '') for b in blockers[1:])})" if len(blockers) > 1 else ""
+    return Verdict(False, reason=f'"{hit}" waits for keel\'s push gate: {first.get("gate")}: {first.get("why")}. '
+                                 f'{str(first.get("fix") or "").rstrip(".")}.{more}')
+
+
 def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str | None = None,
-               exists=lambda rel: False, unlocks: list[dict] | None = None) -> Verdict:
+               exists=lambda rel: False, unlocks: list[dict] | None = None,
+               push_blockers: list[dict] | None = None) -> Verdict:
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     cmd = str(command or "")
-    for pat in cfg["guards"]["bash_deny_always"]:
+    skip_flags = is_off(cfg, "skip-test-flags")
+    for pat in NEVER_DENY_ALWAYS + [p for p in cfg["guards"]["bash_deny_always"] if p not in NEVER_DENY_ALWAYS]:
+        if skip_flags and pat in SKIP_TEST_FLAGS:
+            continue
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is not allowed: it skips checks that keel relies on.')
     env = prints_env_file(cmd)
     if env:
         return Verdict(False, reason=f"Printing {env} would put secrets in the conversation.")
+    v = pack_verdict(cfg, "bash", phase, cmd)
+    if v:
+        return v
+    v = push_gate(cfg, cmd, push_blockers)
+    if v:
+        return v
     if phase in (None, "", "none"):
         return Verdict(True)
     if re.search(r"^\s*git\s+commit\b", cmd) or re.search(r"&&\s*git\s+commit\b", cmd):
         return Verdict(False, reason=f'Commits are made by the engine\'s commit step, which checks them against phase "{phase}".')
-    for pat in cfg["guards"]["bash_deny_in_flow"]:
+    for pat in NEVER_DENY_IN_FLOW + [p for p in cfg["guards"]["bash_deny_in_flow"] if p not in NEVER_DENY_IN_FLOW]:
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is blocked during a keel flow.')
-    dep = adds_dependency(cmd)
+    dep = None if is_off(cfg, "new-dependency") else adds_dependency(cmd)
     if dep:
         return Verdict(False, reason=f'adding "{dep}" is a dependency decision. Put it in the spec and take it through the gate.')
     m = re.search(r"(?:>|>>|sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)", cmd)
@@ -418,6 +555,14 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
             if not v.ok:
                 return Verdict(False, v.bucket, f"Shell write to {v.reason}", path=_rel(target))
     return Verdict(True)
+
+
+def check_content(rel: str, text: str, cfg: dict | None = None) -> Verdict:
+    """Secrets and disabled-test markers in the text an edit adds (rules/checks.py check_content)."""
+    from .checks import check_content as _check
+
+    why = _check(rel, text, cfg)
+    return Verdict(False, "content", why) if why else Verdict(True)
 
 
 # ---------------------------------------------------------------- commits
@@ -542,3 +687,7 @@ def gate_due(mode: str, acs: list[dict], ac_id: str, skipped: dict | None = None
     if mode == "end":
         return {"due": True} if ids and ids[-1] == ac_id else {"due": False, "why": "gate mode is end"}
     return {"due": True}
+
+
+# Rule packs (.keel/rules/*.yaml): imported last, they use the names above.
+from .packs import load_packs, pack_verdict, parse_pack, validate_pack  # noqa: E402,F401

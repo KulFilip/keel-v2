@@ -3,7 +3,7 @@
 //
 //   Run      Flow 10 · Tasks 20 · Inbox 30 · Live agents 40 · Jobs 50
 //   Project  Code 10 · KeelBot 20 · Map 30 · Graph 40 · Wiki 50
-//   Build    Workflows 10 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
+//   Build    Workflows 10 · Rules 15 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
 //   Control  Budget 10 · Settings 20 · Connections 30 · Plugins 40
 //
 // And keel's own piece in a part's place: Connections › GitHub (slot connections.kind, order 20: after Jira, before
@@ -19,6 +19,7 @@ import { JobsPage } from "./pages/Jobs";
 import { LivePage } from "./pages/Live";
 import { PluginsPage } from "./pages/Plugins";
 import { QualityPage } from "./pages/Quality";
+import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
 import { SkillsPage } from "./pages/Skills";
 import { StacksPage } from "./pages/Stacks";
@@ -66,6 +67,14 @@ registerPage({
   group: "build",
   order: 10,
   component: WorkflowsPage,
+});
+// v0.17.2 keel's rules stay core: the guard that applies them is core (rule packs install into the project)
+registerPage({
+  id: SCREEN.rules,
+  label: "Rules",
+  group: "build",
+  order: 15,
+  component: RulesPage,
 });
 registerPage({
   id: SCREEN.agents,

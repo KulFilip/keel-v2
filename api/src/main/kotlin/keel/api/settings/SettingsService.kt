@@ -28,9 +28,10 @@ class SettingsService(
     private val sectionBeans: ObjectProvider<SettingsSection>,
 ) {
 
+    /** A scope's saved values; a key keel no longer has (v0.17.2 keel_rules) is left out and dropped at the next save. */
     private fun raw(scope: String): Map<String, Any?> =
-        jdbc.query("SELECT json FROM settings WHERE scope = ?", { rs, _ -> rs.getString(1) }, scope)
-            .firstOrNull()?.let { Json.readMap(it) } ?: emptyMap()
+        (jdbc.query("SELECT json FROM settings WHERE scope = ?", { rs, _ -> rs.getString(1) }, scope)
+            .firstOrNull()?.let { Json.readMap(it) } ?: emptyMap()).filterKeys { it in Settings.KEYS || isPluginKey(it) }
 
     private fun save(scope: String, value: Map<String, Any?>) {
         jdbc.update(

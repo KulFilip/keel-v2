@@ -67,6 +67,69 @@ A workflow can sit in a **Folder** (type a name above the blocks; the list group
 often it ran and opens its last run. A workflow does not need agents: a few code steps (`run: npm test`) and a gate
 automate a task without any model. KeelBot writes one for you when you ask.
 
+## Rules
+
+keel checks every agent with rules. **Build › Rules** shows all of them in plain words.
+
+```
+ an agent wants to act ──► keel's hook checks it ──► allowed ──► it runs
+                              │                                     │
+                              └─► refused: the agent reads why      ▼
+                                                        after the step: keel compares the files
+                                                        and puts back what the phase does not allow
+```
+
+- **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`), old migrations, force push,
+  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit. These never
+  switch off.
+- **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
+  reads, the push gate, MCP tools that change things. Off is saved in `.keel/config.yml` (`rules.off`).
+- **Your lists** (`.keel/config.yml`): protected files, generated files, build output, shell commands, `mcp.allow`,
+  the big-file limit (`read_guard_max_lines`, default 2000 lines; 0 = off), the push gate, architecture boundaries.
+  The page edits them in place; only the `guards`, `mcp`, `rules` and `boundaries` parts are rewritten.
+- **Rule packs**: your own rules, one YAML file each in `.keel/rules/`, shared with the team through git. **Library**
+  installs one (strict secrets, no new dependencies, migrations only in a flow, frontend can't touch the API, Spring,
+  Node, Python); **New rule** writes one with a form or as YAML; **Check and try it** says which of the project's recent
+  tool calls it would have refused. Export and Import move a pack between projects.
+
+```yaml
+schema: 1
+name: no-deploys          # the id and the file name: .keel/rules/no-deploys.yaml
+title: No deploys
+version: 1.0.0
+rules:
+  - id: no-kubectl
+    kind: bash            # bash | edit | read | mcp
+    match: [kubectl apply]
+    phases: all           # all | in-flow | none | [green, refactor]
+    reason: Deploys are a person's job.
+```
+
+The whole format (publisher, summary, `requires`, every field of a rule) is in
+[docs/rules/pack-format.md](rules/pack-format.md). A pack file is shaped like a plugin's manifest, so the same file can
+later come from the Marketplace; the Rules page shows where each pack came from (keel's library, your own, the
+marketplace) and its version.
+
+**Which engine checks what, when.** Each rule on the page shows one sign per engine:
+
+| Sign | Means |
+|---|---|
+| ✓ | checked **before** the action: it never happens |
+| ◐ | checked before for git, gh, the package managers and file printers only |
+| ↺ | checked **after the step**: keel puts the file back |
+| ✗ | not checked by this engine |
+
+Claude, OpenCode, API-key models and Codex 0.150+ are checked before every action. Copilot has no hook keel can load:
+its shell commands go through keel's command wrappers, and its file edits are only checked after each step. The model
+picker says so when you choose Copilot or Codex.
+
+**Rules now** on the Flow page says, for the phase that runs: what agents may change (✓), what they may not (✗), what
+never (🔒), the files you allowed, your rule packs, which rules stopped something (how often, before the action or after
+the step), how well the running engine is checked, and the last command an agent saw fail.
+
+**When keel cannot read the rules** (no guard context, or an error in the hook) it fails closed: only reads pass, and
+`.env` files and build output stay refused. Everything else waits until it is fixed.
+
 ## KeelBot
 
 Open the Code page and press **⌘I** (or the KeelBot button at the bottom of the left bar), or open **KeelBot** in the
@@ -233,9 +296,9 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules (`keel_rules`) |
 | write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox, start a flow, restore a spec, git / PR / CI / database writes |
-| admin | `keel2 mcp --admin` | stop and delete flows, add and remove projects, change workflows |
+| admin | `keel2 mcp --admin` | stop and delete flows, add and remove projects, change workflows, install and change rules |
 
 ```bash
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
@@ -303,6 +366,8 @@ The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs
 (they ask first when agents are working). Each added folder is mounted at the **same path** as on your computer, and
 every git repo in it becomes a project (a folder of repos: each repo directly inside it). More repos later? All
 projects › Add projects lets you pick them. A folder that no longer exists is skipped (`keel2 folders` marks it).
+
+**A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.
 
 ## Problems
 

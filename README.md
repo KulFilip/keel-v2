@@ -106,6 +106,7 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
   MCP (read, write and admin levels), native mode without Docker (`keel2 start --native`), and how to build keel yourself
 - [Plugins](docs/GUIDE.md#plugins-and-the-marketplace): keel core, turning plugins on and off, installing and
   publishing a plugin
+- **Rules** (Build › Rules): see every rule your agents follow, install rule packs or write your own, and watch them in the Flow's "Rules now"
 - [How the parts talk](docs/CONTRACT.md)
 
 ## License
