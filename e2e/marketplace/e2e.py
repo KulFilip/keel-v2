@@ -405,6 +405,91 @@ def setup(cat: Catalog) -> str:
     return pid
 
 
+WF, WF_TITLE = "notes-flow", "Notes flow"
+
+
+def wf_yaml(version: str) -> str:
+    return (f"name: {WF_TITLE}\nkeel_rules: false\nsteps:\n"
+            f"  - {{ id: look, kind: agent, name: look around ({version}), agent: explorer, model: default }}\n"
+            "  - { id: check, kind: gate, name: check the notes, back: look }\n")
+
+
+def workflows(pid: str, cat: Catalog) -> None:
+    """The workflow marketplace (docs/plugins/21-workflow-marketplace.md): a signed workflow released as
+    notes-flow-<version>.yaml (+ .minisig) in the test catalog; search, its page, install into the project, the market
+    badge fields, a flow on the fake model, update (unchanged; replace; keep), remove, and a bad signature refused."""
+    print("1b. a workflow in the marketplace: notes-flow 1.0.0 and 1.1.0")
+    (cat.mkt / "workflows").mkdir(exist_ok=True)
+    (cat.mkt / "workflows" / f"{WF}.yml").write_text(
+        f"name: {WF}\ntitle: {WF_TITLE}\npublisher: e2e\ncategory: docs\nsummary: Looks around and asks you.\n"
+        "tags: [e2e]\nrepo: https://github.com/keel-studio/keel-workflows\n")
+    for v in ("1.0.0", "1.1.0"):
+        f = cat.files / f"{WF}-{v}.yaml"
+        f.write_text(wf_yaml(v))
+        lint = kp("workflow", "lint", str(f))
+        check(lint.rstrip().endswith("ok"), f"keel-plugin workflow lint {f.name}: ok")
+        kp("sign", str(f), "--key-file", str(cat.keys / "publisher.key"))
+        (cat.files / f"{f.name}.json").write_text(json.dumps({"url": f"{cat.base}/files/{f.name}",
+                                                              "released": dt.date.today().isoformat()}))
+    index = cat.index()
+    check([v["version"] for w in index["workflows"] for v in w["versions"]] == ["1.1.0", "1.0.0"]
+          and index["workflows"][0]["versions"][0]["review"]["agents"] == ["explorer"] and index["rules"] == [],
+          "keel-plugin index lists notes-flow 1.1.0 and 1.0.0 with their Install review (rules: [])")
+    src = refresh()
+    check(src["ok"] and src.get("workflows") == 1, "keel read the catalog: 1 plugin, 1 workflow")
+    hit = api("GET", f"/marketplace/workflows?q=notes&project={pid}")["workflows"]
+    check(len(hit) == 1 and hit[0]["version"] == "1.1.0" and hit[0]["installed"] is None and hit[0]["kind"] == "workflow",
+          "GET /api/marketplace/workflows finds notes-flow 1.1.0, not installed")
+    one = api("GET", f"/marketplace/workflows/{WF}?project={pid}")
+    check("look around (1.1.0)" in one["yaml"] and [s["id"] for s in one["steps"]] == ["look", "check"]
+          and one["review"]["agents"] == ["explorer"] and one["review"]["gates"] == 1,
+          "its page: the verified yaml, its steps and keel's own review")
+    res = api("POST", f"/projects/{pid}/workflows/market/install", {"name": WF, "version": "1.0.0", "scope": "project"},
+              timeout=120)
+    wid = res["workflow"]["id"]
+    check(res["workflow"]["market"] == {"catalog": SOURCE_ID, "name": WF, "version": "1.0.0", "update": None}
+          and res["workflow"]["source"] == "marketplace", "installed 1.0.0 into the project (no restart)")
+    listed = next(w for w in api("GET", f"/projects/{pid}/workflows") if w["id"] == wid)
+    check(listed["market"]["update"] == "1.1.0", "Build › Workflows: \"from marketplace · 1.0.0\", update 1.1.0 ready")
+    check(sum(1 for w in api("GET", f"/projects/{pid}/workflows") if "market" in w) == 1,
+          "only the marketplace workflow has the market field")
+    flow = api("POST", f"/projects/{pid}/flows", {"workflow_id": wid, "title": "Notes", "allow_fake": True,
+                                                   "allow_dirty": True}, timeout=120)
+    tid = flow.get("thread_id") or flow.get("id")
+    check(bool(tid), f"it starts on the fake model (flow {tid})")
+    code, again = call("POST", f"/projects/{pid}/workflows/market/install", {"name": WF, "scope": "project"})
+    check(code == 409 and "installed already" in again["error"], "installing it again in this project: 409 installed already")
+    up = api("POST", f"/projects/{pid}/workflows/market/{wid}/update", {"version": "1.1.0", "mode": "keep"}, timeout=120)
+    check(up["workflow"]["id"] == wid and up["workflow"]["market"]["version"] == "1.1.0" and up["kept"] is None,
+          "update an unchanged copy: the same workflow, now 1.1.0")
+    api("PUT", f"/workflows/{wid}", {"yaml": up["workflow"]["yaml"].replace("check the notes", "my own check")})
+    back = api("POST", f"/projects/{pid}/workflows/market/{wid}/update", {"version": "1.0.0", "mode": "replace"}, timeout=120)
+    check(back["workflow"]["id"] == wid and "my own check" not in back["workflow"]["yaml"]
+          and back["workflow"]["market"]["version"] == "1.0.0", "a changed copy, mode replace: replaced (here by 1.0.0)")
+    api("PUT", f"/workflows/{wid}", {"yaml": back["workflow"]["yaml"].replace("check the notes", "my own check")})
+    kept = api("POST", f"/projects/{pid}/workflows/market/{wid}/update", {"version": "1.1.0", "mode": "keep"}, timeout=120)
+    copy = kept["workflow"]
+    mine_now = next(w for w in api("GET", f"/projects/{pid}/workflows") if w["id"] == wid)
+    check(kept["kept"] == wid and copy["id"] != wid and copy["name"] == f"{WF_TITLE} 1.1.0"
+          and "my own check" in mine_now["yaml"] and "market" not in mine_now,
+          "a changed copy, mode keep: theirs stays as their own, the new version comes as \"Notes flow 1.1.0\"")
+    for w in (wid, copy["id"]):
+        api("DELETE", f"/workflows/{w}")
+    check(api("GET", f"/marketplace/workflows?q=notes&project={pid}")["workflows"][0]["installed"] is None,
+          "removed (Delete): the marketplace says not installed")
+    sig = cat.files / f"{WF}-1.1.0.yaml.minisig"
+    good = sig.read_text()
+    bad = cat.tmp / "bad"
+    bad.mkdir(exist_ok=True)
+    shutil.copy(cat.files / f"{WF}-1.1.0.yaml", bad / f"{WF}-1.1.0.yaml")
+    kp("sign", str(bad / f"{WF}-1.1.0.yaml"), "--key-file", str(cat.keys / "other.key"))
+    sig.write_text((bad / f"{WF}-1.1.0.yaml.minisig").read_text())
+    code, res = call("POST", f"/projects/{pid}/workflows/market/install", {"name": WF, "scope": "project"}, timeout=120)
+    check(code == 502 and "signature" in res["error"], f"a bad signature is refused ({res['error'][:70]})")
+    check(not any("market" in w for w in api("GET", f"/projects/{pid}/workflows")), "and nothing was installed")
+    sig.write_text(good)
+
+
 def needs_plugins(pid: str) -> None:
     print("2. needs_plugins: a workflow that needs hello, while hello is not loaded")
     yaml = ("name: needs hello\nkeel_rules: false\nneeds_plugins: [hello]\nsteps:\n"
@@ -639,6 +724,7 @@ def main() -> int:
         print(f"the catalog: {tmp / 'catalog'} on {cat.base}; starting {NAME} from {a.image}")
         start(a.image, tmp / "ws")
         pid = setup(cat)
+        workflows(pid, cat)
         needs_plugins(pid)
         search()
         install(pid, cat)
