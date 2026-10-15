@@ -44,6 +44,65 @@ Each kind gives: its list name, file suffix, size limit, a `review` builder, and
 (`kind`), expiry, signatures, publisher keys and trust stay shared. A new kind is one more table row and its install
 call.
 
+**Built** (branch `wk_generic`, from `feat/workflow-market`). The plugin and workflow answers are the same as before
+(the engine's and the tools' tests ran unchanged, except the one that said `rules` reads as nothing; one more test
+compares every plugin and workflow answer with and without rule packs in the index). The **Rules tab and the rules
+install call are not built**: they wait for the rules session's final pack format.
+
+| part | module | what it does |
+| --- | --- | --- |
+| engine: the table | `keel_engine/marketplace/kinds.py` | `TABLE` = `PLUGIN`, `WORKFLOW`, `RULES` (`Kind`: name, list, noun, suffix, max size, categories, the entry and version types, the hooks with each kind's own checks, `summarise`); `rules_review` checks a pack version's catalog review; `pack_review(doc)` builds it from a pack's YAML (read-only, tolerant of unknown fields) |
+| engine: the catalog | `keel_engine/marketplace/catalog.py` | `parse_index` reads every list through the table (the shared checks: name rule, publisher and keys, version, sha256, https, size up to the kind's limit, `requires.keel` / `requires.plugins`; then the kind's own); `Index.rules`, `Index.entries(kind)`; revoked by `kind`; `matching` / `lookup_kind` for any kind |
+| engine: rule packs | `keel_engine/marketplace/rulepacks.py` | `search`, `detail` (no fetch, no install) |
+| engine: routes | `keel_engine/marketplace/routes.py` | `GET /marketplace/rule-packs`, `GET /marketplace/rule-packs/{name}`, `?kind=rules` on search |
+| tools: the table | `tools/keel-plugin/keel_plugin/catalog.py` | `FILE_KINDS` = `WORKFLOWS`, `RULES` (`FileKind`): `rules/<name>.yml`, the releases' `<name>-<version>.yaml` packs (a mapping with a list of `rules` and no `steps`; anything else stays a workflow), the repo's own `rules/<name>/<version>.yaml` (`--files-url`); `revoked.yml` takes `kind: rules` |
+| tools: lint | `tools/keel-plugin/keel_plugin/rules.py` | `keel-plugin rules lint <file> … [--name N --version V]` |
+
+- **Rules entries** (the index's `rules` list): `{name, kind: "rules", title, publisher, summary, category, tags,
+  repo?, versions: [{version, released, requires: {keel?}, url, sha256, size (≤ 64 KB), review}]}`, review
+  `{rules: int, kinds: {kind: count} (adds up to rules), phases: [str], lanes: [str]}` (other review keys are dropped).
+  Categories: `safety`, `code`, `git`, `files`, `secrets`, `other` (unknown reads as `other`). A broken entry or
+  version is left out and listed with the words `rule pack <name> …`. A plugin may still not be called `workflows`,
+  `rules` or `refresh`.
+- **The pack review** (the engine's `pack_review` and the tool's `rules.review` give the same): every rule that is a
+  mapping counts; its `kind` counts as itself (`unknown` when missing); a rule without `phases` reads as `all`; phases
+  and lanes in the order they first appear; kinds in the order bash, edit, read, mcp, then others by name.
+- **`keel-plugin rules lint`**: `id` (a name, the same as the marketplace name), `name`, `description` (text, optional),
+  `rules` (a non-empty list) with a unique `id`, `kind` (bash, edit, read, mcp), `how` (contains, glob, name, regex;
+  a warning when it is not the kind's: contains → bash, glob → edit/read, name → mcp), `match` (a pattern or a list;
+  a regex must compile), `phases` (all, in-flow, none or a list of phase names), `lanes` / `except` (lists; `except` on
+  bash or mcp is a warning), `reason`; at most 64 KB; a field it does not know is a warning. It prints the review.
+- The marketplace repo's `sync.yml` also puts `rules/<name>/<version>.yaml` (+ `.minisig`) on Pages. Not yet:
+  `fetch-releases.sh` and `check-pr.yml` for rule packs (with the Rules tab).
+
+### Engine routes (as built)
+
+`/marketplace/rules` was already the four marketplace rules (13-step4-contract.md §12; the api's `/api/plugins/rules`
+calls it), so the packs are under **`/marketplace/rule-packs`**. A refusal is `{error, hint?}` as for plugins.
+
+```
+RulesHit {name, kind: "rules", title, publisher, publisher_title, verified, version: str|null (the newest that fits),
+          summary, category, tags: [str], review: {rules, kinds: {kind: count}, phases: [str], lanes: [str]},
+          requires: {keel?}, fits: bool, refused: null|{error, hint}, source, repo, latest, old: bool,
+          why_not: str|null, trust: "content"}
+
+GET /marketplace/rule-packs?q=&category=  → {rules: [RulesHit], sources: [Source], categories: [str]}
+GET /marketplace/rule-packs/{name}        → RulesHit + {versions: [{version, released, requires, review, url, size,
+                                              sha256, revoked: str|null, fits, why_not}] (newest first),
+                                              checks: [str]}                  404 unknown, 400 a bad name
+GET /marketplace/search?q=&category=&kind=plugin|workflow|rules|all
+    kind=rules → the rule-packs answer; kind=all adds rules and rules_categories (next to workflows and
+    workflow_categories); kind=plugin (the default) and kind=workflow answer as before.
+```
+
+- **The newest that fits**: not revoked (`kind: rules`) and keel's version in `requires.keel`. `refused`: the catalog
+  is old, or no version is for this keel. A pack only refuses, so its trust is `content`: the rule "allow unverified
+  publishers" never blocks it.
+- A Source (`sources`) is unchanged: it has no rule pack count yet (the plugin and workflow answers stay the same);
+  the Rules tab can add `rules: int` there.
+- No `POST …/fetch` or install route: the Rules tab will fetch the verified YAML and call the rules session's
+  `POST /api/projects/{pid}/rule-packs`.
+
 ## 3 · The Rules tab (after the format is final)
 
 - **Marketplace › Rules:** cards (title, publisher ✓, version, description, "3 rules · bash 1 · edit 2 · in every

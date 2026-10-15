@@ -141,8 +141,9 @@ Workflow {name, kind: "workflow", title, publisher, summary, category, tags: [st
 revoked  [{name, version, why, kind?: "plugin" (default) | "workflow"}]
 ```
 
-- An index without `workflows` / `rules` reads as before. `rules` is reserved (read as nothing). A plugin entry may say
-  `kind: "plugin"`; another kind in the plugins list (or `plugin` in the workflows list) is left out with a problem.
+- An index without `workflows` / `rules` reads as before. `rules` holds rule packs (23-rules-in-marketplace.md §2).
+  A plugin entry may say `kind: "plugin"`; another kind in the plugins list (or `plugin` in the workflows list) is left
+  out with a problem.
 - Per entry, as for plugins: the name rule, a version `x.y.z` or a pre-release, `https` (http only under the test rule),
   64-hex sha256, a listed publisher with a key, a size up to 256 KB, and a valid `review`; a broken version or entry is
   left out and listed. The plugin names `workflows`, `rules` and `refresh` are refused (they are keel's
@@ -244,7 +245,7 @@ compare). The new rows have `source = "marketplace"`.
   every `run:` command).
 - `keel-plugin index` also reads `workflows/*.yml`, every `<name>-<version>.yaml` (+ `.minisig`, + `.json`) in the
   releases folder and `workflows/<name>/<version>.yaml` here; each is linted, signature-checked with its publisher's
-  keys and gets its review; `revoked.yml` takes `kind: workflow`; `rules` is `[]`.
+  keys and gets its review; `revoked.yml` takes `kind: workflow`; `rules`: rule packs (23-rules-in-marketplace.md §2).
 - `docs/plugins/marketplace-repo/workflows/` (README, `release-notes.yml`); `fetch-releases.sh` fetches a workflow's
   releases (tags `<name>-v<version>`); `sync.yml` passes `--files-url` and copies the repo's own workflow files to
   Pages; `check-pr.yml` lints and signature-checks each new or changed workflow and prints its review.
