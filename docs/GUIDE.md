@@ -121,14 +121,17 @@ the budget and connections. Each other part is a plugin with its own version:
 **Control › Plugins** has three tabs:
 
 - **Installed:** every plugin with its version and an On switch. Turning a plugin on or off restarts keel (about 30 s).
-  A plugin that others need goes off together with them, and one that needs others turns them on.
+  A plugin that others need goes off together with them, and one that needs others turns them on. Database, Git,
+  CI/CD and Code Review also have a **This project** switch: they are on only for the projects you choose.
 - **Marketplace:** plugins you can add, with who made them, what they may do ("Runs code in keel"), and what they
   need. keel checks each package's signature before it installs. The public marketplace opens soon; until then it
   shows the plugins of the catalogs you add.
 - **Sources and rules:** the catalogs keel reads (add one with its URL and public key), and, for plugin authors, a
   `.kplug` file from a path in `/data` (keel marks it **unsigned**).
 
-Click a plugin to see its page: its parts (engine, api, web, content), permissions, versions and what it needs.
+Click a plugin to see its page: its parts (engine, api, web, content), permissions, versions and what it needs. For
+Database, Git, CI/CD and Code Review it also shows what each adds (KeelBot tools, workflow blocks, commands) and a
+**Projects** list with a switch per project.
 Agents cannot install plugins; they can only **ask**, and you approve in the Inbox.
 
 Start keel with fewer plugins:
@@ -144,7 +147,8 @@ Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publis
 
 ## Plugins: Database, Git and CI/CD
 
-Turn them on in **Tools › Plugins** (for this project, or for every project). Nothing new to learn: they add to the
+Turn them on in **Control › Plugins**: in **Installed**, the plugin's **This project** switch (or **For every
+project**); its own page lists every project with its switch. Nothing new to learn: they add to the
 pages you use.
 
 - **Database**: add the project's database in **Connections › Databases** (keel suggests what docker compose,

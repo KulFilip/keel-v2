@@ -515,7 +515,7 @@ function CodeStepFields({ s, pid, onChange }: { s: Step; pid: string; onChange: 
           {pactions.map((a) => <option key={a.name} value={a.name}>{`${a.plugin}: ${a.summary}`}</option>)}
         </datalist>
         <span className="hint">{mine ? `${mine.plugin} plugin: ${mine.summary}` : offPlugin
-          ? "This block belongs to a plugin that is off for this project: turn it on in Tools › Plugins."
+          ? <>This block belongs to a plugin that is off for this project: turn it on in <a href={`#/plugins/${s.action!.split(":")[0]}`}>Control › Plugins</a>.</>
           : "Runs plain code. Costs no tokens."}</span>
       </div>
       {mine && Object.entries(mine.with).map(([k, need]) => (

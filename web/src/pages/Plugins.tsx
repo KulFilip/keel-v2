@@ -4,13 +4,15 @@
 //   Installed           keel core first, then each plugin with its icon; the plugins that live inside another one's page
 //                       (Git, Code Review, CI/CD and Database in Code) under it; version (and the update that is
 //                       ready), parts, from, a status pill, on/off, Update, Roll back, Remove; "Check for updates"
-//                       reads the catalogs again; a banner when changes wait for a restart
+//                       reads the catalogs again; a banner when changes wait for a restart. v0.17.1: a plugin each
+//                       project turns on (db, git, ci, review) also has "This project: On/Off" (PluginProjects.tsx)
 //   Marketplace         the catalog, search, the category chips, the trust legend; "The keel set" and the community's
 //                       plugins as cards (Install / Update to x / Installed). No catalog yet: keel's own plugins from
 //                       the image, with a note, never an empty page
 //   Sources and rules   the catalogs (add one with its URL and public key, refresh, problems), the four rules, and
 //                       install from a file in /data
-//   #/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs
+//   #/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs, and
+//                       (v0.17.1) the projects it is on for
 //
 // Install opens a dialog that lists everything that will be installed and what each one may do.
 // #/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
@@ -70,6 +72,7 @@ import {
   usePluginAct,
   type Err,
 } from "./PluginDetail";
+import { ProjectSwitch, useProjectPlugins } from "./PluginProjects";
 import {
   CHIPS,
   KeelMark,
@@ -498,7 +501,9 @@ function SetOffer({
 const CORE_PARTS = ["engine", "api", "web", "content"];
 
 function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
-  const { health } = useApp();
+  const { health, pid } = useApp();
+  // v0.17.1 the plugins a project turns on (db, git, ci, review): their "This project" switch (Tools › Plugins is gone)
+  const perProject = useProjectPlugins(pid);
   const { busy, err, actions } = usePluginAct(view.reload);
   const [removing, setRemoving] = useState<string | null>(null);
   const inside = useInside(view.data?.plugins ?? []);
@@ -655,6 +660,19 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                         disabled={busy === p.name || p.status === "removed"}
                         onChange={(e) => void a.setOn(e.target.checked)}
                       />
+                      {pid &&
+                        (() => {
+                          const pp = perProject.data?.find(
+                            (x) => x.name === p.name,
+                          );
+                          return pp ? (
+                            <ProjectSwitch
+                              pid={pid}
+                              plugin={pp}
+                              loaded={perProject}
+                            />
+                          ) : null;
+                        })()}
                     </td>
                     <td>
                       <div className="mk-rowact">

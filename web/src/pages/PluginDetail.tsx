@@ -1,7 +1,8 @@
 // v0.16.1 one plugin's own page, #/plugins/<name> (docs/plugins/mockup.html "Plugin detail"): the big icon, title,
 // publisher, version, trust and repo; the main button (Install / Update / Turn off / Remove); ABOUT with each part it
 // brings; PERMISSIONS with their levels; VERSIONS from the catalog; the checks keel runs; what it needs. A plugin from
-// keel's image that no catalog lists shows what keel knows about it.
+// keel's image that no catalog lists shows what keel knows about it. v0.17.1: a plugin each project turns on (db, git,
+// ci, review) also says what it adds and lists the projects with their switch (PluginProjects.tsx).
 //
 // Also the pieces the Installed table shares with it: a plugin's status pill, the Remove question, and the actions.
 
@@ -34,6 +35,7 @@ import {
   isBeta,
   piecesOf,
 } from "./pluginLook";
+import { PluginAdds, PluginProjects, useProjectPlugins } from "./PluginProjects";
 
 export type Err = { message: string; hint?: string; details?: string[] } | null;
 
@@ -214,7 +216,9 @@ export function PluginDetailPage({
   onBack: (tab: "installed" | "market" | "sources") => void;
   onInstall: (name: string) => void;
 }) {
-  const { health } = useApp();
+  const { health, pid } = useApp();
+  // v0.17.1 a plugin each project turns on: what it adds (Tools › Plugins' card said it) and its Projects section
+  const perProject = useProjectPlugins(pid).data?.find((x) => x.name === name);
   const r = useLoad(`market-plugin:${name}`, () => marketApi.plugin(name), {
     live: false,
   });
@@ -453,7 +457,9 @@ export function PluginDetailPage({
                 {TRUST[trust ?? ""]?.about ?? "keel does not know its parts yet."}
               </p>
             )}
+            {perProject && <PluginAdds plugin={perProject} />}
           </Section>
+          {mine && <PluginProjects name={name} />}
           <Section
             id="mk-versions"
             title="Versions"
