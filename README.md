@@ -90,6 +90,7 @@ keel2 start ~/path/to/your/project
 
 - [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,
   MCP (read, write and admin levels), native mode without Docker (`keel2 start --native`), and how to build keel yourself
+- **Rules** (Build › Rules): see every rule your agents follow, install rule packs or write your own, and watch them in the Flow's "Rules now"
 - [How the parts talk](docs/CONTRACT.md)
 
 ## License
