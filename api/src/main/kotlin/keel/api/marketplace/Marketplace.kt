@@ -32,6 +32,18 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
 
     fun plugin(name: String): JsonNode = pass { engine.get("/marketplace/plugins/${checkName(name)}") }
 
+    // ---- workflows (docs/plugins/21-workflow-marketplace.md): the engine reads the catalogs; the api installs
+
+    fun workflows(q: String?, category: String?): JsonNode = pass {
+        engine.get("/marketplace/workflows?q={q}&category={category}", mapOf("q" to q?.trim().orEmpty(), "category" to category?.trim().orEmpty()))
+    }
+
+    fun workflow(name: String): JsonNode = pass { engine.get("/marketplace/workflows/${checkName(name, "workflow")}") }
+
+    /** The verified YAML of one version (the newest that fits without [version]): it waits for the download and checks. */
+    fun fetchWorkflow(name: String, version: String?): JsonNode =
+        pass { engine.post("/marketplace/workflows/${checkName(name, "workflow")}/fetch", versionBody(version), long = true) }
+
     /** [source]: read only that catalog. */
     fun refresh(source: String? = null): JsonNode = pass {
         val id = source?.trim()?.ifBlank { null }
@@ -120,9 +132,9 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
         private val SOURCE_ID = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
         /** A plugin's name (keel's plugin name rule); anything else never reaches the engine. */
-        fun checkName(name: String): String {
+        fun checkName(name: String, kind: String = "plugin"): String {
             val n = name.trim()
-            if (!PluginHost.NAME.matches(n)) throw BadRequest("$n is not a plugin name", "A plugin's name is a-z, 0-9 and '-', 32 at most.")
+            if (!PluginHost.NAME.matches(n)) throw BadRequest("$n is not a $kind name", "A $kind's name is a-z, 0-9 and '-', 32 at most.")
             return n
         }
     }

@@ -3,7 +3,14 @@ folder and the plugins' releases, signed with the catalog key.
 
     <marketplace>/publishers/<id>.yml   name, title, keys: [RWQ…], verified, contact
     <marketplace>/plugins/<name>.yml    name, title, publisher, repo, category, summary, tags, trust
-    <marketplace>/revoked.yml           revoked: [{name, version, why}]
+    <marketplace>/revoked.yml           revoked: [{name, version, why, kind?}]   (kind: plugin, the default, or workflow)
+    <marketplace>/workflows/<name>.yml  name, title, publisher, repo?, category, summary, tags, keel?
+    <marketplace>/workflows/<name>/<version>.yaml (+ .minisig)   a workflow file kept in the marketplace repo itself
+
+Workflows (21-workflow-marketplace.md §5): a release asset <name>-<version>.yaml (+ .minisig, + <file>.json) in the
+releases folder, or a file kept in the marketplace repo (its URL is --files-url + /workflows/<name>/<version>.yaml,
+where the sync puts it on Pages). Each one is checked like `keel-plugin workflow lint`, its signature with its
+publisher's keys, and its Install review is computed for the index. `rules` (rule packs) stays an empty list.
 
 The releases: a folder with <name>-<version>.kplug files, each with its .kplug.minisig and, when it is known, a
 <file>.json {"url": …, "released": "YYYY-MM-DD"} (the sync workflow writes it); or a JSON list of {url, released}
@@ -24,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import PluginToolError, miniyaml
+from . import workflow as wflint
 from .lint import lint
 from .manifest import NAME, VERSION, file_sha256
 from .minisign import PublicKey, SignatureError, verify
@@ -33,6 +41,11 @@ CATEGORIES = ("code", "knowledge", "tickets", "review", "product", "other")
 TRUSTS = ("content", "web", "code")
 PLUGIN_KEYS = {"name", "title", "publisher", "repo", "category", "summary", "tags", "trust", "icon"}
 PUBLISHER_KEYS = {"name", "title", "keys", "verified", "contact"}
+WORKFLOW_KEYS = {"name", "title", "publisher", "repo", "category", "summary", "tags", "keel"}
+WORKFLOW_CATEGORIES = ("code", "review", "docs", "release", "quality", "ops", "other")
+RESERVED = ("workflows", "rules", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
+KINDS = ("plugin", "workflow")
+RANGE = re.compile(r"^\s*(?:(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)(?:,\s*(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)*$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_DOWNLOAD = 200 << 20
@@ -48,6 +61,7 @@ class Catalog:
     plugins: dict[str, dict] = field(default_factory=dict)
     revoked: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    workflows: dict[str, dict] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -130,6 +144,9 @@ def _plugin(path: Path, cat: Catalog) -> None:
     if name != path.stem or not isinstance(name, str) or not NAME.match(name):
         cat.errors.append(f"{where}: name must be the file's name ({path.stem}) and a valid plugin name")
         return
+    if name in RESERVED:
+        cat.errors.append(f"{where}: '{name}' is taken by keel (/api/marketplace/{name}): choose another name")
+        return
     title = _text(data, "title", where, errors)
     publisher = _text(data, "publisher", where, errors)
     summary = _text(data, "summary", where, errors)
@@ -159,6 +176,53 @@ def _plugin(path: Path, cat: Catalog) -> None:
     cat.plugins[name] = entry
 
 
+def _workflow(path: Path, cat: Catalog) -> None:
+    where = f"workflows/{path.name}"
+    errors: list[str] = []
+    data = _yaml(path, cat.errors)
+    if data is None:
+        return
+    if not isinstance(data, dict):
+        cat.errors.append(f"{where}: must be a mapping (name, title, publisher, category, summary, …)")
+        return
+    for key in data:
+        if key not in WORKFLOW_KEYS:
+            cat.warnings.append(f"{where}: '{key}' is not a workflow field ({', '.join(sorted(WORKFLOW_KEYS))})")
+    name = data.get("name")
+    if name != path.stem or not isinstance(name, str) or not NAME.match(name):
+        cat.errors.append(f"{where}: name must be the file's name ({path.stem}) and a valid name (a-z, 0-9, '-')")
+        return
+    title = _text(data, "title", where, errors)
+    publisher = _text(data, "publisher", where, errors)
+    summary = _text(data, "summary", where, errors)
+    if publisher and publisher not in cat.publishers:
+        errors.append(f"{where}: the publisher '{publisher}' has no file publishers/{publisher}.yml")
+    category = data.get("category")
+    if category not in WORKFLOW_CATEGORIES:
+        errors.append(f"{where}: category must be one of {', '.join(WORKFLOW_CATEGORIES)}")
+    tags = data.get("tags") or []
+    if not isinstance(tags, list) or not all(isinstance(t, str) and t.strip() for t in tags):
+        errors.append(f"{where}: tags must be a list of words")
+        tags = []
+    repo = data.get("repo")
+    if repo is not None and (not isinstance(repo, str) or not re.match(r"^https://github\.com/[\w.-]+/[\w.-]+$", repo)):
+        errors.append(f"{where}: repo must be a https://github.com/<owner>/<repo> URL (its releases hold the files), "
+                      "or left out when the files are in this repo (workflows/<name>/<version>.yaml)")
+    keel = data.get("keel")
+    if keel is not None and (not isinstance(keel, str) or not RANGE.match(keel)):
+        errors.append(f"{where}: keel must be a version range like '>=0.16.1'")
+    cat.errors += errors
+    if errors:
+        return
+    entry = {"name": name, "kind": "workflow", "title": title, "publisher": publisher, "summary": summary,
+             "category": category, "tags": [t.strip() for t in tags]}
+    if repo:
+        entry["repo"] = repo
+    if keel:
+        entry["keel"] = keel.strip()
+    cat.workflows[name] = entry
+
+
 def _revoked(path: Path, cat: Catalog) -> None:
     if not path.is_file():
         cat.errors.append("revoked.yml is missing (write 'revoked: []' when nothing is revoked)")
@@ -171,12 +235,16 @@ def _revoked(path: Path, cat: Catalog) -> None:
     for i, item in enumerate(items):
         ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and NAME.match(item["name"])
               and isinstance(item.get("version"), str) and VERSION.match(item["version"])
-              and isinstance(item.get("why"), str) and item["why"].strip())
+              and isinstance(item.get("why"), str) and item["why"].strip()
+              and item.get("kind", "plugin") in KINDS)
         if not ok:
             cat.errors.append(f"revoked.yml: revoked[{i}] must have a plugin name, a version (x.y.z, in quotes) "
-                              "and why")
+                              "and why (and kind: plugin or workflow, when it is a workflow)")
             continue
-        cat.revoked.append({"name": item["name"], "version": item["version"], "why": item["why"].strip()})
+        out = {"name": item["name"], "version": item["version"], "why": item["why"].strip()}
+        if "kind" in item:
+            out["kind"] = item["kind"]
+        cat.revoked.append(out)
 
 
 def read_catalog(root: Path) -> Catalog:
@@ -188,6 +256,8 @@ def read_catalog(root: Path) -> Catalog:
         _publisher(f, cat)
     for f in sorted((root / "plugins").glob("*.yml")):
         _plugin(f, cat)
+    for f in sorted((root / "workflows").glob("*.yml")) if (root / "workflows").is_dir() else []:
+        _workflow(f, cat)
     _revoked(root / "revoked.yml", cat)
     if not cat.publishers:
         cat.errors.append("publishers/ has no publisher")
@@ -271,6 +341,135 @@ def releases_from_map(source: str, into: Path, allow_http: bool = False) -> tupl
     return out, problems
 
 
+@dataclass
+class WorkflowFile:
+    """A workflow version: a release asset <name>-<version>.yaml, or workflows/<name>/<version>.yaml in the
+    marketplace repo (url: --files-url + that path)."""
+    file: Path
+    url: str | None = None
+    released: str | None = None
+    name: str | None = None
+    version: str | None = None
+
+    @property
+    def sig(self) -> Path:
+        return self.file.with_name(self.file.name + ".minisig")
+
+
+def workflow_releases_in(folder: Path) -> list[WorkflowFile]:
+    """Every <name>-<version>.yaml under a releases folder, with its <file>.json (url, released) when there is one."""
+    out = []
+    for f in sorted(folder.rglob("*.yaml")):
+        if not wflint.FILE.match(f.name):
+            continue
+        meta: dict = {}
+        side = f.with_name(f.name + ".json")
+        if side.is_file():
+            try:
+                meta = json.loads(side.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                meta = {}
+        meta = meta if isinstance(meta, dict) else {}
+        out.append(WorkflowFile(f, meta.get("url"), meta.get("released")))
+    return out
+
+
+def marketplace_workflow_files(root: Path, files_url: str | None) -> list[WorkflowFile]:
+    """The workflow files kept in the marketplace repo: workflows/<name>/<version>.yaml."""
+    out = []
+    folder = root / "workflows"
+    for f in sorted(folder.glob("*/*.yaml")) if folder.is_dir() else []:
+        name, version = f.parent.name, f.stem
+        url = f"{files_url.rstrip('/')}/workflows/{name}/{version}.yaml" if files_url else None
+        out.append(WorkflowFile(f, url, None, name, version))
+    return out
+
+
+def _which(cat: Catalog, wf: WorkflowFile) -> tuple[str | None, str | None]:
+    """The listed workflow a release file is of (the longest listed name it starts with) and its version."""
+    if wf.name and wf.version:
+        return wf.name, wf.version
+    best = None
+    for name in cat.workflows:
+        rest = wf.file.name[len(name) + 1:-len(".yaml")] if wf.file.name.startswith(name + "-") else None
+        if rest and VERSION.match(rest) and (best is None or len(name) > len(best[0])):
+            best = (name, rest)
+    if best:
+        return best
+    n, v = wflint.name_version(wf.file)
+    return n, v
+
+
+def build_workflows(cat: Catalog, files: list[WorkflowFile], *, only: set[str] | None = None,
+                    allow_http: bool = False) -> tuple[list[dict], list[str], list[str]]:
+    """The index's workflows list: (entries, problems, notes)."""
+    problems: list[str] = []
+    notes: list[str] = []
+    versions: dict[str, dict[str, dict]] = {}
+    for wf in files:
+        label = wf.file.name if not wf.name else f"workflows/{wf.name}/{wf.file.name}"
+        name, version = _which(cat, wf)
+        if only and name not in only:
+            continue
+        entry = cat.workflows.get(name or "")
+        if entry is None:
+            problems.append(f"{label} left out: there is no workflows/{name}.yml")
+            continue
+        report = wflint.lint(wf.file, name, version)
+        if report.errors:
+            problems.append(f"{label} left out: " + "; ".join(report.errors[:3]))
+            continue
+        if not wf.sig.is_file():
+            problems.append(f"{label} left out: there is no signature {wf.sig.name}")
+            continue
+        keys = [PublicKey.parse(k) for k in cat.publishers[entry["publisher"]]["keys"]]
+        try:
+            verify(wf.file.read_bytes(), wf.sig.read_text(encoding="utf-8"), keys)
+        except (SignatureError, UnicodeDecodeError) as exc:
+            problems.append(f"{label} left out: {exc}")
+            continue
+        url = wf.url
+        if url is None and wf.name is None and entry.get("repo"):
+            url = f"{entry['repo']}/releases/download/{name}-v{version}/{wf.file.name}"
+        if url is None:
+            problems.append(f"{label} left out: keel would not know where to download it "
+                            "(give --files-url for the files kept in the marketplace repo)")
+            continue
+        why = url_problem(url, allow_http)
+        if why:
+            problems.append(f"{label} left out: {why}")
+            continue
+        sha = file_sha256(wf.file)
+        have = versions.setdefault(name, {})
+        if version in have:
+            if have[version]["sha256"] != sha:
+                problems.append(f"{label} left out: {name} {version} is there twice, with different files")
+            continue
+        requires: dict = {}
+        if entry.get("keel"):
+            requires["keel"] = entry["keel"]
+        if report.needs_plugins:
+            requires["plugins"] = {n: "" for n in report.needs_plugins}
+        agents = [a for a in report.review["agents"] if a not in wflint.KEEL_AGENTS]
+        if agents:
+            requires["agents"] = agents
+        released = wf.released if isinstance(wf.released, str) and DATE.match(wf.released[:10]) else None
+        have[version] = {"version": version,
+                         "released": released[:10] if released else
+                         dt.datetime.fromtimestamp(wf.file.stat().st_mtime, dt.UTC).strftime("%Y-%m-%d"),
+                         "requires": requires, "url": url, "sha256": sha, "size": wf.file.stat().st_size,
+                         "review": report.review}
+    out = []
+    for name in sorted(versions):
+        entry = {k: v for k, v in cat.workflows[name].items() if k != "keel"}
+        entry["versions"] = sorted(versions[name].values(), key=lambda v: version_key(v["version"]), reverse=True)
+        out.append(entry)
+    for name in sorted(set(cat.workflows) - set(versions)):
+        if not only or name in only:
+            notes.append(f"workflow {name}: no file yet, so it is not in the index")
+    return out, problems, notes
+
+
 # ---------------------------------------------------------------- the index
 
 def version_key(version: str) -> tuple:
@@ -295,7 +494,8 @@ class Built:
 
 
 def build(cat: Catalog, releases: list[Release], *, now: dt.datetime | None = None, days: int = 14,
-          only: set[str] | None = None, allow_http: bool = False) -> Built:
+          only: set[str] | None = None, allow_http: bool = False,
+          workflow_files: list[WorkflowFile] | None = None) -> Built:
     """The index from a checked catalog and the releases."""
     if cat.errors:
         raise CatalogError("the marketplace files have errors:\n  " + "\n  ".join(cat.errors))
@@ -365,6 +565,11 @@ def build(cat: Catalog, releases: list[Release], *, now: dt.datetime | None = No
         "plugins": plugins,
         "revoked": cat.revoked,
     }
+    flows, problems, notes = build_workflows(cat, workflow_files or [], only=only, allow_http=allow_http)
+    out.problems += problems
+    out.notes += notes
+    out.index["workflows"] = flows
+    out.index["rules"] = []          # rule packs: reserved (21-workflow-marketplace.md §2)
     return out
 
 

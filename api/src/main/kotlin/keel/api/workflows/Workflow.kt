@@ -146,7 +146,19 @@ data class Workflow(
      */
     @get:JsonInclude(JsonInclude.Include.NON_EMPTY)
     val needsPlugins: List<String>? = null,
+    /**
+     * The plugin track's workflow marketplace (docs/plugins/21-workflow-marketplace.md): where a workflow installed from a
+     * catalog came from, and a newer version that fits. Only such a workflow shows the key (every other answer stays as
+     * it was).
+     */
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val market: MarketOrigin? = null,
 )
+
+/** A marketplace workflow's catalog, name and version; update: a newer version that fits this keel, or null. */
+@JsonInclude(JsonInclude.Include.ALWAYS)
+@JsonPropertyOrder("catalog", "name", "version", "update")
+data class MarketOrigin(val catalog: String, val name: String, val version: String, val update: String? = null)
 
 /** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */
 data class LastRun(val threadId: String, val title: String, val status: String, val at: String)

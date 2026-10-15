@@ -13,6 +13,10 @@ plugin's publisher is listed. A failing entry (a plugin or one of its versions) 
 the rest is used. Any other failure keeps the last good copy and shows the problem. An index older than the copy keel
 has is refused, so nobody can hand keel an old catalog. An expired index still searches ("the catalog is old"), but
 install and update wait until a refresh works.
+
+Kinds (docs/plugins/21-workflow-marketplace.md §2): next to `plugins` an index may list `workflows` (one signed workflow
+YAML each, at most 256 KB) and `rules` (reserved for rule packs: read as an empty list today). Every entry may say its
+`kind` (`plugin` when it does not); a `revoked` entry too. An index without these lists reads as before.
 """
 
 from __future__ import annotations
@@ -43,6 +47,11 @@ TIMEOUT = 20
 FRESH = 6 * 3600
 TRUST = ("content", "web", "code")
 CATEGORIES = ("code", "knowledge", "tickets", "review", "product", "other")
+WORKFLOW_CATEGORIES = ("code", "review", "docs", "release", "quality", "ops", "other")
+KINDS = ("plugin", "workflow", "rules")
+MAX_WORKFLOW = 256 << 10
+RESERVED = ("workflows", "rules", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
+AGENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 CHUNK = 1 << 16
 
@@ -138,6 +147,50 @@ class Entry:
 
 
 @dataclass
+class WorkflowVersion:
+    version: str
+    released: str
+    keel: str
+    plugins: dict[str, str]
+    agents: list[str]
+    url: str
+    sha256: str
+    size: int
+    review: dict
+
+    def requires(self) -> dict:
+        out: dict = {}
+        if self.keel:
+            out["keel"] = self.keel
+        if self.plugins:
+            out["plugins"] = dict(self.plugins)
+        if self.agents:
+            out["agents"] = list(self.agents)
+        return out
+
+    def view(self) -> dict:
+        return {"version": self.version, "released": self.released, "requires": self.requires(),
+                "review": dict(self.review), "url": self.url, "size": self.size, "sha256": self.sha256}
+
+
+@dataclass
+class WorkflowEntry:
+    name: str
+    title: str
+    publisher: str
+    category: str
+    summary: str
+    tags: list[str]
+    repo: str
+    versions: list[WorkflowVersion]     # newest first
+    source: str
+    kind: str = "workflow"
+
+    def version(self, v: str) -> WorkflowVersion | None:
+        return next((x for x in self.versions if x.version == v), None)
+
+
+@dataclass
 class Publisher:
     title: str
     keys: list[PublicKey]
@@ -151,14 +204,15 @@ class Index:
     expires: str
     publishers: dict[str, Publisher]
     plugins: dict[str, Entry]
-    revoked: dict[tuple[str, str], str] = field(default_factory=dict)   # (name, version) → why
+    revoked: dict[tuple[str, str, str], str] = field(default_factory=dict)   # (kind, name, version) → why
     problems: list[str] = field(default_factory=list)
+    workflows: dict[str, "WorkflowEntry"] = field(default_factory=dict)
 
     def expired(self) -> bool:
         return _when(self.expires) <= datetime.now(timezone.utc)
 
-    def why_revoked(self, name: str, version: str) -> str | None:
-        return self.revoked.get((name, version))
+    def why_revoked(self, name: str, version: str, kind: str = "plugin") -> str | None:
+        return self.revoked.get((kind, name, version))
 
 
 def _when(text) -> datetime:
@@ -219,6 +273,8 @@ def _entry(raw, publishers: dict[str, Publisher], source: str, problems: list[st
     name = raw.get("name")
     if not isinstance(name, str) or not NAME.match(name):
         raise ValueError(f"plugin name {name!r} does not follow keel's name rule")
+    if name in RESERVED:
+        raise ValueError(f"plugin name {name!r} is taken by keel (/api/marketplace/{name} is the {name} list)")
     pub = raw.get("publisher")
     if pub not in publishers:
         raise ValueError(f"{name}: its publisher {pub!r} is not listed")
@@ -240,6 +296,107 @@ def _entry(raw, publishers: dict[str, Publisher], source: str, problems: list[st
     tags = [t.strip() for t in raw.get("tags") or [] if isinstance(t, str) and t.strip()]
     return Entry(name, _text(raw.get("title"), name), pub, category, _text(raw.get("summary")), tags,
                  _text(raw.get("repo")), trust, versions, source)
+
+
+def _names(value, where: str, what: str, rule=NAME) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(x, str) and rule.match(x) for x in value):
+        raise ValueError(f"{where}: {what} must be a list of names")
+    return list(value)
+
+
+def _review(raw, where: str) -> dict:
+    """A version's Install review as the catalog's sync computed it: {steps, gates, agents, mcp, commands, edits_files,
+    keel_rules}."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: review is missing (steps, gates, agents, mcp, commands, edits_files, keel_rules)")
+    out: dict = {}
+    for key in ("steps", "gates"):
+        v = raw.get(key)
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            raise ValueError(f"{where}: review.{key} is not a whole number")
+        out[key] = v
+    for key in ("agents", "mcp", "commands"):
+        v = raw.get(key) if raw.get(key) is not None else []
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            raise ValueError(f"{where}: review.{key} is not a list of text")
+        out[key] = list(v)
+    for key in ("edits_files", "keel_rules"):
+        v = raw.get(key)
+        if not isinstance(v, bool):
+            raise ValueError(f"{where}: review.{key} is not true or false")
+        out[key] = v
+    return out
+
+
+def _workflow_version(name: str, raw) -> WorkflowVersion:
+    if not isinstance(raw, dict):
+        raise ValueError(f"workflow {name}: a version is not an object")
+    v = raw.get("version")
+    if not isinstance(v, str) or not manifest.VERSION.match(v):
+        raise ValueError(f"workflow {name}: version {v!r} is not a version like 1.0.0 or 0.1.0-beta.1")
+    where = f"workflow {name} {v}"
+    sha = raw.get("sha256")
+    if not isinstance(sha, str) or not SHA256.match(sha):
+        raise ValueError(f"{where}: sha256 is not 64 hex digits")
+    url = raw.get("url")
+    why = sources.url_problem(url)
+    if why:
+        raise ValueError(f"{where}: {why}")
+    size = raw.get("size")
+    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_WORKFLOW:
+        raise ValueError(f"{where}: size must be a number of bytes up to {MAX_WORKFLOW:,}")
+    req = raw.get("requires") or {}
+    if not isinstance(req, dict):
+        raise ValueError(f"{where}: requires is not an object")
+    keel = req.get("keel") or ""
+    if not isinstance(keel, str) or not manifest.valid_spec(keel):
+        raise ValueError(f"{where}: requires.keel {keel!r} is not a version range")
+    needs = req.get("plugins") or {}
+    if not isinstance(needs, dict):
+        raise ValueError(f"{where}: requires.plugins is not an object")
+    plugins: dict[str, str] = {}
+    for dep, spec in needs.items():
+        spec = "" if spec is None else spec
+        if not isinstance(dep, str) or not NAME.match(dep) or not isinstance(spec, str) or not manifest.valid_spec(spec):
+            raise ValueError(f"{where}: requires.plugins.{dep} is not a plugin name with a version range")
+        plugins[dep] = spec.strip()
+    agents = _names(req.get("agents"), where, "requires.agents", AGENT)
+    return WorkflowVersion(v, _text(raw.get("released")), keel.strip(), plugins, agents, url.strip(), sha, size,
+                           _review(raw.get("review"), where))
+
+
+def _workflow_entry(raw, publishers: dict[str, Publisher], source: str, problems: list[str]) -> WorkflowEntry:
+    if not isinstance(raw, dict):
+        raise ValueError("a workflow is not an object")
+    name = raw.get("name")
+    if not isinstance(name, str) or not NAME.match(name):
+        raise ValueError(f"workflow name {name!r} does not follow keel's name rule")
+    if raw.get("kind", "workflow") != "workflow":
+        raise ValueError(f"workflow {name}: its kind is {raw.get('kind')!r}, in the workflows list")
+    pub = raw.get("publisher")
+    if pub not in publishers:
+        raise ValueError(f"workflow {name}: its publisher {pub!r} is not listed")
+    if not publishers[pub].keys:
+        raise ValueError(f"workflow {name}: its publisher {pub} has no valid key")
+    versions: list[WorkflowVersion] = []
+    for item in raw.get("versions") or []:
+        try:
+            versions.append(_workflow_version(name, item))
+        except ValueError as exc:
+            problems.append(f"left out: {exc}")
+    if not versions:
+        raise ValueError(f"workflow {name}: it has no valid version")
+    versions.sort(key=lambda x: version_order(x.version), reverse=True)
+    category = raw.get("category") if raw.get("category") in WORKFLOW_CATEGORIES else "other"
+    tags = [t.strip() for t in raw.get("tags") or [] if isinstance(t, str) and t.strip()]
+    return WorkflowEntry(name, _text(raw.get("title"), name), pub, category, _text(raw.get("summary")), tags,
+                         _text(raw.get("repo")), versions, source)
+
+
+def _list(data: dict, key: str) -> list:
+    return data.get(key) if isinstance(data.get(key), list) else []
 
 
 def _publishers(raw, problems: list[str]) -> dict[str, Publisher]:
@@ -274,8 +431,10 @@ def parse_index(data, source: str) -> Index:
     problems: list[str] = []
     publishers = _publishers(data.get("publishers"), problems)
     plugins: dict[str, Entry] = {}
-    for raw in data.get("plugins") or [] if isinstance(data.get("plugins"), list) else []:
+    for raw in _list(data, "plugins"):
         try:
+            if isinstance(raw, dict) and raw.get("kind", "plugin") != "plugin":
+                raise ValueError(f"{raw.get('name')!r}: its kind is {raw.get('kind')!r}, in the plugins list")
             e = _entry(raw, publishers, source, problems)
         except ValueError as exc:
             problems.append(f"left out: {exc}")
@@ -284,11 +443,24 @@ def parse_index(data, source: str) -> Index:
             problems.append(f"left out: {e.name} is listed twice")
             continue
         plugins[e.name] = e
-    revoked: dict[tuple[str, str], str] = {}
-    for r in data.get("revoked") or [] if isinstance(data.get("revoked"), list) else []:
+    workflows: dict[str, WorkflowEntry] = {}
+    for raw in _list(data, "workflows"):
+        try:
+            w = _workflow_entry(raw, publishers, source, problems)
+        except ValueError as exc:
+            problems.append(f"left out: {exc}")
+            continue
+        if w.name in workflows:
+            problems.append(f"left out: workflow {w.name} is listed twice")
+            continue
+        workflows[w.name] = w
+    # `rules` (rule packs) is reserved: this keel reads none yet, and an index that lists some still reads
+    revoked: dict[tuple[str, str, str], str] = {}
+    for r in _list(data, "revoked"):
         if isinstance(r, dict) and isinstance(r.get("name"), str) and isinstance(r.get("version"), str):
-            revoked[(r["name"], r["version"])] = _text(r.get("why"), "revoked by the catalog")
-    return Index(source, data["built"], data["expires"], publishers, plugins, revoked, problems)
+            kind = r.get("kind") if r.get("kind") in KINDS else "plugin"
+            revoked[(kind, r["name"], r["version"])] = _text(r.get("why"), "revoked by the catalog")
+    return Index(source, data["built"], data["expires"], publishers, plugins, revoked, problems, workflows)
 
 
 # ------------------------------------------------------------------ the copies on disk
@@ -424,7 +596,8 @@ def status(src: dict) -> dict:
             "on": src["on"], "ok": index is not None and m.get("ok", True) is not False and not problem,
             "problem": problem, "old": bool(index and index.expired()), "fetched_at": m.get("fetched_at"),
             "built": index.built if index else None, "expires": index.expires if index else None,
-            "plugins": len(index.plugins) if index else 0, "problems": list(index.problems) if index else []}
+            "plugins": len(index.plugins) if index else 0, "problems": list(index.problems) if index else [],
+            "workflows": len(index.workflows) if index else 0}
 
 
 def statuses() -> list[dict]:
@@ -515,27 +688,44 @@ def hit(index: Index, entry: Entry, have: dict) -> dict:
     }
 
 
-def _matches(entry: Entry, words: list[str]) -> bool:
+def _matches(entry: Entry | WorkflowEntry, words: list[str]) -> bool:
     text = " ".join([entry.name, entry.title, entry.summary, *entry.tags]).lower()
     return all(w in text for w in words)
 
 
-def search(q: str = "", category: str | None = None) -> dict:
-    """Every plugin of the usable catalogs whose name, title, summary or tags hold each word of q (and that has this
-    category). A name listed by two sources comes from the first. {"plugins": [hit], "sources": [status]}."""
+def matching(kind: str, q: str = "", category: str | None = None) -> list[tuple[Index, Entry | WorkflowEntry]]:
+    """The entries of one kind (plugin or workflow) whose name, title, summary or tags hold each word of q (and that
+    have this category), in the sources' order; a name two sources list comes from the first. One search for every
+    kind (21-workflow-marketplace.md §2)."""
     words = [w for w in (q or "").lower().split() if w]
-    have = local.have()
     seen: set[str] = set()
-    hits = []
+    out: list = []
     for index in indexes():
-        for entry in index.plugins.values():
+        for entry in (index.workflows if kind == "workflow" else index.plugins).values():
             if entry.name in seen:
                 continue
             seen.add(entry.name)
             if category and entry.category != category:
                 continue
             if _matches(entry, words):
-                hits.append(hit(index, entry, have))
+                out.append((index, entry))
+    return out
+
+
+def lookup_kind(kind: str, name: str) -> tuple[Index, Entry | WorkflowEntry] | None:
+    """The first source that lists this name in this kind's list."""
+    for index in indexes():
+        found = (index.workflows if kind == "workflow" else index.plugins).get(name)
+        if found:
+            return index, found
+    return None
+
+
+def search(q: str = "", category: str | None = None) -> dict:
+    """Every plugin of the usable catalogs whose name, title, summary or tags hold each word of q (and that has this
+    category). A name listed by two sources comes from the first. {"plugins": [hit], "sources": [status]}."""
+    have = local.have()
+    hits = [hit(index, entry, have) for index, entry in matching("plugin", q, category)]
     exact = (q or "").strip().lower()
     hits.sort(key=lambda h: (h["name"] != exact, h["title"].lower(), h["name"]))
     return {"plugins": hits, "sources": statuses(), "categories": list(CATEGORIES)}

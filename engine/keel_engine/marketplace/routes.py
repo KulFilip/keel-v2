@@ -1,7 +1,10 @@
 """The marketplace's engine routes (docs/plugins/13-step4-contract.md §5). Only the api calls them, with keel's internal
 token, like every other engine route. A refusal answers 4xx {"error", "hint", ...} in plain words.
 
-    GET    /marketplace/search?q=&category=           hits + the sources' state
+    GET    /marketplace/search?q=&category=&kind=     hits + the sources' state (kind: plugin, workflow or all)
+    GET    /marketplace/workflows?q=&category=        workflows (21-workflow-marketplace.md §9)
+    GET    /marketplace/workflows/{name}              one workflow: versions, review, needs, checks
+    POST   /marketplace/workflows/{name}/fetch {version?}   its verified YAML (the api installs it)
     GET    /marketplace/plugins/{name}                one plugin: versions, permissions, needs, checks, plan
     POST   /marketplace/refresh?source=               read every source now (or one)
     GET    /marketplace/installed                     installed + image plugins, and what waits for a restart
@@ -30,7 +33,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import config
-from . import MarketError, catalog, install, local, sources
+from . import MarketError, catalog, install, local, sources, workflows
 
 log = logging.getLogger("keel.marketplace")
 router = APIRouter()
@@ -78,9 +81,44 @@ def _notify(request: Request):
     return notify
 
 
+def _search(q: str, category: str | None, kind: str) -> dict:
+    """kind plugin (the default): step 4's answer as it was; workflow: the workflows' answer; all: both lists, with the
+    workflows' categories as workflow_categories."""
+    if kind == "workflow":
+        return workflows.search(q, category)
+    out = catalog.search(q, category)
+    if kind == "all":
+        found = workflows.search(q, category)
+        out["workflows"] = found["workflows"]
+        out["workflow_categories"] = found["categories"]
+    return out
+
+
 @router.get("/marketplace/search")
-async def get_search(q: str = "", category: str | None = None):
-    return await asyncio.to_thread(catalog.search, q, category or None)
+async def get_search(q: str = "", category: str | None = None,
+                     kind: Literal["plugin", "workflow", "all"] = "plugin"):
+    return await asyncio.to_thread(_search, q, category or None, kind)
+
+
+# ------------------------------------------------------------------ workflows (21-workflow-marketplace.md)
+
+class FetchBody(BaseModel):
+    version: str | None = None
+
+
+@router.get("/marketplace/workflows")
+async def get_workflows(q: str = "", category: str | None = None):
+    return await asyncio.to_thread(workflows.search, q, category or None)
+
+
+@router.get("/marketplace/workflows/{name}")
+async def get_workflow(name: str):
+    return await asyncio.to_thread(workflows.detail, name)
+
+
+@router.post("/marketplace/workflows/{name}/fetch")
+async def post_workflow_fetch(name: str, body: FetchBody | None = None):
+    return await asyncio.to_thread(workflows.fetch, name, (body.version if body else None) or None)
 
 
 def _detail(name: str) -> dict:

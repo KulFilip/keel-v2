@@ -111,7 +111,8 @@ def test_a_community_content_plugin_passes_and_its_code_plugin_is_listed_unverif
     _, run_steps = steps()
     assert [s["name"] for s in run_steps] == [
         "The marketplace files are valid", "Lint the newest release of each new or changed plugin",
-        "What keel will do with each plugin", "A pull request does not make a publisher verified or change its keys"]
+        "Lint and check each new or changed workflow", "What keel will do with each plugin",
+        "A pull request does not make a publisher verified or change its keys"]
     out = []
     for step in run_steps:
         r = run_step(step, market, env, base)
@@ -131,13 +132,51 @@ def test_a_community_content_plugin_passes_and_its_code_plugin_is_listed_unverif
     assert by["ana-notes"]["versions"][0]["url"] == \
         "https://github.com/ana-k/keel-plugin-ana-notes/releases/download/v0.1.0/ana-notes-0.1.0.kplug"
     assert not (market / "checked/index.json.minisig").exists()      # a pull request never signs
-    assert "::notice::ana-notes: trust content, publisher ana-k (community, not verified): keel installs it" in out[2]
+    assert "no new or changed workflow" in out[2]
+    assert "::notice::ana-notes: trust content, publisher ana-k (community, not verified): keel installs it" in out[3]
     assert ("::notice::ana-tools: trust code, publisher ana-k (community, not verified): listed as unverified; keel "
-            "installs it only when a person turns on 'Allow unverified publishers'") in out[2]
-    assert "::warning::" not in out[3]
+            "installs it only when a person turns on 'Allow unverified publishers'") in out[3]
+    assert "::warning::" not in out[4]
     # keel-plugin came from keel-v2's plugin track, never from the pull request
     assert set((tmp_path / "uvx.log").read_text().split()) == {
         "git+https://github.com/MiladNalbandi/keel-v2@plugin-base#subdirectory=tools/keel-plugin"}
+
+
+def test_a_workflow_in_a_pull_request_is_linted_signature_checked_and_its_review_shown(pr, tmp_path):
+    """ana-k adds a workflow whose file is kept in the marketplace repo (no repo), and one from her releases."""
+    market, env, base, ana = pr
+    flow = "name: Ana's notes\nkeel_rules: false\nsteps:\n  - { id: w, kind: agent, name: write, agent: librarian }\n" \
+           "  - { id: run, kind: code, name: build, action: \"run:make docs\" }\n  - { id: g, kind: gate, name: look }\n"
+    write(market / "workflows/ana-flow.yml", "\n".join([
+        "name: ana-flow", "title: Ana's flow", "publisher: ana-k", "category: docs", "summary: Notes."]) + "\n")
+    f = write(market / "workflows/ana-flow/1.0.0.yaml", flow)
+    f.with_name(f.name + ".minisig").write_text(minisign.sign(f.read_bytes(), ana, f.name))
+    write(market / "workflows/ana-rel.yml", "\n".join([
+        "name: ana-rel", "title: Ana's released flow", "publisher: ana-k", "repo: https://github.com/ana-k/keel-workflows",
+        "category: docs", "summary: Notes."]) + "\n")
+    g = write(tmp_path / "gh/keel-workflows/ana-rel-v2.0.0/ana-rel-2.0.0.yaml", flow)
+    g.with_name(g.name + ".minisig").write_text(minisign.sign(g.read_bytes(), ana, g.name))
+    write(tmp_path / "gh/keel-workflows.json",
+          json.dumps([{"tag_name": "ana-rel-v2.0.0", "draft": False, "published_at": "2026-10-15T09:00:00Z"}]))
+    git(market, "add", "-A")
+    git(market, "commit", "-q", "-m", "ana-k: two workflows")
+    _, run_steps = steps()
+    r = run_step(run_steps[0], market, env, base)
+    assert r.returncode == 0, r.stdout + r.stderr
+    r = run_step(run_steps[2], market, env, base)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "keel-plugin workflow lint: workflows/ana-flow/1.0.0.yaml (ana-flow 1.0.0)" in r.stdout
+    assert "ana-rel-2.0.0.yaml (ana-rel 2.0.0)" in r.stdout
+    assert ("::notice::workflow ana-flow 1.0.0: 3 steps, 1 gates, agents: librarian, runs 1 command(s), "
+            "changes files: true") in r.stdout
+    assert "::notice::workflow ana-rel 2.0.0:" in r.stdout
+    index = json.loads((market / "checked-wf/index.json").read_text())
+    assert [w["name"] for w in index["workflows"]] == ["ana-flow", "ana-rel"]
+    # signed with another key: the check fails
+    f.with_name(f.name + ".minisig").write_text(minisign.sign(f.read_bytes(), minisign.SecretKey.generate(), f.name))
+    git(market, "commit", "-q", "-am", "ana-k: another key")
+    r = run_step(run_steps[2], market, env, base)
+    assert r.returncode == 1 and "workflows/ana-flow/1.0.0.yaml left out: the file was signed with key" in r.stdout
 
 
 def test_a_release_signed_with_another_key_fails_the_check(pr, tmp_path):

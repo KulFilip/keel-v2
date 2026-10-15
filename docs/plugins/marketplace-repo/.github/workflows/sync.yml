@@ -1,4 +1,5 @@
-# Every hour, after a change to main, and by hand: reads the releases of every plugin in plugins/, lints each file and
+# Every hour, after a change to main, and by hand: reads the releases of every plugin in plugins/ and every workflow in
+# workflows/ (and the workflow files kept here, workflows/<name>/<version>.yaml), lints each file and
 # checks its signature with its publisher's keys, builds the catalog index v1/index.json, signs it with the catalog
 # key (the secret KEEL_CATALOG_KEY) and puts it on GitHub Pages:
 #   https://keel-studio.github.io/keel-marketplace/v1/index.json   (+ index.json.minisig)
@@ -42,7 +43,18 @@ jobs:
       - name: Build and sign the index
         env:
           KEEL_CATALOG_KEY: ${{ secrets.KEEL_CATALOG_KEY }}
-        run: uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases --key-env KEEL_CATALOG_KEY --out site/v1
+        run: |
+          uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases --key-env KEEL_CATALOG_KEY --out site/v1 \
+            --files-url "https://keel-studio.github.io/keel-marketplace"
+      - name: The workflow files kept in this repo go on Pages too
+        run: |
+          set -euo pipefail
+          mkdir -p site/workflows
+          for f in workflows/*/*.yaml workflows/*/*.yaml.minisig; do
+            [ -f "$f" ] || continue
+            mkdir -p "site/$(dirname "$f")"
+            cp "$f" "site/$f"
+          done
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
