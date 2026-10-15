@@ -167,6 +167,7 @@ export function marketHandlers(
       why_not: null,
       revoked: null,
       old: false,
+      needs: versions?.[0]?.requires?.plugins ?? {},
     };
   };
   const notFound = (name: string) =>

@@ -511,6 +511,7 @@ def hit(index: Index, entry: Entry, have: dict) -> dict:
         "installed": mine.version if mine else None, "installed_from": mine.source if mine else None,
         "update": best.version if best and mine and newer(best.version, mine.version) else None,
         "revoked": revoked, "old": index.expired(),
+        "needs": dict(best.plugins) if best else {},    # 0.16.1: the cards say "needs Code"
     }
 
 

@@ -26,7 +26,7 @@ def test_a_source_is_read_verified_and_kept_on_disk(market):
     assert hit == {**hit, "name": "hello", "title": "Hello", "publisher": "keel", "verified": True, "trust": "web",
                    "version": "1.0.0", "latest": "1.0.0", "fits": True, "why_not": None, "installed": None,
                    "update": None, "revoked": None, "old": False, "source": "test",
-                   "permissions": {"workspace": "read"}}
+                   "permissions": {"workspace": "read"}, "needs": {}}
 
 
 def test_the_official_source_without_a_key_is_not_set_up_yet(market, tmp_path, monkeypatch):
