@@ -153,6 +153,7 @@ class FlowApiTest : ApiTest() {
         val h = get("/api/health").andExpect(status().isOk).json()
         assertThat(h["engine"].asBoolean()).isTrue()
         assertThat(h["fake"].asBoolean()).isTrue()
+        assertThat(h["native"].asBoolean()).isFalse()   // KEEL_NATIVE is set only by keel2 start --native
         // keel v2's own version (build-info), the same as the keel2 script's; nothing about keel v1 any more
         val keel2 = java.nio.file.Files.readString(java.nio.file.Paths.get("../keel2"))
         val expected = Regex("""(?m)^KEEL2_VERSION="([^"]+)"""").find(keel2)!!.groupValues[1]

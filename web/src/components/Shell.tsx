@@ -251,6 +251,9 @@ function EngineStatus({ version }: { version?: boolean }) {
   return (
     <>
       <span className={`pill ${tone}`} title={title} data-testid="engine">{label}</span>
+      {health?.native && (
+        <span className="pill p-idle" title="Native mode: keel's agents run as you and can read what you can." data-testid="native">native</span>
+      )}
       {version && <Version />}
     </>
   );
