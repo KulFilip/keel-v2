@@ -71,6 +71,9 @@ export type Workflow = {
   folder?: string | null;
   runs?: number;
   last_run?: { thread_id: string; title: string; status: string; at: string } | null;
+  /** 0.16.1 plugin track: a workflow installed from the marketplace (docs/plugins/21-workflow-marketplace.md §3): its
+   *  catalog, its name there, the version it has, and a newer version that fits (null: none). Absent for the others. */
+  market?: { catalog: string; name: string; version: string; update: string | null } | null;
 };
 
 /** v0.9.0: one flow of a project's history (GET /api/projects/{pid}/runs). */
@@ -85,7 +88,15 @@ export type RunRow = {
 export type WorkflowCheck = {
   name: string; steps: number; gates: number; keel_rules: boolean; agents: string[]; mcp: string[]; tools: string[];
   commands: string[]; edits_files: boolean; valid: boolean; errors: string[]; warnings: string[];
+  /** 0.17.4 each error at its line of the YAML (the editor marks it) */
+  lines?: { line: number; message: string }[];
 };
+
+/** 0.17.4 the lines a refused workflow save or import names (its 400/422 body's `lines`), or none. */
+export function errorLines(err: unknown): { line: number; message: string }[] {
+  const lines = err instanceof ApiError ? err.body?.lines : undefined;
+  return Array.isArray(lines) ? lines.filter((l): l is { line: number; message: string } => typeof l?.line === "number") : [];
+}
 
 /** v0.3: "already-met" = an earlier criterion's code already covers it (shown like done, own label). */
 export type AcStatus = "todo" | "red" | "green" | "done" | "already-met";
@@ -780,12 +791,15 @@ export class ApiError extends Error {
   hint?: string;
   /** Extra lines some errors carry, e.g. workflow validation `errors: string[]`. */
   details?: string[];
-  constructor(message: string, status: number, hint?: string, details?: string[]) {
+  /** The whole JSON answer of an error, for the fields some errors add (a 409's missing_plugins, missing_agents). */
+  body?: Record<string, unknown>;
+  constructor(message: string, status: number, hint?: string, details?: string[], body?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.hint = hint;
     this.details = details;
+    this.body = body;
   }
 }
 
@@ -807,7 +821,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
     let err: { error?: string; hint?: string; errors?: unknown } = {};
     if (type.includes("json")) err = await res.json().catch(() => ({}));
     const details = Array.isArray(err.errors) ? err.errors.map(String) : undefined;
-    throw new ApiError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint, details);
+    throw new ApiError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint, details, err as Record<string, unknown>);
   }
   if (opts.text) return (await res.text()) as T;
   if (res.status === 204 || res.headers.get("content-length") === "0") return undefined as T;
@@ -948,6 +962,9 @@ export const api = {
 
   // workflows
   workflows: (pid: string) => get<Workflow[]>(`/projects/${e(pid)}/workflows`),
+  /** 0.17.4 what New workflow's "a small example" makes: the engine's starter with the id it would get */
+  workflowStarter: (pid: string, name: string, keelRules: boolean) =>
+    get<{ id: string; yaml: string }>(`/projects/${e(pid)}/workflows/starter?name=${e(name)}&keel_rules=${keelRules}`),
   newWorkflow: (pid: string, body: { name: string; from: string; keel_rules: boolean }) =>
     post<Workflow>(`/projects/${e(pid)}/workflows`, body),
   workflow: (wid: string) => get<Workflow>(`/workflows/${e(wid)}`),

@@ -1,20 +1,25 @@
 // Drawers and the Library tab of the Workflows screen: new workflow, install review, import.
 
-import { useState } from "react";
-import { api, errorParts, type InstallReview, type LibraryItem, type Workflow } from "../api";
+import { useEffect, useState } from "react";
+import { api, errorLines, errorParts, type InstallReview, type LibraryItem, type Workflow } from "../api";
 import { kfmt } from "../format";
 import { useApp, useLoad } from "../state";
+import { CodeEditor, type LineError } from "./CodeEditor";
 import { Async, Drawer, ErrorBox } from "./ui";
+import { WorkflowHelp } from "./WorkflowHelp";
 
 type Err = { message: string; hint?: string } | null;
 
-export function NewWorkflowDrawer({ pid, templates, onClose, onCreated, onLibrary }: {
+export function NewWorkflowDrawer({ pid, templates, tpl: start, onClose, onCreated, onLibrary }: {
   pid: string; templates: Workflow[]; onClose: () => void; onCreated: (w: Workflow) => void; onLibrary: () => void;
+  /** "make a copy" of this keel template: it is picked, and the name says it is a copy */
+  tpl?: string;
 }) {
   const { toast } = useApp();
-  const [name, setName] = useState("");
+  const copyOf = start ? templates.find((t) => t.id === start) : undefined;
+  const [name, setName] = useState(copyOf ? `${copyOf.name} (copy)` : "");
   const [from, setFrom] = useState<"template" | "blank" | "library">("template");
-  const [tpl, setTpl] = useState(templates.find((t) => t.id === "fix")?.id ?? templates[0]?.id ?? "");
+  const [tpl, setTpl] = useState(copyOf?.id ?? templates.find((t) => t.id === "fix")?.id ?? templates[0]?.id ?? "");
   const [rules, setRules] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Err>(null);
@@ -45,12 +50,32 @@ export function NewWorkflowDrawer({ pid, templates, onClose, onCreated, onLibrar
             <select aria-label="keel flow to copy" value={tpl} onChange={(e) => setTpl(e.target.value)} onClick={() => setFrom("template")}>
               {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>{" "}and change it</span></label>
-        <label className="radio"><input type="radio" name="nwfrom" checked={from === "blank"} onChange={() => setFrom("blank")} /><span><b>Empty</b> — add every step yourself</span></label>
+        <label className="radio"><input type="radio" name="nwfrom" checked={from === "blank"} onChange={() => setFrom("blank")} />
+          <span><b>A small example</b> — an agent step, a gate, red and green per criterion, a final gate: change it in the YAML tab</span></label>
         <label className="radio"><input type="radio" name="nwfrom" checked={from === "library"} onChange={() => setFrom("library")} /><span><b>The library</b> — install one, then edit it</span></label>
       </div>
       <label className="chk"><input type="checkbox" id="nw-rules" checked={rules} onChange={(e) => setRules(e.target.checked)} /> keel rules on (spec approval, test checks and final review stay)</label>
+      {from === "blank" && <StarterPreview pid={pid} name={name.trim() || "My workflow"} rules={rules} />}
       {err && <ErrorBox error={err} />}
     </Drawer>
+  );
+}
+
+/** What "a small example" makes (GET …/workflows/starter), as the YAML tab will show it; 300 ms after the last key. */
+function StarterPreview({ pid, name, rules }: { pid: string; name: string; rules: boolean }) {
+  const [asked, setAsked] = useState({ name, rules });
+  useEffect(() => {
+    const t = window.setTimeout(() => setAsked({ name, rules }), 300);
+    return () => window.clearTimeout(t);
+  }, [name, rules]);
+  const starter = useLoad(`wfstarter:${pid}:${asked.rules}:${asked.name}`, () => api.workflowStarter(pid, asked.name, asked.rules), { live: false });
+  return (
+    <div className="field">
+      <label htmlFor="nw-yaml">The workflow it makes</label>
+      {starter.error ? <ErrorBox error={starter.error} /> : !starter.data ? <span className="sub loading">Reading the example…</span>
+        : <CodeEditor id="nw-yaml" value={starter.data.yaml} onChange={() => undefined} readOnly rows={16} />}
+      <WorkflowHelp />
+    </div>
   );
 }
 
@@ -110,16 +135,20 @@ export function ImportDrawer({ pid, onClose, onImported }: { pid: string; onClos
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Err>(null);
+  // a refused import's errors at their lines of the pasted (or read) YAML
+  const [lines, setLines] = useState<LineError[]>([]);
   const [done, setDone] = useState<{ workflow: Workflow; review: InstallReview } | null>(null);
   const doImport = async () => {
     setBusy(true);
     setErr(null);
+    setLines([]);
     try {
       const r = await api.importWorkflow(pid, yaml ? { yaml } : { url: url.trim() });
       setDone(r);
       toast(`Read ${r.workflow.name} — ${r.workflow.steps.length} steps, ${r.review.gates} gates. Review it before it runs.`);
     } catch (e) {
       setErr(errorParts(e));
+      if (yaml) setLines(errorLines(e));
     } finally {
       setBusy(false);
     }
@@ -146,11 +175,17 @@ export function ImportDrawer({ pid, onClose, onImported }: { pid: string; onClos
           setYaml(await f.text());
           setFileName(f.name);
           setUrl("");
+          setLines([]);
         }} />
         {fileName && <span className="hint">{fileName} · {yaml.split("\n").length} lines</span>}
       </div>
+      <div className="field"><label htmlFor="imp-yaml">Or paste it</label>
+        <CodeEditor id="imp-yaml" rows={12} value={yaml} errors={lines}
+          onChange={(v) => { setYaml(v); setUrl(""); setFileName(""); setLines([]); }} />
+        <WorkflowHelp />
+      </div>
       <p className="hint" style={{ margin: 0 }}>After import you see the same check as Install: agents, MCP servers, gates and the token estimate.</p>
-      {err && <ErrorBox error={err} />}
+      {err && <ErrorBox error={lines.length ? { message: err.message, hint: `The marked lines say why (${lines.length}).` } : err} />}
     </Drawer>
   );
 }

@@ -7,6 +7,8 @@ import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 import { createRulesDb, rulesHandlers } from "./rulesHandlers";
 import { createMarket, marketHandlers } from "./marketHandlers";
+import { createMarketWorkflows, marketWorkflowHandlers } from "./marketWorkflowHandlers";
+import { createMarketRulePacks, marketRulePackHandlers } from "./marketRulePackHandlers";
 
 /** v0.15.2 one of KeelBot's chat folders (its type is the KeelBot plugin's, plugins/keelbot/web/keelbotApi.ts) */
 type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
@@ -99,6 +101,10 @@ export function createDb() {
     rules: createRulesDb(),
     /** v0.16.0 the marketplace: the catalog, what is installed, sources, rules and sets */
     market: createMarket(),
+    /** 0.16.1 plugin track: the marketplace for workflows */
+    mw: createMarketWorkflows(),
+    /** rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md): installs land in `rules` */
+    mr: createMarketRulePacks(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -308,7 +314,9 @@ export function handlers(db: Db) {
     }),
     http.put("/api/workflows/:wid", async ({ request, params }) => {
       const b = (await log(request)) as unknown as Workflow;
-      if (db.yamlErrors) return HttpResponse.json({ error: "The workflow YAML is not valid.", hint: "Fix the lines below and save again.", errors: db.yamlErrors }, { status: 422 });
+      // 0.17.4 each "line N: …" error also at its line (lines), as the api answers
+      if (db.yamlErrors) return HttpResponse.json({ error: "The workflow YAML is not valid.", hint: "Fix the lines below and save again.", errors: db.yamlErrors,
+        lines: db.yamlErrors.flatMap((m) => { const x = m.match(/^line (\d+): (.*)$/); return x ? [{ line: Number(x[1]), message: x[2] }] : []; }) }, { status: 422 });
       const old = db.workflows.find((x) => x.id === params.wid)!;
       if (old.keel_rules && b.keel_rules) {
         const gone = old.steps.filter((s) => s.lock && !b.steps.some((n) => n.id === s.id));
@@ -338,8 +346,18 @@ export function handlers(db: Db) {
         agents: [...yaml.matchAll(/agent: ([\w-]+)/g)].map((m) => m[1]), mcp: [], tools: [],
         commands: [...yaml.matchAll(/action: "run: ([^"]+)"/g)].map((m) => m[1]), edits_files: false,
         valid: !yaml.includes("INVALID"), errors: yaml.includes("INVALID") ? ["Step 'look': INVALID is not a step kind."] : [], warnings: [],
+        lines: yaml.includes("INVALID") ? [{ line: lines.findIndex((l) => l.includes("INVALID")) + 1, message: "Step 'look': INVALID is not a step kind." }] : [],
       };
       return HttpResponse.json(check);
+    }),
+    // 0.17.4 New workflow's "a small example" (the engine's starter, in short)
+    http.get("/api/projects/:pid/workflows/starter", ({ request, params }) => {
+      const q = new URL(request.url).searchParams;
+      const name = q.get("name") || "My workflow";
+      const id = `${String(params.pid)}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      return HttpResponse.json({ id, yaml: `# ${name}: a small workflow to start from. Change it, then Save.\n\nid: ${id}\nname: ${name}\nversion: 1\n` +
+        `keel_rules: ${q.get("keel_rules") ?? "true"}\n\nsteps:\n\n  - id: plan\n    kind: agent\n    name: plan\n    agent: explorer\n\n` +
+        `  - id: plan_ok\n    kind: gate\n    name: plan approval\n    back: plan\n    lock: true\n` });
     }),
     http.put("/api/projects/:pid/workflows/:wid/folder", async ({ request, params }) => {
       const { folder } = (await log(request)) as { folder: string };
@@ -672,6 +690,9 @@ export function handlers(db: Db) {
     http.put("/api/notification-settings", async ({ request }) => { const b = await log(request); Object.assign(db.nset, b); return HttpResponse.json(db.nset); }),
     ...taskHandlers(db.tk, log),
     ...rulesHandlers(db.rules, log),
+    // before the plugin marketplace's: its /api/marketplace/:name would take /api/marketplace/workflows
+    ...marketWorkflowHandlers(db.mw, db, log),
+    ...marketRulePackHandlers(db.mr, db.rules, log),
     ...marketHandlers(db.market, log),
   ];
 }

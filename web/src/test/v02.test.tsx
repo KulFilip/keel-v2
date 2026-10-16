@@ -82,17 +82,22 @@ describe("Workflow YAML", () => {
     expect(await screen.findByText("Estimate with your changes")).toBeInTheDocument();
     expect(await screen.findByText("102k")).toBeInTheDocument();
 
-    // validation errors from Save show under the editor
+    // validation errors from Save show at their lines under the editor (0.17.4), and Save waits for a change
     db.yamlErrors = ["line 4: unknown kind 'agnet'", "line 5: gate needs a name"];
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("The workflow YAML is not valid.")).toBeInTheDocument();
-    expect(screen.getByText("line 4: unknown kind 'agnet'")).toBeInTheDocument();
-    expect(screen.getByText("line 5: gate needs a name")).toBeInTheDocument();
+    const marked = screen.getByRole("alert", { name: "Errors" });
+    expect(marked).toHaveTextContent("line 4 unknown kind 'agnet'");
+    expect(marked).toHaveTextContent("line 5 gate needs a name");
     expect(box).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 
     db.yamlErrors = null;
+    const fixed = yaml.replace("name: ok", "name: approve");
+    fireEvent.change(box, { target: { value: fixed } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(), { timeout: 3000 });
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(calls("PUT", "/api/workflows/feature").at(-1)?.body).toMatchObject({ id: "feature", yaml }));
+    await waitFor(() => expect(calls("PUT", "/api/workflows/feature").at(-1)?.body).toMatchObject({ id: "feature", yaml: fixed }));
     expect(await screen.findByRole("button", { name: "Saved" })).toBeInTheDocument();
     expect(screen.queryByText("The workflow YAML is not valid.")).not.toBeInTheDocument();
   });

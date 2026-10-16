@@ -3,7 +3,10 @@ what it may do, install, update, roll back or remove it in a running keel. Core:
 
     signing.py   minisign Ed25519: verify a catalog or a package, sign (keel's own tools and the tests)
     sources.py   the catalogs keel reads (sources.json) and the person's rules (rules.json)
-    catalog.py   fetch, verify and cache each catalog's index; search it
+    kinds.py     the kinds of a catalog's entries, one table: plugin, workflow, rules (23-rules-in-marketplace.md)
+    catalog.py   fetch, verify and cache each catalog's index (every list through kinds.py); search it
+    workflows.py the workflows of the catalogs: search, one workflow, fetch its signed YAML for the api
+    rulepacks.py the rule packs of the catalogs: search, one pack (no install yet: the rules session's api)
     install.py   plan, install, update, roll back, remove, turn on or off; what waits for a restart
     routes.py    the engine routes the api calls (/marketplace/*)
 

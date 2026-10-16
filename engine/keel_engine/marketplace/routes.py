@@ -1,7 +1,13 @@
 """The marketplace's engine routes (docs/plugins/13-step4-contract.md §5). Only the api calls them, with keel's internal
 token, like every other engine route. A refusal answers 4xx {"error", "hint", ...} in plain words.
 
-    GET    /marketplace/search?q=&category=           hits + the sources' state
+    GET    /marketplace/search?q=&category=&kind=     hits + the sources' state (kind: plugin, workflow, rules or all)
+    GET    /marketplace/workflows?q=&category=        workflows (21-workflow-marketplace.md §9)
+    GET    /marketplace/workflows/{name}              one workflow: versions, review, needs, checks
+    POST   /marketplace/workflows/{name}/fetch {version?}   its verified YAML (the api installs it)
+    GET    /marketplace/rule-packs?q=&category=       rule packs (23-rules-in-marketplace.md)
+    GET    /marketplace/rule-packs/{name}             one rule pack: versions, review, checks
+    POST   /marketplace/rule-packs/{name}/fetch {version?}  its verified YAML (the api installs it with the rules api)
     GET    /marketplace/plugins/{name}                one plugin: versions, permissions, needs, checks, plan
     POST   /marketplace/refresh?source=               read every source now (or one)
     GET    /marketplace/installed                     installed + image plugins, and what waits for a restart
@@ -32,7 +38,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import config
-from . import MarketError, catalog, install, live, local, sources
+from . import MarketError, catalog, install, live, local, rulepacks, sources, workflows
 
 log = logging.getLogger("keel.marketplace")
 router = APIRouter()
@@ -84,9 +90,69 @@ def _notify(request: Request):
     return notify
 
 
+def _search(q: str, category: str | None, kind: str) -> dict:
+    """kind plugin (the default): step 4's answer as it was; workflow: the workflows' answer; rules: the rule packs'
+    answer; all: every list, with the other kinds' categories as workflow_categories and rules_categories."""
+    if kind == "workflow":
+        return workflows.search(q, category)
+    if kind == "rules":
+        return rulepacks.search(q, category)
+    out = catalog.search(q, category)
+    if kind == "all":
+        found = workflows.search(q, category)
+        out["workflows"] = found["workflows"]
+        out["workflow_categories"] = found["categories"]
+        packs = rulepacks.search(q, category)
+        out["rules"] = packs["rules"]
+        out["rules_categories"] = packs["categories"]
+    return out
+
+
 @router.get("/marketplace/search")
-async def get_search(q: str = "", category: str | None = None):
-    return await asyncio.to_thread(catalog.search, q, category or None)
+async def get_search(q: str = "", category: str | None = None,
+                     kind: Literal["plugin", "workflow", "rules", "all"] = "plugin"):
+    return await asyncio.to_thread(_search, q, category or None, kind)
+
+
+# ------------------------------------------------------------------ workflows (21-workflow-marketplace.md)
+
+class FetchBody(BaseModel):
+    version: str | None = None
+
+
+@router.get("/marketplace/workflows")
+async def get_workflows(q: str = "", category: str | None = None):
+    return await asyncio.to_thread(workflows.search, q, category or None)
+
+
+@router.get("/marketplace/workflows/{name}")
+async def get_workflow(name: str):
+    return await asyncio.to_thread(workflows.detail, name)
+
+
+@router.post("/marketplace/workflows/{name}/fetch")
+async def post_workflow_fetch(name: str, body: FetchBody | None = None):
+    return await asyncio.to_thread(workflows.fetch, name, (body.version if body else None) or None)
+
+
+# ------------------------------------------------------------------ rule packs (23-rules-in-marketplace.md §2)
+# /marketplace/rules is the four marketplace rules (13-step4-contract.md §12), so the packs are /marketplace/rule-packs.
+# No install route: a pack goes into a project through the rules api (the api's /rule-packs/market/install), which takes
+# the YAML fetch gives back.
+
+@router.get("/marketplace/rule-packs")
+async def get_rule_packs(q: str = "", category: str | None = None):
+    return await asyncio.to_thread(rulepacks.search, q, category or None)
+
+
+@router.get("/marketplace/rule-packs/{name}")
+async def get_rule_pack(name: str):
+    return await asyncio.to_thread(rulepacks.detail, name)
+
+
+@router.post("/marketplace/rule-packs/{name}/fetch")
+async def post_rule_pack_fetch(name: str, body: FetchBody | None = None):
+    return await asyncio.to_thread(rulepacks.fetch, name, (body.version if body else None) or None)
 
 
 def _detail(name: str) -> dict:

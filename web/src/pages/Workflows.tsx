@@ -3,12 +3,19 @@
 // click +), or as a table, the graph or YAML. Right: the selected block's editor, "What it does" and the token
 // estimate. On top: the name, version, keel rules, the save state and the save errors (with links to the steps).
 // Under 1100 px the columns stack and the block editor opens in a drawer. Save → PUT /api/workflows/{id}.
+// 0.16.1 plugin track (docs/plugins/21-workflow-marketplace.md §4): a workflow from the marketplace shows the badge
+// "from marketplace · 1.2.0" (and "1.3.0 ready" with Update); its menu has Update and Remove. The person's own
+// workflows have Publish to marketplace in theirs; keel's templates have no menu.
+// 0.17.4: Delete (header, the list row's ⋯, the menu) asks in the page and is refused (409) while a flow of it runs;
+// a template says it can't be deleted and offers a copy. YAML of another workflow (another id) is imported, not saved.
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, errorParts, type Agent, type Estimate, type OnCap, type Step, type StepKind, type Workflow } from "../api";
+import { api, errorLines, errorParts, type Agent, type Estimate, type OnCap, type Step, type StepKind, type Workflow } from "../api";
 import { Blocks, BlocksLegend, Palette, StepTable, type BlocksHandle } from "../components/Blocks";
 import { useBuilder, type BuilderApi } from "../components/Builder";
 import { clone, same, updateStep } from "../components/builderOps";
+import { CodeEditor, type LineError } from "../components/CodeEditor";
+import { WorkflowHelp } from "../components/WorkflowHelp";
 import { buildFlowMap, exitsOf, PHASES, phaseMeaning, phaseTitle, sumOf } from "../components/flowmap";
 import { Graph, GraphLegend } from "../components/Graph";
 import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
@@ -16,6 +23,7 @@ import { Async, Drawer, ErrorBox, Loading, PageHead, Tabs } from "../components/
 import { useWide } from "../components/useWide";
 import { KIND, toYaml, tokensByStep } from "../components/workflow";
 import { ImportDrawer, LibraryTab, NewWorkflowDrawer } from "../components/WorkflowDrawers";
+import { DeleteWorkflow, MarketBadge, PublishDialog, UpdateDialog, useMenu, WorkflowMenu } from "../components/WorkflowMarket";
 import { Zoom } from "../components/Zoom";
 import { kfmt, PROV, usd } from "../format";
 import { useSlot } from "../sdk/registry";
@@ -26,6 +34,18 @@ type View = "blocks" | "table" | "graph" | "yaml";
 type Side = "block" | "explain" | "estimate";
 
 const isTemplate = (w: Workflow) => w.source === "keel" || (!w.source && !w.based_on);
+
+/** The top-level `id:` of a workflow YAML (keel tells workflows apart by it), or null when it has none. */
+export const yamlId = (yaml: string): string | null =>
+  yaml.match(/^id:[ \t]*["']?([^"'#\s]+)["']?[ \t]*(?:#.*)?$/m)?.[1] ?? null;
+
+/** The id of YAML typed into workflow `wid`'s YAML tab when it is another workflow's: neither `wid` nor the id its own
+ *  saved YAML carries (an imported file keeps its id: line). No id: a rename at most, so not another workflow. */
+export function otherWorkflowId(yaml: string, wid: string, savedYaml?: string): string | null {
+  const id = yamlId(yaml);
+  if (!id || id === wid || (savedYaml && id === yamlId(savedYaml))) return null;
+  return id;
+}
 
 /** The three columns; on wide screens they fill the window and scroll by themselves. */
 function Wf({ children, cls = "" }: { children: ReactNode; cls?: string }) {
@@ -40,6 +60,10 @@ export function WorkflowsPage({ pid }: { pid: string }) {
   const agents = useLoad(`agents:${pid}`, () => api.agents(pid), { live: false });
   const [library, setLibrary] = useState(false);
   const [drawer, setDrawer] = useState<"new" | "import" | null>(null);
+  // "make a copy" of a keel template: the New workflow drawer with that template picked
+  const [copyOf, setCopyOf] = useState<string | null>(null);
+  // Delete (the person's own) or Remove (from the marketplace), from the header or a row of the list
+  const [deleting, setDeleting] = useState<Workflow | null>(null);
   const wid = arg ?? list.data?.find((w) => w.id === "feature")?.id ?? list.data?.[0]?.id ?? null;
   const templates = (list.data ?? []).filter((w) => !w.based_on);
 
@@ -51,7 +75,7 @@ export function WorkflowsPage({ pid }: { pid: string }) {
   const rail = (
     <Rail wfs={list.data ?? []} current={library ? null : wid} library={library} pid={pid}
       onPick={(id) => { setLibrary(false); go("workflows", id); }} onNew={() => setDrawer("new")} onImport={() => setDrawer("import")}
-      onLibrary={() => setLibrary(true)} />
+      onLibrary={() => setLibrary(true)} onDelete={setDeleting} />
   );
 
   return (
@@ -78,21 +102,31 @@ export function WorkflowsPage({ pid }: { pid: string }) {
             <Editor key={wid} pid={pid} wid={wid} agents={agents.data ?? []} rail={rail} row={wfs.find((w) => w.id === wid)}
               folders={[...new Set(wfs.map((w) => w.folder).filter((f): f is string => !!f))].sort()}
               onFolder={(f) => list.setData((l) => (l ? l.map((x) => (x.id === wid ? { ...x, folder: f } : x)) : l))}
-              onSaved={(w) => list.setData((l) => (l ? l.map((x) => (x.id === w.id ? { ...x, ...w, folder: x.folder, runs: x.runs, last_run: x.last_run } : x)) : l))} />
+              onSaved={(w) => list.setData((l) => (l ? l.map((x) => (x.id === w.id ? { ...x, ...w, folder: x.folder, runs: x.runs, last_run: x.last_run } : x)) : l))}
+              onReplaced={(w) => { void list.reload(); go("workflows", w.id); }}
+              onDelete={setDeleting} onCopy={(tid) => { setCopyOf(tid); setDrawer("new"); }} onImported={opened} />
           )}
         </Async>
       )}
-      {drawer === "new" && <NewWorkflowDrawer pid={pid} templates={templates.length ? templates : list.data ?? []} onClose={() => setDrawer(null)}
+      {drawer === "new" && <NewWorkflowDrawer pid={pid} templates={templates.length ? templates : list.data ?? []} tpl={copyOf ?? undefined}
+        onClose={() => { setDrawer(null); setCopyOf(null); }}
         onCreated={opened} onLibrary={() => { setDrawer(null); setLibrary(true); }} />}
+      {deleting && <DeleteWorkflow w={deleting} onNo={() => setDeleting(null)} onDone={() => {
+        const gone = deleting.id;
+        setDeleting(null);
+        list.setData((l) => (l ? l.filter((x) => x.id !== gone) : l));
+        void list.reload();
+        if (gone === wid) go("workflows");
+      }} />}
       {drawer === "import" && <ImportDrawer pid={pid} onClose={() => setDrawer(null)} onImported={opened} />}
     </>
   );
 }
 
 /** The workflow list: keel's templates and this project's own, with a search, New, Import and the Library. */
-function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary }: {
+function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary, onDelete }: {
   wfs: Workflow[]; current: string | null; library: boolean; pid: string;
-  onPick: (id: string) => void; onNew: () => void; onImport: () => void; onLibrary: () => void;
+  onPick: (id: string) => void; onNew: () => void; onImport: () => void; onLibrary: () => void; onDelete: (w: Workflow) => void;
 }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
@@ -121,16 +155,36 @@ function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary }
           <div key={title} className="wf-group">
             <div className="wf-group-h">{title}</div>
             {items.length ? items.map((w) => (
-              <button key={w.id} type="button" className="wf-item" aria-current={w.id === current ? "page" : undefined} onClick={() => onPick(w.id)}>
-                <span className="wf-item-n">{w.name}</span>
-                <span className="wf-item-m">{w.steps.length} steps · v{w.version}{w.keel_rules ? "" : " · rules off"}
-                  {w.runs ? ` · ${w.runs} run${w.runs === 1 ? "" : "s"}` : ""}</span>
-              </button>
+              <div key={w.id} className="wf-row">
+                <button type="button" className="wf-item" aria-current={w.id === current ? "page" : undefined} onClick={() => onPick(w.id)}>
+                  <span className="wf-item-n">{w.name}</span>
+                  <span className="wf-item-m">{w.steps.length} steps · v{w.version}{w.keel_rules ? "" : " · rules off"}
+                    {w.runs ? ` · ${w.runs} run${w.runs === 1 ? "" : "s"}` : ""}{w.market ? ` · marketplace ${w.market.version}` : ""}</span>
+                </button>
+                {!isTemplate(w) && <RowMenu w={w} onDelete={() => onDelete(w)} />}
+              </div>
             )) : <span className="sub wf-none">{needle ? "no match" : title === "This project" ? `none yet in ${pid}: start from a template` : "none"}</span>}
           </div>
         ))}
       </div>
     </nav>
+  );
+}
+
+/** A row's menu in the list: Delete for the person's own workflow, Remove for one from the marketplace (the same
+ *  confirm). keel's templates have none. */
+function RowMenu({ w, onDelete }: { w: Workflow; onDelete: () => void }) {
+  const { open, setOpen, box, pick } = useMenu();
+  return (
+    <div className="wfm-menu wf-row-menu" ref={box}>
+      <button className="btn sm ghost" type="button" aria-haspopup="menu" aria-expanded={open} aria-label={`Actions for ${w.name}`}
+        onClick={() => setOpen((o) => !o)}>⋯</button>
+      {open && (
+        <div className="wfm-menu-list" role="menu" aria-label={`${w.name} actions`}>
+          <button type="button" role="menuitem" className="mk-danger" onClick={pick(onDelete)}>{w.market ? "Remove" : "Delete"}</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -164,9 +218,15 @@ function FolderPicker({ pid, wid, folder, folders, onFolder }: {
   );
 }
 
-function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
+function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onReplaced, onDelete, onCopy, onImported }: {
   pid: string; wid: string; agents: Agent[]; rail: ReactNode; row?: Workflow; folders: string[];
   onFolder: (folder: string | null) => void; onSaved: (w: Workflow) => void;
+  /** an update put this workflow in its place (or next to it) */
+  onReplaced: (w: Workflow) => void;
+  /** Delete / Remove asks first (the page's dialog); Make a copy opens New workflow with this template */
+  onDelete: (w: Workflow) => void; onCopy: (templateId: string) => void;
+  /** the YAML tab's Import: a pasted YAML of another workflow became a new one */
+  onImported: (w: Workflow) => void;
 }) {
   const { toast } = useApp();
   const loaded = useLoad(`wf:${wid}`, () => api.workflow(wid), { live: false });
@@ -179,6 +239,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
     try { const v = localStorage.getItem("keel2.view.builder"); return v === "table" || v === "graph" || v === "yaml" ? v : "blocks"; } catch { return "blocks"; }
   });
   const [side, setSide] = useState<Side>("estimate");
+  // the marketplace: Update (keep my copy or replace), Publish (Remove is the page's Delete dialog)
+  const [market, setMarket] = useState<"update" | "publish" | null>(null);
   // YAML typed by hand in the YAML tab. null = not edited (the tab shows the YAML of the blocks).
   const [yamlText, setYamlText] = useState<string | null>(null);
   const wide = useWide();
@@ -194,6 +256,16 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
   const stepsDirty = !!draft && !!saved && !same(draft, saved);
   const dirty = stepsDirty || yamlText !== null;
   const currentYaml = w ? (yamlText ?? (stepsDirty || !w.yaml ? toYaml(w) : w.yaml)) : "";
+  // keel tells workflows apart by id (a new name alone is a rename): YAML with another id is another workflow
+  const otherId = yamlText !== null ? otherWorkflowId(yamlText, wid, saved?.yaml) : null;
+  // each error at its line: keel's check of the typed YAML (600 ms after the last key), or a refused save's lines
+  const checked = useYamlCheck(pid, yamlText !== null && !otherId ? yamlText : null);
+  const [saveLines, setSaveLines] = useState<LineError[]>([]);
+  useEffect(() => setSaveLines([]), [draft]); // a change in the blocks: the refused save's lines no longer fit
+  // the last refused save wins until the next change; then keel's check of what was typed
+  const marks = otherId ? [] : saveLines.length ? saveLines : yamlText !== null && checked ? checked : [];
+  const [importing, setImporting] = useState(false);
+  const [importErr, setImportErr] = useState<{ message: string; hint?: string } | null>(null);
   const select = (id: string | null) => { setSel(id); if (id) setSide((s) => (s === "estimate" ? "block" : s)); };
   const b = useBuilder(w ?? { id: wid, name: "", keel_rules: true, version: 0, steps: [], yaml: "" }, (n) => setDraft(n), select);
   const est = useLoad(`wfest:${pid}:${wid}:${acs}:${saved?.version ?? 0}`, () => api.estimate(pid, wid, acs), { live: false });
@@ -206,12 +278,17 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
   if (loaded.error) return <Wf>{rail}<div className="wf-main"><ErrorBox error={loaded.error} onRetry={() => void loaded.reload()} /></div></Wf>;
   if (!w) return <Wf>{rail}<div className="wf-main"><Loading what="Loading the workflow" /></div></Wf>;
   const step = w.steps.find((s) => s.id === sel) ?? null;
+  // the list says where a workflow came from (GET /projects/{pid}/workflows)
+  const listed: Workflow = { ...w, market: row?.market ?? w.market ?? null };
 
   const save = async () => {
+    if (otherId || marks.length) return;
     setBusy(true);
     setErr(null);
+    setSaveLines([]);
     try {
       // A hand-edited YAML is the source of truth: the api validates it with the engine and sends back the parsed steps.
+      // It comes back as keel writes it (key order, 2-space indent, comments kept): the YAML tab shows that.
       const out = await api.saveWorkflow({ ...w, yaml: yamlText ?? toYaml(w) });
       setYamlText(null);
       loaded.setData(out);
@@ -220,11 +297,27 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
       toast(`Saved as version ${out.version}. New flows use it; running flows keep their version.`);
     } catch (e) {
       setErr(errorParts(e));
+      setSaveLines(errorLines(e));
     } finally {
       setBusy(false);
     }
   };
   const discard = () => { setDraft(saved ? clone(saved) : null); setYamlText(null); setErr(null); b.clear(); };
+  // the YAML tab holds another workflow: add it as a new one (POST …/workflows/import) and open it; this one stays
+  const importOther = async () => {
+    if (yamlText === null) return;
+    setImporting(true);
+    setImportErr(null);
+    try {
+      const r = await api.importWorkflow(pid, { yaml: yamlText });
+      toast(`Imported ${r.workflow.name} as a new workflow. ${w.name} did not change.`);
+      onImported(r.workflow);
+    } catch (e) {
+      setImportErr(errorParts(e));
+    } finally {
+      setImporting(false);
+    }
+  };
   const pick = (id: string) => {
     select(id);
     if (view !== "blocks" && view !== "table") setViewKept("blocks");
@@ -252,7 +345,9 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
             <div className="wf-title">
               <h2>{w.name}</h2>
               <span className="wf-sub">
-                {isTemplate(w) ? <span className="tag keel">keel template</span> : w.based_on ? <span className="tag">from {w.based_on}</span> : null}
+                {/* a marketplace workflow says where it came from in its badge */}
+                {listed.market ? null : isTemplate(w) ? <span className="tag keel">keel template</span> : w.based_on ? <span className="tag">from {w.based_on}</span> : null}
+                <MarketBadge w={listed} onUpdate={() => setMarket("update")} />
                 <span>v{w.version}</span><span>{w.steps.length} steps</span>
                 {shownEst ? <span title={`estimated tokens for the whole workflow, ${acs} ${acs === 1 ? "criterion" : "criteria"}`}>≈ {kfmt(shownEst.tokens)} tokens</span> : null}
               </span>
@@ -266,7 +361,9 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
                 }} /> keel rules {w.keel_rules ? "on" : "off"}</label>
               {dirty ? <span className="hint amber wf-dirty">unsaved changes</span> : <span className="hint">saved</span>}
               {dirty && <button className="btn sm ghost" type="button" onClick={discard}>Discard</button>}
-              <button className="btn primary" type="button" onClick={save} disabled={busy || !dirty}>{busy ? "Saving…" : dirty ? "Save" : "Saved"}</button>
+              <button className="btn primary" type="button" onClick={save} disabled={busy || !dirty || !!otherId || marks.length > 0}
+                title={otherId ? "This YAML is another workflow: use Import" : marks.length ? "Fix the marked lines in the YAML first" : undefined}>
+                {busy ? "Saving…" : dirty ? "Save" : "Saved"}</button>
             </div>
           </div>
           <div className="wf-top-row">
@@ -278,6 +375,13 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
                 {row.runs} run{row.runs === 1 ? "" : "s"} · last: {row.last_run.status} ▸</button>
             )}
             <a className="btn sm" href={api.exportUrl(wid)} download={`${wid}.workflow.yaml`} style={{ textDecoration: "none" }}>Export</a>
+            {isTemplate(w) && !listed.market ? (
+              <span className="hint wf-own">keel's own workflow: it can't be deleted (<button type="button" className="linkbtn"
+                onClick={() => onCopy(w.id)}>make a copy</button>).</span>
+            ) : (
+              <button className="btn sm mk-danger" type="button" onClick={() => onDelete(listed)}>Delete</button>
+            )}
+            <WorkflowMenu w={listed} onUpdate={() => setMarket("update")} onRemove={() => onDelete(listed)} onPublish={() => setMarket("publish")} />
           </div>
           {err && view !== "yaml" && <StepErrorBox error={err} steps={w.steps} onPick={pick} />}
           {view !== "yaml" && yamlText !== null && <p className="hint amber" style={{ margin: 0 }}>You changed the YAML by hand. Save to see those changes in the blocks.</p>}
@@ -289,11 +393,20 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
             <section className="panel wf-yaml" aria-label="YAML">
               <div className="panel-body grid" style={{ gap: 8 }}>
                 <label htmlFor="wyaml" className="sub">Edit the workflow as text. Save checks it with the engine; problems show below. {dirty ? "(with your unsaved changes)" : `(version ${w.version})`}</label>
-                <textarea id="wyaml" className="yaml-edit" spellCheck={false} value={currentYaml}
-                  aria-invalid={err?.details?.length ? true : undefined} aria-describedby={err ? "wyaml-err" : undefined}
-                  onChange={(e) => setYamlText(e.target.value)} />
-                {err && <div id="wyaml-err"><ErrorBox error={err} /></div>}
-                {yamlText !== null && <span className="hint">The blocks show your YAML after you save.</span>}
+                <CodeEditor id="wyaml" value={currentYaml} rows={24} errors={marks} onChange={(v) => { setYamlText(v); setSaveLines([]); }} />
+                {marks.length > 0 && <span className="hint amber">Save waits until the marked lines are fixed.</span>}
+                {otherId ? (
+                  <div id="wyaml-err" className="errbox" role="alert">
+                    <b>This YAML is a different workflow (id {otherId}). Use Import to add it as a new workflow.</b>
+                    {importErr && <span className="sub">{importErr.message}{importErr.hint ? ` ${importErr.hint}` : ""}</span>}
+                    <span className="row">
+                      <button className="btn sm primary" type="button" onClick={() => void importOther()} disabled={importing}>{importing ? "Importing…" : "Import"}</button>
+                      <button className="btn sm ghost" type="button" onClick={discard} disabled={importing}>Discard the YAML</button>
+                    </span>
+                  </div>
+                ) : err && <div id="wyaml-err"><ErrorBox error={marks.length ? { message: err.message, hint: `The marked lines say why (${marks.length}).` } : err} /></div>}
+                {yamlText !== null && !otherId && <span className="hint">The blocks show your YAML after you save. Save writes it as keel does: the documented key order, 2-space indent, your comments kept.</span>}
+                <WorkflowHelp />
               </div>
             </section>
           ) : view === "graph" ? (
@@ -357,6 +470,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
           {side === "explain" ? <ExplainPanel pid={pid} w={w} id={step.id} /> : inspector}
         </Drawer>
       ) : null}
+      {market === "update" && <UpdateDialog pid={pid} w={listed} onClose={() => setMarket(null)} onDone={onReplaced} />}
+      {market === "publish" && <PublishDialog pid={pid} w={saved ?? w} onClose={() => setMarket(null)} />}
     </Wf>
   );
 }
@@ -480,6 +595,30 @@ function useDraftEstimate(pid: string, yaml: string | null, acs: number) {
     };
   }, [pid, yaml, acs]);
   return { est, error };
+}
+
+/** keel's check of YAML typed in the YAML tab (POST …/workflows/check, 600 ms after the last change): each error at its
+ *  line. null: nothing to check, or no answer yet (the last answer stays until the next one comes). */
+function useYamlCheck(pid: string, yaml: string | null): LineError[] | null {
+  const [lines, setLines] = useState<LineError[] | null>(null);
+  useEffect(() => {
+    if (yaml === null) {
+      setLines(null);
+      return;
+    }
+    let gone = false;
+    const t = window.setTimeout(() => {
+      api.checkWorkflow(pid, yaml).then(
+        (c) => { if (!gone) setLines(c.valid ? [] : c.lines?.length ? c.lines : c.errors.map((message) => ({ line: 1, message }))); },
+        () => { if (!gone) setLines(null); },
+      );
+    }, 600);
+    return () => {
+      gone = true;
+      window.clearTimeout(t);
+    };
+  }, [pid, yaml]);
+  return lines;
 }
 
 const ON_LIMIT: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to a cheaper model"], ["stop", "stop the step"]];

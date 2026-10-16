@@ -14,10 +14,45 @@ from pathlib import Path
 import pytest
 import yaml
 
-from keel_engine.marketplace import catalog, signing, sources
+from keel_engine.marketplace import catalog, kinds, signing, sources
 from keel_engine.pluginhost import SDK
 from test_pluginhost import write_sums
 from test_pluginhost_install import kplug
+
+
+WORKFLOW = """name: {name}
+keel_rules: false
+steps:
+  - {{ id: write, kind: agent, name: write the notes ({version}), agent: librarian, model: default }}
+  - {{ id: review, kind: gate, name: review the notes, back: write }}
+"""
+
+
+# a rule pack in the final format of keel 0.17.2 (docs/rules/pack-format.md, schema 1)
+RULES = """schema: 1
+kind: rules
+name: {name}
+title: No new dependencies ({version})
+version: {version}
+publisher: {publisher}
+summary: Agents never add a package.
+requires:
+  keel: ">=0.17.0"
+rules:
+  - id: no-install
+    kind: bash
+    how: regex
+    match: ['\\bnpm\\s+install\\s+[^-\\s]']
+    phases: all
+    reason: Adding a package is a person's decision.
+  - id: no-lockfile
+    kind: edit
+    how: glob
+    match: ["**/package-lock.json"]
+    phases: [green, refactor]
+    lanes: [web]
+    reason: The lock file follows package.json.
+"""
 
 
 class _Files(http.server.BaseHTTPRequestHandler):
@@ -58,6 +93,8 @@ class Market:
         self.publisher_key = signing.keygen()
         self.publishers = {"keel": {"title": "keel", "keys": [self.publisher_key.public().line()], "verified": True}}
         self.plugins: dict[str, dict] = {}
+        self.workflows: dict[str, dict] = {}     # 21-workflow-marketplace.md: an index without them reads as before
+        self.rules: dict[str, dict] = {}         # 23-rules-in-marketplace.md: rule packs, the third kind
         self.revoked: list[dict] = []
         self.built = "2026-10-09T06:00:00Z"
         self.expires = "2099-01-01T00:00:00Z"
@@ -130,9 +167,62 @@ class Market:
         entry["versions"].append(v)
         return v
 
+    def publish_workflow(self, name: str, version: str, *, text: str | None = None, publisher: str = "keel",
+                         category: str = "docs", needs: dict | None = None, agents: list | None = None,
+                         keel: str | None = None, review: dict | None = None, sign_with=None, size: int | None = None,
+                         sha256: str | None = None, title: str | None = None) -> dict:
+        """Serve a signed workflow YAML and add its version to the index's workflows (call serve() after)."""
+        text = text if text is not None else WORKFLOW.format(name=name, version=version)
+        data = text.encode()
+        path = f"/wf/{name}-{version}.yaml"
+        self.server.files[path] = data
+        self.server.files[path + ".minisig"] = signing.sign(data, sign_with or self.publisher_key,
+                                                            f"{name}-{version}.yaml").encode()
+        requires: dict = {}
+        if keel:
+            requires["keel"] = keel
+        if needs:
+            requires["plugins"] = dict(needs)
+        if agents:
+            requires["agents"] = list(agents)
+        v = {"version": version, "released": "2026-10-15", "requires": requires, "url": self.url + path,
+             "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
+             "review": review or {"steps": 2, "gates": 1, "agents": ["librarian"], "mcp": [], "commands": [],
+                                  "edits_files": True, "keel_rules": False}}
+        entry = self.workflows.setdefault(name, {
+            "name": name, "kind": "workflow", "title": title or name.replace("-", " ").capitalize(),
+            "publisher": publisher, "summary": f"The {name} workflow for tests.", "category": category,
+            "tags": [name, "test"], "repo": "https://github.com/keel-studio/keel-workflows", "versions": []})
+        entry["versions"].append(v)
+        return v
+
+    def publish_rules(self, name: str, version: str, *, text: str | None = None, publisher: str = "keel",
+                      category: str = "safety", keel: str | None = None, review: dict | None = None, sign_with=None,
+                      size: int | None = None, sha256: str | None = None, title: str | None = None) -> dict:
+        """Serve a signed rule pack YAML and add its version to the index's rules (call serve() after)."""
+        text = text if text is not None else RULES.format(name=name, version=version, publisher=publisher)
+        data = text.encode()
+        path = f"/rules/{name}-{version}.yaml"
+        self.server.files[path] = data
+        self.server.files[path + ".minisig"] = signing.sign(data, sign_with or self.publisher_key,
+                                                            f"{name}-{version}.yaml").encode()
+        v = {"version": version, "released": "2026-10-15", "requires": {"keel": keel} if keel else {},
+             "url": self.url + path, "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
+             "review": review or kinds.pack_review(yaml.safe_load(text))}
+        entry = self.rules.setdefault(name, {
+            "name": name, "kind": "rules", "title": title or name.replace("-", " ").capitalize(),
+            "publisher": publisher, "summary": f"The {name} rule pack for tests.", "category": category,
+            "tags": [name, "test"], "repo": "https://github.com/keel-studio/keel-rules", "versions": []})
+        entry["versions"].append(v)
+        return v
+
     def index(self) -> dict:
-        return {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
-                "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
+        doc = {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
+               "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
+        if self.workflows or self.rules:
+            doc["workflows"] = list(self.workflows.values())
+            doc["rules"] = list(self.rules.values())
+        return doc
 
     def serve(self, doc: dict | None = None, *, sign_with=None, raw: bytes | None = None) -> None:
         """Serve the index (this document, or the built one) and its .minisig."""

@@ -3,7 +3,19 @@ folder and the plugins' releases, signed with the catalog key.
 
     <marketplace>/publishers/<id>.yml   name, title, keys: [RWQ…], verified, contact
     <marketplace>/plugins/<name>.yml    name, title, publisher, repo, category, summary, tags, trust
-    <marketplace>/revoked.yml           revoked: [{name, version, why}]
+    <marketplace>/revoked.yml           revoked: [{name, version, why, kind?}]   (kind: plugin, the default, workflow
+                                        or rules)
+    <marketplace>/workflows/<name>.yml  name, title, publisher, repo?, category, summary, tags, keel?
+    <marketplace>/workflows/<name>/<version>.yaml (+ .minisig)   a workflow file kept in the marketplace repo itself
+    <marketplace>/rules/<name>.yml      name, title, publisher, repo?, category, summary, tags, keel?   (a rule pack)
+    <marketplace>/rules/<name>/<version>.yaml (+ .minisig)       a rule pack kept in the marketplace repo itself
+
+Workflows and rule packs (21-workflow-marketplace.md §5, 23-rules-in-marketplace.md §2) are the file kinds of one
+table (FILE_KINDS): a release asset <name>-<version>.yaml (+ .minisig, + <file>.json) in the releases folder (a rule
+pack when it is a mapping with a list of rules and no steps, else a workflow), or a file kept in the marketplace repo
+(its URL is --files-url + /<list>/<name>/<version>.yaml, where the sync puts it on Pages). Each one is checked like
+`keel-plugin workflow lint` / `keel-plugin rules lint`, its signature with its publisher's keys, and its review is
+computed for the index.
 
 The releases: a folder with <name>-<version>.kplug files, each with its .kplug.minisig and, when it is known, a
 <file>.json {"url": …, "released": "YYYY-MM-DD"} (the sync workflow writes it); or a JSON list of {url, released}
@@ -22,8 +34,11 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from . import PluginToolError, miniyaml
+from . import rules as rulelint
+from . import workflow as wflint
 from .lint import lint
 from .manifest import NAME, VERSION, file_sha256
 from .minisign import PublicKey, SignatureError, verify
@@ -33,6 +48,13 @@ CATEGORIES = ("code", "knowledge", "tickets", "review", "product", "other")
 TRUSTS = ("content", "web", "code")
 PLUGIN_KEYS = {"name", "title", "publisher", "repo", "category", "summary", "tags", "trust", "icon"}
 PUBLISHER_KEYS = {"name", "title", "keys", "verified", "contact"}
+WORKFLOW_KEYS = {"name", "title", "publisher", "repo", "category", "summary", "tags", "keel"}
+WORKFLOW_CATEGORIES = ("code", "review", "docs", "release", "quality", "ops", "other")
+RULES_KEYS = WORKFLOW_KEYS
+RULES_CATEGORIES = ("safety", "code", "git", "files", "secrets", "other")      # keel's engine: kinds.RULES
+RESERVED = ("workflows", "rules", "rule-packs", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
+KINDS = ("plugin", "workflow", "rules")
+RANGE = re.compile(r"^\s*(?:(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)(?:,\s*(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)*$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_DOWNLOAD = 200 << 20
@@ -48,7 +70,9 @@ class Catalog:
     plugins: dict[str, dict] = field(default_factory=dict)
     revoked: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    workflows: dict[str, dict] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    rules: dict[str, dict] = field(default_factory=dict)
 
 
 def url_problem(url: str, allow_http: bool = False) -> str | None:
@@ -130,6 +154,9 @@ def _plugin(path: Path, cat: Catalog) -> None:
     if name != path.stem or not isinstance(name, str) or not NAME.match(name):
         cat.errors.append(f"{where}: name must be the file's name ({path.stem}) and a valid plugin name")
         return
+    if name in RESERVED:
+        cat.errors.append(f"{where}: '{name}' is taken by keel (/api/marketplace/{name}): choose another name")
+        return
     title = _text(data, "title", where, errors)
     publisher = _text(data, "publisher", where, errors)
     summary = _text(data, "summary", where, errors)
@@ -159,6 +186,54 @@ def _plugin(path: Path, cat: Catalog) -> None:
     cat.plugins[name] = entry
 
 
+def _file_entry(kind: "FileKind", path: Path, cat: Catalog) -> None:
+    """<list>/<name>.yml: a workflow's or a rule pack's marketplace entry."""
+    where = f"{kind.list}/{path.name}"
+    errors: list[str] = []
+    data = _yaml(path, cat.errors)
+    if data is None:
+        return
+    if not isinstance(data, dict):
+        cat.errors.append(f"{where}: must be a mapping (name, title, publisher, category, summary, …)")
+        return
+    for key in data:
+        if key not in kind.keys:
+            cat.warnings.append(f"{where}: '{key}' is not a {kind.noun} field ({', '.join(sorted(kind.keys))})")
+    name = data.get("name")
+    if name != path.stem or not isinstance(name, str) or not kind.name_rule.match(name):
+        cat.errors.append(f"{where}: name must be the file's name ({path.stem}) and a valid name (a-z, 0-9, '-')")
+        return
+    title = _text(data, "title", where, errors)
+    publisher = _text(data, "publisher", where, errors)
+    summary = _text(data, "summary", where, errors)
+    if publisher and publisher not in cat.publishers:
+        errors.append(f"{where}: the publisher '{publisher}' has no file publishers/{publisher}.yml")
+    category = data.get("category")
+    if category not in kind.categories:
+        errors.append(f"{where}: category must be one of {', '.join(kind.categories)}")
+    tags = data.get("tags") or []
+    if not isinstance(tags, list) or not all(isinstance(t, str) and t.strip() for t in tags):
+        errors.append(f"{where}: tags must be a list of words")
+        tags = []
+    repo = data.get("repo")
+    if repo is not None and (not isinstance(repo, str) or not re.match(r"^https://github\.com/[\w.-]+/[\w.-]+$", repo)):
+        errors.append(f"{where}: repo must be a https://github.com/<owner>/<repo> URL (its releases hold the files), "
+                      f"or left out when the files are in this repo ({kind.list}/<name>/<version>.yaml)")
+    keel = data.get("keel")
+    if keel is not None and (not isinstance(keel, str) or not RANGE.match(keel)):
+        errors.append(f"{where}: keel must be a version range like '>=0.16.1'")
+    cat.errors += errors
+    if errors:
+        return
+    entry = {"name": name, "kind": kind.name, "title": title, "publisher": publisher, "summary": summary,
+             "category": category, "tags": [t.strip() for t in tags]}
+    if repo:
+        entry["repo"] = repo
+    if keel:
+        entry["keel"] = keel.strip()
+    kind.entries(cat)[name] = entry
+
+
 def _revoked(path: Path, cat: Catalog) -> None:
     if not path.is_file():
         cat.errors.append("revoked.yml is missing (write 'revoked: []' when nothing is revoked)")
@@ -169,14 +244,19 @@ def _revoked(path: Path, cat: Catalog) -> None:
         cat.errors.append("revoked.yml: revoked must be a list ('revoked: []' when nothing is revoked)")
         return
     for i, item in enumerate(items):
-        ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and NAME.match(item["name"])
+        rule = rulelint.PACK if isinstance(item, dict) and item.get("kind") == "rules" else NAME
+        ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and rule.match(item["name"])
               and isinstance(item.get("version"), str) and VERSION.match(item["version"])
-              and isinstance(item.get("why"), str) and item["why"].strip())
+              and isinstance(item.get("why"), str) and item["why"].strip()
+              and item.get("kind", "plugin") in KINDS)
         if not ok:
             cat.errors.append(f"revoked.yml: revoked[{i}] must have a plugin name, a version (x.y.z, in quotes) "
-                              "and why")
+                              "and why (and kind: plugin, workflow or rules, when it is not a plugin)")
             continue
-        cat.revoked.append({"name": item["name"], "version": item["version"], "why": item["why"].strip()})
+        out = {"name": item["name"], "version": item["version"], "why": item["why"].strip()}
+        if "kind" in item:
+            out["kind"] = item["kind"]
+        cat.revoked.append(out)
 
 
 def read_catalog(root: Path) -> Catalog:
@@ -188,6 +268,9 @@ def read_catalog(root: Path) -> Catalog:
         _publisher(f, cat)
     for f in sorted((root / "plugins").glob("*.yml")):
         _plugin(f, cat)
+    for kind in FILE_KINDS:
+        for f in sorted((root / kind.list).glob("*.yml")) if (root / kind.list).is_dir() else []:
+            _file_entry(kind, f, cat)
     _revoked(root / "revoked.yml", cat)
     if not cat.publishers:
         cat.errors.append("publishers/ has no publisher")
@@ -271,6 +354,184 @@ def releases_from_map(source: str, into: Path, allow_http: bool = False) -> tupl
     return out, problems
 
 
+@dataclass
+class ItemFile:
+    """A workflow's or a rule pack's version: a release asset <name>-<version>.yaml, or <list>/<name>/<version>.yaml
+    in the marketplace repo (url: --files-url + that path)."""
+    file: Path
+    url: str | None = None
+    released: str | None = None
+    name: str | None = None
+    version: str | None = None
+
+    @property
+    def sig(self) -> Path:
+        return self.file.with_name(self.file.name + ".minisig")
+
+
+def _workflow_requires(entry: dict, report) -> dict:
+    requires: dict = {}
+    if entry.get("keel"):
+        requires["keel"] = entry["keel"]
+    if report.needs_plugins:
+        requires["plugins"] = {n: "" for n in report.needs_plugins}
+    agents = [a for a in report.review["agents"] if a not in wflint.KEEL_AGENTS]
+    if agents:
+        requires["agents"] = agents
+    return requires
+
+
+def _rules_requires(entry: dict, report) -> dict:
+    """The pack's own requires (it ships unchanged, so keel reads the same); the entry's keel only when the pack has
+    none."""
+    keel = report.requires.get("keel") or entry.get("keel")
+    return {**({"keel": keel} if keel else {}),
+            **({"plugins": dict(report.requires["plugins"])} if report.requires.get("plugins") else {})}
+
+
+def _rules_agree(entry: dict, report) -> str | None:
+    """A pack names its publisher: it must be the entry's (keel refuses the file otherwise)."""
+    if report.publisher != entry.get("publisher"):
+        return f"its publisher is {report.publisher}, the entry rules/{entry['name']}.yml says {entry.get('publisher')}"
+    return None
+
+
+@dataclass(frozen=True)
+class FileKind:
+    """One kind of catalog entry whose version is one signed YAML file (keel's engine: marketplace/kinds.py)."""
+    name: str                       # the entry's kind: workflow | rules
+    list: str                       # the index's list and the marketplace repo's folder: workflows | rules
+    noun: str                       # in messages
+    keys: frozenset[str]            # the fields of <list>/<name>.yml
+    categories: tuple[str, ...]
+    lint: Callable                  # (file, name, version) → a report with errors and review
+    name_version: Callable          # a file → (name, version) from its file name
+    requires: Callable              # (entry, report) → the version's requires
+    agrees: Callable | None = None  # (entry, report) → why a file is not the entry's, or None
+    name_rule: re.Pattern = NAME    # an entry's name (rule packs: keel's pack name rule)
+
+    def entries(self, cat: Catalog) -> dict[str, dict]:
+        return getattr(cat, self.list)
+
+
+WORKFLOWS = FileKind("workflow", "workflows", "workflow", frozenset(WORKFLOW_KEYS), WORKFLOW_CATEGORIES, wflint.lint,
+                     wflint.name_version, _workflow_requires)
+RULES = FileKind("rules", "rules", "rule pack", frozenset(RULES_KEYS), RULES_CATEGORIES, rulelint.lint,
+                 rulelint.name_version, _rules_requires, _rules_agree, rulelint.PACK)
+FILE_KINDS = (WORKFLOWS, RULES)
+
+
+def yaml_releases_in(folder: Path) -> dict[str, list[ItemFile]]:
+    """Every <name>-<version>.yaml under a releases folder, with its <file>.json (url, released) when there is one,
+    by kind: a rule pack (a mapping with a list of rules and no steps) or a workflow (anything else)."""
+    out: dict[str, list[ItemFile]] = {k.name: [] for k in FILE_KINDS}
+    for f in sorted(folder.rglob("*.yaml")):
+        if not wflint.FILE.match(f.name) and not rulelint.FILE.match(f.name):
+            continue
+        meta: dict = {}
+        side = f.with_name(f.name + ".json")
+        if side.is_file():
+            try:
+                meta = json.loads(side.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                meta = {}
+        meta = meta if isinstance(meta, dict) else {}
+        kind = RULES if rulelint.is_pack(f) else WORKFLOWS
+        out[kind.name].append(ItemFile(f, meta.get("url"), meta.get("released")))
+    return out
+
+
+def marketplace_files(kind: FileKind, root: Path, files_url: str | None) -> list[ItemFile]:
+    """The files of a kind kept in the marketplace repo: <list>/<name>/<version>.yaml."""
+    out = []
+    folder = root / kind.list
+    for f in sorted(folder.glob("*/*.yaml")) if folder.is_dir() else []:
+        name, version = f.parent.name, f.stem
+        url = f"{files_url.rstrip('/')}/{kind.list}/{name}/{version}.yaml" if files_url else None
+        out.append(ItemFile(f, url, None, name, version))
+    return out
+
+
+def _which(kind: FileKind, cat: Catalog, item: ItemFile) -> tuple[str | None, str | None]:
+    """The listed entry a release file is of (the longest listed name it starts with) and its version."""
+    if item.name and item.version:
+        return item.name, item.version
+    best = None
+    for name in kind.entries(cat):
+        rest = item.file.name[len(name) + 1:-len(".yaml")] if item.file.name.startswith(name + "-") else None
+        if rest and VERSION.match(rest) and (best is None or len(name) > len(best[0])):
+            best = (name, rest)
+    if best:
+        return best
+    return kind.name_version(item.file)
+
+
+def build_files(kind: FileKind, cat: Catalog, files: list[ItemFile], *, only: set[str] | None = None,
+                allow_http: bool = False) -> tuple[list[dict], list[str], list[str]]:
+    """The index's list of one file kind: (entries, problems, notes)."""
+    problems: list[str] = []
+    notes: list[str] = []
+    versions: dict[str, dict[str, dict]] = {}
+    listed = kind.entries(cat)
+    for item in files:
+        label = item.file.name if not item.name else f"{kind.list}/{item.name}/{item.file.name}"
+        name, version = _which(kind, cat, item)
+        if only and name not in only:
+            continue
+        entry = listed.get(name or "")
+        if entry is None:
+            problems.append(f"{label} left out: there is no {kind.list}/{name}.yml")
+            continue
+        report = kind.lint(item.file, name, version)
+        if report.errors:
+            problems.append(f"{label} left out: " + "; ".join(report.errors[:3]))
+            continue
+        if kind.agrees and (why := kind.agrees(entry, report)):
+            problems.append(f"{label} left out: {why}")
+            continue
+        if not item.sig.is_file():
+            problems.append(f"{label} left out: there is no signature {item.sig.name}")
+            continue
+        keys = [PublicKey.parse(k) for k in cat.publishers[entry["publisher"]]["keys"]]
+        try:
+            verify(item.file.read_bytes(), item.sig.read_text(encoding="utf-8"), keys)
+        except (SignatureError, UnicodeDecodeError) as exc:
+            problems.append(f"{label} left out: {exc}")
+            continue
+        url = item.url
+        if url is None and item.name is None and entry.get("repo"):
+            url = f"{entry['repo']}/releases/download/{name}-v{version}/{item.file.name}"
+        if url is None:
+            problems.append(f"{label} left out: keel would not know where to download it "
+                            "(give --files-url for the files kept in the marketplace repo)")
+            continue
+        why = url_problem(url, allow_http)
+        if why:
+            problems.append(f"{label} left out: {why}")
+            continue
+        sha = file_sha256(item.file)
+        have = versions.setdefault(name, {})
+        if version in have:
+            if have[version]["sha256"] != sha:
+                problems.append(f"{label} left out: {name} {version} is there twice, with different files")
+            continue
+        released = item.released if isinstance(item.released, str) and DATE.match(item.released[:10]) else None
+        have[version] = {"version": version,
+                         "released": released[:10] if released else
+                         dt.datetime.fromtimestamp(item.file.stat().st_mtime, dt.UTC).strftime("%Y-%m-%d"),
+                         "requires": kind.requires(entry, report), "url": url, "sha256": sha,
+                         "size": item.file.stat().st_size, "review": report.review}
+    out = []
+    for name in sorted(versions):
+        entry = {k: v for k, v in listed[name].items() if k != "keel"}
+        entry["versions"] = sorted(versions[name].values(), key=lambda v: version_key(v["version"]), reverse=True)
+        out.append(entry)
+    for name in sorted(set(listed) - set(versions)):
+        if not only or name in only:
+            notes.append(f"{kind.noun} {name}: no file yet, so it is not in the index")
+    return out, problems, notes
+
+
 # ---------------------------------------------------------------- the index
 
 def version_key(version: str) -> tuple:
@@ -295,8 +556,9 @@ class Built:
 
 
 def build(cat: Catalog, releases: list[Release], *, now: dt.datetime | None = None, days: int = 14,
-          only: set[str] | None = None, allow_http: bool = False) -> Built:
-    """The index from a checked catalog and the releases."""
+          only: set[str] | None = None, allow_http: bool = False,
+          files: dict[str, list[ItemFile]] | None = None) -> Built:
+    """The index from a checked catalog and the releases (files: the workflow and rule pack files, by kind)."""
     if cat.errors:
         raise CatalogError("the marketplace files have errors:\n  " + "\n  ".join(cat.errors))
     now = (now or dt.datetime.now(dt.UTC)).replace(microsecond=0)
@@ -365,6 +627,12 @@ def build(cat: Catalog, releases: list[Release], *, now: dt.datetime | None = No
         "plugins": plugins,
         "revoked": cat.revoked,
     }
+    for kind in FILE_KINDS:
+        found, problems, notes = build_files(kind, cat, (files or {}).get(kind.name, []), only=only,
+                                             allow_http=allow_http)
+        out.problems += problems
+        out.notes += notes
+        out.index[kind.list] = found
     return out
 
 

@@ -97,6 +97,60 @@ def engines() -> list[dict]:
     return out
 
 
+# ------------------------------------------------------------------ who enforces a pack rule (the marketplace's preview)
+
+ENGINE_TITLES = {"claude": "Claude Code", "opencode": "OpenCode", "codex": "Codex", "copilot": "Copilot",
+                 "api": "API-key models"}
+# Who checks a rule, by the code that does it:
+#   hook       keel_engine.hook (PreToolUse) runs rules.check_bash / check_edit / check_read for claude, opencode and
+#              codex 0.150+ (cli_runners.protection == "before")
+#   mcp-guard  the same hook's check_mcp: pack `mcp` rules on every mcp__<server>__<tool> call
+#   toolbox    tools/agent_tools.py ToolBox: an API-key model's read_file / write_file / run_command (no MCP)
+#   wrappers   keel_engine/shim.py: the command wrappers (git, gh, package managers, file printers) of an engine
+#              without a hook (copilot, an older codex)
+#   diff-guard tools/guard.py guard_diff → rules.check_edit after every step of every engine: a refused file is put back
+ENFORCERS = {
+    "hook": "keel's PreToolUse hook",
+    "mcp-guard": "keel's MCP guard",
+    "toolbox": "keel's ToolBox",
+    "wrappers": "keel's command wrappers",
+    "diff-guard": "the diff guard",
+}
+
+
+def enforcement(kind: str, match: list[str] | None = None, how: str | None = None) -> dict:
+    """Who enforces one pack rule, from the engines' real support: {before: [engine], after: bool,
+    engines: {engine: before|wrapped|after|none}, by: [{when, who, label, engines: [engine]}]}."""
+    per = _merge_enforced(kind, match if kind == "bash" else None, how)
+    before = [e for e in ENGINES if per[e] in ("before", "wrapped")]
+    by: list[dict] = []
+
+    def add(when: str, who: str, engines_: list[str]) -> None:
+        if engines_:
+            by.append({"when": when, "who": who, "label": ENFORCERS[who], "engines": engines_})
+
+    hooked = [e for e in ENGINES if per[e] == "before" and e != "api"]
+    add("before", "mcp-guard" if kind == "mcp" else "hook", hooked)
+    add("before", "toolbox", [e for e in ENGINES if per[e] == "before" and e == "api"])
+    add("before", "wrappers", [e for e in ENGINES if per[e] == "wrapped"])
+    after = kind == "edit"          # guard_diff checks a step's changed files with check_edit, for every engine
+    add("after", "diff-guard", list(ENGINES) if after else [])
+    return {"before": before, "after": after, "engines": per, "by": by}
+
+
+def reading(text: str) -> dict:
+    """keel's own reading of a rule pack (the marketplace's preview): the pack, checked by the rules work's parser, each
+    rule with who enforces it, and the engines' protection. 422 when it is not a pack keel can read."""
+    pack, errors = packs_mod.parse_pack(text)
+    if errors:
+        raise RulesError(422, "The rule pack is not valid.", errors)
+    head = {k: v for k, v in pack.items() if k != "rules"}
+    return {"pack": head, "fits": packs_mod.keel_fits(pack) is None, "why_not": packs_mod.keel_fits(pack),
+            "rules": [{**r, "enforced": enforcement(r["kind"], r["match"], r.get("how"))} for r in pack["rules"]],
+            "engines": [{**e, "title": ENGINE_TITLES.get(e["engine"], e["engine"])} for e in engines()],
+            "enforcers": [{"who": k, "label": v} for k, v in ENFORCERS.items()]}
+
+
 # ------------------------------------------------------------------ the page
 
 LISTS = [

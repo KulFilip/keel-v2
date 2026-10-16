@@ -165,8 +165,21 @@ class StubEngine private constructor(private val server: HttpServer) {
         )
         path == "/workflows/validate" -> {
             val yaml = body?.get("yaml")?.asText() ?: ""
-            if (yaml.contains("INVALID")) 200 to mapOf("ok" to false, "errors" to listOf("step INVALID is not allowed"))
-            else 200 to mapOf("ok" to true, "errors" to emptyList<String>())
+            val at = yaml.lines().indexOfFirst { it.contains("INVALID") } + 1
+            if (yaml.contains("INVALID")) 200 to mapOf("ok" to false, "errors" to listOf("step INVALID is not allowed"),
+                "lines" to listOf(mapOf("line" to at, "message" to "step INVALID is not allowed")))
+            else 200 to mapOf("ok" to true, "errors" to emptyList<String>(), "lines" to emptyList<Any>())
+        }
+        // the engine's starter (keel_engine/workflows/editor.py), in short
+        path == "/workflows/starter" -> {
+            val q = query.orEmpty().split('&').filter { '=' in it }.associate {
+                it.substringBefore('=') to java.net.URLDecoder.decode(it.substringAfter('='), Charsets.UTF_8)
+            }
+            val name = q["name"]?.ifBlank { null } ?: "My workflow"
+            200 to mapOf("yaml" to "# $name: a small workflow to start from. Change it, then Save.\n\nid: ${q["id"] ?: "my-workflow"}\n" +
+                "name: $name\nversion: 1\nkeel_rules: ${q["keel_rules"] ?: "true"}\n\nsteps:\n\n" +
+                "  - id: plan\n    kind: agent\n    name: plan\n    phase: spec\n    agent: explorer\n\n" +
+                "  - id: plan_ok\n    kind: gate\n    name: plan approval\n    phase: spec\n    back: plan\n    lock: true\n")
         }
         path == "/workflows/estimate" -> 200 to mapOf(
             "tokens" to 1000, "low" to 800, "high" to 1500, "cost_usd" to 0.0, "premium_requests" to 0,

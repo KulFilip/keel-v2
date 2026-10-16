@@ -19,6 +19,12 @@
 //   #/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs, and
 //                       (v0.17.1) the projects it is on for
 //
+// 0.16.1 plugin track (docs/plugins/21-workflow-marketplace.md §4): the Marketplace has a kind switch, Plugins ·
+// Workflows (#/plugins?tab=market&kind=workflows); a workflow's own page is #/plugins/workflow/<name>
+// (MarketWorkflow.tsx).
+// Rule packs (docs/plugins/23-rules-in-marketplace.md §3) are the third kind: Plugins · Workflows · Rules
+// (?kind=rules); a pack's page is #/plugins/rules/<name> (MarketRulePack.tsx).
+//
 // Install opens a dialog that lists everything that will be installed and what each one may do.
 // #/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
 // once (the missing plugins; the image's plugins that are off are turned on); nothing installs before the person presses
@@ -95,6 +101,13 @@ import {
   useInside,
   type Chip,
 } from "./pluginLook";
+import {
+  KindSwitch,
+  MarketWorkflowPage,
+  WorkflowsMarket,
+  type MarketKind,
+} from "./MarketWorkflow";
+import { MarketRulePackPage, RulesMarket } from "./MarketRulePack";
 
 type Tab = "installed" | "market" | "sources";
 
@@ -108,6 +121,10 @@ const SUB: Record<Tab, string> = {
     "Plugins add pages, tools, workflows and agents to keel. Each comes from its own git repo. keel checks its signature before it installs it.",
   sources: "Where plugins come from, and who may install them.",
 };
+const SUB_WORKFLOWS =
+  "Workflows made by keel and the community. One installs into a project as an editable copy. keel checks its signature and shows what it runs first.";
+const SUB_RULES =
+  "Rule packs made by keel and the community: guard rules agents meet at every tool call. One installs into a project's .keel/rules/. keel checks its signature and shows everything it blocks first.";
 
 export function PluginsPage(_props: PageProps) {
   const route = useRoute();
@@ -123,6 +140,10 @@ export function PluginsPage(_props: PageProps) {
       ? asked
       : null;
   const [tab, setTab] = useState<Tab>(linked ?? "installed");
+  // the Marketplace's kind: #/plugins?tab=market&kind=workflows|rules (the link is the truth)
+  const askedKind = queryValue(route, "kind");
+  const kind: MarketKind =
+    askedKind === "workflows" || askedKind === "rules" ? askedKind : "plugins";
   useEffect(() => {
     if (linked) setTab(linked);
   }, [linked, route.query]);
@@ -175,6 +196,20 @@ export function PluginsPage(_props: PageProps) {
     />
   );
 
+  // #/plugins/rules/<name>: a rule pack of the marketplace
+  if (arg?.startsWith("rules/"))
+    return <MarketRulePackPage key={arg} name={arg.slice("rules/".length)} />;
+
+  // #/plugins/workflow/<name>: a workflow of the marketplace (a plugin's name never has a "/")
+  if (arg?.startsWith("workflow/"))
+    return (
+      <MarketWorkflowPage
+        key={arg}
+        name={arg.slice("workflow/".length)}
+        view={view.data}
+      />
+    );
+
   if (arg)
     return (
       <>
@@ -205,7 +240,11 @@ export function PluginsPage(_props: PageProps) {
         title="Plugins"
         sub={
           <>
-            {SUB[tab]}
+            {tab === "market" && kind === "workflows"
+            ? SUB_WORKFLOWS
+            : tab === "market" && kind === "rules"
+              ? SUB_RULES
+              : SUB[tab]}
             <span className="mk-intro">
               Everything is on by default, like 0.16.1. Start with fewer
               plugins: <code>keel2 start --core</code>.
@@ -270,7 +309,12 @@ export function PluginsPage(_props: PageProps) {
       </div>
       <div className="mk-tab">
         {tab === "installed" && <InstalledTab view={view} />}
-        {tab === "market" && (
+        {tab === "market" && <KindSwitch kind={kind} />}
+        {tab === "market" && kind === "workflows" && (
+          <WorkflowsMarket view={view.data} />
+        )}
+        {tab === "market" && kind === "rules" && <RulesMarket />}
+        {tab === "market" && kind === "plugins" && (
           <MarketTab
             view={view.data}
             onInstall={(name) => setPlan({ install: [name] })}

@@ -16,7 +16,12 @@ command) and, for the web part, Node with npx (headless Chromium through `npx -y
                for one more permission); `keel-plugin index` builds and signs v1/index.json
   keel-mkt     the image under test with the fake model (KEEL_FAKE=1), a small git project at /workspace/hello-repo
 
-The steps: the catalog as a source; needs_plugins (a workflow that needs hello refuses to start and asks); search;
+The steps: the catalog as a source; a workflow round (21-workflow-marketplace.md: notes-flow 1.0.0 and 1.1.0, signed
+release files in the catalog: search, its page, install into the project, the market field, a flow on the fake model,
+update unchanged / replace / keep, remove, a bad signature refused); a rule pack round (23-rules-in-marketplace.md:
+no-npm-install 1.0.0 and 1.1.0 in keel's final pack format: search, its page with who enforces each rule, install into
+the project through the rules api, keel's PreToolUse hook refuses `npm install` in the container, update (409 without
+replace, then replace), the web (rules-web.mjs), uninstall, a bad signature refused); needs_plugins (a workflow that needs hello refuses to start and asks); search;
 install 1.0.0, restart keel (in the same container), hello loaded (its engine route, web part, workflow and agent);
 update to 1.1.0; update to 1.2.0 refused (more permissions) and asked in the Inbox: denied, asked again, the web
 (Control › Plugins and the Inbox card), approved; roll back; remove; the refusals (a bad index signature, a bad package
@@ -48,7 +53,10 @@ import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-NAME, VOLUME, PORT = "keel-mkt", "keel-mkt-data", 8096
+# the e2e's own keel; KEEL_NAME / KEEL_VOLUME / KEEL_PORT give it other names (two runs side by side)
+NAME = os.environ.get("KEEL_NAME") or "keel-mkt"
+VOLUME = os.environ.get("KEEL_VOLUME") or f"{NAME}-data"
+PORT = int(os.environ.get("KEEL_PORT") or 8096)
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "hello"
@@ -405,6 +413,219 @@ def setup(cat: Catalog) -> str:
     return pid
 
 
+WF, WF_TITLE = "notes-flow", "Notes flow"
+
+
+def wf_yaml(version: str) -> str:
+    return (f"name: {WF_TITLE}\nkeel_rules: false\nsteps:\n"
+            f"  - {{ id: look, kind: agent, name: look around ({version}), agent: explorer, model: default }}\n"
+            "  - { id: check, kind: gate, name: check the notes, back: look }\n")
+
+
+def workflows(pid: str, cat: Catalog) -> None:
+    """The workflow marketplace (docs/plugins/21-workflow-marketplace.md): a signed workflow released as
+    notes-flow-<version>.yaml (+ .minisig) in the test catalog; search, its page, install into the project, the market
+    badge fields, a flow on the fake model, update (unchanged; replace; keep), remove, and a bad signature refused."""
+    print("1b. a workflow in the marketplace: notes-flow 1.0.0 and 1.1.0")
+    (cat.mkt / "workflows").mkdir(exist_ok=True)
+    (cat.mkt / "workflows" / f"{WF}.yml").write_text(
+        f"name: {WF}\ntitle: {WF_TITLE}\npublisher: e2e\ncategory: docs\nsummary: Looks around and asks you.\n"
+        "tags: [e2e]\nrepo: https://github.com/keel-studio/keel-workflows\n")
+    for v in ("1.0.0", "1.1.0"):
+        f = cat.files / f"{WF}-{v}.yaml"
+        f.write_text(wf_yaml(v))
+        lint = kp("workflow", "lint", str(f))
+        check(lint.rstrip().endswith("ok"), f"keel-plugin workflow lint {f.name}: ok")
+        kp("sign", str(f), "--key-file", str(cat.keys / "publisher.key"))
+        (cat.files / f"{f.name}.json").write_text(json.dumps({"url": f"{cat.base}/files/{f.name}",
+                                                              "released": dt.date.today().isoformat()}))
+    index = cat.index()
+    check([v["version"] for w in index["workflows"] for v in w["versions"]] == ["1.1.0", "1.0.0"]
+          and index["workflows"][0]["versions"][0]["review"]["agents"] == ["explorer"] and index["rules"] == [],
+          "keel-plugin index lists notes-flow 1.1.0 and 1.0.0 with their Install review (rules: [])")
+    src = refresh()
+    check(src["ok"] and src.get("workflows") == 1, "keel read the catalog: 1 plugin, 1 workflow")
+    hit = api("GET", f"/marketplace/workflows?q=notes&project={pid}")["workflows"]
+    check(len(hit) == 1 and hit[0]["version"] == "1.1.0" and hit[0]["installed"] is None and hit[0]["kind"] == "workflow",
+          "GET /api/marketplace/workflows finds notes-flow 1.1.0, not installed")
+    one = api("GET", f"/marketplace/workflows/{WF}?project={pid}")
+    check("look around (1.1.0)" in one["yaml"] and [s["id"] for s in one["steps"]] == ["look", "check"]
+          and one["review"]["agents"] == ["explorer"] and one["review"]["gates"] == 1,
+          "its page: the verified yaml, its steps and keel's own review")
+    res = api("POST", f"/projects/{pid}/workflows/market/install", {"name": WF, "version": "1.0.0", "scope": "project"},
+              timeout=120)
+    wid = res["workflow"]["id"]
+    check(res["workflow"]["market"] == {"catalog": SOURCE_ID, "name": WF, "version": "1.0.0", "update": None}
+          and res["workflow"]["source"] == "marketplace", "installed 1.0.0 into the project (no restart)")
+    listed = next(w for w in api("GET", f"/projects/{pid}/workflows") if w["id"] == wid)
+    check(listed["market"]["update"] == "1.1.0", "Build › Workflows: \"from marketplace · 1.0.0\", update 1.1.0 ready")
+    check(sum(1 for w in api("GET", f"/projects/{pid}/workflows") if "market" in w) == 1,
+          "only the marketplace workflow has the market field")
+    flow = api("POST", f"/projects/{pid}/flows", {"workflow_id": wid, "title": "Notes", "allow_fake": True,
+                                                   "allow_dirty": True}, timeout=120)
+    tid = flow.get("thread_id") or flow.get("id")
+    check(bool(tid), f"it starts on the fake model (flow {tid})")
+    code, again = call("POST", f"/projects/{pid}/workflows/market/install", {"name": WF, "scope": "project"})
+    check(code == 409 and "installed already" in again["error"], "installing it again in this project: 409 installed already")
+    up = api("POST", f"/projects/{pid}/workflows/market/{wid}/update", {"version": "1.1.0", "mode": "keep"}, timeout=120)
+    check(up["workflow"]["id"] == wid and up["workflow"]["market"]["version"] == "1.1.0" and up["kept"] is None,
+          "update an unchanged copy: the same workflow, now 1.1.0")
+    api("PUT", f"/workflows/{wid}", {"yaml": up["workflow"]["yaml"].replace("check the notes", "my own check")})
+    back = api("POST", f"/projects/{pid}/workflows/market/{wid}/update", {"version": "1.0.0", "mode": "replace"}, timeout=120)
+    check(back["workflow"]["id"] == wid and "my own check" not in back["workflow"]["yaml"]
+          and back["workflow"]["market"]["version"] == "1.0.0", "a changed copy, mode replace: replaced (here by 1.0.0)")
+    api("PUT", f"/workflows/{wid}", {"yaml": back["workflow"]["yaml"].replace("check the notes", "my own check")})
+    kept = api("POST", f"/projects/{pid}/workflows/market/{wid}/update", {"version": "1.1.0", "mode": "keep"}, timeout=120)
+    copy = kept["workflow"]
+    mine_now = next(w for w in api("GET", f"/projects/{pid}/workflows") if w["id"] == wid)
+    check(kept["kept"] == wid and copy["id"] != wid and copy["name"] == f"{WF_TITLE} 1.1.0"
+          and "my own check" in mine_now["yaml"] and "market" not in mine_now,
+          "a changed copy, mode keep: theirs stays as their own, the new version comes as \"Notes flow 1.1.0\"")
+    for w in (wid, copy["id"]):
+        api("DELETE", f"/workflows/{w}")
+    check(api("GET", f"/marketplace/workflows?q=notes&project={pid}")["workflows"][0]["installed"] is None,
+          "removed (Delete): the marketplace says not installed")
+    sig = cat.files / f"{WF}-1.1.0.yaml.minisig"
+    good = sig.read_text()
+    bad = cat.tmp / "bad"
+    bad.mkdir(exist_ok=True)
+    shutil.copy(cat.files / f"{WF}-1.1.0.yaml", bad / f"{WF}-1.1.0.yaml")
+    kp("sign", str(bad / f"{WF}-1.1.0.yaml"), "--key-file", str(cat.keys / "other.key"))
+    sig.write_text((bad / f"{WF}-1.1.0.yaml.minisig").read_text())
+    code, res = call("POST", f"/projects/{pid}/workflows/market/install", {"name": WF, "scope": "project"}, timeout=120)
+    check(code == 502 and "signature" in res["error"], f"a bad signature is refused ({res['error'][:70]})")
+    check(not any("market" in w for w in api("GET", f"/projects/{pid}/workflows")), "and nothing was installed")
+    sig.write_text(good)
+
+
+RP, RP_TITLE = "no-npm-install", "No npm install"
+GUARD_CTX = "/tmp/rt-e2e-guard.json"
+
+
+def rp_yaml(version: str) -> str:
+    """The e2e's rule pack in keel's final format (docs/rules/pack-format.md); 1.1.0 adds an edit rule."""
+    text = (f"schema: 1\nkind: rules\nname: {RP}\ntitle: {RP_TITLE}\nversion: {version}\npublisher: e2e\n"
+            "summary: Agents never run npm install; a person adds packages.\nrequires:\n  keel: \">=0.17.0\"\nrules:\n"
+            "  - id: no-install\n    kind: bash\n    match: [npm install]\n    reason: A person adds packages (the e2e's pack).\n")
+    if version != "1.0.0":
+        text += ("  - id: no-lockfile\n    kind: edit\n    match: [\"**/package-lock.json\"]\n    phases: [green, refactor]\n"
+                 "    reason: The lock file follows package.json.\n")
+    return text
+
+
+def guard(command: str, phase: str = "green") -> tuple[int, str]:
+    """keel's PreToolUse hook in the container, as Claude Code runs it: a Bash call in the project, phase `phase`.
+    (exit code, stderr): 2 and "[keel guard] …" when keel refuses it."""
+    ctx = json.dumps({"root": "/workspace/hello-repo", "phase": phase, "ac": None, "lane": None, "unlocks": [],
+                      "agent": "e2e", "thread": ""})
+    subprocess.run(["docker", "exec", "-i", NAME, "sh", "-c", f"cat > {GUARD_CTX}"], input=ctx, text=True, check=True)
+    call_ = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": "/workspace/hello-repo"})
+    r = subprocess.run(["docker", "exec", "-i", "-w", "/workspace/hello-repo", "-e", f"KEEL_GUARD_CTX={GUARD_CTX}", NAME,
+                        "/opt/engine/.venv/bin/python", "-I", "-m", "keel_engine.hook", "pre-tool"],
+                       input=call_, capture_output=True, text=True, timeout=60)
+    return r.returncode, r.stderr.strip()
+
+
+def rule_packs(pid: str, cat: Catalog, web: bool, out: Path) -> None:
+    """Rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md): a signed pack released as
+    no-npm-install-<version>.yaml (+ .minisig) in the test catalog; search, its page (keel's reading: who enforces each
+    rule), install into the project through the rules api (source marketplace), keel's guard refuses a matching bash
+    call, update (409 without replace, then replace), uninstall, and a bad signature refused."""
+    print("1c. a rule pack in the marketplace: no-npm-install 1.0.0 and 1.1.0")
+    (cat.mkt / "rules").mkdir(exist_ok=True)
+    (cat.mkt / "rules" / f"{RP}.yml").write_text(
+        f"name: {RP}\ntitle: {RP_TITLE}\npublisher: e2e\ncategory: safety\n"
+        "summary: Agents never run npm install; a person adds packages.\ntags: [e2e, dependencies]\n"
+        "repo: https://github.com/keel-studio/keel-rules\n")
+    for v in ("1.0.0", "1.1.0"):
+        f = cat.files / f"{RP}-{v}.yaml"
+        f.write_text(rp_yaml(v))
+        lint = kp("rules", "lint", str(f))
+        check(lint.rstrip().endswith("ok"), f"keel-plugin rules lint {f.name}: ok")
+        kp("sign", str(f), "--key-file", str(cat.keys / "publisher.key"))
+        (cat.files / f"{f.name}.json").write_text(json.dumps({"url": f"{cat.base}/files/{f.name}",
+                                                              "released": dt.date.today().isoformat()}))
+    index = cat.index()
+    [entry] = index["rules"]
+    check([v["version"] for v in entry["versions"]] == ["1.1.0", "1.0.0"]
+          and entry["versions"][0]["review"]["kinds"] == {"bash": 1, "edit": 1}
+          and entry["versions"][0]["requires"] == {"keel": ">=0.17.0"},
+          "keel-plugin index lists no-npm-install 1.1.0 and 1.0.0 with their review and the pack's own requires")
+    check(refresh()["ok"], "keel read the catalog with the rule pack")
+    hits = api("GET", f"/marketplace/rule-packs?q=npm&project={pid}")["rules"]
+    check(len(hits) == 1 and hits[0]["version"] == "1.1.0" and hits[0]["installed"] is None and hits[0]["kind"] == "rules"
+          and hits[0]["trust"] == "content", "GET /api/marketplace/rule-packs finds no-npm-install 1.1.0, not installed")
+    one = api("GET", f"/marketplace/rule-packs/{RP}?project={pid}", timeout=120)
+    rules_ = {r["id"]: r for r in one["rules"]}
+    check(one["yaml"] == rp_yaml("1.1.0") and one["fetch_error"] is None and set(rules_) == {"no-install", "no-lockfile"},
+          "its page: the verified file as published, and keel's reading of its two rules")
+    check("claude" in rules_["no-install"]["enforced"]["before"] and rules_["no-install"]["enforced"]["after"] is False
+          and rules_["no-lockfile"]["enforced"]["after"] is True
+          and any(b["who"] == "diff-guard" for b in rules_["no-lockfile"]["enforced"]["by"]),
+          "who enforces it: bash before the action (the hook, the ToolBox), edit also after the step (the diff guard)")
+    code, before = guard("npm install left-pad")
+    check(f"(rule {RP}/" not in before, f"before the install keel's guard does not know the pack (exit {code})")
+    res = api("POST", f"/projects/{pid}/rule-packs/market/install", {"name": RP, "version": "1.0.0"}, timeout=120)
+    check(res["pack"]["source"] == "marketplace" and res["market"]["version"] == "1.0.0" and res["market"]["catalog"] == SOURCE_ID,
+          "installed 1.0.0 into the project through the rules api (no restart)")
+    listed = {p["name"]: p for p in api("GET", f"/projects/{pid}/rule-packs")}
+    check(listed.get(RP, {}).get("source") == "marketplace" and listed[RP]["version"] == "1.0.0",
+          "the rules api lists it: source marketplace, 1.0.0 (.keel/rules/.installed.json)")
+    view = api("GET", f"/projects/{pid}/rules")
+    check(any(p["id"] == RP and p["source"] == "marketplace" for p in view["packs"]),
+          "Build › Rules shows it, \"from the marketplace\"")
+    code, why = guard("npm install left-pad")
+    check(code == 2 and "[keel guard]" in why and f"(rule {RP}/no-install)" in why,
+          f"keel's guard refuses a matching bash call: {why[:90]}")
+    code, _ = guard("ls -la")
+    check(code == 0, "and lets another command through")
+    hit = api("GET", f"/marketplace/rule-packs?q=npm&project={pid}")["rules"][0]
+    check(hit["installed"] == {"version": "1.0.0", "edited": False, "source": "marketplace"} and hit["update"] == "1.1.0",
+          "the marketplace says: installed here 1.0.0, update 1.1.0")
+    code, again = call("POST", f"/projects/{pid}/rule-packs/market/install", {"name": RP, "version": "1.0.0"}, timeout=120)
+    check(code == 409 and "installed already" in again["error"], "the same version again: the rules api's 409")
+    code, upd = call("POST", f"/projects/{pid}/rule-packs/market/install", {"name": RP}, timeout=120)
+    check(code == 409 and "(replace)" in upd["error"], "another version without replace: the rules api's 409")
+    res = api("POST", f"/projects/{pid}/rule-packs/market/install", {"name": RP, "replace": True}, timeout=120)
+    listed = {p["name"]: p for p in api("GET", f"/projects/{pid}/rule-packs")}
+    check(res["market"]["version"] == "1.1.0" and listed[RP]["version"] == "1.1.0" and listed[RP]["source"] == "marketplace",
+          "update with replace: 1.1.0, still from the marketplace")
+    if web:
+        rules_web(out)
+    api("POST", f"/projects/{pid}/rule-packs/uninstall", {"name": RP})
+    check(RP not in {p["name"] for p in api("GET", f"/projects/{pid}/rule-packs")}, "uninstalled through the rules api")
+    code, why = guard("npm install left-pad")
+    check(f"(rule {RP}/" not in why, "keel's guard no longer applies the pack")
+    sig = cat.files / f"{RP}-1.1.0.yaml.minisig"
+    good = sig.read_text()
+    bad = cat.tmp / "bad-rules"
+    bad.mkdir(exist_ok=True)
+    shutil.copy(cat.files / f"{RP}-1.1.0.yaml", bad / f"{RP}-1.1.0.yaml")
+    kp("sign", str(bad / f"{RP}-1.1.0.yaml"), "--key-file", str(cat.keys / "other.key"))
+    sig.write_text((bad / f"{RP}-1.1.0.yaml.minisig").read_text())
+    page = api("GET", f"/marketplace/rule-packs/{RP}?project={pid}", timeout=120)
+    check(page["yaml"] is None and "signature" in (page["fetch_error"] or {}).get("error", ""),
+          "a bad signature: the pack's page says why and shows no rules")
+    code, res = call("POST", f"/projects/{pid}/rule-packs/market/install", {"name": RP}, timeout=120)
+    check(code == 502 and "signature" in res["error"], f"and install is refused ({res['error'][:70]})")
+    check(RP not in {p["name"] for p in api("GET", f"/projects/{pid}/rule-packs")}, "and nothing was installed")
+    sig.write_text(good)
+
+
+def rules_web(out: Path) -> None:
+    print("   the web: Marketplace › Rules and the pack's page (headless Chromium)")
+    cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "rules-web.mjs"), f"http://127.0.0.1:{PORT}", str(out),
+           RP, RP_TITLE]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    line = next((x for x in reversed(r.stdout.splitlines()) if x.startswith("{")), "")
+    if not line:
+        raise AssertionError(f"rules-web.mjs gave no answer ({r.returncode}): {(r.stderr or r.stdout)[-2000:]}")
+    res = json.loads(line)
+    for c in res["checks"]:
+        check(c["ok"], c["what"] + (f" — {c['detail']}" if not c["ok"] else ""))
+    check(not res["console"], "no console errors" + (f": {res['console'][:3]}" if res["console"] else ""))
+
+
 def needs_plugins(pid: str) -> None:
     print("2. needs_plugins: a workflow that needs hello, while hello is not loaded")
     yaml = ("name: needs hello\nkeel_rules: false\nneeds_plugins: [hello]\nsteps:\n"
@@ -625,7 +846,11 @@ def main() -> int:
     ap.add_argument("--no-web", action="store_true", help="skip the web checks (no Node)")
     ap.add_argument("--keel-plugin", default="", help="the keel-plugin command (default: uv run --project tools/keel-plugin keel-plugin)")
     ap.add_argument("--wait", type=float, default=30, help="minutes to wait when keel-mkt exists already (default 30)")
+    ap.add_argument("--only", choices=["rules"], help="after the catalog's setup, only this round (rules: the rule packs)")
+    ap.add_argument("--shots", default="", help="a folder for the rules round's screenshots (default: a temp folder)")
     a = ap.parse_args()
+    if NAME in ("keel-v2", "keel-plugins", "keel-parity-a", "keel-parity-b") or PORT in (8088, 8188, 8390):
+        raise SystemExit(f"{NAME} on {PORT} is a person's keel (or its catalog): the e2e never uses it")
     sys.stdout.reconfigure(line_buffering=True)
     KP[:] = shlex.split(a.keel_plugin) if a.keel_plugin else \
         ["uv", "run", "--quiet", "--project", str(ROOT / "tools" / "keel-plugin"), "keel-plugin"]
@@ -639,6 +864,13 @@ def main() -> int:
         print(f"the catalog: {tmp / 'catalog'} on {cat.base}; starting {NAME} from {a.image}")
         start(a.image, tmp / "ws")
         pid = setup(cat)
+        shots = Path(a.shots) if a.shots else tmp / "web"
+        if a.only == "rules":
+            rule_packs(pid, cat, not a.no_web, shots)
+            print(f"\nPASSED: {len(CHECKS)} checks ({(time.time() - started) / 60:.1f} min)")
+            return 0
+        workflows(pid, cat)
+        rule_packs(pid, cat, not a.no_web, shots)
         needs_plugins(pid)
         search()
         install(pid, cat)

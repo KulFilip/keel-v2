@@ -27,7 +27,7 @@ if [ "$1" = api ]; then
 elif [ "$1 $2" = "release download" ]; then
   tag="$3"; repo="${5#*/}"; dir="$7"
   src="$PB_GH_DIR/$repo/$tag"
-  ls "$src"/*.kplug > /dev/null 2>&1 || { echo "no assets match the file pattern" >&2; exit 1; }
+  [ -n "$(ls "$src"/*.kplug "$src"/*.yaml 2> /dev/null || true)" ] || { echo "no assets match the file pattern" >&2; exit 1; }
   cp "$src"/* "$dir"/
 else
   exit 3
@@ -99,3 +99,31 @@ def test_latest_and_a_bad_name(world):
     assert r.returncode == 1 and "is not a plugin name" in r.stderr
     r = fetch(market, env, "out", "nope")
     assert r.returncode == 1 and "there is no plugins/nope.yml" in r.stderr
+
+
+def test_a_workflows_releases_are_fetched_and_indexed(world, run, monkeypatch, tmp_path):
+    """workflows/release-notes.yml (the example entry): its releases tagged release-notes-v<version> in its repo."""
+    market, env = world
+    keel_line = (market / "publishers/keel.yml").read_text().split("keys: [")[1].split("]")[0]
+    gh_dir = tmp_path / "gh"
+    key = minisign.SecretKey.generate()
+    pub = market / "publishers/keel.yml"
+    pub.write_text(pub.read_text().replace(keel_line, key.public().line()))
+    text = "name: Release notes\nkeel_rules: false\nsteps:\n  - { id: g, kind: gate, name: look }\n"
+    f = write(gh_dir / "keel-workflows/release-notes-v1.0.0/release-notes-1.0.0.yaml", text)
+    f.with_name(f.name + ".minisig").write_text(minisign.sign(f.read_bytes(), key, f.name))
+    write(gh_dir / "keel-workflows.json", json.dumps([
+        {"tag_name": "release-notes-v1.0.0", "draft": False, "published_at": "2026-10-15T09:00:00Z"},
+        {"tag_name": "other-v9.0.0", "draft": False, "published_at": "2026-10-15T09:00:00Z"}]))
+    r = fetch(market, env, "releases", "release-notes")
+    assert r.returncode == 0, r.stderr
+    assert "release-notes release-notes-v1.0.0: release-notes-1.0.0.yaml" in r.stdout
+    assert not (market / "releases/release-notes/other-v9.0.0").exists()          # another workflow's tag
+    side = json.loads((market / "releases/release-notes/release-notes-v1.0.0/release-notes-1.0.0.yaml.json").read_text())
+    assert side["url"] == ("https://github.com/keel-studio/keel-workflows/releases/download/release-notes-v1.0.0/"
+                           "release-notes-1.0.0.yaml") and side["released"] == "2026-10-15"
+    code, out, _ = run("index", market, "--releases", market / "releases", "--no-sign", "--out", market / "site/v1")
+    assert code == 0, out
+    (w,) = json.loads((market / "site/v1/index.json").read_text())["workflows"]
+    assert w["name"] == "release-notes" and w["versions"][0]["review"]["gates"] == 1
+    assert w["versions"][0]["requires"] == {"keel": ">=0.16.1"}

@@ -146,7 +146,19 @@ data class Workflow(
      */
     @get:JsonInclude(JsonInclude.Include.NON_EMPTY)
     val needsPlugins: List<String>? = null,
+    /**
+     * The plugin track's workflow marketplace (docs/plugins/21-workflow-marketplace.md): where a workflow installed from a
+     * catalog came from, and a newer version that fits. Only such a workflow shows the key (every other answer stays as
+     * it was).
+     */
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val market: MarketOrigin? = null,
 )
+
+/** A marketplace workflow's catalog, name and version; update: a newer version that fits this keel, or null. */
+@JsonInclude(JsonInclude.Include.ALWAYS)
+@JsonPropertyOrder("catalog", "name", "version", "update")
+data class MarketOrigin(val catalog: String, val name: String, val version: String, val update: String? = null)
 
 /** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */
 data class LastRun(val threadId: String, val title: String, val status: String, val at: String)
@@ -182,7 +194,12 @@ data class InstallReview(
     val valid: Boolean,
     val errors: List<String>,
     val warnings: List<String>,
+    /** 0.17.4: each error at its line of the YAML (the editor marks it); `errors` keeps the same texts as before. */
+    val lines: List<LineError> = emptyList(),
 )
+
+/** An error of a workflow YAML at its 1-based line (the engine's /workflows/validate `lines`). */
+data class LineError(val line: Int, val message: String)
 
 /** PUT body: the Workflow type, every field optional (missing = keep). A changed `yaml` wins over the fields. */
 data class WorkflowUpdate(

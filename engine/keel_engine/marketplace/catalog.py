@@ -13,6 +13,11 @@ plugin's publisher is listed. A failing entry (a plugin or one of its versions) 
 the rest is used. Any other failure keeps the last good copy and shows the problem. An index older than the copy keel
 has is refused, so nobody can hand keel an old catalog. An expired index still searches ("the catalog is old"), but
 install and update wait until a refresh works.
+
+Kinds (docs/plugins/23-rules-in-marketplace.md §2): every list is read through one table, kinds.TABLE: `plugins`
+(.kplug, 200 MB), `workflows` (one signed workflow YAML each, at most 256 KB) and `rules` (one signed rule pack YAML
+each, at most 64 KB). Every entry may say its `kind` (`plugin` when it does not); a `revoked` entry too. An index
+without these lists reads as before.
 """
 
 from __future__ import annotations
@@ -30,7 +35,9 @@ from pathlib import Path
 from .. import config
 from ..addons import NAME, satisfies
 from ..pluginhost import SDK, manifest, state
-from . import MarketError, local, sources
+from . import MarketError, kinds, local, sources
+from .kinds import (Entry, Kind, RulesEntry, RulesVersion, Version, WorkflowEntry,  # noqa: F401 - their home was here
+                    WorkflowVersion)
 from .signing import PublicKey, SignatureError, verify
 
 log = logging.getLogger("keel.marketplace")
@@ -38,11 +45,18 @@ log = logging.getLogger("keel.marketplace")
 FORMAT = 1
 MAX_INDEX = 5 << 20
 MAX_SIG = 64 << 10
-MAX_PACKAGE = 200 << 20
+MAX_PACKAGE = kinds.PLUGIN.max_size
 TIMEOUT = 20
 FRESH = 6 * 3600
-TRUST = ("content", "web", "code")
-CATEGORIES = ("code", "knowledge", "tickets", "review", "product", "other")
+TRUST = kinds.TRUST
+CATEGORIES = kinds.PLUGIN.categories
+WORKFLOW_CATEGORIES = kinds.WORKFLOW.categories
+RULES_CATEGORIES = kinds.RULES.categories
+KINDS = kinds.NAMES
+MAX_WORKFLOW = kinds.WORKFLOW.max_size
+MAX_RULES = kinds.RULES.max_size
+RESERVED = kinds.RESERVED     # /api/marketplace/<these> are keel's routes, never a plugin's page
+AGENT = kinds.AGENT
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 CHUNK = 1 << 16
 
@@ -96,48 +110,6 @@ def download(url: str, *, limit: int, to: Path | None = None, timeout: float = T
 # ------------------------------------------------------------------ the index
 
 @dataclass
-class Version:
-    version: str
-    released: str
-    sdk: int
-    keel: str
-    plugins: dict[str, str]
-    url: str
-    sha256: str
-    size: int
-    permissions: dict
-
-    def requires(self) -> dict:
-        out: dict = {"sdk": self.sdk}
-        if self.keel:
-            out["keel"] = self.keel
-        if self.plugins:
-            out["plugins"] = dict(self.plugins)
-        return out
-
-    def view(self) -> dict:
-        return {"version": self.version, "released": self.released, "requires": self.requires(), "url": self.url,
-                "sha256": self.sha256, "size": self.size, "permissions": self.permissions}
-
-
-@dataclass
-class Entry:
-    name: str
-    title: str
-    publisher: str
-    category: str
-    summary: str
-    tags: list[str]
-    repo: str
-    trust: str
-    versions: list[Version]       # newest first
-    source: str
-
-    def version(self, v: str) -> Version | None:
-        return next((x for x in self.versions if x.version == v), None)
-
-
-@dataclass
 class Publisher:
     title: str
     keys: list[PublicKey]
@@ -151,14 +123,20 @@ class Index:
     expires: str
     publishers: dict[str, Publisher]
     plugins: dict[str, Entry]
-    revoked: dict[tuple[str, str], str] = field(default_factory=dict)   # (name, version) → why
+    revoked: dict[tuple[str, str, str], str] = field(default_factory=dict)   # (kind, name, version) → why
     problems: list[str] = field(default_factory=list)
+    workflows: dict[str, WorkflowEntry] = field(default_factory=dict)
+    rules: dict[str, RulesEntry] = field(default_factory=dict)
 
     def expired(self) -> bool:
         return _when(self.expires) <= datetime.now(timezone.utc)
 
-    def why_revoked(self, name: str, version: str) -> str | None:
-        return self.revoked.get((name, version))
+    def why_revoked(self, name: str, version: str, kind: str = "plugin") -> str | None:
+        return self.revoked.get((kind, name, version))
+
+    def entries(self, kind: str) -> dict:
+        """One kind's entries by name (kinds.TABLE: plugin, workflow, rules)."""
+        return getattr(self, kinds.BY_NAME[kind].list)
 
 
 def _when(text) -> datetime:
@@ -172,13 +150,15 @@ def _text(v, default: str = "") -> str:
     return v.strip() if isinstance(v, str) and v.strip() else default
 
 
-def _version(name: str, raw) -> Version:
+def _version(kind: Kind, name: str, raw):
+    """One version of an entry, checked: the checks every kind shares, then the kind's own (kinds.py)."""
+    head = f"{kind.label}{name}: " if kind.label else ""
     if not isinstance(raw, dict):
-        raise ValueError("a version is not an object")
+        raise ValueError(f"{head}a version is not an object")
     v = raw.get("version")
     if not isinstance(v, str) or not manifest.VERSION.match(v):
-        raise ValueError(f"version {v!r} is not a version like 1.0.0 or 0.1.0-beta.1")
-    where = f"{name} {v}"
+        raise ValueError(f"{head}version {v!r} is not a version like 1.0.0 or 0.1.0-beta.1")
+    where = f"{kind.label}{name} {v}"
     sha = raw.get("sha256")
     if not isinstance(sha, str) or not SHA256.match(sha):
         raise ValueError(f"{where}: sha256 is not 64 hex digits")
@@ -187,14 +167,12 @@ def _version(name: str, raw) -> Version:
     if why:
         raise ValueError(f"{where}: {why}")
     size = raw.get("size")
-    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_PACKAGE:
-        raise ValueError(f"{where}: size must be a number of bytes up to {MAX_PACKAGE:,}")
+    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= kind.max_size:
+        raise ValueError(f"{where}: size must be a number of bytes up to {kind.max_size:,}")
     req = raw.get("requires") or {}
     if not isinstance(req, dict):
         raise ValueError(f"{where}: requires is not an object")
-    sdk = req.get("sdk", 1)
-    if isinstance(sdk, bool) or not isinstance(sdk, int):
-        raise ValueError(f"{where}: requires.sdk is not a whole number")
+    own = kind.check_requires(req, where)
     keel = req.get("keel") or ""
     if not isinstance(keel, str) or not manifest.valid_spec(keel):
         raise ValueError(f"{where}: requires.keel {keel!r} is not a version range")
@@ -207,39 +185,44 @@ def _version(name: str, raw) -> Version:
         if not isinstance(dep, str) or not NAME.match(dep) or not isinstance(spec, str) or not manifest.valid_spec(spec):
             raise ValueError(f"{where}: requires.plugins.{dep} is not a plugin name with a version range")
         plugins[dep] = spec.strip()
-    perms = raw.get("permissions") or {}
-    if not isinstance(perms, dict):
-        raise ValueError(f"{where}: permissions is not an object")
-    return Version(v, _text(raw.get("released")), sdk, keel.strip(), plugins, url.strip(), sha, size, perms)
+    own.update(kind.check_version(raw, req, where))
+    return kind.version_type(version=v, released=_text(raw.get("released")), keel=keel.strip(), plugins=plugins,
+                             url=url.strip(), sha256=sha, size=size, **own)
 
 
-def _entry(raw, publishers: dict[str, Publisher], source: str, problems: list[str]) -> Entry:
+def _entry(kind: Kind, raw, publishers: dict[str, Publisher], source: str, problems: list[str]):
+    """One entry of a kind's list, checked; a version that fails is left out and listed in problems."""
     if not isinstance(raw, dict):
-        raise ValueError("a plugin is not an object")
+        raise ValueError(f"a {kind.noun} is not an object")
+    kind.precheck(raw)
     name = raw.get("name")
-    if not isinstance(name, str) or not NAME.match(name):
-        raise ValueError(f"plugin name {name!r} does not follow keel's name rule")
+    if not isinstance(name, str) or not kind.name_rule.match(name):
+        raise ValueError(f"{kind.noun} name {name!r} does not follow keel's name rule")
+    kind.check_name(raw, name)
     pub = raw.get("publisher")
     if pub not in publishers:
-        raise ValueError(f"{name}: its publisher {pub!r} is not listed")
+        raise ValueError(f"{kind.label}{name}: its publisher {pub!r} is not listed")
     if not publishers[pub].keys:
-        raise ValueError(f"{name}: its publisher {pub} has no valid key")
-    trust = raw.get("trust")
-    if trust not in TRUST:
-        raise ValueError(f"{name}: trust {trust!r} is not content, web or code")
-    versions: list[Version] = []
+        raise ValueError(f"{kind.label}{name}: its publisher {pub} has no valid key")
+    own = kind.check_entry(raw, name)
+    versions = []
     for item in raw.get("versions") or []:
         try:
-            versions.append(_version(name, item))
+            versions.append(_version(kind, name, item))
         except ValueError as exc:
             problems.append(f"left out: {exc}")
     if not versions:
-        raise ValueError(f"{name}: it has no valid version")
+        raise ValueError(f"{kind.label}{name}: it has no valid version")
     versions.sort(key=lambda x: version_order(x.version), reverse=True)
-    category = raw.get("category") if raw.get("category") in CATEGORIES else "other"
+    category = raw.get("category") if raw.get("category") in kind.categories else "other"
     tags = [t.strip() for t in raw.get("tags") or [] if isinstance(t, str) and t.strip()]
-    return Entry(name, _text(raw.get("title"), name), pub, category, _text(raw.get("summary")), tags,
-                 _text(raw.get("repo")), trust, versions, source)
+    return kind.entry_type(name=name, title=_text(raw.get("title"), name), publisher=pub, category=category,
+                           summary=_text(raw.get("summary")), tags=tags, repo=_text(raw.get("repo")),
+                           versions=versions, source=source, **own)
+
+
+def _list(data: dict, key: str) -> list:
+    return data.get(key) if isinstance(data.get(key), list) else []
 
 
 def _publishers(raw, problems: list[str]) -> dict[str, Publisher]:
@@ -273,22 +256,26 @@ def parse_index(data, source: str) -> Index:
         raise MarketError(502, "The catalog has no valid built and expires dates.") from None
     problems: list[str] = []
     publishers = _publishers(data.get("publishers"), problems)
-    plugins: dict[str, Entry] = {}
-    for raw in data.get("plugins") or [] if isinstance(data.get("plugins"), list) else []:
-        try:
-            e = _entry(raw, publishers, source, problems)
-        except ValueError as exc:
-            problems.append(f"left out: {exc}")
-            continue
-        if e.name in plugins:
-            problems.append(f"left out: {e.name} is listed twice")
-            continue
-        plugins[e.name] = e
-    revoked: dict[tuple[str, str], str] = {}
-    for r in data.get("revoked") or [] if isinstance(data.get("revoked"), list) else []:
+    lists: dict[str, dict] = {}
+    for kind in kinds.TABLE:
+        found: dict = {}
+        for raw in _list(data, kind.list):
+            try:
+                e = _entry(kind, raw, publishers, source, problems)
+            except ValueError as exc:
+                problems.append(f"left out: {exc}")
+                continue
+            if e.name in found:
+                problems.append(f"left out: {kind.label}{e.name} is listed twice")
+                continue
+            found[e.name] = e
+        lists[kind.list] = found
+    revoked: dict[tuple[str, str, str], str] = {}
+    for r in _list(data, "revoked"):
         if isinstance(r, dict) and isinstance(r.get("name"), str) and isinstance(r.get("version"), str):
-            revoked[(r["name"], r["version"])] = _text(r.get("why"), "revoked by the catalog")
-    return Index(source, data["built"], data["expires"], publishers, plugins, revoked, problems)
+            kind = r.get("kind") if r.get("kind") in KINDS else "plugin"
+            revoked[(kind, r["name"], r["version"])] = _text(r.get("why"), "revoked by the catalog")
+    return Index(source, data["built"], data["expires"], publishers, revoked=revoked, problems=problems, **lists)
 
 
 # ------------------------------------------------------------------ the copies on disk
@@ -424,7 +411,8 @@ def status(src: dict) -> dict:
             "on": src["on"], "ok": index is not None and m.get("ok", True) is not False and not problem,
             "problem": problem, "old": bool(index and index.expired()), "fetched_at": m.get("fetched_at"),
             "built": index.built if index else None, "expires": index.expires if index else None,
-            "plugins": len(index.plugins) if index else 0, "problems": list(index.problems) if index else []}
+            "plugins": len(index.plugins) if index else 0, "problems": list(index.problems) if index else [],
+            "workflows": len(index.workflows) if index else 0}
 
 
 def statuses() -> list[dict]:
@@ -515,27 +503,44 @@ def hit(index: Index, entry: Entry, have: dict) -> dict:
     }
 
 
-def _matches(entry: Entry, words: list[str]) -> bool:
+def _matches(entry: Entry | WorkflowEntry | RulesEntry, words: list[str]) -> bool:
     text = " ".join([entry.name, entry.title, entry.summary, *entry.tags]).lower()
     return all(w in text for w in words)
 
 
-def search(q: str = "", category: str | None = None) -> dict:
-    """Every plugin of the usable catalogs whose name, title, summary or tags hold each word of q (and that has this
-    category). A name listed by two sources comes from the first. {"plugins": [hit], "sources": [status]}."""
+def matching(kind: str, q: str = "", category: str | None = None) -> list[tuple[Index, Entry | WorkflowEntry | RulesEntry]]:
+    """The entries of one kind (plugin, workflow or rules) whose name, title, summary or tags hold each word of q (and that
+    have this category), in the sources' order; a name two sources list comes from the first. One search for every
+    kind (21-workflow-marketplace.md §2)."""
     words = [w for w in (q or "").lower().split() if w]
-    have = local.have()
     seen: set[str] = set()
-    hits = []
+    out: list = []
     for index in indexes():
-        for entry in index.plugins.values():
+        for entry in index.entries(kind).values():
             if entry.name in seen:
                 continue
             seen.add(entry.name)
             if category and entry.category != category:
                 continue
             if _matches(entry, words):
-                hits.append(hit(index, entry, have))
+                out.append((index, entry))
+    return out
+
+
+def lookup_kind(kind: str, name: str) -> tuple[Index, Entry | WorkflowEntry | RulesEntry] | None:
+    """The first source that lists this name in this kind's list."""
+    for index in indexes():
+        found = index.entries(kind).get(name)
+        if found:
+            return index, found
+    return None
+
+
+def search(q: str = "", category: str | None = None) -> dict:
+    """Every plugin of the usable catalogs whose name, title, summary or tags hold each word of q (and that has this
+    category). A name listed by two sources comes from the first. {"plugins": [hit], "sources": [status]}."""
+    have = local.have()
+    hits = [hit(index, entry, have) for index, entry in matching("plugin", q, category)]
     exact = (q or "").strip().lower()
     hits.sort(key=lambda h: (h["name"] != exact, h["title"].lower(), h["name"]))
     return {"plugins": hits, "sources": statuses(), "categories": list(CATEGORIES)}

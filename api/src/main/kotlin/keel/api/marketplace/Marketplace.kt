@@ -32,6 +32,33 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
 
     fun plugin(name: String): JsonNode = pass { engine.get("/marketplace/plugins/${checkName(name)}") }
 
+    // ---- workflows (docs/plugins/21-workflow-marketplace.md): the engine reads the catalogs; the api installs
+
+    fun workflows(q: String?, category: String?): JsonNode = pass {
+        engine.get("/marketplace/workflows?q={q}&category={category}", mapOf("q" to q?.trim().orEmpty(), "category" to category?.trim().orEmpty()))
+    }
+
+    fun workflow(name: String): JsonNode = pass { engine.get("/marketplace/workflows/${checkName(name, "workflow")}") }
+
+    /** The verified YAML of one version (the newest that fits without [version]): it waits for the download and checks. */
+    fun fetchWorkflow(name: String, version: String?): JsonNode =
+        pass { engine.post("/marketplace/workflows/${checkName(name, "workflow")}/fetch", versionBody(version), long = true) }
+
+    // ---- rule packs (docs/plugins/23-rules-in-marketplace.md): the engine reads the catalogs; the rules api installs
+
+    fun rulePacks(q: String?, category: String?): JsonNode = pass {
+        engine.get("/marketplace/rule-packs?q={q}&category={category}", mapOf("q" to q?.trim().orEmpty(), "category" to category?.trim().orEmpty()))
+    }
+
+    fun rulePack(name: String): JsonNode = pass { engine.get("/marketplace/rule-packs/${checkPackName(name)}") }
+
+    /** The verified pack file of one version (the newest that fits without [version]), exactly as published. */
+    fun fetchRulePack(name: String, version: String?): JsonNode =
+        pass { engine.post("/marketplace/rule-packs/${checkPackName(name)}/fetch", versionBody(version), long = true) }
+
+    /** keel's own reading of a pack (the rules work's parser): each rule with who enforces it. */
+    fun readRulePack(yaml: String): JsonNode = pass { engine.post("/rules/read", mapOf("yaml" to yaml)) }
+
     /** [source]: read only that catalog. */
     fun refresh(source: String? = null): JsonNode = pass {
         val id = source?.trim()?.ifBlank { null }
@@ -129,12 +156,21 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
     }
 
     companion object {
+        /** A rule pack's name (docs/rules/pack-format.md): a-z, 0-9 and '-', 64 at most. */
+        val PACK_NAME = Regex("^[a-z0-9][a-z0-9-]{0,63}$")
+
+        fun checkPackName(name: String): String {
+            val n = name.trim()
+            if (!PACK_NAME.matches(n)) throw BadRequest("$n is not a rule pack name", "A rule pack's name is a-z, 0-9 and '-', 64 at most.")
+            return n
+        }
+
         private val SOURCE_ID = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
         /** A plugin's name (keel's plugin name rule); anything else never reaches the engine. */
-        fun checkName(name: String): String {
+        fun checkName(name: String, kind: String = "plugin"): String {
             val n = name.trim()
-            if (!PluginHost.NAME.matches(n)) throw BadRequest("$n is not a plugin name", "A plugin's name is a-z, 0-9 and '-', 32 at most.")
+            if (!PluginHost.NAME.matches(n)) throw BadRequest("$n is not a $kind name", "A $kind's name is a-z, 0-9 and '-', 32 at most.")
             return n
         }
     }

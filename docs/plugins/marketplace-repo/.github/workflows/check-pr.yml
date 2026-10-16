@@ -3,7 +3,9 @@
 # Then it says what keel will do with each plugin (its trust level and whether its publisher is verified), and warns
 # when the pull request makes a publisher verified or changes an existing publisher's keys: a maintainer decides that,
 # after the review in keel's docs/plugins/17-publish-your-plugin.md. tools/keel-plugin/tests/test_check_pr.py runs
-# these steps with a stand-in gh and uvx.
+# these steps with a stand-in gh and uvx. A new or changed workflow (workflows/<name>.yml, or a file kept in
+# workflows/<name>/) gets the same: its newest file passes `keel-plugin workflow lint` and carries its publisher's
+# signature, and its Install review is printed for the maintainer.
 name: check-pr
 on:
   pull_request:
@@ -44,6 +46,43 @@ jobs:
           uvx --from "$KEEL_PLUGIN" keel-plugin lint releases/*/*/*.kplug
           uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases --only "$(paste -sd, - <<< "$names")" \
             --no-sign --out checked --strict
+      - name: Lint and check each new or changed workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          names="$(git diff --name-only --diff-filter=AM "$BASE" HEAD -- 'workflows/*.yml' 'workflows/*/*.yaml' |
+            awk -F/ '{ n = $2; sub(/\.yml$/, "", n); print n }' | sort -u)"
+          if [ -z "$names" ]; then echo "no new or changed workflow"; exit 0; fi
+          # shellcheck disable=SC2086 # one workflow name per word (checked by the first step)
+          bash .github/fetch-releases.sh releases-wf --latest $names
+          missing=0
+          for n in $names; do
+            files="$(ls releases-wf/"$n"/*/*.yaml workflows/"$n"/*.yaml 2> /dev/null || true)"
+            if [ -z "$files" ]; then
+              echo "::error::workflow $n has no file yet: a release with $n-<version>.yaml (+ .minisig), or workflows/$n/<version>.yaml here"
+              missing=1
+              continue
+            fi
+            for f in $files; do
+              case "$f" in
+                workflows/*) uvx --from "$KEEL_PLUGIN" keel-plugin workflow lint "$f" --name "$n" --version "$(basename "$f" .yaml)" ;;
+                *) uvx --from "$KEEL_PLUGIN" keel-plugin workflow lint "$f" ;;
+              esac
+            done
+          done
+          [ "$missing" = 0 ]
+          mkdir -p releases-wf
+          uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases-wf --only "$(paste -sd, - <<< "$names")" \
+            --no-sign --out checked-wf --strict --files-url "https://keel-studio.github.io/keel-marketplace"
+          # what people will see before they install it (keel computes it again at install, and must find the same)
+          jq -r '.workflows[] | .name as $n | .versions[0] | [$n, .version, (.review.steps | tostring),
+              (.review.gates | tostring), (.review.agents | join(", ")), (.review.commands | length | tostring),
+              (.review.edits_files | tostring)] | @tsv' checked-wf/index.json |
+            while IFS=$'\t' read -r name version steps gates agents commands edits; do
+              echo "::notice::workflow $name $version: $steps steps, $gates gates, agents: ${agents:-none}, runs $commands command(s), changes files: $edits"
+            done
       - name: What keel will do with each plugin
         run: |
           set -euo pipefail

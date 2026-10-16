@@ -95,7 +95,9 @@ def test_the_index_has_format_1_and_is_signed_by_the_catalog_key(built, keys, ru
     code, _, _ = run("verify", index_file, "--pub", keys.catalog.public().line())
     assert code == 0
     index = json.loads(index_file.read_text())
-    assert list(index) == ["format", "built", "expires", "publishers", "plugins", "revoked"]
+    # workflows and the reserved rules come after 0.16's keys (21-workflow-marketplace.md §2: older keels ignore them)
+    assert list(index) == ["format", "built", "expires", "publishers", "plugins", "revoked", "workflows", "rules"]
+    assert index["workflows"] == [] and index["rules"] == []
     assert index["format"] == 1
     built_at = dt.datetime.strptime(index["built"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.UTC)
     assert dt.datetime.strptime(index["expires"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.UTC) - built_at == dt.timedelta(days=14)

@@ -67,6 +67,87 @@ class StubMarket {
         refusals.clear()
         more.clear()
         live.clear()
+        workflowNewest.clear()
+    }
+
+    // ---------- workflows (docs/plugins/21-workflow-marketplace.md §9)
+
+    /** A workflow YAML of the stub catalog: one agent step and a gate (a run: step when [command] is given). */
+    fun workflowYaml(title: String, version: String, agent: String = "explorer", command: String? = null) = buildString {
+        append("name: $title\nkeel_rules: false\nsteps:\n")
+        append("  - { id: look, kind: agent, name: look around ($version), agent: $agent, model: default }\n")
+        if (command != null) append("  - { id: run, kind: code, name: run it, action: \"run:$command\" }\n")
+        append("  - { id: check, kind: gate, name: check it, back: look }\n")
+    }
+
+    private fun review(agent: String = "explorer", steps: Int = 2, commands: List<String> = emptyList(), edits: Boolean = false) = mapOf(
+        "steps" to steps, "gates" to 1, "agents" to listOf(agent), "mcp" to emptyList<String>(), "commands" to commands,
+        "edits_files" to edits, "keel_rules" to false)
+
+    /** name → (title, category, versions newest first: version → (yaml, catalog review, requires)). */
+    private val workflowCatalog: Map<String, Triple<String, String, List<Triple<String, String, Pair<Map<String, Any?>, Map<String, Any?>>>>>> = mapOf(
+        "release-notes" to Triple("Release notes", "docs", listOf("1.3.0", "1.2.0").map { v ->
+            Triple(v, workflowYaml("Release notes", v), review() to mapOf<String, Any?>()) }),
+        "needs-db" to Triple("Needs a database", "code", listOf(Triple("1.0.0", workflowYaml("Needs a database", "1.0.0"),
+            review() to mapOf<String, Any?>("plugins" to mapOf("db" to ">=1.0.0"))))),
+        "needs-agent" to Triple("Needs an agent", "docs", listOf(Triple("1.0.0", workflowYaml("Needs an agent", "1.0.0", agent = "release-writer"),
+            review(agent = "release-writer") to mapOf<String, Any?>("agents" to listOf("release-writer"))))),
+        "liar" to Triple("Says less than it does", "ops", listOf(Triple("1.0.0", workflowYaml("Says less", "1.0.0", command = "rm -rf build"),
+            review(steps = 3) to mapOf<String, Any?>()))),
+        "runs-tests" to Triple("Runs the tests", "quality", listOf(Triple("2.0.0", workflowYaml("Runs the tests", "2.0.0", command = "make test"),
+            review(steps = 3, commands = listOf("make test"), edits = true) to mapOf<String, Any?>()))),
+        "old-one" to Triple("An old one", "other", listOf(Triple("0.1.0", workflowYaml("An old one", "0.1.0"), review() to mapOf<String, Any?>()))),
+    )
+
+    /** name → the version the stub catalog offers as the newest that fits (a test lowers it, as if 1.3.0 were not out yet). */
+    val workflowNewest = ConcurrentHashMap<String, String>()
+
+    private fun workflowVersions(name: String) = workflowCatalog.getValue(name).third.filter { (v, _, _) ->
+        workflowNewest[name] == null || v == workflowNewest[name] || !keel.api.workflows.MarketVersions.newer(v, workflowNewest[name]!!) }
+
+    private fun workflowHit(name: String): Map<String, Any?> {
+        val (title, category, _) = workflowCatalog.getValue(name)
+        val (v, _, rr) = workflowVersions(name).first()
+        val missing = if (name == "needs-db") listOf("db") else emptyList()
+        val refused = if (name == "old-one") mapOf("error" to "The catalog keel is old: it expired at 2026-01-01T00:00:00Z.", "hint" to "Refresh it.") else null
+        return mapOf("name" to name, "kind" to "workflow", "title" to title, "publisher" to "keel", "publisher_title" to "keel", "verified" to true,
+            "version" to v, "summary" to "The $name workflow.", "category" to category, "tags" to listOf(name), "review" to rr.first,
+            "needs" to mapOf("plugins" to (rr.second["plugins"] ?: emptyMap<String, String>()), "agents" to (rr.second["agents"] ?: emptyList<String>())),
+            "fits" to missing.isEmpty(), "refused" to refused, "source" to "keel", "repo" to "https://github.com/keel-studio/keel-workflows",
+            "latest" to v, "old" to (name == "old-one"), "why_not" to null, "missing_plugins" to missing, "trust" to "content")
+    }
+
+    private fun workflowRoute(method: String, parts: List<String>, body: JsonNode?, q: String?): Pair<Int, Any?> {
+        if (parts.size == 1) {
+            refusals["workflows"]?.let { return it }
+            val word = query(q)["q"].orEmpty().lowercase()
+            val cat = query(q)["category"].orEmpty()
+            val hits = workflowCatalog.keys.sorted().map(::workflowHit).filter { h ->
+                (cat.isEmpty() || h["category"] == cat) && (word.isEmpty() || "${h["name"]} ${h["title"]}".lowercase().contains(word))
+            }
+            return 200 to mapOf("workflows" to hits, "sources" to sources.map { it - "key" }, "categories" to WORKFLOW_CATEGORIES)
+        }
+        val name = parts[1]
+        if (name !in workflowCatalog) return 404 to mapOf("error" to "There is no workflow $name in the catalogs keel reads.", "hint" to "Refresh the catalogs.")
+        if (parts.size == 2) {
+            val versions = workflowVersions(name).map { (v, yaml, rr) ->
+                mapOf("version" to v, "released" to "2026-10-15", "requires" to rr.second, "review" to rr.first, "url" to "https://example.test/$name-$v.yaml",
+                    "size" to yaml.length, "sha256" to "0".repeat(64), "revoked" to null, "fits" to true, "why_not" to null, "missing_plugins" to emptyList<String>())
+            }
+            return 200 to (workflowHit(name) + mapOf("versions" to versions, "checks" to listOf("the file's signature matches a key of its publisher")))
+        }
+        if (parts.size == 3 && parts[2] == "fetch" && method == "POST") {
+            refusals["fetch:$name"]?.let { return it }
+            if (name == "old-one") return 409 to mapOf("error" to "The catalog keel is old: it expired at 2026-01-01T00:00:00Z.", "hint" to "Refresh it.")
+            val want = body?.path("version")?.asText(null)
+            val (v, yaml, rr) = if (want == null) workflowVersions(name).first()
+            else workflowCatalog.getValue(name).third.firstOrNull { it.first == want }
+                ?: return 404 to mapOf("error" to "$name has no version $want in the catalog keel.")
+            return 200 to mapOf("name" to name, "version" to v, "title" to workflowCatalog.getValue(name).first, "publisher" to "keel",
+                "catalog" to "keel", "yaml" to yaml, "review" to rr.first, "requires" to rr.second, "publisher_title" to "keel", "verified" to true,
+                "sha256" to "0".repeat(64), "size" to yaml.length, "missing_plugins" to if (name == "needs-db") listOf("db") else emptyList())
+        }
+        return 404 to mapOf("error" to "no route")
     }
 
     private fun entry(name: String) = catalog.firstOrNull { it["name"] == name }
@@ -112,6 +193,7 @@ class StubMarket {
         val parts = path.removePrefix("/marketplace/").split('/')
         val sourcesStatus = sources.map { it - "key" + mapOf("ok" to true, "problem" to null, "old" to false, "plugins" to catalog.size) }
         return when {
+            parts[0] == "workflows" -> workflowRoute(method, parts, body, q)
             path == "/marketplace/search" -> {
                 val qs = query(q)
                 val word = qs["q"].orEmpty().lowercase()
@@ -230,6 +312,7 @@ class StubMarket {
 
     companion object {
         val CATEGORIES = listOf("code", "knowledge", "tickets", "review", "product", "other")
+        val WORKFLOW_CATEGORIES = listOf("code", "review", "docs", "release", "quality", "ops", "other")
         val DEVELOPER = listOf("code", "git", "review", "db", "ci", "graph", "keelbot")
         val DEFAULT_RULES = mapOf("agents_may_ask" to true, "allow_unverified" to false, "check_daily" to true, "restart_when_idle" to false)
         val OFFICIAL = mapOf("id" to "keel", "title" to "keel marketplace", "url" to "https://keel-studio.github.io/keel-marketplace/v1/index.json",

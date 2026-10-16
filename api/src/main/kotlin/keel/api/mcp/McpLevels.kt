@@ -148,7 +148,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             "POST" to Regex("^/api/projects/[^/]+/rules/packs$"),
             "PUT" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
             "DELETE" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
-            "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall)$"),
+            "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall|market/install)$"),
         )
         /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
         private val READ_POSTS = listOf(Regex("^/api/projects/[^/]+/rules/check$"))
