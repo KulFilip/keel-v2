@@ -1,0 +1,29 @@
+ keel  v2 0.18.4 · shop · feat/paging
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Code Review  Code Review: the keys
+ ↑ ↓  j k   move
+ Enter →    open the item
+ ← Esc      back (Esc in the list leaves the mode)
+ ] [  Tab   the next / previous item, in a file
+ } {        the next / previous change
+ PgUp PgDn  a page
+ q          leave the mode
+
+ c          comment (in a file)
+ r          reply
+ x          resolve
+ v          viewed
+ e          explain
+ f          findings
+ o          overview
+ F          findings list
+ s          submit
+ p          pull requests
+ g          refresh
+
+
+
+feat/paging · feat/paging → main · +8 −1 · 1 draft(s) · 0 thread(s)
+↑↓ scroll · Esc back
+
+ shop (feat/paging) · no flow · nothing waits · ● live

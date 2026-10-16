@@ -1,0 +1,279 @@
+{
+  "commands": [
+    {
+      "name": "review",
+      "args": "[prs|branch|<pr number>]",
+      "summary": "review the branch you are on or a pull request (full screen); prs lists the open pull requests",
+      "sub": {
+        "prs": {
+          "summary": "the open pull requests",
+          "call": {
+            "path": "/projects/{pid}/review/prs?filter=all"
+          },
+          "show": {
+            "title": "{host.path} · {prs.length} open · {counts.review} ask you",
+            "items": "prs",
+            "line": "#{number}  {title} · {author} · {branch} → {base}",
+            "empty": "{note}"
+          }
+        },
+        "branch": {
+          "summary": "the branch you are on against its base",
+          "call": {
+            "path": "/projects/{pid}/review/branch"
+          },
+          "show": {
+            "title": "{branch} → {base} · {ahead} commit(s) · {files} file(s) +{added} −{removed}",
+            "text": "{note}"
+          }
+        }
+      }
+    }
+  ],
+  "modes": [
+    {
+      "name": "review",
+      "title": "Code Review",
+      "args": "[<pr number>|<branch>]",
+      "summary": "review the branch you are on or a pull request, in keel TUI's whole screen",
+      "state": {
+        "view": {
+          "path": "/projects/{pid}/review/open?ref={arg}"
+        },
+        "ai": {
+          "path": "/projects/{pid}/review/ai?key={view.key}"
+        }
+      },
+      "status": "{view.title} · {view.branch} → {view.base} · +{view.added} −{view.removed} · {view.drafts.length} draft(s) · {view.threads.length} thread(s)",
+      "list": {
+        "title": "{view.files.length} file(s) changed",
+        "items": "view.files",
+        "line": "{status}  {path}  +{added} −{removed}",
+        "mark": {
+          "list": "view.viewed",
+          "field": "path",
+          "text": "✓ viewed"
+        },
+        "empty": "no file changed"
+      },
+      "detail": {
+        "title": "{item.path}  +{item.added} −{item.removed}",
+        "call": {
+          "path": "/projects/{pid}/review/diff?key={view.key}&path={item.path}"
+        },
+        "diff": "diff",
+        "notes": [
+          {
+            "items": "view.threads",
+            "side": "side",
+            "text": "{comments.0.author}: {comments.0.body} ({comments.length} comment(s), resolved {resolved})",
+            "tone": "accent"
+          },
+          {
+            "items": "view.drafts",
+            "side": "side",
+            "text": "draft: {body}",
+            "tone": "warn"
+          },
+          {
+            "items": "ai.findings.result.findings",
+            "side": "side",
+            "text": "keel {severity}: {title}",
+            "tone": "bad"
+          }
+        ]
+      },
+      "keys": [
+        {
+          "key": "c",
+          "label": "comment",
+          "view": "detail",
+          "ask": "Your comment on {item.path}:{line}",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/drafts",
+            "body": {
+              "key": "{view.key}",
+              "path": "{item.path}",
+              "line": "{line}",
+              "side": "{side}",
+              "body": "{text}"
+            }
+          },
+          "reload": true,
+          "done": "draft saved: it goes with your review (s submits)"
+        },
+        {
+          "key": "r",
+          "label": "reply",
+          "pick": {
+            "title": "Reply to which thread?",
+            "items": "view.threads",
+            "match": {
+              "path": "{item.path}"
+            },
+            "line": "line {line} · {comments.0.author}: {comments.0.body}"
+          },
+          "ask": "Your reply to {choice.comments.0.author} (it is posted now)",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/threads/{choice.id}/reply",
+            "body": {
+              "key": "{view.key}",
+              "body": "{text}"
+            }
+          },
+          "reload": true,
+          "done": "reply posted"
+        },
+        {
+          "key": "x",
+          "label": "resolve",
+          "pick": {
+            "title": "Resolve which thread?",
+            "items": "view.threads",
+            "match": {
+              "path": "{item.path}",
+              "resolved": "false"
+            },
+            "line": "line {line} · {comments.0.author}: {comments.0.body}"
+          },
+          "confirm": "Resolve the thread on {choice.path}:{choice.line}?",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/threads/{choice.id}/resolve",
+            "body": {
+              "key": "{view.key}",
+              "resolved": true
+            }
+          },
+          "reload": true,
+          "done": "resolved"
+        },
+        {
+          "key": "v",
+          "label": "viewed",
+          "confirm": "Mark {item.path} viewed?",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/viewed",
+            "body": {
+              "key": "{view.key}",
+              "path": "{item.path}",
+              "viewed": true
+            }
+          },
+          "reload": true,
+          "done": "{item.path} viewed"
+        },
+        {
+          "key": "e",
+          "label": "explain",
+          "confirm": "Ask keel to explain this change? KeelBot reads the code (it edits nothing) and uses tokens",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/ai/overview",
+            "body": {
+              "key": "{view.key}"
+            }
+          },
+          "done": "keel is reading the change: o shows its overview when it is done"
+        },
+        {
+          "key": "f",
+          "label": "findings",
+          "confirm": "Ask keel for findings? Two reviewers read the change, then each claim is checked (uses tokens)",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/ai/findings",
+            "body": {
+              "key": "{view.key}"
+            }
+          },
+          "done": "keel is looking for problems: F lists the findings when it is done"
+        },
+        {
+          "key": "o",
+          "label": "overview",
+          "call": {
+            "path": "/projects/{pid}/review/ai?key={view.key}"
+          },
+          "show": {
+            "title": "keel's overview · {overview.status} · risk {overview.result.risk}",
+            "text": "{overview.result.summary} · {overview.result.risk_why}",
+            "items": "overview.result.files",
+            "line": "{path}  {what}",
+            "empty": "no overview yet: e asks keel for one"
+          },
+          "reload": true
+        },
+        {
+          "key": "F",
+          "label": "findings list",
+          "call": {
+            "path": "/projects/{pid}/review/ai?key={view.key}"
+          },
+          "show": {
+            "title": "keel's findings · {findings.status}",
+            "items": "findings.result.findings",
+            "line": "{severity}  {path}:{line}  {title} ({check})",
+            "empty": "no findings yet: f asks keel for them"
+          },
+          "reload": true
+        },
+        {
+          "key": "s",
+          "label": "submit",
+          "pick": {
+            "title": "Submit your review as",
+            "choices": [
+              {
+                "label": "Approve",
+                "value": "APPROVE"
+              },
+              {
+                "label": "Request changes",
+                "value": "REQUEST_CHANGES"
+              },
+              {
+                "label": "Comment",
+                "value": "COMMENT"
+              }
+            ]
+          },
+          "ask": "A comment with your review (Enter for none)",
+          "confirm": "Send \"{choice.label}\" on #{view.number} with {view.drafts.length} line comment(s)?",
+          "call": {
+            "method": "POST",
+            "path": "/projects/{pid}/review/submit",
+            "body": {
+              "key": "{view.key}",
+              "event": "{choice.value}",
+              "body": "{text}"
+            }
+          },
+          "reload": true,
+          "done": "sent: {answer.posted} line comment(s) · {answer.url}"
+        },
+        {
+          "key": "p",
+          "label": "pull requests",
+          "pick": {
+            "title": "Open which pull request?",
+            "call": {
+              "path": "/projects/{pid}/review/prs?filter=all"
+            },
+            "items": "prs",
+            "line": "#{number}  {title} · {author}"
+          },
+          "open": "{choice.number}"
+        },
+        {
+          "key": "g",
+          "label": "refresh",
+          "reload": true
+        }
+      ]
+    }
+  ]
+}

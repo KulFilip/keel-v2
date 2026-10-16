@@ -214,6 +214,11 @@ class ReviewApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/review/usages?key=branch:feat/paging&symbol=savePageSize").json()["places"].size()).isEqualTo(2)
         post("/api/projects/$pid/review/submit", mapOf("key" to "branch:feat/paging", "event" to "COMMENT", "body" to "x")).andExpect(status().isConflict)
         get("/api/projects/$pid/review/view?key=branch:..main").andExpect(status().isBadRequest)
+        // keel TUI's review mode and keel2 mcp open a review from a person's words (/review, /review 7, /review <branch>)
+        assertThat(get("/api/projects/$pid/review/open?ref=").andExpect(status().isOk).json()["key"].asText()).isEqualTo("branch:feat/paging")
+        assertThat(get("/api/projects/$pid/review/open?ref=!7").andExpect(status().isOk).json()["key"].asText()).isEqualTo("pr:7")
+        assertThat(get("/api/projects/$pid/review/open?ref=feat/paging").json()["files"].size()).isEqualTo(2)
+        get("/api/projects/$pid/review/open?ref=..main").andExpect(status().isBadRequest)
 
         git(root, "switch", "-q", "main")
         git(root, "branch", "-q", "-D", "feat/paging")

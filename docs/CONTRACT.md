@@ -1953,6 +1953,31 @@ Everything the person can do in keel's terminal app an MCP client can do for the
   (`…/done`, `…/undo`; both ask first).
 - keel's own agents still get read only.
 
+## 0.18.6: a plugin's mode in keel TUI (`contributes.tui.modes`), and Code Review in keel TUI and MCP
+
+- **Manifest**: `contributes.tui.modes: [{ name, title, args?, summary, state: { <name>: call }, status?, list: { title?,
+  items, line, mark?: { list, field, text }, empty? }, detail?: { title?, call, diff | text, notes?: [{ items, path?, line?,
+  side?, text, tone? }] }, keys: [{ key, label, view?: list | detail | both, pick?: { title, call?, items?, line?, match?,
+  choices? }, ask?, confirm?, call?, show?, reload?, open?, done? }] }]` (docs/plugins/25-tui-plugins.md). Data only.
+  Rules (api `TuiPluginService.mode`, `keel-plugin lint` `_tui_mode`, the same): the name is the plugin's or
+  `<plugin>-<word>`; at most 4 modes, 20 keys; state, detail and pick calls are GET of the plugin's own routes; a key's
+  POST needs `confirm` or `ask`; a key is one letter or digit, not `j`, `k`, `q`; a command with the mode's name has `sub`.
+- `GET /api/tui/plugins?project=` → each plugin also has `modes` (the checked list). `TuiShow` gets `text` (a template).
+- **keel TUI** (`cli/src/core/modes.ts` `ModeSession`, `cli/src/ui/ModeView.tsx`): `/<mode> [arg]` reads the state calls
+  in order (a later one may use an earlier answer; only the first must answer), then shows the mode between keel's header
+  and status line until Esc. Template values in a path are URL-encoded; `.` / `..` values and paths that leave the
+  plugin's routes are refused. A body text that is exactly `{name}` keeps the value's JSON type.
+- **Code Review api**: `GET /api/projects/{pid}/review/open?ref=` → the `ReviewView` of `""` (the branch the folder is on;
+  400 when it is on no branch), `12` / `#12` / `!12` (`pr:12`), `pr:…` / `branch:…`, or another word (`branch:<word>`).
+- **keel2 mcp** (the Code Review plugin's engine part, `PART.keel_mcp`, `keel_plugin_review/mcp_tools.py`):
+  read `keel_review_prs {filter}`, `keel_review_files {pr | branch}`, `keel_review_diff {path?}` (≤ 600 lines),
+  `keel_review_notes` (`GET …/review/ai`); write `keel_review_comment {path, line, body, side}` (`POST …/review/drafts`),
+  `keel_review_explain` / `keel_review_findings` (`POST …/review/ai/overview | findings`), and, asking the person first
+  (MCP elicitation, or `--yes`), `keel_review_reply {thread_id, body}`, `keel_review_resolve {thread_id, resolved}`,
+  `keel_review_submit {event: APPROVE | REQUEST_CHANGES | COMMENT, body}`. Each first opens the review with
+  `GET …/review/open` and refuses when the plugin is off for the project. Levels: GET is read; every POST is write
+  (`McpLevelGuard`'s default).
+
 ## v0.16.0: full MCP (read, --write, --admin)
 
 - `keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]` → `python -m keel_engine.mcp` with the same flags. Each level includes the one below; a tool above the level, or not in `--allow`, is not registered. `--read-only` (what agents get: engine `tools/mcp.py`, api `McpService`) always wins over `--write`, `--admin`, `KEEL_MCP_WRITE` and `KEEL_MCP_LEVEL`. `--allow` (or `KEEL_MCP_ALLOW`) with an unknown tool name stops the server with the list of tools.

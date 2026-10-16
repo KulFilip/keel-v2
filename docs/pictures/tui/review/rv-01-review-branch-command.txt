@@ -1,0 +1,29 @@
+ keel  v2 0.18.4 · shop · feat/paging
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│       |\                _              _                                                         │
+│       | \              | | _____  ___ | |                                                        │
+│       |  \             | |/ / _ \/ _ \| |                                                        │
+│    ___|___\___         |   <  __/  __/| |                                                        │
+│    \_________/         |_|\_\___|\___||_|                                                        │
+│        \_/   ~~~~~~~~                v2                                                          │
+│                                                                                                  │
+│ keel v2 0.18.4 · keel TUI 0.18.4                                                                 │
+│ keel     http://localhost:8096 · docker                                                          │
+│ project  shop · branch feat/paging                                                               │
+│ waiting  nothing waits for you                                                                   │
+│ next     no flow: start one with /flow (feature, change, fix, diagnose, review, cover, ship,     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Ask KeelBot anything · /help · PgUp/PgDn or the wheel scroll · Ctrl+F flow · Ctrl+A agents · Ctrl…
+
+
+ › /review branch
+
+feat/paging → main · 2 commit(s) · 2 file(s) +8 −1
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ shop (feat/paging) · no flow · nothing waits · ● live

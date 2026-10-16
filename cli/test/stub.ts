@@ -32,7 +32,23 @@ export function stubKeel() {
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
     messages: [] as Record<string, unknown>[],
+    // 0.18.6 the Code Review plugin's routes for its mode in keel TUI: pull request 7, two files, one thread
+    review: {
+      drafts: [] as { id: string; path: string | null; line: number | null; side: string; body: string }[],
+      viewed: [] as string[],
+      threads: [{ id: "th1", path: "src/Prefs.kt", line: 3, side: "RIGHT", resolved: false, outdated: false, reply_to: "1",
+        comments: [{ id: "1", author: "bo", body: "Should 20 come from config?", at: AT, url: null }] }],
+      submitted: null as null | Record<string, unknown>,
+    },
   };
+  const reviewView = (key: string) => ({ key, kind: key.startsWith("pr:") ? "pr" : "branch", number: key.startsWith("pr:") ? Number(key.slice(3)) : null,
+    title: key === "pr:8" ? "Mine" : "Save the page size", author: "ana", base: "main", branch: "feat/paging", base_sha: "b", head_sha: "h", url: null, state: "open",
+    draft: false, same_repo: true, checks: [], approved: [], changes_requested: [], added: 9, removed: 1, commits: [], conversation: [], can_post: true,
+    files: [{ path: "src/Prefs.kt", status: "M", from: null, added: 6, removed: 1, binary: false },
+      { path: "src/PrefsTest.kt", status: "A", from: null, added: 3, removed: 0, binary: false }],
+    threads: state.review.threads, drafts: state.review.drafts, viewed: state.review.viewed, host: null, me: "me", notes: [] });
+  const PREFS_DIFF = "diff --git a/src/Prefs.kt b/src/Prefs.kt\n--- a/src/Prefs.kt\n+++ b/src/Prefs.kt\n@@ -1,3 +1,8 @@\n class Prefs {\n-    fun pageSize(user: String) = 20\n"
+    + "+    private val cache = mutableMapOf<String, Int>()\n+    fun savePageSize(user: String, size: Int) {\n+        cache[user] = size\n+    }\n+    fun pageSize(user: String) = cache[user] ?: 20\n }\n";
   const project = { id: "demo", name: "demo", root: "/work/demo", branch: "keel/health", flow: "feature", phase: "spec", acs: [0, 2], waiting: 1, running: 1 };
   const job = { id: "j1", project_id: "demo", thread_id: "t1", agent: "explorer", provider: "fake", model: "fake", step: "spec", phase: "spec", ac: null,
     status: "running", started_at: AT, ended_at: null, tokens_in: 900, tokens_out: 100, cost_usd: 0, premium_requests: 0, steps_count: 3, mcp_calls: 0 };
@@ -105,6 +121,32 @@ export function stubKeel() {
       case "GET /api/projects/demo/git/log": return [200, [{ sha: "abc1234", author: "Ada", date: "2026-10-16", subject: "feat: health" }]];
       case "GET /api/projects/demo/git/diff": return [200, { diff: `--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n keep();\n${query.get("path") ? "" : ""}` }];
       case "POST /api/projects/demo/git/push": return [200, { pushed: true }];
+      case "GET /api/projects/demo/review/open": {
+        const ref = query.get("ref") ?? "";
+        if (ref === "404") return [404, { error: "No pull request #404" }];
+        return [200, reviewView(ref ? (/^\d+$/.test(ref) ? `pr:${ref}` : `branch:${ref}`) : "pr:7")];
+      }
+      case "GET /api/projects/demo/review/ai": return [200, { overview: { status: "done", result: { summary: "Saves the page size per user.", risk: "low",
+        risk_why: "a cache only", files: [{ path: "src/Prefs.kt", what: "keeps the size in a map" }] } }, findings: { status: "done", result: { findings: [
+        { id: "f1", severity: "should_fix", title: "the cache is never cleared", path: "src/Prefs.kt", line: 4, side: "RIGHT", check: "confirmed" }] } }, decisions: {} }];
+      case "GET /api/projects/demo/review/diff": return [200, { path: query.get("path"), diff: query.get("path") === "src/Prefs.kt" ? PREFS_DIFF
+        : "--- /dev/null\n+++ b/src/PrefsTest.kt\n@@ -0,0 +1,3 @@\n+class PrefsTest {\n+    fun saves() {}\n+}\n", binary: false, truncated: false }];
+      case "GET /api/projects/demo/review/prs": return [200, { host: { path: "acme/shop" }, me: "me", counts: { review: 1 }, note: null, prs: [
+        { number: 7, title: "Save the page size", author: "ana", branch: "feat/paging", base: "main" }, { number: 8, title: "Mine", author: "me", branch: "feat/mine", base: "main" }] }];
+      case "POST /api/projects/demo/review/drafts": {
+        const d = { id: `dr${state.review.drafts.length + 1}`, path: body.path, line: body.line, side: body.side, body: body.body };
+        state.review.drafts.push(d);
+        return [200, d];
+      }
+      case "POST /api/projects/demo/review/viewed": state.review.viewed.push(body.path); return [200, { viewed: state.review.viewed }];
+      case "POST /api/projects/demo/review/threads/th1/reply":
+        state.review.threads[0].comments.push({ id: "2", author: "me", body: body.body, at: AT, url: null });
+        return [200, reviewView(body.key)];
+      case "POST /api/projects/demo/review/threads/th1/resolve": state.review.threads[0].resolved = true; return [200, reviewView(body.key)];
+      case "POST /api/projects/demo/review/ai/overview": case "POST /api/projects/demo/review/ai/findings": return [200, { overview: null, findings: null, decisions: {} }];
+      case "POST /api/projects/demo/review/submit":
+        state.review.submitted = body;
+        return [200, { posted: state.review.drafts.length, in_body: 0, event: body.event, url: "https://github.com/acme/shop/pull/7#review-1", view: reviewView(body.key) }];
       default: return [404, { error: `stub: no ${key}` }];
     }
   };

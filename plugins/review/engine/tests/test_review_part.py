@@ -46,7 +46,9 @@ def test_it_is_an_add_on_that_changes_no_flow_and_no_keelbot_prompt():
     assert not [m for m in builtins.BUILTINS if "review" in m]
     p = extensions.part("review")
     assert p is not None and not p.builtin and p.source == "keel_plugin_review" and p.title == "Code Review"
-    # no PART: not per project, no actions, tools, routes or KeelBot text, so a flow's or a turn's plugins stay as before
+    # its PART has only keel_mcp (0.18.6, keel2 mcp's review tools): not per project, no actions, agent tools, routes or
+    # KeelBot text, so a flow's or a turn's plugins stay as before
+    assert set(keel_plugin_review.PART) == {"name", "title", "keel_mcp"} and callable(p.spec["keel_mcp"])
     assert not p.per_project and not p.actions and not p.params and not p.mcp and not p.read_tools
     assert p.get("router") is None and p.get("keelbot") is None
     assert extensions.enabled({"plugins": ["db", "review", "git"]}) == []   # not a per-project part (db, git: their own plugins, not loaded here)

@@ -1,0 +1,29 @@
+ keel  v2 0.18.4 · shop · feat/paging
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Code Review  src/PrefsTest.kt  +3 −0  (2/2)
+      new file mode 100644
+      @@ -0,0 +1,3 @@
+▸   1 +class PrefsTest {
+    2 +    fun saves() { Prefs().savePageSize("a", 50) }
+    3 +}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+feat/paging · feat/paging → main · +8 −1 · 1 draft(s) · 0 thread(s)
+↑↓ line · ][ file · }{ change · c r x v e f o F s p g · ? keys · Esc back
+
+ shop (feat/paging) · no flow · nothing waits · ● live

@@ -30,7 +30,9 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   /** an agent of a flow (its job id) to follow on screen: its steps and the text it writes, live */
   follow?: string;
   /** the start box again (keel, the project, its flow, what waits): after a switch to another project */
-  start?: boolean };
+  start?: boolean;
+  /** 0.18.6 a plugin's mode, opened: it takes the screen until Esc (core/modes.ts) */
+  mode?: import("./modes").ModeSession };
 
 export const text = (t: string): Reply => ({ blocks: [{ kind: "text", text: t }] });
 export const ok = (t: string): Reply => ({ blocks: [{ kind: "ok", text: t }] });

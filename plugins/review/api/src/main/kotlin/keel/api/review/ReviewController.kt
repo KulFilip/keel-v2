@@ -24,6 +24,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @GetMapping("/view")
     fun view(@PathVariable pid: String, @RequestParam key: String, @RequestParam(defaultValue = "false") refresh: Boolean) = reviews.view(pid, key, refresh)
 
+    /** keel TUI's review mode and keel2 mcp (keel-plugin.yml contributes.tui.modes): a review from a person's words. */
+    @GetMapping("/open")
+    fun open(@PathVariable pid: String, @RequestParam(defaultValue = "") ref: String) = reviews.view(pid, reviews.keyOf(pid, ref))
+
     @GetMapping("/diff")
     fun diff(@PathVariable pid: String, @RequestParam key: String, @RequestParam path: String) = reviews.diff(pid, key, path)
 
