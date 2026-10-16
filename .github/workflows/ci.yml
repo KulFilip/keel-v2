@@ -164,6 +164,15 @@ jobs:
       # keel TUI: imports web/src/api.ts and KeelBot's client as they are, so it typechecks against them
       - run: npm ci && npx tsc --noEmit && npm test -- --run && npm run build && node dist/keel-tui.mjs --version
         working-directory: cli
+  xal-plugin:
+    # keel as an xal plugin (clients/xal): no dependencies at run time, Node's own test runner on the .ts files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: node --test test/*.test.ts && npm install --no-save --no-audit --no-fund typescript@5.9.3 @types/node@24 && npx tsc --noEmit -p .
+        working-directory: clients/xal
   web:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,20 @@
+{
+  "name": "keel-xal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "keel v2 as an xal plugin: /keel:* commands, xal keel, the keel brief, keel's live notices and (opt-in) keel's guard",
+  "license": "MIT",
+  "type": "module",
+  "main": "plugin.ts",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.3"
+  }
+}
