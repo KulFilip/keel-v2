@@ -409,6 +409,17 @@ export type WikiTree = {
   layout?: string | null;
 };
 export type WikiPage = { id: string; title: string; markdown: string; meta: Record<string, unknown> };
+/** 0.17.3 a spec's build status (the Wiki plugin's GET /projects/{pid}/specs/status). */
+export type SpecState = "built" | "in_progress" | "stopped" | "not_built";
+export type SpecFlow = {
+  thread_id: string; workflow: string | null; title: string; status: string; state: Exclude<SpecState, "not_built">;
+  phase: string | null; waiting: string | null; created_at: string | null; updated_at: string | null; resumable: boolean;
+};
+export type SpecStatus = {
+  spec: string; path: string; title: string; acs: number; state: SpecState;
+  thread_id?: string | null; workflow?: string | null; flow_title?: string | null; status?: string | null; phase?: string | null;
+  waiting?: string | null; updated_at?: string | null; resumable?: boolean; why?: string | null; flows: SpecFlow[];
+};
 
 export type InstallReview = {
   from?: string;

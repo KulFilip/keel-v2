@@ -243,6 +243,32 @@ a.chip.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .wk-pick select { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 10px; font-weight: 600; width: 100%; }
 .wk-search { margin-bottom: 8px; }
 .wk-search .pg-search { width: 100%; }
+/* 0.17.3 the Wiki menu's sections open and close; a spec's build status (docs/plugins/24-wiki-sections-spec-status.md) */
+.wt-sec { display: flex; flex-direction: column; gap: 1px; }
+.wt-list { display: flex; flex-direction: column; gap: 1px; }
+.wt-list[hidden] { display: none; }
+button.wt-h { background: none; border: 0; border-radius: 6px; width: 100%; text-align: left; cursor: pointer; align-items: center; font-family: inherit; }
+button.wt-h:hover { color: var(--fg); background: var(--panel-2); }
+button.wt-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.wt-h[aria-disabled="true"] { cursor: default; }
+button.wt-h[aria-disabled="true"]:hover { background: none; color: var(--faint); }
+.wt-car { display: inline-block; width: 1.1em; }
+.wk-sp { font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 0 7px; line-height: 17px; white-space: nowrap; flex: none; }
+.wk-sp-built { background: var(--ok-soft); color: var(--ok); }
+.wk-sp-in_progress { background: var(--run-soft); color: var(--run); }
+.wk-sp-stopped { background: var(--warn-soft); color: var(--warn); }
+.wk-sp-not_built { background: var(--panel-2); color: var(--dim); }
+.wk-build { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 4px 0 14px; display: grid; gap: 8px; max-width: 68ch; background: var(--panel-2); }
+.wk-build p { margin: 0; }
+.wk-build .fl-resume { margin: 0; }
+.wk-flows ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.wk-flows li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.wk-flows li a { overflow-wrap: anywhere; }
+.wk-pick-btn { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 10px; cursor: pointer; text-align: left; font-family: inherit; color: var(--fg); }
+.wk-pick-btn b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-pick-list { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 4px; max-height: 60vh; overflow: auto; }
+.wk-pick-list[hidden] { display: none; }
+.wk-pick-list .wtree { position: static; flex-direction: column; flex-wrap: nowrap; }
 .bd-out { color: var(--bad); font-weight: 600; }
 .hint.bd-next { margin: 0; padding: 10px 16px 12px; border-top: 1px solid var(--border); }
 

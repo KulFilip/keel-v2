@@ -292,6 +292,8 @@ export function handlers(db: Db) {
       return HttpResponse.json({ ...clone(fx.thread), thread_id: "th_kr1", workflow_id: "knowledge-refresh", status: "running", waiting: undefined, project_id: params.pid });
     }),
     http.get("/api/projects/:pid/wiki/page", () => HttpResponse.json(fx.wikiPage)),
+    // 0.17.3 the Wiki plugin's spec status (no specs in the default wiki)
+    http.get("/api/projects/:pid/specs/status", () => HttpResponse.json([])),
 
     http.get("/api/projects/:pid/workflows", () => HttpResponse.json(db.workflows)),
     http.post("/api/projects/:pid/workflows", async ({ request }) => {

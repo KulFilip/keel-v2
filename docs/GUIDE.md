@@ -336,6 +336,15 @@ spec, a knowledge section or a decision has a **History** (who changed it, in wh
 keel files shows a file that went missing with a **Restore** button, and the Flow page lists what keel applied
 (branch, commits, files).
 
+In the **Wiki** (0.17.3) every menu section (Specs, Knowledge base, Workflows, Runbook, Decisions) opens and closes
+with its ▾/▸ title; a closed one shows how many pages it has, keel remembers your choice per project in this browser,
+and the section of the page you read stays open (on a phone, the same in the Page dropdown). Each spec has a pill:
+**built**, **in progress**, **stopped** or **not built**. A spec's page shows its **Build status**: the flow that built
+it (a link), the flow that builds it now (its phase, the gate it waits at, **Open the flow**), **Resume** for a stopped
+flow (only the last stopped flow can be resumed; otherwise it says why), and **Start a flow from this spec** (the
+feature flow, started from this spec and its criteria, with the estimate first). keel knows this from the flows that
+wrote the spec (its History) and the flows started from it.
+
 ## Native mode (no Docker)
 
 ```bash

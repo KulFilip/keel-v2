@@ -10,16 +10,23 @@ import { WorkspaceDoctor } from "./WorkspaceDoctor";
 
 const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to cheaper models"], ["stop", "stop"]];
 
-export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: () => void; workflowId?: string; projectId?: string }) {
+/** 0.17.3 a flow started from a spec (the Wiki's "Start a flow from this spec"): the engine takes it as the flow's spec
+ *  and its criteria (options.spec); acs is its number of criteria, for the estimate. */
+export type StartFromSpec = { path: string; acs?: number };
+
+export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0, spec }: {
+  onClose: () => void; workflowId?: string; projectId?: string; title?: string; spec?: StartFromSpec;
+}) {
   const { projects, pid, setProjectId, reloadProjects, toast } = useApp();
   const [p, setP] = useState(projectId ?? pid ?? projects[0]?.id ?? "");
   const [wfs, setWfs] = useState<Workflow[] | null>(null);
   const [wid, setWid] = useState(workflowId ?? "");
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(title0 ?? "");
   const [titleErr, setTitleErr] = useState(false);
   const [request, setRequest] = useState("");
-  const vague = (title + " " + request).trim().split(/\s+/).filter(Boolean).length < 6;
-  const [acs, setAcs] = useState(3);
+  // a flow from a spec has its words in the spec
+  const vague = !spec && (title + " " + request).trim().split(/\s+/).filter(Boolean).length < 6;
+  const [acs, setAcs] = useState(spec?.acs ? Math.min(10, Math.max(1, spec.acs)) : 3);
   const [est, setEst] = useState<Estimate | null>(null);
   const [estErr, setEstErr] = useState<{ message: string; hint?: string } | null>(null);
   const [limits, setLimits] = useState<Limit[]>([]);
@@ -106,8 +113,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
         ...(request.trim() ? { request: request.trim() } : {}),
         // the api falls back to the project's run mode; send it only when this flow picks another one
         ...(runMode !== modeDefault ? { run_mode: runMode } : {}),
-        // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1)
-        ...(wid === "lint" ? { options: { scope: lintScope } } : {}),
+        // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
+        ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
         ...(where !== "auto" ? { where } : {}),
       });
       if (p !== pid) setProjectId(p);
@@ -143,6 +150,11 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
           {wfs?.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
       </div>
+      {spec && (
+        <div className="wbar" role="note" data-testid="sf-spec">
+          <span>From the spec <b className="mono">{spec.path}</b>: the flow starts from it and keeps its criteria{spec.acs ? ` (${spec.acs})` : ""}.</span>
+        </div>
+      )}
       {wid === "lint" && (
         <div className="field">
           <label htmlFor="sf-scope">What to check</label>
