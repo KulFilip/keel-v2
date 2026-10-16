@@ -250,6 +250,7 @@ class WorkflowService(
             )
             WorkflowDoc.parse(d.toYaml()) to d.toYaml()
         }
+        if (yamlChanged) refuseOtherWorkflow(wid, row.yaml, doc)
         refuseLockedRemoval(old, doc)
         validate(yaml)
         val version = row.version + 1
@@ -260,6 +261,20 @@ class WorkflowService(
         )
         jdbc.update("INSERT OR REPLACE INTO workflow_versions(workflow_id, version, yaml, at) VALUES (?, ?, ?, ?)", wid, version, yaml, now)
         return get(wid)
+    }
+
+    /**
+     * A YAML whose `id:` is neither this workflow's id nor the id its own YAML carries is another workflow pasted here
+     * (keel tells workflows apart by id; a new name alone is a rename). Saving it would replace this one: Import it.
+     */
+    internal fun refuseOtherWorkflow(wid: String, storedYaml: String, next: WorkflowDoc) {
+        val other = next.id?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val own = runCatching { WorkflowDoc.parse(storedYaml).id }.getOrNull()
+        if (other == wid || other == own) return
+        throw Conflict(
+            "This YAML is a different workflow (id $other). Use Import to add it as a new workflow.",
+            "Or remove its id: line to save it over this workflow.",
+        )
     }
 
     fun refuseLockedRemoval(old: Workflow, next: WorkflowDoc) {
@@ -289,8 +304,22 @@ class WorkflowService(
             if (templatesOrEmpty().any { it.id == wid }) throw Conflict("keel templates cannot be deleted")
             throw NotFound("No workflow called \"$wid\"")
         }
+        refuseWhileRunning(wid)
         jdbc.update("DELETE FROM workflows WHERE id = ?", wid)
         jdbc.update("DELETE FROM workflow_versions WHERE workflow_id = ?", wid)
+    }
+
+    /**
+     * A workflow cannot go while one of its flows runs or waits at a gate: that flow would lose the workflow it reads.
+     * Finished, stopped and failed flows keep their history (they do not need the row).
+     */
+    private fun refuseWhileRunning(wid: String) {
+        val live = jdbc.query(
+            "SELECT title FROM threads WHERE workflow_id = ? AND status IN ('running','waiting') ORDER BY updated_at DESC LIMIT 1",
+            { rs, _ -> rs.getString(1) }, wid,
+        ).firstOrNull() ?: return
+        val name = runCatching { get(wid).name }.getOrDefault(wid)
+        throw Conflict("$name has a flow running (${live.ifBlank { "untitled" }}): stop it or let it finish first.")
     }
 
     fun export(wid: String): String = get(wid).yaml

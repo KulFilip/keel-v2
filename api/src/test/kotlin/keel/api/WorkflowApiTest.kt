@@ -3,10 +3,13 @@ package keel.api
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 class WorkflowApiTest : ApiTest() {
+    @Autowired lateinit var jdbc: JdbcTemplate
 
     @Test
     fun `templates come from the engine and project workflows are listed with them`() {
@@ -120,5 +123,49 @@ class WorkflowApiTest : ApiTest() {
         assertThat(get("/api/projects/$other/workflows").json().map { it["id"].asText() }).contains(all["id"].asText())
         delete("/api/workflows/${all["id"].asText()}").andExpect(status().isOk)
         delete("/api/workflows/feature").andExpect(status().isConflict)
+    }
+
+    private fun thread(pid: String, wid: String, tid: String, title: String, status: String) = jdbc.update(
+        "INSERT INTO threads(id, project_id, workflow_id, title, status, state_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '{}', 'now', 'now')",
+        tid, pid, wid, title, status,
+    )
+
+    @Test
+    fun `a workflow cannot be deleted while one of its flows runs or waits at a gate`() {
+        val (pid, _) = newProject("wf-del-running")
+        val mk = { n: String -> post("/api/projects/$pid/workflows", mapOf("name" to n, "from" to "blank")).json()["id"].asText() }
+
+        val running = mk("Busy")
+        thread(pid, running, "t-del-run", "Add login", "running")
+        val e = delete("/api/workflows/$running").andExpect(status().isConflict).json()
+        assertThat(e["error"].asText()).isEqualTo("Busy has a flow running (Add login): stop it or let it finish first.")
+        get("/api/workflows/$running").andExpect(status().isOk)
+
+        val waiting = mk("Waits")
+        thread(pid, waiting, "t-del-wait", "Fix totals", "waiting")
+        assertThat(delete("/api/workflows/$waiting").andExpect(status().isConflict).json()["error"].asText())
+            .isEqualTo("Waits has a flow running (Fix totals): stop it or let it finish first.")
+
+        // finished (and stopped) flows keep their history; the workflow can go
+        val finished = mk("Done")
+        thread(pid, finished, "t-del-done", "Old work", "done")
+        thread(pid, finished, "t-del-stop", "Older work", "stopped")
+        delete("/api/workflows/$finished").andExpect(status().isOk)
+        get("/api/workflows/$finished").andExpect(status().isNotFound)
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE workflow_id = ?", Int::class.java, finished)).isEqualTo(2)
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM workflow_versions WHERE workflow_id = ?", Int::class.java, finished)).isEqualTo(0)
+    }
+
+    @Test
+    fun `a YAML with another workflow's id is refused on save, it is an import`() {
+        val (pid, _) = newProject("wf-other-id")
+        val wid = post("/api/projects/$pid/workflows", mapOf("name" to "Mine", "from" to "blank")).json()["id"].asText()
+        val other = "id: feature\nname: Feature\nkeel_rules: false\nsteps:\n  - { id: s1, kind: code, name: one, action: report }\n"
+        val e = put("/api/workflows/$wid", mapOf("yaml" to other)).andExpect(status().isConflict).json()
+        assertThat(e["error"].asText()).isEqualTo("This YAML is a different workflow (id feature). Use Import to add it as a new workflow.")
+        assertThat(get("/api/workflows/$wid").json()["version"].asInt()).isEqualTo(1)
+        // its own id, or no id (a rename), saves
+        put("/api/workflows/$wid", mapOf("yaml" to other.replace("id: feature", "id: $wid"))).andExpect(status().isOk)
+        put("/api/workflows/$wid", mapOf("yaml" to other.replace("id: feature\n", "").replace("Feature", "Renamed"))).andExpect(status().isOk)
     }
 }
