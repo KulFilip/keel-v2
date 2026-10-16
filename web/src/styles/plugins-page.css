@@ -131,9 +131,13 @@ input.mk-sw:disabled {
 .mk-table td {
   vertical-align: middle;
 }
+/* v0.17.1 the On column: as wide as its control, never narrower (the 0.17.0 one stacked "This / project: / On" one
+   word per line) */
 .mk-installed th:nth-child(6),
-.mk-installed td:nth-child(6) {
+.mk-installed td.mk-oncell {
   width: 1%;
+  min-width: max-content;
+  white-space: nowrap;
 }
 .mk-installed tr.off td {
   color: var(--faint);
@@ -545,38 +549,85 @@ input.mk-sw:disabled {
 }
 
 /* ---------- v0.17.1 a plugin each project turns on (PluginProjects.tsx) ---------- */
-/* Installed: "This project: On" under the keel-wide switch */
-.mk-proj {
-  display: grid;
-  gap: 2px;
-  margin-top: 6px;
-  justify-items: start;
-}
-.mk-projsw {
+/* [ Off | This project | All projects ]: one segmented control (a radio group); it never wraps */
+.mk-seg {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  min-width: max-content;
   white-space: nowrap;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.mk-seg-opt {
+  flex: none;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.3;
   cursor: pointer;
 }
-input.mk-sw.sm {
-  width: 26px;
-  height: 15px;
+.mk-seg-opt:hover {
+  color: var(--fg);
 }
-input.mk-sw.sm::after {
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
+.mk-seg-opt.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
 }
-input.mk-sw.sm:checked::after {
-  transform: translateX(11px);
+.mk-seg-opt:first-child.on {
+  /* Off is chosen: plain, not the accent */
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: 0 0 0 1px var(--border);
 }
-.mk-proj .linkbtn {
+.mk-seg-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.mk-seg.busy .mk-seg-opt {
+  cursor: progress;
+}
+/* Installed: the control, and "on in 2 other projects" under it */
+.mk-place {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+}
+.mk-place-hint {
   font-size: 12px;
   white-space: nowrap;
 }
-/* the plugin's page: Projects */
+/* a switch with "On" or "Off" beside it */
+.mk-onsw {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+/* a phone (the table is a list of cards, pages.css .rt): the control right under the plugin's name */
+@container (max-width: 560px) {
+  table.mk-installed.rt > tbody > tr > td.rt-main {
+    order: -2;
+  }
+  table.mk-installed.rt > tbody > tr > td.mk-oncell {
+    order: -1;
+    flex: 1 1 100%;
+  }
+  table.mk-installed.rt > tbody > tr.child > td:first-child {
+    padding-left: 0;
+  }
+  table.mk-installed.rt > tbody > tr.child > td:first-child::before {
+    display: none;
+  }
+}
+/* the plugin's page: Projects, each with the same control */
 .mk-projlist {
   list-style: none;
   margin: 0;
@@ -585,11 +636,13 @@ input.mk-sw.sm:checked::after {
   gap: 8px;
 }
 .mk-projlist li {
-  display: grid;
-  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
 }
 .mk-projlist li b {
   overflow-wrap: anywhere;
+  min-width: 0;
 }

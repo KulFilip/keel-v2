@@ -5,7 +5,9 @@
 //                       (Git, Code Review, CI/CD and Database in Code) under it; version (and the update that is
 //                       ready), parts, from, a status pill, on/off, Update, Roll back, Remove; "Check for updates"
 //                       reads the catalogs again; a banner when changes wait for a restart. v0.17.1: a plugin each
-//                       project turns on (db, git, ci, review) also has "This project: On/Off" (PluginProjects.tsx)
+//                       project turns on (db, git, ci, review) has one control [ Off | This project | All projects ]
+//                       in place of the switch, with "on in 2 other projects" under it (PluginProjects.tsx); any
+//                       other plugin a switch with "On"/"Off" beside it
 //   Marketplace         the catalog, search, the category chips, the trust legend; "The keel set" and the community's
 //                       plugins as cards (Install / Update to x / Installed). No catalog yet: keel's own plugins from
 //                       the image, with a note, never an empty page
@@ -72,7 +74,7 @@ import {
   usePluginAct,
   type Err,
 } from "./PluginDetail";
-import { ProjectSwitch, useProjectPlugins } from "./PluginProjects";
+import { ProjectPlace, useProjectPlugins } from "./PluginProjects";
 import {
   CHIPS,
   KeelMark,
@@ -500,6 +502,37 @@ function SetOffer({
 
 const CORE_PARTS = ["engine", "api", "web", "content"];
 
+/** The keel-wide switch, with "On" or "Off" beside it (a plugin no project turns on for itself, and keel core). */
+function OnSwitch({
+  label,
+  on,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  on: boolean;
+  disabled?: boolean;
+  onChange?: (on: boolean) => void;
+}) {
+  return (
+    <label className="mk-onsw">
+      <input
+        type="checkbox"
+        role="switch"
+        className="mk-sw"
+        aria-label={label}
+        checked={on}
+        disabled={disabled}
+        readOnly={!onChange}
+        onChange={(e) => onChange?.(e.target.checked)}
+      />
+      <span className="sub" aria-hidden="true">
+        {on ? "On" : "Off"}
+      </span>
+    </label>
+  );
+}
+
 function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
   const { health, pid } = useApp();
   // v0.17.1 the plugins a project turns on (db, git, ci, review): their "This project" switch (Tools › Plugins is gone)
@@ -522,8 +555,8 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
       )}
       {err && <ErrorBox error={err} />}
       <Panel body={false}>
-        <div className="table-wrap">
-          <table className="mk-table mk-installed">
+        <div className="table-wrap rt-wrap">
+          <table className="mk-table mk-installed rt">
             <thead>
               <tr>
                 <th>Plugin</th>
@@ -539,7 +572,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
             </thead>
             <tbody>
               <tr data-testid="keel-core">
-                <td>
+                <td className="rt-main">
                   <div className="mk-pname">
                     <KeelMark />
                     <div>
@@ -548,7 +581,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                     </div>
                   </div>
                 </td>
-                <td className="mono">
+                <td className="mono" data-label="Version">
                   {health?.version?.replace(/^v/, "") ?? "—"}
                 </td>
                 <td>
@@ -560,22 +593,14 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                     ))}
                   </div>
                 </td>
-                <td className="sub">the image</td>
+                <td className="sub" data-label="From">the image</td>
                 <td>
                   <Pill tone="ok">On</Pill>
                 </td>
-                <td>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    className="mk-sw"
-                    aria-label="keel core on"
-                    checked
-                    disabled
-                    readOnly
-                  />
+                <td className="mk-oncell">
+                  <OnSwitch label="keel core on" on disabled />
                 </td>
-                <td className="sub mk-right">Update the image</td>
+                <td className="sub mk-right rt-end">Update the image</td>
               </tr>
               {rows.map(({ p, parent, kids }) => {
                 const upd = updateOf(p);
@@ -584,6 +609,8 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                 const problems = problemsOf(p);
                 const a = actions(p);
                 const off = p.on === false && p.status !== "restart";
+                // a plugin each project turns on (the project's list has it): Off | This project | All projects
+                const pp = perProject.data?.find((x) => x.name === p.name);
                 return [
                   <tr
                     key={p.name}
@@ -592,7 +619,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                       .join(" ")}
                     data-testid={`plugin-${p.name}`}
                   >
-                    <td>
+                    <td className="rt-main">
                       <div className="mk-pname">
                         <PluginIcon name={p.name} title={p.title} size="sm" />
                         <div>
@@ -609,7 +636,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                         </div>
                       </div>
                     </td>
-                    <td className="mono">
+                    <td className="mono" data-label="Version">
                       {p.version}
                       {upd && (
                         <div>
@@ -626,7 +653,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                         ))}
                       </div>
                     </td>
-                    <td className="sub">{FROM[from] ?? from}</td>
+                    <td className="sub" data-label="From">{FROM[from] ?? from}</td>
                     <td>
                       {revoked ? (
                         <Pill tone="bad">revoked</Pill>
@@ -650,31 +677,25 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                         </div>
                       )}
                     </td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        role="switch"
-                        className="mk-sw"
-                        aria-label={`${titleOf(p)} on`}
-                        checked={p.on !== false}
-                        disabled={busy === p.name || p.status === "removed"}
-                        onChange={(e) => void a.setOn(e.target.checked)}
-                      />
-                      {pid &&
-                        (() => {
-                          const pp = perProject.data?.find(
-                            (x) => x.name === p.name,
-                          );
-                          return pp ? (
-                            <ProjectSwitch
-                              pid={pid}
-                              plugin={pp}
-                              loaded={perProject}
-                            />
-                          ) : null;
-                        })()}
+                    <td className="mk-oncell">
+                      {pp && pid ? (
+                        <ProjectPlace
+                          pid={pid}
+                          plugin={pp}
+                          loaded={perProject}
+                          keelOn={p.on !== false}
+                          onKeelOn={() => void view.reload()}
+                        />
+                      ) : (
+                        <OnSwitch
+                          label={`${titleOf(p)} on`}
+                          on={p.on !== false}
+                          disabled={busy === p.name || p.status === "removed"}
+                          onChange={(on) => void a.setOn(on)}
+                        />
+                      )}
                     </td>
-                    <td>
+                    <td className="rt-end">
                       <div className="mk-rowact">
                         {upd && (
                           <button

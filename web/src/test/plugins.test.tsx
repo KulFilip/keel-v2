@@ -3,6 +3,9 @@
 // them: plugins/db/web/test (Connections › Databases, Code › Database, KeelBot's query button, a db: block's settings on
 // the Workflows page; Map › Query: plugins/map/web/test) and plugins/git/web/test (Code › Git, KeelBot's git buttons).
 
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
@@ -57,36 +60,155 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     ];
   }
 
-  it("Installed: 'This project' under the keel-wide switch, and For every project", async () => {
+  // v0.17.1 one control per row: [ Off | This project | All projects ] (PluginProjects.tsx: what each sends)
+  const choices = (group: HTMLElement) =>
+    within(group).getAllByRole("radio").map((r) => `${r.textContent}${r.getAttribute("aria-checked") === "true" ? "*" : ""}`);
+  const putsOf = (pid: string, name: string) => calls("PUT", `/api/projects/${pid}/plugins/${name}`).map((c) => c.body);
+
+  it("Installed: one control with three named choices, each with its api call", async () => {
     const user = userEvent.setup();
     installDbGit();
     location.hash = "#/plugins";
     render(<App />);
     const row = await screen.findByTestId("plugin-db");
-    const mine = await within(row).findByRole("switch", { name: "Database on for ludus-engine" });
-    expect(mine).not.toBeChecked();
-    expect(row).toHaveTextContent("This project: Off");
-    expect(within(row).getByRole("switch", { name: "Database on" })).toBeChecked(); // the keel-wide one stays
-    // a plugin no project switches has only the keel-wide switch
-    expect(within(screen.getByTestId("plugin-wiki")).getAllByRole("switch")).toHaveLength(1);
+    const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
+    expect(choices(group)).toEqual(["Off*", "This project", "All projects"]);
+    expect(within(row).queryByRole("switch")).toBeNull(); // the control is the only one: no second switch
 
-    await user.click(mine);
-    await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/plugins/db")[0]?.body).toEqual({ enabled: true, scope: "project" }));
-    await waitFor(() => expect(within(row).getByRole("switch", { name: "Database on for ludus-engine" })).toBeChecked());
-    expect(row).toHaveTextContent("This project: On");
-    expect(calls("PUT", "/api/plugins/db")).toHaveLength(0); // the keel-wide switch is not touched
+    await user.click(within(group).getByRole("radio", { name: "This project" }));
+    await waitFor(() => expect(putsOf("ludus-engine", "db")).toEqual([{ enabled: true, scope: "project" }]));
+    await waitFor(() => expect(choices(group)).toEqual(["Off", "This project*", "All projects"]));
+    expect(db.projectPlugins["ludus-engine"]).toEqual({ db: true });
 
-    const git = screen.getByTestId("plugin-git");
-    await user.click(within(git).getByRole("button", { name: "Turn Git on for every project" }));
-    await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/plugins/git")[0]?.body).toEqual({ enabled: true, scope: "all" }));
-    expect(await within(git).findByText("every project")).toBeInTheDocument();
+    await user.click(within(group).getByRole("radio", { name: "All projects" }));
+    await waitFor(() => expect(putsOf("ludus-engine", "db").at(-1)).toEqual({ enabled: true, scope: "all" }));
+    await waitFor(() => expect(choices(group)).toEqual(["Off", "This project", "All projects*"]));
+    expect(db.plugins.db).toBe(true);
+
+    // back to only this project: the every-project row goes off first, then the project's own row
+    await user.click(within(group).getByRole("radio", { name: "This project" }));
+    await waitFor(() => expect(putsOf("ludus-engine", "db").slice(2)).toEqual([
+      { enabled: false, scope: "all" }, { enabled: true, scope: "project" }]));
+    await waitFor(() => expect(choices(group)).toEqual(["Off", "This project*", "All projects"]));
+    expect(db.plugins.db).toBe(false);
+
+    await user.click(within(group).getByRole("radio", { name: "Off" }));
+    await waitFor(() => expect(putsOf("ludus-engine", "db").at(-1)).toEqual({ enabled: false, scope: "project" }));
+    await waitFor(() => expect(choices(group)).toEqual(["Off*", "This project", "All projects"]));
+    expect(calls("PUT", "/api/plugins/db")).toHaveLength(0); // on keel-wide already: not touched
   });
 
-  it("the plugin's page: what it adds, and Projects with a switch per project", async () => {
+  it("Installed: a plugin that is off keel-wide shows Off; This project turns it on keel-wide too", async () => {
+    const user = userEvent.setup();
+    installDbGit();
+    db.market.installed[0].on = false;
+    db.projectPlugins["ludus-engine"] = { db: true }; // its own row says on, but nothing loads while keel has it off
+    location.hash = "#/plugins";
+    render(<App />);
+    const group = await within(await screen.findByTestId("plugin-db")).findByRole("radiogroup", { name: "Database: where it is on" });
+    await waitFor(() => expect(choices(group)).toEqual(["Off*", "This project", "All projects"]));
+    await user.click(within(group).getByRole("radio", { name: "This project" }));
+    await waitFor(() => expect(calls("PUT", "/api/plugins/db")[0]?.body).toEqual({ on: true }));
+    await waitFor(() => expect(putsOf("ludus-engine", "db")).toEqual([{ enabled: true, scope: "project" }]));
+    await waitFor(() => expect(choices(group)).toEqual(["Off", "This project*", "All projects"]));
+  });
+
+  it("Installed: on in other projects but not this one: a hint that links to the plugin page's Projects", async () => {
     const user = userEvent.setup();
     installDbGit();
     db.projectPlugins.platform = { db: true };
-    location.hash = "#/plugins/db";
+    db.projectPlugins.yegi = { db: true };
+    location.hash = "#/plugins";
+    render(<App />);
+    const row = await screen.findByTestId("plugin-db");
+    const hint = await within(row).findByRole("link", { name: "on in 2 other projects" });
+    expect(hint).toHaveAttribute("href", "#/plugins/db?at=projects");
+    // git is on nowhere: no hint
+    expect(within(screen.getByTestId("plugin-git")).queryByRole("link", { name: /other project/ })).toBeNull();
+
+    await user.click(within(row).getByRole("radio", { name: "This project" }));
+    expect(await within(row).findByRole("link", { name: "also on in 2 other projects" })).toBeInTheDocument();
+    await user.click(within(row).getByRole("radio", { name: "All projects" }));
+    await waitFor(() => expect(within(row).queryByRole("link", { name: /other project/ })).toBeNull());
+  });
+
+  it("Installed: the arrow keys move the choice and apply it; Home and End; one tab stop", async () => {
+    const user = userEvent.setup();
+    installDbGit();
+    location.hash = "#/plugins";
+    render(<App />);
+    const group = await within(await screen.findByTestId("plugin-git")).findByRole("radiogroup", { name: "Git: where it is on" });
+    const radio = (name: string) => within(group).getByRole("radio", { name });
+    expect(within(group).getAllByRole("radio").map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+    radio("Off").focus();
+
+    await user.keyboard("{ArrowRight}");
+    expect(radio("This project")).toHaveFocus();
+    await waitFor(() => expect(putsOf("ludus-engine", "git")).toEqual([{ enabled: true, scope: "project" }]));
+    await waitFor(() => expect(radio("This project")).toHaveAttribute("aria-checked", "true"));
+    expect(within(group).getAllByRole("radio").map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+
+    await user.keyboard("{End}");
+    expect(radio("All projects")).toHaveFocus();
+    await waitFor(() => expect(putsOf("ludus-engine", "git").at(-1)).toEqual({ enabled: true, scope: "all" }));
+    await waitFor(() => expect(radio("All projects")).toHaveAttribute("aria-checked", "true"));
+
+    await user.keyboard("{ArrowRight}"); // wraps to the first
+    expect(radio("Off")).toHaveFocus();
+    await waitFor(() => expect(putsOf("ludus-engine", "git").at(-1)).toEqual({ enabled: false, scope: "project" }));
+    await waitFor(() => expect(radio("Off")).toHaveAttribute("aria-checked", "true"));
+
+    await user.keyboard("{ArrowLeft}"); // wraps to the last
+    expect(radio("All projects")).toHaveFocus();
+    await waitFor(() => expect(radio("All projects")).toHaveAttribute("aria-checked", "true"));
+
+    await user.keyboard("{Home}");
+    expect(radio("Off")).toHaveFocus();
+    await waitFor(() => expect(putsOf("ludus-engine", "git").at(-1)).toEqual({ enabled: false, scope: "project" }));
+    await waitFor(() => expect(radio("Off")).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("Installed: a plugin with no per-project choice has one switch with On/Off beside it", async () => {
+    const user = userEvent.setup();
+    installDbGit();
+    location.hash = "#/plugins";
+    render(<App />);
+    const wiki = await screen.findByTestId("plugin-wiki");
+    // the per-project plugins get their control once the project's list is read; wiki never does
+    await within(screen.getByTestId("plugin-db")).findByRole("radiogroup");
+    expect(within(wiki).queryByRole("radiogroup")).toBeNull();
+    const sw = within(wiki).getByRole("switch", { name: "Wiki on" });
+    expect(sw).toBeChecked();
+    expect(sw.closest("label")).toHaveTextContent("On");
+    await user.click(sw);
+    await waitFor(() => expect(calls("PUT", "/api/plugins/wiki")[0]?.body).toEqual({ on: false }));
+    await waitFor(() => expect(within(screen.getByTestId("plugin-wiki")).getByRole("switch", { name: "Wiki on" }).closest("label")).toHaveTextContent("Off"));
+  });
+
+  it("Installed: the On column never wraps its control (a min-width rule; jsdom draws no CSS)", async () => {
+    const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "plugins-page.css"), "utf8");
+    const rule = (selector: string) => {
+      const at = css.indexOf(`\n${selector} {`);
+      return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+    };
+    expect(rule(".mk-installed td.mk-oncell")).toMatch(/min-width: max-content;[\s\S]*white-space: nowrap;/);
+    expect(rule(".mk-seg")).toMatch(/min-width: max-content;[\s\S]*white-space: nowrap;/);
+    expect(rule(".mk-seg-opt")).toContain("white-space: nowrap;");
+    installDbGit();
+    location.hash = "#/plugins";
+    render(<App />);
+    const group = await within(await screen.findByTestId("plugin-db")).findByRole("radiogroup");
+    expect(group.closest("td")).toHaveClass("mk-oncell");
+    expect(group).toHaveClass("mk-seg");
+  });
+
+  it("the plugin's page: what it adds, and Projects with the same control per project", async () => {
+    const user = userEvent.setup();
+    installDbGit();
+    db.projectPlugins.platform = { db: true };
+    const seen: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { seen.push(this.id); };
+    location.hash = "#/plugins/db?at=projects";
     render(<App />);
     const about = await screen.findByRole("region", { name: "About" });
     await waitFor(() => expect(about).toHaveTextContent("KeelBot toolsdb_connections, db_schema, db_query"));
@@ -96,19 +218,24 @@ describe("Control › Plugins: a plugin each project turns on", () => {
 
     const projects = await screen.findByRole("region", { name: "Projects" });
     const list = await within(projects).findByRole("list", { name: "Projects with Database" });
-    expect(within(list).getAllByRole("switch").map((s) => s.getAttribute("aria-label"))).toEqual([
-      "Database on for ludus-engine", "Database on for platform", "Database on for YegiResearcher"]);
-    expect(within(list).getByRole("switch", { name: "Database on for platform" })).toBeChecked();
-    expect(list).toHaveTextContent("on: its own choice");
+    expect(within(list).getAllByRole("radiogroup").map((s) => s.getAttribute("aria-label"))).toEqual([
+      "Database in ludus-engine: where it is on", "Database in platform: where it is on", "Database in YegiResearcher: where it is on"]);
+    const group = (p: string) => within(list).getByRole("radiogroup", { name: `Database in ${p}: where it is on` });
+    expect(choices(group("platform"))).toEqual(["Off", "This project*", "All projects"]);
+    expect(choices(group("ludus-engine"))).toEqual(["Off*", "This project", "All projects"]);
+    await waitFor(() => expect(seen).toContain("projects")); // the hint's link scrolls here
 
-    await user.click(within(list).getByRole("switch", { name: "Database on for YegiResearcher" }));
-    await waitFor(() => expect(calls("PUT", "/api/projects/yegi/plugins/db")[0]?.body).toEqual({ enabled: true, scope: "project" }));
-    await waitFor(() => expect(within(list).getByRole("switch", { name: "Database on for YegiResearcher" })).toBeChecked());
+    await user.click(within(group("YegiResearcher")).getByRole("radio", { name: "This project" }));
+    await waitFor(() => expect(putsOf("yegi", "db")).toEqual([{ enabled: true, scope: "project" }]));
+    await waitFor(() => expect(choices(group("YegiResearcher"))).toEqual(["Off", "This project*", "All projects"]));
 
-    await user.click(within(projects).getByRole("button", { name: "On for every project" }));
-    await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/plugins/db")[0]?.body).toEqual({ enabled: true, scope: "all" }));
-    await waitFor(() => expect(within(list).getByRole("switch", { name: "Database on for ludus-engine" })).toBeChecked());
-    expect(list).toHaveTextContent("on: follows every project");
+    await user.click(within(group("ludus-engine")).getByRole("radio", { name: "All projects" }));
+    await waitFor(() => expect(putsOf("ludus-engine", "db")).toEqual([{ enabled: true, scope: "all" }]));
+    // every project follows it, except the ones with their own choice
+    await waitFor(() => expect(choices(group("ludus-engine"))).toEqual(["Off", "This project", "All projects*"]));
+    expect(choices(group("platform"))).toEqual(["Off", "This project*", "All projects"]);
+    expect(projects).not.toHaveTextContent("On for every project");
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
   it("a plugin no project switches has no Projects section", async () => {

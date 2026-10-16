@@ -14,11 +14,11 @@ every project) and **Control › Plugins** (installed, marketplace). Milad: the 
    └ Who may use what                        └ Who may use what              stays
 
   Control › Plugins › Installed             Control › Plugins › Installed
-   └ keel-wide switch                         └ keel-wide switch
-                                                + "This project" switch (db, git, ci, review)
+   └ keel-wide switch                         ├ db, git, ci, review: [ Off | This project | All projects ]
+                                              └ any other plugin: keel-wide switch + "On"/"Off"
   #/plugins/<name>                          #/plugins/<name>
    └ About, Permissions, Versions, Needs      + About: KeelBot tools, workflow blocks, commands, shows in
-                                              + Projects: every project with its switch
+                                              + Projects: every project with the same control
 ```
 
 ## What moves where
@@ -26,13 +26,52 @@ every project) and **Control › Plugins** (installed, marketplace). Milad: the 
 1. **Tools page.** The Plugins section and `PluginCards.tsx` go (nothing else used it). The page keeps Servers, the
    rows of the plugins' own MCP servers (`withPlugins`, for "Who may use what"), Recent tool calls and the catalog
    cards. Its sub text no longer says "Plugins keel adds".
-2. **Installed tab.** A plugin a project turns on (`per_project: true`; today db, git, ci, review: the ones
-   `GET /api/projects/{pid}/plugins` lists) shows a second switch under the keel-wide one: **This project**, for the
-   project chosen now. It calls `PUT /api/projects/{pid}/plugins/{name}` `{enabled, scope: "project"}`. A small
-   **For every project** button sends `scope: "all"`. No project yet: no second switch.
+2. **Installed tab: the control** (fixed in 0.17.1 after the first try). A plugin a project turns on
+   (`per_project: true`; today db, git, ci, review: the ones `GET /api/projects/{pid}/plugins` lists) has **one
+   segmented control** in the On column, for the project chosen now, in place of the switch:
+
+   ```
+     Git            [ Off | This project | All projects ]
+     Database       [ Off | This project | All projects ]
+                      on in 2 other projects              ← a link to #/plugins/db?at=projects
+     Wiki           (●) On                                ← no per-project choice: the keel-wide switch
+   ```
+
+   The first try put a second small switch under the keel-wide one, with "This project: On" and a "For every
+   project" link. The column was narrow, the two switches stacked and the labels broke one word per line ("This /
+   project: / On / For / every / project"): nobody could tell which switch was which.
+
+   **What each choice means and sends.** A plugin loads for a project when it is on keel-wide
+   (`PUT /api/plugins/{name}` `{on}`, after a restart) **and** on for that project: the project's own row, else the
+   every-project row `"*"` (the api's `scope` says which one: `project` or `all`).
+
+   | shown | when | a click sends (`PUT /api/projects/{pid}/plugins/{name}`) |
+   |---|---|---|
+   | **Off** | off keel-wide, or not enabled for this project | `{enabled: false, scope: "project"}` |
+   | **This project** | on keel-wide, enabled by the project's own row | `{enabled: true, scope: "project"}`; when the `"*"` row is on, `{enabled: false, scope: "all"}` first (else it would stay on everywhere) |
+   | **All projects** | on keel-wide, enabled by the `"*"` row | `{enabled: true, scope: "all"}` (the api drops the project's own row) |
+
+   **This project** and **All projects** also send `PUT /api/plugins/{name}` `{on: true}` when the plugin is off
+   keel-wide (it loads after the restart). **Off** never turns it off keel-wide: that is the plugin page's **Turn
+   off**. The keel-wide state counts: a plugin that is off in keel shows **Off** even when a project's row says on,
+   because nothing loads.
+
+   Under the control: **on in 2 other projects** (Off) or **also on in 2 other projects** (This project), when other
+   projects have it on; it links to the plugin page's Projects list (`?at=projects` scrolls there). No project yet:
+   the keel-wide switch.
+
+   **Look.** The On column has `min-width: max-content` and `white-space: nowrap`, the control too: it never wraps.
+   On a phone (the table's box under 560 px) the table is a list of cards (`.rt`, pages.css) and the control sits on
+   its own line right under the plugin's name. A plugin with no per-project choice has its switch with **On** or
+   **Off** beside it.
+
+   **Keyboard and screen readers.** `role="radiogroup"` named "Git: where it is on"; each choice `role="radio"` with
+   `aria-checked`; only the chosen one is in the tab order (roving tabindex). ←/→ and ↑/↓ move the choice and apply
+   it (they wrap), Home and End go to Off and All projects.
 3. **The plugin's page** (`#/plugins/<name>`). About also lists what the cards said: KeelBot tools, workflow blocks,
-   commands, where it shows. A new **Projects** section lists every project with its own switch (scope `project`)
-   and **On for every project** (scope `all`). A project that follows "every project" says so.
+   commands, where it shows. A new **Projects** section lists every project with **the same control** and the same
+   words ("Database in platform: where it is on"); **This project** there means that row's project. The first try's
+   "On for every project" button is gone: **All projects** on any row does it.
 4. **Links and hints.** Every "Tools › Plugins" a person reads now says **Control › Plugins**: the Workflows page's
    note on an off block, the api's and engine's 409 hints (Database, Git, CI/CD, Code Review off for this project),
    Claude Code's MCP error, docs/GUIDE.md and the README's "What you see" row. No ⌘K action or notification linked to
@@ -80,8 +119,11 @@ Fix in `web/src/styles.css`: `.view-switch` gets `grid-column: 1 / -1` and `repe
 ## Tests
 
 - web: the Tools page has no Plugins section (and still shows the plugin's server in "Who may use what" once it is
-  on); Installed's **This project** switch sends scope `project`, **For every project** sends `all`; the plugin
-  page's Projects section lists each project with its switch; the Workflows note says Control › Plugins.
+  on); Installed's control: the three choices and their api calls (This project from All projects sends two), a
+  plugin off keel-wide shows Off and This project turns it on, the "on in 2 other projects" hint and its link, the
+  arrow keys, Home, End and the one tab stop, the no-per-project plugin's switch with On/Off beside it, and the
+  min-width / nowrap rules (jsdom draws no CSS); the plugin page's Projects section lists each project with the same
+  control; the Workflows note says Control › Plugins.
 - Code plugin (plugins/code/web/test): no Focus or KeelBot only button in the head; Rebuild and the index status in
   the status bar; Focus from the status bar.
 - The view switch (web/src/test/viewswitch.test.tsx): its three buttons, and the CSS rule (jsdom draws no CSS).

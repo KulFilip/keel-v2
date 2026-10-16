@@ -2,7 +2,8 @@
 // publisher, version, trust and repo; the main button (Install / Update / Turn off / Remove); ABOUT with each part it
 // brings; PERMISSIONS with their levels; VERSIONS from the catalog; the checks keel runs; what it needs. A plugin from
 // keel's image that no catalog lists shows what keel knows about it. v0.17.1: a plugin each project turns on (db, git,
-// ci, review) also says what it adds and lists the projects with their switch (PluginProjects.tsx).
+// ci, review) also says what it adds and lists the projects, each with [ Off | This project | All projects ]
+// (PluginProjects.tsx).
 //
 // Also the pieces the Installed table shares with it: a plugin's status pill, the Remove question, and the actions.
 
@@ -459,7 +460,13 @@ export function PluginDetailPage({
             )}
             {perProject && <PluginAdds plugin={perProject} />}
           </Section>
-          {mine && <PluginProjects name={name} />}
+          {mine && (
+            <PluginProjects
+              name={name}
+              keelOn={on}
+              onKeelOn={() => void view.reload()}
+            />
+          )}
           <Section
             id="mk-versions"
             title="Versions"
