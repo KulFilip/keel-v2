@@ -85,7 +85,8 @@ describe("Marketplace › Workflows: the cards", () => {
     const user = userEvent.setup();
     open("#/plugins?tab=market&kind=workflows");
     await card("Release notes");
-    await user.click(screen.getByRole("button", { name: "Docs" }));
+    // the category chips come with the catalog's answer, a moment after the cards on a slow machine
+    await user.click(await screen.findByRole("button", { name: "Docs" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Hotfix workflow" })).toBeNull());
     expect(screen.getByRole("article", { name: "Release notes workflow" })).toBeInTheDocument();
     expect(db.mw.searches.at(-1)?.category).toBe("docs");
