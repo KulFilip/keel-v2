@@ -1,16 +1,21 @@
 // v0.16.1 one plugin's own page, #/plugins/<name> (docs/plugins/mockup.html "Plugin detail"): the big icon, title,
 // publisher, version, trust and repo; the main button (Install / Update / Turn off / Remove); ABOUT with each part it
 // brings; PERMISSIONS with their levels; VERSIONS from the catalog; the checks keel runs; what it needs. A plugin from
-// keel's image that no catalog lists shows what keel knows about it.
+// keel's image that no catalog lists shows what keel knows about it. v0.17.1: a plugin each project turns on (db, git,
+// ci, review) also says what it adds and lists the projects, each with [ Off | This project | All projects ]
+// (PluginProjects.tsx).
 //
 // Also the pieces the Installed table shares with it: a plugin's status pill, the Remove question, and the actions.
 
 import { useState, type ReactNode } from "react";
+import { refreshFeatures } from "../addons";
 import { errorParts } from "../api";
 import { PermissionList, TrustTag } from "../components/Permissions";
 import { Confirm, ErrorBox, Loading, Pill } from "../components/ui";
 import {
   installedVersion,
+  liveNotes,
+  loadsWeb,
   marketApi,
   needsOf,
   newestVersion,
@@ -21,7 +26,9 @@ import {
   revokedText,
   TRUST,
   updateOf,
+  type ChangeAnswer,
   type InstalledPlugin,
+  type LiveNote,
   type MarketPlugin,
   type PluginsView,
 } from "../marketplaceApi";
@@ -34,6 +41,7 @@ import {
   isBeta,
   piecesOf,
 } from "./pluginLook";
+import { PluginAdds, PluginProjects, useProjectPlugins } from "./PluginProjects";
 
 export type Err = { message: string; hint?: string; details?: string[] } | null;
 
@@ -72,21 +80,35 @@ export const problemsOf = (p: InstalledPlugin) =>
 export const canRemove = (p: InstalledPlugin) =>
   p.can_remove ?? (p.from ?? p.source ?? "") !== "image";
 
-/** Run one change (update, roll back, on/off, remove), then say so and read the installed plugins again. */
+/** The toast after a change: what it does now (applied), once the page loads again (reload), or after the restart. */
+type Words = { now: string; reload?: string; later: string };
+const say = (w: Words, note: LiveNote | undefined) =>
+  note === "applied" ? w.now : note === "reload" ? (w.reload ?? w.now) : w.later;
+
+/**
+ * Run one change (update, roll back, on/off, remove), then say so and read the installed plugins again. v0.17.1 the
+ * answer says what applied without a restart (a web/content-only plugin): `notes` keeps it per plugin for its row
+ * ("applied", "applied — reload the page"), and a new web part loads at once (/api/features is read again).
+ */
 export function usePluginAct(reload: () => Promise<void> | void) {
   const { toast } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<Err>(null);
+  const [notes, setNotes] = useState<Record<string, LiveNote>>({});
   const act = async (
     name: string,
     run: () => Promise<unknown>,
-    done: string,
+    done: string | Words,
   ): Promise<boolean> => {
     setBusy(name);
     setErr(null);
+    setNotes(({ [name]: _gone, ...rest }) => rest);
     try {
-      await run();
-      toast(done);
+      const answer = (await run()) as ChangeAnswer | null;
+      const got = liveNotes(answer);
+      setNotes((n) => ({ ...n, ...got }));
+      toast(typeof done === "string" ? done : say(done, got[name]));
+      if (loadsWeb(answer)) void refreshFeatures();
       await reload();
       return true;
     } catch (e) {
@@ -100,32 +122,32 @@ export function usePluginAct(reload: () => Promise<void> | void) {
     const t = titleOf(p);
     return {
       setOn: (on: boolean) =>
-        act(
-          p.name,
-          () => marketApi.setOn(p.name, on),
-          `${t} is ${on ? "on" : "off"} after the next restart.`,
-        ),
+        act(p.name, () => marketApi.setOn(p.name, on), {
+          now: `${t} is ${on ? "on" : "off"} now.`,
+          reload: `${t} is ${on ? "on" : "off"} now. Reload the page to see it.`,
+          later: `${t} is ${on ? "on" : "off"} after the next restart.`,
+        }),
       update: (to?: string) =>
-        act(
-          p.name,
-          () => marketApi.update(p.name, to),
-          `${t} is updated. Restart keel to use it.`,
-        ),
+        act(p.name, () => marketApi.update(p.name, to), {
+          now: `${t} is updated. It works now.`,
+          reload: `${t} is updated. Reload the page to use it.`,
+          later: `${t} is updated. Restart keel to use it.`,
+        }),
       rollback: () =>
-        act(
-          p.name,
-          () => marketApi.rollback(p.name),
-          `${t} goes back to ${p.previous} after the restart.`,
-        ),
+        act(p.name, () => marketApi.rollback(p.name), {
+          now: `${t} is back on ${p.previous}.`,
+          reload: `${t} is back on ${p.previous}. Reload the page to use it.`,
+          later: `${t} goes back to ${p.previous} after the restart.`,
+        }),
       remove: (data: "keep" | "delete") =>
-        act(
-          p.name,
-          () => marketApi.remove(p.name, data),
-          `${t} is removed after the restart.`,
-        ),
+        act(p.name, () => marketApi.remove(p.name, data), {
+          now: `${t} is removed.`,
+          reload: `${t} is removed. Reload the page to drop its pages.`,
+          later: `${t} is removed after the restart.`,
+        }),
     };
   };
-  return { busy, err, setErr, act, actions };
+  return { busy, err, setErr, act, actions, notes };
 }
 
 /** "Remove X?": its tables stay; its files in /data may go too. */
@@ -214,7 +236,9 @@ export function PluginDetailPage({
   onBack: (tab: "installed" | "market" | "sources") => void;
   onInstall: (name: string) => void;
 }) {
-  const { health } = useApp();
+  const { health, pid } = useApp();
+  // v0.17.1 a plugin each project turns on: what it adds (Tools › Plugins' card said it) and its Projects section
+  const perProject = useProjectPlugins(pid).data?.find((x) => x.name === name);
   const r = useLoad(`market-plugin:${name}`, () => marketApi.plugin(name), {
     live: false,
   });
@@ -453,7 +477,15 @@ export function PluginDetailPage({
                 {TRUST[trust ?? ""]?.about ?? "keel does not know its parts yet."}
               </p>
             )}
+            {perProject && <PluginAdds plugin={perProject} />}
           </Section>
+          {mine && (
+            <PluginProjects
+              name={name}
+              keelOn={on}
+              onKeelOn={() => void view.reload()}
+            />
+          )}
           <Section
             id="mk-versions"
             title="Versions"

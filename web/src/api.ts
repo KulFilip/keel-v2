@@ -544,7 +544,7 @@ export function normalizeStack(raw: unknown): Stack {
 export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[]; label?: string };
 export type McpAllow = Record<string, string[]>;
 
-/** v0.10.0 a keel plugin (Tools › Plugins): what it adds, and whether it is on for this project (scope: its own choice
+/** v0.10.0 a keel plugin (Control › Plugins): what it adds, and whether it is on for this project (scope: its own choice
  *  or every project's). */
 export type PluginAction = { name: string; with: Record<string, "required" | "optional">; summary: string };
 export type Plugin = {

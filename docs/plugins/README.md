@@ -54,7 +54,7 @@ In plain words:
 | Module Federation for the web                                         | ties plugins to one bundler; an **import map** is a web standard and simpler                                                                                                  |
 | one big repo forever, with feature flags                              | not "light"; others cannot publish                                                                                                                                            |
 
-Content-only and web-only plugins load **without** a restart. Only engine and api code needs one.
+Content-only and web-only plugins load **without** a restart (since 0.17.1: [22-one-plugins-page.md](22-one-plugins-page.md) §5). Only engine and api code needs one.
 
 ## Core and plugins: what goes where
 
@@ -115,6 +115,7 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [18-step5-report.md](18-step5-report.md)                     | step 5 is built: a plugin's own repo ([plugin-repo/](plugin-repo/), [split-plugin.sh](tools/split-plugin.sh)), `plugins.lock` and `PLUGINS=lock`, the [template repo](template-repo/), the proof, Milad's steps                                                         |
 | [19-step6-report.md](19-step6-report.md)                     | step 6 is built: the core image (`:core`, `keel2 start --core`), a clean keel with only its core (`hasPage`), the core e2e, the image sizes                                                                                                                              |
 | [20-track-report.md](20-track-report.md)                     | the whole track: 0.16.1 + steps 1–7, parity with 0.16.1, every plugin alone and off, every suite, what is left for Milad, the open decisions                                                                                                                             |
+| [22-one-plugins-page.md](22-one-plugins-page.md)             | 0.17.1: Control › Plugins is the one place for plugins (Tools › Plugins is gone, a "This project" switch, a plugin's Projects), the Code page's toolbar, the menu's view switch |
 | [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos in `keel-studio` (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license; [move-plugin-repos.sh](tools/move-plugin-repos.sh) moves the first ones from `MiladNalbandi` there |
 
 ## Open questions for Milad

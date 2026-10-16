@@ -6,6 +6,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import keel.api.pluginhost.PluginHost
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -18,6 +19,7 @@ import java.time.Instant
  */
 class MarketplaceApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
+    @Autowired lateinit var host: PluginHost
 
     @BeforeEach
     fun clean() {
@@ -116,11 +118,59 @@ class MarketplaceApiTest : ApiTest() {
 
         delete("/api/plugins/db?data=maybe").andExpect(status().isBadRequest)
         delete("/api/plugins/db?data=delete").andExpect(status().isOk)
-        assertThat(engine.calls.last().query).isEqualTo("data=delete&by=person")
+        assertThat(engine.calls.last { it.path == "/marketplace/installed/db" }.query).isEqualTo("data=delete&by=person")
         assertThat(events("plugin.removed").last()["data"].asText()).isEqualTo("delete")
         assertThat(events("plugin.removed").last()["version"].asText()).isEqualTo("1.3.0")
         delete("/api/plugins/db").andExpect(status().isNotFound)          // the engine's 404, passed on
         post("/api/plugins/install", mapOf("name" to "db", "version" to "../1")).andExpect(status().isBadRequest)
+    }
+
+    // ---------- v0.17.1 what needs no restart applies at once (docs/plugins/22-one-plugins-page.md §5)
+
+    private val resolved = dataDir.resolve("plugins").resolve("run").resolve("resolved.json")
+
+    private fun loaded(vararg names: String) {
+        java.nio.file.Files.createDirectories(resolved.parent)
+        val dir = dataDir.resolve("plugins").resolve("store")
+        java.nio.file.Files.writeString(resolved, mapper.writeValueAsString(mapOf("sdk" to 1, "mode" to "on", "problems" to emptyList<Any>(),
+            "plugins" to names.map { mapOf("name" to it, "title" to it, "version" to "0.1.0-beta.1", "source" to "file",
+                "dir" to dir.resolve(it).toString(), "web" to mapOf("entry" to "web/index.js")) })))
+    }
+
+    @Test
+    fun `a web or content-only plugin applies at once, the plugin host reads it, and nothing asks for a restart`() {
+        try {
+            engine.market.live["hello"] = "applied"
+            loaded("hello")                                  // what the engine's apply-live wrote
+            val res = post("/api/plugins/install-file", mapOf("path" to "/data/hello-0.1.0-beta.1.kplug")).andExpect(status().isOk).json()
+            assertThat(engine.lastBody("/marketplace/apply-live")!!["names"].map { it.asText() }).containsExactly("hello")
+            assertThat(res["live"]["names"]["hello"].asText()).isEqualTo("applied")
+            assertThat(res["live"]["applied"].single()["name"].asText()).isEqualTo("hello")
+            assertThat(host.plugins.map { it.name }).containsExactly("hello")
+            assertThat(get("/api/features").json()["plugins"].map { it["name"].asText() }).containsExactly("hello")
+            assertThat(notes().first { it["title"].asText().startsWith("Hello is installed") }["title"].asText())
+                .isEqualTo("Hello is installed: it works now")
+
+            loaded()                                         // turned off: the engine took it out of resolved.json
+            val off = put("/api/plugins/hello", mapOf("on" to false)).andExpect(status().isOk).json()
+            assertThat(off["live"]["names"]["hello"].asText()).isEqualTo("applied")
+            assertThat(engine.lastBody("/marketplace/apply-live")!!["names"].map { it.asText() }).containsExactly("hello")
+            assertThat(get("/api/features").json()["plugins"].size()).isEqualTo(0)
+        } finally {
+            java.nio.file.Files.deleteIfExists(resolved)
+            host.reload()
+        }
+    }
+
+    @Test
+    fun `a plugin with code waits for the restart, and the answer says so`() {
+        post("/api/plugins/install", mapOf("name" to "db", "version" to "1.3.0")).andExpect(status().isOk)
+        val off = put("/api/plugins/db", mapOf("on" to false)).andExpect(status().isOk).json()
+        assertThat(off["live"]["names"]["db"].asText()).isEqualTo("restart")
+        assertThat(off["live"]["applied"].size()).isEqualTo(0)
+        assertThat(get("/api/plugins/installed").json()["restart"]["pending"].asBoolean()).isTrue()
+        // an engine that does not answer apply-live: everything waits, the change itself went through
+        engine.market.refusals.clear()
     }
 
     @Test

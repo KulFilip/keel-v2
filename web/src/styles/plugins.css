@@ -1,17 +1,5 @@
-/* v0.10.0 the Database and Git plugins: Tools › Plugins cards, Connections › Databases and GitHub, Map › Query,
-   Code › Git. Colours come from the app's tokens (styles.css), so both themes follow. */
-
-/* Tools › Plugins */
-.pl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
-.pl-card { display: grid; gap: 8px; align-content: start; min-width: 0; padding: 14px 16px; border: 1px solid var(--border);
-  border-radius: 12px; background: var(--panel); }
-.pl-card.on { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
-.pl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pl-head b { font-size: 15px; }
-.pl-about { margin: 0; color: var(--dim); font-size: 13px; }
-.pl-adds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12.5px; }
-.pl-adds dt { color: var(--dim); }
-.pl-adds dd { margin: 0; overflow-wrap: anywhere; }
+/* v0.10.0 the Database and Git plugins (switched in Control › Plugins since 0.17.1): Connections › Databases and
+   GitHub, Map › Query, Code › Git. Colours come from the app's tokens (styles.css), so both themes follow. */
 
 /* Connections › Databases, GitHub */
 .db-list { display: grid; gap: 10px; }

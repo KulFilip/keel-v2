@@ -147,9 +147,10 @@ starts or is saved until you press one.
   and shows what it runs. **Save the workflow** (into a folder if you like), or **Ask KeelBot to fix it** when the
   check finds a problem.
 
-- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (Code page header, or **Hide the header** in
-  the status bar) hides the Code header; **KeelBot only** (or ⤢ in the panel, or **KeelBot** in the menu) opens the
-  KeelBot alone on its own page, where a `file:line` link opens the Code page at that line.
+- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (in
+  the status bar at the bottom, or ⇧⌘\) hides everything but the code; ⤢ in the panel (or **KeelBot** in the menu)
+  opens KeelBot alone on its own page, where a `file:line` link opens the Code page at that line. The status bar also
+  shows the code graph index and **↻ Rebuild**.
 - **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the
   running flow; the open file always goes along.
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
@@ -184,14 +185,17 @@ the budget and connections. Each other part is a plugin with its own version:
 **Control › Plugins** has three tabs:
 
 - **Installed:** every plugin with its version and an On switch. Turning a plugin on or off restarts keel (about 30 s).
-  A plugin that others need goes off together with them, and one that needs others turns them on.
+  A plugin that others need goes off together with them, and one that needs others turns them on. Database, Git,
+  CI/CD and Code Review also have a **This project** switch: they are on only for the projects you choose.
 - **Marketplace:** plugins you can add, with who made them, what they may do ("Runs code in keel"), and what they
   need. keel checks each package's signature before it installs. The public marketplace opens soon; until then it
   shows the plugins of the catalogs you add.
 - **Sources and rules:** the catalogs keel reads (add one with its URL and public key), and, for plugin authors, a
   `.kplug` file from a path in `/data` (keel marks it **unsigned**).
 
-Click a plugin to see its page: its parts (engine, api, web, content), permissions, versions and what it needs.
+Click a plugin to see its page: its parts (engine, api, web, content), permissions, versions and what it needs. For
+Database, Git, CI/CD and Code Review it also shows what each adds (KeelBot tools, workflow blocks, commands) and a
+**Projects** list with a switch per project.
 Agents cannot install plugins; they can only **ask**, and you approve in the Inbox.
 
 Start keel with fewer plugins:
@@ -207,7 +211,8 @@ Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publis
 
 ## Plugins: Database, Git and CI/CD
 
-Turn them on in **Tools › Plugins** (for this project, or for every project). Nothing new to learn: they add to the
+Turn them on in **Control › Plugins**: in **Installed**, the plugin's **This project** switch (or **For every
+project**); its own page lists every project with its switch. Nothing new to learn: they add to the
 pages you use.
 
 - **Database**: add the project's database in **Connections › Databases** (keel suggests what docker compose,

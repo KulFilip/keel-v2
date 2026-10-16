@@ -203,12 +203,49 @@ export type RestartAnswer = {
   scheduled: boolean;
   running: number;
 };
+/** v0.17.1 one plugin the engine applied without a restart (a web/content-only plugin): from → to (null: none). */
+export type LiveApplied = {
+  name: string;
+  from: string | null;
+  to: string | null;
+  web?: boolean;
+  content?: boolean;
+};
+/** v0.17.1 what a change did now: applied (web/content-only plugins), and per touched plugin applied | restart | same. */
+export type LiveAnswer = {
+  applied?: LiveApplied[];
+  names?: Record<string, string>;
+  pending_restart?: Pending;
+};
 export type ChangeAnswer = {
   name?: string;
   title?: string;
   version?: string;
+  live?: LiveAnswer;
   [key: string]: unknown;
 };
+
+/** What a row says after a change: applied now, applied but the page must load again (a web part left or changed),
+ *  or it waits for the restart. */
+export type LiveNote = "applied" | "reload" | "restart";
+
+/** The note for each plugin a change touched (an older api says nothing: no note). */
+export function liveNotes(a: ChangeAnswer | null | undefined): Record<string, LiveNote> {
+  const out: Record<string, LiveNote> = {};
+  const live = a?.live;
+  if (!live) return out;
+  for (const [name, v] of Object.entries(live.names ?? {}))
+    if (v === "restart") out[name] = "restart";
+    else if (v === "applied") out[name] = "applied";
+  for (const x of live.applied ?? [])
+    // a web part that was loaded (turned off, removed, another version) stays in this page until it loads again
+    out[x.name] = x.web && x.from ? "reload" : "applied";
+  return out;
+}
+
+/** A change loaded a new web part: /api/features lists it, so the menu and its pages can load it now. */
+export const loadsWeb = (a: ChangeAnswer | null | undefined) =>
+  (a?.live?.applied ?? []).some((x) => x.web && x.to);
 
 /** What a plugin-install request carries for its Inbox card (the approval's payload). */
 export type InstallRequest = {

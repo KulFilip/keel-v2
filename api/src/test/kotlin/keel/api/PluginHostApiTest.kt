@@ -100,6 +100,8 @@ class PluginHostApiTest {
     }
 
     private fun get(url: String): ResultActions = mvc.perform(MockMvcRequestBuilders.get(url))
+    private fun hash12(file: Path): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)).joinToString("") { "%02x".format(it) }.take(12)
     private fun ResultActions.json(): JsonNode = mapper.readTree(andReturn().response.getContentAsString(Charsets.UTF_8))
 
     private fun tables(): List<String> = jdbc.queryForList("SELECT name FROM sqlite_master WHERE type = 'table'", String::class.java)
@@ -133,8 +135,11 @@ class PluginHostApiTest {
         val demo = f["plugins"][0]
         assertThat(demo["title"].asText()).isEqualTo("Demo")
         assertThat(demo["version"].asText()).isEqualTo("1.0.0")
-        assertThat(demo["web"]["entry"].asText()).isEqualTo("/plugins/demo/1.0.0/web/index.js")
-        assertThat(demo["web"]["css"].map { it.asText() }).containsExactly("/plugins/demo/1.0.0/web/style.css")
+        // v0.17.1 the url carries the file's content hash, so a changed file never comes from a browser's year-long cache
+        assertThat(demo["web"]["entry"].asText()).isEqualTo("/plugins/demo/1.0.0/web/index.js?v=" + hash12(PluginHostApiTest.demo.resolve("web/index.js")))
+        assertThat(demo["web"]["css"].map { it.asText() }).containsExactly("/plugins/demo/1.0.0/web/style.css?v=" + hash12(PluginHostApiTest.demo.resolve("web/style.css")))
+        // the hashed url still serves the file
+        get(demo["web"]["entry"].asText()).andExpect(status().isOk)
         assertThat(f["plugins"][1].has("web")).isTrue()
         assertThat(f["plugins"][1]["web"].isNull).isTrue()
     }

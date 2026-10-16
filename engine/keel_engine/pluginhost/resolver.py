@@ -81,15 +81,20 @@ class Resolution:
 
     def env(self) -> dict[str, str]:
         """run/env: engine folders for sys.path, engine packages to load, and jars for the api's loader.path."""
-        paths, packages, loader = [], [], []
-        for e in (p.entry() for p in self.plugins):
-            if e["engine"]:
-                paths.append(e["engine"]["path"])
-                packages.append(e["engine"]["package"])
-            if e["api"]:
-                loader += e["api"]["jars"] + ([e["api"]["lib"]] if e["api"]["lib"] else [])
-        return {"KEEL_PLUGIN_PATHS": ":".join(paths), "KEEL_PLUGIN_ADDONS": ",".join(packages),
-                "KEEL_PLUGIN_LOADER_PATH": ",".join(loader)}
+        return env_of(p.entry() for p in self.plugins)
+
+
+def env_of(entries) -> dict[str, str]:
+    """run/env for these resolved.json entries (Resolution.env; marketplace/live.py writes it too)."""
+    paths, packages, loader = [], [], []
+    for e in entries:
+        if e.get("engine"):
+            paths.append(e["engine"]["path"])
+            packages.append(e["engine"]["package"])
+        if e.get("api"):
+            loader += e["api"]["jars"] + ([e["api"]["lib"]] if e["api"].get("lib") else [])
+    return {"KEEL_PLUGIN_PATHS": ":".join(paths), "KEEL_PLUGIN_ADDONS": ",".join(packages),
+            "KEEL_PLUGIN_LOADER_PATH": ",".join(loader)}
 
 
 # ------------------------------------------------------------------ finding the folders

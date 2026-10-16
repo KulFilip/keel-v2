@@ -69,6 +69,18 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
         return pass { engine.postWaiting("/marketplace/install-file", body) }
     }
 
+    /**
+     * v0.17.1 the engine applies the web and content-only changes now (it rewrites run/resolved.json) and says, for
+     * each of [names], applied, restart or same. Null when the engine does not answer: everything waits for the restart.
+     */
+    fun applyLive(names: Collection<String>): JsonNode? = try {
+        engine.post("/marketplace/apply-live", mapOf("names" to names.distinct()))
+    } catch (e: EngineError) {
+        null
+    } catch (e: keel.api.engine.EngineDown) {
+        null
+    }
+
     fun sources(): JsonNode = pass { engine.get("/marketplace/sources") }
 
     fun saveSources(body: JsonNode): JsonNode = pass { engine.put("/marketplace/sources", body) }

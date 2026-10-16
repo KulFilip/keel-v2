@@ -79,8 +79,10 @@ export function createDb() {
     /** v0.9.0: each project's flows, newest first (GET /runs), and what POST /workflows/import saves (null: the fix workflow) */
     runs: {} as Record<string, RunRow[]>,
     importAs: null as Workflow | null,
-    /** v0.10.0 plugins: which are on, the database connections and query answers, git's state */
+    /** v0.10.0 plugins: which are on for every project (the "*" row), the database connections and query answers, git's
+     *  state. v0.17.1 projectPlugins: a project's own choice, which wins (PUT …/plugins/{name} with scope "project"). */
     plugins: { db: false, git: false } as Record<string, boolean>,
+    projectPlugins: {} as Record<string, Record<string, boolean>>,
     /** v0.13.0 GET /api/features: keel without an add-on unless a test installs one */
     features: { mode: "dev", modes: ["dev"], parts: { dev: true }, addons: [], screens: [], plugins: [] } as Features,
     dbConns: [] as DbConnection[],
@@ -102,24 +104,30 @@ export function createDb() {
 export type Db = ReturnType<typeof createDb>;
 
 export function handlers(db: Db) {
-  const pluginList = (): Plugin[] => [
+  // as the api answers: a project's own row wins over every project's ("*"); scope says which one it is
+  const pluginList = (pid: string): Plugin[] => pluginCatalog().map((p) => {
+    const own = db.projectPlugins[pid]?.[p.name];
+    const all = db.plugins[p.name];
+    return { ...p, enabled: own ?? all ?? false, scope: own !== undefined ? "project" : all ? "all" : null };
+  });
+  const pluginCatalog = (): Plugin[] => [
     { name: "db", title: "Database", description: "Look at the project's database, run safe queries, and check data in workflows.", needs: ["database"],
       tools: { server: "keel-db", read: ["db_connections", "db_schema", "db_query"] },
       actions: [{ name: "db:check", with: { sql: "required", expect: "optional", connection: "optional" }, summary: "a data check" },
         { name: "db:query", with: { sql: "required", connection: "optional" }, summary: "a read" }],
       shows_in: ["connections", "map", "workflows", "keelbot", "inbox"], commands: [{ name: "sql", description: "Ask a data question" }],
-      enabled: db.plugins.db, scope: db.plugins.db ? "project" : null },
+      },
     { name: "git", title: "Git", description: "Branches, commits, pushes and pull requests.", needs: ["github"],
       tools: { server: "keel-git", read: ["git_status", "pr_status"] }, actions: [{ name: "git:push", with: {}, summary: "push" }],
       shows_in: ["connections", "code", "workflows", "keelbot", "inbox"], commands: [{ name: "commit", description: "Write a commit message" }],
-      enabled: db.plugins.git, scope: db.plugins.git ? "project" : null },
+      },
     { name: "ci", title: "CI/CD", description: "Watch the project's pipelines, see why one failed, and fix it with a flow.", needs: ["github"],
       tools: { server: "keel-ci", read: ["ci_runs", "ci_failure"] }, actions: [{ name: "ci:wait", with: { minutes: "optional" }, summary: "wait for CI" }],
       shows_in: ["jobs", "workflows", "keelbot", "settings"], commands: [{ name: "ci", description: "Why did CI fail" }],
-      enabled: db.plugins.ci ?? false, scope: db.plugins.ci ? "project" : null },
+      },
     { name: "review", title: "Code Review", description: "Review the branch you are on or any pull request.", needs: ["github"],
       tools: {}, actions: [], shows_in: ["code", "keelbot"], commands: [{ name: "review-branch", description: "Review this branch" }],
-      enabled: db.plugins.review ?? false, scope: db.plugins.review ? "project" : null },
+      },
   ];
   const log = async (req: Request) => {
     let body: unknown = null;
@@ -338,11 +346,17 @@ export function handlers(db: Db) {
       return HttpResponse.json({ folder: f });
     }),
     // v0.10.0 plugins
-    http.get("/api/projects/:pid/plugins", () => HttpResponse.json(pluginList())),
+    http.get("/api/projects/:pid/plugins", ({ params }) => HttpResponse.json(pluginList(String(params.pid)))),
     http.put("/api/projects/:pid/plugins/:name", async ({ request, params }) => {
-      const b = (await log(request)) as { enabled: boolean };
-      db.plugins[String(params.name)] = b.enabled;
-      return HttpResponse.json(pluginList());
+      const b = (await log(request)) as { enabled: boolean; scope?: "project" | "all" };
+      const pid = String(params.pid);
+      const name = String(params.name);
+      const own = (db.projectPlugins[pid] ??= {});
+      if (b.scope === "all") {
+        db.plugins[name] = b.enabled;
+        delete own[name];
+      } else own[name] = b.enabled;
+      return HttpResponse.json(pluginList(pid));
     }),
     http.get("/api/github", () => HttpResponse.json(db.github)),
     // v0.14.0 Connections › GitLab (the Code Review plugin)

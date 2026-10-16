@@ -55,11 +55,16 @@ data class Requires(val sdk: Int? = null, val keel: String? = null, val plugins:
 /** A plugin that was left out, and why. */
 data class PluginProblem(val name: String = "", val version: String? = null, val dir: String? = null, val error: String = "")
 
+/** Spring's event after [PluginHost.reload]: what caches the plugin list (the per-project catalog) reads it again. */
+data class PluginsReloaded(val plugins: List<String>)
+
 /** Where the browser loads a plugin's web part from: absolute urls under /plugins/<name>/<version>/web/. */
 data class PluginWebUrls(val entry: String, val css: List<String>)
 
 /**
- * The plugins keel-start resolved for this run. It reads `<keel.data>/plugins/run/resolved.json` once, at start.
+ * The plugins keel-start resolved for this run. It reads `<keel.data>/plugins/run/resolved.json` at start, and again
+ * when [reload] is called: v0.17.1 the engine rewrites the file when a web or content-only plugin is turned on or off,
+ * installed or removed (POST /marketplace/apply-live), so its web part comes and goes without a restart.
  * No file means no plugins (a dev run without keel-start). A file it cannot read also means no plugins, plus one
  * problem that says why. A plugin with a bad name, version or folder is left out with a problem too.
  */
@@ -69,7 +74,12 @@ class PluginHost(props: KeelProperties) {
 
     val file: Path = props.dataDir.resolve("plugins").resolve("run").resolve("resolved.json")
 
-    private val state: State = load(file)
+    @Volatile private var state: State = load(file)
+
+    /** Read run/resolved.json again (after the engine applied a web or content-only change). */
+    fun reload() {
+        state = load(file)
+    }
 
     /** on, image or off. off when nothing was resolved. */
     val mode: String get() = state.mode
@@ -98,10 +108,33 @@ class PluginHost(props: KeelProperties) {
         return file.takeIf { inside }
     }
 
-    /** A web file's path is relative to the plugin folder ("web/index.js"); one without "web/" is taken as inside web/. */
+    /**
+     * A web file's path is relative to the plugin folder ("web/index.js"); one without "web/" is taken as inside web/.
+     * v0.17.1: the url ends with `?v=<the file's sha256, 12 hex>`. The files are served `immutable` for a year, and a
+     * plugin can change without a new version (a keel update, a rebuild), so the content picks the url, not the version.
+     */
     private fun webUrl(p: ResolvedPlugin, file: String): String {
         val rel = file.trim().removePrefix("./").trimStart('/')
-        return "/plugins/${p.name}/${p.version}/" + if (rel.startsWith("web/")) rel else "web/$rel"
+        val path = if (rel.startsWith("web/")) rel else "web/$rel"
+        val url = "/plugins/${p.name}/${p.version}/$path"
+        return contentHash(Paths.get(p.dir).resolve(path))?.let { "$url?v=$it" } ?: url
+    }
+
+    private data class Stamp(val size: Long, val modified: Long, val hash: String)
+
+    private val hashes = java.util.concurrent.ConcurrentHashMap<Path, Stamp>()
+
+    /** The first 12 hex of the file's sha256 (kept while its size and time stay the same), or null when it is not there. */
+    private fun contentHash(file: Path): String? {
+        if (!Files.isRegularFile(file)) return null
+        return runCatching {
+            val size = Files.size(file)
+            val modified = Files.getLastModifiedTime(file).toMillis()
+            hashes[file]?.takeIf { it.size == size && it.modified == modified }?.hash
+                ?: java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file))
+                    .joinToString("") { "%02x".format(it) }.take(12)
+                    .also { hashes[file] = Stamp(size, modified, it) }
+        }.getOrNull()
     }
 
     private data class State(val mode: String, val plugins: List<ResolvedPlugin>, val problems: List<PluginProblem>)

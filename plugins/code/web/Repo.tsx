@@ -1,22 +1,21 @@
 // Repo (Project): a small, read-only VS Code for the project — files with git and keel marks, editor tabs,
-// search, source control, and keel's own pages (the IDE is in ./Ide.tsx). The head keeps the code graph index and
-// "Update from <base>", the one action here that changes the repo (a git merge that stops on a conflict).
+// search, source control, and keel's own pages (the IDE is in ./Ide.tsx). The head keeps "Update from <base>", the one
+// action here that changes the repo (a git merge that stops on a conflict). v0.17.1: the code graph index, its Rebuild
+// and Focus are in the status bar (./IndexStatus.tsx, ./Ide.tsx); KeelBot's own page opens from its panel.
 
 import { useEffect, useState } from "react";
-import { ErrorBox, errorParts, go, isMac, keyLabel, PageHead, plural, useApp, useLoad, usePages } from "@keel/web-sdk";
-import { codeApi as api, type IndexStatus, type RepoInfo, type UpdateFromBase } from "./codeApi";
+import { ErrorBox, errorParts, isMac, PageHead, useApp, useLoad } from "@keel/web-sdk";
+import { codeApi as api, type RepoInfo, type UpdateFromBase } from "./codeApi";
 import { RepoIde } from "./Ide";
-import { FOCUS_EVENT, FOCUS_KEYS } from "./model";
+import { FOCUS_EVENT } from "./model";
 
 export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
-  // KeelBot's own page is a plugin's (plugins/keelbot): its button only when this keel has it
-  const keelbot = usePages().some((p) => p.id === "helper");
   const repo = useLoad(`repo:${pid}`, () => api.repo(pid));
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
   /** Bumped after a merge brought new files: the explorer reads the tree again. */
   const [version, setVersion] = useState(0);
-  // Focus: the page head (title, the index row, Update from base) goes, so the code and KeelBot get the room
+  // Focus: the page head (title, Update from base) goes, so the code and KeelBot get the room
   const [focus, setFocus] = useState<boolean>(() => {
     try { return localStorage.getItem("keel2.repo.focus") === "1"; } catch { return false; }
   });
@@ -56,7 +55,6 @@ export function RepoPage({ pid }: { pid: string }) {
     <div className={`repo-page${focus ? " focus" : ""}`}>
       {!focus && <PageHead title="Code" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
         actions={<>
-          <IndexBadge pid={pid} />
           {repo.data && repo.data.base && repo.data.branch && repo.data.base !== repo.data.branch && (
             <UpdateFromBaseButton pid={pid} r={repo.data} onResult={(x) => {
               setResult(x);
@@ -64,66 +62,12 @@ export function RepoPage({ pid }: { pid: string }) {
               if ("merged" in x && x.merged) setVersion((v) => v + 1);
             }} />
           )}
-          {keelbot && <button className="btn sm" type="button" onClick={() => go("helper")} title="Only KeelBot, on a page of its own">KeelBot only</button>}
-          <button className="btn sm ghost" type="button" onClick={() => setFocus(true)}
-            title={`Focus mode (${keyLabel(FOCUS_KEYS)}): only the code, like an IDE; Esc twice comes back`}>Focus</button>
         </>} />}
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}
       <RepoIde pid={pid} repo={repo.data} version={version} focus={focus} onFocus={setFocus} />
     </div>
   );
-}
-
-/** "Index: ready · 412 files · 3,100 symbols · 5 min ago" and Rebuild: the code graph agents query instead of grep. The
- *  index is the Graph plugin's api (/index): without the Graph (the Review set) there is no row and no request. */
-export function IndexBadge({ pid }: { pid: string }) {
-  const graph = usePages().some((p) => p.id === "graph");
-  return graph ? <IndexRow pid={pid} /> : null;
-}
-
-function IndexRow({ pid }: { pid: string }) {
-  const { toast } = useApp();
-  const idx = useLoad(`index:${pid}`, () => api.index(pid));
-  const [busy, setBusy] = useState(false);
-  const i = idx.data;
-  const rebuild = async () => {
-    setBusy(true);
-    try {
-      idx.setData(await api.rebuildIndex(pid));
-    } catch (e) {
-      toast(errorParts(e).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (!i) return null;
-  const text = indexText(i);
-  return (
-    <span className="row rp-index-row" style={{ gap: 8 }} aria-label="Code graph index">
-      <span className={`tag rp-index ${i.status === "failed" ? "star" : ""}`} title={i.error ?? "The code graph agents use before grep"}>{text}</span>
-      <button className="btn sm" type="button" onClick={rebuild} disabled={busy || i.status === "indexing"}>
-        {busy ? "Starting…" : "Rebuild"}
-      </button>
-    </span>
-  );
-}
-
-function ago(iso: string): string {
-  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
-  if (Number.isNaN(min)) return "";
-  if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
-  if (min < 48 * 60) return `${Math.round(min / 60)} h ago`;
-  return `${Math.round(min / 1440)} days ago`;
-}
-
-function indexText(i: IndexStatus): string {
-  if (i.status === "indexing") return "Index: indexing…";
-  if (i.status === "failed") return `Index: failed: ${i.error ?? "unknown reason"}`;
-  if (i.status === "idle") return "Index: not built yet";
-  const when = i.indexed_at ? ` · ${ago(i.indexed_at)}` : "";
-  return `Index: ready · ${plural(i.files, "file")} · ${plural(i.symbols, "symbol")}${when}`;
 }
 
 function UpdateFromBaseButton({ pid, r, onResult }: {

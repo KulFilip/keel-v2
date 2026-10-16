@@ -94,7 +94,11 @@ describe("Code page: Focus and KeelBot's room", () => {
     expect(
       await screen.findByRole("heading", { name: "Code" }),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Focus" }));
+    // v0.17.1 Focus is only in the status bar (not in the head)
+    const head = screen.getByRole("heading", { name: "Code" }).closest(".top") as HTMLElement;
+    expect(within(head).queryByRole("button", { name: /Focus/ })).toBeNull();
+    const bar = document.querySelector<HTMLElement>("footer.ide-sb")!;
+    await user.click(within(bar).getByRole("button", { name: /^Focus/ }));
     expect(screen.queryByRole("heading", { name: "Code" })).toBeNull();
     expect(localStorage.getItem("keel2.repo.focus")).toBe("1");
     // the shell hides keel's menu and the usage bar while <html data-focus> is set (styles/repo.css)
@@ -159,12 +163,17 @@ describe("Code page: Focus and KeelBot's room", () => {
     await waitFor(() => expect(location.hash).toBe("#/repo"));
   });
 
-  it("has a KeelBot only button on the Code page and a KeelBot entry in the menu", async () => {
+  it("v0.17.1: the head has no KeelBot only or Focus button; KeelBot opens alone from its panel or the menu", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";
     render(<App />);
+    const head = (await screen.findByRole("heading", { name: "Code" })).closest(".top") as HTMLElement;
+    expect(within(head).getByRole("button", { name: "Update from main" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "KeelBot only" })).toBeNull();
+    expect(within(head).queryByRole("button", { name: /Focus/ })).toBeNull();
+    expect(within(head).queryByRole("button", { name: /Rebuild/ })).toBeNull();
     await user.click(
-      await screen.findByRole("button", { name: "KeelBot only" }),
+      within(screen.getByRole("navigation", { name: "Screens" })).getByRole("link", { name: "KeelBot" }),
     );
     await waitFor(() => expect(location.hash).toBe("#/helper"));
     expect(
@@ -181,12 +190,13 @@ describe("Code page: Focus and KeelBot's room", () => {
 describe("Code with other plugins off", () => {
   afterEach(() => restorePlugins());
 
-  it("without KeelBot: no KeelBot only button", async () => {
+  it("without KeelBot: no KeelBot in the menu, and the head has only Update from main", async () => {
     withoutPages("helper");
     at("#/repo");
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Update from main" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "KeelBot only" })).toBeNull();
+    const update = await screen.findByRole("button", { name: "Update from main" });
+    expect(within(update.closest(".top") as HTMLElement).getAllByRole("button")).toHaveLength(1);
+    expect(within(screen.getByRole("navigation", { name: "Screens" })).queryByRole("link", { name: "KeelBot" })).toBeNull();
   });
 
   it("the keel view links to the Wiki only when this keel has it, and Refresh stale goes with it", async () => {

@@ -291,6 +291,12 @@ button.sb-i:hover { background: color-mix(in srgb, var(--on-accent) 14%, transpa
 .sb-sp { flex: 1; }
 .sb-branch span { font-weight: 600; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; }
 .sb-rule.frozen { background: color-mix(in srgb, var(--on-accent) 18%, transparent); font-weight: 600; }
+/* v0.17.1 the code graph index and its Rebuild (IndexStatus.tsx), next to the project name */
+.sb-index { display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto; }
+.sb-itext { display: inline-block; line-height: 24px; max-width: 48ch; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.sb-itext.bad { font-weight: 600; }
+button.sb-i:disabled { cursor: default; opacity: .65; }
+button.sb-i:disabled:hover { background: none; }
 
 /* ---------- quick open ---------- */
 .qo-back { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--fg) 12%, transparent); display: flex; justify-content: center; align-items: flex-start; padding: 10vh 16px 16px; }
@@ -346,7 +352,6 @@ button.sb-i:hover { background: color-mix(in srgb, var(--on-accent) 14%, transpa
   .qo-x { display: inline-flex; }
   .qo-list li { padding-block: 8px; flex-wrap: wrap; }
   .qo-dir { flex-basis: 100%; padding-left: 24px; }
-  .repo-page .rp-index-row { display: none; }
   .repo-page .top { margin-bottom: 10px; }
 }
 

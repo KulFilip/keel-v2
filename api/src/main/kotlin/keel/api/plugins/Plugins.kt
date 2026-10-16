@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
-/** v0.10.0: Tools › Plugins. enabled for this project, and whether that comes from its own choice or every project's. */
+/** v0.10.0: Control › Plugins. enabled for this project, and whether that comes from its own choice or every project's. */
 data class PluginSwitch(val enabled: Boolean = true, val scope: String = "project")
 data class PluginAskBody(val title: String = "", val command: String = "")
 
@@ -42,6 +42,12 @@ class PluginService(
     private val approvals: ApprovalService,
 ) : FlowContributor {
     @Volatile private var cache: Pair<Long, JsonNode>? = null
+
+    /** A web or content-only plugin came or went without a restart: its KeelBot commands may be in the catalog now. */
+    @org.springframework.context.event.EventListener
+    fun reloaded(@Suppress("UNUSED_PARAMETER") e: keel.api.pluginhost.PluginsReloaded) {
+        cache = null
+    }
 
     /** The catalog from the engine (kept a minute; an engine that is down gives an empty list). */
     fun catalog(): JsonNode {
@@ -69,7 +75,7 @@ class PluginService(
     fun require(pid: String, name: String) {
         if (!on(pid, name)) {
             val title = mapOf("db" to "Database", "git" to "Git", "ci" to "CI/CD", "review" to "Code Review")[name] ?: name
-            throw Conflict("The $title plugin is off for this project", "Turn it on in Tools › Plugins.")
+            throw Conflict("The $title plugin is off for this project", "Turn it on in Control › Plugins.")
         }
     }
 

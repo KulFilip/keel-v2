@@ -155,6 +155,13 @@ def reload() -> tuple[Addon, ...]:
     return loaded()
 
 
+def reload_content() -> tuple[Content, ...]:
+    """Read run/resolved.json again for the plugins' content, the add-ons stay as they are (marketplace/live.py: a
+    content-only or web plugin turned on, off, installed or removed applies without a restart)."""
+    _plugin_content.cache_clear()
+    return plugin_content()
+
+
 def info() -> dict:
     return {"addons": [a.info() for a in loaded()], "content": [c.info() for c in plugin_content()],
             "problems": list(_problems)}
@@ -216,7 +223,8 @@ def _resolved_plugins(f: Path) -> list[dict]:
 
 def plugin_content() -> tuple[Content, ...]:
     """The content sources of the loaded plugins that no loaded add-on covers, in resolved.json's order. Read once per
-    resolved.json (keel-start writes it before the engine starts) and set of add-ons: a change loads at the next start."""
+    resolved.json (keel-start writes it before the engine starts) and set of add-ons: a change loads at the next start,
+    or at once when marketplace/live.py rewrote resolved.json for a content or web plugin (reload_content)."""
     return _plugin_content(str(_resolved_file()), tuple((a.name, a.package, str(a.content)) for a in loaded()))
 
 

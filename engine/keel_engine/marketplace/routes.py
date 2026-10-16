@@ -11,6 +11,8 @@ token, like every other engine route. A refusal answers 4xx {"error", "hint", ..
     PUT    /marketplace/installed/{name} {on}         on or off (dependents go off too)
     DELETE /marketplace/installed/{name}?data=keep|delete
     POST   /marketplace/install-file {path}           a .kplug from /data (unsigned: source "file")
+    POST   /marketplace/apply-live {names?}           apply the web/content-only changes now (live.py); the api calls
+                                                      it after each change, then reads resolved.json again
     GET    /marketplace/sources, PUT {sources}        the catalogs
     GET    /marketplace/rules, PUT {rule: bool, ...}  the four rules
     GET    /marketplace/sets                          the sets a core-only keel offers (content/plugin-sets.yml)
@@ -30,7 +32,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import config
-from . import MarketError, catalog, install, local, sources
+from . import MarketError, catalog, install, live, local, sources
 
 log = logging.getLogger("keel.marketplace")
 router = APIRouter()
@@ -61,6 +63,10 @@ class FileBody(BaseModel):
     path: str
     force: bool = False
     by: str = Field(default="person", max_length=200)     # who asked (the api says), kept in installed.json
+
+
+class LiveBody(BaseModel):
+    names: list[str] = Field(default_factory=list, max_length=200)     # the plugins the change touched
 
 
 class SourcesBody(BaseModel):
@@ -149,6 +155,11 @@ async def delete_installed(name: str, data: Literal["keep", "delete"] = "keep", 
 @router.post("/marketplace/install-file")
 async def post_install_file(body: FileBody):
     return await asyncio.to_thread(install.install_file, body.path, by=body.by, force=body.force)
+
+
+@router.post("/marketplace/apply-live")
+async def post_apply_live(body: LiveBody | None = None):
+    return await asyncio.to_thread(live.apply, (body or LiveBody()).names)
 
 
 def _sources_view() -> dict:
