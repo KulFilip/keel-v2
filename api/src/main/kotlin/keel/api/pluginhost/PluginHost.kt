@@ -55,11 +55,16 @@ data class Requires(val sdk: Int? = null, val keel: String? = null, val plugins:
 /** A plugin that was left out, and why. */
 data class PluginProblem(val name: String = "", val version: String? = null, val dir: String? = null, val error: String = "")
 
+/** Spring's event after [PluginHost.reload]: what caches the plugin list (the per-project catalog) reads it again. */
+data class PluginsReloaded(val plugins: List<String>)
+
 /** Where the browser loads a plugin's web part from: absolute urls under /plugins/<name>/<version>/web/. */
 data class PluginWebUrls(val entry: String, val css: List<String>)
 
 /**
- * The plugins keel-start resolved for this run. It reads `<keel.data>/plugins/run/resolved.json` once, at start.
+ * The plugins keel-start resolved for this run. It reads `<keel.data>/plugins/run/resolved.json` at start, and again
+ * when [reload] is called: v0.17.1 the engine rewrites the file when a web or content-only plugin is turned on or off,
+ * installed or removed (POST /marketplace/apply-live), so its web part comes and goes without a restart.
  * No file means no plugins (a dev run without keel-start). A file it cannot read also means no plugins, plus one
  * problem that says why. A plugin with a bad name, version or folder is left out with a problem too.
  */
@@ -69,7 +74,12 @@ class PluginHost(props: KeelProperties) {
 
     val file: Path = props.dataDir.resolve("plugins").resolve("run").resolve("resolved.json")
 
-    private val state: State = load(file)
+    @Volatile private var state: State = load(file)
+
+    /** Read run/resolved.json again (after the engine applied a web or content-only change). */
+    fun reload() {
+        state = load(file)
+    }
 
     /** on, image or off. off when nothing was resolved. */
     val mode: String get() = state.mode

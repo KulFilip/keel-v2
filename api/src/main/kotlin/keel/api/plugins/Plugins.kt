@@ -43,6 +43,12 @@ class PluginService(
 ) : FlowContributor {
     @Volatile private var cache: Pair<Long, JsonNode>? = null
 
+    /** A web or content-only plugin came or went without a restart: its KeelBot commands may be in the catalog now. */
+    @org.springframework.context.event.EventListener
+    fun reloaded(@Suppress("UNUSED_PARAMETER") e: keel.api.pluginhost.PluginsReloaded) {
+        cache = null
+    }
+
     /** The catalog from the engine (kept a minute; an engine that is down gives an empty list). */
     fun catalog(): JsonNode {
         cache?.let { (at, v) -> if (System.currentTimeMillis() - at < 60_000) return v }
