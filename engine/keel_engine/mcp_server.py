@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import copy
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -210,16 +211,45 @@ def _flow_name(thread: dict, workflow: dict | None) -> str:
     return f"{name} ({wid})" if name and name != wid else wid
 
 
+def cut(text: str, n: int) -> str:
+    """At most n characters, cut at a word boundary, with "…" when something was left out."""
+    text = str(text or "")
+    if len(text) <= n:
+        return text
+    head = text[:n]
+    at = max(head.rfind(" "), head.rfind("\n"))
+    return (head[:at] if at > n // 2 else head).rstrip() + " …"
+
+
+ORDER_FROM = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "keel": "keel moved it (an order question)",
+              "person": "you moved it", "id": "criteria ids (no ORDER given)"}
+
+
+def _choice_lines(w: dict) -> list[str]:
+    """A gate with named choices: each name with what the gate's text says it does ("- first: build AC-2 first")."""
+    names = list(w.get("choices") or [])
+    said = {}
+    for line in str(w.get("detail") or "").splitlines():
+        m = re.match(r"^\s*-\s*([a-z][\w-]*)\s*:\s*(.+)$", line)
+        if m and m.group(1) in names:
+            said[m.group(1)] = m.group(2).strip()
+    return [f"            {c}: {said.get(c, '')}".rstrip() for c in names]
+
+
 def _waiting_lines(w: dict) -> list[str]:
     labels = w.get("labels") or {}
-    opts = " | ".join(f"{o}" + (f' ("{labels[o]}")' if labels.get(o) else "") for o in w.get("options") or [])
-    out = [f"waiting   {w.get('kind', 'gate')}: {w.get('title', '')}", f"          options: {opts or '-'}"]
+    if w.get("choices"):
+        out = [f"waiting   {w.get('kind', 'gate')}: {w.get('title', '')}",
+               '          choices (approve with payload {"choice": "<name>"}):', *_choice_lines(w)]
+    else:
+        opts = " | ".join(f"{o}" + (f' ("{labels[o]}")' if labels.get(o) else "") for o in w.get("options") or [])
+        out = [f"waiting   {w.get('kind', 'gate')}: {w.get('title', '')}", f"          options: {opts or '-'}"]
     for q in w.get("questions") or []:
         choices = " / ".join(o.get("label", "") + (" (recommended)" if o.get("recommended") else "") for o in q.get("options") or [])
         out.append(f"          {q.get('id')}: {q.get('question')}  [{choices}]")
     detail = (w.get("detail") or "").strip()
     if detail:
-        out.append("          " + detail[:600].replace("\n", "\n          "))
+        out.append("          " + cut(detail, 1500).replace("\n", "\n          "))
     return out
 
 
@@ -238,6 +268,9 @@ def status(api: KeelApi, project: str | None = None) -> str:
     if acs:
         done = sum(1 for a in acs if a.get("status") in ("done", "already-met"))
         out.append(f"criteria  {done}/{len(acs)} done")
+        order = thread.get("ac_order") or {}
+        out.append(f"order     {' → '.join(a.get('id', '') for a in acs)}"
+                   + (f" (from {ORDER_FROM.get(order.get('from'), order.get('from'))})" if order.get("from") else ""))
         out += [f"  {('[' + str(a.get('status')) + ']'):<14}{a.get('id')} {a.get('layer', '')}  {a.get('title', '')}" for a in acs]
     if thread.get("waiting"):
         out += _waiting_lines(thread["waiting"])
@@ -309,6 +342,9 @@ def next_action(api: KeelApi, project: str | None = None) -> str:
             line = f"waiting at {w.get('title')}: approve to go past the token cap, or reject to stop."
         elif kind == "fix":
             line = f"waiting at {w.get('title')}: approve to try again, or reject to stop the flow."
+        elif w.get("choices"):
+            line = "\n".join([f"waiting at {w.get('step')} ({w.get('title')}){ac}: choose one "
+                               '(approve with payload {"choice": "<name>"} and a note):', *_choice_lines(w)])
         else:
             labels = w.get("labels") or {}
             line = (f"waiting at {w.get('step')} ({w.get('title')}){ac}: approve"

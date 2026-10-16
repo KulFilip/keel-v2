@@ -94,7 +94,7 @@ steps:
       criterion is missing), do not work around it: stop and end your answer with one line AMEND: <what the spec
       says, what the code shows, what should change>. Otherwise do not write that line.
   - { id: red_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: red }, no: verify_red, per_ac: true, phase: red }
-  - { id: red_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend, per_ac: true, phase: red }
+  - { id: red_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend_entry, per_ac: true, phase: red }
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
   - id: green
     kind: agent
@@ -110,7 +110,7 @@ steps:
       with one line AMEND: <what the spec says, what the code shows, what should change>. Otherwise do not write
       that line.
   - { id: green_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: green }, no: verify_green, per_ac: true, phase: green }
-  - { id: green_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend, per_ac: true, phase: green }
+  - { id: green_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend_entry, per_ac: true, phase: green }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
   - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
@@ -239,6 +239,18 @@ steps:
   - { id: spec_review_sync, kind: code, name: criteria + plan + the review for the gate, action: spec_sync, then: spec_gate, phase: spec }
   - { id: spec_restart, kind: code, name: the interview starts again, action: spec_restart, then: spec, phase: spec }
   - { id: contract_undo, kind: code, name: put the contract draft back, action: reset+amend_start, then: amend, phase: contract }
+  # v0.17.4 the amendment loop guard: the same criterion back after an amendment that changed nothing is asked, not looped
+  - { id: amend_entry, kind: branch, name: "the same question again?", when: { data: amend.route, equals: ask }, no: amend, phase: spec }
+  - id: amend_loop
+    kind: gate
+    name: the amendment changed nothing
+    lock: true
+    phase: spec
+    choices: { first: amend_first, skip: amend_skip, edit: amend_edit, stop: amend_stop }
+  - { id: amend_first, kind: code, name: build the other criterion first, action: amend_reorder, then: red, phase: spec }
+  - { id: amend_skip, kind: code, name: move the criterion to the end, action: amend_reorder, then: red, phase: spec }
+  - { id: amend_edit, kind: code, name: the amendment again with your note, action: amend_with_note, then: amend, phase: spec }
+  - { id: amend_stop, kind: code, name: stop the flow, action: amend_stop, then: end, phase: spec }
   - id: amend
     kind: agent
     name: spec amendment
@@ -256,6 +268,7 @@ steps:
       say whether it is reopened or ships under the old wording and why. REOPEN lists the done criteria to build
       again (or none); CONTRACT is yes when the outside surface (routes, schemas) changes.
   - { id: amend_show, kind: code, name: the amendment for the gate, action: spec_amendment, back: amend, phase: spec }
+  - { id: amend_changed, kind: branch, name: "did the spec change?", when: { data: amend.route, equals: gate }, no: amend_none, phase: spec }
   - id: amend_gate
     kind: gate
     name: spec amendment
@@ -265,6 +278,8 @@ steps:
   - { id: amend_commit, kind: code, name: commit the amendment, action: spec_amend_commit, phase: spec }
   - { id: amend_contract, kind: branch, name: the contract moves, when: { marker: CONTRACT, equals: "yes", step: amend_commit }, no: red, phase: spec }
   - { id: amend_to_contract, kind: code, name: back to the contract, then: contract, phase: contract }
+  - { id: amend_none, kind: branch, name: "an order question?", when: { data: amend.route, equals: reorder }, no: amend_loop, phase: spec }
+  - { id: amend_reordered, kind: code, name: the other criterion first, then: red, phase: spec }
   - id: rebuild
     kind: code
     name: start the spec again in a new feature flow

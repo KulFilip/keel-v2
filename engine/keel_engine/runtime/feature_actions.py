@@ -98,6 +98,29 @@ def merge_acs(have: list[dict], parsed: list[dict], drop: bool) -> list[dict]:
     return out
 
 
+# The build order a spec states: a line "ORDER: AC-6, AC-2, ..." (plain, **bold**, in a list), usually in its Plan.
+ORDER_LINE = re.compile(r"(?mi)^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?order(?:\*\*|__)?[ \t]*:[ \t]*(?:\*\*|__)?(.+)$")
+
+
+def spec_order(text: str | None) -> str | None:
+    """The spec's own ORDER line (the last one that names criteria; an amendment may restate it), else None."""
+    found = None
+    for m in ORDER_LINE.finditer(str(text or "")):
+        if AC_ID.search(m.group(1).upper()):
+            found = m.group(1).strip()
+    return found
+
+
+def build_order(a, text: str | None) -> tuple[str | None, str]:
+    """(the order, where it came from): the spec's ORDER line wins (the person reads and may edit it at the gate),
+    else the plan agent's ORDER marker, else none (id order)."""
+    said = spec_order(text)
+    if said:
+        return said, "spec"
+    marker = ((a.state.get("markers") or {}).get("*") or {}).get("ORDER")
+    return (marker, "plan") if marker else (None, "id")
+
+
 def order_acs(acs: list[dict], order: str | None) -> list[dict]:
     """The plan's build order (ORDER: AC-2, AC-1, ...): the ids it names first, in that order, then the rest."""
     ids = [i.upper() for i in AC_ID.findall(str(order or "").upper())]
@@ -182,9 +205,10 @@ def spec_sync(a):
     text = _read(a.root, spec)
     seeded = bool((a.data.get("seed") or {}).get("acs"))
     acs = merge_acs(a.acs, prompts.parse_acs(text), drop=not seeded)
-    order = ((a.state.get("markers") or {}).get("*") or {}).get("ORDER")
+    order, source = build_order(a, text)
     acs = order_acs(acs, order)
-    lines = [f"Spec: {spec or '(no spec file found)'}", "", "Criteria, in build order:", *_criteria_lines(acs)]
+    said = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "id": "criteria ids (no ORDER given)"}[source]
+    lines = [f"Spec: {spec or '(no spec file found)'}", "", f"Criteria, in build order (from {said}):", *_criteria_lines(acs)]
     plan = _section(text, "plan")
     if plan:
         lines += ["", "Plan (files per criterion, contract delta, test layer):", plan[:2500]]
@@ -199,10 +223,12 @@ def spec_sync(a):
               "- review: an adversarial read first (vague, untestable or overlapping criteria), shown here",
               "- order: the criteria are right but the plan under them is not: the plan is written again",
               "- reject: the spec misses the intent: the interview starts again with what was missing"]
-    upd = {"acs": acs, "show": "\n".join(lines)}
+    upd = {"acs": acs, "show": "\n".join(lines),
+           "data": {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": source}}}
     if spec:
         upd["spec"] = spec
-    return _ok(f"spec {spec or 'not found'}: {len(acs)} criteria" + (f", order {order}" if order else ""), update=upd)
+    return _ok(f"spec {spec or 'not found'}: {len(acs)} criteria" + (f", order {', '.join(x['id'] for x in acs)} (from {said})"
+                                                                       if order else ""), update=upd)
 
 
 def _frontmatter(text: str, values: dict) -> str:
@@ -254,7 +280,10 @@ def spec_restart(a):
 
 def amend_start(a):
     """Why the frozen spec needs an amendment: the AMEND line of the agent that hit it (red, green), else the note of
-    the contract gate ("this breaks a consumer"). The line is used once: it is cleared from the markers."""
+    the contract gate ("this breaks a consumer"). The line is used once: it is cleared from the markers.
+
+    v0.17.4 loop guard: the same criterion back with an AMEND after a round that changed nothing in the spec does not go
+    to the explorer again; data.amend.route = "ask" sends it to the choice gate amend_loop (first / skip / edit / stop)."""
     mk = {k: dict(v) for k, v in (a.state.get("markers") or {}).items() if isinstance(v, dict)}
     said = [(k, v["AMEND"]) for k, v in mk.items() if k != "*" and v.get("AMEND")]
     ac = a.state.get("ac")
@@ -267,8 +296,157 @@ def amend_start(a):
         reason = f"contract gate: {why or 'the contract shows that the spec assumed something untrue'}"
     for v in mk.values():
         v.pop("AMEND", None)
-    amend = {"from": frm, "ac": ac, "reason": reason[:2000], "at": _today()}
+    amend = {"from": frm, "ac": ac, "reason": reason[:2000], "at": _today(), "route": "amend"}
+    rounds = [h for h in a.data.get("amend_history") or [] if ac and h.get("ac") == ac and "changed" in h]
+    if rounds and rounds[-1]["changed"] is False:
+        amend = {**amend, "route": "ask", "next": _next_for(a, ac, f"{reason} {rounds[-1].get('said', '')}")}
+        data = {**a.data, "amend": amend}
+        return _ok(f"{ac} came back with an AMEND after an amendment that changed nothing: asking you, not looping"[:300],
+                   update={"markers": mk, "data": data, "show": _loop_text(a, amend, rounds[-1])})
     return _ok(f"spec amendment needed: {reason}"[:300], update={"markers": mk, "data": {**a.data, "amend": amend}})
+
+
+# ------------------------------------------------------------------ the amendment loop guard (v0.17.4)
+
+# An explorer that says the AMEND is about the order the criteria are built in, not about the spec.
+# An explorer that found nothing to amend: "not a spec defect", "covered by AC-3", "no amendment needed".
+NOT_A_DEFECT = re.compile(r"not a spec (defect|problem|issue|bug)|no (amendment|spec change)|already covered|covered by "
+                          r"[A-Z]+-\d|out of scope|nothing to amend|spec is (right|correct)", re.I)
+ORDER_TALK = re.compile(r"\border\b|\bsequenc|\bdepend|\bbefore\b|\bfirst\b|not a spec (defect|problem|issue)", re.I)
+
+
+def _unfinished(a) -> list[str]:
+    return [x["id"] for x in a.acs if x.get("status") not in DONE and x.get("status") != "green"]
+
+
+def _named(a, text: str, ac: str) -> list[str]:
+    """Unfinished criteria a text names, in build order (AC-006/002/007 counts as AC-006, AC-002, AC-007)."""
+    t = str(text or "").upper()
+    ids = set(AC_ID.findall(t))
+    m = re.findall(r"\b([A-Z][A-Z0-9]*)-(\d+)((?:/\d+)+)", t)          # AC-006/002/007
+    for prefix, first, rest in m:
+        ids |= {f"{prefix}-{n}" for n in [first, *rest.strip("/").split("/")]}
+    return [i for i in _unfinished(a) if i.upper() in ids and i != ac]
+
+
+def _earlier_in_order(a, ac: str) -> list[str]:
+    """Unfinished criteria the spec's ORDER lists before `ac`."""
+    order = [i.upper() for i in AC_ID.findall(str(spec_order(_read(a.root, spec_path(a))) or "").upper())]
+    if ac.upper() not in order:
+        return []
+    before = order[:order.index(ac.upper())]
+    return [i for i in _unfinished(a) if i.upper() in before and i != ac]
+
+
+def _next_for(a, ac: str, text: str) -> str | None:
+    """The criterion to build before `ac`: one the AMEND names, else one ORDER puts first, else the next unfinished."""
+    for ids in (_named(a, text, ac), _earlier_in_order(a, ac)):
+        if ids:
+            return ids[0]
+    rest = [i for i in _unfinished(a) if i != ac]
+    return rest[0] if rest else None
+
+
+def move_before(acs: list[dict], ids: list[str], ac: str) -> list[dict]:
+    moved = [x for i in ids for x in acs if x["id"] == i]
+    rest = [x for x in acs if x["id"] not in ids]
+    at = next((n for n, x in enumerate(rest) if x["id"] == ac), len(rest))
+    return [dict(x) for x in rest[:at] + moved + rest[at:]]
+
+
+def _title(a, ac: str | None) -> str:
+    x = next((x for x in a.acs if x["id"] == ac), None)
+    return f"{ac} ({x.get('title', '')})" if x and x.get("title") else str(ac)
+
+
+def _loop_text(a, amend: dict, last: dict | None) -> str:
+    ac, nxt = amend.get("ac"), amend.get("next")
+    lines = [f"{ac} came back with an AMEND, and the last amendment for it changed nothing in the spec.",
+             "keel stops here instead of asking the same question again.", "", f"Why: {amend.get('reason') or 'not recorded'}"]
+    if last and last.get("said"):
+        lines += ["", "The amendment said:", str(last["said"])[:1500]]
+    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"} and a note):"]
+    if nxt:
+        lines.append(f"- first: build {_title(a, nxt)} first, then {ac}")
+    lines += [f"- skip: move {ac} to the end of the list and go on with the next criterion",
+              "- edit: write the amendment again with your note (say what the spec should change)",
+              "- stop: stop the flow here (the commits so far stay)"]
+    return "\n".join(lines)
+
+
+def _history(a, **entry) -> list[dict]:
+    return (list(a.data.get("amend_history") or []) + [{**entry, "at": _today()}])[-50:]
+
+
+def _spec_changed(a, spec: str | None) -> bool:
+    """Did this amendment round write anything into the spec? (Unknown: yes, so the gate shows it as before.)"""
+    if not spec or not git.is_repo(a.root):
+        return True
+    return bool(git.git(a.root, "status", "--porcelain", "--", spec).stdout.strip())
+
+
+def _no_change(a, spec: str | None, amend: dict):
+    """The amendment round changed nothing. An order question with an unfinished criterion to build first: keel
+    reorders and goes on (route "reorder"). Otherwise the choice gate (route "ask"). Never an approve-only gate."""
+    ac = amend["ac"]
+    said = str(a.state.get("last_answer") or "").strip()
+    reopen = str(((a.state.get("markers") or {}).get("*") or {}).get("REOPEN") or "")
+    text = f"{amend.get('reason', '')} {said} {reopen}"
+    hist = _history(a, ac=ac, changed=False, said=said[:800])
+    gates = _gates(a)
+    first = _earlier_in_order(a, ac) + [i for i in _named(a, text, ac) if i not in _earlier_in_order(a, ac)]
+    auto_done = any(h.get("ac") == ac and h.get("reordered") for h in a.data.get("amend_history") or [])
+    if first and ORDER_TALK.search(f"{said} {reopen}") and not auto_done:
+        acs = move_before(a.acs, first, ac)
+        hist[-1]["reordered"] = first
+        note = (f"keel moved {', '.join(first)} before {ac}: the amendment says it is an order question, not a spec "
+                f"change. Next: {first[0]}.")
+        gates["log"].append(note[:300])
+        data = {**a.data, "amend": {**amend, "route": "reorder"}, "amend_history": hist,
+                "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
+        return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "show": None})
+    amend = {**amend, "route": "ask", "next": _next_for(a, ac, text)}
+    data = {**a.data, "amend": amend, "amend_history": hist}
+    return _ok(f"the amendment for {ac} changed nothing in the spec: asking you", update={
+        "data": data, "show": _loop_text(a, amend, hist[-1])})
+
+
+def amend_reorder(a):
+    """The choice gate's first / skip: build the named criterion first, or move this one to the end."""
+    amend = a.data.get("amend") or {}
+    ac = amend.get("ac") or a.state.get("ac")
+    choice = ((a.data.get("amend_loop_answer") or {}).get("choice")) or "first"
+    gates = _gates(a)
+    if choice == "skip" or not amend.get("next"):
+        acs = [x for x in a.acs if x["id"] != ac] + [x for x in a.acs if x["id"] == ac]
+        nxt = next((i for i in [x["id"] for x in acs] if i in _unfinished(a) and i != ac), ac)
+        note = f"you moved {ac} to the end; next: {nxt}"
+    else:
+        nxt = amend["next"]
+        acs = move_before(a.acs, [nxt], ac)
+        note = f"you chose to build {nxt} before {ac}"
+    gates["log"].append(note[:300])
+    data = {**a.data, "amend": {**amend, "route": "moved"}, "amend_history": _history(a, ac=ac, choice=choice),
+            "ac_order": {"ids": [x["id"] for x in acs], "from": "person"}}
+    return _ok(note, update={"acs": acs, "ac": nxt, "gates": gates, "data": data, "show": None})
+
+
+def amend_with_note(a):
+    """The choice gate's edit: the amendment is written again, with the person's note added to the reason."""
+    amend = dict(a.data.get("amend") or {})
+    why = str((a.data.get("amend_loop_answer") or {}).get("why") or "").strip()
+    if why:
+        amend["reason"] = (f"{amend.get('reason', '')}\nThe person says: {why}")[:3000]
+    amend["route"] = "amend"
+    return _ok("the amendment is written again with your note", update={"data": {**a.data, "amend": amend}})
+
+
+def amend_stop(a):
+    from .actions import ActionResult
+
+    ac = (a.data.get("amend") or {}).get("ac") or a.state.get("ac")
+    why = str((a.data.get("amend_loop_answer") or {}).get("why") or "").strip()
+    return ActionResult(False, f"Stopped at {ac}'s amendment loop" + (f": {why}" if why else "."), stop=True)
 
 
 def _last_amendment(text: str) -> str:
@@ -289,9 +467,19 @@ def _reopen(a) -> list[str]:
 
 
 def spec_amendment(a):
-    """The amendment gate's text (keel v1: write the dated block, then stop before committing it)."""
+    """The amendment gate's text (keel v1: write the dated block, then stop before committing it).
+
+    v0.17.4: a round that wrote nothing into the spec does not reach the approve gate (it would show an old block and
+    commit nothing): `_no_change` reorders or asks (data.amend.route = reorder | ask; "gate" otherwise)."""
     spec = spec_path(a)
+    pending = a.data.get("amend") or {}
     block = _last_amendment(_read(a.root, spec))
+    if pending.get("ac") and not _spec_changed(a, spec):
+        said = f"{a.state.get('last_answer') or ''} {((a.state.get('markers') or {}).get('*') or {}).get('REOPEN') or ''}"
+        # the explorer found no spec change to make, or the spec only holds an older block: no gate that commits nothing.
+        # An explorer that wrote nothing and says nothing about it is sent back below to write the block (as before).
+        if block or NOT_A_DEFECT.search(said) or ORDER_TALK.search(said):
+            return _no_change(a, spec, pending)
     if not block:
         return _fail("The amendment is not in the spec.",
                      f"Add it to {spec or 'the spec'} under ## Amendments as a dated block: ### <date> — <criteria>, then "
@@ -314,7 +502,7 @@ def spec_amendment(a):
               "- change: the block is close but wrong; say how",
               "- rebuild: the spec itself is wrong; a new feature flow starts on this branch with what was learned "
               "(the commits stay)"]
-    return _ok("amendment ready for the gate", update={"show": "\n".join(lines)})
+    return _ok("amendment ready for the gate", update={"show": "\n".join(lines), "data": {**a.data, "amend": {**amend, "route": "gate"}}})
 
 
 def spec_amend_commit(a):
@@ -324,7 +512,8 @@ def spec_amend_commit(a):
 
     spec = spec_path(a)
     text = _read(a.root, spec)
-    acs = merge_acs(a.acs, prompts.parse_acs(text), drop=False)
+    # the build order stays as it is (the plan's, or as the person or keel moved it); new criteria go after the rest
+    acs = order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs))
     reopen = [i for i in _reopen(a) if any(x["id"].upper() == i for x in acs)]
     acs = [dict(x, status="todo") if x["id"].upper() in reopen else x for x in acs]
     amend = a.data.get("amend") or {}
@@ -336,7 +525,8 @@ def spec_amend_commit(a):
     gates["log"].append(f"spec amended: {reason}"[:300] + (f" · reopened {', '.join(reopen)}" if reopen else ""))
     said = str(((a.state.get("markers") or {}).get("*") or {}).get("CONTRACT") or "").lower()
     contract = amend.get("from") == "contract" or said.startswith("yes")
-    data = {**a.data, "amendments": list(a.data.get("amendments") or []) + [{**amend, "reopen": reopen, "commit": r.update.get("git_head")}]}
+    data = {**a.data, "amendments": list(a.data.get("amendments") or []) + [{**amend, "reopen": reopen, "commit": r.update.get("git_head")}],
+            "amend_history": _history(a, ac=amend.get("ac"), changed=bool(r.update.get("git_head")))}
     new = [x["id"] for x in acs if x["id"] not in {y["id"] for y in a.acs}]
     note = f"amendment committed: {r.note}" + (f"; new criteria {', '.join(new)}" if new else "") + \
            (f"; reopened {', '.join(reopen)}" if reopen else "") + ("; the contract is next" if contract else "")
@@ -495,7 +685,8 @@ def close_flow(a):
 
 ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": spec_sync, "spec_freeze": spec_freeze,
            "spec_restart": spec_restart, "amend_start": amend_start, "spec_amendment": spec_amendment,
-           "spec_amend_commit": spec_amend_commit, "show_diff": show_diff, "security_scope": security_scope,
+           "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note,
+           "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow}
 

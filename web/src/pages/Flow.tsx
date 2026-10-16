@@ -17,6 +17,7 @@ import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
 import { CoreWelcome, useCoreOnly } from "../components/CoreOnly";
 import { FoldPanel } from "../components/FoldPanel";
+import type { AcOrder } from "../api";
 import { RulesNowPanel } from "../components/RulesNow";
 import { FlowBoardView, showBoard } from "../components/FlowBoard";
 import { FlowRuns } from "../components/FlowRuns";
@@ -845,14 +846,22 @@ function CheckpointsPanel({ thread, history, error, onRewound, readOnly }: {
   );
 }
 
+const ORDER_FROM: Record<AcOrder["from"], string> = {
+  spec: "the spec's ORDER line", plan: "the plan's ORDER", keel: "keel moved it (an order question)", person: "you moved it",
+  id: "criteria ids",
+};
+
 function AcsPanel({ thread }: { thread: ThreadState }) {
+  const from = thread.ac_order?.from;
   return (
     <Panel title="Acceptance criteria">
       {!thread.acs.length ? <span className="sub">The spec step writes them. They show here after it.</span> : (
         <div className="acs">
-          {thread.acs.map((a) => (
+          {/* v0.17.4 the list is the build order: keel builds them top to bottom */}
+          <span className="sub" data-testid="ac-order">Built in this order{from ? `, from ${ORDER_FROM[from] ?? from}` : ""}.</span>
+          {thread.acs.map((a, n) => (
             <div key={a.id} className="ac">
-              <div className="row" style={{ justifyContent: "space-between" }}><b>{a.id}</b><Pill tone={AC_TONE[a.status] ?? "idle"}>{acLabel(a.status)}</Pill></div>
+              <div className="row" style={{ justifyContent: "space-between" }}><b>{n + 1}. {a.id}</b><Pill tone={AC_TONE[a.status] ?? "idle"}>{acLabel(a.status)}</Pill></div>
               <span className="sub">[{a.layer}] {a.title}</span>
             </div>
           ))}

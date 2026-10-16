@@ -162,8 +162,8 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "criteria and say in one or two sentences what you need to know.")
     test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
     if phase == "red":
-        lines.append("Write the failing test for the current criterion only. Put the criterion id in the test's name "
-                     f"(for example \"{(ac or {}).get('id', 'AC-1')} ...\"), so the engine can run it alone. Do not write production code.")
+        lines.append("Write the failing test for the current criterion only. "
+                     + testcmd.name_hint(root, (ac or {}).get("id", "AC-1")) + " Do not write production code.")
         if test_cmd:
             lines.append(f"The engine runs it with: {test_cmd}  (run it once yourself to see it fail for the right reason).")
     if phase == "green":

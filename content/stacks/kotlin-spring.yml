@@ -28,10 +28,11 @@ layers:
     what: cross-layer flows and transactions
     where: src/integrationTest/kotlin
 
-# Command defaults for this stack. `{AC}`, `{PKG}` and `{PATHS}` are substituted.
+# Command defaults for this stack. `{AC}` (AC-6), `{AC_ID}` (AC6), `{PKG}` and `{PATHS}` are substituted. A Java test
+# class or method name cannot hold the dash, so the AC filter takes both forms (Kotlin backtick names keep the dash).
 commands:
   api_compile: '{BUILD} -q compileKotlin compileTestKotlin'
-  api_test_ac: "{BUILD} -q test --tests '*{AC}*'"
+  api_test_ac: "{BUILD} -q test --tests '*{AC}*' --tests '*{AC_ID}*'"
   # `test` alone excludes the `integrationTest` source set declared above, so every
   # @SpringBootTest could sit unrun while the module suite reported green. Gradle skips a task
   # it does not have, so this is safe on a project without that source set.

@@ -109,6 +109,8 @@ def classify(question: dict, step=None, *, flow: str = "", prev_actions: list[st
         return "rung"
     if flow == "hunt-next" and step.id == "close_gate":
         return "note"
+    if step.id == "amend_loop":
+        return "rounds"      # v0.17.4 the amendment loop guard: only the person decides how it goes on
     if step.skip_menu:
         return "skip-menu"
     if step.report == "verdicts":

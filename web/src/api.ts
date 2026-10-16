@@ -98,7 +98,11 @@ export type ClarifyQuestion = {
   options: { label: string; description?: string; recommended?: boolean }[];
 };
 
+/** v0.17.4 where the criteria's build order came from */
+export type AcOrder = { ids: string[]; from: "spec" | "plan" | "keel" | "person" | "id" };
 export type ThreadState = {
+  /** v0.17.4 the criteria (acs) are in build order; where it came from */
+  ac_order?: AcOrder;
   thread_id: string;
   project_id: string;
   workflow_id: string;

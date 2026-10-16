@@ -291,7 +291,11 @@ class Engine:
         if spec:
             state["spec"] = spec
             if not state["acs"]:
-                state["acs"] = prompts.parse_acs(spec_check.read_spec(root, spec))
+                from .feature_actions import order_acs, spec_order
+
+                text = spec_check.read_spec(root, spec)
+                # v0.17.4 the spec's ORDER line is the build order from the start
+                state["acs"] = order_acs(prompts.parse_acs(text), spec_order(text))
         if git.is_repo(root):
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
@@ -411,6 +415,10 @@ class Engine:
             out["children"] = list(v["children"])
         if v.get("item"):
             out["item"] = v["item"]
+        order = (v.get("data") or {}).get("ac_order")
+        if order:
+            # v0.17.4 the criteria are in build order; this says where the order came from (spec, plan, keel, person)
+            out["ac_order"] = order
         pr_url = (v.get("data") or {}).get("pr_url")
         if pr_url:
             # The PR the open_pr step opened (v0.5.0: a task moves to review with it).

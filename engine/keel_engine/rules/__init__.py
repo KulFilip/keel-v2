@@ -678,7 +678,8 @@ def gate_due(mode: str, acs: list[dict], ac_id: str, skipped: dict | None = None
     mode = mode or "every-ac"
     # An already-met AC has no gate of its own (its approval was the question), so it never holds the lane's last gate.
     acs = [a for a in acs if a.get("status") != "already-met" or a.get("id") == ac_id]
-    ids = sorted(a["id"] for a in acs)
+    # v0.17.4 the flow's build order (the plan's ORDER), not the ids sorted: the lane's last criterion is the last one built
+    ids = [a["id"] for a in acs]
     if mode == "every-ac":
         return {"due": True}
     if mode == "end-of-lane":

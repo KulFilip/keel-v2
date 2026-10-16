@@ -313,6 +313,15 @@ DOCS: dict[str, dict] = {
     "spec_amend_commit": {
         "summary": "Commits the approved amendment alone (docs: amend: ...); new criteria join, reopened ones are todo.",
     },
+    "amend_reorder": {
+        "summary": "The amendment loop gate's first / skip: builds the named criterion first, or moves this one to the end.",
+    },
+    "amend_with_note": {
+        "summary": "The amendment loop gate's edit: the amendment is written again with the person's note.",
+    },
+    "amend_stop": {
+        "summary": "The amendment loop gate's stop: the flow stops here; the commits so far stay.",
+    },
     "show_diff": {
         "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff.",
     },

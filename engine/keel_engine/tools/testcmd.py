@@ -15,6 +15,47 @@ def _pytest_key(ac: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", ac.lower()).strip("_")
 
 
+def ac_id(ac: str) -> str:
+    """The criterion id as a Java/Kotlin/Go name can hold it: AC-006 → AC006 (placeholder {AC_ID})."""
+    return re.sub(r"[^A-Za-z0-9]+", "", ac or "")
+
+
+# A Maven -Dtest= or Gradle --tests filter on {AC}: a Java class or method name cannot hold the dash, so the filter
+# also takes the dash-free id (v0.17.4: -Dtest=*AC-006* never matched AC006PluginSubstrateRegressionTest).
+_MVN_FILTER = re.compile(r"(-Dtest=)(['\"]?)([^\s'\"]*\{AC\}[^\s'\"]*)\2")
+_GRADLE_FILTER = re.compile(r"(--tests\s+)(['\"]?)([^\s'\"]*\{AC\}[^\s'\"]*)\2")
+
+
+def widen(cmd: str) -> str:
+    """`-Dtest='*{AC}*'` → `-Dtest='*{AC}*,*{AC_ID}*'`; `--tests '*{AC}*'` → also `--tests '*{AC_ID}*'`."""
+    if "{AC_ID}" in cmd:
+        return cmd
+    cmd = _MVN_FILTER.sub(lambda m: f"{m[1]}{m[2]}{m[3]},{m[3].replace('{AC}', '{AC_ID}')}{m[2]}", cmd)
+    return _GRADLE_FILTER.sub(lambda m: f"{m[0]} {m[1]}{m[2]}{m[3].replace('{AC}', '{AC_ID}')}{m[2]}", cmd)
+
+
+def fill(cmd: str, ac: str | None) -> str:
+    """A command with its placeholders filled: {AC} (AC-006), {AC_ID} (AC006), {AC_KEY} (ac_006)."""
+    a = ac or ""
+    return widen(cmd).replace("{AC_KEY}", _pytest_key(a)).replace("{AC_ID}", ac_id(a)).replace("{AC}", a)
+
+
+def jvm(root: str) -> bool:
+    """A Maven or Gradle project, where a test is a class or method whose name cannot hold a dash."""
+    r = Path(root)
+    backend = r / str((rules.load_config(root).get("backend") or {}).get("dir") or ".")
+    return any((base / f).exists() for base in (r, backend)
+               for f in ("pom.xml", "mvnw", "gradlew", "build.gradle", "build.gradle.kts"))
+
+
+def name_hint(root: str, ac: str) -> str:
+    """How to name the criterion's test so keel's filter finds it."""
+    if jvm(root):
+        return (f"Put {ac_id(ac)} in the test class or method name (for example {ac_id(ac)}RankingTest, or a method "
+                f"{ac_id(ac).lower()}RanksPlayers): a Java class or method name cannot hold the dash of {ac}.")
+    return f'Put the criterion id in the test\'s name (for example "{ac} ..."), so the engine can run it alone.'
+
+
 def _configured(root: str, ac: str | None, layer: str) -> str | None:
     """The project's own test command from .keel/config.yml (placeholders filled), or None."""
     if not (Path(root) / ".keel" / "config.yml").is_file():
@@ -22,7 +63,7 @@ def _configured(root: str, ac: str | None, layer: str) -> str | None:
     cmds = rules.load_config(root).get("commands") or {}
     key = ("web_test_ac" if layer == "WEB" else "api_test_ac") if ac else ("web_test_module" if layer == "WEB" else "api_test_module")
     custom = cmds.get(key) or (cmds.get("unit_tests") if not ac else None)
-    return custom.replace("{AC_KEY}", _pytest_key(ac or "")).replace("{AC}", ac or "") if custom else None
+    return fill(custom, ac) if custom else None
 
 
 def command_for(root: str, ac: str | None = None, layer: str = "API") -> str | None:
@@ -75,11 +116,11 @@ def cannot_run(code: int, output: str) -> bool:
 
 def config_commands(root: str) -> dict:
     """The detected commands in .keel/config.yml form ({AC} / {AC_KEY} placeholders), for init to write."""
-    mark = "ZZACZZ"
+    mark = "ZZ-ACZZ"
     one, all_ = detected(root, mark), detected(root)
     out = {}
     if one:
-        out["api_test_ac"] = one.replace(_pytest_key(mark), "{AC_KEY}").replace(mark, "{AC}")
+        out["api_test_ac"] = one.replace(mark, "{AC}").replace(ac_id(mark), "{AC_ID}").replace(_pytest_key(mark), "{AC_KEY}")
     if all_:
         out["api_test_module"] = all_
     return out
@@ -89,7 +130,10 @@ def detected(root: str, ac: str | None = None) -> str | None:
     """The test command keel finds by itself (no .keel/config.yml)."""
     r = Path(root)
     if (r / "gradlew").exists():
-        return f"./gradlew -q test --tests '*{ac}*'" if ac else "./gradlew -q test"
+        return fill("./gradlew -q test --tests '*{AC}*'", ac) if ac else "./gradlew -q test"
+    if (r / "mvnw").exists() or (r / "pom.xml").exists():
+        mvn = "./mvnw" if (r / "mvnw").exists() else "mvn"
+        return fill(f"{mvn} -q test -Dtest='*{{AC}}*'", ac) if ac else f"{mvn} -q test"
     if (r / "pyproject.toml").exists() or (r / "pytest.ini").exists() or (r / "setup.py").exists():
         base = "python -m pytest -q"
         return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base
@@ -111,6 +155,8 @@ def detected(root: str, ac: str | None = None) -> str | None:
 
 # A run that executed no test at all, or rejected its own options, proves nothing either way.
 NO_TESTS = re.compile(r"(^|\n)\s*(ℹ|#)\s*tests 0\b|no tests? (found|ran)|collected 0 items|no test files found|"
+                      # Maven Surefire and Gradle: a -Dtest / --tests filter that matched nothing
+                      r"no tests were executed|no tests matching pattern|no tests to run|no tests found for given includes|"
                       r"0 passed.*0 failed|bad option|unknown (option|argument)|unrecognized (option|argument)", re.I)
 
 
@@ -134,7 +180,7 @@ def ac_test_passed(output: str, ac: str) -> bool | None:
     output = output or ""
     if not TEST_LINE.search(output):
         return None
-    names = {ac.lower(), _pytest_key(ac)}
+    names = {ac.lower(), _pytest_key(ac), ac_id(ac).lower()}
     for line in output.splitlines():
         if PASS_LINE.match(line) and any(n and n in line.lower() for n in names):
             return True

@@ -1503,8 +1503,9 @@ class Compiler:
             about = item.get("title") or item.get("summary") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")},
                                                                           ensure_ascii=False, default=str)[:600]
             detail = f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\nApprove with payload skip: true to skip this item."
-        elif i and self.wf.steps[i - 1].kind == "code" and state.get("show"):
-            # What the code step before this gate prepared for it (a review report, a diagnosis, a size proposal).
+        elif i and self._code_before(i) and state.get("show"):
+            # What the code step before this gate prepared for it (a review report, a diagnosis, a size proposal);
+            # branches in between change nothing (v0.17.4: the amendment's branches before amend_gate and amend_loop).
             detail = state["show"]
         elif i and "pr" in self.wf.steps[i - 1].actions() and state.get("pr_body"):
             # The PR body the pr step built: approve to go on (an open_pr step after this gate may open it).
@@ -1597,6 +1598,13 @@ class Compiler:
     def _shown_values(values: list) -> str:
         shown = [f"{len(v)} item(s)" if isinstance(v, (list, dict)) else str(v) for v in values if v not in (None, "")]
         return ", ".join(shown) or "not given"
+
+    def _code_before(self, i: int) -> bool:
+        """Is the step before this one (past any branches) a code step?"""
+        j = i - 1
+        while j >= 0 and self.wf.steps[j].kind == "branch":
+            j -= 1
+        return j >= 0 and self.wf.steps[j].kind == "code"
 
     def _choice(self, i: int, step: Step, state: FlowState, gates: dict, extra: dict, answer: dict, item: dict | None):
         """A gate with named exits: payload.choice picks one (default the first); its answer is kept in
