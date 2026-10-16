@@ -1,0 +1,29 @@
+ keel  v2 0.18.4 · shop · feat/paging
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Code Review  keel's overview · done · risk medium
+ This change touches 2 file(s). It adds the new behaviour in src/Prefs.kt and its tests. · it
+ changes stored data
+ src/Prefs.kt  changes Prefs.kt
+ src/PrefsTest.kt  adds PrefsTest.kt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+feat/paging · feat/paging → main · +8 −1 · 1 draft(s) · 0 thread(s)
+↑↓ scroll · Esc back
+
+ shop (feat/paging) · no flow · nothing waits · ● live

@@ -237,7 +237,12 @@ def _names(c: _Check, name: str, data: dict) -> None:
 
 
 TUI_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+TUI_WORD = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 TUI_TAKEN_KEYS = {"a", "b", "c", "f", "u"}
+# 0.18.6 a mode's own keys (besides arrows, Enter, Esc, PgUp/PgDn, Tab), the names templates use, a note's tones
+TUI_MODE_KEYS = {"j", "k", "q"}
+TUI_VARS = {"pid", "arg", "item", "line", "side", "text", "choice", "answer"}
+TUI_TONES = {"accent", "dim", "warn", "bad", "ok"}
 
 
 def _tui(c: _Check, name: str, tui) -> None:
@@ -293,6 +298,99 @@ def _tui(c: _Check, name: str, tui) -> None:
         if (panel.get("call") or {}).get("method", "GET") != "GET":
             c.error("contributes.tui.panel only reads (GET)")
         call("panel", panel.get("call"), None)
+    modes = tui.get("modes") or []
+    if not isinstance(modes, list):
+        c.error("contributes.tui.modes must be a list")
+        modes = []
+    if len(modes) > 4:
+        c.error("contributes.tui.modes: at most 4 modes")
+    for m in modes:
+        _tui_mode(c, name, m, commands, call)
+
+
+def _tui_mode(c: _Check, name: str, m, commands: list, call) -> None:
+    """One of contributes.tui.modes (0.18.6): a full-screen view in keel TUI, as data. The api checks the same
+    (TuiPluginService.mode): GET reads for its state, list and detail; a key that changes something asks first."""
+    if not isinstance(m, dict):
+        c.error("contributes.tui.modes: each mode is a mapping")
+        return
+    mname = m.get("name")
+    if not isinstance(mname, str) or not TUI_NAME.match(mname) or not (mname == name or mname.startswith(f"{name}-")):
+        c.error(f"contributes.tui.modes: '{mname}' must be named {name} or {name}-<word>")
+        return
+    at = f"contributes.tui mode /{mname}"
+
+    def read(where: str, x) -> None:
+        if isinstance(x, dict) and x.get("method", "GET") != "GET":
+            c.error(f"{at} {where} only reads (GET)")
+        call(f"mode /{mname} {where}", x, None)
+
+    if not str(m.get("title") or "").strip():
+        c.error(f"{at} needs a title")
+    if not str(m.get("summary") or "").strip():
+        c.error(f"{at} needs a summary")
+    same = [x for x in commands if isinstance(x, dict) and x.get("name") == mname]
+    if same and "sub" not in same[0]:
+        c.error(f"/{mname} is a mode and a command: the command has sub (its words run outside the mode)")
+    state = m.get("state")
+    if not isinstance(state, dict) or not 1 <= len(state) <= 5:
+        c.error(f"{at} reads its state with 1 to 5 calls (state: {{ name: {{ path }} }})")
+        state = {}
+    for k, x in state.items():
+        if not isinstance(k, str) or not TUI_WORD.match(k) or k in TUI_VARS:
+            c.error(f"{at}: the state's name '{k}' is one word, not one of {', '.join(sorted(TUI_VARS))}")
+        read(f"state {k}", x)
+    lst = m.get("list")
+    if not isinstance(lst, dict) or not lst.get("items") or not lst.get("line"):
+        c.error(f"{at}: its list needs items and line")
+    detail = m.get("detail")
+    if detail is not None:
+        if not isinstance(detail, dict):
+            c.error(f"{at}: its detail is a mapping")
+        else:
+            read("detail", detail.get("call"))
+            if ("diff" in detail) == ("text" in detail):
+                c.error(f"{at}: its detail shows either a diff or a text")
+            for n in detail.get("notes") or []:
+                if not isinstance(n, dict) or not n.get("items") or not n.get("text"):
+                    c.error(f"{at}: a note needs items and text")
+                elif n.get("tone") is not None and n["tone"] not in TUI_TONES:
+                    c.error(f"{at}: a note's tone is one of {', '.join(sorted(TUI_TONES))}")
+    keys = m.get("keys") or []
+    if not isinstance(keys, list) or len(keys) > 20:
+        c.error(f"{at}: keys is a list of at most 20")
+        keys = []
+    seen: set = set()
+    for k in keys:
+        if not isinstance(k, dict):
+            c.error(f"{at}: each key is a mapping")
+            continue
+        key = str(k.get("key", ""))
+        w = f"{at} key {key}"
+        if not re.match(r"^[a-zA-Z0-9]$", key) or key in TUI_MODE_KEYS:
+            c.error(f"{at}: a key is one letter or digit, not one of the mode's own ({', '.join(sorted(TUI_MODE_KEYS))})")
+        if key in seen:
+            c.error(f"{at}: the key {key} is used twice")
+        seen.add(key)
+        if not str(k.get("label") or "").strip():
+            c.error(f"{w} needs a label")
+        if k.get("view") not in (None, "list", "detail", "both"):
+            c.error(f"{w}: view is list, detail or both")
+        if not any(k.get(x) for x in ("call", "show", "reload", "open")):
+            c.error(f"{w} does nothing: it needs a call, show, reload or open")
+        pick = k.get("pick")
+        if pick is not None:
+            if not isinstance(pick, dict) or not str(pick.get("title") or "").strip():
+                c.error(f"{w}: its pick needs a title")
+            elif ("choices" in pick) == ("call" in pick or "items" in pick):
+                c.error(f"{w}: its pick reads items (from its call's answer, or from the state) or has choices")
+            elif "call" in pick:
+                read(f"key {key} pick", pick["call"])
+        x = k.get("call")
+        if x is not None:
+            if isinstance(x, dict) and x.get("method", "GET") != "GET" and not (k.get("confirm") or k.get("ask")):
+                c.error(f"{w} changes something (POST): it needs confirm (a yes/no question) or ask (the person's own words)")
+            call(f"mode /{mname} key {key}", x, "asks first")
 
 
 def _permissions(c: _Check, name: str, data: dict) -> dict:

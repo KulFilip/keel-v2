@@ -1,0 +1,9 @@
+drafts:
+branch:feat/paging src/Prefs.kt:3 RIGHT The size should come from the settings
+viewed:
+branch:feat/paging src/Prefs.kt
+tui.call events:
+{"via":"tui","client":"keel TUI 0.18.4","tool":"a command","method":"POST","path":"/api/projects/shop/review/drafts","ok":true,"status":200}
+{"via":"tui","client":"keel TUI 0.18.4","tool":"a command","method":"POST","path":"/api/projects/shop/review/viewed","ok":true,"status":200}
+{"via":"tui","client":"keel TUI 0.18.4","tool":"a command","method":"POST","path":"/api/projects/shop/review/ai/overview","ok":true,"status":200}
+{"via":"tui","client":"keel TUI 0.18.4","tool":"a command","method":"POST","path":"/api/projects/shop/review/submit","ok":false,"status":409}

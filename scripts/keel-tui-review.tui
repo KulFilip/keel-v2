@@ -1,0 +1,60 @@
+# keel TUI's review mode, typed into the real app (scripts/test-keel-tui-review.sh): the Code Review plugin's mode on the
+# branch the scratch project is on (feat/paging), in a throw-away keel on the fake model. The captures (the full screen,
+# --rows) go to docs/pictures/tui/review/.
+/review branch
+@snap rv-01-review-branch-command
+/review
+@wait idle 60
+@sleep 800
+@snap rv-02-mode-files
+@key enter
+@sleep 1200
+@snap rv-03-diff
+@key down
+@key down
+@type c
+@sleep 300
+@type The size should come from the settings
+@snap rv-04-comment-asks
+@key enter
+@sleep 1500
+@snap rv-05-draft-under-its-line
+@type v
+@sleep 300
+@snap rv-06-viewed-asks-first
+@type y
+@sleep 1500
+@type ]
+@sleep 1200
+@snap rv-07-next-file
+@key esc
+@sleep 300
+@snap rv-08-list-viewed
+@type e
+@sleep 300
+@type y
+@sleep 2500
+@snap rv-09-explain-started
+@sleep 15000
+@type o
+@sleep 1500
+@snap rv-10-overview
+@key esc
+@type s
+@sleep 300
+@snap rv-11-submit-pick
+@key enter
+@type Looks good
+@key enter
+@sleep 300
+@snap rv-12-submit-confirm
+@type y
+@sleep 2500
+@snap rv-13-submit-on-a-branch
+@type ?
+@sleep 300
+@snap rv-14-keys
+@key esc
+@key esc
+@sleep 500
+@snap rv-15-left-the-mode

@@ -1,0 +1,29 @@
+ keel  v2 0.18.4 · shop · feat/paging
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Code Review  2 file(s) changed
+  M  src/Prefs.kt  +5 −1  ✓ viewed
+▸ A  src/PrefsTest.kt  +3 −0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+feat/paging · feat/paging → main · +8 −1 · 1 draft(s) · 0 thread(s)
+↑↓ move · Enter open · r x v e f o F s p g · ? keys · Esc leave
+
+ shop (feat/paging) · no flow · nothing waits · ● live

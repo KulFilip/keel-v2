@@ -1,0 +1,29 @@
+[1m[7m[38;2;164;139;255m keel [39m[27m[22m [38;2;154;149;140mv2 0.18.4[38;2;107;103;95m · [39m[1mshop[22m[38;2;154;149;140m · [38;2;87;174;255mfeat/paging[39m
+[38;2;61;61;67m────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1m[7m[38;2;164;139;255m Code Review [39m[27m[22m [1mCode Review: the keys[22m
+ ↑ ↓  j k   move
+ Enter →    open the item
+ ← Esc      back (Esc in the list leaves the mode)
+ ] [  Tab   the next / previous item, in a file
+ } {        the next / previous change
+ PgUp PgDn  a page
+ q          leave the mode
+
+ c          comment (in a file)
+ r          reply
+ x          resolve
+ v          viewed
+ e          explain
+ f          findings
+ o          overview
+ F          findings list
+ s          submit
+ p          pull requests
+ g          refresh
+
+
+
+[38;2;154;149;140mfeat/paging · feat/paging → main · +8 −1 · 1 draft(s) · 0 thread(s)[39m
+[38;2;164;139;255m↑↓[39m [38;2;154;149;140mscroll[38;2;107;103;95m · [38;2;164;139;255mEsc[39m [38;2;154;149;140mback[39m
+
+ [1m[38;2;247;246;243mshop (feat/paging)[22m[38;2;107;103;95m · [38;2;154;149;140mno flow[38;2;107;103;95m · [38;2;154;149;140mnothing waits[38;2;107;103;95m · [38;2;78;192;124m● live[39m[0m

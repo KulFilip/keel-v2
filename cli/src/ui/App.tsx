@@ -26,6 +26,8 @@ import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
 import { elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
+import type { ModeSession } from "../core/modes";
+import { keyName, ModeView } from "./ModeView";
 
 /** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
@@ -36,6 +38,8 @@ export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boole
 type Pending = { cmd: string; pick?: Pick; ask?: Ask };
 
 const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbox" };
+/** a plugin's mode without the full screen (--inline, tests): this many rows */
+const INLINE_MODE_ROWS = 20;
 /** keel's panels, and a plugin's ("plugin:git") */
 type PanelId = PanelName | `plugin:${string}` | `job:${string}`;
 type Question = { id: string; command: string; title: string; path?: string | null };
@@ -105,6 +109,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const viewRef = useRef<DOMElement>(null);
   const [mouse, setMouse] = useState(mouseAtStart);
   const nextId = useRef(1);
+  // 0.18.6 a plugin's mode (core/modes.ts): it takes the screen between keel's header and the status line until Esc
+  const [mode, setMode] = useState<ModeSession | null>(null);
+  const [, setModeTick] = useState(0);
+  const [modeH, setModeH] = useState(Math.max(6, height - 3));
+  const modeRef = useRef<DOMElement>(null);
 
   const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint }), [core, width, t.paint]);
   // for the answer event's handler (it is set up once): the colours, the width and when the turn started
@@ -261,6 +270,17 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     };
   }, [core, line, cursor]);
 
+  useEffect(() => {
+    if (!mode) return;
+    mode.setPaint(t.paint);
+    return mode.onChange(() => setModeTick((n) => n + 1));
+  }, [mode, t.paint]);
+  const leaveMode = useCallback(() => {
+    if (!mode) return;
+    push({ kind: "dim", text: `  left ${mode.mode.title}` });
+    setMode(null);
+  }, [mode, push]);
+
   if (probe) Object.assign(probe, { started, busy: running !== null, pick: !!pending?.pick, ask: !!pending?.ask, chatBusy: snap.chat.busy, answers });
 
   const handle = useCallback(async (reply: Reply, cmd: string) => {
@@ -303,6 +323,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         push({ kind: "error", text: e instanceof Error ? e.message : String(e) });
       }
     }
+    if (reply.mode) setMode(reply.mode);
     if (reply.quit) exit();
   }, [core, exit, push, stdout, screen, mouse]);
 
@@ -442,6 +463,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const h = measureElement(viewRef.current).height;
     if (h > 0 && h !== viewH) setViewH(h);
   });
+  // the mode's area, after Ink laid the screen out (a question KeelBot asks meanwhile shows under it)
+  useEffect(() => {
+    if (!screen || !modeRef.current) return;
+    const h = measureElement(modeRef.current).height;
+    if (h > 0 && h !== modeH) setModeH(h);
+  });
   // the wheel, Home and End: read from the raw input (Ink gives no key for them)
   const { internal_eventEmitter: rawInput } = useStdin() as unknown as { internal_eventEmitter?: NodeJS.EventEmitter };
   useEffect(() => {
@@ -449,18 +476,28 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const on = (chunk: string | Buffer) => {
       const s = String(chunk);
       const n = wheel(s);
+      if (n && mode) return mode.wheel(n * 3);
       if (n) return scroll(n * 3);
       for (const c of leftClicks(s)) clicks.hit(c.col, c.row)?.act();
-      if (/^\x1b(\[(F|4~|8~)|OF)$/.test(s)) setOffset(0);
-      else if (/^\x1b(\[(H|1~|7~)|OH)$/.test(s)) setOffset(Number.MAX_SAFE_INTEGER);
+      const end = /^\x1b(\[(F|4~|8~)|OF)$/.test(s);
+      const home = /^\x1b(\[(H|1~|7~)|OH)$/.test(s);
+      if (mode && (end || home)) void mode.press(end ? "end" : "home");
+      else if (end) setOffset(0);
+      else if (home) setOffset(Number.MAX_SAFE_INTEGER);
     };
     rawInput.on("input", on);
     return () => void rawInput.off("input", on);
-  }, [rawInput, screen, scroll, clicks]);
+  }, [rawInput, screen, scroll, clicks, mode]);
 
   useInput((input, key) => {
     // the mouse's reports are read below, from the raw input; never typed into the prompt
     if (isMouse(input) || isMouse("\x1b" + input)) return;
+    // a plugin's mode has the keys (Ctrl+C still quits; a question KeelBot asks meanwhile is answered first)
+    if (mode && !pending?.pick && !(key.ctrl && input === "c")) {
+      const name = keyName(input, key);
+      if (name) void mode.press(name).then((r) => r === "leave" && leaveMode());
+      return;
+    }
     if (screen && (key.pageUp || key.pageDown || (key.shift && (key.upArrow || key.downArrow)))) {
       const step = key.pageUp || key.pageDown ? Math.max(1, viewH - 2) : 3;
       scroll(key.pageUp || key.upArrow ? step : -step);
@@ -589,6 +626,22 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const agentsHere = panels.includes("agents") ? [] : snap.running.slice(0, 3);
 
   // the full screen: keel's name, the transcript that scrolls, the live area, the prompt and the status line
+  if (screen && mode) {
+    return (
+      <ClicksProvider clicks={clicks}>
+      <Box flexDirection="column" height={height} width={width}>
+        <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
+        <Text color={t.color("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
+        <Box ref={modeRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden">
+          <ModeView session={mode} width={width} height={modeH} />
+        </Box>
+        {pending?.pick && <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} />}
+        <Clickable act={answerWaiting}><StatusLine s={snap} /></Clickable>
+      </Box>
+      </ClicksProvider>
+    );
+  }
+
   if (screen) {
     const v = view(lines, viewH, offset);
     const liveRows = Math.max(3, Math.floor(height / 3));
@@ -620,7 +673,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       </Static>
       <Box flexDirection="column">
         {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
-        {live()}
+        {mode ? <>
+          <ModeView session={mode} width={width} height={INLINE_MODE_ROWS} />
+          {pending?.pick && <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} />}
+          <StatusLine s={snap} />
+        </> : live()}
       </Box>
     </>
   );

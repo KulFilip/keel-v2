@@ -134,6 +134,18 @@ class ReviewService(
         return if (m.groupValues[1] == "pr") "pr" to m.groupValues[2] else "branch" to ReviewGit.branchName(m.groupValues[4])
     }
 
+    /** The review a person means: nothing is the branch the project folder is on, 12, #12 or !12 a pull request,
+     *  pr:12 or branch:x as they are, other words a branch. */
+    fun keyOf(pid: String, ref: String): String {
+        val r = ref.trim()
+        if (r.isEmpty()) {
+            val branch = projects.branch(root(pid))?.takeIf { it != "HEAD" } ?: throw BadRequest("The project folder is not on a branch", "Name one: a pull request's number or a branch.")
+            return "branch:$branch"
+        }
+        Regex("^[#!]?(\\d{1,9})$").matchEntire(r)?.let { return "pr:${it.groupValues[1]}" }
+        return if (KEY.matches(r)) r else "branch:$r"
+    }
+
     /** The two commits of a review (a pull request must have been fetched: open it first). */
     fun refs(pid: String, key: String): Refs {
         val root = root(pid)

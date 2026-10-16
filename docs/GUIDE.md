@@ -243,6 +243,17 @@ pages you use.
   **Ask KeelBot why** (`/ci`). **Settings › When CI fails**: tell me, start the fix flow by itself, or nothing.
 - **Claude Code**: `keel2 mcp` adds the read tools (`keel_db_query`, `keel_git_status`, `keel_ci_failure` …);
   `keel2 mcp --write` also the acting ones, and each waits for your **Allow** in keel's Inbox.
+- **Code Review in the terminal** (0.18.6): with the Code Review plugin on, keel TUI (`keel2 tui`) has a **review mode**.
+  `/review` opens the branch you are on, `/review 12` pull request #12; it takes the whole screen (keel's header and
+  status line stay) until **Esc**. ↑↓ and **Enter** open a changed file's diff, with the threads, your drafts and keel's
+  findings under their lines; `]` `[` go to the next file, `}` `{` to the next change. Keys: **c** a line comment (a
+  draft), **r** reply, **x** resolve, **v** viewed, **e** / **f** ask keel to explain the change or find problems, **o** /
+  **F** read them, **s** submit (approve, request changes or comment: keel asks first), **p** another pull request,
+  **?** all keys. `/review prs` lists the open pull requests. `keel2 mcp` has the same: `keel_review_prs`,
+  `keel_review_files`, `keel_review_diff`, `keel_review_notes`, and with `--write` `keel_review_comment`,
+  `keel_review_explain`, `keel_review_findings`, `keel_review_reply`, `keel_review_resolve`, `keel_review_submit` (the
+  last three post to GitHub or GitLab, so your client asks you first). Any plugin can add a mode like this:
+  [docs/plugins/25-tui-plugins.md](plugins/25-tui-plugins.md).
 
 ## Quality
 
