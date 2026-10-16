@@ -172,7 +172,6 @@ export function stubKeel() {
       case "POST /api/projects/demo/review/submit":
         state.review.submitted = body;
         return [200, { posted: state.review.drafts.length, in_body: 0, event: body.event, url: "https://github.com/acme/shop/pull/7#review-1", view: reviewView(body.key) }];
-      default: return [404, { error: `stub: no ${key}` }];
       default:
         if (method === "GET" && path.startsWith("/api/skills/")) {
           const sid = path.slice("/api/skills/".length);
