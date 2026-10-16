@@ -66,6 +66,7 @@ describe("KeelBot's buttons", () => {
     t.stub.answer('One flow runs. I can stop it for you:\n\n```keel-flow\n{"do": "stop", "flows": ["t1"]}\n```');
     finished(t.core);
     await waitFor(() => t.probe.pick);
+    await tick(80);                                                     // the picker's keys are live after its render
     const f = t.frame();
     expect(f).toContain("One flow runs. I can stop it for you:");
     expect(f).not.toContain('"do": "stop"');
@@ -84,6 +85,7 @@ describe("KeelBot's buttons", () => {
     t.stub.answer('```keel-flow\n{"do": "mode", "flow": "t1", "mode": "auto"}\n```');
     finished(t.core);
     await waitFor(() => t.probe.pick);
+    await tick(80);                                                     // the picker's keys are live after its render
     expect(t.frame()).toContain('KeelBot suggests: run "Add a health endpoint" in auto mode');
     await t.type("\x1b[B");                                             // No
     await t.enter();
@@ -226,6 +228,7 @@ describe("clicks (the full screen with the mouse)", () => {
     await tick(60);
     await t.click("waiting for you: spec approval");
     await waitFor(() => t.probe.pick);
+    await tick(80);                                                     // the picker's keys are live after its render
     expect(t.lines().join("\n")).toContain("spec approval: what do you do?");
     expect(t.stub.calls.some((c) => c.path === "/api/inbox/t1/act")).toBe(false);
     t.r.stdin.write("\r");                                              // Approve
@@ -258,6 +261,7 @@ describe("the status line's waiting", () => {
     expect(row).toBeGreaterThan(0);
     r.stdin.write(`\x1b[<0;20;${row + 1}M`);
     await waitFor(() => probe.pick);
+    await tick(80);
     const f = lines().join("\n");
     expect(f).toContain("demo · Add a health endpoint · spec approval: what do you do?");
     for (const c of ["Approve", "Send back…", "Stop the flow", "Read it first"]) expect(f).toContain(c);
