@@ -121,8 +121,7 @@ describe("diagrams and lists", () => {
     expect(out).toContain(`${RGB(DARK.ok)}✔ done`);
     expect(out).toContain(`${RGB(DARK.faint)}t1`);
     expect(out).toContain(`${RGB(DARK.ok)}2/2`);
-    expect(out).toContain(" latest ");
-    expect(stripAnsi(out)).toBe('t1  feature "Health" · ✔ done · criteria 2/2 · 1,000 tokens · $0.00 · folder  latest ');
+    expect(stripAnsi(out)).toBe(' 1. ✔ done  "Health"  feature · criteria 2/2 · $0.00  t1\n/stop <n> stops one, /stop all stops every running or waiting one.');
     expect(fmt.badge("waiting", color.paint)).toContain(RGB(DARK.gate));
     expect(fmt.badge("running", PLAIN)).toBe("▶ running");
   });
@@ -142,18 +141,18 @@ describe("diagrams and lists", () => {
 });
 
 describe("the working indicator", () => {
-  it("a keel verb per turn, a turning compass, seconds, tokens and how to stop it", async () => {
+  it("a keel verb per turn, a turning spinner, seconds, tokens and how to stop it", async () => {
     const r = render(<ThemeProvider theme={color}><Thinking verb="Sounding the depths" since={Date.now() - 3200} tokens={1234} hint="esc to interrupt" interval={10} /></ThemeProvider>);
     const seen = new Set<string>();
     for (let i = 0; i < 8; i++) {
-      seen.add(stripAnsi(r.lastFrame() ?? "").slice(0, 2));
+      seen.add(stripAnsi(r.lastFrame() ?? "").slice(0, 1));
       await tick(15);
     }
-    expect(stripAnsi(r.lastFrame() ?? "")).toMatch(/^.. Sounding the depths… \(3s · ~1\.2k tokens · esc to interrupt\)$/);
+    expect(stripAnsi(r.lastFrame() ?? "")).toMatch(/^. Sounding the depths… \(3s · ~1\.2k tokens · esc to interrupt\)$/);
     expect([...seen].filter((f) => FRAMES.includes(f)).length).toBeGreaterThan(1);       // it turns
     r.unmount();
     const a = render(<ThemeProvider theme={makeTheme({ KEEL_TUI_ASCII: "1" }, 0)}><Thinking verb="Tacking" since={null} /></ThemeProvider>);
-    expect(FRAMES_ASCII).toContain((a.lastFrame() ?? "").slice(0, 2));
+    expect(FRAMES_ASCII).toContain((a.lastFrame() ?? "").slice(0, 1));
     a.unmount();
     expect(VERBS).toContain(pickVerb());
     expect(pickVerb("call-1")).toBe(pickVerb("call-1"));
@@ -282,7 +281,7 @@ describe("xal's layout ideas in keel TUI", () => {
     r.stdin.write("/status");
     await tick(30);
     r.stdin.write("\r");
-    await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("criteria  0/2 done"));
+    await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("Criteria: 0/2 done"));
     expect(r.lastFrame()).toContain("\x1b[48;2;38;38;39m");                  // userTint(DARK) behind " › /status"
     expect(stripAnsi(r.lastFrame() ?? "")).toMatch(/\n › \/status {60,}\n/);
     r.unmount();

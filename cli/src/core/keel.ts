@@ -54,7 +54,7 @@ export type Snapshot = {
 
 export type CoreEvents = {
   change: (s: Snapshot) => void;
-  notice: (text: string, ev: EngineEvent) => void;
+  notice: (text: string, ev?: EngineEvent) => void;
   /** a KeelBot turn ended: its answer (markdown) or why not */
   answer: (m: { text: string; ok: boolean; message?: HelperMessage }) => void;
   /** KeelBot asks the person's OK for a command (helper.permission): once, always (this chat) or deny */
@@ -85,6 +85,9 @@ export class KeelCore {
   private subPid: string | null | undefined = undefined;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  /** the agents the person started (/agent new): KeelBot chats that work on their own, until each one finishes */
+  private spawned = new Map<string, { pid: string; title: string }>();
+  private spawnTimer: ReturnType<typeof setInterval> | null = null;
   private readonly f: typeof fetch;
 
   constructor(private opts: CoreOptions) {
@@ -144,6 +147,7 @@ export class KeelCore {
     this.sub = null;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.spawnTimer) clearInterval(this.spawnTimer);
   }
 
   async loadProjects() {
@@ -254,6 +258,10 @@ export class KeelCore {
         const { [ev.call_id]: _done, ...rest } = this.snapshot.liveText;
         this.set({ liveText: rest });
       }
+      if (!chat.callId && chat.busy && ev.type === "helper.step" && chat.session && ev.thread_id === chat.session.id) {
+        this.setChat({ callId: ev.call_id });
+        chat.callId = ev.call_id;
+      }
       if (ev.call_id === chat.callId && !chat.steps.some((x) => x.n === step.n)) {
         // a whole message arrived: the streamed block is in it now
         const whole = step.kind === "text" || step.kind === "answer";
@@ -305,8 +313,53 @@ export class KeelCore {
   async openChat(sid: string): Promise<HelperSession> {
     if (!this.pid) throw new Error("no project");
     const s = await kb.session(this.pid, sid);
-    this.setChat({ session: s, mode: s.mode, model: s.model, callId: null, steps: [], busy: !!s.busy });
+    const busy = !!s.busy || s.status === "running";
+    this.setChat({ session: s, mode: s.mode, model: s.model, callId: null, steps: [], stream: "", busy, startedAt: busy ? Date.now() : null, wrote: 0 });
+    // a chat at work (an agent from /agent new): follow it from here; its answer comes as for the person's own turn
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = busy ? setInterval(() => void this.pollTurn(), 3000) : null;
     return s;
+  }
+
+  /** Start an agent: a KeelBot chat of its own (side: its own worktree and branch, so it never touches this folder; ask:
+   *  it only reads) that works on the task while the person goes on. A notice says when it is finished. */
+  async spawnAgent(task: string, mode: HelperMode = "side"): Promise<HelperSession> {
+    const pid = this.pid;
+    if (!pid) throw new Error("no project: /project picks one");
+    const model = this.snapshot.chat.model;
+    setCommand("agent");
+    try {
+      const s = await kb.create(pid, { mode, ...(model ? { model } : {}), title: task.slice(0, 60) });
+      await kb.turn(pid, s.id, { text: task, ...(model ? { model } : {}) });
+      this.spawned.set(s.id, { pid, title: s.title || task.slice(0, 60) });
+      if (!this.spawnTimer) this.spawnTimer = setInterval(() => void this.watchSpawned(), 4000);
+      return s;
+    } finally {
+      setCommand("");
+    }
+  }
+
+  /** The agents the person started that are still at work (their chat ids). */
+  spawnedAtWork(): string[] {
+    return [...this.spawned.keys()];
+  }
+
+  private async watchSpawned() {
+    for (const [sid, a] of [...this.spawned]) {
+      try {
+        const s = await kb.session(a.pid, sid);
+        if (s.busy || s.status === "running") continue;
+        this.spawned.delete(sid);
+        // the chat on screen says it itself (its answer); the others with a notice
+        if (this.snapshot.chat.session?.id !== sid) this.emit("notice", `agent "${a.title}" ${s.status === "failed" ? "failed" : "is finished"} · /agent opens it`);
+      } catch {
+        /* look again next time */
+      }
+    }
+    if (!this.spawned.size && this.spawnTimer) {
+      clearInterval(this.spawnTimer);
+      this.spawnTimer = null;
+    }
   }
 
   newChat() {

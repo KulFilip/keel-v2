@@ -1,13 +1,14 @@
-// "Working" the Claude Code way, in keel's words: a small turning compass on the water, a keel verb that changes with
+// "Working" the Claude Code way, in keel's words: a small turning spinner, a keel verb that changes with
 // each turn ("Charting…", "Sounding the depths…"), the seconds so far, the tokens so far, and how to stop it.
 import React, { useEffect, useState } from "react";
 import { Text } from "ink";
 import { useTheme } from "./theme";
 import * as fmt from "../core/format";
 
-/** A compass that turns over a wave; ASCII: a turning bar over a wave. */
-export const FRAMES = ["◜∼", "◝≈", "◞∼", "◟≈"];
-export const FRAMES_ASCII = ["|~", "/=", "-~", "\\="];
+/** One turning character that every terminal font has (the braille dots); ASCII: a turning bar. Two-character glyphs
+ *  (a compass over a wave) looked broken in some fonts. */
+export const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export const FRAMES_ASCII = ["|", "/", "-", "\\"];
 export const VERBS = ["Charting", "Setting sail", "Trimming the sails", "Reading the currents", "Sounding the depths", "Plotting a course",
   "Hoisting", "Tacking", "Mooring", "Taking soundings", "Checking the keel", "Steering", "Casting off", "Reefing"];
 

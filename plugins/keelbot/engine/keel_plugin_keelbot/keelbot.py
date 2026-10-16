@@ -9,6 +9,8 @@ and the panel turns that into a button the person presses (the plugin's web, Act
     {"workflow": "feature", ...}       id: ...            (a whole workflow: keel checks it, then offers Save)
     ```                                ```
 
+    ```keel-flow {"do": "approve" | "reject" | "stop" | "mode", ...}```   decide a gate, stop flows, a run mode
+
     keel_block(keel, question)   the prompt block: workflows, flows, how to give buttons, what each part that is on
                                  says (its `keelbot` words, keel_engine/extensions.py), and (only when the question is
                                  about writing a workflow) the format, the phases, actions and agents to use
@@ -53,6 +55,24 @@ words, with the details you agreed>"}
 ```
 - A new workflow (keel checks it and shows Save): the whole workflow YAML in a fenced block with the info string \
 keel-workflow.
+- Decide a gate, stop flows, or change a flow's run mode (the flow ids are in the flows list above; the person sees \
+the button and presses it, so offer it whenever they ask for one of these, never say you cannot):
+```keel-flow
+{"do": "approve", "flow": "<flow id>"}
+```
+```keel-flow
+{"do": "reject", "flow": "<flow id>", "why": "<the reason the agent gets>"}
+```
+```keel-flow
+{"do": "stop", "flows": ["<flow id>", "<flow id>"]}
+```
+```keel-flow
+{"do": "mode", "flow": "<flow id>", "mode": "manual | important | auto | readonly"}
+```
+Run modes: manual stops at every gate; important approves a criterion's gate when its checks and review pass; auto \
+approves every gate keel can decide (it still stops for money, new dependencies, secrets and failures); readonly lets \
+agents read but not change anything. Only flows that run or wait can be stopped. A gate that asks questions is \
+answered in the dashboard or with /answer, not approved.
 When the person asks how to build, change or fix something, say which workflow fits best and why (one or two \
 sentences, and when another one fits better), then give the start button with a good title and request."""
 

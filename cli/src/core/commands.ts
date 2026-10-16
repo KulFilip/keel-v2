@@ -3,7 +3,7 @@
 // Ink app, an xal plugin or an OpenTUI front end run the very same commands.
 
 import { api, ApiError, errorParts, get, post, type HelperSession, type Job, type JobStep, type Model, type Project,
-  type ThreadState, type Workflow } from "./sdk";
+  type HelperMode, type RunMode, type ThreadState, type Workflow } from "./sdk";
 import { inboxApi, type InboxItem } from "../../../web/src/inboxApi";
 import { rulesApi } from "../../../web/src/rulesApi";
 import * as fmt from "./format";
@@ -11,6 +11,7 @@ import { setCommand } from "./transport";
 import type { KeelCore } from "./keel";
 import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
+import { pressButton, RUN_MODE_ABOUT, RUN_MODES } from "./buttons";
 
 // ------------------------------------------------------------------ replies
 
@@ -22,7 +23,9 @@ export type Pick = { title: string; choices: Choice[]; then: (value: string) => 
 /** The next line the person types answers this; `then` runs with it. */
 export type Ask = { prompt: string; then: (text: string) => Promise<Reply> | Reply };
 export type PanelName = "flow" | "agents" | "inbox";
-export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; mouse?: boolean | "toggle"; panel?: PanelName | "off"; chat?: string };
+export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; mouse?: boolean | "toggle"; panel?: PanelName | "off"; chat?: string;
+  /** an agent of a flow (its job id) to follow on screen: its steps and the text it writes, live */
+  follow?: string };
 
 export const text = (t: string): Reply => ({ blocks: [{ kind: "text", text: t }] });
 export const ok = (t: string): Reply => ({ blocks: [{ kind: "ok", text: t }] });
@@ -196,6 +199,28 @@ async function flowDiagram(ctx: Ctx, zoom?: string): Promise<Reply> {
 
 type MapView = { missing?: string; schema?: unknown; levels?: Record<string, unknown> };
 
+/** /agent new: an agent of its own (a KeelBot chat in its own worktree, or one that only reads) works on the task. */
+async function spawn(ctx: Ctx, task: string, mode: HelperMode): Promise<Reply> {
+  if (!task.trim()) return text("No task: nothing started.");
+  try {
+    const s = await ctx.core.spawnAgent(task.trim(), mode);
+    return ok(`agent "${s.title}" started (${mode === "side" ? "its own worktree and branch: this folder stays as it is" : "it only reads"}). `
+      + "Go on working: a notice says when it is finished. /agent shows it and opens it.");
+  } catch (e) {
+    return errorReply(e);
+  }
+}
+
+/** Open an agent the person started: its chat comes on screen, with its last messages; at work, it is followed live. */
+async function openAgent(ctx: Ctx, sid: string): Promise<Reply> {
+  const s = await ctx.core.openChat(sid);
+  const busy = s.busy || s.status === "running";
+  const blocks: Block[] = [{ kind: "dim", text: `agent "${s.title}" · ${s.mode}${s.branch ? ` · branch ${s.branch}` : ""} · ${busy ? "at work: you see it live" : s.status}` }];
+  (s.messages ?? []).slice(-4).forEach((m) => blocks.push(m.role === "user" ? { kind: "user", text: m.text } : { kind: m.role === "note" ? "dim" : "markdown", text: m.text }));
+  if (!busy && s.mode === "side") blocks.push({ kind: "dim", text: "  Its changes: /changes · /keep keeps them · /undo · or ask it more here." });
+  return { blocks };
+}
+
 /** What each command does; its name, arguments, help text and aliases are in the shared table (TABLE). */
 const IMPLS: Impl[] = [
   { name: "help", run: (ctx) => text(helpText(P(ctx))) },
@@ -249,9 +274,30 @@ const IMPLS: Impl[] = [
   },
   {
     name: "stop",
-    run: (ctx) => {
+    run: async (ctx, a) => {
+      // /stop all, /stop <n> (/flows numbers them), /stop <flow id>: the project's flows, after one yes
+      const arg = a.trim();
+      if (arg) {
+        const rows = await api.runs(needProject(ctx).id, undefined, 20);
+        const open = rows.filter((r) => r.status === "running" || r.status === "waiting");
+        const n = /^#?(\d+)$/.exec(arg);
+        const chosen = arg === "all" ? open : n ? [rows[Number(n[1]) - 1]].filter(Boolean) : rows.filter((r) => arg.length >= 6 && r.thread_id.startsWith(arg));
+        if (!chosen.length) return arg === "all" ? text("No running or waiting flow to stop.") : fail(`No flow ${arg}: /flows lists them, numbered.`);
+        const shut = chosen.filter((r) => r.status !== "running" && r.status !== "waiting");
+        if (shut.length === chosen.length) return text(`"${chosen[0].title}" is ${chosen[0].status} already.`);
+        const b = { kind: "stop" as const, flows: chosen.filter((r) => !shut.includes(r)).map((r) => r.thread_id) };
+        const name = (tid: string) => `"${rows.find((r) => r.thread_id === tid)?.title ?? tid}"`;
+        return { blocks: [], pick: { title: b.flows.length === 1 ? `Stop ${name(b.flows[0])}?` : `Stop ${b.flows.length} flows: ${b.flows.map(name).join(", ")}?`,
+          choices: [{ label: "Yes, stop", value: "yes", hint: "agents at work stop; every finished step stays saved" }, { label: "No", value: "no" }],
+          then: async (v) => {
+            if (v !== "yes") return text("Not stopped.");
+            const said = await pressButton(b, needProject(ctx).id, name);
+            await ctx.core.refresh();
+            return ok(said);
+          } } };
+      }
       const t = flowNow(ctx);
-      if (!t || !["running", "waiting"].includes(t.status)) return text("No running flow to stop.");
+      if (!t || !["running", "waiting"].includes(t.status)) return text("No running flow to stop. /stop all stops every running or waiting one.");
       return { blocks: [], pick: { title: `Stop "${t.title}"? Agents at work stop; /resume goes on later.`,
         choices: [{ label: "Yes, stop it", value: "yes" }, { label: "No", value: "no" }],
         then: async (v) => {
@@ -262,9 +308,29 @@ const IMPLS: Impl[] = [
         } } };
     },
   },
+  {
+    // the flow's run mode, as the dashboard's switch: how much keel decides by itself, from the next gate on
+    name: "run",
+    run: async (ctx, a) => {
+      const t = flowNow(ctx);
+      if (!t || !["running", "waiting"].includes(t.status)) return text("No running or waiting flow: a run mode is set when a flow starts (/flow).");
+      const want = a.trim().toLowerCase() as RunMode;
+      const now = t.run_mode ?? "manual";
+      const set = async (m: RunMode) => {
+        if (m === now) return text(`"${t.title}" runs in ${m} mode already.`);
+        await inboxApi.setMode(t.thread_id, m);
+        await ctx.core.refresh();
+        return ok(`"${t.title}" runs in ${m} mode from its next gate on: it ${RUN_MODE_ABOUT[m]}.`);
+      };
+      if (want) return RUN_MODES.includes(want) ? set(want) : fail(`A run mode is one of ${RUN_MODES.join(", ")}.`);
+      return { blocks: [], pick: { title: `Run mode of "${t.title}" (now ${now})`,
+        choices: RUN_MODES.map((m) => ({ label: m + (m === now ? " (now)" : ""), value: m, hint: RUN_MODE_ABOUT[m] })),
+        then: (v) => set(v as RunMode) } };
+    },
+  },
   { name: "status", run: async (ctx) => {
     await ctx.core.refresh();
-    return text(fmt.status(needProject(ctx), ctx.core.snapshot.flow, P(ctx)));
+    return text(fmt.status(needProject(ctx), ctx.core.snapshot.flow, P(ctx), ctx.width));
   } },
   { name: "next", run: async (ctx) => {
     await ctx.core.refresh();
@@ -436,6 +502,36 @@ const IMPLS: Impl[] = [
           (s.messages ?? []).slice(-6).forEach((m) => blocks.push(m.role === "user" ? { kind: "user", text: m.text } : { kind: m.role === "note" ? "dim" : "markdown", text: m.text }));
           return { blocks };
         } } };
+    },
+  },
+  {
+    // agents: the flow's at work, and the ones the person started (/agent new: KeelBot chats that work on their own)
+    name: "agent",
+    run: async (ctx, a) => {
+      const p = needProject(ctx);
+      const arg = a.trim();
+      const m = /^(new|spawn|start)\s+(?:(ask|side)\s+)?([\s\S]+)$/i.exec(arg);
+      if (/^(new|spawn|start)$/i.test(arg)) return { blocks: [], ask: { prompt: "What should the agent do?", then: (task) => spawn(ctx, task, "side") } };
+      if (m) return spawn(ctx, m[3].trim(), (m[2]?.toLowerCase() as HelperMode) || "side");
+      const [jobs, chats] = await Promise.all([api.jobs({ project: p.id, status: "running", limit: 20 }).catch(() => [] as Job[]), ctx.core.chats()]);
+      const mine = chats.filter((s) => s.mode === "side" || ctx.core.spawnedAtWork().includes(s.id) || s.busy).slice(0, 12);
+      const rows: { label: string; hint: string; go: () => Promise<Reply> | Reply }[] = [
+        ...jobs.map((j) => ({ label: `▶ ${j.agent} (flow)`, hint: [j.step, j.ac, `${fmt.short(fmt.tokensOf(j))} tokens`].filter(Boolean).join(" · "),
+          go: () => ({ blocks: [{ kind: "dim" as const, text: `following ${j.agent} · ${j.step}${j.ac ? " " + j.ac : ""} · Esc or /panel off stops following` }], follow: j.id }) })),
+        ...mine.map((s) => ({ label: `${s.busy || s.status === "running" ? "▶" : s.status === "failed" ? "✗" : "✓"} ${s.title || s.id}`,
+          hint: [s.mode === "side" ? `own worktree${s.branch ? " " + s.branch : ""}` : s.mode, s.busy || s.status === "running" ? "at work" : s.status, fmt.usd(s.cost_usd)].join(" · "),
+          go: () => openAgent(ctx, s.id) })),
+      ];
+      const n = /^#?(\d+)$/.exec(arg);
+      if (n) return rows[Number(n[1]) - 1]?.go() ?? fail(`No agent ${n[1]}: /agent lists them.`);
+      if (arg) return fail("/agent lists the agents; /agent <n> opens one; /agent new <task> starts one.");
+      const c = P(ctx);
+      const list = rows.length ? rows.map((r, k) => `${c.bold(`${String(k + 1).padStart(2)}.`)} ${r.label}  ${c.dim(r.hint)}`).join("\n")
+        : c.dim("No agent at work, and none of yours yet.");
+      const help = c.dim(`/agent new <task> starts an agent in its own worktree (/agent new ask <question>: it only reads) · /agent <n> opens one`);
+      if (!rows.length) return text(`${list}\n${help}`);
+      return { blocks: [{ kind: "text", text: `${c.bold("Agents")}\n${list}\n${help}` }],
+        pick: { title: "Go to which agent?", choices: rows.map((r, k) => ({ label: r.label, value: String(k), hint: r.hint })), then: (v) => rows[Number(v)].go() } };
     },
   },
   { name: "new", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },

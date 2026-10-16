@@ -78,6 +78,26 @@ async function chatWith(text: string) {
   return panel();
 }
 
+describe("KeelBot's flow buttons (0.18.4)", () => {
+  it("stop: names the flow, stops it only when pressed, then offers to open it", async () => {
+    const user = userEvent.setup();
+    const tid = db.flows["ludus-engine"].thread!.thread_id;
+    const p = await chatWith(`It waits at a gate. I can stop it:\n\n\`\`\`keel-flow\n{"do": "stop", "flows": ["${tid}"]}\n\`\`\``);
+    const card = await within(p).findByRole("region", { name: "Flow: Stop the flow" });
+    await waitFor(() => expect(card).toHaveTextContent(db.flows["ludus-engine"].thread!.title));
+    expect(db.calls.some((c) => c.path === `/api/threads/${tid}/stop`)).toBe(false);
+    await user.click(within(card).getByRole("button", { name: "Stop the flow" }));
+    await waitFor(() => expect(db.calls.some((c) => c.method === "POST" && c.path === `/api/threads/${tid}/stop`)).toBe(true));
+    expect(await within(card).findByRole("status")).toHaveTextContent("Stopped. Every finished step stays saved.");
+  });
+
+  it("a flow button it cannot read says so; a send-back without a reason is not a button", async () => {
+    const p = await chatWith('```keel-flow\n{"do": "reject", "flow": "t1"}\n```');
+    expect(await within(p).findByRole("note")).toHaveTextContent("KeelBot's flow button could not be read.");
+    expect(splitActions('```keel-flow\n{"do": "mode", "flow": "t1", "mode": "auto"}\n```').map((s) => s.kind)).toEqual(["flow"]);
+  });
+});
+
 describe("KeelBot's answers: text and buttons", () => {
   it("splits an answer into text and action blocks; a keel block inside another code block stays text", () => {
     const segs = splitActions(

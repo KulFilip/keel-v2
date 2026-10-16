@@ -168,7 +168,7 @@ describe("format", () => {
     const s = stubKeel();
     const view = { thread: s.state.thread as never, workflow: s.workflow as never };
     expect(fmt.next({ id: "demo", branch: "x" } as never, view)).toBe('waiting at spec_gate (spec approval): /approve ("Approve the spec") or /reject <why>.');
-    expect(fmt.status({ id: "demo", branch: "keel/health" } as never, view)).toContain("criteria  0/2 done");
+    expect(fmt.status({ id: "demo", branch: "keel/health" } as never, view)).toContain("Criteria: 0/2 done");
     expect(fmt.short(1234)).toBe("1.2k");
   });
 });

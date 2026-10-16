@@ -23,9 +23,9 @@ import {
 import { kb } from "./keelbotApi";
 
 export type Segment =
-  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci"; body: string };
+  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci" | "flow"; body: string };
 
-const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git|ci)\s*$/;
+const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git|ci|flow)\s*$/;
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const closes = (line: string, open: string) => {
   const t = line.trim();
@@ -51,7 +51,7 @@ export function splitActions(text: string): Segment[] {
       i++;
       flush();
       out.push({
-        kind: a[2] as "start" | "workflow" | "query" | "git" | "ci",
+        kind: a[2] as "start" | "workflow" | "query" | "git" | "ci" | "flow",
         body: body.join("\n"),
       });
       continue;
@@ -419,6 +419,72 @@ export function CiCard({ pid, body }: { pid: string; body: string }) {
         <div className="row">
           <button type="button" className="btn sm primary" disabled={busy} onClick={() => void go_()}>{busy ? "Starting…" : label}</button>
           {op === "fix" && <span className="sub">It pushes the fix with the Git plugin, following your push setting.</span>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type FlowSpec = { do?: string; flow?: string; flows?: string[]; why?: string; mode?: string };
+const RUN_MODES = ["manual", "important", "auto", "readonly"] as const;
+const MODE_ABOUT: Record<string, string> = {
+  manual: "stops at every gate",
+  important: "approves a criterion's gate when its checks and review pass",
+  auto: "approves every gate keel can decide; still stops for money, new dependencies, secrets and failures",
+  readonly: "agents may read but change nothing",
+};
+
+/** 0.18.4 a flow button KeelBot gives (```keel-flow```): approve or send back the gate a flow waits at, stop flows, or
+ *  a flow's run mode. Nothing happens until the person presses it. */
+export function FlowCard({ pid, body }: { pid: string; body: string }) {
+  const spec = parseJson<FlowSpec>(body);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const op = spec?.do ?? "";
+  const flows = [...new Set((spec?.flows ?? (spec?.flow ? [spec.flow] : [])).filter((x) => typeof x === "string" && x))];
+  const ok = !!spec && flows.length > 0 && (["approve", "reject", "stop"].includes(op) || (op === "mode" && RUN_MODES.includes(spec.mode as never)))
+    && !(op === "reject" && !spec.why);
+  const titles = useLoad(ok ? `kb-flow-titles:${flows.join(",")}` : null,
+    () => Promise.all(flows.map((f) => kb.flowOf(pid, f).then((v) => v.thread?.title || f).catch(() => f))), { live: false });
+  if (!ok) return <p className="kb-card bad" role="note">KeelBot's flow button could not be read. Ask it to give it again.</p>;
+  const names = (titles.data ?? flows.map((f) => f.slice(0, 8))).map((x) => `"${x}"`).join(", ");
+  const label = op === "approve" ? "Approve the gate" : op === "reject" ? "Send back" : op === "stop"
+    ? (flows.length === 1 ? "Stop the flow" : `Stop ${flows.length} flows`) : `Run in ${spec!.mode} mode`;
+  const press = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (op === "approve" || op === "reject") {
+        const s = await kb.decideGate(flows[0], { decision: op, ...(spec!.why ? { why: spec!.why } : {}) });
+        setDone(`${op === "approve" ? "Approved" : "Sent back"}. The flow is ${s.status}${s.current ? ` at ${s.current}` : ""}.`);
+      } else if (op === "stop") {
+        const failed: string[] = [];
+        for (const f of flows) await kb.stopFlow(f).catch(() => failed.push(f));
+        setDone(failed.length ? `Stopped ${flows.length - failed.length}; ${failed.length} could not be stopped.` : "Stopped. Every finished step stays saved.");
+      } else {
+        await kb.setRunMode(flows[0], spec!.mode as (typeof RUN_MODES)[number]);
+        setDone(`From the next gate on it ${MODE_ABOUT[spec!.mode!]}.`);
+      }
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="kb-card" aria-label={`Flow: ${label}`}>
+      <div className="kb-card-h"><span className="kb-tag">Flow</span><b>{label}</b><span className="sub">{names}</span></div>
+      {op === "reject" && <p className="kb-request"><span className="sub">The reason the agent gets:</span> {spec!.why}</p>}
+      {op === "mode" && <p className="kb-request"><span className="sub">{spec!.mode}:</span> {MODE_ABOUT[spec!.mode!]}</p>}
+      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      {done ? (
+        <p className="kb-done" role="status">{done}{" "}
+          <button type="button" className="btn sm" onClick={() => go("flow", flows[0])}>Open the flow ▸</button></p>
+      ) : (
+        <div className="row">
+          <button type="button" className={`btn sm ${op === "stop" ? "warn" : "primary"}`} disabled={busy} onClick={() => void press()}>
+            {busy ? "…" : label}</button>
         </div>
       )}
     </section>

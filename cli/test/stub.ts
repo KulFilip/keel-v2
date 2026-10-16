@@ -72,6 +72,7 @@ export function stubKeel() {
         return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
       case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
       case "GET /api/projects/demo/helper/sessions": return [200, state.session ? [state.session] : []];
+      case "POST /api/threads/t1/mode": state.thread = { ...state.thread, run_mode: body.mode }; return [200, state.thread];
       case "POST /api/threads/t1/stop": state.thread = { ...state.thread, status: "stopped", waiting: undefined }; return [200, state.thread];
       // round 3: @mentions, Fix mode's changes, Keep and Undo, questions, plugins
       case "GET /api/projects/demo/repo/files": return [200, { files: ["src/app.ts", "src/score.ts", "README.md", "web/src/App.tsx"], truncated: false }];

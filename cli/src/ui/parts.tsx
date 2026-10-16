@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { panelText, type TuiPanel } from "../core/plugins";
 import { Box, Text } from "ink";
-import type { Job, JobStep } from "../core/sdk";
+import { api, type Job, type JobStep } from "../core/sdk";
 import type { Block, Choice, Completion, PanelName } from "../core/commands";
 import type { Snapshot } from "../core/keel";
 import { LOGO } from "../core/logo";
@@ -240,6 +240,40 @@ export function PluginPanel({ plugin, panel, pid, width }: { plugin: string; pan
   return (
     <PanelBox title={<>{panel.title}{` · ${plugin}`}</>}>
       <Text wrap="truncate-end">{text}</Text>
+    </PanelBox>
+  );
+}
+
+/** One agent of a flow, followed (/agent <n>): what it is doing, its last steps and the text it writes now. Its steps
+ *  are read again every 2 s; when it is finished the panel says so and stays until Esc or /panel off. */
+export function JobPanel({ id, s, width }: { id: string; s: Snapshot; width: number }) {
+  const { color, paint } = useTheme();
+  const [steps, setSteps] = useState<JobStep[]>([]);
+  const [running, setRunning] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    const read = () => void api.jobSteps(id).then((r) => {
+      if (!alive) return;
+      setSteps(r.steps);
+      setRunning(r.running);
+    }).catch(() => undefined);
+    read();
+    const t = setInterval(read, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [id]);
+  const j = s.running.find((x) => x.id === id);
+  const writing = s.liveText[id];
+  const shown = steps.filter((x) => x.kind !== "thinking").slice(-6);
+  return (
+    <PanelBox title={<>{"Agent · "}<Text color={color("accent")}>{j ? `${j.agent} · ${[j.step, j.ac].filter(Boolean).join(" ")}` : id.slice(0, 8)}</Text>
+      <Text color={color("dim")}>{running ? "" : " · finished"}{" · Esc stops following"}</Text></>}>
+      {running && j && <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null} tokens={fmt.tokensOf(j) || undefined} />}
+      {shown.length === 0 && <Text color={color("dim")}>no steps yet</Text>}
+      {shown.map((x) => <Text key={x.n} wrap="truncate-end">{fmt.stepLine(x, width - 6, paint)}</Text>)}
+      {writing ? <Text color={color("fg")} wrap="truncate-end">{"✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text> : null}
     </PanelBox>
   );
 }

@@ -42,8 +42,17 @@
     },
     {
       "name": "stop",
-      "summary": "stop the project's flow (every finished step stays saved)",
+      "summary": "stop the project's flow, all running and waiting ones, or one from /flows (finished steps stay saved)",
       "writes": true,
+      "group": "Flows",
+      "args": "[all|n|flow id]"
+    },
+    {
+      "name": "run",
+      "args": "[manual|important|auto|readonly]",
+      "summary": "the flow's run mode: how much keel decides by itself, from the next gate on",
+      "writes": true,
+      "local": false,
       "group": "Flows"
     },
     {
@@ -89,6 +98,17 @@
       "name": "jobs",
       "summary": "the project's agent calls, newest first",
       "writes": false,
+      "group": "Look"
+    },
+    {
+      "name": "agent",
+      "args": "[n | new <task>]",
+      "summary": "the agents at work and the ones you started: open one to follow it live; new starts one in its own worktree",
+      "writes": true,
+      "local": false,
+      "aliases": [
+        "agents"
+      ],
       "group": "Look"
     },
     {

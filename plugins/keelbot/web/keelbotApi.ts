@@ -24,6 +24,7 @@ import {
   type HelperTurnStarted,
   type JobStep,
   type Model,
+  type RunMode,
   type ThreadState,
   type Workflow,
   type WorkflowCheck,
@@ -178,6 +179,13 @@ export const kb = {
       allow_dirty?: boolean;
     },
   ) => post<ThreadState>(`/projects/${e(pid)}/flows`, body),
+
+  // 0.18.4 its flow buttons (keel-flow): decide the gate a flow waits at, stop a flow, a flow's run mode
+  decideGate: (tid: string, body: { decision: "approve" | "reject"; why?: string }) =>
+    post<ThreadState>(`/inbox/${e(tid)}/act`, body),
+  stopFlow: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
+  setRunMode: (tid: string, mode: RunMode) => post<ThreadState>(`/threads/${e(tid)}/mode`, { mode }),
+  flowOf: (pid: string, tid: string) => get<FlowView>(`/projects/${e(pid)}/flows/${e(tid)}`),
 
   // the CI/CD plugin's runs (its CI button: fix it, run the failed jobs again)
   ciRuns: (pid: string, branch?: string) =>

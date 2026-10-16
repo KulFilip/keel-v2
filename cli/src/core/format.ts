@@ -25,7 +25,8 @@ export const tokensOf = (u?: { tokens_in?: number; tokens_out?: number } | null)
 
 export function flowName(t: ThreadState, w: Workflow | null): string {
   const wid = t.workflow_id || "?";
-  return w?.name && w.name !== wid ? `${w.name} (${wid})` : wid;
+  // "feature (keel)" for the workflow feature: its name says enough
+  return w?.name && w.name !== wid && !w.name.startsWith(wid) ? `${w.name} (${wid})` : w?.name || wid;
 }
 
 export function acCount(t: ThreadState | null | undefined): [number, number] {
@@ -96,29 +97,51 @@ export function answerWords(w: Waiting): string {
   return (parts.length > 2 ? parts.slice(0, -1).join(", ") + " or " + parts[parts.length - 1] : parts.join(" or ")) || "/approve or /reject <why>";
 }
 
-export function status(p: Project, view: FlowView | null, c: Paint = PLAIN): string {
-  const head = `${label("project", c)}   ${c.bold(p.id)} · branch ${c.run(p.branch || "-")}`;
+/** /status: the flow in a few short lines; what waits for you first, one line per criterion (cut to the screen). */
+export function status(p: Project, view: FlowView | null, c: Paint = PLAIN, width = 100): string {
+  const fit = (s: string, w = width) => (s.length > w ? s.slice(0, Math.max(10, w - 1)).trimEnd() + "…" : s);
   const t = view?.thread;
-  if (!t) return `${head}\n${label("flow", c)}      none. Start one: ${c.accent("/flow")}`;
-  const out = [head,
-    `${label("flow", c)}      ${c.bold(flowName(t, view?.workflow ?? null))} · "${t.title}" · ${badge(t.status, c)} · ${c.faint("thread " + t.thread_id)}`,
-    `${label("step", c)}      ${t.current || "-"} · phase ${c.bold(t.phase || "none")}` + (t.ac ? ` · ${c.accent(t.ac)}` : "")
-      + (t.run_mode && t.run_mode !== "manual" ? ` · run mode ${t.run_mode}` : "")];
+  const where = `${c.bold(p.id)} · branch ${c.run(p.branch || "-")}`;
+  if (!t) return `${where}
+No flow yet. Start one: ${c.accent("/flow")}`;
+  const mode = t.run_mode ?? "manual";
+  const out = [
+    `${c.bold(`"${t.title}"`)} · ${flowName(t, view?.workflow ?? null)} · ${badge(t.status, c)} · run mode ${c.bold(mode)}`,
+    `${where} · step ${t.current || "-"} · phase ${t.phase || "none"}`,
+  ];
+  const w = t.waiting;
+  if (w) {
+    out.push("", c.bold(c.gate(`◆ Waiting for you: ${w.title}`)) + (t.ac ? c.gate(` (for ${t.ac})`) : ""));
+    const cmd = (s: string) => c.bold(c.gate(s));
+    const row = (a: string, b: string) => `  ${cmd(a)}${" ".repeat(Math.max(2, 34 - a.length))}${c.dim(b)}`;
+    const l = w.labels ?? {};
+    if (w.kind === "clarify") out.push(row("/answer", `${(w.questions ?? []).length} question(s), one after the other`));
+    else {
+      const opts = w.options ?? ["approve", "reject"];
+      const choices = (w.choices ?? []).filter((x) => x !== "approve" && x !== "reject");
+      if (opts.includes("approve") || (w.choices ?? []).includes("approve")) out.push(row("/approve", l.approve || "go on"));
+      if (choices.length) out.push(row(`/answer <${choices.join("|")}>`, "choose what happens"));
+      if (opts.includes("reject")) out.push(row("/reject <why>", l.reject || "send it back with your reason"));
+    }
+    out.push(row("or ask KeelBot", "it explains the gate and suggests an answer"));
+    const detail = (w.detail ?? "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 2);
+    out.push(...detail.map((x) => "  " + c.dim(fit(x, width - 2))));
+  }
   if (t.acs?.length) {
     const [done, all] = acCount(t);
-    out.push(`${label("criteria", c)}  ${criteria(done, all, c)} done`);
-    t.acs.forEach((a) => {
-      const st = `[${a.status}]`.padEnd(14);
-      const col = a.status === "done" || a.status === "already-met" ? c.ok : a.status === "red" ? c.bad : a.status === "green" ? c.ok : c.dim;
-      out.push(`  ${col(st)}${c.bold(a.id)} ${c.dim(a.layer)}  ${a.title}`);
-    });
+    const mark = (s: string, now: boolean) => (s === "done" || s === "already-met" ? c.ok("■") : now ? c.accent("▶") : s === "red" ? c.bad("✗")
+      : s === "green" ? c.ok("●") : c.faint("□"));
+    out.push("", `${c.bold("Criteria")}: ${criteria(done, all, c)} done  ${t.acs.map((a) => mark(a.status, a.id === t.ac)).join("")}`);
+    t.acs.forEach((a) => out.push(`  ${mark(a.status, a.id === t.ac)} ${c.bold(a.id)} ${c.dim(a.layer)}  ${fit(a.title.replace(/\s+/g, " "), width - a.id.length - a.layer.length - 8)}`));
   }
-  if (t.waiting) out.push(...waitingLines(t.waiting, c));
   const u = t.usage ?? ({} as ThreadState["usage"]);
-  const cap = u.cap_tokens ? ` of cap ${n(u.cap_tokens)}` : " (no cap)";
-  out.push(`${label("usage", c)}     ${n(tokensOf(u))} tokens${c.dim(cap)} · ${c.dim(`in ${n(u.tokens_in)} · out ${n(u.tokens_out)} · cached ${n(u.tokens_cached)}`)} · ${usd(u.cost_usd)}`);
-  if (t.error) out.push(`${c.bad("error")}     ${c.bad(t.error)}`);
-  (t.blockers ?? []).forEach((b) => out.push(`${c.warn("blocker")}   ${c.bad(b.gate + ":")} ${b.why} ${c.faint("->")} ${c.warn(b.fix)}`));
+  const used = tokensOf(u);
+  out.push("", `${c.bold("Tokens")}: ${short(used)}` + (u.cap_tokens ? ` of ${short(u.cap_tokens)} (${Math.round((100 * used) / u.cap_tokens)} %)` : c.dim(" (no cap)"))
+    + ` · ${usd(u.cost_usd)}`);
+  if (t.error) out.push(`${c.bad("Error")}: ${c.bad(fit(t.error))}`);
+  const b = t.blockers ?? [];
+  if (b.length) out.push(c.dim(`Before a push: ${b.length} check${b.length === 1 ? "" : "s"} still to run (${b.map((x) => x.gate).join(", ")}); the flow runs them at the end. /next says how.`));
+  out.push(c.faint(`flow id ${t.thread_id} · /steps, /timeline, /flows for more`));
   return out.join("\n");
 }
 
@@ -175,13 +198,14 @@ export function timeline(history: Checkpoint[], jobs: Job[], limit = 20, thread?
   return ev.sort((a, b) => b[0] - a[0]).slice(0, limit).map(([, l]) => l).join("\n");
 }
 
+/** /flows: one short line per flow, numbered (/stop <n> takes the number); its id shortened at the end. */
 export function flows(rows: RunRow[], c: Paint = PLAIN): string {
   if (!rows.length) return `no flow has run on this project yet. ${c.accent("/flow")} starts one.`;
-  return rows.map((r) => `${c.faint(r.thread_id)}  ${c.accent(r.workflow_id || "?")} ${c.bold(`"${r.title}"`)} · ${badge(r.status, c)}`
-    + (r.current ? ` at ${r.current}` : "")
-    + ` · criteria ${criteria(r.acs_done ?? 0, r.acs_total ?? 0, c)} · ${c.dim(`${n(r.tokens)} tokens · ${usd(r.cost_usd)} · ${r.where || "folder"}`)}`
-    + (r.branch ? c.dim(` · branch ${r.branch}`) : "") + (r.latest ? " " + c.inverse(c.accent(" latest ")) : "")
-    + (r.error ? ` · ${c.bad("error: " + r.error)}` : "")).join("\n");
+  const title = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
+  return rows.map((r, k) => `${c.bold(`${String(k + 1).padStart(2)}.`)} ${badge(r.status, c)}${r.current ? c.dim(` at ${r.current}`) : ""}  ${c.bold(`"${title(r.title)}"`)}`
+    + `  ${c.accent(r.workflow_id || "?")} · criteria ${criteria(r.acs_done ?? 0, r.acs_total ?? 0, c)} · ${usd(r.cost_usd)}`
+    + (r.where === "worktree" ? c.dim(" · own worktree") : "") + (r.error ? ` · ${c.bad("error")}` : "") + "  " + c.faint(r.thread_id.slice(0, 8))).join("\n")
+    + "\n" + c.dim(`/stop <n> stops one, /stop all stops every running or waiting one.`);
 }
 
 export function inbox(items: InboxItem[], c: Paint = PLAIN): string {

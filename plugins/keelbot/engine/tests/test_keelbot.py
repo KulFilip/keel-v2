@@ -28,6 +28,8 @@ def test_the_block_names_the_workflows_the_flows_and_the_buttons():
     assert ('- "Euro prices" (feature, id t-1): waiting; waits for the person at "spec approval"; step g-spec; phase spec; '
             "criteria 1/3 done; branch feat/euro-prices (own worktree); 120k tokens") in b
     assert "```keel-start" in b and "keel-workflow" in b
+    # 0.18.4 the person's other buttons: decide a gate, stop flows, a run mode (KeelBot never says it cannot)
+    assert "```keel-flow" in b and '"do": "stop"' in b and '"do": "mode"' in b and '"do": "approve"' in b
     assert "How a workflow is written" not in b                 # the format only when the person wants a workflow
     assert keelbot.keel_block(None, "hi") == ""
 

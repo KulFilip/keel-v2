@@ -15,13 +15,15 @@ import { applyLevel, makeTheme, type Theme } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
-import { BlockView, Completions, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
+import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
 import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
+import { elsewhere, pressButton, question, splitButtons, type Button } from "../core/buttons";
+import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
 
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block };
@@ -33,7 +35,7 @@ type Pending = { cmd: string; pick?: Pick; ask?: Ask };
 
 const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbox" };
 /** keel's panels, and a plugin's ("plugin:git") */
-type PanelId = PanelName | `plugin:${string}`;
+type PanelId = PanelName | `plugin:${string}` | `job:${string}`;
 type Question = { id: string; command: string; title: string; path?: string | null };
 
 /** keel TUI in keel's colours (the theme: the dashboard's palette, NO_COLOR, KEEL_TUI_THEME). */
@@ -86,6 +88,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [panels, setPanels] = useState<PanelId[]>([]);
   const pastes = useRef(new Pastes());
   const questions = useRef<Question[]>([]);
+  // KeelBot's buttons (start a flow, decide a gate, stop flows, a run mode): a yes / no each, after its answer
+  const buttonAsks = useRef<Pick[]>([]);
   const [qTick, setQTick] = useState(0);
   const [running, setRunning] = useState<string | null>(null);
   const [comps, setComps] = useState<Completion[]>([]);
@@ -131,9 +135,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         const tools = fmt.toolLines(core.snapshot.chat.steps, w, paint);
         const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
         const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
-        push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: a.text },
+        const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
+        push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
           { kind: "text", text: fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint) });
         turnStart.current = null;
+        if (buttons.length) void askButtons(buttons);
         setAnswers((n) => n + 1);
         // Fix and Side: the files KeelBot changed, with their diffs, and how to keep or undo them
         const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
@@ -163,8 +169,44 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     };
   }, [core, push]);
 
-  // the next question KeelBot asks, when nothing else is being asked
+  /** Each of KeelBot's buttons as a yes / no; one only the dashboard has says where to press it. */
+  const askButtons = useCallback(async (buttons: Button[]) => {
+    const pid = core.snapshot.project?.id;
+    if (!pid) return;
+    const rows = await api.runs(pid, undefined, 30).catch(() => []);
+    const name = (tid: string) => {
+      const r = rows.find((x) => x.thread_id === tid);
+      return r ? `"${r.title}"` : `flow ${tid.slice(0, 8)}`;
+    };
+    for (const b of buttons) {
+      const title = question(b, name);
+      if (!title) {
+        push({ kind: "dim", text: "  " + elsewhere(b) });
+        continue;
+      }
+      buttonAsks.current.push({ title, choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }],
+        then: async (v) => {
+          if (v !== "yes") return { blocks: [{ kind: "dim", text: "  not done" }] };
+          try {
+            const said = await pressButton(b, pid, name);
+            await core.refresh().catch(() => undefined);
+            return { blocks: [{ kind: "ok", text: said }] };
+          } catch (e) {
+            return { blocks: [{ kind: "error", text: e instanceof Error ? e.message : String(e) }] };
+          }
+        } });
+    }
+    setQTick((n) => n + 1);
+  }, [core, push]);
+
+  // the next question KeelBot asks, when nothing else is being asked; then KeelBot's buttons
   useEffect(() => {
+    if (!pending && !questions.current.length && buttonAsks.current.length) {
+      setPending({ cmd: "KeelBot", pick: buttonAsks.current.shift()! });
+      setPickIdx(0);
+      setPickFilter("");
+      return;
+    }
     if (pending || !questions.current.length) return;
     const q = questions.current.shift()!;
     setPending({ cmd: "KeelBot", pick: { title: `KeelBot asks to run: ${q.command}${q.path ? ` (${q.path})` : ""}?`,
@@ -208,6 +250,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   const handle = useCallback(async (reply: Reply, cmd: string) => {
     push(...reply.blocks);
+    if (reply.follow) setPanels((ps) => [...ps.filter((x) => !x.startsWith("job:")), `job:${reply.follow}` as PanelId]);
     if (reply.panel) setPanels((ps) => (reply.panel === "off" ? [] : ps.includes(reply.panel as PanelId) ? ps : [...ps, reply.panel as PanelId]));
     if (reply.clear) {
       // a clean screen that still starts with keel's name, the project and what waits
@@ -396,7 +439,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       } else if (snap.chat.busy) {
         push({ kind: "dim", text: "  stopping KeelBot's answer…" });
         void core.stopChat();
-      }
+      } else if (panels.some((x) => x.startsWith("job:"))) setPanels((ps) => ps.filter((x) => !x.startsWith("job:")));
       return;
     }
     if (key.tab) {
@@ -523,6 +566,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         ))}
         {running && <Text color={t.color("dim")}>{`… ${running}`}</Text>}
         {panels.map((p) => {
+          if (p.startsWith("job:")) return <JobPanel key={p} id={p.slice(4)} s={snap} width={width} />;
           if (!p.startsWith("plugin:")) return <Panel key={p} name={p as PanelName} s={snap} width={width} />;
           const v = snap.plugins.plugins.find((x) => `plugin:${x.name}` === p);
           return v?.panel && snap.project ? <PluginPanel key={p} plugin={v.title} panel={v.panel} pid={snap.project.id} width={width} /> : null;
