@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import keel.api.pluginhost.PluginHost
-import keel.api.plugins.PluginService
 import keel.api.projects.ProjectService
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -55,11 +55,11 @@ data class TuiProblem(val plugin: String, val error: String)
 data class TuiPlugins(val plugins: List<TuiPluginView>, val problems: List<TuiProblem>)
 
 @Service
-class TuiPluginService(private val host: PluginHost, private val plugins: PluginService, private val projects: ProjectService) {
+class TuiPluginService(private val host: PluginHost, private val jdbc: JdbcTemplate, private val projects: ProjectService) {
     private val yaml = ObjectMapper(YAMLFactory()).findAndRegisterModules()
 
     fun list(pid: String?): TuiPlugins {
-        val on = pid?.let { projects.require(it); plugins.enabled(it).toSet() }
+        val on = pid?.let { projects.require(it); turnedOn(it) }
         val views = mutableListOf<TuiPluginView>()
         val problems = mutableListOf<TuiProblem>()
         for (p in host.plugins) {
@@ -75,6 +75,16 @@ class TuiPluginService(private val host: PluginHost, private val plugins: Plugin
             }
         }
         return TuiPlugins(views.sortedBy { it.name }, problems)
+    }
+
+    /** The plugins turned on for this project (or for every project), from core's project_plugins table: core reads the
+     *  table itself, as keel's fence wants (it never calls a plugin's package). */
+    private fun turnedOn(pid: String): Set<String> {
+        val rows = jdbc.query("SELECT project_id, plugin, enabled FROM project_plugins WHERE project_id IN (?, '*')",
+            { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getInt(3) == 1) }, pid)
+        val here = rows.filter { it.first == pid }.associate { it.second to it.third }
+        val all = rows.filter { it.first == "*" }.associate { it.second to it.third }
+        return (here.keys + all.keys).filter { here[it] ?: all[it] ?: false }.toSet()
     }
 
     /** One plugin's contributes.tui, checked; IllegalArgumentException says what is wrong. */
