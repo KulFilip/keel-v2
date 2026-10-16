@@ -66,6 +66,16 @@ STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners al
 KEEP_MAX = 60_000       # `keep: true`: the most of an agent's answer the flow keeps for its next steps
 
 
+def add_usage(usage: dict, used: dict | None) -> dict:
+    """usage += used (tokens_in, tokens_out, tokens_cached, cost_usd, premium_requests); returns usage."""
+    for k in ("tokens_in", "tokens_out", "tokens_cached", "premium_requests"):
+        if (used or {}).get(k):
+            usage[k] = int(usage.get(k, 0)) + int(used[k])
+    if (used or {}).get("cost_usd"):
+        usage["cost_usd"] = round(float(usage.get("cost_usd", 0.0)) + float(used["cost_usd"]), 6)
+    return usage
+
+
 def budget_tokens(usage: dict) -> int:
     """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
     return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
@@ -341,7 +351,15 @@ class Compiler:
         return next((x for x in get_list(state, lp.key) if x["id"] == state.get("item")), None)
 
     async def finish(self, state: FlowState):
-        return Command(update={"status": "done", "ac": None, "note": "done"}, goto=END)
+        return Command(update={"status": "done", "ac": None, "note": "done", **self._booked(state)}, goto=END)
+
+    def _booked(self, state: FlowState) -> dict:
+        """{"usage": ...} with the failed calls' tokens booked in, or {} when there are none."""
+        if not self.ctx.unbooked:
+            return {}
+        usage = add_usage(dict(state.get("usage") or {}), self.ctx.unbooked)
+        self.ctx.unbooked.clear()
+        return {"usage": usage}
 
     # ------------------------------------------------------------ models
 
@@ -532,6 +550,7 @@ class Compiler:
                 if mem:
                     await mem.finish(key, "failed", str(exc))
                 used = getattr(exc, "usage", None) or {}
+                add_usage(ctx.unbooked, used)
                 # A failed run still used tokens (a turn limit after 30 turns is not free): the job and the budget count them.
                 ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
                     "agent": agent, "status": "failed", "tokens_in": used.get("tokens_in", 0), "tokens_out": used.get("tokens_out", 0),
@@ -780,7 +799,8 @@ class Compiler:
                 upd.update(extra)
                 state = {**state, **extra}
                 if (answer or {}).get("decision") != "approve":
-                    return {**upd, "status": "failed", "error": str(exc)[:500], "note": f"{step.name} failed"}, END
+                    return {**upd, **self._booked(state), "status": "failed", "error": str(exc)[:500],
+                            "note": f"{step.name} failed"}, END
 
         for key in [key for key in done if key.startswith(attempt + "|")]:
             del done[key]
@@ -801,7 +821,8 @@ class Compiler:
                 state = {**state, "data": lint_data}
                 upd["data"] = lint_data
 
-        usage = dict(state.get("usage") or {})
+        usage = add_usage(dict(state.get("usage") or {}), ctx.unbooked)
+        ctx.unbooked.clear()
         step_tokens = dict(state.get("step_tokens") or {})
         notes = []
         for res, model, _tb in agent_results:
@@ -1495,10 +1516,8 @@ class Compiler:
                 raise
             except Exception as exc:          # the ladder goes on without the proposal
                 return feedback, {}, f"the investigator failed ({str(exc)[:120]}); tried again"
-            usage = dict(state.get("usage") or {})
-            for k in ("tokens_in", "tokens_out", "tokens_cached", "premium_requests"):
-                usage[k] = usage.get(k, 0) + getattr(res, k, 0)
-            usage["cost_usd"] = round(usage.get("cost_usd", 0.0) + res.cost_usd, 6)
+            usage = add_usage(dict(state.get("usage") or {}), {k: getattr(res, k, 0) for k in
+                                                               ("tokens_in", "tokens_out", "tokens_cached", "premium_requests", "cost_usd")})
             proposal = (res.text or "").strip()[-3000:]
             data["ladder_proposal"] = proposal
             return (f"{feedback}\n\nAn investigator read this failure. Its proposal:\n{proposal}", {"usage": usage, "data": data},

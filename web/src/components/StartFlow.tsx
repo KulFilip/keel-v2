@@ -32,6 +32,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [limits, setLimits] = useState<Limit[]>([]);
   const [capsLeft, setCapsLeft] = useState<CapsLeft | null>(null);
   const [cap, setCap] = useState("");
+  // v0.17.4 the cap from Settings, while the person has not typed another one: it follows the estimate (with headroom)
+  const [capDefault, setCapDefault] = useState("");
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [runMode, setRunMode] = useState<RunMode>("manual");
   const [modeDefault, setModeDefault] = useState<RunMode>("manual");
@@ -61,6 +63,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       setModel({ provider: s.effective.default_model.provider, model: s.effective.default_model.model });
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
+      setCapDefault(c);
       setOnCap(s.effective.on_cap);
       // v0.4.1: the project's default run mode (Settings › Run mode); this flow may pick another
       const m = s.effective.run_mode ?? "manual";
@@ -89,6 +92,14 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       window.clearTimeout(t);
     };
   }, [p, wid, acs]);
+
+  // v0.17.4 a cap below the estimate stops the flow half way (a real run: 1.49M tokens against a 500K default): the cap
+  // follows the estimate's high end plus 30% while it is still the Settings default; a cap the person typed stays.
+  const follow = est ? capForEstimate(capDefault, est.high) : null;
+  useEffect(() => {
+    if (follow && cap === capDefault) setCap(follow.cap);
+  }, [follow?.cap]); // eslint-disable-line react-hooks/exhaustive-deps
+  const low = est && parseTokens(cap) > 0 && parseTokens(cap) < est.high;
 
   const premium = limits.find((l) => /premium/i.test(l.name));
   const claude = limits.find((l) => /claude/i.test(l.name));
@@ -225,6 +236,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
             {ON_CAP.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </div>
+        {follow && cap === follow.cap && <span className="hint" data-testid="sf-cap-est">{follow.note}</span>}
+        {low && <span className="hint amber" data-testid="sf-cap-low">This cap is below the estimate ({kfmt(est!.high)} at the high end): the flow will {onCap === "stop" ? "stop" : "pause"} before it is done.</span>}
         <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. This cap is for this flow only; the project default stays in Settings.</span>
         {capsLeft && capsLeft.caps.length > 0 && <ProjectCaps left={capsLeft} />}
       </div>
@@ -272,4 +285,14 @@ export function claudeUse(l: Limit): string {
   const pct = l.used_pct != null ? l.used_pct * 100 : l.cap > 0 ? (l.used / l.cap) * 100 : null;
   if (pct == null) return `${kfmt(l.used)} tokens · no cap set`;
   return `${Math.round(pct)}% used${pct > 60 ? " — may pause" : ""}`;
+}
+
+/** v0.17.4 the cap a flow should get from the estimate: its high end plus 30%, when that is above the Settings cap
+ *  (null when the Settings cap is enough, or there is none). */
+export function capForEstimate(settingsCap: string, high: number): { cap: string; note: string } | null {
+  const base = parseTokens(settingsCap);
+  if (!(base > 0) || !(high > 0)) return null;
+  const want = Math.ceil((high * 1.3) / 10_000) * 10_000;
+  if (want <= base) return null;
+  return { cap: kfmt(want), note: `keel raised this flow's cap from ${kfmt(base)} (Settings) to ${kfmt(want)}: the estimate's high end plus 30%. Type another cap to change it.` };
 }

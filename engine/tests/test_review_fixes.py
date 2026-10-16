@@ -230,3 +230,35 @@ def test_markers_blocked():
     assert markers.blocked("x\nBLOCKED: needs AC-3: the table") == "needs AC-3: the table"
     assert markers.blocked("tried\nfailed again\nGREEN-RESULT: stalled").startswith("stalled: tried failed again")
     assert markers.blocked("GREEN-RESULT: pass") is None and markers.blocked("") is None
+
+
+# ------------------------------------------------------------------ 5a. failed calls count in the flow's usage
+
+def test_a_failed_agent_call_counts_in_the_flow_usage(client, repo, monkeypatch):
+    from keel_engine.models.base import ModelError
+
+    three_criteria(monkeypatch)
+    box = {"n": 1}
+
+    def red(req, real):
+        if box["n"]:
+            box["n"] -= 1
+            raise ModelError("The agent used all its turns (30) before it finished.",
+                             usage={"tokens_in": 70_000, "tokens_out": 5_000, "cost_usd": 1.25})
+        return real(req)
+    by_step(monkeypatch, {"red": red})
+    tid = start(client, repo)
+    s = to_loop(client, tid)
+    assert s["waiting"]["step"] == "red" and "used all its turns" in s["waiting"]["detail"]
+    before = values(client, tid)["usage"]
+    s = decide(client, tid)                                     # try again: this time it works
+    after = values(client, tid)["usage"]
+    assert after["tokens_in"] - before["tokens_in"] >= 70_000 and after["cost_usd"] - before["cost_usd"] >= 1.25
+
+
+def test_add_usage():
+    from keel_engine.runtime.compiler import add_usage
+
+    assert add_usage({"tokens_in": 1, "cost_usd": 0.5}, {"tokens_in": 2, "tokens_out": 3, "cost_usd": 0.25}) == \
+        {"tokens_in": 3, "tokens_out": 3, "cost_usd": 0.75}
+    assert add_usage({}, None) == {}
