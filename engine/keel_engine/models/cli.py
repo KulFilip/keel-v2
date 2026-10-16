@@ -181,8 +181,11 @@ def _classify(tool: str, stdout: str, stderr: str, code) -> ModelError:
     res = _result_line(stdout)
     if res and (res.get("subtype") == "error_max_turns" or res.get("terminal_reason") == "max_turns"):
         n = res.get("num_turns")
-        return ModelError(f"The agent used all its turns{f' ({n})' if n else ''} before it finished.",
-                          "Approve to try again (it starts fresh), or give this agent more turns: maxTurns in its agent file.")
+        err = ModelError(f"The agent used all its turns{f' ({n})' if n else ''} before it finished.",
+                         "keel already continued its session once. Approve to continue it again, or give this agent "
+                         "more turns: maxTurns in its agent file.")
+        err.max_turns = True
+        return err
     if res and res.get("subtype") == "error_during_execution":
         msg = str(res.get("result") or res.get("error") or "").strip()[:300]
         return ModelError(f"`{tool}` stopped with an error{': ' + msg if msg else ''}.", "Approve to try again.")

@@ -90,9 +90,10 @@ def test_commit_contract_in_words(client, repo):
     assert any("Unstages your own edits" in s for s in act["steps"])
     assert act["commit"]["type"] == "contract" and act["commit"]["message"] == "contract: «the flow's title»"
     assert "contract commit" in act["for_this_step"]
-    passes, fails = out["next"]
+    passes, fails, skipped = out["next"]
     assert passes["to"] == "red" and "first criterion" in passes["text"]
     assert fails["to"] == "contract"
+    assert skipped["label"] == "skipped" and "data.contract is yes" in skipped["text"]     # v0.17.5 no contract delta
 
 
 def test_a_chained_code_step_and_its_loop_end(client, repo):
@@ -129,7 +130,7 @@ def test_a_branch_in_words_and_an_included_step(client):
     out = explain(client, "red_amend")
     assert out["branch"]["condition"] == "marker AMEND from red is set"
     yes, no = out["branch"]["routes"]
-    assert yes["to"] == "red_to_amend" and no["to"] == "verify_red"
+    assert yes["to"] == "red_to_amend" and no["to"] == "red_blocked"
     inc = explain(client, "ship_audit")
     assert inc["included_from"]["flow"] == "ship" and inc["included_from"]["step"] == "audit"
 

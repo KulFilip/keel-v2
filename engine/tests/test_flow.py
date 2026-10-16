@@ -33,8 +33,9 @@ def test_feature_flow_reaches_done(client, repo):
 
     s, gates = run_to_done(client, tid, s)
     assert s["status"] == "done", s
-    assert gates == [("spec_gate", None), ("options", None), ("contract_gate", None), ("ac_gate", "AC-1"), ("ac_gate", "AC-2"),
-                     ("integration_gate", None), ("ship_plan", None), ("ship_final_review", None), ("ship_pr_gate", None)]
+    # v0.17.5 both optional-step menus (options, ship_plan) are asked at the spec gate
+    assert gates == [("spec_gate", None), ("contract_gate", None), ("ac_gate", "AC-1"), ("ac_gate", "AC-2"),
+                     ("integration_gate", None), ("ship_final_review", None), ("ship_pr_gate", None)]
     assert all(a["status"] == "done" for a in s["acs"])
     assert s["usage"]["tokens_in"] > 0 and s["checkpoints"] > 10
 
@@ -198,8 +199,8 @@ def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeyp
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", slow)
     tid = start(client, repo)
-    to_loop(client, tid, upto="spec_gate")
-    client.post(f"/threads/{tid}/resume", json={"decision": "approve"})       # the options menu
+    assert wait(client, tid)["waiting"]["step"] == "spec_gate"
+    client.post(f"/threads/{tid}/resume", json={"decision": "approve"})       # the spec gate (and its options menu)
     seen = None
     for _ in range(400):            # poll (up to 20 s, CI machines can be slow): no fixed sleep
         seen = client.get(f"/threads/{tid}").json()

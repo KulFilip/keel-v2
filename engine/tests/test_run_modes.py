@@ -150,13 +150,16 @@ def test_auto_runs_the_feature_flow_to_done_and_logs_every_gate(client, repo):
     assert s["status"] == "done", s
     assert s["run_mode"] == "auto"
     auto = [line for line in s["gate_log"] if "auto-approved (mode auto)" in line]
-    for gate in ("gate spec_gate approve", "gate options approve", "gate contract_gate approve", "ac AC-1 approve",
-                 "ac AC-2 approve", "gate integration_gate approve", "gate ship_plan approve", "gate ship_final_review approve",
+    for gate in ("gate spec_gate approve", "gate contract_gate approve", "ac AC-1 approve",
+                 "ac AC-2 approve", "gate integration_gate approve", "gate ship_final_review approve",
                  "gate ship_pr_gate approve"):
         assert any(line.startswith(gate) for line in auto), (gate, s["gate_log"])
+    # v0.17.5 the menus are answered by the spec gate's approval
+    assert "gate options approve: chosen at spec_gate" in s["gate_log"] and "gate ship_plan approve: chosen at spec_gate" in s["gate_log"]
     assert not client.bus.of(tid, "gate.waiting")
     decided = client.bus.of(tid, "gate.decided")
-    assert decided and all(e["data"]["why"] == "auto-approved (mode auto)" for e in decided if e["data"].get("gate") != "unlock")
+    assert decided and all(e["data"]["why"] in ("auto-approved (mode auto)", "chosen at spec_gate") for e in decided
+                           if e["data"].get("gate") != "unlock")
     v = values(client, tid)
     # the PR body lists the gates keel approved by itself; open_pr opened nothing
     assert "## Auto-approved gates" in v["pr_body"] and "Run mode: auto." in v["pr_body"]
@@ -172,7 +175,8 @@ def test_important_stops_at_the_big_gates_and_approves_clean_ac_gates(client, re
     tid = start(client, repo, settings=mode_settings("important"))
     s, seen = gates_until_done(client, tid, wait(client, tid))
     assert s["status"] == "done", s
-    assert seen == ["spec_gate", "options", "contract_gate", "integration_gate", "ship_plan", "ship_final_review", "ship_pr_gate"]
+    # v0.17.5 7 stops before (options and ship_plan were their own stops), 5 now
+    assert seen == ["spec_gate", "contract_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
     assert "ac AC-1 approve: auto-approved (mode important)" in s["gate_log"]
     assert "ac AC-2 approve: auto-approved (mode important)" in s["gate_log"]
     assert not any("auto-approved" in line for line in s["gate_log"] if line.startswith("gate "))
@@ -183,7 +187,7 @@ def test_important_stops_at_an_ac_gate_whose_review_found_something(client, repo
                           if r.ac["id"] == "AC-1" else "AC-REVIEW: pass"})
     tid = start(client, repo, settings=mode_settings("important"))
     s = wait(client, tid)
-    for step in ("spec_gate", "options", "contract_gate"):
+    for step in ("spec_gate", "contract_gate"):
         assert s["waiting"]["step"] == step, s
         s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-1"          # findings: the user decides
@@ -217,7 +221,7 @@ def test_switching_back_to_manual_stops_at_the_next_gate(client, repo):
     tid = start(client, repo, settings=mode_settings("important"))
     s = wait(client, tid)
     assert client.post(f"/threads/{tid}/mode", json={"mode": "manual"}).json()["run_mode"] == "manual"
-    for step in ("spec_gate", "options", "contract_gate"):
+    for step in ("spec_gate", "contract_gate"):
         assert s["waiting"]["step"] == step, s
         s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-1"

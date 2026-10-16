@@ -438,7 +438,7 @@ def dashboard(api: KeelApi, view: str = "flow", project: str | None = None) -> s
 # ---------------------------------------------------------------- write tools (only with --write)
 
 def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, sleep=time.sleep,
-               wait: float = START_WAIT) -> str:
+               wait: float = START_WAIT, allow_fake: bool = False) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow."""
     idea = (idea or "").strip()
@@ -450,8 +450,16 @@ def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, s
         raise ApiError(f'no flow type "{type}". keel has: {", ".join(known)}')
     first = idea.splitlines()[0].strip()
     title = first if len(first) <= 72 else first[:71].rstrip() + "…"
-    state = api.post(f"/projects/{p['id']}/flows", {"workflow_id": type, "title": title, "request": idea,
-                                                    "options": {"started_via": "mcp"}}) or {}
+    body = {"workflow_id": type, "title": title, "request": idea, "options": {"started_via": "mcp"}}
+    if allow_fake:
+        body["allow_fake"] = True        # v0.17.5 like the web's "Run with the fake model anyway" box
+    try:
+        state = api.post(f"/projects/{p['id']}/flows", body) or {}
+    except ApiError as exc:
+        if exc.status == 409 and "fake model" in str(exc) and not allow_fake:
+            raise ApiError(f"{exc}\nTo run it on the fake model anyway (example files, committed on the flow's branch), "
+                           "call keel_start_flow again with allow_fake=true.", exc.status) from exc
+        raise
     tid = state.get("thread_id")
     deadline = time.monotonic() + wait
     while tid and state.get("status") == "running" and time.monotonic() < deadline:
@@ -933,11 +941,14 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_resume", "resume the flow", resume, api, decision, thread_id, project, why, payload)
 
     @reg(rw)
-    async def keel_start_flow(type: str, idea: str, project: str | None = None, ctx: Context | None = None) -> str:
+    async def keel_start_flow(type: str, idea: str, project: str | None = None, allow_fake: bool = False,
+                              ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does: type is the workflow id
         (feature, change, fix, review, ...), idea says in your words what to build or fix (the first line is the
-        title). It runs under keel's guard, budget and records, and stops at its first human gate."""
-        return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project)
+        title). It runs under keel's guard, budget and records, and stops at its first human gate. allow_fake: start
+        it even though agents use the fake model (it writes example files), like the dashboard's checkbox."""
+        return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
+                         time.sleep, START_WAIT, allow_fake)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,

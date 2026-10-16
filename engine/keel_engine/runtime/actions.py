@@ -160,6 +160,24 @@ async def _tests(a: ActionInput, whole_suite: bool = False) -> tuple[str | None,
     return testcmd.shown(cmd, rel), code, out
 
 
+def cannot_run(a: ActionInput, cmd: str, out: str, what: str) -> ActionResult:
+    """v0.17.5 a test command that could not start (wrong folder, a missing ./mvnw) is not a test result: no "red
+    confirmed", no retry of the agent (it cannot fix keel's command). The person chooses: recheck, skip, stop."""
+    label = (a.ac or {}).get("id") or "the suite"
+    detail = f"$ {cmd}\n{tail(out, 2000)}"
+    choices = ["recheck", "skip", "stop"] if a.ac else ["recheck", "stop"]
+    lines = [f"keel could not start the test command for {label}, so it cannot check {what}. Sending it back to the agent "
+             "will not help: the command or the folder it runs in is wrong.", "", detail, "",
+             'Choose one (approve with payload {"choice": "<name>"} and a note):',
+             "- recheck: run the check again (after you fixed .keel/config.yml: the test commands, backend.dir / frontend.dir)"]
+    if a.ac:
+        lines.append(f"- skip: move {label} to the end of the list and go on with the next criterion")
+    lines.append("- stop: stop the flow here (the commits so far stay)")
+    return ActionResult(False, f"The test command for {label} cannot run.", detail, ask={
+        "type": "cannot-run", "kind": "fix", "title": f"The test command for {label} cannot run", "detail": "\n".join(lines),
+        "choices": choices})
+
+
 async def verify_red(a: ActionInput) -> ActionResult:
     ac_id = (a.ac or {}).get("id") or "the bug"
     if a.fake:
@@ -170,6 +188,8 @@ async def verify_red(a: ActionInput) -> ActionResult:
     cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)
+    if testcmd.cannot_run(code, out):
+        return cannot_run(a, cmd, out, "red")
     if testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so this is not a red state.",
                             f"$ {cmd}\n{tail(out, 3000)}\nWrite a failing test whose name contains {ac_id}.")
@@ -207,11 +227,11 @@ async def verify_green(a: ActionInput) -> ActionResult:
     cmd, code, out = await _tests(a, whole_suite=not ac_id)
     if cmd is None:
         return ActionResult(False, out, out)
+    if testcmd.cannot_run(code, out):
+        return cannot_run(a, cmd, out, "green")
     if ac_id and testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
-    if testcmd.cannot_run(code, out):
-        return ActionResult(False, f"The test command for {label} cannot run.", f"$ {cmd}\n{tail(out, 3000)}")
     if code != 0:
         return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
     if not ac_id:

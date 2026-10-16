@@ -53,6 +53,8 @@ export type Step = {
   skippable?: "deferred" | "optional";
   group?: string;
   skip_menu?: boolean;
+  /** v0.17.5 this gate also asks the skip menus after it (the spec gate) */
+  menus?: boolean;
   report?: string;
   markers?: string[];
   instructions?: string;

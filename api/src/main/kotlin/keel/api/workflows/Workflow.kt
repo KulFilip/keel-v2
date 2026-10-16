@@ -56,6 +56,8 @@ data class Step(
     val skippable: String? = null,
     val group: String? = null,
     val skipMenu: Boolean? = null,
+    /** v0.17.5 this gate also asks the skip menus after it (the spec gate): they do not stop the flow again. */
+    val menus: Boolean? = null,
     val report: String? = null,
     /** A list (one choice per loop item, cover) or a map of named exits {name: step id | "end"} (hunt). */
     val choices: Any? = null,

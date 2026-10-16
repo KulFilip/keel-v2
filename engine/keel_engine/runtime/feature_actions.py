@@ -111,6 +111,28 @@ def spec_order(text: str | None) -> str | None:
     return found
 
 
+# "- **AC-1** depends on: AC-3, AC-7" / "AC-001 (depends on AC-002)" / "AC-1: after AC-3" / "AC-1 needs AC-3 first"
+DEPENDS_LINE = re.compile(r"(?mi)^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?([A-Z][A-Z0-9]*-[\w.]+?)(?:\*\*|__)?\b[^\n]*?"
+                          r"\b(?:depends[ _]on|after|needs)\b[ \t:]*([^\n]*)$")
+
+
+def spec_depends(text: str | None) -> dict[str, list[str]]:
+    """{criterion: the criteria it depends on} from the spec's lines (usually its Plan); "none" and unknown words drop."""
+    out: dict[str, list[str]] = {}
+    for m in DEPENDS_LINE.finditer(str(text or "")):
+        ac = m.group(1).upper()
+        deps = [d for d in dict.fromkeys(AC_ID.findall(m.group(2).upper())) if d != ac]
+        if deps:
+            out[ac] = list(dict.fromkeys(out.get(ac, []) + deps))
+    return out
+
+
+def with_depends(acs: list[dict], text: str | None) -> list[dict]:
+    """The criteria with `depends_on` from the spec (kept as it was for a criterion the spec says nothing about)."""
+    deps = spec_depends(text)
+    return [dict(x, depends_on=deps[x["id"].upper()]) if x["id"].upper() in deps else dict(x) for x in acs]
+
+
 def build_order(a, text: str | None) -> tuple[str | None, str]:
     """(the order, where it came from): the spec's ORDER line wins (the person reads and may edit it at the gate),
     else the plan agent's ORDER marker, else none (id order)."""
@@ -135,7 +157,7 @@ def _section(text: str, *names: str) -> str:
 
 def _criteria_lines(acs: list[dict]) -> list[str]:
     return [f"- {x['id']} [{x.get('layer', 'API')}] {x.get('title', '')}" + (f" ({x['status']})" if x.get("status") in DONE else "")
-            for x in acs]
+            + (f" · after {', '.join(x['depends_on'])}" if x.get("depends_on") else "") for x in acs]
 
 
 # ------------------------------------------------------------------ preflight
@@ -206,7 +228,7 @@ def spec_sync(a):
     seeded = bool((a.data.get("seed") or {}).get("acs"))
     acs = merge_acs(a.acs, prompts.parse_acs(text), drop=not seeded)
     order, source = build_order(a, text)
-    acs = order_acs(acs, order)
+    acs = with_depends(order_acs(acs, order), text)
     said = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "id": "criteria ids (no ORDER given)"}[source]
     lines = [f"Spec: {spec or '(no spec file found)'}", "", f"Criteria, in build order (from {said}):", *_criteria_lines(acs)]
     plan = _section(text, "plan")
@@ -223,12 +245,28 @@ def spec_sync(a):
               "- review: an adversarial read first (vague, untestable or overlapping criteria), shown here",
               "- order: the criteria are right but the plan under them is not: the plan is written again",
               "- reject: the spec misses the intent: the interview starts again with what was missing"]
+    contract = contract_needed(a, text)
+    if contract == "no":
+        lines.insert(1, "Contract: the plan says the contract delta is none, so the contract step and its gate are skipped.")
     upd = {"acs": acs, "show": "\n".join(lines),
-           "data": {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": source}}}
+           "data": {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": source}, "contract": contract}}
     if spec:
         upd["spec"] = spec
     return _ok(f"spec {spec or 'not found'}: {len(acs)} criteria" + (f", order {', '.join(x['id'] for x in acs)} (from {said})"
                                                                        if order else ""), update=upd)
+
+
+NO_CONTRACT = re.compile(r"(?im)^[^\n]*\bcontract(?:\s+delta|\s+change[s]?)?\b\W{0,6}[:\-\u2013\u2014]\W{0,4}"
+                         r"(?:none|no change[s]?|n/?a|nothing)\b")
+
+
+def contract_needed(a, text: str | None) -> str:
+    """v0.17.5 "no" when the plan says there is no contract delta (its CONTRACT-DELTA: none line, or "Contract delta: none" in
+    the spec's Plan); then the contract step and its gate are skipped. Anything else: "yes"."""
+    said = str(((a.state.get("markers") or {}).get("plan") or {}).get("CONTRACT-DELTA") or "").strip().lower()
+    if said:
+        return "no" if said.startswith(("no", "none")) else "yes"
+    return "no" if NO_CONTRACT.search(str(text or "")) else "yes"
 
 
 def _frontmatter(text: str, values: dict) -> str:
@@ -300,7 +338,7 @@ def amend_start(a):
     rounds = [h for h in a.data.get("amend_history") or [] if ac and h.get("ac") == ac and "changed" in h]
     if rounds and rounds[-1]["changed"] is False:
         amend = {**amend, "route": "ask", "next": _next_for(a, ac, f"{reason} {rounds[-1].get('said', '')}")}
-        data = {**a.data, "amend": amend}
+        data = {**a.data, "amend": amend, "amend_loop_without": [] if amend["next"] else ["first"]}
         return _ok(f"{ac} came back with an AMEND after an amendment that changed nothing: asking you, not looping"[:300],
                    update={"markers": mk, "data": data, "show": _loop_text(a, amend, rounds[-1])})
     return _ok(f"spec amendment needed: {reason}"[:300], update={"markers": mk, "data": {**a.data, "amend": amend}})
@@ -406,7 +444,7 @@ def _no_change(a, spec: str | None, amend: dict):
                 "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
         return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "show": None})
     amend = {**amend, "route": "ask", "next": _next_for(a, ac, text)}
-    data = {**a.data, "amend": amend, "amend_history": hist}
+    data = {**a.data, "amend": amend, "amend_history": hist, "amend_loop_without": [] if amend["next"] else ["first"]}
     return _ok(f"the amendment for {ac} changed nothing in the spec: asking you", update={
         "data": data, "show": _loop_text(a, amend, hist[-1])})
 
@@ -429,6 +467,35 @@ def amend_reorder(a):
     data = {**a.data, "amend": {**amend, "route": "moved"}, "amend_history": _history(a, ac=ac, choice=choice),
             "ac_order": {"ids": [x["id"] for x in acs], "from": "person"}}
     return _ok(note, update={"acs": acs, "ac": nxt, "gates": gates, "data": data, "show": None})
+
+
+def stuck(a):
+    """The red / green agent said BLOCKED (or GREEN-RESULT: stalled): no retry of the same thing. When the reason names
+    unfinished criteria, those are built first (the order changes, the gate log says so); otherwise the person chooses:
+    retry with a note, skip the criterion, edit the spec, stop."""
+    from .actions import ActionResult
+
+    ac = a.state.get("ac") or (a.ac or {}).get("id")
+    src = "green" if a.phase == "green" else "red"
+    why = str(((a.state.get("markers") or {}).get(src) or {}).get("BLOCKED") or "").strip()
+    first = _named(a, why, ac)
+    if first:
+        acs = move_before(a.acs, first, ac)
+        gates = _gates(a)
+        note = f"{ac} is blocked until {', '.join(first)} is built: keel moved {', '.join(first)} before {ac}"
+        gates["log"].append(note[:300])
+        data = {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
+        return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "feedback": None})
+    lines = [f"The {src} agent cannot go on with {ac}:", why or "(no reason given)", "",
+             "Trying the same thing again will not help.",
+             'Choose one (approve with payload {"choice": "<name>"} and a note):',
+             f"- retry: the {src} agent again, with your note (say what to change: the command, the setup, the approach)",
+             f"- skip: move {ac} to the end of the list and go on with the next criterion",
+             f"- edit: amend the spec for {ac} first (your note says what is wrong)",
+             "- stop: stop the flow here (the commits so far stay)"]
+    return ActionResult(False, f"{ac} is blocked: {why[:200]}", why, ask={
+        "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines),
+        "choices": ["retry", "skip", "edit", "stop"]})
 
 
 def amend_with_note(a):
@@ -514,7 +581,7 @@ def spec_amend_commit(a):
     spec = spec_path(a)
     text = _read(a.root, spec)
     # the build order stays as it is (the plan's, or as the person or keel moved it); new criteria go after the rest
-    acs = order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs))
+    acs = with_depends(order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs)), text)
     reopen = [i for i in _reopen(a) if any(x["id"].upper() == i for x in acs)]
     acs = [dict(x, status="todo") if x["id"].upper() in reopen else x for x in acs]
     amend = a.data.get("amend") or {}
@@ -528,6 +595,8 @@ def spec_amend_commit(a):
     contract = amend.get("from") == "contract" or said.startswith("yes")
     data = {**a.data, "amendments": list(a.data.get("amendments") or []) + [{**amend, "reopen": reopen, "commit": r.update.get("git_head")}],
             "amend_history": _history(a, ac=amend.get("ac"), changed=bool(r.update.get("git_head")))}
+    if contract:
+        data["contract"] = "yes"          # v0.17.5 the contract steps run again even when the plan said none
     new = [x["id"] for x in acs if x["id"] not in {y["id"] for y in a.acs}]
     note = f"amendment committed: {r.note}" + (f"; new criteria {', '.join(new)}" if new else "") + \
            (f"; reopened {', '.join(reopen)}" if reopen else "") + ("; the contract is next" if contract else "")
@@ -544,6 +613,10 @@ def show_diff(a):
         return _ok("Not a git repository: no diff to show.", update={"show": "Not a git repository: no diff to show."})
     mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
     dirty = {f: xy for f, xy in git.dirty(a.root).items() if f not in mine}
+    if not dirty and a.phase == "contract":
+        # v0.17.5 the contract agent wrote nothing: there is no delta to approve, so its gate is not asked
+        return _ok("no contract change", update={"show": "The contract agent changed nothing.",
+                                                  "data": {**a.data, "contract": "no"}})
     if dirty:
         tracked = [f for f, xy in dirty.items() if "?" not in xy]
         out = [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]
@@ -686,7 +759,7 @@ def close_flow(a):
 
 ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": spec_sync, "spec_freeze": spec_freeze,
            "spec_restart": spec_restart, "amend_start": amend_start, "spec_amendment": spec_amendment,
-           "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note,
+           "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note, "stuck": stuck,
            "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow}

@@ -189,11 +189,14 @@ describe("Flow v0.2", () => {
     await user.click(await screen.findByRole("button", { name: "Start a flow" }));
     const dlg = await screen.findByRole("dialog", { name: "Start a flow" });
     await user.type(within(dlg).getByLabelText("What to build"), "Rank next to top 10");
-    await waitFor(() => expect(within(dlg).getByLabelText("Cap for this flow")).toHaveValue("500k"));
+    // v0.17.5 the Settings cap (500k) is below the estimate: the field follows the estimate and says so
+    expect(await within(dlg).findByTestId("sf-cap-est")).toHaveTextContent("from 500k (Settings)");
     const cap = within(dlg).getByLabelText("Cap for this flow");
+    expect(cap).not.toHaveValue("500k");
     await user.clear(cap);
     await user.type(cap, "250k");
     await user.selectOptions(within(dlg).getByLabelText("When the cap is hit"), "stop");
+    expect(within(dlg).getByTestId("sf-cap-low")).toHaveTextContent("the flow will stop before it is done");
     await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
     await waitFor(() => expect(calls("POST", "/api/projects/yegi/flows")[0]?.body).toEqual({ workflow_id: "feature", title: "Rank next to top 10", cap_tokens: 250000, on_cap: "stop" }));
     expect(calls("PUT", "/api/projects/yegi/settings")).toHaveLength(0);

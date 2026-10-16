@@ -316,6 +316,9 @@ DOCS: dict[str, dict] = {
     "amend_reorder": {
         "summary": "The amendment loop gate's first / skip: builds the named criterion first, or moves this one to the end.",
     },
+    "stuck": {
+        "summary": "The red / green agent said BLOCKED: builds the criteria it names first, else asks retry / skip / edit / stop.",
+    },
     "amend_with_note": {
         "summary": "The amendment loop gate's edit: the amendment is written again with the person's note.",
     },

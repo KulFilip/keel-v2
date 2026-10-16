@@ -63,7 +63,9 @@ def spec_with(monkeypatch, *extra):
 
 
 SPEC = "docs/specs/player-ranks.md"
-SHIP = {"ship_plan": {"skip": {"release": "r", "cover": "c", "deps": "d", "reviewers": "r", "spec_walk": "s"}}}
+# v0.17.5 ship's menu is answered at the spec gate (menus: true)
+SKIPS = {"release": "r", "cover": "c", "deps": "d", "reviewers": "r", "spec_walk": "s"}
+SHIP = {"spec_gate": {"choice": "approve", "skip": SKIPS}}
 
 
 # ------------------------------------------------------------------ the shape and the happy path
@@ -85,22 +87,22 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert f"Spec: {SPEC}" in w["detail"] and "- AC-1 [API]" in w["detail"] and "Spec check" in w["detail"]
     assert "## Plan" not in w["detail"] and "Plan (files per criterion" in w["detail"]
     assert log(repo)[0] == "chore: demo project", "nothing is committed before the gate"
+    # v0.17.5 the optional-step menus are part of the spec gate: no separate stop
+    for unit in ("integration_gate", "security", "e2e", "smoke", "release"):
+        assert f"  - {unit}" in w["detail"], unit
+    assert "— which optional phases run —" in w["detail"] and "decided here with this approval" in w["detail"]
     s = decide(client, tid)
-    assert s["waiting"]["step"] == "options"
     assert log(repo)[0] == "docs: spec and plan: Player ranks"
     front = (Path(repo) / SPEC).read_text().split("---")[1]
     assert "status: frozen" in front and "approved: 20" in front and "frozen: 20" in front
     assert git(repo, "show", "--name-only", "--format=", "HEAD").stdout.split() == [SPEC]
-    for unit in ("integration_gate", "security", "e2e", "smoke"):
-        assert f"  - {unit}" in s["waiting"]["detail"], unit
-    assert "  - release" not in s["waiting"]["detail"], "ship asks about its own steps"
-    s = decide(client, tid)
+    assert any(x == "gate options approve: chosen at spec_gate" for x in s["gate_log"])
     w = s["waiting"]
     assert w["step"] == "contract_gate" and w["choices"] == ["approve", "change", "amend"]
     assert "new file docs/contract/player-ranks.md" in w["detail"] and "contract: Player ranks" not in log(repo)
     s, gates = gates_until_done(client, tid, decide(client, tid))
     assert s["status"] == "done"
-    assert gates == ["ac_gate", "ac_gate", "integration_gate", "ship_plan", "ship_final_review", "ship_pr_gate"]
+    assert gates == ["ac_gate", "ac_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
     started = [e["step"] for e in client.bus.of(tid, "step.started")]
     assert {"security", "code_review", "adr", "close"} <= set(started) and "review_fix" not in [
         e["step"] for e in client.bus.of(tid, "step.started") if not e["data"].get("skipped")]
@@ -263,7 +265,13 @@ def test_an_amendment_that_reopens_a_criterion_and_moves_the_contract(client, re
     def amend(req, real):
         path, content, _a, data = real(req)
         return path, content, "Amended.\nREOPEN: AC-1\nCONTRACT: yes", data
-    red_says_amend_once(monkeypatch, {"spec amendment": amend})
+    times = {"n": 0}
+
+    def contract(req, real):
+        path, content, said, data = real(req)
+        times["n"] += 1
+        return path, content + ("\nGET /ranks now returns shared ranks.\n" if times["n"] > 1 else ""), said, data
+    red_says_amend_once(monkeypatch, {"spec amendment": amend, "contract": contract})
     tid = start(client, repo)
     to_loop(client, tid)
     s = decide(client, tid)
@@ -341,18 +349,18 @@ def test_security_is_not_shown_when_clean_and_asks_when_it_finds_something(clien
     assert [r.item["id"] for r in calls] == ["audit"], "no dependency changed: no triager"
     s = decide(client, tid)
     assert len(calls) == 2 and "fix(review): address security auditor + dependency triager findings" in log(repo)
-    assert s["waiting"]["step"] == "ship_plan", "clean the second time: nothing shown"
+    assert s["waiting"]["step"] == "ship_final_review", "clean the second time: nothing shown"
 
 
 def test_the_dependency_triager_runs_after_verify_deps_found_something(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"dependency-triager": lambda r: "lodash 4.17.20: not reachable, dev-only.\nDEPS: clean"})
     script(monkeypatch, {"verify_deps": [ActionResult(False, "Dependencies: the web audit fails.", "lodash 4.17.20 high CVE-1")]})
     tid = start(client, repo)
-    s = to(client, tid, wait(client, tid), "ship_plan")
+    s = to(client, tid, wait(client, tid), "ship_final_review", SHIP)
     tri = [r for r in seen if r.agent == "dependency-triager"]
     assert len(tri) == 1 and "CVE-1" in tri[0].prompt and tri[0].item["id"] == "deps"
     assert sorted(r.item["id"] for r in seen if r.step_name == "security auditor + dependency triager") == ["audit", "deps"]
-    assert s["waiting"]["step"] == "ship_plan"
+    assert s["waiting"]["step"] == "ship_final_review"
 
 
 def test_the_full_diff_review_sends_findings_back_twice_then_asks(client, repo, monkeypatch):
@@ -364,7 +372,7 @@ def test_the_full_diff_review_sends_findings_back_twice_then_asks(client, repo, 
     assert len([r for r in seen if r.agent == "code-reviewer"]) == 3
     assert "the limit is 2" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="the duplication is deliberate")
-    assert s["waiting"]["step"] == "ship_plan"
+    assert s["waiting"]["step"] == "ship_final_review"
     assert values(client, tid)["data"]["dismissed_findings"][0]["why"] == "the duplication is deliberate"
 
 
@@ -374,7 +382,7 @@ def test_e2e_without_a_tool_asks_and_writes_the_specs_unrun(client, repo, monkey
     spec_with(monkeypatch, "- **AC-3** [E2E] Given two players, when the board opens, then both ranks show.")
     seen = by_step(monkeypatch, {})
     tid = start(client, repo)
-    s = to(client, tid, wait(client, tid), "e2e_tool")
+    s = to(client, tid, wait(client, tid), "e2e_tool", SHIP)
     w = s["waiting"]
     assert w["choices"] == ["write", "check"] and "commands.e2e" in w["detail"] and "AC-3 [E2E]" in w["detail"]
     s = decide(client, tid)
@@ -383,7 +391,7 @@ def test_e2e_without_a_tool_asks_and_writes_the_specs_unrun(client, repo, monkey
     assert s["waiting"]["step"] == "e2e_gate" and log(repo)[0] == "e2e: Player ranks"
     skipped = values(client, tid)["data"]["ship_skipped"]
     assert any(x["step"] == "e2e-run" and "not run" in x["reason"] for x in skipped)
-    s = to(client, tid, decide(client, tid), "ship_pr_gate", SHIP)
+    s = to(client, tid, decide(client, tid), "ship_pr_gate")
     assert "e2e-run" in s["waiting"]["detail"], "the PR body says the e2e specs did not run"
 
 
@@ -417,13 +425,22 @@ def test_no_e2e_criteria_no_e2e_and_smoke_checks_run_with_their_gate(client, rep
 def test_the_options_menu_skips_security_with_a_reason(client, repo, monkeypatch):
     seen = by_step(monkeypatch, {})
     tid = start(client, repo)
-    s = to(client, tid, wait(client, tid), "options")
-    s = decide(client, tid, payload={"skip": {"security": "no new endpoint, no input"}})
-    s = to(client, tid, s, "ship_plan")
+    s = wait(client, tid)
+    s = decide(client, tid, payload={"choice": "approve", "skip": {"security": "no new endpoint, no input", **SKIPS}})
+    s = to(client, tid, s, "ship_final_review")
     assert not any(r.agent == "security-auditor" for r in seen)
-    assert {"step": "security", "band": "optional", "reason": "no new endpoint, no input"} in values(client, tid)["data"]["ship_skipped"]
-    s = decide(client, tid, payload=SHIP["ship_plan"])
+    skipped = values(client, tid)["data"]["ship_skipped"]
+    assert {"step": "security", "band": "optional", "reason": "no new endpoint, no input"} in skipped
+    assert {"step": "release", "band": "deferred", "reason": "r"} in skipped                       # ship's own menu too
     assert "security" in s["waiting"]["detail"] and "no new endpoint" in s["waiting"]["detail"]     # the final review
+
+
+def test_a_wrong_skip_at_the_spec_gate_asks_at_the_menu(client, repo, monkeypatch):
+    by_step(monkeypatch, {})
+    tid = start(client, repo)
+    wait(client, tid)
+    s = decide(client, tid, payload={"choice": "approve", "skip": {"nonsense": "why not"}})
+    assert s["waiting"]["step"] == "options" and "nonsense cannot be skipped" in s["waiting"]["title"]
 
 
 def test_no_gates_waives_the_integration_gate_only(client, repo, monkeypatch):
@@ -431,7 +448,7 @@ def test_no_gates_waives_the_integration_gate_only(client, repo, monkeypatch):
     tid = start(client, repo, data={"no_gates": True})
     s, gates = gates_until_done(client, tid, wait(client, tid))
     assert s["status"] == "done"
-    assert "integration_gate" not in gates and gates[:3] == ["spec_gate", "options", "contract_gate"]
+    assert "integration_gate" not in gates and gates[:2] == ["spec_gate", "contract_gate"]
     assert "gate integration_gate approve: waived (gates waived (no_gates option))" in s["gate_log"]
 
 

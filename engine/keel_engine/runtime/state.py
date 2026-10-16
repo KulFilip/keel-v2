@@ -79,6 +79,9 @@ class ThreadContext:
     # Agent results of a parallel step whose other agents failed: "try again" re-runs the node from the top
     # (LangGraph), and only the failed agents should run again. Memory only; cleared when the step finishes.
     done_calls: dict[str, Any] = field(default_factory=dict)
+    # v0.17.5 what failed agent calls used (an error, a turn limit, a stop): the next step that ends books it into
+    # state.usage, so the Flow page, keel_status and keel_flows count it like the Budget page does. Memory only.
+    unbooked: dict[str, Any] = field(default_factory=dict)
     memory: Any = None                                   # AgentMemory: agent sessions and trails on /data
     # Unlocks granted through POST /threads/{id}/unlocks (stored in the engine DB; the next step merges them into the
     # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
+import datetime
 import hashlib
 import json
 import logging
@@ -32,13 +34,14 @@ from .. import addons, extensions, models, rules
 from . import doc_history
 from ..models import catalog
 from ..models import usage as provider_usage
-from ..models.base import AgentRequest, AgentResult
+from ..models.base import AgentRequest, AgentResult, ModelError
 from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check
 from . import blockers as push_gates
+from . import flow_actions
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
@@ -62,6 +65,48 @@ STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners al
 
 
 KEEP_MAX = 60_000       # `keep: true`: the most of an agent's answer the flow keeps for its next steps
+
+
+def add_usage(usage: dict, used: dict | None) -> dict:
+    """usage += used (tokens_in, tokens_out, tokens_cached, cost_usd, premium_requests); returns usage."""
+    for k in ("tokens_in", "tokens_out", "tokens_cached", "premium_requests"):
+        if (used or {}).get(k):
+            usage[k] = int(usage.get(k, 0)) + int(used[k])
+    if (used or {}).get("cost_usd"):
+        usage["cost_usd"] = round(float(usage.get("cost_usd", 0.0)) + float(used["cost_usd"]), 6)
+    return usage
+
+
+CONTINUE = ("You used all your turns before you finished. Continue the same task from where you stopped: everything you "
+            "changed is still on disk. Do not start over. End with the answer the task asks for (and its result lines).")
+
+
+async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, memory) -> AgentResult:
+    """v0.17.5 an agent that runs out of turns continues its own session once with "continue" (claude --resume, codex
+    exec resume) instead of starting fresh; the tokens of the cut-off run are added to the result. `memory` returns the
+    step's memory row (its session) or None."""
+    try:
+        return await runner.run(req, emit)
+    except ModelError as exc:
+        if not (exc.max_turns and can_resume):
+            raise
+        row = memory()
+        row = (await row) if row is not None and hasattr(row, "__await__") else row
+        sid = (row or {}).get("session") or req.session
+        if not sid:
+            raise
+        spent = dict(exc.usage or {})
+    emit("text", "The agent used all its turns: keel continues its own session (\"continue\").")
+    try:
+        res = await runner.run(dataclasses.replace(req, prompt=CONTINUE, session=sid, resume=True), emit)
+    except ModelError as exc:
+        exc.usage = add_usage(dict(exc.usage or {}), spent)
+        raise
+    res.tokens_in += int(spent.get("tokens_in", 0))
+    res.tokens_out += int(spent.get("tokens_out", 0))
+    res.tokens_cached += int(spent.get("tokens_cached", 0))
+    res.cost_usd += float(spent.get("cost_usd", 0.0))
+    return res
 
 
 def budget_tokens(usage: dict) -> int:
@@ -288,10 +333,28 @@ class Compiler:
         async def begin(state: FlowState):
             if state.get("status") in ("stopped", "failed"):
                 return Command(goto=END)
-            nxt = next((a for a in get_list(state, lp.key) if a.get("status") not in finished), None)
+            items = get_list(state, lp.key)
+            nxt = next((a for a in items if a.get("status") not in finished), None)
             if not nxt:
                 return Command(update={cursor: None}, goto=self.nav.after_loop(lp))
-            return Command(update={cursor: nxt["id"], "retries": {}}, goto=self.wf.steps[lp.first].id)
+            if lp.per_ac:
+                # v0.17.5 a criterion waits for the ones it depends on (the plan's depends_on): the first unfinished one
+                # whose dependencies are finished; when none is (a cycle, or one that is not in the list), list order.
+                open_ids = {a["id"] for a in items if a.get("status") not in finished}
+                nxt = next((a for a in items if a.get("status") not in finished
+                            and not (set(a.get("depends_on") or []) & open_ids)), nxt)
+            update = {cursor: nxt["id"], "retries": {}}
+            esc = (state.get("data") or {}).get("ladder_escalated")
+            if lp.per_ac and esc and esc.get("ac") != nxt["id"]:
+                # the stall ladder's stronger model was for that criterion only: the agent's model goes back
+                models_ = dict(state.get("agent_models") or {})
+                if esc.get("before"):
+                    models_[esc["agent"]] = esc["before"]
+                else:
+                    models_.pop(esc["agent"], None)
+                data = {k: v for k, v in (state.get("data") or {}).items() if k != "ladder_escalated"}
+                update.update(agent_models=models_, data=data)
+            return Command(update=update, goto=self.wf.steps[lp.first].id)
 
         begin.__name__ = f"loop_begin_{lp.id}"
         return begin
@@ -321,7 +384,15 @@ class Compiler:
         return next((x for x in get_list(state, lp.key) if x["id"] == state.get("item")), None)
 
     async def finish(self, state: FlowState):
-        return Command(update={"status": "done", "ac": None, "note": "done"}, goto=END)
+        return Command(update={"status": "done", "ac": None, "note": "done", **self._booked(state)}, goto=END)
+
+    def _booked(self, state: FlowState) -> dict:
+        """{"usage": ...} with the failed calls' tokens booked in, or {} when there are none."""
+        if not self.ctx.unbooked:
+            return {}
+        usage = add_usage(dict(state.get("usage") or {}), self.ctx.unbooked)
+        self.ctx.unbooked.clear()
+        return {"usage": usage}
 
     # ------------------------------------------------------------ models
 
@@ -502,7 +573,8 @@ class Compiler:
             ctx.guards.extend(live)
             t0 = time.time()
             try:
-                res = await models.runner_for(model).run(req, emit)
+                res = await run_or_continue(models.runner_for(model), req, emit, can_resume,
+                                            lambda: mem.get(key) if mem else None)
             except asyncio.CancelledError:
                 ctx.emit("agent.finished", step=step.id, call_id=call_id, data={"agent": agent, "status": "stopped", "tokens_in": 0,
                                                                                 "tokens_out": 0, "cost_usd": 0, "premium_requests": 0})
@@ -512,6 +584,7 @@ class Compiler:
                 if mem:
                     await mem.finish(key, "failed", str(exc))
                 used = getattr(exc, "usage", None) or {}
+                add_usage(ctx.unbooked, used)
                 # A failed run still used tokens (a turn limit after 30 turns is not free): the job and the budget count them.
                 ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
                     "agent": agent, "status": "failed", "tokens_in": used.get("tokens_in", 0), "tokens_out": used.get("tokens_out", 0),
@@ -760,7 +833,8 @@ class Compiler:
                 upd.update(extra)
                 state = {**state, **extra}
                 if (answer or {}).get("decision") != "approve":
-                    return {**upd, "status": "failed", "error": str(exc)[:500], "note": f"{step.name} failed"}, END
+                    return {**upd, **self._booked(state), "status": "failed", "error": str(exc)[:500],
+                            "note": f"{step.name} failed"}, END
 
         for key in [key for key in done if key.startswith(attempt + "|")]:
             del done[key]
@@ -781,7 +855,8 @@ class Compiler:
                 state = {**state, "data": lint_data}
                 upd["data"] = lint_data
 
-        usage = dict(state.get("usage") or {})
+        usage = add_usage(dict(state.get("usage") or {}), ctx.unbooked)
+        ctx.unbooked.clear()
         step_tokens = dict(state.get("step_tokens") or {})
         notes = []
         for res, model, _tb in agent_results:
@@ -966,6 +1041,11 @@ class Compiler:
         upd: dict = {}
         data = dict(state.get("data") or {})
         found = [markers.parse(r.text, step.markers) if step.markers else {} for r in results]
+        if "BLOCKED" in [m.upper() for m in step.markers or []]:
+            for f, r in zip(found, results):
+                why = markers.blocked(r.text or "")
+                if why:
+                    f["BLOCKED"] = why
         if step.items_from:
             data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "title": item_of[n].get("title") or item_of[n]["id"],
                                            "text": (r.text or "")[:16000], "markers": found[n]} for n, r in enumerate(results)]
@@ -1182,7 +1262,7 @@ class Compiler:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
                         upd[k] = r.update[k]
-                return self._check_failed(i, step, st, ac or item, r, upd)
+                return await self._check_failed(i, step, st, ac or item, r, upd)
             st.update(r.update)
             upd.update(r.update)
             notes.append(r.note)
@@ -1313,7 +1393,7 @@ class Compiler:
             res = await run_action(action, self._action_input(st, ac))
             if not res.ok or res.ask:
                 # A refused commit is an ordinary failed check (it goes back to the red agent).
-                return self._check_failed(i, step, st, ac, res, {**upd, "gates": gates})
+                return await self._check_failed(i, step, st, ac, res, {**upd, "gates": gates})
             st.update(res.update)
             upd.update(res.update)
             notes.append(res.note)
@@ -1323,6 +1403,64 @@ class Compiler:
                    note=" · ".join([f"{ac['id']} marked as already met" + (f": {why}" if why else ""), *notes[1:]]))
         return upd, AC_END if step.per_ac and self.nav.last is not None else self.nav.after(i)
 
+    def _stuck_question(self, step: Step, ac: dict, r: ActionResult, rounds: int, attempts: int) -> dict:
+        """The question after the stall ladder: retry with a note / skip the criterion / edit the spec / stop."""
+        edit = any(s.id == "amend" for s in self.wf.steps)
+        choices = ["retry", "skip"] + (["edit"] if edit else []) + ["stop"]
+        lines = [f"{step.name} failed {rounds} times for {ac['id']}: the same agent, an investigator's proposal and a "
+                 "stronger model did not fix it.", "", r.note, "", r.detail[-1500:], "",
+                 'Choose one (approve with payload {"choice": "<name>"} and a note):',
+                 "- retry: one more round, with your note for the agent",
+                 f"- skip: move {ac['id']} to the end of the list and go on with the next criterion"]
+        if edit:
+            lines.append(f"- edit: amend the spec for {ac['id']} first (your note says what is wrong)")
+        lines.append("- stop: stop the flow here (the commits so far stay)")
+        return {"type": "stuck", "kind": "fix", "title": f"{ac['id']} is stuck at {step.name}", "detail": "\n".join(lines),
+                "choices": choices, "retries_after": attempts}
+
+    def _choice_answer(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
+        """v0.17.5 a check that asks with real choices (a command that cannot run, a stuck criterion), never decided by a
+        run mode: recheck (this check again), retry (the agent again, with the note), skip (the criterion to the end of the
+        list, on with the next), edit (an amendment of the spec, with the note), stop. Plain approve = the first choice."""
+        q = r.ask
+        names = list(q["choices"])
+        question = {"step": step.id, "kind": "fix", "title": q["title"], "detail": q["detail"], "options": OPTIONS,
+                    "choices": names}
+        answer, extra = self._ask(state, question, gate="failure")
+        upd = {**upd, **extra}
+        why = (answer.get("why") or "").strip()
+        choice = str((answer.get("payload") or {}).get("choice") or (names[0] if answer.get("decision") == "approve" else "stop"))
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates["log"].append(f"{q['type']} {choice}" + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": choice, "why": why})
+        ac = _ac(state)
+        key = f"{step.id}:{(ac or {}).get('id')}"
+        retries = {**(state.get("retries") or {}), key: int(q.get("retries_after") or 0) if choice == "retry" else 0}
+        base = {**upd, "gates": gates, "retries": retries, "stall": {"fingerprint": None, "count": 0, "step": 0}}
+        if choice == "recheck":
+            return {**base, "note": f"{step.name}: checked again"}, step.id
+        if choice == "retry":
+            feedback = f"{r.note}\n{r.detail[-2000:]}".strip() + (f"\n\nFrom the user: {why}" if why else "")
+            target = self.nav.jump(q["retry_to"], i) if q.get("retry_to") else self.nav.retry_target(i)
+            return {**base, "feedback": feedback, "last_failure": r.note[:300], "note": f"{r.note} · tried again"[:300]}, target or step.id
+        lp = self.nav.loop_of(i)
+        if choice in ("skip", "edit") and ac:
+            # the stuck criterion's uncommitted work goes back (keel's agents' files only, never the person's), so the next
+            # criterion's red commit is not refused for it; its commits stay
+            back = flow_actions.reset(self._action_input(state, ac))
+            gates["log"].append(f"{ac['id']}: {back.note}"[:300])
+        if choice == "skip" and ac and lp and lp.per_ac:
+            acs = [x for x in state.get("acs") or [] if x["id"] != ac["id"]] + [x for x in state.get("acs") or [] if x["id"] == ac["id"]]
+            return {**base, "acs": acs, "ac": None, "feedback": None, "last_failure": None,
+                    "note": f"{ac['id']} moved to the end"}, self.nav.begin(lp)
+        if choice == "edit" and ac and any(s.id == "amend" for s in self.wf.steps):
+            data = {**(state.get("data") or {}), "amend": {"from": step.id, "ac": ac["id"], "route": "amend",
+                                                          "reason": f"{ac['id']} · {r.note}" + (f"\nThe person says: {why}" if why else ""),
+                                                          "at": datetime.date.today().isoformat()}}
+            return {**base, "data": data, "note": f"{ac['id']}: the spec is amended first"}, self.nav.jump("amend", i)
+        return {**base, "status": "stopped", "error": r.note + (f" ({why})" if why else ""),
+                "note": f"stopped: {q['title']}"[:300]}, END
+
     async def _answer_check(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
         """A commit check asked the user (new dependency, escalation). Apply the answer and run the step again.
 
@@ -1330,6 +1468,8 @@ class Compiler:
         question's answer to another.
         """
         q = r.ask
+        if q.get("choices"):
+            return self._choice_answer(i, step, state, r, upd)
         kind = {"deps": "dependency", "escalate": "escalate", "secrets": "secrets", "readonly": "readonly",
                 "plugin": "plugin"}.get(q["type"], "failure")
         question = {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"], "options": OPTIONS}
@@ -1388,7 +1528,50 @@ class Compiler:
         gates["log"].append(f"escalation-override: {why or q['why']}")
         return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
 
-    def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
+    async def _ladder(self, count: int, i: int, step: Step, state: FlowState, target: str, feedback: str) -> tuple[str, dict, str]:
+        """v0.17.5 the stall ladder of a criterion's check, one rung per failed round:
+        1. the same agent again, with the concrete failure (no extra call);
+        2. an investigator (read only) reads the failure and the code and proposes a fix; the agent gets its proposal;
+        3. the agent's model is escalated once (for this criterion), with the investigator's proposal;
+        after that the person chooses (_check_failed). Returns (feedback, state update, what this round did)."""
+        tstep = self.wf.steps[self.nav.index[target]] if target in self.nav.index else None
+        agent = (tstep.agent if tstep and tstep.kind == "agent" else None) or ""
+        data = dict(state.get("data") or {})
+        ac_id = (_ac(state) or {}).get("id")
+        if count == 2:
+            inv = step.model_copy(update={"id": f"{step.id}_investigate", "kind": "agent", "name": f"{step.name}: why does it keep failing",
+                                          "agent": "investigator", "phase": "review", "markers": None, "instructions": None})
+            ask = (f"{feedback}\n\nThis check failed twice for {ac_id}. Read the failure and the code (read only). Say in a few "
+                   "lines what really goes wrong and what the next try must change. If the cause is outside the agent's "
+                   "reach (the test command, the build, a criterion that must be built first), say so.")
+            try:
+                res, _m, _tb = await self._run_agent({**state, "phase": "review", "feedback": ask}, inv, "investigator", 0)
+            except (asyncio.CancelledError, GraphBubbleUp):
+                raise
+            except Exception as exc:          # the ladder goes on without the proposal
+                return feedback, {}, f"the investigator failed ({str(exc)[:120]}); tried again"
+            usage = add_usage(dict(state.get("usage") or {}), {k: getattr(res, k, 0) for k in
+                                                               ("tokens_in", "tokens_out", "tokens_cached", "premium_requests", "cost_usd")})
+            proposal = (res.text or "").strip()[-3000:]
+            data["ladder_proposal"] = proposal
+            return (f"{feedback}\n\nAn investigator read this failure. Its proposal:\n{proposal}", {"usage": usage, "data": data},
+                    "an investigator proposed a fix; tried again")
+        if count == 1:
+            return feedback, {}, "the same agent again, with the failure"
+        proposal = data.get("ladder_proposal")
+        extra = f"\n\nThe investigator's proposal:\n{proposal}" if proposal else ""
+        if count == 3 and agent and not data.get("ladder_escalated"):
+            r = self._escalate_model(tstep, state)
+            before = (state.get("agent_models") or {}).get(agent)
+            data["ladder_escalated"] = {"agent": agent, "ac": ac_id, "before": before}
+            upd = {**r.update, "data": data}
+            mk = dict(upd.get("markers") or {})
+            mk.pop(tstep.id, None)
+            upd["markers"] = mk
+            return feedback + extra, upd, r.note
+        return feedback + extra, {}, "tried again"
+
+    async def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
         key = f"{step.id}:{(ac or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         count = retries.get(key, 0) + 1
@@ -1407,14 +1590,24 @@ class Compiler:
         target = self.nav.jump(step.back, i) if step.back else self.nav.retry_target(i)
         attempts = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
+        lp = self.nav.loop_of(i)
+        ladder = bool(step.per_ac and lp and lp.per_ac and ac and target and not step.after_rounds)
         if target and count <= attempts:
             retries[key] = count
+            if ladder:
+                fb, more, did = await self._ladder(count, i, step, {**state, **upd}, target, feedback)
+                gates = copy.deepcopy(base.get("gates") or state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+                gates["log"].append(f"stall {ac['id']} round {count}: {did}"[:300])
+                return {**base, **more, "gates": gates, "feedback": fb, "retries": retries,
+                        "note": f"{r.note} · round {count}: {did}"[:300]}, target
             return {**base, "retries": retries}, target
         if step.after_rounds:
             # keel v1 "fails twice: reset and reproduce again": a fresh start instead of another try in the same place.
             return {**base, "retries": {**retries, key: 0}, "note": f"{r.note} · on to {step.after_rounds}"[:300]}, \
                 self.nav.jump(step.after_rounds, i)
-        lp = self.nav.loop_of(i)
+        if ladder:
+            return self._choice_answer(i, step, state, ActionResult(False, r.note, r.detail, ask=self._stuck_question(
+                step, ac, r, count - 1, attempts)), base)
         in_items = bool(lp and not lp.per_ac and ac)
         reject = "reject to mark this item failed and go on with the next one" if in_items else "reject to stop the flow"
         answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
@@ -1519,10 +1712,12 @@ class Compiler:
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes and not no_criteria:
             detail = f"{detail}\n\nStatic checks on the last changed files:\n" + "\n".join(f"- {n}" for n in lint_notes)
+        if step.menus and not no_criteria:
+            detail = f"{detail}\n\n{self._folded_menus(i)}"
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
         routes = isinstance(step.choices, dict) and not no_criteria
         if routes:
-            question.update(options=["approve"], choices=list(step.choices))
+            question.update(options=["approve"], choices=self._open_choices(step, state))
         elif step.choices and not no_criteria:
             # A list outside a loop: named exits as markers CHOICE and WHY (branches route on them); reject sends back.
             question.update(choices=list(step.choices), detail=detail + "\n\nApprove with one of: " + ", ".join(step.choices)
@@ -1611,11 +1806,11 @@ class Compiler:
         state.data["<gate id>_answer"] for the step it leads to ({choice, why, payload})."""
         payload = answer.get("payload") or {}
         why = (answer.get("why") or "").strip()
-        names = list(step.choices or {})
+        names = self._open_choices(step, state)
         # A plain "send back" picks the exit named reject when the gate has one; otherwise the first exit.
         plain = "reject" if answer.get("decision") == "reject" and "reject" in names else names[0]
         choice = str(payload.get("choice") or plain)
-        if choice not in step.choices:
+        if choice not in names:
             gates["log"].append(f"gate {step.id} unknown choice {choice}")
             return {"gates": gates, **extra, "note": f"{step.name}: '{choice}' is not one of {', '.join(names)}"}, step.id
         gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
@@ -1625,12 +1820,70 @@ class Compiler:
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
 
+    @staticmethod
+    def _open_choices(step: Step, state: FlowState) -> list[str]:
+        """A dict-choice gate's exits, minus the ones a step before it ruled out this time (data["<gate id>_without"],
+        v0.17.5: amend_loop has no `first` when nothing else is unfinished)."""
+        without = set((state.get("data") or {}).get(f"{step.id}_without") or [])
+        names = [c for c in step.choices or {} if c not in without]
+        return names or list(step.choices or {})
+
+    def _menu_steps(self, after: int) -> list[int]:
+        return [j for j, s in enumerate(self.wf.steps) if j > after and s.skip_menu]
+
+    def _folded_menus(self, i: int) -> str:
+        """The skip menus after gate i, for its own text (a gate with menus: true)."""
+        out = ["Optional steps (decided here with this approval, so the flow does not stop again to ask):"]
+        for j in self._menu_steps(i):
+            out += ["", f"— {self.wf.steps[j].name} —", ship_mod.skip_menu_detail(self.wf.steps, j)]
+        return "\n".join(out)
+
+    def _folded_answer(self, i: int, state: FlowState) -> tuple[str, dict] | None:
+        """(gate id, payload) when an earlier gate with menus: true was approved and so answers the menu at step i."""
+        for j in range(i - 1, -1, -1):
+            g = self.wf.steps[j]
+            if g.kind == "gate" and g.menus and i in self._menu_steps(j):
+                ans = (state.get("data") or {}).get(f"{g.id}_answer") or {}
+                first = next(iter(g.choices)) if isinstance(g.choices, dict) else "approve"
+                if ans and ans.get("choice") == first:
+                    return g.id, dict(ans.get("payload") or {})
+        return None
+
     def _skip_menu(self, i: int, step: Step, state: FlowState, gates: dict):
         """keel v1 ship's opening question: which skippable steps after this gate run this time. Every skip needs a
         reason; skips land in data.ship_skipped (the PR body and the final review show them) and the gate log."""
         units = ship_mod.skip_units(self.wf.steps, i)
         detail = ship_mod.skip_menu_detail(self.wf.steps, i)
         title, extra_all = step.name, {}
+        folded = self._folded_answer(i, state)
+        if folded:
+            # v0.17.5 decided at an earlier gate (the spec gate): its skips for this menu, no second stop. A name no menu
+            # knows, or a skip without a reason, still asks here.
+            gid, payload = folded
+            mine = {u["name"] for u in units}
+            known = {u["name"] for j in self._menu_steps(-1) for u in ship_mod.skip_units(self.wf.steps, j)}
+            raw = payload.get("skip") or {}
+            raw = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in raw if isinstance(x, dict)} \
+                if isinstance(raw, list) else raw
+            unknown = [n for n in raw if n not in known] if isinstance(raw, dict) else ["skip"]
+            skips, lenses, problem = ship_mod.parse_skips(
+                {**payload, "skip": {k: v for k, v in raw.items() if k in mine} if isinstance(raw, dict) else raw}, units)
+            if unknown:
+                problem = f"{', '.join(unknown)} cannot be skipped (skippable: {', '.join(sorted(known)) or 'none'})"
+            if not problem:
+                data = dict(state.get("data") or {})
+                names = {s["step"] for s in skips}
+                data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
+                if lenses:
+                    data["lenses_chosen"] = lenses
+                gates["log"].append(f"gate {step.id} approve: chosen at {gid}")
+                for sk in skips:
+                    gates["log"].append(f"gate {step.id} skip {sk['step']} ({sk['band']}): {sk['reason']}")
+                self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve",
+                                                                  "why": f"chosen at {gid}", "skipped": skips})
+                note = ("skipped: " + ", ".join(f"{s['step']} ({s['reason']})" for s in skips)) if skips else "every step runs"
+                return {"gates": gates, "data": data, "note": f"{note} (chosen at {gid})"[:300]}, self.nav.after(i)
+            title = f"{step.name}: {problem}"
         while True:
             answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
                                               "options": ["approve"], "labels": {"approve": "Run these steps"}}, gate="skip-menu")
