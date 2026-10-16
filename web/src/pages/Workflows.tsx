@@ -262,7 +262,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
   const checked = useYamlCheck(pid, yamlText !== null && !otherId ? yamlText : null);
   const [saveLines, setSaveLines] = useState<LineError[]>([]);
   useEffect(() => setSaveLines([]), [draft]); // a change in the blocks: the refused save's lines no longer fit
-  const marks = otherId ? [] : yamlText !== null && checked ? checked : saveLines;
+  // the last refused save wins until the next change; then keel's check of what was typed
+  const marks = otherId ? [] : saveLines.length ? saveLines : yamlText !== null && checked ? checked : [];
   const [importing, setImporting] = useState(false);
   const [importErr, setImportErr] = useState<{ message: string; hint?: string } | null>(null);
   const select = (id: string | null) => { setSel(id); if (id) setSide((s) => (s === "estimate" ? "block" : s)); };

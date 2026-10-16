@@ -314,7 +314,9 @@ export function handlers(db: Db) {
     }),
     http.put("/api/workflows/:wid", async ({ request, params }) => {
       const b = (await log(request)) as unknown as Workflow;
-      if (db.yamlErrors) return HttpResponse.json({ error: "The workflow YAML is not valid.", hint: "Fix the lines below and save again.", errors: db.yamlErrors }, { status: 422 });
+      // 0.17.4 each "line N: …" error also at its line (lines), as the api answers
+      if (db.yamlErrors) return HttpResponse.json({ error: "The workflow YAML is not valid.", hint: "Fix the lines below and save again.", errors: db.yamlErrors,
+        lines: db.yamlErrors.flatMap((m) => { const x = m.match(/^line (\d+): (.*)$/); return x ? [{ line: Number(x[1]), message: x[2] }] : []; }) }, { status: 422 });
       const old = db.workflows.find((x) => x.id === params.wid)!;
       if (old.keel_rules && b.keel_rules) {
         const gone = old.steps.filter((s) => s.lock && !b.steps.some((n) => n.id === s.id));
