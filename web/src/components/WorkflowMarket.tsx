@@ -1,6 +1,6 @@
 // 0.16.1 plugin track: the marketplace for workflows on Build › Workflows (docs/plugins/21-workflow-marketplace.md §4):
 // the Install review in words (shared with Control › Plugins), the badge "from marketplace · 1.2.0" and its update,
-// the workflow's menu (Update, Remove, Publish to marketplace), the update question (keep my copy or replace) and the
+// the workflow's menu (Update, Remove, Publish to marketplace, Delete), the Delete confirm, the update question (keep my copy or replace) and the
 // Publish dialog (download the package; signing and the pull request stay with the person).
 
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +14,7 @@ import {
   type PublishInfo,
   type WorkflowReview,
 } from "../workflowMarketApi";
-import { Confirm, Drawer, ErrorBox, Loading } from "./ui";
+import { Drawer, ErrorBox, Loading } from "./ui";
 
 type Err = { message: string; hint?: string; details?: string[] } | null;
 
@@ -152,22 +152,11 @@ export function MarketBadge({
   );
 }
 
-const isTemplate = (w: Workflow) =>
+export const isTemplate = (w: Workflow) =>
   w.source === "keel" || (!w.source && !w.based_on);
 
-/** The workflow's menu: Update and Remove for one from the marketplace, Publish for the person's own. keel's
- *  templates have none. */
-export function WorkflowMenu({
-  w,
-  onUpdate,
-  onRemove,
-  onPublish,
-}: {
-  w: Workflow;
-  onUpdate: () => void;
-  onRemove: () => void;
-  onPublish: () => void;
-}) {
+/** A small menu's open state: a click outside or Esc closes it. */
+export function useMenu() {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -183,11 +172,29 @@ export function WorkflowMenu({
       document.removeEventListener("keydown", esc);
     };
   }, [open]);
-  if (isTemplate(w) && !w.market) return null;
   const pick = (fn: () => void) => () => {
     setOpen(false);
     fn();
   };
+  return { open, setOpen, box, pick };
+}
+
+/** The workflow's menu: Update and Remove for one from the marketplace, Publish and Delete for the person's own.
+ *  keel's templates have none. */
+export function WorkflowMenu({
+  w,
+  onUpdate,
+  onRemove,
+  onPublish,
+}: {
+  w: Workflow;
+  onUpdate: () => void;
+  /** Remove (marketplace) or Delete (the person's own): the same confirm, DELETE /api/workflows/{wid} */
+  onRemove: () => void;
+  onPublish: () => void;
+}) {
+  const { open, setOpen, box, pick } = useMenu();
+  if (isTemplate(w) && !w.market) return null;
   return (
     <div className="wfm-menu" ref={box}>
       <button
@@ -219,9 +226,19 @@ export function WorkflowMenu({
               </button>
             </>
           ) : (
-            <button type="button" role="menuitem" onClick={pick(onPublish)}>
-              Publish to marketplace
-            </button>
+            <>
+              <button type="button" role="menuitem" onClick={pick(onPublish)}>
+                Publish to marketplace
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="mk-danger"
+                onClick={pick(onRemove)}
+              >
+                Delete
+              </button>
+            </>
           )}
         </div>
       )}
@@ -229,8 +246,12 @@ export function WorkflowMenu({
   );
 }
 
-/** "Remove X?": the workflow goes; its runs and their history stay. */
-export function RemoveWorkflow({
+/**
+ * "Delete X?" over the page (role alertdialog, like Stop flow): the workflow and its versions go; flows that ran with
+ * it keep their history. One from the marketplace goes the marketplace's way (workflowMarketApi.remove), so the
+ * Marketplace no longer lists it as installed here. A 409 (a flow of it runs or waits at a gate) shows in the dialog.
+ */
+export function DeleteWorkflow({
   w,
   onDone,
   onNo,
@@ -242,12 +263,28 @@ export function RemoveWorkflow({
   const { toast } = useApp();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Err>(null);
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    keep.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onNo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onNo]);
   const yes = async () => {
     setBusy(true);
     setErr(null);
     try {
-      await workflowMarketApi.remove(w.id);
-      toast(`${w.name} is removed. Its runs stay in the history.`);
+      if (w.market) await workflowMarketApi.remove(w.id);
+      else await api.deleteWorkflow(w.id);
+      toast(
+        `${w.name} is deleted. Flows that ran with it keep their history.` +
+          (w.market ? " You can install it again from the marketplace." : ""),
+      );
       onDone();
     } catch (e) {
       setErr(errorParts(e));
@@ -255,16 +292,46 @@ export function RemoveWorkflow({
     }
   };
   return (
-    <>
-      <Confirm
-        busy={busy}
-        yes="Remove"
-        text={`Remove ${w.name}? Its runs and their history stay. You can install it again from the marketplace.`}
-        onYes={() => void yes()}
-        onNo={onNo}
-      />
-      {err && <ErrorBox error={err} />}
-    </>
+    <div
+      className="fl-confirm-back"
+      onMouseDown={(e) => e.target === e.currentTarget && !busy && onNo()}
+    >
+      <div
+        className="fl-confirm panel"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="wf-del-h"
+        aria-describedby="wf-del-p"
+      >
+        <h2 id="wf-del-h">Delete {w.name}?</h2>
+        <p id="wf-del-p">
+          Flows that ran with it keep their history.
+          {w.market
+            ? ` It came from the marketplace (${w.market.name} ${w.market.version}): you can install it again there.`
+            : ""}
+        </p>
+        {err && <ErrorBox error={err} />}
+        <div className="row">
+          <button
+            className="btn warn"
+            type="button"
+            disabled={busy}
+            onClick={() => void yes()}
+          >
+            {busy ? "Deleting…" : "Delete"}
+          </button>
+          <button
+            ref={keep}
+            className="btn"
+            type="button"
+            disabled={busy}
+            onClick={onNo}
+          >
+            Keep it
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

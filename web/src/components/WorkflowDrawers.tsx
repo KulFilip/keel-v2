@@ -8,13 +8,16 @@ import { Async, Drawer, ErrorBox } from "./ui";
 
 type Err = { message: string; hint?: string } | null;
 
-export function NewWorkflowDrawer({ pid, templates, onClose, onCreated, onLibrary }: {
+export function NewWorkflowDrawer({ pid, templates, tpl: start, onClose, onCreated, onLibrary }: {
   pid: string; templates: Workflow[]; onClose: () => void; onCreated: (w: Workflow) => void; onLibrary: () => void;
+  /** "make a copy" of this keel template: it is picked, and the name says it is a copy */
+  tpl?: string;
 }) {
   const { toast } = useApp();
-  const [name, setName] = useState("");
+  const copyOf = start ? templates.find((t) => t.id === start) : undefined;
+  const [name, setName] = useState(copyOf ? `${copyOf.name} (copy)` : "");
   const [from, setFrom] = useState<"template" | "blank" | "library">("template");
-  const [tpl, setTpl] = useState(templates.find((t) => t.id === "fix")?.id ?? templates[0]?.id ?? "");
+  const [tpl, setTpl] = useState(copyOf?.id ?? templates.find((t) => t.id === "fix")?.id ?? templates[0]?.id ?? "");
   const [rules, setRules] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Err>(null);

@@ -252,7 +252,7 @@ describe("Build › Workflows: a workflow from the marketplace", () => {
       expect(calls("POST", "/api/projects/ludus-engine/workflows/market/pr-tidy/update")[0]?.body).toEqual({ version: "1.1.0", mode: "keep" }),
     );
     expect(await screen.findByText("PR tidy is updated to 1.1.0. Your changes stay in a copy.")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /PR tidy \(mine\)/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^PR tidy \(mine\)/ })).toBeInTheDocument();
   });
 
   it("the menu has Update and Remove; Replace replaces; Remove deletes it and keeps its runs", async () => {
@@ -275,12 +275,12 @@ describe("Build › Workflows: a workflow from the marketplace", () => {
 
     await user.click(within(top).getByRole("button", { name: "More for PR tidy" }));
     await user.click(within(top).getByRole("menuitem", { name: "Remove" }));
-    const confirm = within(top).getByRole("group", { name: "Confirm" });
-    expect(confirm).toHaveTextContent("Its runs and their history stay.");
-    await user.click(within(confirm).getByRole("button", { name: "Remove" }));
+    const confirm = screen.getByRole("alertdialog", { name: "Delete PR tidy?" });
+    expect(confirm).toHaveTextContent("Flows that ran with it keep their history.");
+    await user.click(within(confirm).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(calls("DELETE", "/api/workflows/pr-tidy")).toHaveLength(1));
     await waitFor(() => expect(db.workflows.some((w) => w.id === "pr-tidy")).toBe(false));
-    expect(await screen.findByText("PR tidy is removed. Its runs stay in the history.")).toBeInTheDocument();
+    expect(await screen.findByText(/^PR tidy is deleted\. Flows that ran with it keep their history\./)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("button", { name: /^PR tidy/ })).toBeNull());
   });
 });
@@ -300,7 +300,7 @@ describe("Build › Workflows: the others look as before", () => {
     expect(db.mw.searches).toHaveLength(0);
   });
 
-  it("the person's own workflow: only Publish to marketplace in its menu", async () => {
+  it("the person's own workflow: Publish to marketplace and Delete in its menu", async () => {
     const user = userEvent.setup();
     const mine: Workflow = { ...fx.fixWorkflow, id: "mine", name: "My flow", based_on: "keel/fix", source: "yours" };
     db.workflows.push(mine);
@@ -309,7 +309,7 @@ describe("Build › Workflows: the others look as before", () => {
     expect(await within(top).findByText("from keel/fix")).toBeInTheDocument();
     expect(within(top).queryByText(/from marketplace/)).toBeNull();
     await user.click(within(top).getByRole("button", { name: "More for My flow" }));
-    expect(within(top).getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["Publish to marketplace"]);
+    expect(within(top).getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["Publish to marketplace", "Delete"]);
   });
 });
 
