@@ -7,6 +7,10 @@ write with its diff. Tokens follow the agent's typical size, so budgets and esti
 Model id "fake-rogue" also writes a test file directly to disk, bypassing the tools, the way a CLI
 agent could. The diff guard must catch it; tests use this.
 
+Model id "fake-lab" (v0.17.4 real checks) acts like a real run that looped: the plan writes the build order only into
+the spec's Plan ("**ORDER**: AC-2, AC-1", no ORDER marker), the test author answers AMEND on AC-1, and the amendment
+explorer says it is not a spec defect and writes nothing.
+
 KEEL_FAKE_COMMAND: a shell command every writing agent runs through its tools first (run_command), so a test or a
 real check can watch keel's rules refuse it (v0.17.2 rule packs).
 """
@@ -72,6 +76,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     if agent == "explorer" and req.item:
         return None, "", f"MAP ({req.item.get('id')}): src/scores/__init__.py:1 is the pattern; tests under tests/. MAP-END", {}
     specs = layout.resolve(req.root).specs if req.root else "docs/specs"   # where the project's layout keeps specs
+    lab = req.model.get("model") == "fake-lab"
+    if lab and agent == "explorer" and req.step_name == "spec amendment":
+        return None, "", ("No amendment: this is not a spec defect. AC-1 needs what another criterion builds first; "
+                          "it is an order question.\nREOPEN: none\nCONTRACT: no"), {}
+    if lab and agent == "test-author" and ac_id == "AC-1":
+        return None, "", "There is no seam to attach a compiling test yet.\nAMEND: AC-1 needs the ranking table AC-2 builds", {}
     if agent == "explorer" and phase == "spec" and req.step_name == "spec amendment":
         path = f"{specs}/{slug(title)}.md"
         old = (Path(req.root) / path).read_text() if (Path(req.root) / path).is_file() else spec_text(title, req.acs or [])
@@ -84,6 +94,9 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         answer = f"Spec written with {len(acs)} acceptance criteria."
         if req.step_name.startswith("plan"):
             answer = "Plan written under the criteria.\nORDER: " + ", ".join(a["id"] for a in acs)
+            if lab:     # the order only in the spec's Plan, last criterion first
+                text = spec_text(title, acs).replace("## Plan\n", "## Plan\n\n**ORDER**: " + ", ".join(a["id"] for a in reversed(acs)) + "\n")
+                return path, text, "Plan written under the criteria.", {"acs": acs, "spec": path}
         return path, spec_text(title, acs), answer, {"acs": acs, "spec": path}
     if agent == "explorer":
         return None, "", "MAP: Python package with pytest tests under tests/. MAP-END", {}

@@ -181,3 +181,16 @@ def test_mcp_status_shows_the_order_and_the_real_choices_without_cutting_words()
     assert "word word …\nusage" in text and "wor …" not in text      # cut between words, with the sign it was cut
     nxt = mcp_server.next_action(Api(), "p")
     assert "choose one" in nxt and "stop:" in nxt
+
+
+def test_fake_lab_order_from_the_spec_then_the_loop_guard(client, repo):
+    """The real check's fake: ORDER only in the spec (AC-2 first), AC-1's AMEND, an explorer that changes nothing."""
+    tid = start(client, repo, models={"default": {"provider": "fake", "mode": "api", "model": "fake-lab"}})
+    s = to_loop(client, tid)
+    assert s["ac"] == "AC-2" and values(client, tid)["data"]["ac_order"]["from"] == "spec"
+    for _ in range(8):
+        if s["waiting"]["step"] == "amend_loop":
+            break
+        assert s["waiting"]["step"] != "amend_gate"
+        s = decide(client, tid)
+    assert s["waiting"]["step"] == "amend_loop" and s["ac"] == "AC-1"

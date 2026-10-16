@@ -21,7 +21,8 @@ from .. import config
 log = logging.getLogger(__name__)
 
 MODELS: dict[str, list[dict]] = {
-    "fake": [{"id": "fake", "label": "Fake (no network)"}, {"id": "fake-rogue", "label": "Fake that breaks keel rules (tests)"}],
+    "fake": [{"id": "fake", "label": "Fake (no network)"}, {"id": "fake-rogue", "label": "Fake that breaks keel rules (tests)"},
+             {"id": "fake-lab", "label": "Fake with an ORDER in the spec and an AMEND loop (real checks)"}],
     "claude": [{"id": "opus", "label": "Claude Opus"}, {"id": "sonnet", "label": "Claude Sonnet"}, {"id": "haiku", "label": "Claude Haiku"}],
     "codex": [{"id": "gpt-5.5", "label": "GPT-5.5"}, {"id": "gpt-5.5-mini", "label": "GPT-5.5 mini"}, {"id": "gpt-5-codex", "label": "GPT-5 Codex"}],
     "copilot": [{"id": "gpt-5", "label": "Copilot GPT-5"}, {"id": "claude-sonnet-4.5", "label": "Copilot Claude Sonnet 4.5"},
