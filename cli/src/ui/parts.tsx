@@ -1,7 +1,8 @@
 // keel TUI's pieces: the start screen, the transcript's blocks, the picker, the panels and the status line, in keel's
 // colours (the dashboard's palette: ./theme.tsx). Each is a plain function of its props; App.tsx holds the state.
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { panelText, type TuiPanel } from "../core/plugins";
 import { Box, Text } from "ink";
 import type { Job, JobStep } from "../core/sdk";
 import type { Block, Choice, Completion, PanelName } from "../core/commands";
@@ -225,6 +226,27 @@ function PanelBox({ title, children }: { title: React.ReactNode; children: React
       <Text bold>{title}</Text>
       {children}
     </Box>
+  );
+}
+
+/** A plugin's panel (contributes.tui.panel): its call, read again every `every` seconds while it is on screen. */
+export function PluginPanel({ plugin, panel, pid, width }: { plugin: string; panel: TuiPanel; pid: string; width: number }) {
+  const { paint } = useTheme();
+  const [text, setText] = useState("…");
+  useEffect(() => {
+    let alive = true;
+    const read = () => void panelText(panel, pid, paint, width - 4).then((t) => alive && setText(t));
+    read();
+    const id = setInterval(read, Math.max(5, panel.every) * 1000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [panel, pid, paint, width]);
+  return (
+    <PanelBox title={<>{panel.title}{` · ${plugin}`}</>}>
+      <Text wrap="truncate-end">{text}</Text>
+    </PanelBox>
   );
 }
 

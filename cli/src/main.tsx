@@ -16,6 +16,7 @@ import { colorDiagram } from "./core/colorize";
 import { applyLevel, makeTheme, PLAIN, type Paint } from "./core/theme";
 import { VERSION } from "./core/version";
 import { runScript } from "./script";
+import { Profiler } from "./core/profile";
 import { HELP, parseArgs } from "./main.args";
 
 // keel's colours: the dashboard's palette (NO_COLOR, KEEL_TUI_THEME, FORCE_COLOR); -c writes them only into a terminal
@@ -43,10 +44,17 @@ async function main(): Promise<number> {
   if (args === "help") return void process.stdout.write(HELP + "\n"), 0;
   if (args === "version") return void process.stdout.write(`keel-tui ${VERSION}\n`), 0;
   const oneShot = args.commands.length > 0;
-  const core = new KeelCore({ url: args.url, publicUrl: args.publicUrl, project: args.project, cwd: args.cwd, noLive: oneShot });
-  if (args.script) return runScript(core, args.script, { out: args.out, width: args.width, ansi: args.ansi, theme });
+  // --profile: the start, each call, the live events, each frame and the memory; a summary and a file on exit
+  const profiler = args.profile ? new Profiler() : undefined;
+  const done = (code: number) => {
+    if (profiler) process.stderr.write(profiler.summary(profiler.save()) + "\n");
+    return code;
+  };
+  const core = new KeelCore({ url: args.url, publicUrl: args.publicUrl, project: args.project, cwd: args.cwd, noLive: oneShot, profiler });
+  if (args.script) return done(await runScript(core, args.script, { out: args.out, width: args.width, ansi: args.ansi, theme, profiler }));
   if (oneShot) {
     const s = await core.start();
+    profiler?.ready();
     if (!s.health) {
       process.stderr.write(`keel is not reachable at ${s.url}: ${s.error}\n`);
       return 1;
@@ -66,15 +74,15 @@ async function main(): Promise<number> {
       if (r.blocks.some((b) => b.kind === "error")) code = 1;
     }
     core.stop();
-    return code;
+    return done(code);
   }
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     process.stderr.write("keel-tui needs a terminal. Without one: keel-tui -c \"/status\" or keel-tui --script <file>.\n");
     return 2;
   }
-  const app = render(<App core={core} theme={theme} />, { exitOnCtrlC: false });
+  const app = render(<App core={core} theme={theme} profiler={profiler} />, { exitOnCtrlC: false });
   await app.waitUntilExit();
-  return 0;
+  return done(0);
 }
 
 main().then((code) => process.exit(code ?? 0), (e) => {

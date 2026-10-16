@@ -450,6 +450,35 @@ const IMPLS: Impl[] = [
     },
   },
   {
+    name: "changes",
+    run: async (ctx) => text(fmt.changesText(await ctx.core.changes(), P(ctx)) + `\n\n${P(ctx).accent("/keep")} [path|all] · ${P(ctx).accent("/undo")} [path|all]`),
+  },
+  {
+    name: "keep",
+    complete: (ctx, a) => changedPaths(ctx).filter((p) => p.startsWith(a)),
+    run: async (ctx, a) => {
+      const arg = a.trim();
+      const all = !arg || arg === "all";
+      const r = await ctx.core.keep(all ? undefined : [arg]);
+      if (!r.ok) {
+        const f = r as { step: string; error: string; command?: string; output?: string };
+        return fail(`${f.error}${f.command ? `\n${f.command}` : ""}${f.output ? `\n${f.output.split("\n").slice(-12).join("\n")}` : ""}`);
+      }
+      void refreshChanged(ctx);
+      return ok(`kept ${r.files.length} file(s): ${r.message} (${r.sha.slice(0, 7)})${r.checks ? ` · checks: ${r.checks}` : ""}`);
+    },
+  },
+  {
+    name: "undo",
+    complete: (ctx, a) => changedPaths(ctx).filter((p) => p.startsWith(a)),
+    run: async (ctx, a) => {
+      const arg = a.trim();
+      const left = await ctx.core.undo(!arg || arg === "all" ? undefined : arg);
+      changedCache = { sid: ctx.core.snapshot.chat.session?.id ?? "", paths: left.map((c) => c.path) };
+      return ok(`put back ${!arg || arg === "all" ? "every file KeelBot changed" : arg}` + (left.length ? ` · still changed: ${left.map((c) => c.path).join(", ")}` : ""));
+    },
+  },
+  {
     name: "panel",
     complete: (_c, a) => PANELS.filter((x) => x.startsWith(a)),
     run: (_c, a) => {
@@ -473,6 +502,29 @@ for (const i of IMPLS) if (!TABLE.commands.some((c) => c.name === i.name)) throw
 
 export const COMMANDS_BY_NAME: Record<string, Command> = Object.fromEntries(COMMANDS.flatMap((c) => [[c.name, c], ...(c.aliases ?? []).map((a) => [a, c])]));
 
+// ---- what keel's plugins add (core/plugins.ts): looked up after keel's own commands ----
+let pluginCmds: Command[] = [];
+export function setPluginCommands(cmds: Command[]) {
+  pluginCmds = cmds.filter((c) => !COMMANDS_BY_NAME[c.name]);
+}
+export const pluginCommandList = () => pluginCmds;
+/** keel's command, or a plugin's */
+export const lookup = (name: string): Command | null => COMMANDS_BY_NAME[name] ?? pluginCmds.find((c) => c.name === name) ?? null;
+
+// the paths KeelBot changed, for /keep and /undo's Tab (read when a Fix or Side turn ends, and after each)
+let changedCache: { sid: string; paths: string[] } = { sid: "", paths: [] };
+export function setChanged(sid: string, paths: string[]) {
+  changedCache = { sid, paths };
+}
+const changedPaths = (ctx: Ctx) => (changedCache.sid === (ctx.core.snapshot.chat.session?.id ?? "") ? ["all", ...changedCache.paths] : ["all"]);
+async function refreshChanged(ctx: Ctx) {
+  try {
+    changedCache = { sid: ctx.core.snapshot.chat.session?.id ?? "", paths: (await ctx.core.changes()).map((c) => c.path) };
+  } catch {
+    /* no chat */
+  }
+}
+
 export function dashboardUrl(ctx: Ctx, view: string): string {
   const base = ctx.core.snapshot.publicUrl;
   const pid = ctx.core.pid;
@@ -484,12 +536,12 @@ export function dashboardUrl(ctx: Ctx, view: string): string {
 
 /** /help: the commands by group (the shared table's groups), names in the accent colour, arguments in a second one. */
 export function helpText(c: Paint = PLAIN): string {
-  const w = Math.max(...COMMANDS.map((x) => (x.name + (x.args ? " " + x.args : "")).length));
+  const w = Math.max(...[...COMMANDS, ...pluginCmds].map((x) => (x.name + (x.args ? " " + x.args : "")).length));
   const cut = Math.min(w, 34);
   const groups = TABLE.groups ?? [...new Set(COMMANDS.map((x) => x.group ?? ""))];
   const out = [`Type a question for ${c.accent("KeelBot")}, or a command:`];
   for (const g of groups) {
-    const cmds = COMMANDS.filter((x) => (x.group ?? "") === g);
+    const cmds = [...COMMANDS, ...pluginCmds].filter((x) => (x.group ?? "") === g);
     if (!cmds.length) continue;
     out.push("", c.bold(c.gate(g)));
     for (const x of cmds) {
@@ -514,7 +566,7 @@ export function parse(input: string): Parsed {
   if (!t.startsWith("/") || t.startsWith("//")) return { kind: "chat", text: t.startsWith("//") ? t.slice(1) : t };
   const m = /^\/([\w?-]*)\s*([\s\S]*)$/.exec(t)!;
   const name = m[1].toLowerCase();
-  return { kind: "command", name, args: m[2] ?? "", command: COMMANDS_BY_NAME[name] ?? null };
+  return { kind: "command", name, args: m[2] ?? "", command: lookup(name) };
 }
 
 export type Completion = { value: string; label: string; hint?: string };
@@ -526,13 +578,13 @@ export function complete(ctx: Ctx, input: string, extra: { name: string; descrip
   if (!m) return [];
   const [, name, space, arg] = m;
   if (space === undefined) {
-    const mine = COMMANDS.filter((c) => c.name.startsWith(name.toLowerCase()))
+    const mine = [...COMMANDS, ...pluginCmds].filter((c) => c.name.startsWith(name.toLowerCase()))
       .map((c) => ({ value: `/${c.name}${c.args ? " " : ""}`, label: `/${c.name}${c.args ? " " + c.args : ""}`, hint: c.summary }));
     const bot = extra.filter((c) => c.name.startsWith(name) && !COMMANDS_BY_NAME[c.name])
       .map((c) => ({ value: `/${c.name} `, label: `/${c.name}`, hint: `KeelBot · ${c.description}` }));
     return [...mine, ...bot];
   }
-  const cmd = COMMANDS_BY_NAME[name.toLowerCase()];
+  const cmd = lookup(name.toLowerCase());
   if (!cmd?.complete) return [];
   return cmd.complete(ctx, arg ?? "").map((v) => ({ value: `/${cmd.name} ${v}`, label: v }));
 }

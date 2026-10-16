@@ -182,6 +182,28 @@
       "group": "KeelBot"
     },
     {
+      "name": "changes",
+      "summary": "the files KeelBot changed in this chat (Fix, Side), with their diffs",
+      "writes": false,
+      "group": "KeelBot"
+    },
+    {
+      "name": "keep",
+      "args": "[path|all]",
+      "summary": "keep KeelBot's change: the checks run, then keel commits it (one file, or all)",
+      "writes": true,
+      "complete": "changes",
+      "group": "KeelBot"
+    },
+    {
+      "name": "undo",
+      "args": "[path|all]",
+      "summary": "put KeelBot's change back (one file, or all)",
+      "writes": true,
+      "complete": "changes",
+      "group": "KeelBot"
+    },
+    {
       "name": "panel",
       "args": "<flow|agents|inbox|off>",
       "summary": "show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle them)",
@@ -252,6 +274,7 @@
     "Gates",
     "Look",
     "KeelBot",
-    "Screen"
+    "Screen",
+    "Plugins"
   ]
 }

@@ -13,9 +13,11 @@ options
   --project <id>       the project (KEEL_PROJECT; default: the one this folder is in, else the first)
   --cwd <dir>          the folder that picks the project (KEEL_TUI_CWD, default this one)
   --width <n>          columns for -c and --script (default 100)
+  --profile            time the start, each api call, the live events and each frame, and the memory; on exit a summary
+                       and a JSON file (KEEL_TUI_PROFILE_DIR, else ~/.local/state/keel2/tui-profiles): nothing leaves this computer
   --version, --help`;
 
-export type Args = { url: string; publicUrl?: string; project?: string; cwd: string; commands: string[]; script?: string; out?: string; width: number; ansi?: boolean };
+export type Args = { url: string; publicUrl?: string; project?: string; cwd: string; commands: string[]; script?: string; out?: string; width: number; ansi?: boolean; profile?: boolean };
 
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): Args | "help" | "version" {
   const a: Args = { url: env.KEEL_URL || "http://localhost:8080", publicUrl: env.KEEL_PUBLIC_URL || undefined, project: env.KEEL_PROJECT || undefined,
@@ -37,6 +39,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     else if (k === "--script") a.script = v();
     else if (k === "--out") a.out = v();
     else if (k === "--ansi") a.ansi = true;
+    else if (k === "--profile") a.profile = true;
     else if (k === "--width") a.width = Math.max(60, Number(v()) || 100);
     else throw new Error(`unknown option ${k} (keel-tui --help)`);
   }

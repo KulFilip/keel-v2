@@ -29,6 +29,8 @@ export function stubKeel() {
       waiting, usage: { tokens_in: 12000, tokens_out: 3400, cost_usd: 0.42, premium_requests: 0, cap_tokens: 500000 }, checkpoints: 2, updated_at: AT,
     } as Record<string, unknown>,
     session: null as null | Record<string, unknown>,
+    changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
+    plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
     messages: [] as Record<string, unknown>[],
   };
   const project = { id: "demo", name: "demo", root: "/work/demo", branch: "keel/health", flow: "feature", phase: "spec", acs: [0, 2], waiting: 1, running: 1 };
@@ -71,6 +73,26 @@ export function stubKeel() {
       case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
       case "GET /api/projects/demo/helper/sessions": return [200, state.session ? [state.session] : []];
       case "POST /api/threads/t1/stop": state.thread = { ...state.thread, status: "stopped", waiting: undefined }; return [200, state.thread];
+      // round 3: @mentions, Fix mode's changes, Keep and Undo, questions, plugins
+      case "GET /api/projects/demo/repo/files": return [200, { files: ["src/app.ts", "src/score.ts", "README.md", "web/src/App.tsx"], truncated: false }];
+      case "GET /api/projects/demo/graph/search": return [200, { available: true, results: query.get("q") === "Sco"
+        ? [{ id: "class:ScoreService", name: "ScoreService", kind: "class", file: "src/score.ts", line: 3, unit: "score", group: "" }] : [] }];
+      case "GET /api/projects/demo/helper/sessions/s1/changes": return [200, state.changes];
+      case "POST /api/projects/demo/helper/sessions/s1/undo":
+        state.changes = body?.path ? state.changes.filter((c) => c.path !== body.path) : [];
+        return [200, state.changes];
+      case "POST /api/projects/demo/helper/sessions/s1/done": {
+        const files = (body?.paths as string[] | undefined) ?? state.changes.map((c) => c.path);
+        state.changes = state.changes.filter((c) => !files.includes(c.path));
+        return [200, { ok: true, sha: "abc1234def", message: "feat(AC-1): the helper", files, checks: "pytest -q" }];
+      }
+      case "POST /api/approvals/q9/decide": return [200, { id: "q9", decision: body.decision }];
+      case "GET /api/tui/plugins": return [200, state.plugins];
+      case "GET /api/projects/demo/git/status": return [200, { branch: "keel/health", base: "main", ahead: 2, behind: 0,
+        changes: [{ path: "src/app.ts", status: "M" }, { path: "notes.md", status: "??" }] }];
+      case "GET /api/projects/demo/git/log": return [200, [{ sha: "abc1234", author: "Ada", date: "2026-10-16", subject: "feat: health" }]];
+      case "GET /api/projects/demo/git/diff": return [200, { diff: `--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n keep();\n${query.get("path") ? "" : ""}` }];
+      case "POST /api/projects/demo/git/push": return [200, { pushed: true }];
       default: return [404, { error: `stub: no ${key}` }];
     }
   };

@@ -9,6 +9,11 @@ import { kb } from "../../../plugins/keelbot/web/keelbotApi";
 import { connect, setCommand, viaHeaders } from "./transport";
 import { subscribe, type LiveState, type SseMessage, type Subscription } from "./sse";
 import { notice } from "./notices";
+import { Mentions } from "./mentions";
+import { loadPlugins, type TuiPlugins } from "./plugins";
+import { post } from "./sdk";
+import type { HelperChange, HelperDone, HelperMention } from "./sdk";
+import type { Profiler } from "./profile";
 
 export type ChatState = {
   session: HelperSession | null;
@@ -41,6 +46,8 @@ export type Snapshot = {
   lastStep: Record<string, JobStep | undefined>;
   /** what each running agent is writing now (agent.delta), by call id */
   liveText: Record<string, string>;
+  /** what keel's plugins add to keel TUI here (contributes.tui) */
+  plugins: TuiPlugins;
   live: LiveState;
   chat: ChatState;
 };
@@ -50,6 +57,8 @@ export type CoreEvents = {
   notice: (text: string, ev: EngineEvent) => void;
   /** a KeelBot turn ended: its answer (markdown) or why not */
   answer: (m: { text: string; ok: boolean; message?: HelperMessage }) => void;
+  /** KeelBot asks the person's OK for a command (helper.permission): once, always (this chat) or deny */
+  question: (q: { id: string; command: string; title: string; path?: string | null }) => void;
 };
 
 export type CoreOptions = {
@@ -61,13 +70,17 @@ export type CoreOptions = {
   fetch?: typeof fetch;
   /** no SSE stream (tests, one-shot commands) */
   noLive?: boolean;
+  /** --profile: times the calls, the live events and the start */
+  profiler?: Profiler;
 };
 
 const STEP_KEEP = 200;
 
 export class KeelCore {
   snapshot: Snapshot;
-  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set() };
+  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set() };
+  /** @mentions: the project's files, the code graph's symbols, the flow's criteria */
+  readonly mentions = new Mentions(() => this.pid, () => (this.snapshot.flow?.thread?.acs ?? []).map((a) => ({ id: a.id, title: a.title })));
   private sub: Subscription | null = null;
   private subPid: string | null | undefined = undefined;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,11 +88,11 @@ export class KeelCore {
   private readonly f: typeof fetch;
 
   constructor(private opts: CoreOptions) {
-    this.f = opts.fetch ?? fetch;
+    this.f = opts.profiler ? opts.profiler.wrap(opts.fetch ?? fetch) : opts.fetch ?? fetch;
     const url = connect(opts.url, this.f);
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
-      visited: [], inbox: [], running: [], lastStep: {}, liveText: {}, live: opts.noLive ? "closed" : "connecting",
+      visited: [], inbox: [], running: [], lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
       chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], stream: "", startedAt: null, wrote: 0 },
     };
   }
@@ -116,9 +129,14 @@ export class KeelCore {
       return this.snapshot;
     }
     await this.loadProjects();
-    await this.refresh();
+    await Promise.all([this.refresh(), this.loadPlugins()]);
     this.follow();
     return this.snapshot;
+  }
+
+  /** What keel's plugins add to keel TUI for this project. */
+  async loadPlugins() {
+    this.set({ plugins: await loadPlugins(this.pid) });
   }
 
   stop() {
@@ -149,7 +167,8 @@ export class KeelCore {
     const p = projects.find((x) => x.id === name || x.name === name);
     if (!p) return false;
     this.set({ project: p, flow: null, visited: [], chat: { ...this.snapshot.chat, session: null, callId: null, steps: [], busy: false } });
-    await this.refresh();
+    this.mentions.reset();
+    await Promise.all([this.refresh(), this.loadPlugins()]);
     this.follow();
     return true;
   }
@@ -214,6 +233,7 @@ export class KeelCore {
       return;
     }
     if (!ev || typeof ev.type !== "string") return;
+    this.opts.profiler?.event(ev.at);
     const chat = this.snapshot.chat;
     // live text: KeelBot's answer, or an agent's, as it is written (never a notice, never a refresh)
     if ((ev.type === "helper.delta" || ev.type === "agent.delta") && ev.call_id) {
@@ -228,7 +248,7 @@ export class KeelCore {
     if ((ev.type === "helper.step" || ev.type === "agent.step") && ev.call_id) {
       const d = ev.data as Partial<JobStep>;
       const step: JobStep = { n: Number(d.n) || 0, at: ev.at, kind: String(d.kind ?? "text"), text: String(d.text ?? ""),
-        tool: d.tool, server: d.server, path: d.path, ms: d.ms, ok: d.ok };
+        tool: d.tool, server: d.server, path: d.path, ms: d.ms, ok: d.ok, ...(d.diff ? { diff: d.diff } : {}) };
       if (ev.type === "agent.step") this.set({ lastStep: { ...this.snapshot.lastStep, [ev.call_id]: step } });
       if (ev.type === "agent.step" && (step.kind === "text" || step.kind === "answer") && ev.call_id in this.snapshot.liveText) {
         const { [ev.call_id]: _done, ...rest } = this.snapshot.liveText;
@@ -245,6 +265,11 @@ export class KeelCore {
     if (ev.type === "helper.finished" && chat.session && ev.thread_id === chat.session.id && chat.busy) {
       void this.finishTurn();
       return;
+    }
+    // KeelBot asks the person's OK for a command: a yes/no in the TUI (the dashboard shows the same card)
+    if (ev.type === "helper.permission" && (!this.pid || ev.project_id === this.pid)) {
+      const q = ev.data as { id?: string; command?: string; title?: string; path?: string | null };
+      if (q.id) this.emit("question", { id: q.id, command: String(q.command ?? ""), title: String(q.title ?? "KeelBot asks to run a command"), path: q.path });
     }
     if (ev.type.startsWith("helper.") && ev.type !== "helper.permission") return;
     if (ev.type === "tui.call") return;                     // the TUI's own writes: the person saw them already
@@ -288,26 +313,53 @@ export class KeelCore {
     this.setChat({ session: null, callId: null, steps: [], busy: false });
   }
 
-  /** Ask KeelBot: the answer streams as `chat.steps`, and arrives with the "answer" event. */
-  async send(text: string): Promise<HelperSession> {
+  /** Ask KeelBot: the answer streams as `chat.steps`, and arrives with the "answer" event. `mentions`: what the person
+   *  pointed at with @ (files, symbols, criteria). */
+  async send(text: string, mentions: HelperMention[] = []): Promise<HelperSession> {
     const pid = this.pid;
     if (!pid) throw new Error("no project: /project picks one");
     setCommand("KeelBot");                                   // the timeline: "via keel TUI · KeelBot"
     try {
-      return await this.sendTurn(pid, text);
+      return await this.sendTurn(pid, text, mentions);
     } finally {
       setCommand("");
     }
   }
 
-  private async sendTurn(pid: string, text: string): Promise<HelperSession> {
+  // ---- Fix and Side: the files KeelBot changed, Keep (the checks, then keel's commit), Undo ----
+
+  private chatOf(): { pid: string; sid: string } {
+    const pid = this.pid;
+    const s = this.snapshot.chat.session;
+    if (!pid || !s) throw new Error("No KeelBot chat yet: /mode fix, then ask it to change something.");
+    return { pid, sid: s.id };
+  }
+
+  async changes(): Promise<HelperChange[]> {
+    const { pid, sid } = this.chatOf();
+    return kb.changes(pid, sid);
+  }
+
+  /** Keep one file, some, or (no paths) all: the dashboard's Done, with keel 0.18.3's `paths`. */
+  async keep(paths?: string[], message = ""): Promise<HelperDone> {
+    const { pid, sid } = this.chatOf();
+    return post<HelperDone>(`/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/done`,
+      { ...(message.trim() ? { message: message.trim() } : {}), ...(paths?.length ? { paths } : {}) });
+  }
+
+  async undo(path?: string): Promise<HelperChange[]> {
+    const { pid, sid } = this.chatOf();
+    return kb.undo(pid, sid, path);
+  }
+
+  private async sendTurn(pid: string, text: string, mentions: HelperMention[] = []): Promise<HelperSession> {
     let s = this.snapshot.chat.session;
     if (!s) {
       const { mode, model } = this.snapshot.chat;
       s = await kb.create(pid, { mode, ...(model ? { model } : {}), title: text.slice(0, 60) });
       this.setChat({ session: s });
     }
-    const t = await kb.turn(pid, s.id, { text, ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}) });
+    const t = await kb.turn(pid, s.id, { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}) });
     this.setChat({ busy: true, callId: t.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
     // a missed helper.finished never leaves the chat "working": look every 3 s
     if (this.pollTimer) clearInterval(this.pollTimer);

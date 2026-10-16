@@ -2,7 +2,7 @@
 // notices) above a live area: KeelBot's streaming answer, a panel, the picker or the prompt, and the status line.
 // The state is here; what commands do is in ../core (UI-free).
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { complete, follow, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, Snapshot } from "../core/keel";
@@ -11,7 +11,13 @@ import { applyLevel, makeTheme, type Theme } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
-import { BlockView, Completions, Panel, Picker, StartScreen, StatusLine } from "./parts";
+import { BlockView, Completions, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
+import { isPaste, Pastes, typingMention } from "../core/mentions";
+import { pluginCommands } from "../core/plugins";
+import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
+import { renderDiff } from "../core/diff";
+import { inboxApi } from "../../../web/src/inboxApi";
+import type { Profiler } from "../core/profile";
 
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block };
 
@@ -21,16 +27,25 @@ export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boole
 type Pending = { cmd: string; pick?: Pick; ask?: Ask };
 
 const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbox" };
+/** keel's panels, and a plugin's ("plugin:git") */
+type PanelId = PanelName | `plugin:${string}`;
+type Question = { id: string; command: string; title: string; path?: string | null };
 
 /** keel TUI in keel's colours (the theme: the dashboard's palette, NO_COLOR, KEEL_TUI_THEME). */
-export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme }) {
+export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler }) {
   const th = useMemo(() => theme ?? makeTheme(), [theme]);
   applyLevel(th);
   return <ThemeProvider theme={th}><Main {...props} /></ThemeProvider>;
 }
 
-function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Probe; width?: number }) {
+function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; probe?: Probe; width?: number; profiler?: Profiler }) {
   const t = useTheme();
+  // --profile: this frame's render and commit time (from here to the layout effect below)
+  const frameStart = useRef(0);
+  frameStart.current = performance.now();
+  useLayoutEffect(() => {
+    profiler?.frame(performance.now() - frameStart.current);
+  });
   const { exit } = useApp();
   const { stdout } = useStdout();
   // a terminal may say 0 columns at first (docker exec -it sets the size a moment after the start): count it as 100
@@ -55,7 +70,10 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
   const [pending, setPending] = useState<Pending | null>(null);
   const [pickIdx, setPickIdx] = useState(0);
   const [pickFilter, setPickFilter] = useState("");
-  const [panels, setPanels] = useState<PanelName[]>([]);
+  const [panels, setPanels] = useState<PanelId[]>([]);
+  const pastes = useRef(new Pastes());
+  const questions = useRef<Question[]>([]);
+  const [qTick, setQTick] = useState(0);
   const [running, setRunning] = useState<string | null>(null);
   const [comps, setComps] = useState<Completion[]>([]);
   const [compIdx, setCompIdx] = useState(0);
@@ -80,6 +98,12 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
     const offs = [
       core.on("change", (s) => setSnap(s)),
       core.on("notice", (t) => push({ kind: "notice", text: t })),
+      // KeelBot asks the person's OK for a command: an amber yes/no, one after the other
+      core.on("question", (q) => {
+        if (questions.current.some((x) => x.id === q.id)) return;
+        questions.current.push(q);
+        setQTick((n) => n + 1);
+      }),
       core.on("answer", (a) => {
         const d = a.message?.data;
         const { paint, width: w } = look.current;
@@ -93,6 +117,17 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
           { kind: "text", text: fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint) });
         turnStart.current = null;
         setAnswers((n) => n + 1);
+        // Fix and Side: the files KeelBot changed, with their diffs, and how to keep or undo them
+        const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
+        if (mode === "fix" || mode === "side") {
+          void core.changes().then((ch) => {
+            setChanged(core.snapshot.chat.session?.id ?? "", ch.map((c) => c.path));
+            if (!ch.length) return;
+            const p = look.current.paint;
+            push({ kind: "text", text: `${p.bold(p.warn(`${ch.length} file(s) changed`))} ${p.dim("· not kept yet")}\n${fmt.changesText(ch, p, 16)}\n`
+              + `${p.accent("/keep")} [path|all] ${p.dim("runs the checks and commits")} · ${p.accent("/undo")} [path|all] · ${p.accent("/changes")}` });
+          }).catch(() => undefined);
+        }
       }),
     ];
     let alive = true;
@@ -100,6 +135,7 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
       if (!alive) return;
       setItems([{ id: nextId.current++, kind: "start", s }]);
       setStarted(true);
+      profiler?.ready();
       void core.keelbotCommands().then((c) => alive && setBotCmds(c));
     });
     return () => {
@@ -109,11 +145,52 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
     };
   }, [core, push]);
 
+  // the next question KeelBot asks, when nothing else is being asked
+  useEffect(() => {
+    if (pending || !questions.current.length) return;
+    const q = questions.current.shift()!;
+    setPending({ cmd: "KeelBot", pick: { title: `KeelBot asks to run: ${q.command}${q.path ? ` (${q.path})` : ""}?`,
+      choices: [{ label: "Allow once", value: "once" }, { label: "Allow in this chat", value: "always", hint: "this command, for the rest of the chat" },
+        { label: "Deny", value: "deny" }],
+      then: async (v) => {
+        await inboxApi.decide(q.id, v);
+        return { blocks: [{ kind: v === "deny" ? "dim" : "ok", text: v === "deny" ? `  refused: ${q.command}` : `allowed ${v === "always" ? "in this chat" : "once"}: ${q.command}` }] };
+      } } });
+    setPickIdx(0);
+    setPickFilter("");
+  }, [pending, qTick]);
+
+  // what keel's plugins add: their commands
+  useEffect(() => {
+    const taken = new Set(COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+    setPluginCommands(pluginCommands(snap.plugins.plugins, taken));
+  }, [snap.plugins]);
+
+  // @mentions: the project's files, the code graph's symbols and the flow's criteria, as the person types
+  useEffect(() => {
+    const tm = line.startsWith("/") ? null : typingMention(line.slice(0, cursor));
+    if (!tm) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      void core.mentions.complete(tm.query).then((items) => {
+        if (!alive) return;
+        const before = line.slice(0, tm.start);
+        const after = line.slice(cursor);
+        setComps(items.map((i) => ({ value: `${before}@${i.value} ${after}`.replace(/ +$/, " "), label: i.label, hint: i.hint })));
+        setCompIdx(0);
+      });
+    }, 60);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [core, line, cursor]);
+
   if (probe) Object.assign(probe, { started, busy: running !== null, pick: !!pending?.pick, ask: !!pending?.ask, chatBusy: snap.chat.busy, answers });
 
   const handle = useCallback(async (reply: Reply, cmd: string) => {
     push(...reply.blocks);
-    if (reply.panel) setPanels((ps) => (reply.panel === "off" ? [] : ps.includes(reply.panel as PanelName) ? ps : [...ps, reply.panel as PanelName]));
+    if (reply.panel) setPanels((ps) => (reply.panel === "off" ? [] : ps.includes(reply.panel as PanelId) ? ps : [...ps, reply.panel as PanelId]));
     if (reply.clear) {
       stdout?.write("\x1b[2J\x1b[3J\x1b[H");
       setItems([]);
@@ -127,7 +204,13 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
     else setPending(null);
     if (reply.chat) {
       try {
-        await core.send(reply.chat);
+        // the pastes behind their placeholders go whole; what the person pointed at with @ goes as mentions
+        const { text: full, images } = pastes.current.expand(reply.chat);
+        const mentions = core.mentions.mentionsIn(reply.chat);
+        if (images.length) push({ kind: "dim", text: `  KeelBot takes no images yet: it gets the path of ${images.map((i) => i.name).join(", ")}` });
+        if (mentions.length) push({ kind: "dim", text: `  with ${mentions.map((m) => `@${m.value}`).join(" ")}` });
+        pastes.current.clear();
+        await core.send(full, mentions);
       } catch (e) {
         push({ kind: "error", text: e instanceof Error ? e.message : String(e) });
       }
@@ -212,6 +295,12 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
       }
       return;
     }
+    const pluginPanel = key.ctrl ? snap.plugins.plugins.find((x) => x.panel?.key === input) : undefined;
+    if (pluginPanel) {
+      const id = `plugin:${pluginPanel.name}` as PanelId;
+      setPanels((ps) => (ps.includes(id) ? ps.filter((x) => x !== id) : [...ps, id]));
+      return;
+    }
     if (key.ctrl && CTRL_PANEL[input]) {
       const p = CTRL_PANEL[input];
       setPanels((ps) => (ps.includes(p) ? ps.filter((x) => x !== p) : [...ps, p]));
@@ -272,7 +361,8 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
     if (key.rightArrow) return setCursor((c) => Math.min(line.length, c + 1));
     if (key.ctrl && input === "u") return setText("");
     if (key.ctrl || key.meta || !input) return;
-    const add = input.replace(/\r\n?|\n/g, " ");
+    // a paste: many lines or a long text behind "[pasted N lines #1]", an image path as "[image x.png #2]"
+    const add = isPaste(input) ? pastes.current.add(input).insert : input.replace(/\r\n?|\n/g, " ");
     setText(line.slice(0, cursor) + add + line.slice(cursor), cursor + add.length);
   });
 
@@ -283,6 +373,12 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
   // what KeelBot is writing now (helper.delta), else its last whole message of this turn
   const writing = chat.stream || lastText?.text || "";
   const verb = useMemo(() => pickVerb(), [chat.callId]);
+  // Fix and Side: each change as KeelBot makes it (the last two), as a diff with line numbers
+  const edits = steps.filter((x) => (x.kind === "write" || x.kind === "edit") && x.diff).slice(-2);
+  const diffLines = (d: string) => {
+    const all = renderDiff(d.replace(/\n$/, ""), t.paint).filter((l) => !/(---|\+\+\+) /.test(l.replace(/\x1b\[[0-9;]*m/g, "").trimStart()));
+    return all.length > 12 ? [...all.slice(0, 12), t.paint.faint(`… ${all.length - 12} more lines`)] : all;
+  };
   const flowWaits = snap.flow?.thread?.status === "waiting";
   const border = pending?.ask || line ? t.color("accent") : flowWaits ? t.color("gate") : t.color("border");
   const agentsHere = panels.includes("agents") ? [] : snap.running.slice(0, 3);
@@ -297,6 +393,11 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
         {chat.busy && (
           <Box flexDirection="column" marginTop={1}>
             {tools.length > 0 && <Text>{fmt.toolLines(steps, width, t.paint, 4).join("\n")}</Text>}
+            {edits.map((e) => (
+              <Box key={e.n} flexDirection="column" marginLeft={4}>
+                {diffLines(e.diff ?? "").map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
+              </Box>
+            ))}
             {writing && <Box marginLeft={2}><Text>{renderMarkdown(writing.slice(-3000), t.paint)}</Text></Box>}
             <Thinking verb={verb} since={chat.startedAt} tokens={Math.round(chat.wrote / 4) || undefined} hint="esc to interrupt" />
           </Box>
@@ -306,7 +407,11 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
             tokens={fmt.tokensOf(j) || undefined} hint={[j.step, j.ac].filter(Boolean).join(" ")} />
         ))}
         {running && <Text color={t.color("dim")}>{`… ${running}`}</Text>}
-        {panels.map((p) => <Panel key={p} name={p} s={snap} width={width} />)}
+        {panels.map((p) => {
+          if (!p.startsWith("plugin:")) return <Panel key={p} name={p as PanelName} s={snap} width={width} />;
+          const v = snap.plugins.plugins.find((x) => `plugin:${x.name}` === p);
+          return v?.panel && snap.project ? <PluginPanel key={p} plugin={v.title} panel={v.panel} pid={snap.project.id} width={width} /> : null;
+        })}
         {pending?.pick ? (
           <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} />
         ) : (

@@ -1,9 +1,11 @@
 // keel's answers as text: the same words as keel2 mcp's tools (engine keel_engine/mcp_server.py, mcp_more.py), from
 // the web's typed data. Pure functions, no UI: keel TUI prints them, another front end (an xal plugin, OpenTUI) can too.
 
+import type { HelperChange } from "./sdk";
 import type { BudgetNow, Checkpoint, FlowView, Health, Job, JobStep, Project, RunRow, ThreadState, Workflow } from "./sdk";
 import type { InboxItem } from "../../../web/src/inboxApi";
 import { PLAIN, type Paint } from "./theme";
+import { renderDiff } from "./diff";
 
 export const n = (x: unknown) => {
   const v = Number(x ?? 0);
@@ -325,3 +327,19 @@ export function turnFooter(outcome: "done" | "failed" | "stopped", ms: number, e
     : [c.warn("!"), `Interrupted after ${s}`];
   return `  ${glyph} ${c.dim(words + (extra ? ` · ${extra}` : ""))}`;
 }
+
+/** KeelBot's changed files: each with its status and +/- lines, then its diff with line numbers (at most `lines`). */
+export function changesText(changes: HelperChange[], c: Paint = PLAIN, lines = 24): string {
+  if (!changes.length) return "KeelBot changed no file in this chat (or every change is kept or undone).";
+  const out: string[] = [];
+  for (const ch of changes) {
+    const mark = ch.status === "added" ? c.ok("A") : ch.status === "deleted" ? c.bad("D") : c.warn("M");
+    out.push(`${mark} ${c.bold(ch.path)}  ${c.ok(`+${ch.added}`)} ${c.bad(`-${ch.removed}`)}`);
+    const body = renderDiff(ch.diff.replace(/\n$/, ""), c).filter((_, i, all) => !/^(\s*\x1b\[[0-9;]*m)?\s*(---|\+\+\+) /.test(stripStyle(all[i])));
+    out.push(...body.slice(0, lines).map((l) => "  " + l));
+    if (body.length > lines) out.push(c.faint(`  … ${body.length - lines} more lines`));
+  }
+  return out.join("\n");
+}
+
+const stripStyle = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");

@@ -4,7 +4,8 @@
 //   @snap <name>             save what the terminal shows now (ANSI removed), from where the capture before ends,
 //                            as <out>/<name>.txt (or print it); with --ansi also <out>/<name>.ansi, colours kept
 //   @wait started|idle|waiting|answer|pick|ask|running|streaming [seconds]   wait for the app or the flow (default 120 s)
-//   @key tab|enter|esc|up|down|ctrl+f|ctrl+a|ctrl+b        press a key
+//   @key tab|enter|esc|up|down|ctrl+f|ctrl+a|ctrl+b|ctrl+g  press a key
+//   @type <text>             type without Enter;  @paste <n>   paste n lines at once
 //   @sleep <ms>              wait
 //   # …                      a comment
 //
@@ -18,10 +19,11 @@ import { render } from "ink";
 import { App, type Probe } from "./ui/App";
 import type { KeelCore } from "./core/keel";
 import type { Theme } from "./core/theme";
+import type { Profiler } from "./core/profile";
 
 export const KEYS: Record<string, string> = {
   tab: "\t", enter: "\r", esc: "\x1b", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", backspace: "\x7f",
-  "ctrl+f": "\x06", "ctrl+a": "\x01", "ctrl+b": "\x02", "ctrl+u": "\x15", "ctrl+c": "\x03",
+  "ctrl+f": "\x06", "ctrl+a": "\x01", "ctrl+b": "\x02", "ctrl+g": "\x07", "ctrl+u": "\x15", "ctrl+c": "\x03",
 };
 
 export const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[=>]/g, "");
@@ -75,12 +77,12 @@ async function until(cond: () => boolean, seconds: number, what: string, tick?: 
 }
 
 export async function runScript(core: KeelCore, file: string, opts: { out?: string; width: number; log?: (s: string) => void; ansi?: boolean;
-  theme?: Theme }): Promise<number> {
+  theme?: Theme; profiler?: Profiler }): Promise<number> {
   const stdin = new FakeStdin();
   const stdout = new FakeStdout(opts.width);
   const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
   const log = opts.log ?? ((s: string) => process.stderr.write(s + "\n"));
-  const app = render(React.createElement(App, { core, probe, width: opts.width, theme: opts.theme }), {
+  const app = render(React.createElement(App, { core, probe, width: opts.width, theme: opts.theme, profiler: opts.profiler }), {
     stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, stderr: stdout as unknown as NodeJS.WriteStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
@@ -116,7 +118,16 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
       try {
         if (cmd === "@snap") snap(a1 || `snap-${stdout.frames}`);
         else if (cmd === "@sleep") await sleep(Number(a1) || 500);
-        else if (cmd === "@key") {
+        else if (cmd === "@paste") {
+          // a paste of N lines of code, as a terminal delivers it (one chunk); the app keeps it behind a placeholder
+          const n = Number(a1) || 20;
+          stdin.write(Array.from({ length: n }, (_, i) => `    value_${i} = compute(${i})  # line ${i + 1}`).join("\n") + "\n");
+          await sleep(200);
+        } else if (cmd === "@type") {
+          // text typed without Enter (an @mention, then Tab)
+          stdin.write(line.slice("@type ".length));
+          await sleep(500);
+        } else if (cmd === "@key") {
           stdin.write(KEYS[a1] ?? a1);
           await sleep(200);
         } else if (cmd === "@wait") {
