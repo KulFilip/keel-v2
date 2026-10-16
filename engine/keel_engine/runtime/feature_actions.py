@@ -245,12 +245,28 @@ def spec_sync(a):
               "- review: an adversarial read first (vague, untestable or overlapping criteria), shown here",
               "- order: the criteria are right but the plan under them is not: the plan is written again",
               "- reject: the spec misses the intent: the interview starts again with what was missing"]
+    contract = contract_needed(a, text)
+    if contract == "no":
+        lines.insert(1, "Contract: the plan says the contract delta is none, so the contract step and its gate are skipped.")
     upd = {"acs": acs, "show": "\n".join(lines),
-           "data": {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": source}}}
+           "data": {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": source}, "contract": contract}}
     if spec:
         upd["spec"] = spec
     return _ok(f"spec {spec or 'not found'}: {len(acs)} criteria" + (f", order {', '.join(x['id'] for x in acs)} (from {said})"
                                                                        if order else ""), update=upd)
+
+
+NO_CONTRACT = re.compile(r"(?im)^[^\n]*\bcontract(?:\s+delta|\s+change[s]?)?\b\W{0,6}[:\-\u2013\u2014]\W{0,4}"
+                         r"(?:none|no change[s]?|n/?a|nothing)\b")
+
+
+def contract_needed(a, text: str | None) -> str:
+    """v0.17.4 "no" when the plan says there is no contract delta (its CONTRACT-DELTA: none line, or "Contract delta: none" in
+    the spec's Plan); then the contract step and its gate are skipped. Anything else: "yes"."""
+    said = str(((a.state.get("markers") or {}).get("plan") or {}).get("CONTRACT-DELTA") or "").strip().lower()
+    if said:
+        return "no" if said.startswith(("no", "none")) else "yes"
+    return "no" if NO_CONTRACT.search(str(text or "")) else "yes"
 
 
 def _frontmatter(text: str, values: dict) -> str:
@@ -579,6 +595,8 @@ def spec_amend_commit(a):
     contract = amend.get("from") == "contract" or said.startswith("yes")
     data = {**a.data, "amendments": list(a.data.get("amendments") or []) + [{**amend, "reopen": reopen, "commit": r.update.get("git_head")}],
             "amend_history": _history(a, ac=amend.get("ac"), changed=bool(r.update.get("git_head")))}
+    if contract:
+        data["contract"] = "yes"          # v0.17.4 the contract steps run again even when the plan said none
     new = [x["id"] for x in acs if x["id"] not in {y["id"] for y in a.acs}]
     note = f"amendment committed: {r.note}" + (f"; new criteria {', '.join(new)}" if new else "") + \
            (f"; reopened {', '.join(reopen)}" if reopen else "") + ("; the contract is next" if contract else "")
@@ -595,6 +613,10 @@ def show_diff(a):
         return _ok("Not a git repository: no diff to show.", update={"show": "Not a git repository: no diff to show."})
     mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
     dirty = {f: xy for f, xy in git.dirty(a.root).items() if f not in mine}
+    if not dirty and a.phase == "contract":
+        # v0.17.4 the contract agent wrote nothing: there is no delta to approve, so its gate is not asked
+        return _ok("no contract change", update={"show": "The contract agent changed nothing.",
+                                                  "data": {**a.data, "contract": "no"}})
     if dirty:
         tracked = [f for f, xy in dirty.items() if "?" not in xy]
         out = [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]

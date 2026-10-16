@@ -1712,6 +1712,8 @@ class Compiler:
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes and not no_criteria:
             detail = f"{detail}\n\nStatic checks on the last changed files:\n" + "\n".join(f"- {n}" for n in lint_notes)
+        if step.menus and not no_criteria:
+            detail = f"{detail}\n\n{self._folded_menus(i)}"
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
         routes = isinstance(step.choices, dict) and not no_criteria
         if routes:
@@ -1818,12 +1820,62 @@ class Compiler:
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
 
+    def _menu_steps(self, after: int) -> list[int]:
+        return [j for j, s in enumerate(self.wf.steps) if j > after and s.skip_menu]
+
+    def _folded_menus(self, i: int) -> str:
+        """The skip menus after gate i, for its own text (a gate with menus: true)."""
+        out = ["Optional steps (decided here with this approval, so the flow does not stop again to ask):"]
+        for j in self._menu_steps(i):
+            out += ["", f"— {self.wf.steps[j].name} —", ship_mod.skip_menu_detail(self.wf.steps, j)]
+        return "\n".join(out)
+
+    def _folded_answer(self, i: int, state: FlowState) -> tuple[str, dict] | None:
+        """(gate id, payload) when an earlier gate with menus: true was approved and so answers the menu at step i."""
+        for j in range(i - 1, -1, -1):
+            g = self.wf.steps[j]
+            if g.kind == "gate" and g.menus and i in self._menu_steps(j):
+                ans = (state.get("data") or {}).get(f"{g.id}_answer") or {}
+                first = next(iter(g.choices)) if isinstance(g.choices, dict) else "approve"
+                if ans and ans.get("choice") == first:
+                    return g.id, dict(ans.get("payload") or {})
+        return None
+
     def _skip_menu(self, i: int, step: Step, state: FlowState, gates: dict):
         """keel v1 ship's opening question: which skippable steps after this gate run this time. Every skip needs a
         reason; skips land in data.ship_skipped (the PR body and the final review show them) and the gate log."""
         units = ship_mod.skip_units(self.wf.steps, i)
         detail = ship_mod.skip_menu_detail(self.wf.steps, i)
         title, extra_all = step.name, {}
+        folded = self._folded_answer(i, state)
+        if folded:
+            # v0.17.4 decided at an earlier gate (the spec gate): its skips for this menu, no second stop. A name no menu
+            # knows, or a skip without a reason, still asks here.
+            gid, payload = folded
+            mine = {u["name"] for u in units}
+            known = {u["name"] for j in self._menu_steps(-1) for u in ship_mod.skip_units(self.wf.steps, j)}
+            raw = payload.get("skip") or {}
+            raw = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in raw if isinstance(x, dict)} \
+                if isinstance(raw, list) else raw
+            unknown = [n for n in raw if n not in known] if isinstance(raw, dict) else ["skip"]
+            skips, lenses, problem = ship_mod.parse_skips(
+                {**payload, "skip": {k: v for k, v in raw.items() if k in mine} if isinstance(raw, dict) else raw}, units)
+            if unknown:
+                problem = f"{', '.join(unknown)} cannot be skipped (skippable: {', '.join(sorted(known)) or 'none'})"
+            if not problem:
+                data = dict(state.get("data") or {})
+                names = {s["step"] for s in skips}
+                data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
+                if lenses:
+                    data["lenses_chosen"] = lenses
+                gates["log"].append(f"gate {step.id} approve: chosen at {gid}")
+                for sk in skips:
+                    gates["log"].append(f"gate {step.id} skip {sk['step']} ({sk['band']}): {sk['reason']}")
+                self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve",
+                                                                  "why": f"chosen at {gid}", "skipped": skips})
+                note = ("skipped: " + ", ".join(f"{s['step']} ({s['reason']})" for s in skips)) if skips else "every step runs"
+                return {"gates": gates, "data": data, "note": f"{note} (chosen at {gid})"[:300]}, self.nav.after(i)
+            title = f"{step.name}: {problem}"
         while True:
             answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
                                               "options": ["approve"], "labels": {"approve": "Run these steps"}}, gate="skip-menu")

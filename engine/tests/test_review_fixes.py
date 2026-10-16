@@ -336,3 +336,58 @@ def test_claude_max_turns_is_marked():
     out = json.dumps({"type": "result", "subtype": "error_max_turns", "num_turns": 30, "usage": {"input_tokens": 5}})
     err = cli.classify_failure("claude", out, "", 1)
     assert err.max_turns and err.usage["tokens_in"] == 5 and "continued its session" in err.hint
+
+
+# ------------------------------------------------------------------ 5b. fewer approve-only stops
+
+IMPORTANT = {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "run_mode": "important"}
+
+
+def stops(client, tid, s):
+    seen = []
+    for _ in range(40):
+        if s["status"] != "waiting":
+            return s, seen
+        seen.append(s["waiting"]["step"])
+        s = decide(client, tid)
+    raise AssertionError(seen)
+
+
+def plan_says(monkeypatch, line):
+    def plan(req, real):
+        path, content, said, data = real(req)
+        return path, content, f"{said}\n{line}", data
+    return by_step(monkeypatch, {"plan under the criteria": plan})
+
+
+def test_no_contract_delta_no_contract_step_and_four_stops_in_important(client, repo, monkeypatch):
+    seen = plan_says(monkeypatch, "CONTRACT-DELTA: none")
+    tid = start(client, repo, settings=IMPORTANT)
+    s = wait(client, tid)
+    assert "the contract step and its gate are skipped" in s["waiting"]["detail"]
+    s, pauses = stops(client, tid, s)
+    assert s["status"] == "done"
+    assert pauses == ["spec_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
+    assert not any(r.agent == "contract-author" for r in seen)
+    assert any(x.startswith("gate contract_gate approve: not asked, contract: no") for x in s["gate_log"])
+
+
+def test_a_contract_agent_that_writes_nothing_is_not_asked_about(client, repo, monkeypatch):
+    by_step(monkeypatch, {"contract": lambda req, real: (None, "", "No contract change needed.", {})})
+    tid = start(client, repo)
+    s = wait(client, tid)
+    s = decide(client, tid)
+    assert s["waiting"]["step"] == "ac_gate"                                  # straight on to the loop
+    assert any(x.startswith("gate contract_gate approve: not asked") for x in s["gate_log"])
+
+
+def test_contract_needed_reads_the_plan():
+    from keel_engine.runtime.feature_actions import contract_needed
+
+    class A:
+        state = {}
+    assert contract_needed(A, "## Plan\n- **Contract delta**: none\n") == "no"
+    assert contract_needed(A, "## Plan\nContract delta: GET /ranks gains `tie`\n") == "yes"
+    assert contract_needed(A, "") == "yes"
+    A.state = {"markers": {"plan": {"CONTRACT-DELTA": "none"}}}
+    assert contract_needed(A, "Contract delta: GET /ranks gains `tie`") == "no"

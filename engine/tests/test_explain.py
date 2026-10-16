@@ -90,9 +90,10 @@ def test_commit_contract_in_words(client, repo):
     assert any("Unstages your own edits" in s for s in act["steps"])
     assert act["commit"]["type"] == "contract" and act["commit"]["message"] == "contract: «the flow's title»"
     assert "contract commit" in act["for_this_step"]
-    passes, fails = out["next"]
+    passes, fails, skipped = out["next"]
     assert passes["to"] == "red" and "first criterion" in passes["text"]
     assert fails["to"] == "contract"
+    assert skipped["label"] == "skipped" and "data.contract is yes" in skipped["text"]     # v0.17.4 no contract delta
 
 
 def test_a_chained_code_step_and_its_loop_end(client, repo):
