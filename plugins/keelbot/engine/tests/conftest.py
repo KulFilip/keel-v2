@@ -84,9 +84,12 @@ def to_loop(client, tid, s=None, upto="contract_gate"):
     """The feature flow up to its criteria loop: approve the spec gate, the optional-phases menu and the contract gate
     (stop after `upto`). Returns the state at the next pause."""
     s = s or wait(client, tid)
+    assert s.get("waiting", {}).get("step") == "spec_gate", s
     for step in ("spec_gate", "options", "contract_gate"):
-        assert s.get("waiting", {}).get("step") == step, s
-        s = decide(client, tid)
+        # v0.18.1 (as engine/tests/conftest.py): the options menu is asked at the spec gate, the contract gate only
+        # when there is a contract delta, so a gate that no longer stops is passed over
+        if s.get("waiting", {}).get("step") == step:
+            s = decide(client, tid)
         if step == upto:
             break
     return s
