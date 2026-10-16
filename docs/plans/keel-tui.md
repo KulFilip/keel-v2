@@ -188,3 +188,14 @@ trusted-publisher rules (03-security.md) and is not part of this round.
    writes are recorded as "via keel TUI", not "via MCP".
 4. Which KeelBot mode by default? **Ask** (read-only), like the web panel; `/mode fix` when a flow waits.
 5. Mermaid output of the renderer: **later** (`format: "mermaid"` is reserved).
+
+## 0.18.4: KeelBot's flow buttons, /agent, clicks
+
+| What | How | Files |
+|------|-----|-------|
+| KeelBot's flow buttons | ```` ```keel-flow {"do": "approve" \| "reject" \| "stop" \| "mode", …} ```` : decide a gate, stop flows, a run mode; a card in the dashboard (`FlowCard`), a yes / no in keel TUI (which shows `keel-start` too); nothing happens until the person presses | `plugins/keelbot/engine/keel_plugin_keelbot/keelbot.py`, `plugins/keelbot/web/Actions.tsx`, `cli/src/core/buttons.ts` |
+| `/run`, `/stop all`, `/stop <n>` | the dashboard's run-mode switch (`POST /threads/{id}/mode`); stop many flows after one yes; `/flows` is numbered | `cli/src/core/commands.ts` |
+| `/agent` | the agents at work (flow jobs) and the person's own (KeelBot side chats, own worktree); `/agent <n>` follows one live (its steps every 2 s and the text it writes), `/agent new <task>` starts one; a notice when it is finished | `cli/src/core/keel.ts`, `ui/parts.tsx` `JobPanel` |
+| Clicks | the full screen with the mouse: an agent line follows it (Ctrl+O too); the flow panel's waiting line and the status line's waiting ask what to do (approve, send back, answer, stop, read it first); an inbox item answers it. Boxes register with `Clickable`; a click finds the smallest box under it from Ink's layout | `cli/src/ui/click.tsx` |
+| Reading | `/status` puts what waits first, one line per criterion; an empty line above each answer; wrapped marked lines hang under their text; the spinner is one braille character |  `cli/src/core/format.ts`, `core/lines.ts`, `ui/thinking.tsx` |
+
