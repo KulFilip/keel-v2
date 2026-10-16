@@ -18,6 +18,8 @@
 #                               take added folders off the list (keel keeps their projects' history)
 #   keel2 folders               the main project folder and the added ones
 #   keel2 status                is keel running, for which project, on which port, which edition (core or full)
+#   keel2 tui                   keel in the terminal (keel TUI): KeelBot, slash commands, the live flow, agents and the
+#                               inbox. Plain `keel2` opens it too, in a terminal while keel runs (KEEL_TUI_DEFAULT=0: help)
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
@@ -1051,6 +1053,42 @@ fi
 
 cmd_help() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 
+# keel2 tui [keel-tui options]: keel's terminal app (cli/, docs/plans/keel-tui.md) for the running keel. With Docker it
+# runs inside keel's container (Node is there, nothing to install); natively, the release's cli/keel-tui.mjs with this
+# computer's Node. The folder you are in picks the project. KEEL_TUI_JS=<keel-tui.mjs> runs that file with this
+# computer's Node instead (a checkout's cli/dist/keel-tui.mjs).
+cmd_tui() {
+  local port public
+  if native_mode && ! docker_keel_running; then
+    native_running || die "keel is not running." "Start it first: keel2 start --native /path/to/project"
+    port="$(native_port)"; public="${KEEL_PUBLIC_URL:-http://localhost:$port}"
+    local js="${KEEL_TUI_JS:-$ND/current/cli/keel-tui.mjs}"
+    [ -f "$js" ] || die "This keel has no terminal app (keel TUI) yet." "Get a newer release: keel2 update"
+    command -v node >/dev/null 2>&1 || die "keel TUI needs Node 20 or newer on this computer." "Install it: $(native_hint node)"
+    exec node "$js" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
+  fi
+  need_docker
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  port="$(running_port)"; public="${KEEL_PUBLIC_URL:-http://localhost:$port}"
+  if [ -n "${KEEL_TUI_JS:-}" ]; then
+    command -v node >/dev/null 2>&1 || die "KEEL_TUI_JS needs Node 20 or newer on this computer."
+    exec node "$KEEL_TUI_JS" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
+  fi
+  # this folder as keel's container sees it (the project is at /workspace; with --docker and added folders, at the same path)
+  local project here="" f
+  project="$(label project)"
+  if [ "$(label docker)" = 1 ]; then here="$PWD"
+  else case "$PWD/" in "$project"/*) here="/workspace${PWD#"$project"}" ;; esac; fi
+  if [ -z "$here" ]; then
+    while IFS= read -r f; do case "$PWD/" in "$f"/*) here="$PWD" ;; esac; done < <(container_folders)
+  fi
+  docker exec "$NAME" test -f /opt/keel-v2/cli/keel-tui.mjs 2>/dev/null \
+    || die "This keel's image has no terminal app (keel TUI) yet." "Get a newer image: keel2 update"
+  local tty=(-i); if interactive; then tty=(-it); fi
+  exec docker exec "${tty[@]}" -e TERM="${TERM:-xterm-256color}" -e COLORTERM="${COLORTERM:-}" -e KEEL_PUBLIC_URL="$public" \
+    -e KEEL_TUI_CWD="$here" "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@"
+}
+
 # ---------------------------------------------------------------- main
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
@@ -1083,7 +1121,10 @@ case "$cmd" in
                     need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
   uninstall)        cmd_uninstall "$@" ;;
   version|-v|--version) if native_mode; then echo "keel2 $KEEL2_VERSION · native ($ND)"; else echo "keel2 $KEEL2_VERSION · image $IMAGE"; fi ;;
-  ""|help|-h|--help) cmd_help ;;
+  tui)              cmd_tui "$@" ;;
+  "")               # in a terminal, with keel running: keel TUI; otherwise the help, as before
+                    if interactive && [ "${KEEL_TUI_DEFAULT:-1}" != 0 ] && keel_running; then cmd_tui; else cmd_help; fi ;;
+  help|-h|--help)   cmd_help ;;
   *)
     if [ -d "$cmd" ]; then cmd_start "$cmd" "$@"          # keel2 <folder>   (older form)
     else die "Unknown command: $cmd" "See: keel2 help"; fi ;;

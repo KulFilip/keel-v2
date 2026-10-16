@@ -34,6 +34,17 @@ RUN rm -rf /src/product/web/dist /src/plugins/*/web/dist && mkdir -p /src/produc
     && if [ "$EDITION" != "core" ] && [ "$PLUGINS" != "lock" ]; then npm run build:plugins; fi \
     && if [ "$EDITION" = "product" ] && [ "$PLUGINS" != "lock" ]; then npm run build:product; fi
 
+# ---------- keel TUI (cli/): keel in the terminal, one file (dist/keel-tui.mjs) that needs only Node ----------
+# It uses the web's own typed client (no copy): the api, inbox and rules clients and KeelBot's, bundled in.
+FROM node:20-bookworm-slim AS cli
+WORKDIR /src/cli
+COPY cli/package*.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/src/api.ts web/src/inboxApi.ts web/src/rulesApi.ts /src/web/src/
+COPY plugins/keelbot/web/keelbotApi.ts /src/plugins/keelbot/web/
+COPY cli/ ./
+RUN npm run build
+
 # ---------- build the api (with the web app inside) ----------
 FROM eclipse-temurin:21-jdk AS api
 ARG EDITION=full
@@ -157,6 +168,8 @@ RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --froze
 COPY --from=api /app.jar /opt/api/app.jar
 # keel v2's own agents, skills, stacks, packs and templates (content/README.md)
 COPY content /opt/keel-v2/content
+# keel TUI: keel2 tui runs it here with docker exec (keel-tui on the PATH too)
+COPY --from=cli /src/cli/dist/keel-tui.mjs /opt/keel-v2/cli/keel-tui.mjs
 # The edition only from here on (docs/plugins/19-step6-report.md): every layer above is the same for full, product and
 # core, so the images share them (one download when a person changes edition, one build cache).
 ARG EDITION=full
@@ -167,7 +180,7 @@ ENV KEEL_EDITION=${EDITION}
 COPY --from=plugins /out /opt/keel-v2/plugins
 ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
-RUN chmod +x /usr/local/bin/keel-start \
+RUN chmod +x /usr/local/bin/keel-start /opt/keel-v2/cli/keel-tui.mjs && ln -s /opt/keel-v2/cli/keel-tui.mjs /usr/local/bin/keel-tui \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \
     && useradd -m -u 1000 keel && mkdir -p /data /workspace && chown keel:keel /data /workspace
 

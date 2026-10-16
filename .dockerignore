@@ -3,6 +3,7 @@
 .demo-workspace
 **/node_modules
 web/dist
+cli/dist
 api/build
 api/.gradle
 engine/.venv
