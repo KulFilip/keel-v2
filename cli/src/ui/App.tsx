@@ -144,7 +144,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
         const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
         push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
-          { kind: "text", text: fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint) });
+          // two empty lines after "✓ Finished …", so the answer stands apart from what comes next
+          { kind: "text", text: fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint) + "\n\n" });
         turnStart.current = null;
         if (buttons.length) void askButtons(buttons);
         setAnswers((n) => n + 1);
@@ -667,7 +668,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         ) : (
           <Box flexDirection="column">
             {pending?.ask && <Text color={t.color("accent")} bold>{pending.ask.prompt}<Text color={t.color("dim")} bold={false}> (Esc cancels)</Text></Text>}
-            <Box borderStyle="round" borderColor={border} paddingX={1}>
+            <Box borderStyle="round" borderColor={border} paddingX={1} marginTop={1}>
               <Text>
                 <Text color={t.color("accent")} bold>{"› "}</Text>
                 {line ? <>{inputText(line.slice(0, cursor))}<Text inverse>{line[cursor] ?? " "}</Text>{inputText(line.slice(cursor + 1))}</>
