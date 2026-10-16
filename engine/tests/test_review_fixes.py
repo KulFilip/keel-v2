@@ -1,4 +1,4 @@
-"""v0.17.4 review fixes: a test command that cannot start, the stall ladder, BLOCKED, failed-call usage, fewer stops,
+"""v0.17.5 review fixes: a test command that cannot start, the stall ladder, BLOCKED, failed-call usage, fewer stops,
 resume after a turn limit."""
 
 import asyncio

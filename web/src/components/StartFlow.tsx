@@ -32,7 +32,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [limits, setLimits] = useState<Limit[]>([]);
   const [capsLeft, setCapsLeft] = useState<CapsLeft | null>(null);
   const [cap, setCap] = useState("");
-  // v0.17.4 the cap from Settings, while the person has not typed another one: it follows the estimate (with headroom)
+  // v0.17.5 the cap from Settings, while the person has not typed another one: it follows the estimate (with headroom)
   const [capDefault, setCapDefault] = useState("");
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [runMode, setRunMode] = useState<RunMode>("manual");
@@ -93,7 +93,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     };
   }, [p, wid, acs]);
 
-  // v0.17.4 a cap below the estimate stops the flow half way (a real run: 1.49M tokens against a 500K default): the cap
+  // v0.17.5 a cap below the estimate stops the flow half way (a real run: 1.49M tokens against a 500K default): the cap
   // follows the estimate's high end plus 30% while it is still the Settings default; a cap the person typed stays.
   const follow = est ? capForEstimate(capDefault, est.high) : null;
   useEffect(() => {
@@ -287,7 +287,7 @@ export function claudeUse(l: Limit): string {
   return `${Math.round(pct)}% used${pct > 60 ? " — may pause" : ""}`;
 }
 
-/** v0.17.4 the cap a flow should get from the estimate: its high end plus 30%, when that is above the Settings cap
+/** v0.17.5 the cap a flow should get from the estimate: its high end plus 30%, when that is above the Settings cap
  *  (null when the Settings cap is enough, or there is none). */
 export function capForEstimate(settingsCap: string, high: number): { cap: string; note: string } | null {
   const base = parseTokens(settingsCap);

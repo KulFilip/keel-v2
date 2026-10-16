@@ -261,7 +261,7 @@ NO_CONTRACT = re.compile(r"(?im)^[^\n]*\bcontract(?:\s+delta|\s+change[s]?)?\b\W
 
 
 def contract_needed(a, text: str | None) -> str:
-    """v0.17.4 "no" when the plan says there is no contract delta (its CONTRACT-DELTA: none line, or "Contract delta: none" in
+    """v0.17.5 "no" when the plan says there is no contract delta (its CONTRACT-DELTA: none line, or "Contract delta: none" in
     the spec's Plan); then the contract step and its gate are skipped. Anything else: "yes"."""
     said = str(((a.state.get("markers") or {}).get("plan") or {}).get("CONTRACT-DELTA") or "").strip().lower()
     if said:
@@ -596,7 +596,7 @@ def spec_amend_commit(a):
     data = {**a.data, "amendments": list(a.data.get("amendments") or []) + [{**amend, "reopen": reopen, "commit": r.update.get("git_head")}],
             "amend_history": _history(a, ac=amend.get("ac"), changed=bool(r.update.get("git_head")))}
     if contract:
-        data["contract"] = "yes"          # v0.17.4 the contract steps run again even when the plan said none
+        data["contract"] = "yes"          # v0.17.5 the contract steps run again even when the plan said none
     new = [x["id"] for x in acs if x["id"] not in {y["id"] for y in a.acs}]
     note = f"amendment committed: {r.note}" + (f"; new criteria {', '.join(new)}" if new else "") + \
            (f"; reopened {', '.join(reopen)}" if reopen else "") + ("; the contract is next" if contract else "")
@@ -614,7 +614,7 @@ def show_diff(a):
     mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
     dirty = {f: xy for f, xy in git.dirty(a.root).items() if f not in mine}
     if not dirty and a.phase == "contract":
-        # v0.17.4 the contract agent wrote nothing: there is no delta to approve, so its gate is not asked
+        # v0.17.5 the contract agent wrote nothing: there is no delta to approve, so its gate is not asked
         return _ok("no contract change", update={"show": "The contract agent changed nothing.",
                                                   "data": {**a.data, "contract": "no"}})
     if dirty:

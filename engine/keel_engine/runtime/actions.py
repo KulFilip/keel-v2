@@ -161,7 +161,7 @@ async def _tests(a: ActionInput, whole_suite: bool = False) -> tuple[str | None,
 
 
 def cannot_run(a: ActionInput, cmd: str, out: str, what: str) -> ActionResult:
-    """v0.17.4 a test command that could not start (wrong folder, a missing ./mvnw) is not a test result: no "red
+    """v0.17.5 a test command that could not start (wrong folder, a missing ./mvnw) is not a test result: no "red
     confirmed", no retry of the agent (it cannot fix keel's command). The person chooses: recheck, skip, stop."""
     label = (a.ac or {}).get("id") or "the suite"
     detail = f"$ {cmd}\n{tail(out, 2000)}"

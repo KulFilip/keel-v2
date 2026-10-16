@@ -93,7 +93,7 @@ def test_commit_contract_in_words(client, repo):
     passes, fails, skipped = out["next"]
     assert passes["to"] == "red" and "first criterion" in passes["text"]
     assert fails["to"] == "contract"
-    assert skipped["label"] == "skipped" and "data.contract is yes" in skipped["text"]     # v0.17.4 no contract delta
+    assert skipped["label"] == "skipped" and "data.contract is yes" in skipped["text"]     # v0.17.5 no contract delta
 
 
 def test_a_chained_code_step_and_its_loop_end(client, repo):

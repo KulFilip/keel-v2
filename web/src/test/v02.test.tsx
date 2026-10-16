@@ -184,7 +184,7 @@ describe("Flow v0.2", () => {
     await user.click(await screen.findByRole("button", { name: "Start a flow" }));
     const dlg = await screen.findByRole("dialog", { name: "Start a flow" });
     await user.type(within(dlg).getByLabelText("What to build"), "Rank next to top 10");
-    // v0.17.4 the Settings cap (500k) is below the estimate: the field follows the estimate and says so
+    // v0.17.5 the Settings cap (500k) is below the estimate: the field follows the estimate and says so
     expect(await within(dlg).findByTestId("sf-cap-est")).toHaveTextContent("from 500k (Settings)");
     const cap = within(dlg).getByLabelText("Cap for this flow");
     expect(cap).not.toHaveValue("500k");

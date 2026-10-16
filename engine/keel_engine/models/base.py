@@ -67,4 +67,4 @@ class ModelError(Exception):
         super().__init__(message)
         self.hint = hint
         self.usage = usage or {}   # what a failed run still used: tokens_in, tokens_out, tokens_cached, cost_usd
-        self.max_turns = False     # v0.17.4 it ran out of turns: its session can be continued
+        self.max_turns = False     # v0.17.5 it ran out of turns: its session can be continued

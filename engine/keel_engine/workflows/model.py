@@ -93,7 +93,7 @@ class Step(BaseModel):
     # payload.choice picks one (default: the first), "end" finishes the flow, the answer is kept in
     # data["<gate id>_answer"] ({choice, why, payload}).
     skip_menu: bool | None = None
-    # v0.17.4 menus: true = this gate also asks the skip menus after it (their text is added to its own; its approval's
+    # v0.17.5 menus: true = this gate also asks the skip menus after it (their text is added to its own; its approval's
     # payload.skip decides them, so they do not stop the flow again). A skip that is wrong there still asks at the menu.
     menus: bool | None = None
     report: Literal["verdicts"] | None = None

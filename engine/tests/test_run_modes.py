@@ -154,7 +154,7 @@ def test_auto_runs_the_feature_flow_to_done_and_logs_every_gate(client, repo):
                  "ac AC-2 approve", "gate integration_gate approve", "gate ship_final_review approve",
                  "gate ship_pr_gate approve"):
         assert any(line.startswith(gate) for line in auto), (gate, s["gate_log"])
-    # v0.17.4 the menus are answered by the spec gate's approval
+    # v0.17.5 the menus are answered by the spec gate's approval
     assert "gate options approve: chosen at spec_gate" in s["gate_log"] and "gate ship_plan approve: chosen at spec_gate" in s["gate_log"]
     assert not client.bus.of(tid, "gate.waiting")
     decided = client.bus.of(tid, "gate.decided")
@@ -175,7 +175,7 @@ def test_important_stops_at_the_big_gates_and_approves_clean_ac_gates(client, re
     tid = start(client, repo, settings=mode_settings("important"))
     s, seen = gates_until_done(client, tid, wait(client, tid))
     assert s["status"] == "done", s
-    # v0.17.4 7 stops before (options and ship_plan were their own stops), 5 now
+    # v0.17.5 7 stops before (options and ship_plan were their own stops), 5 now
     assert seen == ["spec_gate", "contract_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
     assert "ac AC-1 approve: auto-approved (mode important)" in s["gate_log"]
     assert "ac AC-2 approve: auto-approved (mode important)" in s["gate_log"]

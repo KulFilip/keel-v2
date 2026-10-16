@@ -63,7 +63,7 @@ def spec_with(monkeypatch, *extra):
 
 
 SPEC = "docs/specs/player-ranks.md"
-# v0.17.4 ship's menu is answered at the spec gate (menus: true)
+# v0.17.5 ship's menu is answered at the spec gate (menus: true)
 SKIPS = {"release": "r", "cover": "c", "deps": "d", "reviewers": "r", "spec_walk": "s"}
 SHIP = {"spec_gate": {"choice": "approve", "skip": SKIPS}}
 
@@ -87,7 +87,7 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert f"Spec: {SPEC}" in w["detail"] and "- AC-1 [API]" in w["detail"] and "Spec check" in w["detail"]
     assert "## Plan" not in w["detail"] and "Plan (files per criterion" in w["detail"]
     assert log(repo)[0] == "chore: demo project", "nothing is committed before the gate"
-    # v0.17.4 the optional-step menus are part of the spec gate: no separate stop
+    # v0.17.5 the optional-step menus are part of the spec gate: no separate stop
     for unit in ("integration_gate", "security", "e2e", "smoke", "release"):
         assert f"  - {unit}" in w["detail"], unit
     assert "— which optional phases run —" in w["detail"] and "decided here with this approval" in w["detail"]

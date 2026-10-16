@@ -82,7 +82,7 @@ CONTINUE = ("You used all your turns before you finished. Continue the same task
 
 
 async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, memory) -> AgentResult:
-    """v0.17.4 an agent that runs out of turns continues its own session once with "continue" (claude --resume, codex
+    """v0.17.5 an agent that runs out of turns continues its own session once with "continue" (claude --resume, codex
     exec resume) instead of starting fresh; the tokens of the cut-off run are added to the result. `memory` returns the
     step's memory row (its session) or None."""
     try:
@@ -338,7 +338,7 @@ class Compiler:
             if not nxt:
                 return Command(update={cursor: None}, goto=self.nav.after_loop(lp))
             if lp.per_ac:
-                # v0.17.4 a criterion waits for the ones it depends on (the plan's depends_on): the first unfinished one
+                # v0.17.5 a criterion waits for the ones it depends on (the plan's depends_on): the first unfinished one
                 # whose dependencies are finished; when none is (a cycle, or one that is not in the list), list order.
                 open_ids = {a["id"] for a in items if a.get("status") not in finished}
                 nxt = next((a for a in items if a.get("status") not in finished
@@ -1419,7 +1419,7 @@ class Compiler:
                 "choices": choices, "retries_after": attempts}
 
     def _choice_answer(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
-        """v0.17.4 a check that asks with real choices (a command that cannot run, a stuck criterion), never decided by a
+        """v0.17.5 a check that asks with real choices (a command that cannot run, a stuck criterion), never decided by a
         run mode: recheck (this check again), retry (the agent again, with the note), skip (the criterion to the end of the
         list, on with the next), edit (an amendment of the spec, with the note), stop. Plain approve = the first choice."""
         q = r.ask
@@ -1529,7 +1529,7 @@ class Compiler:
         return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
 
     async def _ladder(self, count: int, i: int, step: Step, state: FlowState, target: str, feedback: str) -> tuple[str, dict, str]:
-        """v0.17.4 the stall ladder of a criterion's check, one rung per failed round:
+        """v0.17.5 the stall ladder of a criterion's check, one rung per failed round:
         1. the same agent again, with the concrete failure (no extra call);
         2. an investigator (read only) reads the failure and the code and proposes a fix; the agent gets its proposal;
         3. the agent's model is escalated once (for this criterion), with the investigator's proposal;
@@ -1849,7 +1849,7 @@ class Compiler:
         title, extra_all = step.name, {}
         folded = self._folded_answer(i, state)
         if folded:
-            # v0.17.4 decided at an earlier gate (the spec gate): its skips for this menu, no second stop. A name no menu
+            # v0.17.5 decided at an earlier gate (the spec gate): its skips for this menu, no second stop. A name no menu
             # knows, or a skip without a reason, still asks here.
             gid, payload = folded
             mine = {u["name"] for u in units}

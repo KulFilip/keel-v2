@@ -69,7 +69,7 @@ def to_loop(client, tid, s=None, upto="contract_gate"):
     s = s or wait(client, tid)
     assert s.get("waiting", {}).get("step") == "spec_gate", s
     for step in ("spec_gate", "options", "contract_gate"):
-        # v0.17.4 the options menu is asked at the spec gate, the contract gate only when there is a contract delta
+        # v0.17.5 the options menu is asked at the spec gate, the contract gate only when there is a contract delta
         if s.get("waiting", {}).get("step") == step:
             s = decide(client, tid)
         if step == upto:

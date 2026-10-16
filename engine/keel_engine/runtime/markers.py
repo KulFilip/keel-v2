@@ -63,7 +63,7 @@ def parse(text: str, names: list[str] | None = None) -> dict[str, str]:
 
 
 def blocked(text: str) -> str | None:
-    """v0.17.4 BLOCKED, or the implementer's `GREEN-RESULT: stalled` read as BLOCKED (with the answer's last lines)."""
+    """v0.17.5 BLOCKED, or the implementer's `GREEN-RESULT: stalled` read as BLOCKED (with the answer's last lines)."""
     found = parse(text, ["BLOCKED"]).get("BLOCKED")
     if found:
         return found

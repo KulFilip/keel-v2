@@ -1,4 +1,4 @@
-"""Scenario (v0.17.4): the ludus-engine run that looped, replayed end to end on the fake model.
+"""Scenario (v0.17.5): the ludus-engine run that looped, replayed end to end on the fake model.
 
 The real run: the spec's Plan said `**ORDER**: AC-006, AC-002, AC-007, AC-001, …`; keel ran AC-001 first; its test
 author answered AMEND ("needs code from AC-006"); the amendment explorer answered "REOPEN: none — order issue"; the

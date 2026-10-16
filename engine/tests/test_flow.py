@@ -33,7 +33,7 @@ def test_feature_flow_reaches_done(client, repo):
 
     s, gates = run_to_done(client, tid, s)
     assert s["status"] == "done", s
-    # v0.17.4 both optional-step menus (options, ship_plan) are asked at the spec gate
+    # v0.17.5 both optional-step menus (options, ship_plan) are asked at the spec gate
     assert gates == [("spec_gate", None), ("contract_gate", None), ("ac_gate", "AC-1"), ("ac_gate", "AC-2"),
                      ("integration_gate", None), ("ship_final_review", None), ("ship_pr_gate", None)]
     assert all(a["status"] == "done" for a in s["acs"])
