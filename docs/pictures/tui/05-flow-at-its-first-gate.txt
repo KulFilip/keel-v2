@@ -1,17 +1,17 @@
-… (126 lines above: the capture before)
+… (140 lines above: the capture before)
   Run with the fake model anyway? → Yes, start it
 ◆ flow started via keel TUI: feature "Add a /health endpoint that answers {"ok": true}"
 ◆ agent explorer started · spec · fake/fake
-◆ agent explorer started · explore · fake/fake
-◆ agent explorer started · explore · fake/fake
 ✓ started feature "Add a /health endpoint that answers {"ok": true}" on scratch (thread
-43edd6679f724c78b61a2b8d10b1ae67), recorded as started via keel TUI.
-It is running at preflight (phase preflight); it runs until its first gate for you.
+7029357521c342c8a07ab27fe58b6b8e), recorded as started via keel TUI.
+It is running at - (phase none); it runs until its first gate for you.
 Follow it: Ctrl+F (flow rail), /live (agents), /next.
+◆ agent explorer started · explore · fake/fake
+◆ agent explorer started · explore · fake/fake
 ◆ agent explorer started · plan · fake/fake
 ◆ waiting for you: spec approval · /approve or /reject <why> (/next says more)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
 │ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
 │ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
 │ step  spec_gate · phase spec                                                                     │
@@ -20,6 +20,6 @@ Follow it: Ctrl+F (flow rail), /live (agents), /next.
 │ ◆ waiting for you: spec approval · /approve, /reject <why> or /answer <edit | rewrite | review … │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ›  Ask KeelBot, or / for commands                                                                │
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…

@@ -1,9 +1,10 @@
-… (137 lines above: the capture before)
-› /next
+… (151 lines above: the capture before)
+
+ › /next
 waiting at spec_gate (spec approval): /approve, /reject <why> or /answer <edit | rewrite | review |
 order>.
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
 │ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
 │ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
 │ step  spec_gate · phase spec                                                                     │
@@ -12,6 +13,6 @@ order>.
 │ ◆ waiting for you: spec approval · /approve, /reject <why> or /answer <edit | rewrite | review … │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ›  Ask KeelBot, or / for commands                                                                │
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…

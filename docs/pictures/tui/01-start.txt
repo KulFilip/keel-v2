@@ -6,7 +6,7 @@
 │    \_________/         |_|\_\___|\___||_|                                                        │
 │        \_/   ~~~~~~~~                v2                                                          │
 │                                                                                                  │
-│ keel v2 0.17.3 · keel TUI 0.17.3                                                                 │
+│ keel v2 0.18.1 · keel TUI 0.18.1                                                                 │
 │ keel     http://localhost:8099 · docker                                                          │
 │ project  scratch · branch main                                                                   │
 │ waiting  nothing waits for you                                                                   │

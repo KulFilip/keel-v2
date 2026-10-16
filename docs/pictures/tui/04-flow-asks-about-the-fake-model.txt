@@ -1,14 +1,15 @@
-… (120 lines above: the capture before)
-› /flow feature Add a /health endpoint that answers {"ok": true}
+… (133 lines above: the capture before)
+
+ › /flow feature Add a /health endpoint that answers {"ok": true}
 ✗ These agents would use the fake model: explorer, contract-author, test-author, implementer,
 ac-reviewer, security-auditor, code-reviewer, e2e-author, reviewer, librarian. It writes example
 files, not real code.
 Pick a real model in Control › Connections (Use for all agents) or Settings › Models. To try the
 flow anyway, tick "Run with the fake model".
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Run with the fake model anyway?                                                                  │
+│ ? Run with the fake model anyway?                                                                │
 │ ❯ Yes, start it                                                                                  │
 │   No                                                                                             │
-│ ↑/↓ choose · Enter picks · type to filter · Esc cancels                                          │
+│ ↑↓ · Enter · type to filter · Esc                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 scratch (main) · no flow · 0 waiting · ● live

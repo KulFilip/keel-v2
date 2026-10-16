@@ -1,0 +1,37 @@
+… (377 lines above: the capture before)
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/status[22m                                                                                          [49m
+[38;2;164;139;255mproject[39m   [1mscratch[22m · branch [38;2;87;174;255mfeat/add-a-health-endpoint-that-answers-ok-tr[39m
+[38;2;164;139;255mflow[39m      [1mfeature (keel) (feature)[22m · "Add a /health endpoint that answers {"ok": true}" · [1m[38;2;233;181;58m◆ waiting[39m[22m
+· [38;2;107;103;95mthread 7029357521c342c8a07ab27fe58b6b8e[39m
+[38;2;164;139;255mstep[39m      contract_gate · phase [1mcontract[22m
+[38;2;164;139;255mcriteria[39m  0/2 done
+  [38;2;154;149;140m[todo]        [39m[1mAC-1[22m [38;2;154;149;140mAPI[39m  Add a /health endpoint that answers {"ok": true}: the main case works
+  [38;2;154;149;140m[todo]        [39m[1mAC-2[22m [38;2;154;149;140mAPI[39m  Add a /health endpoint that answers {"ok": true}: bad input is refused
+with a clear message
+[1m[38;2;233;181;58mwaiting[39m[22m   [38;2;233;181;58mgate: contract delta[39m
+          answer: [1m[38;2;233;181;58m/approve or /answer <change | amend>[39m[22m
+          [38;2;154;149;140mUncommitted change (1 file(s)), not committed until you approve:[39m
+
+          [38;2;154;149;140mnew file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:[39m
+          [38;2;154;149;140m+# Contract: Add a /health endpoint that answers {"ok": true}[39m
+          [38;2;154;149;140m+[39m
+          [38;2;154;149;140m+No HTTP surface changes; library functions only.[39m
+[38;2;164;139;255musage[39m     194,100 tokens[38;2;154;149;140m of cap 500,000[39m · [38;2;154;149;140min 175,100 · out 19,000 · cached 0[39m · $0.00
+[38;2;61;61;67m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐[39m
+[38;2;61;61;67m│[39m [1mFlow · [38;2;164;139;255mfeature[39m "Add a /health endpoint that answers {"ok": true}" · [38;2;233;181;58m◆ waiting[39m[22m                    [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;78;192;124m✔ preflight  ✔ spec  [1m[38;2;233;181;58m◆ contract  [22m[38;2;107;103;95m· red  · green  · gate  · integration  · security  · [39m           [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m review-fix  [38;2;107;103;95m· e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review[39m  [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mstep  [39m[1mcontract_gate[22m[38;2;154;149;140m · phase contract[39m                                                             [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mAC    [38;2;107;103;95m□□[39m  0/2                                                                                    [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mgates spec approval · which optional phases run[1m[38;2;233;181;58m · ◆ contract delta[22m[38;2;154;149;140m · AC gate[39m                     [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [1m[38;2;233;181;58m◆ waiting for you: contract delta · /approve or /answer <change | amend>[39m[22m                         [38;2;61;61;67m│[39m
+[38;2;61;61;67m└──────────────────────────────────────────────────────────────────────────────────────────────────┘[39m
+[38;2;61;61;67m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐[39m
+[38;2;61;61;67m│[39m [1mAgents · [38;2;154;149;140m0 at work[39m[22m                                                                               [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mNo agent is running.[39m                                                                             [38;2;61;61;67m│[39m
+[38;2;61;61;67m└──────────────────────────────────────────────────────────────────────────────────────────────────┘[39m
+[38;2;233;181;58m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;233;181;58m│[39m [1m[38;2;164;139;255m› [39m[22m[7m [27m[38;2;154;149;140mA gate waits for you: /approve, /reject <why>, /next … or ask KeelBot[39m                         [38;2;233;181;58m│[39m
+[38;2;233;181;58m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[1m[38;2;247;246;243mscratch (feat/add-a-health-endpoint-…)[22m[38;2;107;103;95m · [38;2;233;181;58mfeature waiting[38;2;107;103;95m · [38;2;154;149;140mphase contract[38;2;107;103;95m · [38;2;154;149;140mAC 0/2[38;2;107;103;95m · [1m[38;2;233;181;58m1 waiting[22m[38;2;107;103;95m · [38;2;154;149;140m19[39m…[0m

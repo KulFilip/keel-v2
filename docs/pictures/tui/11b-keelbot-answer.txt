@@ -1,22 +1,33 @@
-… (299 lines above: the capture before)
-› Where does this project start, and what is in it?
+… (362 lines above: the capture before)
+  > keel_next (keel) {}                                                                       0.0s ✓
+  > read README.md                                                                            0.0s ✓
   You asked: Where does this project start, and what is in it?
   The package starts in src/scores/__init__.py:1. This is answer 1 of this session.
-  KeelBot · fake/fake · 23.0k tokens
+
+  Where to look
+
+    • entry: run() in src/scores/__init__.py:1
+    • the tests: tests/test_scores.py:3
+
+    python
+    │ def run(players: list[str]) -> dict:
+    │     # rank the players, best first
+    │     return {"ok": True, "count": len(players)}
+  ✓ Finished in 2.5s · KeelBot · fake/fake · 23.0k tokens
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
-│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
+│ ✔ preflight  ✔ spec  ◆ contract  · red  · green  · gate  · integration  · security  ·            │
 │ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
-│ step  options · phase spec                                                                       │
+│ step  contract_gate · phase contract                                                             │
 │ AC    □□  0/2                                                                                    │
-│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
-│ ◆ waiting for you: which optional phases run · /approve                                          │
+│ gates spec approval · which optional phases run · ◆ contract delta · AC gate                     │
+│ ◆ waiting for you: contract delta · /approve or /answer <change | amend>                         │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Agents · 0 at work                                                                               │
 │ No agent is running.                                                                             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ›  Ask KeelBot, or / for commands                                                                │
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

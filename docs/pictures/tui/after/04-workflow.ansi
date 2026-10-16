@@ -1,0 +1,67 @@
+… (94 lines above: the capture before)
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/workflows feature[22m                                                                               [49m
+ [38;2;164;139;255mworkflow[39m feature "feature (keel)" - 105 steps, 15 gates
+
+ [1m[38;2;164;139;255m== Preflight: check the repo and move to the flow's own branch ==[22m[38;2;107;103;95m  id=preflight[39m
+    #  preflight + own branch  [38;2;107;103;95m(code preflight)[39m
+ [1m[38;2;164;139;255m== Spec: write and approve what to build ==[22m[38;2;107;103;95m  id=spec[39m
+    o  spec  [38;2;154;149;140m(agent explorer)[39m
+    #  areas to map  [38;2;107;103;95m(code explore_areas)[39m
+    =  one explorer per area  [38;2;107;103;95m(parallel)[39m
+    #  collect the maps  [38;2;107;103;95m(code report)[39m
+    o  plan under the criteria  [38;2;154;149;140m(agent explorer)[39m
+    #  criteria + plan for the gate  [38;2;107;103;95m(code spec_sync)[39m
+   [38;2;233;181;58m[?][39m spec approval  [38;2;233;181;58m(gate, you decide)[39m
+         approve[38;2;107;103;95m -> [39mfreeze + commit the spec
+         edit[38;2;107;103;95m -> [39medit the spec
+         rewrite[38;2;107;103;95m -> [39medit the spec
+         review[38;2;107;103;95m -> [39mreview the spec before approving
+         order[38;2;107;103;95m -> [39mplan under the criteria  [38;2;107;103;95m(loops back)[39m
+         reject[38;2;107;103;95m -> [39mthe interview starts again
+         send back[38;2;107;103;95m -> [39mspec  [38;2;107;103;95m(loops back)[39m
+       \  o  edit the spec  [38;2;154;149;140m(agent explorer)[39m
+       \  #  criteria + plan for the gate  [38;2;107;103;95m(code spec_sync)[39m
+       \       then[38;2;107;103;95m -> [39mspec approval  [38;2;107;103;95m(loops back)[39m
+       \  o  review the spec before approving  [38;2;154;149;140m(agent reviewer)[39m
+       \  #  criteria + plan + the review for the gate  [38;2;107;103;95m(code spec_sync)[39m
+       \       then[38;2;107;103;95m -> [39mspec approval  [38;2;107;103;95m(loops back)[39m
+       \  #  the interview starts again  [38;2;107;103;95m(code spec_restart)[39m
+       \       then[38;2;107;103;95m -> [39mspec  [38;2;107;103;95m(loops back)[39m
+    #  freeze + commit the spec  [38;2;107;103;95m(code spec_freeze)[39m
+         fails[38;2;107;103;95m -> [39mspec  [38;2;107;103;95m(loops back)[39m
+   [38;2;233;181;58m[?][39m which optional phases run  [38;2;233;181;58m(gate, you decide)[39m
+ [1m[38;2;164;139;255m== Contract: write the API surface the criteria change ==[22m[38;2;107;103;95m  id=contract[39m
+    o  contract  [38;2;154;149;140m(agent contract-author)[39m
+    #  the contract delta  [38;2;107;103;95m(code show_diff)[39m
+   [38;2;233;181;58m[?][39m contract delta  [38;2;233;181;58m(gate, you decide)[39m
+         approve[38;2;107;103;95m -> [39mcommit contract
+         change[38;2;107;103;95m -> [39mcontract  [38;2;107;103;95m(loops back)[39m
+         amend[38;2;107;103;95m -> [39mput the contract draft back
+       \  #  put the contract draft back  [38;2;107;103;95m(code reset+amend_start)[39m
+       \       then[38;2;107;103;95m -> [39mspec amendment
+       \ [38;2;233;181;58m[?][39m the amendment changed nothing  [38;2;233;181;58m(gate, you decide)[39m
+       \       first[38;2;107;103;95m -> [39mbuild the other criterion first
+       \       skip[38;2;107;103;95m -> [39mmove the criterion to the end
+       \       edit[38;2;107;103;95m -> [39mthe amendment again with your note
+       \       stop[38;2;107;103;95m -> [39mstop the flow
+       \  #  build the other criterion first  [38;2;107;103;95m(code amend_reorder)[39m
+       \       then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+       \  #  move the criterion to the end  [38;2;107;103;95m(code amend_reorder)[39m
+       \       then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+       \  #  the amendment again with your note  [38;2;107;103;95m(code amend_with_note)[39m
+       \       then[38;2;107;103;95m -> [39mspec amendment
+       \  #  stop the flow  [38;2;107;103;95m(code amend_stop)[39m
+       \       then[38;2;107;103;95m -> [39mend of the flow
+       \  o  spec amendment  [38;2;154;149;140m(agent explorer)[39m
+       \  #  the amendment for the gate  [38;2;107;103;95m(code spec_amendment)[39m
+       \       fails[38;2;107;103;95m -> [39mspec amendment  [38;2;107;103;95m(loops back)[39m
+       \  <  did the spec change?  [38;2;107;103;95m(branch)[39m
+       \       yes[38;2;107;103;95m -> [39mspec amendment
+       \       no[38;2;107;103;95m -> [39man order question?
+       \ [38;2;233;181;58m[?][39m spec amendment  [38;2;233;181;58m(gate, you decide)[39m
+ [38;2;107;103;95m... 99 more (zoom with id=contract)[39m
+[38;2;233;181;58m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;233;181;58m│[39m [1m[38;2;164;139;255m› [39m[22m[7m [27m[38;2;154;149;140mA gate waits for you: /approve, /reject <why>, /next … or ask KeelBot[39m                         [38;2;233;181;58m│[39m
+[38;2;233;181;58m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[1m[38;2;247;246;243mscratch (feat/add-a-health-endpoint-…)[22m[38;2;107;103;95m · [38;2;233;181;58mfeature waiting[38;2;107;103;95m · [38;2;154;149;140mphase contract[38;2;107;103;95m · [38;2;154;149;140mAC 0/2[38;2;107;103;95m · [1m[38;2;233;181;58m1 waiting[22m[38;2;107;103;95m · [38;2;154;149;140m19[39m…[0m

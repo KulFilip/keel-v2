@@ -1,0 +1,59 @@
+… (17 lines above: the capture before)
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/help[22m                                                                                            [49m
+Type a question for [38;2;164;139;255mKeelBot[39m, or a command:
+
+[1m[38;2;233;181;58mFlows[39m[22m
+  [1m[38;2;164;139;255m/project[39m[22m [38;2;232;192;122m[name][39m                      [38;2;154;149;140mpick the project (or switch to one by name)[39m
+  [1m[38;2;164;139;255m/flow[39m[22m [38;2;232;192;122m[workflow] [idea…][39m             [38;2;154;149;140mstart a flow: pick the workflow, then say the idea[39m
+  [1m[38;2;164;139;255m/flows[39m[22m                               [38;2;154;149;140mthis project's flows, newest first[39m
+  [1m[38;2;164;139;255m/resume[39m[22m                              [38;2;154;149;140mgo on with a stopped or failed flow from its last saved step[39m
+  [1m[38;2;164;139;255m/stop[39m[22m                                [38;2;154;149;140mstop the project's flow (every finished step stays saved)[39m
+  [1m[38;2;164;139;255m/status[39m[22m                              [38;2;154;149;140mthe flow: step, phase, criteria, what waits, tokens[39m
+  [1m[38;2;164;139;255m/next[39m[22m                                [38;2;154;149;140mwhat to do next[39m
+  [1m[38;2;164;139;255m/workflows[39m[22m [38;2;232;192;122m[workflow][39m                [38;2;154;149;140mthe project's workflows, and a workflow as a diagram[39m
+
+[1m[38;2;233;181;58mGates[39m[22m
+  [1m[38;2;164;139;255m/inbox[39m[22m                               [38;2;154;149;140meverything that waits for you, in every project[39m
+  [1m[38;2;164;139;255m/approve[39m[22m [38;2;232;192;122m[n][39m                         [38;2;154;149;140mapprove what waits (or inbox item n)[39m
+  [1m[38;2;164;139;255m/reject[39m[22m [38;2;232;192;122m[n] <why>[39m                    [38;2;154;149;140msend back what waits, with the reason[39m
+  [1m[38;2;164;139;255m/answer[39m[22m [38;2;232;192;122m[choice | q1=answer …][39m       [38;2;154;149;140manswer a gate's questions or choose one of its exits[39m
+
+[1m[38;2;233;181;58mLook[39m[22m
+  [1m[38;2;164;139;255m/jobs[39m[22m                                [38;2;154;149;140mthe project's agent calls, newest first[39m
+  [1m[38;2;164;139;255m/live[39m[22m                                [38;2;154;149;140mthe agents at work now and their last step[39m
+  [1m[38;2;164;139;255m/steps[39m[22m [38;2;232;192;122m[job][39m                         [38;2;154;149;140mthe flow's steps with their state (or one agent call's steps)[39m
+  [1m[38;2;164;139;255m/timeline[39m[22m                            [38;2;154;149;140mwhat happened: steps and agent runs, newest first[39m
+  [1m[38;2;164;139;255m/diagram[39m[22m [38;2;232;192;122m<flow|workflow <id>|map-er [table]|map-system|map-modules|graph <symbol>> [zoom][39m
+                                       [38;2;154;149;140mkeel's diagrams in ASCII[39m
+  [1m[38;2;164;139;255m/rules[39m[22m                               [38;2;154;149;140mkeel's rules for this project, and what agents may change [39m
+right now
+  [1m[38;2;164;139;255m/plugins[39m[22m                             [38;2;154;149;140mthe plugins keel has, and which are on here[39m
+  [1m[38;2;164;139;255m/budget[39m[22m                              [38;2;154;149;140mtokens and money today, this month, per flow, and the caps[39m
+  [1m[38;2;164;139;255m/dashboard[39m[22m [38;2;232;192;122m[flow|map|er|keelbot|inbox][39m
+                                       [38;2;154;149;140mthe dashboard's link for this project[39m
+
+[1m[38;2;233;181;58mKeelBot[39m[22m
+  [1m[38;2;164;139;255m/model[39m[22m                               [38;2;154;149;140mKeelBot's model (from keel's catalog)[39m
+  [1m[38;2;164;139;255m/chats[39m[22m                               [38;2;154;149;140mearlier KeelBot chats of this project: open one[39m
+  [1m[38;2;164;139;255m/new[39m[22m                                 [38;2;154;149;140ma new KeelBot chat[39m
+  [1m[38;2;164;139;255m/mode[39m[22m [38;2;232;192;122m<ask|fix>[39m                      [38;2;154;149;140mKeelBot's mode: ask (reads, changes nothing) or fix (keel's [39m
+rules apply)
+
+[1m[38;2;233;181;58mScreen[39m[22m
+  [1m[38;2;164;139;255m/help[39m[22m                                [38;2;154;149;140mwhat keel TUI can do[39m
+  [1m[38;2;164;139;255m/panel[39m[22m [38;2;232;192;122m<flow|agents|inbox|off>[39m       [38;2;154;149;140mshow a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle [39m
+them)
+  [1m[38;2;164;139;255m/clear[39m[22m                               [38;2;154;149;140mclear the screen[39m
+  [1m[38;2;164;139;255m/quit[39m[22m                                [38;2;154;149;140mleave keel TUI (keel keeps running)[39m
+
+[1m[38;2;233;181;58mKeys[39m[22m
+  [1m[38;2;164;139;255mTab[39m[22m [38;2;154;149;140mcomplete the command or its argument[38;2;107;103;95m · [1m[38;2;164;139;255mUp / Down[39m[22m [38;2;154;149;140mthe history, or the completion to take[38;2;107;103;95m · [39m
+[1m[38;2;164;139;255mCtrl+F[39m[22m [38;2;154;149;140mtoggle the flow rail[38;2;107;103;95m · [1m[38;2;164;139;255mCtrl+A[39m[22m [38;2;154;149;140mtoggle the agents at work[38;2;107;103;95m · [1m[38;2;164;139;255mCtrl+B[39m[22m [38;2;154;149;140mtoggle the inbox[38;2;107;103;95m · [1m[38;2;164;139;255mEsc[39m[22m [38;2;154;149;140mstop [39m
+KeelBot's answer, or cancel a choice[38;2;107;103;95m · [1m[38;2;164;139;255mCtrl+C twice[39m[22m [38;2;154;149;140mleave (keel keeps running)[39m
+
+[38;2;154;149;140mKeelBot's own commands (/gate, /where …) go to KeelBot as they are.[39m
+[38;2;233;181;58m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;233;181;58m│[39m [1m[38;2;164;139;255m› [39m[22m[7m [27m[38;2;154;149;140mA gate waits for you: /approve, /reject <why>, /next … or ask KeelBot[39m                         [38;2;233;181;58m│[39m
+[38;2;233;181;58m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[1m[38;2;247;246;243mscratch (feat/add-a-health-endpoint-…)[22m[38;2;107;103;95m · [38;2;233;181;58mfeature waiting[38;2;107;103;95m · [38;2;154;149;140mphase contract[38;2;107;103;95m · [38;2;154;149;140mAC 0/2[38;2;107;103;95m · [1m[38;2;233;181;58m1 waiting[22m[38;2;107;103;95m · [38;2;154;149;140m19[39m…[0m

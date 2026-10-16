@@ -1,0 +1,28 @@
+… (71 lines above: the capture before)
+
+ › /flows
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers {"ok": true}" · ◆
+waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00 · folder  latest
+
+ › /status
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok": true}" · ◆ waiting
+· thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad input is refused
+with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 · $0.00
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

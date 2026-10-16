@@ -1,0 +1,1984 @@
+Script started on 2026-10-16 18:40:44+02:00 [COMMAND="/home/milad/keel-work/tui-polish/keel2 tui" <not executed on terminal>]
+[2J[3J[H[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mno project · no flow · 0 waiting[22m[33m · ● connecting[39m[?25l[2J[3J[H[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mno project · no flow · 0 waiting[22m[33m · ● connecting[39m[2J[3J[H[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · no flow · 0 waiting[22m[33m · ● connecting[39m[2J[3J[H[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[2mconnecting to keel at http://127.0.0.1:8099 …[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m/help[7m [27m                                                                     [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+[2m… /help[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+[2m… /help[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m/flows[7m [27m                                                                    [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+[2m… /flows[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+[2m… /flows[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m/status[7m [27m                                                                   [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+[2m… /status[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+[2m… /status[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+[2m… /status[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m/quit[7m [27m                                                                     [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[1m› /quit[22m
+[2m… /quit[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[1m› /quit[22m
+[2m… /quit[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[1m› /quit[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[2J[3J[H[38;2;232;163;61m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |\                _              _ [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      | \              | | _____  ___ | |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m      |  \             | |/ / _ \/ _ \| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   ___|___\___         |   <  __/  __/| |[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m   \_________/         |_|\_\___|\___||_|[39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [38;2;232;163;61m       \_/   ~~~~~~~~                v2  [39m                                                        [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m                                                                                                  [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [1mkeel v2 0.18.1[2m · keel TUI 0.18.1[22m                                                                 [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mkeel     [22mhttp://localhost:8099 · docker                                                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mproject  [22mscratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mflow     [22mfeature "Add a /health endpoint that answers {"ok": true}" · waiting at contract_gate   [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mwaiting  [22m[33m1 waiting for you · gate: contract delta[39m                                                [38;2;232;163;61m│[39m
+[38;2;232;163;61m│[39m [2mnext     [22mwaiting at contract_gate (contract delta): /approve or /answer <change | amend>.        [38;2;232;163;61m│[39m
+[38;2;232;163;61m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[2m  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox[22m
+
+[1m› /help[22m
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by
+name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say
+ the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from
+its last saved step
+  /stop                                stop the project's flow (every finished
+step stays saved)
+  /status                              the flow: step, phase, criteria, what
+waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every
+project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one
+of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last
+step
+  /steps [job]                         the flow's steps with their state (or one
+ agent call's steps)
+  /timeline                            what happened: steps and agent runs,
+newest first
+  /workflows [workflow]                the project's workflows, and a workflow
+as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph
+<symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what
+agents may change right now
+  /plugins                             the plugins keel has, and which are on
+here
+  /budget                              tokens and money today, this month, per
+flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project:
+open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes
+nothing) or fix (keel's rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F,
+Ctrl+A, Ctrl+B toggle them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the
+completion to take · Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at
+work · Ctrl+B toggle the inbox · Esc stop KeelBot's answer, or cancel a choice ·
+ Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+[1m› /flows[22m
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers
+{"ok": true}" · waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00
+ · folder · latest
+[1m› /status[22m
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+step      contract_gate · phase contract
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: contract delta
+          answer: /approve or /answer <change | amend>
+          Uncommitted change (1 file(s)), not committed until you approve:
+
+          new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+          +# Contract: Add a /health endpoint that answers {"ok": true}
+          +
+          +No HTTP surface changes; library functions only.
+usage     194,100 tokens of cap 500,000 · in 175,100 · out 19,000 · cached 0 ·
+$0.00
+[1m› /quit[22m
+[90m╭──────────────────────────────────────────────────────────────────────────────╮[39m
+[90m│[39m [38;2;232;163;61m› [39m[7m [27m[2mAsk KeelBot, or / for commands[22m                                            [90m│[39m
+[90m╰──────────────────────────────────────────────────────────────────────────────╯[39m
+[2mscratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC [22m…[?25h[?25h[?25h
+Script done on 2026-10-16 18:41:03+02:00 [COMMAND_EXIT_CODE="0"]

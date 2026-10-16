@@ -1,29 +1,35 @@
-… (325 lines above: the capture before)
-› /flows
-43edd6679f724c78b61a2b8d10b1ae67  feature "Add a /health endpoint that answers {"ok": true}" ·
-waiting at options · criteria 0/2 · 176,100 tokens · $0.00 · folder · latest
-› /inbox
-1. scratch · Add a /health endpoint that answers {"ok": true} · gate: which optional phases run ·
-approve
-     Which steps run this time? Skipping a step is not the same as removing its gate: every skip
-needs a reason, is shown again at the final review and printed in the PR body.
+… (396 lines above: the capture before)
 
-     Always runs: contract, the contract delta, contract delta, commit contract, red, the spec needs
- an amendment, to the amendment,
+ › /flows
+7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers {"ok": true}" · ◆
+waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00 · folder  latest
+
+ › /inbox
+1. scratch · Add a /health endpoint that answers {"ok": true} · gate: contract delta · approve
+     Uncommitted change (1 file(s)), not committed until you approve:
+
+     new file docs/contract/add-a-health-endpoint-that-answers-ok-true.md:
+     +# Contract: Add a /health endpoint that answers {"ok": true}
+     +
+     +No HTTP surface changes; library functions only.
 
 /approve <n> or /reject <n> <why> answers one; Ctrl+B keeps the inbox on screen.
-› /jobs
-done     helper · helper · fake/fake · 23,000 tokens · $0.00 · 10-16 13:37:07 · job
-5088978f22f24de286e9d91933074b66
-done     explorer · plan · fake/fake · 44,000 tokens · $0.00 · 10-16 13:37:01 · job
-0382fa4fd10c4490b803f90d418a88a3
-done     explorer · explore · fake/fake · 44,100 tokens · $0.00 · 10-16 13:37:01 · job
-b80f88bf0bee43d3ab1df05317ea83a1
-done     explorer · explore · fake/fake · 44,000 tokens · $0.00 · 10-16 13:37:01 · job
-34e9a24974654178b2d98102a7b27510
-done     explorer · spec · fake/fake · 44,000 tokens · $0.00 · 10-16 13:37:00 · job
-db89d523b83948eaaee837fc94559828
-› /rules
+
+ › /jobs
+✔ done helper · helper · fake/fake · 23,000 tokens · $0.00 · 10-16 16:40:08 job
+1ef6f0a079ae4d4d85a8e1ec100abcdd
+✔ done contract-author · contract · fake/fake · 18,000 tokens · $0.00 · 10-16 16:40:03 job
+64458b2b3ffd45d3b92edcd7a74942c1
+✔ done explorer · plan · fake/fake · 44,000 tokens · $0.00 · 10-16 16:40:00 job
+9c29831f226b4460bbd824f8ffc2df74
+✔ done explorer · explore · fake/fake · 44,100 tokens · $0.00 · 10-16 16:40:00 job
+06b38566a1724eef9a8201a1e60c32c8
+✔ done explorer · explore · fake/fake · 44,000 tokens · $0.00 · 10-16 16:40:00 job
+f5a894d01fd341c8b1e3a5e4db400264
+✔ done explorer · spec · fake/fake · 44,000 tokens · $0.00 · 10-16 16:39:59 job
+9a7f64d272c34dc3ab061a06249ad2d5
+
+ › /rules
 keel's rules for scratch (saved in .keel/config.yml and .keel/rules/):
 
 Engines:
@@ -41,6 +47,8 @@ Always on:
 env file). (always)
   keel-rules-files: Agents never change .keel/config.yml or .keel/rules/: an agent may not change
 its own rules. (always)
+  keel-keys: keel's own keys (its internal token and the sign-in key) are never read, printed,
+changed or sent by an agent: with them anyone could act as keel or as you. (always)
   migrations-immutable: An existing database migration is never changed; a new migration file is
 added instead. (always)
   force-push: git push --force and git push -f are refused: they can delete other people's work.
@@ -93,12 +101,13 @@ you change it))
 
 Rule packs: none (the dashboard's Rules page adds one from the library).
 
-Now (phase spec): Write the spec: what must be true, as numbered acceptance criteria. Only the spec
-and docs change.
-  may change: specs, everything else: docs, config, build files
+Now (phase contract): Write the outside surface (routes, schemas, public types) the criteria change.
+ Only the contract changes.
+  may change: the API contract (openapi), everything else: docs, config, build files
   may not change: backend production code, backend tests, frontend code, frontend tests, database
-migrations, the API contract (openapi), end-to-end tests, smoke checks
-› /plugins
+migrations, specs, end-to-end tests, smoke checks
+
+ › /plugins
 keel has:
   ci         1.0.0  CI/CD · on · this project: off · from image
   code       1.0.0  Code · on · from image
@@ -111,30 +120,33 @@ keel has:
   review     1.0.0  Code Review · on · this project: off · from image
   tasks      1.0.0  Tasks · on · from image
   wiki       1.0.0  Wiki · on · from image
-› /budget
-today  199,100 tokens · $0.00
-month  199,100 tokens · $0.00
-flow   "Add a /health endpoint that answers {"ok": true}" (waiting) · 176,100 tokens of cap 500,000
+
+ › /budget
+today  217,100 tokens · $0.00
+month  217,100 tokens · $0.00
+flow   "Add a /health endpoint that answers {"ok": true}" ◆ waiting · 194,100 tokens of cap 500,000
 · $0.00
-› /diagram map-er
+
+ › /diagram map-er
  database: 0 tables, 0 relations
-› /dashboard
+
+ › /dashboard
 http://localhost:8099/#/projects/scratch/flow
 Open it in your browser: the same keel, the same flows and chats.
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
-│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
+│ ✔ preflight  ✔ spec  ◆ contract  · red  · green  · gate  · integration  · security  ·            │
 │ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
-│ step  options · phase spec                                                                       │
+│ step  contract_gate · phase contract                                                             │
 │ AC    □□  0/2                                                                                    │
-│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
-│ ◆ waiting for you: which optional phases run · /approve                                          │
+│ gates spec approval · which optional phases run · ◆ contract delta · AC gate                     │
+│ ◆ waiting for you: contract delta · /approve or /answer <change | amend>                         │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Agents · 0 at work                                                                               │
 │ No agent is running.                                                                             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ›  Ask KeelBot, or / for commands                                                                │
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

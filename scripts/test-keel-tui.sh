@@ -5,6 +5,9 @@
 # on keel's fake model to its first gate, /approve, /live, one KeelBot turn. Text captures land in docs/pictures/tui/.
 # Then the keel's records are checked (the flow says "via keel TUI", writes are tui.call events) and the keel, its volume
 # and its config folder are removed. The image stays: docker rmi it yourself.
+# The captures keep keel's colours too (FORCE_COLOR=3: <name>.ansi beside <name>.txt; view them with cat or less -R).
+# With BEFORE_JS=<an older keel-tui.mjs>, scripts/keel-tui-look.tui runs with that build and with this one, into
+# docs/pictures/tui/before/ and after/, each also as a real terminal session (a pty): interactive.ansi.
 #
 #   scripts/test-keel-tui.sh [image]        (default keel-v2:tui-lab)
 set -euo pipefail
@@ -39,7 +42,7 @@ curl -fs "http://127.0.0.1:$port/api/health"; echo
 # the driver inside keel's container, through keel2 tui (docker exec)
 docker cp "$src/scripts/keel-tui-check.tui" "$KEEL_NAME:/tmp/keel-tui-check.tui"
 rc=0
-"$src/keel2" tui --script /tmp/keel-tui-check.tui --out /tmp/keel-tui-out --width 100 || rc=$?
+FORCE_COLOR=3 COLORTERM=truecolor "$src/keel2" tui --script /tmp/keel-tui-check.tui --out /tmp/keel-tui-out --width 100 --ansi || rc=$?
 rm -rf "$out" && mkdir -p "$out"
 docker cp "$KEEL_NAME:/tmp/keel-tui-out/." "$out/"
 # one-shot commands too, the way a script would use keel TUI
@@ -67,6 +70,25 @@ sys.exit(0 if ok else 1)
 PY
   [ "$tty_bad" = 0 ] \
     || { echo "plain keel2 in a terminal did not show keel TUI and /status" >&2; rc=1; }
+fi
+
+# before and after: the same screens with an older build (on this computer's Node) and with this one (in keel's container)
+pty() {  # pty <log> <command…>: a real terminal session, typing /help, /flows and /status, then /quit
+  local log="$1"; shift
+  feed() { sleep 6; for c in /help /flows /status; do printf '%s' "$c"; sleep 1; printf '\r'; sleep 3; done; printf '/quit'; sleep 1; printf '\r'; sleep 2; }
+  case "$(uname -s)" in
+    Darwin) feed | COLUMNS=100 LINES=40 FORCE_COLOR=3 COLORTERM=truecolor script -q "$log" "$@" >/dev/null 2>&1 || true ;;
+    *) feed | COLUMNS=100 LINES=40 FORCE_COLOR=3 COLORTERM=truecolor script -qfec "$*" "$log" >/dev/null 2>&1 || true ;;
+  esac
+}
+if [ -n "${BEFORE_JS:-}" ]; then
+  mkdir -p "$out/before" "$out/after"
+  KEEL_TUI_JS="$BEFORE_JS" "$src/keel2" tui --script "$src/scripts/keel-tui-look.tui" --out "$out/before" --width 100 || rc=$?
+  docker cp "$src/scripts/keel-tui-look.tui" "$KEEL_NAME:/tmp/keel-tui-look.tui"
+  FORCE_COLOR=3 COLORTERM=truecolor "$src/keel2" tui --script /tmp/keel-tui-look.tui --out /tmp/keel-tui-after --width 100 --ansi || rc=$?
+  docker cp "$KEEL_NAME:/tmp/keel-tui-after/." "$out/after/"
+  KEEL_TUI_JS="$BEFORE_JS" pty "$out/before/interactive.ansi" "$src/keel2" tui
+  pty "$out/after/interactive.ansi" "$src/keel2" tui
 fi
 
 # what keel recorded: the flow started via keel TUI, and keel TUI's writes as tui.call events

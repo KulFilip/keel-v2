@@ -1,0 +1,21 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│       |\                _              _                                                         │
+│       | \              | | _____  ___ | |                                                        │
+│       |  \             | |/ / _ \/ _ \| |                                                        │
+│    ___|___\___         |   <  __/  __/| |                                                        │
+│    \_________/         |_|\_\___|\___||_|                                                        │
+│        \_/   ~~~~~~~~                v2                                                          │
+│                                                                                                  │
+│ keel v2 0.18.1 · keel TUI 0.18.1                                                                 │
+│ keel     http://localhost:8099 · docker                                                          │
+│ project  scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          │
+│ flow     feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting at contract_gate │
+│ waiting  1 waiting for you · gate: contract delta                                                │
+│ next     waiting at contract_gate (contract delta): /approve or /answer <change | amend>.        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

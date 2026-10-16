@@ -1,0 +1,15 @@
+… (133 lines above: the capture before)
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/flow feature Add a /health endpoint that answers {"ok": true}[22m                                   [49m
+[38;2;240;104;90m✗ These agents would use the fake model: explorer, contract-author, test-author, implementer, [39m
+[38;2;240;104;90mac-reviewer, security-auditor, code-reviewer, e2e-author, reviewer, librarian. It writes example [39m
+[38;2;240;104;90mfiles, not real code.[39m
+[38;2;240;104;90mPick a real model in Control › Connections (Use for all agents) or Settings › Models. To try the [39m
+[38;2;240;104;90mflow anyway, tick "Run with the fake model".[39m
+[38;2;233;181;58m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;233;181;58m│[39m [1m[38;2;233;181;58m? Run with the fake model anyway?[39m[22m                                                                [38;2;233;181;58m│[39m
+[38;2;233;181;58m│[39m [1m[38;2;164;139;255m❯ Yes, start it[39m[22m                                                                                  [38;2;233;181;58m│[39m
+[38;2;233;181;58m│[39m   No                                                                                             [38;2;233;181;58m│[39m
+[38;2;233;181;58m│[39m [38;2;107;103;95m↑↓ · Enter · type to filter · Esc[39m                                                                [38;2;233;181;58m│[39m
+[38;2;233;181;58m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[1m[38;2;247;246;243mscratch (main)[22m[38;2;107;103;95m · [38;2;154;149;140mno flow[38;2;107;103;95m · [38;2;154;149;140m0 waiting[38;2;107;103;95m · [38;2;78;192;124m● live[39m[0m

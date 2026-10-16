@@ -1,0 +1,47 @@
+… (17 lines above: the capture before)
+› /help
+Type a question for KeelBot, or a command:
+
+  /help                                what keel TUI can do
+  /project [name]                      pick the project (or switch to one by name)
+  /flow [workflow] [idea…]             start a flow: pick the workflow, then say the idea
+  /flows                               this project's flows, newest first
+  /resume                              go on with a stopped or failed flow from its last saved step
+  /stop                                stop the project's flow (every finished step stays saved)
+  /status                              the flow: step, phase, criteria, what waits, tokens
+  /next                                what to do next
+  /inbox                               everything that waits for you, in every project
+  /approve [n]                         approve what waits (or inbox item n)
+  /reject [n] <why>                    send back what waits, with the reason
+  /answer [choice | q1=answer …]       answer a gate's questions or choose one of its exits
+  /jobs                                the project's agent calls, newest first
+  /live                                the agents at work now and their last step
+  /steps [job]                         the flow's steps with their state (or one agent call's steps)
+  /timeline                            what happened: steps and agent runs, newest first
+  /workflows [workflow]                the project's workflows, and a workflow as a diagram
+  /diagram <flow|workflow <id>|map-er [table]|map-system|map-modules|graph <symbol>> [zoom]
+                                       keel's diagrams in ASCII
+  /rules                               keel's rules for this project, and what agents may change
+right now
+  /plugins                             the plugins keel has, and which are on here
+  /budget                              tokens and money today, this month, per flow, and the caps
+  /dashboard [flow|map|er|keelbot|inbox]
+                                       the dashboard's link for this project
+  /model                               KeelBot's model (from keel's catalog)
+  /chats                               earlier KeelBot chats of this project: open one
+  /new                                 a new KeelBot chat
+  /mode <ask|fix>                      KeelBot's mode: ask (reads, changes nothing) or fix (keel's
+rules apply)
+  /panel <flow|agents|inbox|off>       show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle
+them)
+  /clear                               clear the screen
+  /quit                                leave keel TUI (keel keeps running)
+
+Keys: Tab complete the command or its argument · Up / Down the history, or the completion to take ·
+Ctrl+F toggle the flow rail · Ctrl+A toggle the agents at work · Ctrl+B toggle the inbox · Esc stop
+KeelBot's answer, or cancel a choice · Ctrl+C twice leave (keel keeps running)
+KeelBot's own commands (/gate, /where …) go to KeelBot as they are.
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

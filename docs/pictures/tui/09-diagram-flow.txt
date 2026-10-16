@@ -1,10 +1,12 @@
-… (146 lines above: the capture before)
-› /diagram flow
- flow feature "Add a /health endpoint that answers {"ok": true}" - waiting at options - phase spec
+… (165 lines above: the capture before)
+
+ › /diagram flow
+ flow feature "Add a /health endpoint that answers {"ok": true}" - waiting at contract_gate - phase
+ contract
  criteria 0/2: [ ]AC-1 [ ]AC-2
- waiting  gate "which optional phases run" at options
- answer   approve ("Run these steps")
- usage    176,100 tokens of 500,000 - $0.00
+ waiting  gate "contract delta" at contract_gate
+ answer   choose one: approve | change | amend
+ usage    194,100 tokens of 500,000 - $0.00
 
  == Preflight: check the repo and move to the flow's own branch ==  id=preflight
    [x] preflight + own branch  (code preflight)
@@ -33,19 +35,35 @@
        \       then -> spec  (loops back)
    [x] freeze + commit the spec  (code spec_freeze)
          fails -> spec  (loops back)
-   [?] which optional phases run  (gate, you decide)   <-- waiting for you
+   [x] which optional phases run  (gate, you decide)
  == Contract: write the API surface the criteria change ==  id=contract
-   [ ] contract  (agent contract-author)
-   [ ] the contract delta  (code show_diff)
-   [ ] contract delta  (gate, you decide)
+   [x] contract  (agent contract-author)
+   [x] the contract delta  (code show_diff)
+   [?] contract delta  (gate, you decide)   <-- waiting for you
          approve -> commit contract
          change -> contract  (loops back)
          amend -> put the contract draft back
        \ [ ] put the contract draft back  (code reset+amend_start)
        \       then -> spec amendment
+       \ [ ] the amendment changed nothing  (gate, you decide)
+       \       first -> build the other criterion first
+       \       skip -> move the criterion to the end
+       \       edit -> the amendment again with your note
+       \       stop -> stop the flow
+       \ [ ] build the other criterion first  (code amend_reorder)
+       \       then -> red  (loops back)
+       \ [ ] move the criterion to the end  (code amend_reorder)
+       \       then -> red  (loops back)
+       \ [ ] the amendment again with your note  (code amend_with_note)
+       \       then -> spec amendment
+       \ [ ] stop the flow  (code amend_stop)
+       \       then -> end of the flow
        \ [ ] spec amendment  (agent explorer)
        \ [ ] the amendment for the gate  (code spec_amendment)
        \       fails -> spec amendment  (loops back)
+       \ [ ] did the spec change?  (branch)
+       \       yes -> spec amendment
+       \       no -> an order question?
        \ [ ] spec amendment  (gate, you decide)
        \       approve -> commit the amendment
        \       context -> spec amendment  (loops back)
@@ -57,6 +75,11 @@
        \       no -> red  (loops back)
        \ [ ] back to the contract  (code)
        \       then -> contract  (loops back)
+       \ [ ] an order question?  (branch)
+       \       yes -> the other criterion first
+       \       no -> the amendment changed nothing  (loops back)
+       \ [ ] the other criterion first  (code)
+       \       then -> red  (loops back)
        \ [ ] start the spec again in a new feature flow  (code start_flow)
        \       starts the feature flow
        \       then -> end of the flow
@@ -66,14 +89,27 @@
    : [ ] the spec needs an amendment  (branch) if red says AMEND?
    :     yes: side path
    :     |  [ ] to the amendment  (code amend_start)
-   :     |        then -> spec amendment
+   :     |        then -> the same question again?
+   :     |  [ ] the same question again?  (branch)
+   :     |        yes -> the amendment changed nothing
+   :     |        no -> spec amendment
+   :     no: go on
+   : [ ] is the agent blocked?  (branch) if red says BLOCKED?
+   :     yes: side path
+   :     |  [ ] blocked  (code stuck)
+   :     |        then -> red  (loops back)
    :     no: go on
    : [ ] verify_red  (code verify_red+commit)
    : [ ] green  (agent implementer)
    : [ ] the spec needs an amendment  (branch) if green says AMEND?
    :     yes: side path
    :     |  [ ] to the amendment  (code amend_start)
-   :     |        then -> spec amendment
+   :     |        then -> the same question again?
+   :     no: go on
+   : [ ] is the agent blocked?  (branch) if green says BLOCKED?
+   :     yes: side path
+   :     |  [ ] blocked  (code stuck)
+   :     |        then -> red  (loops back)
    :     no: go on
    : [ ] verify_green + commit  (code verify_green+commit)
    : [ ] AC review  (agent ac-reviewer)
@@ -129,19 +165,19 @@
 
  [x] done  [>] running  [?] waiting for you  [!] failed  [#] stopped  [-] skipped  [ ] to do
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
-│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
+│ ✔ preflight  ✔ spec  ◆ contract  · red  · green  · gate  · integration  · security  ·            │
 │ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
-│ step  options · phase spec                                                                       │
+│ step  contract_gate · phase contract                                                             │
 │ AC    □□  0/2                                                                                    │
-│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
-│ ◆ waiting for you: which optional phases run · /approve                                          │
+│ gates spec approval · which optional phases run · ◆ contract delta · AC gate                     │
+│ ◆ waiting for you: contract delta · /approve or /answer <change | amend>                         │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Agents · 0 at work                                                                               │
 │ No agent is running.                                                                             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ›  Ask KeelBot, or / for commands                                                                │
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

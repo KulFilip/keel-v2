@@ -25,8 +25,10 @@
 /timeline
 @snap 10-timeline
 Where does this project start, and what is in it?
+@wait streaming 60
+@snap 11a-keelbot-while-it-writes
 @wait answer 240
-@snap 11-keelbot-answer
+@snap 11b-keelbot-answer
 /status
 @snap 12-status
 /flows

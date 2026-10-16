@@ -1,0 +1,183 @@
+… (165 lines above: the capture before)
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/diagram flow[22m                                                                                    [49m
+ [38;2;164;139;255mflow[39m feature "Add a /health endpoint that answers {"ok": true}" - waiting at contract_gate - phase
+ contract
+ [38;2;164;139;255mcriteria 0/2:[39m [38;2;154;149;140m[ ][39mAC-1 [38;2;154;149;140m[ ][39mAC-2
+ [1m[38;2;233;181;58mwaiting[39m[22m  [38;2;233;181;58mgate "contract delta" at contract_gate[39m
+ [1m[38;2;233;181;58manswer[39m[22m   [38;2;233;181;58mchoose one: approve | change | amend[39m
+ [38;2;164;139;255musage[39m    194,100 tokens of 500,000 - $0.00
+
+ [1m[38;2;164;139;255m== Preflight: check the repo and move to the flow's own branch ==[22m[38;2;107;103;95m  id=preflight[39m
+   [38;2;78;192;124m[x][39m preflight + own branch  [38;2;107;103;95m(code preflight)[39m
+ [1m[38;2;164;139;255m== Spec: write and approve what to build ==[22m[38;2;107;103;95m  id=spec[39m
+   [38;2;78;192;124m[x][39m spec  [38;2;154;149;140m(agent explorer)[39m
+   [38;2;78;192;124m[x][39m areas to map  [38;2;107;103;95m(code explore_areas)[39m
+   [38;2;78;192;124m[x][39m one explorer per area  [38;2;107;103;95m(parallel)[39m
+   [38;2;78;192;124m[x][39m collect the maps  [38;2;107;103;95m(code report)[39m
+   [38;2;78;192;124m[x][39m plan under the criteria  [38;2;154;149;140m(agent explorer)[39m
+   [38;2;78;192;124m[x][39m criteria + plan for the gate  [38;2;107;103;95m(code spec_sync)[39m
+   [38;2;78;192;124m[x][39m spec approval  [38;2;233;181;58m(gate, you decide)[39m
+         approve[38;2;107;103;95m -> [39mfreeze + commit the spec
+         edit[38;2;107;103;95m -> [39medit the spec
+         rewrite[38;2;107;103;95m -> [39medit the spec
+         review[38;2;107;103;95m -> [39mreview the spec before approving
+         order[38;2;107;103;95m -> [39mplan under the criteria  [38;2;107;103;95m(loops back)[39m
+         reject[38;2;107;103;95m -> [39mthe interview starts again
+         send back[38;2;107;103;95m -> [39mspec  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m edit the spec  [38;2;154;149;140m(agent explorer)[39m
+       \ [38;2;154;149;140m[ ][39m criteria + plan for the gate  [38;2;107;103;95m(code spec_sync)[39m
+       \       then[38;2;107;103;95m -> [39mspec approval  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m review the spec before approving  [38;2;154;149;140m(agent reviewer)[39m
+       \ [38;2;154;149;140m[ ][39m criteria + plan + the review for the gate  [38;2;107;103;95m(code spec_sync)[39m
+       \       then[38;2;107;103;95m -> [39mspec approval  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m the interview starts again  [38;2;107;103;95m(code spec_restart)[39m
+       \       then[38;2;107;103;95m -> [39mspec  [38;2;107;103;95m(loops back)[39m
+   [38;2;78;192;124m[x][39m freeze + commit the spec  [38;2;107;103;95m(code spec_freeze)[39m
+         fails[38;2;107;103;95m -> [39mspec  [38;2;107;103;95m(loops back)[39m
+   [38;2;78;192;124m[x][39m which optional phases run  [38;2;233;181;58m(gate, you decide)[39m
+ [1m[38;2;164;139;255m== Contract: write the API surface the criteria change ==[22m[38;2;107;103;95m  id=contract[39m
+   [38;2;78;192;124m[x][39m contract  [38;2;154;149;140m(agent contract-author)[39m
+   [38;2;78;192;124m[x][39m the contract delta  [38;2;107;103;95m(code show_diff)[39m
+   [38;2;233;181;58m[?][39m contract delta  [38;2;233;181;58m(gate, you decide)[39m   [1m[38;2;233;181;58m<-- waiting for you[39m[22m
+         approve[38;2;107;103;95m -> [39mcommit contract
+         change[38;2;107;103;95m -> [39mcontract  [38;2;107;103;95m(loops back)[39m
+         amend[38;2;107;103;95m -> [39mput the contract draft back
+       \ [38;2;154;149;140m[ ][39m put the contract draft back  [38;2;107;103;95m(code reset+amend_start)[39m
+       \       then[38;2;107;103;95m -> [39mspec amendment
+       \ [38;2;154;149;140m[ ][39m the amendment changed nothing  [38;2;233;181;58m(gate, you decide)[39m
+       \       first[38;2;107;103;95m -> [39mbuild the other criterion first
+       \       skip[38;2;107;103;95m -> [39mmove the criterion to the end
+       \       edit[38;2;107;103;95m -> [39mthe amendment again with your note
+       \       stop[38;2;107;103;95m -> [39mstop the flow
+       \ [38;2;154;149;140m[ ][39m build the other criterion first  [38;2;107;103;95m(code amend_reorder)[39m
+       \       then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m move the criterion to the end  [38;2;107;103;95m(code amend_reorder)[39m
+       \       then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m the amendment again with your note  [38;2;107;103;95m(code amend_with_note)[39m
+       \       then[38;2;107;103;95m -> [39mspec amendment
+       \ [38;2;154;149;140m[ ][39m stop the flow  [38;2;107;103;95m(code amend_stop)[39m
+       \       then[38;2;107;103;95m -> [39mend of the flow
+       \ [38;2;154;149;140m[ ][39m spec amendment  [38;2;154;149;140m(agent explorer)[39m
+       \ [38;2;154;149;140m[ ][39m the amendment for the gate  [38;2;107;103;95m(code spec_amendment)[39m
+       \       fails[38;2;107;103;95m -> [39mspec amendment  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m did the spec change?  [38;2;107;103;95m(branch)[39m
+       \       yes[38;2;107;103;95m -> [39mspec amendment
+       \       no[38;2;107;103;95m -> [39man order question?
+       \ [38;2;154;149;140m[ ][39m spec amendment  [38;2;233;181;58m(gate, you decide)[39m
+       \       approve[38;2;107;103;95m -> [39mcommit the amendment
+       \       context[38;2;107;103;95m -> [39mspec amendment  [38;2;107;103;95m(loops back)[39m
+       \       change[38;2;107;103;95m -> [39mspec amendment  [38;2;107;103;95m(loops back)[39m
+       \       rebuild[38;2;107;103;95m -> [39mstart the spec again in a new feature flow
+       \ [38;2;154;149;140m[ ][39m commit the amendment  [38;2;107;103;95m(code spec_amend_commit)[39m
+       \ [38;2;154;149;140m[ ][39m the contract moves  [38;2;107;103;95m(branch)[39m
+       \       yes[38;2;107;103;95m -> [39mback to the contract
+       \       no[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m back to the contract  [38;2;107;103;95m(code)[39m
+       \       then[38;2;107;103;95m -> [39mcontract  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m an order question?  [38;2;107;103;95m(branch)[39m
+       \       yes[38;2;107;103;95m -> [39mthe other criterion first
+       \       no[38;2;107;103;95m -> [39mthe amendment changed nothing  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m the other criterion first  [38;2;107;103;95m(code)[39m
+       \       then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+       \ [38;2;154;149;140m[ ][39m start the spec again in a new feature flow  [38;2;107;103;95m(code start_flow)[39m
+       \       starts the feature flow
+       \       then[38;2;107;103;95m -> [39mend of the flow
+   [38;2;154;149;140m[ ][39m commit contract  [38;2;107;103;95m(code commit)[39m
+ loop: For each criterion (2 criteria)  [38;2;107;103;95mid=ac[39m
+   : [38;2;154;149;140m[ ][39m red  [38;2;154;149;140m(agent test-author)[39m
+   : [38;2;154;149;140m[ ][39m the spec needs an amendment  [38;2;107;103;95m(branch)[39m if red says AMEND?
+   :     yes: side path
+   :     |  [38;2;154;149;140m[ ][39m to the amendment  [38;2;107;103;95m(code amend_start)[39m
+   :     |        then[38;2;107;103;95m -> [39mthe same question again?
+   :     |  [38;2;154;149;140m[ ][39m the same question again?  [38;2;107;103;95m(branch)[39m
+   :     |        yes[38;2;107;103;95m -> [39mthe amendment changed nothing
+   :     |        no[38;2;107;103;95m -> [39mspec amendment
+   :     no: go on
+   : [38;2;154;149;140m[ ][39m is the agent blocked?  [38;2;107;103;95m(branch)[39m if red says BLOCKED?
+   :     yes: side path
+   :     |  [38;2;154;149;140m[ ][39m blocked  [38;2;107;103;95m(code stuck)[39m
+   :     |        then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+   :     no: go on
+   : [38;2;154;149;140m[ ][39m verify_red  [38;2;107;103;95m(code verify_red+commit)[39m
+   : [38;2;154;149;140m[ ][39m green  [38;2;154;149;140m(agent implementer)[39m
+   : [38;2;154;149;140m[ ][39m the spec needs an amendment  [38;2;107;103;95m(branch)[39m if green says AMEND?
+   :     yes: side path
+   :     |  [38;2;154;149;140m[ ][39m to the amendment  [38;2;107;103;95m(code amend_start)[39m
+   :     |        then[38;2;107;103;95m -> [39mthe same question again?
+   :     no: go on
+   : [38;2;154;149;140m[ ][39m is the agent blocked?  [38;2;107;103;95m(branch)[39m if green says BLOCKED?
+   :     yes: side path
+   :     |  [38;2;154;149;140m[ ][39m blocked  [38;2;107;103;95m(code stuck)[39m
+   :     |        then[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+   :     no: go on
+   : [38;2;154;149;140m[ ][39m verify_green + commit  [38;2;107;103;95m(code verify_green+commit)[39m
+   : [38;2;154;149;140m[ ][39m AC review  [38;2;154;149;140m(agent ac-reviewer)[39m
+   : [38;2;154;149;140m[ ][39m AC gate  [38;2;233;181;58m(gate, you decide)[39m
+   :       send back[38;2;107;103;95m -> [39mred  [38;2;107;103;95m(loops back)[39m
+   `-- end of loop
+ [1m[38;2;164;139;255m== Integration: wire the real parts together ==[22m[38;2;107;103;95m  id=integration[39m
+   [38;2;154;149;140m[ ][39m integration  [38;2;154;149;140m(agent implementer)[39m
+   [38;2;154;149;140m[ ][39m verify the suite + commit  [38;2;107;103;95m(code verify_green+commit)[39m
+   [38;2;154;149;140m[ ][39m the diff for the integration gate  [38;2;107;103;95m(code show_diff)[39m
+   [38;2;154;149;140m[ ][39m integration  [38;2;233;181;58m(gate, you decide)[39m
+         send back[38;2;107;103;95m -> [39mintegration  [38;2;107;103;95m(loops back)[39m
+ [1m[38;2;164;139;255m== Security: audit the branch and its dependencies ==[22m[38;2;107;103;95m  id=security[39m
+   [38;2;154;149;140m[ ][39m verify deps  [38;2;107;103;95m(code verify_deps)[39m
+   [38;2;154;149;140m[ ][39m what security reads  [38;2;107;103;95m(code security_scope)[39m
+   [38;2;154;149;140m[ ][39m security auditor + dependency triager  [38;2;107;103;95m(parallel)[39m
+         after a fix[38;2;107;103;95m -> [39mverify deps  [38;2;107;103;95m(loops back)[39m
+ [1m[38;2;164;139;255m== Review fix: fix what a review or a check found ==[22m[38;2;107;103;95m  id=review-fix[39m
+   [38;2;154;149;140m[ ][39m fix the full-diff review's findings  [38;2;154;149;140m(agent implementer)[39m
+   [38;2;154;149;140m[ ][39m verify the suite + commit the fix  [38;2;107;103;95m(code verify_green+commit)[39m
+ [1m[38;2;164;139;255m== Review: a reviewer, then you, check the work ==[22m[38;2;107;103;95m  id=gate[39m
+   [38;2;154;149;140m[ ][39m full-diff review  [38;2;154;149;140m(agent code-reviewer)[39m
+         blocking findings[38;2;107;103;95m -> [39mfix the full-diff review's findings  [38;2;107;103;95m(loops back)[39m
+ [1m[38;2;164;139;255m== End-to-end: browser tests for the user journeys ==[22m[38;2;107;103;95m  id=e2e[39m
+   [38;2;154;149;140m[ ][39m e2e criteria + tool  [38;2;107;103;95m(code e2e_scope)[39m
+   [38;2;154;149;140m[ ][39m e2e criteria  [38;2;107;103;95m(branch)[39m if e2e criteria + tool says E2E = yes?
+       yes:
+       |  [38;2;154;149;140m[ ][39m no e2e command  [38;2;233;181;58m(gate, you decide)[39m
+       |        write[38;2;107;103;95m -> [39me2e specs without a tool
+       |        check[38;2;107;103;95m -> [39me2e criteria + tool  [38;2;107;103;95m(loops back)[39m
+       |      \ [38;2;154;149;140m[ ][39m e2e specs without a tool  [38;2;107;103;95m(code e2e_unrun)[39m
+       |      \       then[38;2;107;103;95m -> [39me2e  [38;2;107;103;95m(loops back)[39m
+       |  [38;2;154;149;140m[ ][39m e2e  [38;2;154;149;140m(agent e2e-author)[39m
+       |  [38;2;154;149;140m[ ][39m verify e2e + commit  [38;2;107;103;95m(code verify_e2e+commit)[39m
+       |  [38;2;154;149;140m[ ][39m e2e  [38;2;233;181;58m(gate, you decide)[39m
+       |        send back[38;2;107;103;95m -> [39me2e  [38;2;107;103;95m(loops back)[39m
+       no: go on
+ [1m[38;2;164;139;255m== Smoke: quick checks that also run after a deploy ==[22m[38;2;107;103;95m  id=smoke[39m
+   [38;2;154;149;140m[ ][39m smoke checks  [38;2;107;103;95m(code smoke_scope)[39m
+   [38;2;154;149;140m[ ][39m smoke checks  [38;2;107;103;95m(branch)[39m if smoke checks says SMOKE = yes?
+       yes:
+       |  [38;2;154;149;140m[ ][39m smoke  [38;2;154;149;140m(agent e2e-author)[39m
+       |  [38;2;154;149;140m[ ][39m run smoke + commit  [38;2;107;103;95m(code verify_smoke+commit)[39m
+       |  [38;2;154;149;140m[ ][39m smoke  [38;2;233;181;58m(gate, you decide)[39m
+       |        send back[38;2;107;103;95m -> [39msmoke  [38;2;107;103;95m(loops back)[39m
+       no: go on
+ [38;2;245;154;194m[+][39m include ship: checks, reviews and the pull request (30 steps)  [38;2;107;103;95mid=ship[39m
+ [1m[38;2;164;139;255m== Close: decision records and the closing note ==[22m[38;2;107;103;95m  id=close[39m
+   [38;2;154;149;140m[ ][39m ADR  [38;2;154;149;140m(agent explorer)[39m
+   [38;2;154;149;140m[ ][39m commit the ADR  [38;2;107;103;95m(code commit)[39m
+   [38;2;154;149;140m[ ][39m close  [38;2;107;103;95m(code close_flow)[39m
+         then[38;2;107;103;95m -> [39mend of the flow
+
+ [38;2;154;149;140m[x] done  [>] running  [?] waiting for you  [!] failed  [#] stopped  [-] skipped  [ ] to do[39m
+[38;2;61;61;67m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐[39m
+[38;2;61;61;67m│[39m [1mFlow · [38;2;164;139;255mfeature[39m "Add a /health endpoint that answers {"ok": true}" · [38;2;233;181;58m◆ waiting[39m[22m                    [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;78;192;124m✔ preflight  ✔ spec  [1m[38;2;233;181;58m◆ contract  [22m[38;2;107;103;95m· red  · green  · gate  · integration  · security  · [39m           [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m review-fix  [38;2;107;103;95m· e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review[39m  [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mstep  [39m[1mcontract_gate[22m[38;2;154;149;140m · phase contract[39m                                                             [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mAC    [38;2;107;103;95m□□[39m  0/2                                                                                    [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mgates spec approval · which optional phases run[1m[38;2;233;181;58m · ◆ contract delta[22m[38;2;154;149;140m · AC gate[39m                     [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [1m[38;2;233;181;58m◆ waiting for you: contract delta · /approve or /answer <change | amend>[39m[22m                         [38;2;61;61;67m│[39m
+[38;2;61;61;67m└──────────────────────────────────────────────────────────────────────────────────────────────────┘[39m
+[38;2;61;61;67m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐[39m
+[38;2;61;61;67m│[39m [1mAgents · [38;2;154;149;140m0 at work[39m[22m                                                                               [38;2;61;61;67m│[39m
+[38;2;61;61;67m│[39m [38;2;154;149;140mNo agent is running.[39m                                                                             [38;2;61;61;67m│[39m
+[38;2;61;61;67m└──────────────────────────────────────────────────────────────────────────────────────────────────┘[39m
+[38;2;233;181;58m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;233;181;58m│[39m [1m[38;2;164;139;255m› [39m[22m[7m [27m[38;2;154;149;140mA gate waits for you: /approve, /reject <why>, /next … or ask KeelBot[39m                         [38;2;233;181;58m│[39m
+[38;2;233;181;58m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[1m[38;2;247;246;243mscratch (feat/add-a-health-endpoint-…)[22m[38;2;107;103;95m · [38;2;233;181;58mfeature waiting[38;2;107;103;95m · [38;2;154;149;140mphase contract[38;2;107;103;95m · [38;2;154;149;140mAC 0/2[38;2;107;103;95m · [1m[38;2;233;181;58m1 waiting[22m[38;2;107;103;95m · [38;2;154;149;140m19[39m…[0m

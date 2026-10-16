@@ -1,0 +1,67 @@
+… (94 lines above: the capture before)
+
+ › /workflows feature
+ workflow feature "feature (keel)" - 105 steps, 15 gates
+
+ == Preflight: check the repo and move to the flow's own branch ==  id=preflight
+    #  preflight + own branch  (code preflight)
+ == Spec: write and approve what to build ==  id=spec
+    o  spec  (agent explorer)
+    #  areas to map  (code explore_areas)
+    =  one explorer per area  (parallel)
+    #  collect the maps  (code report)
+    o  plan under the criteria  (agent explorer)
+    #  criteria + plan for the gate  (code spec_sync)
+   [?] spec approval  (gate, you decide)
+         approve -> freeze + commit the spec
+         edit -> edit the spec
+         rewrite -> edit the spec
+         review -> review the spec before approving
+         order -> plan under the criteria  (loops back)
+         reject -> the interview starts again
+         send back -> spec  (loops back)
+       \  o  edit the spec  (agent explorer)
+       \  #  criteria + plan for the gate  (code spec_sync)
+       \       then -> spec approval  (loops back)
+       \  o  review the spec before approving  (agent reviewer)
+       \  #  criteria + plan + the review for the gate  (code spec_sync)
+       \       then -> spec approval  (loops back)
+       \  #  the interview starts again  (code spec_restart)
+       \       then -> spec  (loops back)
+    #  freeze + commit the spec  (code spec_freeze)
+         fails -> spec  (loops back)
+   [?] which optional phases run  (gate, you decide)
+ == Contract: write the API surface the criteria change ==  id=contract
+    o  contract  (agent contract-author)
+    #  the contract delta  (code show_diff)
+   [?] contract delta  (gate, you decide)
+         approve -> commit contract
+         change -> contract  (loops back)
+         amend -> put the contract draft back
+       \  #  put the contract draft back  (code reset+amend_start)
+       \       then -> spec amendment
+       \ [?] the amendment changed nothing  (gate, you decide)
+       \       first -> build the other criterion first
+       \       skip -> move the criterion to the end
+       \       edit -> the amendment again with your note
+       \       stop -> stop the flow
+       \  #  build the other criterion first  (code amend_reorder)
+       \       then -> red  (loops back)
+       \  #  move the criterion to the end  (code amend_reorder)
+       \       then -> red  (loops back)
+       \  #  the amendment again with your note  (code amend_with_note)
+       \       then -> spec amendment
+       \  #  stop the flow  (code amend_stop)
+       \       then -> end of the flow
+       \  o  spec amendment  (agent explorer)
+       \  #  the amendment for the gate  (code spec_amendment)
+       \       fails -> spec amendment  (loops back)
+       \  <  did the spec change?  (branch)
+       \       yes -> spec amendment
+       \       no -> an order question?
+       \ [?] spec amendment  (gate, you decide)
+ ... 99 more (zoom with id=contract)
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

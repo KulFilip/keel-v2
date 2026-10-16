@@ -1,0 +1,12 @@
+# keel TUI's look, before and after (scripts/test-keel-tui.sh with BEFORE_JS): the same screens with both builds.
+@snap 01-start
+/help
+@snap 02-help
+/flows
+/status
+@snap 03-flows-status
+/workflows feature
+@snap 04-workflow
+/next
+/timeline
+@snap 05-next-timeline

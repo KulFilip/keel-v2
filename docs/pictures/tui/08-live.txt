@@ -1,20 +1,21 @@
-… (144 lines above: the capture before)
-› /live
+… (162 lines above: the capture before)
+
+ › /live
 no agent is running.
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
-│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
+│ ✔ preflight  ✔ spec  ◆ contract  · red  · green  · gate  · integration  · security  ·            │
 │ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
-│ step  options · phase spec                                                                       │
+│ step  contract_gate · phase contract                                                             │
 │ AC    □□  0/2                                                                                    │
-│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
-│ ◆ waiting for you: which optional phases run · /approve                                          │
+│ gates spec approval · which optional phases run · ◆ contract delta · AC gate                     │
+│ ◆ waiting for you: contract delta · /approve or /answer <change | amend>                         │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Agents · 0 at work                                                                               │
 │ No agent is running.                                                                             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ›  Ask KeelBot, or / for commands                                                                │
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…
