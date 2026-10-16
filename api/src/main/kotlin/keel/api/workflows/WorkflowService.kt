@@ -147,10 +147,41 @@ class WorkflowService(
         } catch (e: BadRequest) {
             return InstallReview(name = "", source = "keelbot", steps = 0, gates = 0, keelRules = false, locked = 0, agents = emptyList(),
                 mcp = emptyList(), tools = emptyList(), commands = emptyList(), editsFiles = false, valid = false,
-                errors = listOfNotNull(e.message, e.hint), warnings = emptyList())
+                errors = listOfNotNull(e.message, e.hint), warnings = emptyList(), lines = parseLines(yaml, e))
         }
         val res = engine.validate(yaml)
         return review(doc, "keelbot", res.get("ok")?.asBoolean() == true, res.get("errors")?.map { it.asText() } ?: emptyList())
+            .copy(lines = linesOf(res))
+    }
+
+    /** The engine's `lines` of a validate answer: each error at its line of the YAML. */
+    private fun linesOf(res: JsonNode): List<LineError> =
+        res.get("lines")?.filter { it.has("line") }?.map { LineError(it.get("line").asInt(1), it.path("message").asText()) }.orEmpty()
+
+    /**
+     * The lines of YAML keel's own reading refused (WorkflowDoc.parse): the engine's lines when it finds the problem too,
+     * else the refusal on line 1 (or the line the YAML parser names).
+     */
+    private fun parseLines(yaml: String, e: ApiException): List<LineError> {
+        val engineLines = runCatching { linesOf(engine.validate(yaml)) }.getOrDefault(emptyList())
+        if (engineLines.isNotEmpty()) return engineLines
+        val at = Regex("line: (\\d+)").find(e.hint.orEmpty())?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        return listOf(LineError(at, listOfNotNull(e.message, e.hint?.takeIf { at == 1 }).joinToString(": ")))
+    }
+
+    /** WorkflowDoc.parse, and a refusal carries its lines (the editor marks them). */
+    private fun parseWithLines(yaml: String): WorkflowDoc = try {
+        WorkflowDoc.parse(yaml)
+    } catch (e: BadRequest) {
+        throw ApiException(HttpStatus.BAD_REQUEST, e.message, e.hint, mapOf("lines" to parseLines(yaml, e)))
+    }
+
+    /** v0.17.4 a new workflow's YAML (New workflow shows it before it is made): the engine's starter, with its id here. */
+    fun starter(pid: String, name: String, keelRules: Boolean): Map<String, String> {
+        projects.require(pid)
+        val title = name.trim().ifBlank { "My workflow" }
+        val id = newId("$pid-$title")
+        return mapOf("id" to id, "yaml" to engine.starter(title, id, keelRules).path("yaml").asText())
     }
 
     fun get(wid: String): Workflow {
@@ -215,7 +246,19 @@ class WorkflowService(
         projects.require(pid)
         if (name.isBlank()) throw BadRequest("Give the workflow a name")
         val doc = when {
-            from == "blank" -> WorkflowDoc(name = name, keelRules = keelRules ?: false, steps = emptyList())
+            // v0.17.4 a small valid example (the engine's starter), so Save works as it is; the old empty one if the
+            // engine cannot say
+            from == "blank" -> {
+                val id = newId("$pid-$name")
+                val text = try {
+                    engine.starter(name.trim(), id, keelRules ?: false).path("yaml").asText("")
+                } catch (e: ApiException) {
+                    ""
+                }
+                val starter = text.takeIf { it.isNotBlank() }?.let { t -> runCatching { WorkflowDoc.parse(t) }.getOrNull()?.let { it to t } }
+                if (starter != null) return insert(id, pid, starter.first.copy(id = null), starter.second, "yours", null)
+                WorkflowDoc(name = name, keelRules = keelRules ?: false, steps = emptyList())
+            }
             from.startsWith("template:") -> {
                 val t = get(from.removePrefix("template:"))
                 WorkflowDoc(name = name, basedOn = "keel/${t.id}", keelRules = keelRules ?: t.keelRules, needsPlugins = t.needsPlugins, steps = t.steps)
@@ -238,8 +281,8 @@ class WorkflowService(
             ?: if (isTemplate(wid)) throw Conflict("keel templates cannot change", "Make your own workflow from this template first.") else throw NotFound("No workflow called \"$wid\"")
         val old = toWorkflow(row)
         val yamlChanged = !body.yaml.isNullOrBlank() && body.yaml.trim() != row.yaml.trim()
-        val (doc, yaml) = if (yamlChanged) {
-            WorkflowDoc.parse(body.yaml!!) to body.yaml
+        val (doc, given) = if (yamlChanged) {
+            parseWithLines(body.yaml!!) to body.yaml
         } else {
             val prev = runCatching { WorkflowDoc.parse(row.yaml) }.getOrElse { WorkflowDoc(name = old.name) }
             val d = prev.copy(
@@ -252,7 +295,8 @@ class WorkflowService(
         }
         if (yamlChanged) refuseOtherWorkflow(wid, row.yaml, doc)
         refuseLockedRemoval(old, doc)
-        validate(yaml)
+        // saved as keel writes it (the engine's formatted: documented key order, 2-space indent, comments kept)
+        val yaml = validate(given).path("formatted").asText("").ifBlank { given }
         val version = row.version + 1
         val now = Time.now()
         jdbc.update(
@@ -289,12 +333,13 @@ class WorkflowService(
         }
     }
 
-    /** Asks the engine. Not valid → 422 with the engine's reasons. */
+    /** Asks the engine. Not valid → 422 with the engine's reasons (hint, as before) and each at its line (`lines`). */
     fun validate(yaml: String): JsonNode {
         val res = engine.validate(yaml)
         if (res.get("ok")?.asBoolean() != true) {
             val errors = res.get("errors")?.map { it.asText() } ?: emptyList()
-            throw ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "The workflow is not valid", errors.joinToString("; ").ifBlank { null })
+            throw ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "The workflow is not valid", errors.joinToString("; ").ifBlank { null },
+                mapOf("lines" to linesOf(res)))
         }
         return res
     }
@@ -333,11 +378,12 @@ class WorkflowService(
             !url.isNullOrBlank() -> fetch(url) to url
             else -> throw BadRequest("Send yaml or url")
         }
-        val doc = WorkflowDoc.parse(text)
+        val doc = parseWithLines(text)
         val res = engine.validate(text)
         val valid = res.get("ok")?.asBoolean() == true
         val errors = res.get("errors")?.map { it.asText() } ?: emptyList()
-        if (!valid) throw ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "The workflow is not valid", errors.joinToString("; ").ifBlank { null })
+        if (!valid) throw ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "The workflow is not valid", errors.joinToString("; ").ifBlank { null },
+            mapOf("lines" to linesOf(res)))
         val wf = insert(newId("$pid-${doc.name}"), pid, doc.copy(id = null), text, "yours", null)
         return wf to review(doc, source, valid, errors)
     }

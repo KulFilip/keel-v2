@@ -117,6 +117,9 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
 
     fun templates(): JsonNode = get("/templates")
     fun validate(yaml: String): JsonNode = post("/workflows/validate", mapOf("yaml" to yaml))
+    /** A new workflow's YAML: small, valid as it is, in keel's style. */
+    fun starter(name: String, id: String, keelRules: Boolean): JsonNode =
+        get("/workflows/starter?name={name}&id={id}&keel_rules={rules}", mapOf("name" to name, "id" to id, "rules" to keelRules))
     fun estimate(body: Map<String, Any?>): JsonNode = post("/workflows/estimate", body)
     fun startThread(body: Any): JsonNode = post("/threads", body, long = true)
     fun thread(id: String): JsonNode = get("/threads/$id")

@@ -194,7 +194,12 @@ data class InstallReview(
     val valid: Boolean,
     val errors: List<String>,
     val warnings: List<String>,
+    /** 0.17.4: each error at its line of the YAML (the editor marks it); `errors` keeps the same texts as before. */
+    val lines: List<LineError> = emptyList(),
 )
+
+/** An error of a workflow YAML at its 1-based line (the engine's /workflows/validate `lines`). */
+data class LineError(val line: Int, val message: String)
 
 /** PUT body: the Workflow type, every field optional (missing = keep). A changed `yaml` wins over the fields. */
 data class WorkflowUpdate(

@@ -168,4 +168,71 @@ class WorkflowApiTest : ApiTest() {
         put("/api/workflows/$wid", mapOf("yaml" to other.replace("id: feature", "id: $wid"))).andExpect(status().isOk)
         put("/api/workflows/$wid", mapOf("yaml" to other.replace("id: feature\n", "").replace("Feature", "Renamed"))).andExpect(status().isOk)
     }
+
+    @Test
+    fun `check, save and import give each error at its line and keep the old texts`() {
+        val (pid, _) = newProject("wf-lines")
+        val wid = post("/api/projects/$pid/workflows", mapOf("name" to "Mine", "from" to "blank")).json()["id"].asText()
+        val bad = "name: Mine\nkeel_rules: false\nsteps:\n  - { id: a, kind: code, name: a, action: report }\n  - { id: INVALID, kind: code, name: nope }\n"
+
+        val check = post("/api/projects/$pid/workflows/check", mapOf("yaml" to bad)).andExpect(status().isOk).json()
+        assertThat(check["valid"].asBoolean()).isFalse()
+        assertThat(check["errors"].map { it.asText() }).containsExactly("step INVALID is not allowed")
+        assertThat(check["lines"].map { it["line"].asInt() to it["message"].asText() }).containsExactly(5 to "step INVALID is not allowed")
+        val ok = post("/api/projects/$pid/workflows/check", mapOf("yaml" to bad.replace("INVALID", "b"))).json()
+        assertThat(ok["valid"].asBoolean()).isTrue()
+        assertThat(ok["lines"].size()).isEqualTo(0)
+
+        val saved = put("/api/workflows/$wid", mapOf("yaml" to bad)).andExpect(status().isUnprocessableEntity).json()
+        assertThat(saved["hint"].asText()).isEqualTo("step INVALID is not allowed")
+        assertThat(saved["lines"][0]["line"].asInt()).isEqualTo(5)
+
+        val imported = post("/api/projects/$pid/workflows/import", mapOf("yaml" to bad)).andExpect(status().isUnprocessableEntity).json()
+        assertThat(imported["lines"][0]["line"].asInt()).isEqualTo(5)
+
+        // keel's own reading refuses it (no name): 400 as before, and a line
+        val noName = put("/api/workflows/$wid", mapOf("yaml" to "keel_rules: false\nsteps: []\n")).andExpect(status().isBadRequest).json()
+        assertThat(noName["error"].asText()).isEqualTo("The workflow has no name")
+        assertThat(noName["lines"][0]["line"].asInt()).isEqualTo(1)
+        val noNameCheck = post("/api/projects/$pid/workflows/check", mapOf("yaml" to "keel_rules: false\nsteps: []\n")).json()
+        assertThat(noNameCheck["errors"].map { it.asText() }).containsExactly("The workflow has no name", "Add `name:` at the top of the file.")
+        assertThat(noNameCheck["lines"].size()).isEqualTo(1)
+    }
+
+    @Test
+    fun `a save stores the workflow as the engine writes it`() {
+        val (pid, _) = newProject("wf-tidy")
+        val wid = post("/api/projects/$pid/workflows", mapOf("name" to "Mine", "from" to "blank")).json()["id"].asText()
+        val messy = "# mine\nsteps:\n- {name: r, id: r, kind: code, action: report}\nkeel_rules: false\nname: Mine\n"
+        val tidy = "# mine\n\nname: Mine\nkeel_rules: false\n\nsteps:\n\n  - id: r\n    kind: code\n    name: r\n    action: report\n"
+        engine.extraRoutes["/workflows/validate"] = { _ -> 200 to mapOf("ok" to true, "errors" to emptyList<String>(), "lines" to emptyList<Any>(), "formatted" to tidy) }
+        try {
+            val out = put("/api/workflows/$wid", mapOf("yaml" to messy)).andExpect(status().isOk).json()
+            assertThat(out["yaml"].asText()).isEqualTo(tidy)
+            assertThat(get("/api/workflows/$wid/export").andReturn().response.contentAsString).isEqualTo(tidy)
+        } finally {
+            engine.extraRoutes.remove("/workflows/validate")
+        }
+        // an engine that sends no formatted: the YAML as it came
+        val again = "name: Mine\nkeel_rules: false\nsteps:\n  - { id: r, kind: code, name: r2, action: report }\n"
+        assertThat(put("/api/workflows/$wid", mapOf("yaml" to again)).json()["yaml"].asText()).isEqualTo(again)
+    }
+
+    @Test
+    fun `a new workflow starts from the engine's small example, which saves as it is`() {
+        val (pid, _) = newProject("wf-starter")
+        val shown = get("/api/projects/$pid/workflows/starter?name=Hotfix&keel_rules=false").andExpect(status().isOk).json()
+        val id = shown["id"].asText()
+        assertThat(shown["yaml"].asText()).startsWith("# Hotfix: a small workflow to start from.").contains("id: $id\nname: Hotfix\n").contains("keel_rules: false")
+
+        val wf = post("/api/projects/$pid/workflows", mapOf("name" to "Hotfix", "from" to "blank", "keel_rules" to true)).andExpect(status().isOk).json()
+        assertThat(wf["id"].asText()).isEqualTo(id)
+        assertThat(wf["steps"].map { it["id"].asText() }).containsExactly("plan", "plan_ok")
+        assertThat(wf["keel_rules"].asBoolean()).isTrue()
+        assertThat(wf["yaml"].asText()).contains("id: $id\n").contains("keel_rules: true")
+        assertThat(wf["source"].asText()).isEqualTo("yours")
+        // Save as it is (the blocks' Save sends the steps): a new version
+        assertThat(put("/api/workflows/$id", mapOf("yaml" to wf["yaml"].asText() + "\n")).andExpect(status().isOk).json()["version"].asInt()).isEqualTo(2)
+        assertThat(put("/api/workflows/$id", mapOf("steps" to wf["steps"])).andExpect(status().isOk).json()["version"].asInt()).isEqualTo(3)
+    }
 }

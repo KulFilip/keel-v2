@@ -31,6 +31,14 @@ class WorkflowController(private val workflows: WorkflowService) {
     fun create(@PathVariable pid: String, @RequestBody body: CreateWorkflow): Workflow =
         workflows.create(pid, body.name, body.from, body.keelRules)
 
+    /** v0.17.4 what New workflow makes from "a small example": the engine's starter with the id it would get here. */
+    @GetMapping("/projects/{pid}/workflows/starter")
+    fun starter(
+        @PathVariable pid: String,
+        @RequestParam(required = false, defaultValue = "My workflow") name: String,
+        @RequestParam(name = "keel_rules", required = false, defaultValue = "true") keelRules: Boolean,
+    ): Map<String, String> = workflows.starter(pid, name, keelRules)
+
     @GetMapping("/workflows/{wid}")
     fun get(@PathVariable wid: String): Workflow = workflows.get(wid)
 
