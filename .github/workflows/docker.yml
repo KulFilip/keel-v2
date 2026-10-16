@@ -1,11 +1,17 @@
-# Builds the image for amd64 + arm64 on a version tag (v*) and pushes it to
-#   ghcr.io/<owner>/<repo>          always: the repo's own name (keel-studio/keel-app once the repo moved there)
+# Builds keel v2's images on a version tag (v*) and pushes them to
+#   ghcr.io/<owner>/<repo>          always: the repo's own name
 #   ghcr.io/miladnalbandi/keel-v2   the old name, while the secret LEGACY_GHCR_TOKEN exists (a token of MiladNalbandi
-#                                   with write:packages), so installs made before the move keep getting updates
+#                                   with write:packages), so installs made before a move keep getting updates
 #   docker.io/<user>/keel-v2        when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist
-# and the product edition (keel Product, beta) to <image>:<version>-product-beta and :product-beta for each ghcr name,
-# which never move :latest. The core edition (keel's core only, no plugin inside: keel2 start --core) goes next to
-# :latest, to the same names: <image>:<version>-core always, and :core when :latest moves (a real release).
+# Three editions, each for amd64 and arm64:
+#   full     :<version>, :<major>.<minor>, :latest (not on a pre-release tag such as v0.18.2-rc.1)
+#   core     :<version>-core, :core (with :latest)                      keel's core only: keel2 start --core
+#   product  :<version>-product-beta, :product-beta (never :latest; not moved by a pre-release)  keel Product, beta
+#
+# v0.18.2 fast builds: every edition × architecture builds at the same time on its OWN kind of machine (arm64 on
+# GitHub's arm runners: no QEMU emulation), pushed by digest; a short merge job per edition joins the two digests
+# into one multi-arch tag set. The build cache lives in the registry (<image>:buildcache-<edition>-<arch>), not in
+# GitHub's 10 GB Actions cache, and every edition also reads the full edition's cache (the stages they share).
 name: docker
 on:
   push:
@@ -18,14 +24,67 @@ env:
   LEGACY_IMAGE: ghcr.io/miladnalbandi/keel-v2
   LEGACY_USER: MiladNalbandi
 jobs:
-  image:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [full, core, product]
+        arch:
+          - { name: amd64, platform: linux/amd64, runner: ubuntu-latest }
+          - { name: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.arch.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        run: echo "name=$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.arch.platform }}
+          # pushed by digest only: the merge job puts the tags on
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            INSTALL_CLIS=1
+            EDITION=${{ matrix.edition }}
+          labels: |
+            org.opencontainers.image.title=keel v2 (${{ matrix.edition }})
+            org.opencontainers.image.licenses=MIT
+          cache-from: |
+            type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.edition }}-${{ matrix.arch.name }}
+            type=registry,ref=${{ steps.image.outputs.name }}:buildcache-full-${{ matrix.arch.name }}
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.edition }}-${{ matrix.arch.name }},mode=max,image-manifest=true,oci-mediatypes=true
+      - run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.arch.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.edition }}-${{ matrix.arch.name }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  merge:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [full, core, product]
     runs-on: ubuntu-latest
     env:
       HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
       HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.edition }}-*
+          path: /tmp/digests
+          merge-multiple: true
       - uses: docker/setup-buildx-action@v3
       # one login per registry: the legacy token can push both names, the workflow's token only the repo's own
       - uses: docker/login-action@v3
@@ -41,145 +100,42 @@ jobs:
           username: ${{ env.LEGACY_USER }}
           password: ${{ secrets.LEGACY_GHCR_TOKEN }}
       - uses: docker/login-action@v3
-        if: env.HAS_DOCKERHUB == 'true'
+        if: env.HAS_DOCKERHUB == 'true' && matrix.edition != 'product'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - id: names
+      - name: tag the two digests as one multi-arch image
+        env:
+          EDITION: ${{ matrix.edition }}
+          REF: ${{ github.ref_name }}
         run: |
-          images="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          if [ "$HAS_LEGACY" = "true" ] && [ "$images" != "$LEGACY_IMAGE" ]; then images="${images}"$'\n'"${LEGACY_IMAGE}"; fi
-          if [ "$HAS_DOCKERHUB" = "true" ]; then images="${images}"$'\n'"docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
-          { echo "images<<EOF"; echo "$images"; echo "EOF"; } >> "$GITHUB_OUTPUT"
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ steps.names.outputs.images }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            # A pre-release tag (v0.4.0-rc.1) publishes :0.4.0-rc.1 only; :latest moves on real releases.
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
-          labels: |
-            org.opencontainers.image.title=keel v2
-            org.opencontainers.image.description=keel's test-first flow as a LangGraph graph, with a dashboard, in one image
-            org.opencontainers.image.licenses=MIT
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            INSTALL_CLIS=1
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-  core:
-    # keel's core only (EDITION=core, docs/plugins/16-steps5-7-contract.md step 6): the plugins are added from the
-    # marketplace. :<version>-core on every tag; :core moves with :latest (not on a pre-release tag such as v0.4.0-rc.1)
-    runs-on: ubuntu-latest
-    env:
-      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
-      HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        if: env.HAS_LEGACY != 'true'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/login-action@v3
-        if: env.HAS_LEGACY == 'true'
-        with:
-          registry: ghcr.io
-          username: ${{ env.LEGACY_USER }}
-          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
-      - uses: docker/login-action@v3
-        if: env.HAS_DOCKERHUB == 'true'
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - id: names
-        run: |
+          set -euo pipefail
           image="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          images="$image"
-          if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then images="$images $LEGACY_IMAGE"; fi
-          if [ "$HAS_DOCKERHUB" = "true" ]; then images="$images docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
-          version="${GITHUB_REF_NAME#v}"
-          {
-            echo "tags<<EOF"
-            for i in $images; do
-              echo "$i:${version}-core"
-              case "$GITHUB_REF_NAME" in *-*) ;; *) echo "$i:core" ;; esac
-            done
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.names.outputs.tags }}
-          labels: |
-            org.opencontainers.image.title=keel v2, core only
-            org.opencontainers.image.description=keel's core without plugins: add them from Control › Plugins
-            org.opencontainers.image.licenses=MIT
-          build-args: |
-            INSTALL_CLIS=1
-            EDITION=core
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-  product:
-    # keel Product (product/, an add-on) is beta: its edition gets its own tags and never :latest
-    runs-on: ubuntu-latest
-    env:
-      HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        if: env.HAS_LEGACY != 'true'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/login-action@v3
-        if: env.HAS_LEGACY == 'true'
-        with:
-          registry: ghcr.io
-          username: ${{ env.LEGACY_USER }}
-          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
-      - id: names
-        run: |
-          image="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          images="$image"
-          if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then images="$image $LEGACY_IMAGE"; fi
-          version="${GITHUB_REF_NAME#v}"
-          { echo "tags<<EOF"; for i in $images; do echo "$i:${version}-product-beta"; echo "$i:product-beta"; done; echo "EOF"; } >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.names.outputs.tags }}
-          labels: |
-            org.opencontainers.image.title=keel v2 with keel Product (beta)
-            org.opencontainers.image.licenses=MIT
-          build-args: |
-            INSTALL_CLIS=1
-            EDITION=product
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          names="$image"
+          if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then names="$names $LEGACY_IMAGE"; fi
+          if [ "$HAS_DOCKERHUB" = "true" ] && [ "$EDITION" != product ]; then names="$names docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
+          case "$REF" in v*) version="${REF#v}" ;; *) echo "not a version tag ($REF): the images stay untagged"; exit 0 ;; esac
+          pre=0; case "$version" in *-*) pre=1 ;; esac
+          minor="$(echo "$version" | cut -d. -f1-2)"
+          tags=()
+          for n in $names; do
+            case "$EDITION" in
+              full)    tags+=("$n:$version"); [ $pre = 1 ] || tags+=("$n:$minor" "$n:latest") ;;
+              core)    tags+=("$n:$version-core"); [ $pre = 1 ] || tags+=("$n:core") ;;
+              product) tags+=("$n:$version-product-beta"); [ $pre = 1 ] || tags+=("$n:product-beta") ;;
+            esac
+          done
+          sources=(); for f in /tmp/digests/*; do sources+=("$image@$(cat "$f")"); done
+          args=(); for tg in "${tags[@]}"; do args+=(-t "$tg"); done
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          for tg in "${tags[@]}"; do echo "$tg"; done
+          docker buildx imagetools inspect "${tags[0]}"
 
   # v0.16.1 the native release (keel2 start --native downloads it): keel-v2-<version>-native.tar.gz and its sha256,
   # attached to the GitHub release of the tag when there is one, else kept as the run's artifact
   native:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # a pre-release tag (v0.18.2-rc.1) tests the images only: the native release needs the engine's own version
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
