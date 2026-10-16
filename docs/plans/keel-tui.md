@@ -12,7 +12,7 @@ what happens in the dashboard shows in the terminal, and what you do in the term
                                                                           │   one transport: base URL + headers)
                                                                           ▼
                      ┌──────────────── keel api (Kotlin) ─────────────────┐
-   REST  /api/...  ──┤  X-Keel-Via: tui  → ClientAudit → event tui.call    │──▶ timeline: "via keel TUI: /approve"
+   REST  /api/...  ──┤  X-Keel-Via: tui  → McpAudit → event tui.call       │──▶ timeline: "via keel TUI: /approve"
    SSE   /api/events ◀┤  gate.waiting, thread.done, agent.started, ...     │
    POST /api/diagrams/ascii ──▶ engine POST /diagrams/ascii ──▶ keel_engine/diagrams.py (shared with keel2 mcp)
                      └─────────────────────────────────────────────────────┘
@@ -40,7 +40,7 @@ with backoff), the twin of the web's EventSource use in `web/src/state.tsx`.
 |---|------|-------|
 | 1 | Transport in the web client | `web/src/api.ts` (setTransport), web test |
 | 2 | Shared ASCII diagram renderer | `engine/keel_engine/diagrams.py`, engine route `POST /diagrams/ascii`, api `POST /api/diagrams/ascii` (`api/.../diagrams/DiagramController.kt`), `McpLevels.kt` READ_POSTS, golden tests `engine/tests/golden/diagrams/`, shared workflow fixtures `engine/tests/fixtures/flowmap/*.json` read by pytest and vitest |
-| 3 | "via keel TUI" | `api/.../mcp/ClientAudit.kt` (X-Keel-Via: tui → `tui.call` event), engine `runtime/service.py` (`started_via: tui` → `thread.started.via`), web `components/events.ts` |
+| 3 | "via keel TUI" | `api/.../mcp/McpAudit.kt` (X-Keel-Via: tui → `tui.call` event; xal → `xal.call`), engine `runtime/service.py` (`started_via: tui` → `thread.started.via`), web `components/events.ts` |
 | 4 | The app | `cli/src/`: `main.tsx` (args), `transport.ts`, `sse.ts`, `keel.ts` (status, next, timeline… as text), `commands.ts` (registry, parse, autocomplete), `markdown.ts`, `logo.ts`, `ui/*` (App, StartScreen, Prompt, Picker, Panels, StatusLine), `script.ts` (non-interactive driver) |
 | 5 | Ship it | `keel2` (`tui`, the no-argument default), `Dockerfile` (cli stage → `/opt/keel-v2/cli/keel-tui.mjs`), `scripts/build-native.sh` (`cli/keel-tui.mjs` in the tarball), `cli/package.json` bin `keel-tui`, CI job |
 | 6 | Tests and the real check | `cli/test/*` (ink-testing-library), `cli/test/contract.test.ts` (stub api), `scripts/test-keel-tui.sh` (throw-away keel), captures in `docs/pictures/tui/` |
@@ -105,6 +105,22 @@ orphans `buildFlowMap` gives); a pytest checks the Python port, a vitest checks 
 - Two renderers drifting (web SVG flow map vs ASCII): the shared fixtures.
 - The 0.17.4 engine work touches `runtime/service.py`: this branch changes one line there (started_via).
 - `McpLevels.kt` READ_POSTS: the other session adds a line beside ours; whoever merges second rebases.
+
+## Shared with other clients
+
+- **Command table**: `content/agent-clients/commands.json` (names, arguments, help text, `writes`, what an argument
+  completes from, `local`, the keys). keel TUI builds its commands from it; the xal client (clients/xal) and any other
+  front end read the same file.
+- **UI-free core**: `cli/src/core/` (KeelCore: project, flow, inbox, agents, the live stream, KeelBot; commands,
+  formatting, markdown, the SSE reader `sse.ts`, the transport). `cli/src/core/index.ts` is its one entry; an xal
+  plugin or an OpenTUI front end imports it unchanged. Only `cli/src/ui/` is Ink.
+- **Who acts**: `X-Keel-Via: tui | xal | mcp` (+ `X-Keel-Client`, `X-Keel-Tool`); the api records a write as a
+  `<via>.call` event, and `options.started_via` of a flow (`mcp`, `tui`, `xal`) shows in `thread.started`.
+
+## Status (built on feat/keel-tui)
+
+Everything above is built. The real check (`scripts/test-keel-tui.sh`) ran against a throw-away keel (an image with
+this branch's api, engine, plugins and keel TUI on top of 0.17.3's): captures in `docs/pictures/tui/`.
 
 ## Open questions (with my recommendation)
 

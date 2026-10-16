@@ -1,0 +1,18 @@
+… (140 lines above: the capture before)
+› /approve
+◆ spec_gate approved
+◆ waiting for you: which optional phases run · /approve or /reject <why> (/next says more)
+✓ approved spec approval. The flow is running at options (phase spec).
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
+│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
+│ step  options · phase spec                                                                       │
+│ AC    □□  0/2                                                                                    │
+│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
+│ ◆ waiting for you: which optional phases run · /approve                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 0 waiting · 176.1k…

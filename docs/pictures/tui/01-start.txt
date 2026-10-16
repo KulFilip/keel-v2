@@ -1,0 +1,21 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│       |\                _              _                                                         │
+│       | \              | | _____  ___ | |                                                        │
+│       |  \             | |/ / _ \/ _ \| |                                                        │
+│    ___|___\___         |   <  __/  __/| |                                                        │
+│    \_________/         |_|\_\___|\___||_|                                                        │
+│        \_/   ~~~~~~~~                v2                                                          │
+│                                                                                                  │
+│ keel v2 0.17.3 · keel TUI 0.17.3                                                                 │
+│ keel     http://localhost:8099 · docker                                                          │
+│ project  scratch · branch main                                                                   │
+│ waiting  nothing waits for you                                                                   │
+│ next     no flow: start one with /flow (feature, change, fix, diagnose, review, cover, ship,     │
+│ hunt, lint, init …).                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (main) · no flow · 0 waiting · ● live
