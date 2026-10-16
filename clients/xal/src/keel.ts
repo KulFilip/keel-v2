@@ -55,8 +55,11 @@ export class Keel {
       else if (this.cfg.key) this.key = this.cfg.key;
       else {
         const [cmd, ...args] = this.cfg.keyCommand;
-        const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 15_000 });
-        this.key = r.status === 0 ? String(r.stdout || "").trim() || null : null;
+        if (!cmd) this.key = null;
+        else {
+          const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 15_000 });
+          this.key = r.status === 0 ? String(r.stdout || "").trim() || null : null;
+        }
       }
     }
     return this.key ?? undefined;

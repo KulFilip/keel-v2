@@ -89,11 +89,13 @@ jobs:
           printf '# demo\n' > "$repo/README.md" && git -C "$repo" add -A && git -C "$repo" -c user.name=ci -c user.email=ci@localhost commit -qm init
           ./keel2 start --native --from-tarball "$(ls "$RUNNER_TEMP"/dist/*.tar.gz)" "$repo"
           ./keel2 status | grep -q "running natively"
-          pid="$(curl -fs http://127.0.0.1:8097/api/projects | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
-          curl -fs -X POST "http://127.0.0.1:8097/api/projects/$pid/flows" -H 'content-type: application/json' \
+          # v0.18.1 every api caller proves who it is: a terminal client sends the sign-in key
+          auth="Authorization: Bearer $(./keel2 auth key)"
+          pid="$(curl -fs -H "$auth" http://127.0.0.1:8097/api/projects | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+          curl -fs -X POST "http://127.0.0.1:8097/api/projects/$pid/flows" -H "$auth" -H 'content-type: application/json' \
             -d '{"workflow_id":"feature","title":"Scores","request":"Save a score."}' > /dev/null
           for _ in $(seq 1 60); do
-            st="$(curl -fs "http://127.0.0.1:8097/api/projects/$pid/flow" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("thread") or {}).get("status"))')"
+            st="$(curl -fs -H "$auth" "http://127.0.0.1:8097/api/projects/$pid/flow" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("thread") or {}).get("status"))')"
             [ "$st" = waiting ] && break; sleep 2
           done
           test "$st" = waiting
