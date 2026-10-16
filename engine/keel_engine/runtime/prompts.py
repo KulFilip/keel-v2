@@ -160,7 +160,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
-    test_cmd = testcmd.command_for(root, ac["id"], ac.get("layer", "API")) if ac else None
+    test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
     if phase == "red":
         lines.append("Write the failing test for the current criterion only. Put the criterion id in the test's name "
                      f"(for example \"{(ac or {}).get('id', 'AC-1')} ...\"), so the engine can run it alone. Do not write production code.")

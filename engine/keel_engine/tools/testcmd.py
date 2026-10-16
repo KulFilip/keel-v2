@@ -15,15 +15,62 @@ def _pytest_key(ac: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", ac.lower()).strip("_")
 
 
-def command_for(root: str, ac: str | None = None, layer: str = "API") -> str | None:
-    cfg = rules.load_config(root)
-    cmds = cfg.get("commands") or {}
+def _configured(root: str, ac: str | None, layer: str) -> str | None:
+    """The project's own test command from .keel/config.yml (placeholders filled), or None."""
+    if not (Path(root) / ".keel" / "config.yml").is_file():
+        return None
+    cmds = rules.load_config(root).get("commands") or {}
     key = ("web_test_ac" if layer == "WEB" else "api_test_ac") if ac else ("web_test_module" if layer == "WEB" else "api_test_module")
     custom = cmds.get(key) or (cmds.get("unit_tests") if not ac else None)
-    cfg_file = Path(root) / ".keel" / "config.yml"
-    if custom and cfg_file.is_file():
-        return custom.replace("{AC_KEY}", _pytest_key(ac or "")).replace("{AC}", ac or "")
-    return detected(root, ac)
+    return custom.replace("{AC_KEY}", _pytest_key(ac or "")).replace("{AC}", ac or "") if custom else None
+
+
+def command_for(root: str, ac: str | None = None, layer: str = "API") -> str | None:
+    return _configured(root, ac, layer) or detected(root, ac)
+
+
+# keel v1's rule (lib/ops.js): a command from .keel/config.yml runs inside its part's folder: backend commands in
+# backend.dir, frontend ones in frontend.dir. So "../mvnw -f .." written for backend.dir engine/ finds the root's
+# mvnw. Commands keel detects by itself are made for the repo root and run there.
+FRONTEND_KEYS = {"deps_web", "web_typecheck", "web_lint", "web_test_ac", "web_test_module", "web_test_paths"}
+
+
+def part_dir(root: str, part: str) -> str:
+    """The relative folder of a part ("backend" / "frontend") when it exists in the repo, else "" (the root)."""
+    d = str(((rules.load_config(root).get(part) or {}).get("dir")) or "").strip().strip("/")
+    while d.startswith("./"):
+        d = d[2:]
+    if d in ("", ".") or ".." in Path(d).parts or not (Path(root) / d).is_dir():
+        return ""
+    return d
+
+
+def dir_for_key(root: str, key: str | None) -> str:
+    """Where the configured command `commands.<key>` runs, relative to the root ("" = the root)."""
+    if not key or not (Path(root) / ".keel" / "config.yml").is_file():
+        return ""
+    return part_dir(root, "frontend" if key in FRONTEND_KEYS else "backend")
+
+
+def located(root: str, ac: str | None = None, layer: str = "API") -> tuple[str | None, str]:
+    """(the test command, the folder it runs in relative to the root): a configured command runs in its part's
+    folder, a detected one at the root."""
+    if _configured(root, ac, layer):
+        return _configured(root, ac, layer), part_dir(root, "frontend" if layer == "WEB" else "backend")
+    return detected(root, ac), ""
+
+
+def shown(cmd: str, rel: str) -> str:
+    """The command as a person runs it from the repo root."""
+    return f"cd {shlex.quote(rel)} && {cmd}" if rel else cmd
+
+
+# The shell could not start the command at all: retrying an agent changes nothing, the command or its folder is wrong.
+CANNOT_RUN = re.compile(r"(^|\n)[^\n]*(: not found|command not found|No such file or directory)\s*($|\n)")
+
+
+def cannot_run(code: int, output: str) -> bool:
+    return code == 127 or (code != 0 and bool(CANNOT_RUN.search((output or "")[:2000])))
 
 
 def config_commands(root: str) -> dict:
