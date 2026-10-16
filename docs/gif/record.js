@@ -6,9 +6,11 @@
 //   3. ffmpeg -i docs/gif/out/*.webm -vf "fps=6,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" docs/keel-v2.gif
 //      (about 5 MB for 38 seconds; 8 fps and 128 colours make it 8 MB)
 //
-// The tour, with the budget bar on top all the way: all projects, the live flow, the inbox, the database diagram,
-// the code graph (packages, one package, one function in the middle), the repo, then the gate: it clicks Approve
-// for real.
+// The tour, with the budget bar on top all the way: all projects, the live flow, the inbox, the plugins (Control ›
+// Plugins: keel core and its plugins, then the Code plugin's page), the database diagram, the code graph (packages,
+// one package, one function in the middle), the repo, then the gate: it clicks Approve for real.
+// v0.17.0: e.g. a throw-away keel from the scratchpad's gif_setup.py (the parity test's shop, keel's fake model):
+//   URL=http://127.0.0.1:8096 npx -y -p playwright@1 node docs/gif/record.js
 const path = require("path");
 const { chromium } = require("playwright");
 
@@ -37,10 +39,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     return true;
   };
 
-  // the Map opens on its database diagram
-  const pid = await page.goto(`${BASE}/api/projects`).then((r) => r.json()).then((l) => l[0]?.id).catch(() => null);
+  // the project whose flow waits for you is the current one, and the Map opens on its database diagram
+  const pid = await page.goto(`${BASE}/api/projects`).then((r) => r.json())
+    .then((l) => ([...l].sort((a, b) => (b.waiting || 0) - (a.waiting || 0))[0] || {}).id).catch(() => null);
   await page.goto(`${BASE}/#/projects`);
-  if (pid) await page.evaluate((p) => localStorage.setItem(`keel2.map.${p}.tab`, "er"), pid);
+  if (pid) await page.evaluate((p) => { localStorage.setItem("keel2.project", p); localStorage.setItem(`keel2.map.${p}.tab`, "er"); }, pid);
 
   await go("projects", 2800);
   await go("flow", 2200);
@@ -48,6 +51,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 320); await wait(550); }
   await page.mouse.wheel(0, -3000); await wait(500);
   await go("inbox", 2600);
+  // v0.17.0 keel core and its plugins: the Installed list, then one plugin's own page
+  await go("plugins", 3400);
+  await page.mouse.move(700, 420);
+  await page.mouse.wheel(0, 300); await wait(900); await page.mouse.wheel(0, -300); await wait(500);
+  await go("plugins/code", 3400);
   await go("map", 3600);
   await go("graph", 2600);
   if (await press(page.locator("g.gbox", { hasText: "src/app" }), { double: true })) {
