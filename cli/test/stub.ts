@@ -43,7 +43,8 @@ export function stubKeel() {
     const key = `${method} ${path}`;
     switch (key) {
       case "GET /api/health": return [200, { ok: true, engine: true, version: "0.17.3", fake: true, native: false }];
-      case "GET /api/projects": return [200, [project]];
+      case "GET /api/projects": return [200, [project, ...["alpha", "zeta"].map((id) => ({ ...project, id, name: id, root: `/work/${id}`, branch: "main",
+        flow: null, phase: null, waiting: 0, running: 0 }))]];
       case "GET /api/projects/demo/flow": return [200, { thread: state.thread, workflow }];
       case "GET /api/threads/t1/history": return [200, [{ id: "c1", n: 1, step: "preflight", at: AT, note: "" }, { id: "c2", n: 2, step: "spec", at: AT, note: "" }]];
       case "GET /api/inbox": return [200, { items: state.thread.status === "waiting" ? [inboxItem] : [], count: 1, kinds: ["gate"], projects: [] }];

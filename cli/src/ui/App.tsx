@@ -268,9 +268,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         push({ kind: "ok", text: on ? "the wheel scrolls keel TUI (hold Option or Fn to select text, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
       }
     }
+    if (reply.start) setItems((xs) => [...xs, { id: nextId.current++, kind: "start", s: core.snapshot }]);
     if (reply.pick) {
       setPending({ cmd, pick: reply.pick });
-      setPickIdx(0);
+      setPickIdx(Math.min(reply.pick.index ?? 0, Math.max(0, reply.pick.choices.length - 1)));
       setPickFilter("");
     } else if (reply.ask) setPending({ cmd, ask: reply.ask });
     else setPending(null);

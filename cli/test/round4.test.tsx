@@ -13,9 +13,9 @@ import { stubKeel, tick, waitFor } from "./stub";
 
 const none = makeTheme({ NO_COLOR: "1" }, 0);
 
-function setup() {
+function setup(cwd = "/work/demo/src") {
   const stub = stubKeel();
-  const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
+  const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true, cwd });
   const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
   const r = render(<App core={core} probe={probe} width={120} theme={none} />);
   const frame = () => stripAnsi(r.lastFrame() ?? "");
@@ -165,4 +165,24 @@ describe("/agent", () => {
     expect(t.frame()).toContain("Wrote docs/health.md.");
     t.r.unmount();
   }, 15000);
+});
+
+describe("/project", () => {
+  it("the list starts on the project you are in: Enter keeps it, one ↑ is the one before; a switch shows the new start box", async () => {
+    const t = setup("/work/zeta");
+    await waitFor(() => t.probe.started);
+    expect(t.core.snapshot.project?.id).toBe("zeta");
+    await t.run("/project");
+    expect(t.frame()).toMatch(/❯ zeta \(now\)/);
+    await t.enter();
+    expect(t.frame()).toContain("Still on zeta.");
+    await t.run("/project");
+    await t.type("\x1b[A");
+    await t.enter();
+    expect(t.core.snapshot.project?.id).toBe("alpha");
+    const f = t.frame();
+    expect(f).toContain("✓ now on project alpha");
+    expect(f.slice(f.lastIndexOf("now on project alpha"))).toMatch(/project +alpha · branch main/);
+    t.r.unmount();
+  });
 });

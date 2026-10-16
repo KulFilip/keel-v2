@@ -19,13 +19,16 @@ export type BlockKind = "text" | "markdown" | "diagram" | "error" | "notice" | "
 export type Block = { kind: BlockKind; text: string };
 export type Choice = { label: string; value: string; hint?: string };
 /** Pick one of these; `then` runs with the chosen value. */
-export type Pick = { title: string; choices: Choice[]; then: (value: string) => Promise<Reply> | Reply };
+/** `index`: the choice the cursor starts on (the current one), else the first */
+export type Pick = { title: string; choices: Choice[]; then: (value: string) => Promise<Reply> | Reply; index?: number };
 /** The next line the person types answers this; `then` runs with it. */
 export type Ask = { prompt: string; then: (text: string) => Promise<Reply> | Reply };
 export type PanelName = "flow" | "agents" | "inbox";
 export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; mouse?: boolean | "toggle"; panel?: PanelName | "off"; chat?: string;
   /** an agent of a flow (its job id) to follow on screen: its steps and the text it writes, live */
-  follow?: string };
+  follow?: string;
+  /** the start box again (keel, the project, its flow, what waits): after a switch to another project */
+  start?: boolean };
 
 export const text = (t: string): Reply => ({ blocks: [{ kind: "text", text: t }] });
 export const ok = (t: string): Reply => ({ blocks: [{ kind: "ok", text: t }] });
@@ -229,13 +232,18 @@ const IMPLS: Impl[] = [
     complete: (ctx, a) => ctx.core.snapshot.projects.map((p) => p.id).filter((x) => x.startsWith(a)),
     run: async (ctx, a) => {
       const name = a.trim();
-      if (name) return (await ctx.core.useProject(name)) ? ok(`project ${ctx.core.snapshot.project?.id} · branch ${ctx.core.snapshot.project?.branch || "-"}`)
+      const switched = (id: string): Reply => ({ blocks: [{ kind: "ok", text: `now on project ${id}` }], start: true });
+      if (name) return (await ctx.core.useProject(name)) ? switched(ctx.core.snapshot.project!.id)
         : fail(`No project "${name}". keel knows: ${ctx.core.snapshot.projects.map((p) => p.id).join(", ") || "none"}`);
+      await ctx.core.loadProjects().catch(() => undefined);
       const ps = ctx.core.snapshot.projects;
       if (!ps.length) return fail("keel has no project yet. Add one in the dashboard (All projects › Add projects).");
-      return { blocks: [], pick: { title: "Project", choices: ps.map((p) => ({ label: p.id, value: p.id,
-        hint: `${p.branch || "-"} · ${p.flow ? `${p.flow} ${p.phase}` : "no flow"}${p.waiting ? ` · ${p.waiting} waiting` : ""}` })),
-        then: async (v) => ((await ctx.core.useProject(v)) ? ok(`project ${v}`) : fail(`No project ${v}`)) } };
+      const cur = ctx.core.snapshot.project?.id;
+      // the cursor starts on the project you are in, so Enter keeps it and one ↓ is the next one
+      return { blocks: [], pick: { title: "Project (Enter keeps the one marked now)", index: Math.max(0, ps.findIndex((p) => p.id === cur)),
+        choices: ps.map((p) => ({ label: p.id + (p.id === cur ? " (now)" : ""), value: p.id,
+          hint: `${p.branch || "-"} · ${p.flow ? `${p.flow} ${p.phase}` : "no flow"}${p.waiting ? ` · ${p.waiting} waiting` : ""}` })),
+        then: async (v) => (v === cur ? text(`Still on ${v}.`) : (await ctx.core.useProject(v)) ? switched(v) : fail(`No project ${v}`)) } };
     },
   },
   {
