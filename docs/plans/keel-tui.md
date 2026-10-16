@@ -164,6 +164,18 @@ colours (`*.ansi`, after only: 0.18.1's --script has no --ansi) and as a real te
 `cat` it in a terminal). The main run's captures (`docs/pictures/tui/*.txt|ansi`) include KeelBot while it writes
 (`11a-…`) and its answer (`11b-…`).
 
+## Round 3 (feat/tui-round3): mentions and paste, Fix mode, TUI plugins, --profile
+
+| # | What | How | Files |
+|---|------|-----|-------|
+| 1 | `@` mentions, paste | `@` opens a fuzzy picker over the project's files (`GET …/repo/files`, as the dashboard's KeelBot), symbols from the code graph (`…/graph/search`) and the flow's criteria (`@AC-2`); the turn sends them as `mentions` (the api's `HelperMention`). A paste of many lines becomes `[pasted 120 lines #1]` in the prompt and goes whole to KeelBot; an image path becomes `[image name.png]` with a note: KeelBot takes no images yet, it gets the path | `cli/src/core/mentions.ts`, `ui/App.tsx` |
+| 2 | Fix mode: live diffs, Keep / Undo, questions | each write/edit step's diff (line numbers) shows while KeelBot works; after a Fix or Side turn the changed files are listed with their diffs; `/changes`, `/keep [path\|all]`, `/undo [path\|all]`. Undo is the dashboard's (`POST …/undo {path?}`); Keep is its Done, plus a new `paths` so one file can be kept (engine `helper.done(paths)`, api `HelperDoneBody.paths`). KeelBot's permission questions (`helper.permission`) are amber yes/no pickers: once, always, deny (`POST /api/approvals/{id}/decide`) | keelbot engine `helper.py`, api `Helper.kt`, `cli` |
+| 3 | TUI plugins | a plugin adds commands and a panel in its manifest, `contributes.tui`: declarative calls to its own api routes (`/projects/{pid}/<plugin>/…`) and how to show the answer (title, items, line templates, diff); nothing runs in the TUI process. A call that changes something (POST) asks first. `GET /api/tui/plugins?project=` lists what the loaded, turned-on plugins add (checked again there); `keel-plugin lint` checks it. Example: the Git plugin's `/git status\|log\|diff` (a new `GET …/git/diff`) and a branch panel (Ctrl+G) | api `tui/TuiPlugins.kt`, `tools/keel-plugin`, `plugins/git`, `cli/src/core/plugins.ts`, `docs/plugins/25-tui-plugins.md` |
+| 4 | `--profile` | startup time, each api call's latency (by route), SSE lag (receive time − the event's `at`), React commit time per frame, memory every second; a summary on exit and a JSON file (`keel2 tui --profile` copies it out of the container); nothing leaves the machine | `cli/src/core/profile.ts`, `keel2` |
+
+Trust (3): the TUI never loads a plugin's code; `contributes.tui` is data. Code from a plugin would need keel's signed,
+trusted-publisher rules (03-security.md) and is not part of this round.
+
 ## Open questions (with my recommendation)
 
 1. Where does the TUI run with Docker? **Inside the container (`docker exec -it`)**: Node is there, nothing to
