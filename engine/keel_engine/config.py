@@ -38,6 +38,14 @@ def fake() -> bool:
     return os.environ.get("KEEL_FAKE", "0") == "1"
 
 
+def fake_stream_delay() -> float:
+    """Seconds between the fake model's text chunks (it streams its answer in pieces, like a real model). 0 in tests."""
+    try:
+        return float(os.environ.get("KEEL_FAKE_STREAM_DELAY", "0"))
+    except ValueError:
+        return 0.0
+
+
 def fake_delay() -> float:
     """Seconds between fake agent steps, so a demo looks alive. 0 in tests."""
     try:

@@ -35,6 +35,7 @@ from . import doc_history
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
+from ..models.stream import DeltaThrottle
 from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
@@ -524,7 +525,14 @@ class Compiler:
         if mem:
             await mem.start(key, model["provider"], root, session, keep_trail=same)
 
+        # the agent's text as it writes it: agent.delta events (the text so far, every 80 ms; never stored)
+        live_text = DeltaThrottle(lambda d: ctx.emit("agent.delta", step=step.id, call_id=call_id, data=d))
+
         def emit(kind: str, text: str = "", **extra):
+            if kind == "delta":
+                live_text.add(str(text))
+                return
+            live_text.reset()
             counter["n"] += 1
             # Every string field (text, diff, output, ...) is bounded; newlines are kept for the web's Markdown and diff views.
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}

@@ -97,6 +97,29 @@ describe("Helper in the Code page", () => {
     await waitFor(() => expect(document.querySelector('.cv-row[data-line="9"]')).toHaveClass("tgt"));
   });
 
+  it("shows the answer while KeelBot writes it (helper.delta), then the stored answer in its place", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    render(<App />);
+    const p = await panel();
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "Where does it start?{Enter}");
+    await waitFor(() => expect(turns()).toHaveLength(1));
+    const sess = db.helper.sessions[0];
+    const call = `call-${sess.id}-1`;
+    const delta = (n: number, text: string) => act(() => FakeEventSource.emit("helper.delta", {
+      type: "helper.delta", thread_id: sess.id, project_id: "ludus-engine", call_id: call, step: "helper", at: "", data: { n, block: 0, text } }));
+    delta(1, "It starts in");
+    expect(await within(p).findByLabelText("KeelBot is writing")).toHaveTextContent("It starts in");
+    delta(2, "It starts in **main.py**, where");
+    await waitFor(() => expect(within(p).getByLabelText("KeelBot is writing")).toHaveTextContent("It starts in main.py, where"));
+    expect(within(p).getByLabelText("KeelBot is writing").querySelector("strong, b")).toHaveTextContent("main.py");
+    // the stored answer is the record: the live text goes
+    answer("It starts in **main.py**, where `run()` is.");
+    expect(await within(p).findByText("run()")).toBeInTheDocument();
+    expect(within(p).queryByLabelText("KeelBot is writing")).toBeNull();
+  });
+
   it("a missed helper.finished (the tab was hidden) never leaves the panel working: the next live tick reads the answer", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";

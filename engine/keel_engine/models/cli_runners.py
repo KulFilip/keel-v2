@@ -296,6 +296,13 @@ class ClaudeStream:
         except json.JSONDecodeError:
             return
         t = ev.get("type")
+        if t == "stream_event":
+            # --include-partial-messages: the text as Claude writes it (the whole message follows as "assistant")
+            e = ev.get("event") or {}
+            d = e.get("delta") or {}
+            if e.get("type") == "content_block_delta" and d.get("type") == "text_delta" and d.get("text"):
+                self.emit("delta", d["text"])
+            return
         if t == "result":
             self.steps.flush()
             self.result = ev
@@ -369,8 +376,8 @@ class ClaudeCLIRunner:
 
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         model = req.model.get("model") or "sonnet"
-        argv = [find("claude"), "-p", "--output-format", "stream-json", "--verbose", "--model", model,
-                "--permission-mode", "acceptEdits"]
+        argv = [find("claude"), "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                "--model", model, "--permission-mode", "acceptEdits"]
         # The session is kept (on /data, see claude_home) so this step can continue it after a restart or send-back.
         if req.session:
             argv += ["--resume", req.session] if req.resume else ["--session-id", req.session]

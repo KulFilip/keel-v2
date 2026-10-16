@@ -49,6 +49,12 @@ class EventService(
         var stored = 0
         for (raw in events) {
             if (raw.type.isBlank()) continue
+            // keel 0.18.2 live text (helper.delta, agent.delta: the text an agent writes, so far): shown, never stored;
+            // the step that follows holds the whole message
+            if (isLive(raw.type)) {
+                hub.publish(raw.projectId.ifBlank { null }, EventHub.channelOf(raw.type), raw)
+                continue
+            }
             // v0.15.9 a file version goes to doc_versions; the events table and SSE get it without its content
             val e = if (raw.type == "doc.version") runCatching { docs.record(raw) }.getOrElse {
                 log.warn("could not store a version of {}: {}", raw.data["path"], it.message)
@@ -65,6 +71,9 @@ class EventService(
         }
         return stored
     }
+
+    /** Live text events: many per answer, only for the screens that watch it now. */
+    fun isLive(type: String): Boolean = type.endsWith(".delta")
 
     private fun apply(e: EngineEvent) {
         val at = e.at ?: Time.now()

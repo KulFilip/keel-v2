@@ -236,3 +236,9 @@ main:has(> .helper-page) { padding-bottom: 14px; }
 .rail-count.kb-new { background: var(--accent); color: var(--on-accent); }
 /* v0.15.2 the company icon on KeelBot's model button */
 .hp-tb .pi { margin-right: 5px; vertical-align: -2px; flex: none; }
+
+/* keel 0.18.2 the answer while KeelBot writes it (helper.delta): a caret after the last word */
+.hp-stream { margin-top: 6px; }
+.hp-stream > :last-child > :last-child::after { content: "▍"; color: var(--accent); margin-left: 1px; animation: hp-caret 1s steps(2, start) infinite; }
+@keyframes hp-caret { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .hp-stream > :last-child > :last-child::after { animation: none; } }

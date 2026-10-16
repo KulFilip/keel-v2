@@ -56,6 +56,9 @@ interface Ctx {
   recent: EngineEvent[];
   /** Live agent steps from SSE, by call_id (= job id). */
   liveSteps: Record<string, JobStep[]>;
+  /** keel 0.18.2: the text an agent (or KeelBot) is writing right now, by call_id; gone when the step with the
+   *  whole message arrives (helper.delta, agent.delta). */
+  liveText: Record<string, string>;
   notes: Note[];
   unread: number;
   markRead: (id: string) => void;
@@ -114,6 +117,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [live, setLive] = useState<LiveStatus>("connecting");
   const [recent, setRecent] = useState<EngineEvent[]>([]);
   const [liveSteps, setLiveSteps] = useState<Record<string, JobStep[]>>({});
+  const [liveText, setLiveText] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Note[]>([]);
   const [nset, setNset] = useState<NotificationSettings>(NOTIFY_DEFAULTS);
   const [popups, setPopups] = useState<Popup[]>([]);
@@ -288,8 +292,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch {
         return;
       }
+      // live text: many per answer, so it is neither a recent event nor a reason to refetch
+      if ((ev.type === "helper.delta" || ev.type === "agent.delta") && ev.call_id) {
+        const text = String((ev.data as { text?: unknown }).text ?? "");
+        setLiveText((m) => ({ ...m, [ev.call_id!]: text }));
+        return;
+      }
       setRecent((r) => [...r.slice(-299), ev]);
       if ((ev.type === "agent.step" || ev.type === "helper.step") && ev.call_id) {
+        // a whole message arrived: the live text of that block is in it now
+        if (["text", "answer"].includes(String((ev.data as { kind?: unknown }).kind))) {
+          setLiveText((m) => {
+            if (!(ev.call_id! in m)) return m;
+            const { [ev.call_id!]: _done, ...rest } = m;
+            return rest;
+          });
+        }
         const d = ev.data as Partial<JobStep>;
         const step: JobStep = { n: Number(d.n) || 0, at: ev.at, kind: String(d.kind ?? "text"), text: String(d.text ?? ""),
           tool: d.tool, server: d.server, path: d.path, diff: d.diff, ms: d.ms, ok: d.ok };
@@ -398,10 +416,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(
     () => ({
       health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast,
+      liveSteps, liveText, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast,
     }),
     [health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast],
+      liveSteps, liveText, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast],
   );
 
   return (

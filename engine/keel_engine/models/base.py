@@ -2,7 +2,8 @@
 
 A runner gets one agent call (AgentRequest) and an `emit(kind, text, **extra)` callback. Each
 thing the agent does becomes one emitted step (kind: text|thinking|tool|write|edit|result|answer|
-guard|error), which the runtime forwards as an `agent.step` event.
+guard|error), which the runtime forwards as an `agent.step` event. A runner that streams also calls
+`emit("delta", chunk)` with each piece of text as the model writes it (models/stream.py): shown live, never stored.
 """
 
 from __future__ import annotations

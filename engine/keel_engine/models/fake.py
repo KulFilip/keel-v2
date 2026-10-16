@@ -147,11 +147,26 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
             else (req.prompt or "").strip().splitlines()[-1][:120]
         turns = len(req.history) // 2 + 1
         return None, "", (f"You asked: {asked}\nThe package starts in `src/scores/__init__.py:1`. This is answer {turns} "
-                          "of this session."), {}
+                          "of this session.\n\n## Where to look\n\n- **entry**: `run()` in src/scores/__init__.py:1\n"
+                          "- the tests: tests/test_scores.py:3\n\n```python\ndef run(players: list[str]) -> dict:\n"
+                          "    # rank the players, best first\n    return {\"ok\": True, \"count\": len(players)}\n```"), {}
     if agent == "investigator":
         return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
                           "ROOT-CAUSE: confirmed"), {}
     return None, "", f"{agent}: done.", {}
+
+
+def chunks(text: str, size: int = 12) -> list[str]:
+    """The text in pieces of about `size` characters, cut after a space where one is near (as a model's tokens come)."""
+    out, i = [], 0
+    while i < len(text):
+        j = min(len(text), i + size)
+        sp = text.rfind(" ", i + 1, j + 4) if j < len(text) else -1
+        if sp > i:
+            j = sp + 1
+        out.append(text[i:j])
+        i = j
+    return out
 
 
 class FakeRunner:
@@ -202,6 +217,12 @@ class FakeRunner:
             rogue.write_text("def test_rogue():\n    assert True  # written behind keel's back\n")
             emit("text", f"(rogue) wrote {rogue.relative_to(req.root)} directly.")
 
+        # the answer as a model writes it: in pieces (KEEL_FAKE_STREAM_DELAY apart), then the whole answer
+        stream_delay = config.fake_stream_delay()
+        for chunk in chunks(answer):
+            emit("delta", chunk)
+            if stream_delay:
+                await asyncio.sleep(stream_delay)
         emit("answer", answer)
         k_in, k_out, _ = catalog.AGENT_DEFAULTS.get(req.agent, catalog.FALLBACK_AGENT)
         return AgentResult(text=answer, tokens_in=int(k_in * 1000) + 100 * req.index, tokens_out=int(k_out * 1000), data=data)

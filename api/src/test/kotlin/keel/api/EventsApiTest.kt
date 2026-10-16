@@ -15,6 +15,22 @@ class EventsApiTest : ApiTest() {
         post("/internal/events", events, mapOf("X-Keel-Token" to TOKEN))
 
     @Test
+    fun `live text (helper delta, agent delta) goes to the screens by its own name and is never stored`(
+        @org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate,
+    ) {
+        val (pid, _) = newProject("events-delta")
+        send(listOf(
+            ev("helper.delta", pid, "h_1", callId = "c1", step = "helper", data = mapOf("n" to 1, "block" to 0, "text" to "The entry")),
+            ev("agent.delta", pid, "t-delta", callId = "c2", step = "spec", data = mapOf("n" to 1, "block" to 0, "text" to "Spec")),
+            ev("helper.step", pid, "h_1", callId = "c1", step = "helper", data = mapOf("n" to 1, "kind" to "text", "text" to "The entry is main.py")),
+        )).andExpect(status().isOk)
+        val types = jdbc.queryForList("SELECT type FROM events WHERE project_id = ?", String::class.java, pid)
+        assertThat(types).containsExactly("helper.step")
+        assertThat(keel.api.events.EventHub.channelOf("helper.delta")).isEqualTo("helper.delta")
+        assertThat(keel.api.events.EventHub.channelOf("agent.delta")).isEqualTo("agent.delta")
+    }
+
+    @Test
     fun `a thread the engine started by itself (start_flow) keeps its workflow id`(@org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate) {
         val (pid, _) = newProject("events-child")
         send(listOf(ev("thread.started", pid, "t-child", data = mapOf("workflow" to "fix", "title" to "Fix the rank", "parent" to mapOf("thread_id" to "t-parent")))))

@@ -61,6 +61,22 @@ def test_a_turn_is_events_of_its_own_never_a_flow(client, repo):
     assert not any(e["type"].startswith(("agent.", "thread.")) for e in evs)
 
 
+def test_the_answer_streams_as_helper_delta_and_the_whole_answer_is_the_record(client, repo):
+    s = new_session(client, repo)
+    started, _ = ask(client, s["id"], "Where does it start?")
+    evs = [e for e in client.bus.recent if e["thread_id"] == s["id"]]
+    deltas = [e for e in evs if e["type"] == "helper.delta"]
+    assert deltas and all(e["call_id"] == started["call_id"] and e["step"] == "helper" for e in deltas)
+    answer = [e for e in evs if e["type"] == "helper.step" and e["data"]["kind"] == "answer"][-1]["data"]["text"]
+    texts = [e["data"]["text"] for e in deltas]
+    # the text so far grows, each a start of the whole answer; the last one is all of it
+    assert all(answer.startswith(t) for t in texts) and texts[-1] == answer
+    assert [e["data"]["n"] for e in deltas] == list(range(1, len(deltas) + 1))
+    # deltas come before the answer step and are never steps themselves
+    assert evs.index(deltas[-1]) < evs.index([e for e in evs if e["type"] == "helper.step" and e["data"]["kind"] == "answer"][-1])
+    assert not any(e["type"] == "helper.step" and e["data"]["kind"] == "delta" for e in evs)
+
+
 def test_ask_changes_nothing_even_when_the_engine_writes_behind_keels_back(client, repo):
     s = new_session(client, repo, model={"provider": "fake", "mode": "api", "model": "fake-rogue"})
     ask(client, s["id"], "Look around.")

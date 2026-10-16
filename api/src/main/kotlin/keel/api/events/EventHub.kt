@@ -71,6 +71,8 @@ class EventHub(private val mapper: ObjectMapper) {
             "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
             "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
             "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
+            // keel 0.18.2 live text: the answer as it is written (never stored, EventService)
+            "helper.delta", "agent.delta",
         )
 
         /** The SSE event name an engine event goes out under. */

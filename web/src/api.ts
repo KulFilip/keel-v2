@@ -208,12 +208,14 @@ export type EngineEventType =
   /** v0.16.0 a write keel's MCP server made (api McpAudit) */
   | "mcp.call"
   /** a write keel TUI made (api McpAudit, X-Keel-Via: tui), or the xal client (X-Keel-Via: xal) */
-  | "tui.call" | "xal.call";
+  | "tui.call" | "xal.call"
+  /** keel 0.18.2 the text an agent or KeelBot is writing now (never stored) */
+  | "helper.delta" | "agent.delta";
 export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
   "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
-  "mcp.call", "tui.call", "xal.call",
+  "mcp.call", "tui.call", "xal.call", "helper.delta", "agent.delta",
 ];
 /** v0.16.0: the one generic channel. The api sends every engine event the web does not list above (approval.*, a plugin's
  *  own events) as `event: engine`, its type inside; it lands in `recent` like the others. */

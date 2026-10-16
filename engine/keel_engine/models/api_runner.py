@@ -24,9 +24,10 @@ def chat_model(provider: str, model: str, key: str | None, effort: str | None = 
 
     if provider == "codex":
         kw = {"reasoning_effort": effort} if effort else {}
-        return ChatOpenAI(model=model or "gpt-5.5", api_key=key, timeout=600, **kw)
+        # stream_usage: a streamed reply still says how many tokens it used
+        return ChatOpenAI(model=model or "gpt-5.5", api_key=key, timeout=600, stream_usage=True, **kw)
     if provider == "copilot":
-        return ChatOpenAI(model=model or "openai/gpt-5", api_key=key, base_url=GITHUB_MODELS_URL, timeout=600)
+        return ChatOpenAI(model=model or "openai/gpt-5", api_key=key, base_url=GITHUB_MODELS_URL, timeout=600, stream_usage=True)
     raise ModelError(f"Provider {provider} has no API mode.")
 
 
@@ -39,6 +40,21 @@ def _text(content) -> str:
 
 
 class APIRunner:
+    @staticmethod
+    async def _reply(bound, messages, emit: Emit):
+        """One model reply, streamed: each text chunk goes out as emit("delta") while it is written; the chunks added
+        up are the reply (its tool calls and usage too). A model that cannot stream answers in one piece."""
+        full = None
+        try:
+            async for chunk in bound.astream(messages):
+                full = chunk if full is None else full + chunk
+                piece = _text(chunk.content)
+                if piece:
+                    emit("delta", piece)
+        except NotImplementedError:
+            full = None
+        return full if full is not None else await bound.ainvoke(messages)
+
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -56,7 +72,7 @@ class APIRunner:
         tin = tout = 0
         text = ""
         for _ in range(MAX_TURNS):
-            reply = await bound.ainvoke(messages)
+            reply = await self._reply(bound, messages, emit)
             usage = getattr(reply, "usage_metadata", None) or {}
             tin += int(usage.get("input_tokens", 0))
             tout += int(usage.get("output_tokens", 0))

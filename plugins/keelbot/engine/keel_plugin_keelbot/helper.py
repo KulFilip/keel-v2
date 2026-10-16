@@ -40,6 +40,14 @@ from pathlib import Path
 from keel_engine import approvals, config, extensions, models, rules
 from keel_engine.models import catalog
 from keel_engine.models.base import AgentRequest, AgentResult
+try:                                    # keel 0.18.2: live text (an older core has no deltas: KeelBot drops them)
+    from keel_engine.models.stream import DeltaThrottle
+except ImportError:                     # pragma: no cover
+    class DeltaThrottle:                # type: ignore[no-redef]
+        def __init__(self, send, *a, **k): pass
+        def add(self, chunk): pass
+        def flush(self): pass
+        def reset(self): pass
 from keel_engine.runtime.blockers import for_agents as push_blockers_for
 from keel_engine.runtime import agent_knowledge, db, doc_history, guard_ctx, permissions, plugins, prompts
 from keel_engine.tools import git, guard, testcmd, worktrees
@@ -677,7 +685,14 @@ class HelperRunner:
         def ev(type_: str, data: dict):
             self.bus.emit(type_, sid, project, step="helper", call_id=call_id, data=data)
 
+        # the answer as it is written: helper.delta events (the text so far, every 80 ms; never stored)
+        live = DeltaThrottle(lambda d: ev("helper.delta", d))
+
         def emit(kind: str, text: str = "", **extra):
+            if kind == "delta":
+                live.add(str(text))
+                return
+            live.reset()
             counter["n"] += 1
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
             data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})

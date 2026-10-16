@@ -142,7 +142,7 @@ function UserMessage({ m }: { m: HelperMessage }) {
 }
 
 export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0, layout = "panel", prefill }: Props) {
-  const { recent, liveSteps, toast, tick } = useApp();
+  const { recent, liveSteps, liveText, toast, tick } = useApp();
   // @ mentions read the Code plugin's file list and the Graph plugin's search: only from the ones this keel has
   const pages = usePages();
   const hasCode = pages.some((p) => p.id === "repo");
@@ -729,6 +729,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         {runningCall && !messages.some((m) => m.call_id === runningCall) && (
           <div className="hp-msg hp-help hp-live">
             <TurnSteps callId={runningCall} live={liveSteps[runningCall] ?? []} running />
+            {/* keel 0.18.2 the answer as KeelBot writes it (helper.delta); the stored answer replaces it */}
+            {liveText?.[runningCall] && (
+              <div className="hp-stream" aria-live="polite" aria-label="KeelBot is writing">
+                <Answer text={liveText[runningCall]} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} />
+              </div>
+            )}
           </div>
         )}
         {asks.map((q) => <PermissionCard key={q.id} pid={pid} q={q} onAnswered={() => void perms.reload()} />)}
