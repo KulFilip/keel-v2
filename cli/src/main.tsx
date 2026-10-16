@@ -18,7 +18,7 @@ import { VERSION } from "./core/version";
 import { runScript } from "./script";
 import { Profiler } from "./core/profile";
 import { HELP, parseArgs } from "./main.args";
-import { MOUSE, SCREEN } from "./core/lines";
+import { MOUSE, SCREEN, screenStdout } from "./core/lines";
 
 // keel's colours: the dashboard's palette (NO_COLOR, KEEL_TUI_THEME, FORCE_COLOR); -c writes them only into a terminal
 const theme = makeTheme();
@@ -96,7 +96,14 @@ async function main(): Promise<number> {
   };
   process.on("exit", restore);
   process.stdout.write(SCREEN.on + (args.mouse ? MOUSE.on : ""));
-  const app = render(<App core={core} theme={theme} profiler={profiler} rows={process.stdout.rows || 40} mouse={args.mouse} />, { exitOnCtrlC: false });
+  // docker exec -it gives the terminal's size a moment after the start: wait for it (a frame taller than the screen
+  // would scroll it), at most 1 s
+  if (!process.stdout.rows) await new Promise<void>((done) => {
+    const t = setTimeout(done, 1000);
+    process.stdout.once("resize", () => (clearTimeout(t), done()));
+  });
+  const app = render(<App core={core} theme={theme} profiler={profiler} rows={process.stdout.rows || 24} mouse={args.mouse} />,
+    { exitOnCtrlC: false, stdout: screenStdout(process.stdout) });
   try {
     await app.waitUntilExit();
   } finally {

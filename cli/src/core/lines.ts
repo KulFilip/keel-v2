@@ -142,3 +142,33 @@ export const isMouse = (chunk: string) => /^(\x1b?\[<\d+;\d+;\d+[Mm])+$/.test(ch
 /** The wheel's reports (DECSET 1000 and 1006, SGR), and the terminal's own screen for the app (1049). */
 export const MOUSE = { on: "\x1b[?1000h\x1b[?1006h", off: "\x1b[?1006l\x1b[?1000l" };
 export const SCREEN = { on: "\x1b[?1049h\x1b[H\x1b[2J", off: "\x1b[?1049l" };
+
+/** Ink's frame, painted over the last one instead of erased and drawn again (that erase is what flashes in many
+ *  terminals): Ink writes "erase the last N lines" (or "clear the screen") and then the frame; on the full screen the
+ *  frame always starts at the top, so it becomes "to the top-left corner", each line cleared after its text, the rest of
+ *  the screen cleared below, all inside the terminal's synchronized update (DECSET 2026: it shows the frame at once;
+ *  a terminal without it ignores it). Anything else Ink writes (the cursor's hide and show) goes as it is. */
+export function paintFrame(chunk: string): string {
+  const erase = /^(?:(?:\x1b\[2K(?:\x1b\[1A)?)+\x1b\[G|\x1b\[2J\x1b\[3J\x1b\[H)/;
+  if (!chunk.includes("\n") && !erase.test(chunk)) return chunk;
+  const body = chunk.replace(erase, "");
+  if (!body) return "";
+  const lines = body.replace(/\n$/, "").split("\n");
+  return SYNC.on + "\x1b[H" + lines.map((l) => l + "\x1b[K").join("\r\n") + "\x1b[J" + SYNC.off;
+}
+
+export const SYNC = { on: "\x1b[?2026h", off: "\x1b[?2026l" };
+
+/** process.stdout for Ink on the full screen: every write goes through paintFrame. */
+export function screenStdout(out: NodeJS.WriteStream): NodeJS.WriteStream {
+  const write = (chunk: string | Uint8Array, ...rest: unknown[]) =>
+    (out.write as (c: string | Uint8Array, ...r: unknown[]) => boolean)(typeof chunk === "string" ? paintFrame(chunk) : chunk, ...rest);
+  return new Proxy(out, {
+    get(target, key) {
+      if (key === "write") return write;
+      const v = Reflect.get(target, key, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+}
+

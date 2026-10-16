@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 import { App, type Probe } from "../src/ui/App";
 import { KeelCore } from "../src/core/keel";
-import { blockLines, isMouse, view, wheel, wrap } from "../src/core/lines";
+import { blockLines, isMouse, paintFrame, SYNC, view, wheel, wrap } from "../src/core/lines";
 import { parseArgs } from "../src/main.args";
 import { makeTheme, PLAIN } from "../src/core/theme";
 import { stripAnsi } from "../src/script";
@@ -119,6 +119,21 @@ describe("the full screen", () => {
     await t.run("/mouse off");
     expect(t.lines().join("\n")).toContain("the wheel is the terminal's again");
     expect(t.r.stdout.frames.join("")).toContain("\x1b[?1000l");
+  });
+});
+
+describe("painting a frame (no flashing)", () => {
+  const erase = (n: number) => "\x1b[2K\x1b[1A".repeat(n - 1) + "\x1b[2K\x1b[G";
+  it("paints over the last frame from the top-left corner: no erase, each line cleared after its text, the rest below", () => {
+    expect(paintFrame(erase(3) + "a\nbb\n")).toBe(SYNC.on + "\x1b[H" + "a\x1b[K\r\nbb\x1b[K" + "\x1b[J" + SYNC.off);
+    expect(paintFrame("first\n")).toBe(SYNC.on + "\x1b[Hfirst\x1b[K\x1b[J" + SYNC.off);
+    // Ink's "clear the screen" (a frame as tall as the screen) is painted over too, never cleared
+    expect(paintFrame("\x1b[2J\x1b[3J\x1b[Hx\n")).toBe(SYNC.on + "\x1b[Hx\x1b[K\x1b[J" + SYNC.off);
+    expect(paintFrame(erase(2))).toBe("");
+  });
+
+  it("lets everything else through as it is (the cursor's hide and show)", () => {
+    expect(paintFrame("\x1b[?25l")).toBe("\x1b[?25l");
   });
 });
 
