@@ -9,6 +9,8 @@
 //   ```keel-workflow <yaml>```                                              a new workflow (checked, then saved)
 //   ```keel-rule <yaml>```                                                  a new rule pack (checked, then saved)
 //   ```keel-agent {"name", "about", "prompt", "tools", "phases"}```         a new agent
+//   ```keel-skill <SKILL.md>```                                             a new skill (checked, saved, put on the
+//                                                                           agents its front matter names)
 //
 // Other kinds (a plugin's keel-query, keel-git, keel-ci) are the dashboard's: the answer says where to press them.
 // No UI here: App.tsx shows the text and asks; `pressButton` does what a pressed button does.
@@ -37,6 +39,7 @@ export type Button =
   | { kind: "workflow"; yaml: string }
   | { kind: "rule"; yaml: string }
   | { kind: "agent"; agent: NewAgent }
+  | { kind: "skill"; text: string }
   | { kind: "other"; name: string };
 
 const OPEN = /^\s*(`{3,}|~{3,})\s*keel-([a-z]+)\s*$/;
@@ -57,9 +60,32 @@ function json(body: string): Record<string, unknown> | null {
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
+/** A SKILL.md's front matter: its name, what it is for, the agents that should load it (a list, or words with commas). */
+export function skillHead(text: string): { name: string; description: string; agents: string[]; body: string } {
+  const t = (text ?? "").replace(/\r\n?/g, "\n");
+  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(t);
+  const fm = m?.[1] ?? "";
+  const field = (k: string) => (new RegExp(`^${k}:\\s*(.*)$`, "m").exec(fm)?.[1] ?? "").trim().replace(/^["']|["']$/g, "");
+  const agents = field("agents").replace(/^\[|\]$/g, "").split(",").map((a) => a.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+  return { name: field("name"), description: field("description"), agents, body: m ? m[2] : t };
+}
+
+/** What keel refuses in a SKILL.md before it is saved: the twin of the engine's mcp_skills.check_text. */
+export function skillProblems(text: string): string[] {
+  const h = skillHead(text);
+  const out: string[] = [];
+  if (!/^---\n/.test((text ?? "").replace(/\r\n?/g, "\n"))) out.push("it has no front matter: start with ---, name: <id>, description: <one sentence>, ---");
+  else if (!h.name) out.push("its front matter has no name");
+  else if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(h.name)) out.push(`its name "${h.name}" is not an id: lower-case words with dashes, like changelog-entries`);
+  if (/^---\n/.test(text ?? "") && !h.description) out.push("its front matter has no description (one sentence: what it teaches, when it is needed)");
+  if (!h.body.trim()) out.push("it has no text after its front matter");
+  return out;
+}
+
 /** One block as a button, or null when its body is not what its kind needs (it then stays text). */
 export function toButton(kind: string, body: string): Button | null {
   if (kind === "workflow" || kind === "rule") return body.trim() ? { kind, yaml: body } : null;
+  if (kind === "skill") return body.trim() ? { kind, text: body.endsWith("\n") ? body : body + "\n" } : null;
   if (kind === "agent") {
     const v = json(body);
     const name = str(v?.name ?? v?.label);
@@ -166,6 +192,17 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
     return { title: `KeelBot wrote an agent: save "${b.agent.name}"?`,
       detail: `${b.agent.about ? b.agent.about + "\n" : ""}tools ${(b.agent.tools ?? ["Read", "Grep", "Glob"]).join(", ")} · phases ${(b.agent.phases ?? ["any"]).join(", ")}` };
   }
+  if (b.kind === "skill") {
+    const bad = skillProblems(b.text);
+    if (bad.length) return { error: "KeelBot's skill cannot be saved yet:\n" + bad.map((e) => `  ${e}`).join("\n") + "\nAsk KeelBot to fix it." };
+    const h = skillHead(b.text);
+    const known = (await api.agents(pid)).map((a) => a.id);
+    const unknown = h.agents.filter((a) => !known.includes(a));
+    if (unknown.length) return { error: `KeelBot's skill names agents this project does not have: ${unknown.join(", ")} (it has ${known.join(", ")}).` };
+    return { title: `KeelBot wrote a skill: save ${h.name}?`,
+      detail: `${h.description ? h.description + "\n" : ""}~${Math.round(b.text.length / 4)} tokens · `
+        + (h.agents.length ? `loaded by ${h.agents.join(", ")}` : "no agent loads it yet (/skill attach)") };
+  }
   const q = question(b, name);
   return q ? { title: q } : null;
 }
@@ -213,6 +250,12 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
       const r = await post<{ id: string; tools?: string[] }>(`${pathOf(pid)}/agents`, { name: a.name, about: a.about ?? "", prompt: a.prompt,
         tools: a.tools ?? ["Read", "Grep", "Glob"], phases: a.phases ?? ["any"] });
       return `saved the agent ${r.id} (tools ${(r.tools ?? a.tools ?? []).join(", ")}). A workflow uses it with agent: ${r.id}.`;
+    }
+    case "skill": {
+      const h = skillHead(b.text);
+      const r = await post<{ id: string; tokens?: number }>(`${pathOf(pid)}/skills/import`, { body: b.text });
+      if (h.agents.length) await api.saveSkill(pid, r.id, { agents: h.agents });
+      return `saved the skill ${r.id}` + (h.agents.length ? `; loaded by ${h.agents.join(", ")} from their next run.` : `. Put it on agents: /skill attach ${r.id} <agent…>.`);
     }
     default: return elsewhere(b);
   }

@@ -5,6 +5,8 @@
     workflow   workflows    .yaml     256 KB     steps, gates, agents, mcp, commands, edits   the api's workflows table
     rules      rules        .yaml      64 KB     rules by kind, phases, lanes, what each      the rules api (per project)
                                                  rule blocks
+    skills     skills       .md       256 KB     its size in tokens, its sections, what it    the api's skills (per project)
+                                                 is for (its description)
 
 Each row gives its list name, its file suffix, its size limit, its categories, the check of a version's catalog
 `review`, and its own checks of an entry and a version (the hooks below). catalog.py reads every list through this
@@ -42,7 +44,7 @@ from ..addons import NAME
 
 AGENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 TRUST = ("content", "web", "code")
-RESERVED = ("workflows", "rules", "rule-packs", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
+RESERVED = ("workflows", "rules", "rule-packs", "skills", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
 RULE_KINDS = ("bash", "edit", "read", "mcp")
 PACK_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")      # a rule pack's name (docs/rules/pack-format.md)
 DEFAULT_HOW = {"bash": "contains", "edit": "glob", "read": "glob", "mcp": "name"}
@@ -179,6 +181,42 @@ class RulesEntry:
 
 def _copy(review: dict) -> dict:
     return {k: (dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v) for k, v in review.items()}
+
+
+@dataclass
+class SkillVersion:
+    version: str
+    released: str
+    keel: str
+    plugins: dict[str, str]
+    url: str
+    sha256: str
+    size: int
+    review: dict
+
+    def requires(self) -> dict:
+        return {"keel": self.keel} if self.keel else {}
+
+    def view(self) -> dict:
+        return {"version": self.version, "released": self.released, "requires": self.requires(),
+                "review": _copy(self.review), "url": self.url, "size": self.size, "sha256": self.sha256}
+
+
+@dataclass
+class SkillEntry:
+    name: str
+    title: str
+    publisher: str
+    category: str
+    summary: str
+    tags: list[str]
+    repo: str
+    versions: list[SkillVersion]        # newest first
+    source: str
+    kind: str = "skills"
+
+    def version(self, v: str) -> SkillVersion | None:
+        return next((x for x in self.versions if x.version == v), None)
 
 
 # ------------------------------------------------------------------ the table
@@ -390,6 +428,63 @@ def pack_review(doc) -> dict:
             "phases": phases, "lanes": lanes, "blocks": blocks}
 
 
+# -- skills (keel 0.18.6): one SKILL.md each, its front matter's name the marketplace name
+
+MAX_SECTIONS = 40
+
+
+def split_front(text: str) -> tuple[dict, str]:
+    """A SKILL.md's front matter (the YAML between the first two --- lines) and the text after it; ({}, text) without
+    one, or when it does not read as a mapping."""
+    import yaml
+    if not text.startswith("---"):
+        return {}, text
+    lines = text.split("\n")
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return {}, text
+    try:
+        fm = yaml.safe_load("\n".join(lines[1:end])) or {}
+    except yaml.YAMLError:
+        return {}, text
+    return (fm if isinstance(fm, dict) else {}), "\n".join(lines[end + 1:])
+
+
+def skill_review(text: str) -> dict:
+    """What a skill is, in short (the catalog's review and keel's own reading of the file): {tokens (its size / 4, what
+    an agent's prompt grows by), sections (its ## headings, at most 40), description (its front matter's)}."""
+    fm, body = split_front(text)
+    sections: list[str] = []
+    fenced = False
+    for line in body.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## ") and len(sections) < MAX_SECTIONS:
+            sections.append(line[3:].strip())
+    desc = fm.get("description")
+    return {"tokens": len(text.encode("utf-8")) // 4, "sections": sections,
+            "description": desc.strip() if isinstance(desc, str) else ""}
+
+
+def skills_review(raw, where: str) -> dict:
+    """A skill version's review as the catalog's sync computed it: {tokens, sections, description}."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: review is missing (tokens, sections, description)")
+    if not _count(raw.get("tokens")):
+        raise ValueError(f"{where}: review.tokens is not a whole number")
+    sections = raw.get("sections") if raw.get("sections") is not None else []
+    if not isinstance(sections, list) or not all(isinstance(x, str) for x in sections):
+        raise ValueError(f"{where}: review.sections is not a list of text")
+    desc = raw.get("description") if raw.get("description") is not None else ""
+    if not isinstance(desc, str):
+        raise ValueError(f"{where}: review.description is not text")
+    return {"tokens": raw["tokens"], "sections": list(sections), "description": desc}
+
+
+def _skills_version(raw: dict, _req: dict, where: str) -> dict:
+    return {"review": skills_review(raw.get("review"), where)}
+
+
 # -- the rows
 
 PLUGIN = Kind("plugin", "plugins", "plugin", "", ".kplug", 200 << 20,
@@ -403,6 +498,11 @@ RULES = Kind("rules", "rules", "rule pack", "rule pack ", ".yaml", 64 << 10,
              lambda _raw: None, _kind_named("rules", "rules", "rule pack "), _none, _none, _rules_version,
              summarise=pack_review, name_rule=PACK_NAME)
 
-TABLE: tuple[Kind, ...] = (PLUGIN, WORKFLOW, RULES)
+SKILLS = Kind("skills", "skills", "skill", "skill ", ".md", 256 << 10,
+              ("testing", "implementation", "review", "debugging", "knowledge", "authoring", "other"), SkillEntry,
+              SkillVersion, lambda _raw: None, _kind_named("skills", "skills", "skill "), _none, _none, _skills_version,
+              summarise=skill_review, name_rule=PACK_NAME)
+
+TABLE: tuple[Kind, ...] = (PLUGIN, WORKFLOW, RULES, SKILLS)
 BY_NAME: dict[str, Kind] = {k.name: k for k in TABLE}
 NAMES: tuple[str, ...] = tuple(BY_NAME)

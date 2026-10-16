@@ -9,6 +9,7 @@ import { createRulesDb, rulesHandlers } from "./rulesHandlers";
 import { createMarket, marketHandlers } from "./marketHandlers";
 import { createMarketWorkflows, marketWorkflowHandlers } from "./marketWorkflowHandlers";
 import { createMarketRulePacks, marketRulePackHandlers } from "./marketRulePackHandlers";
+import { createMarketSkills, marketSkillHandlers } from "./marketSkillHandlers";
 
 /** v0.15.2 one of KeelBot's chat folders (its type is the KeelBot plugin's, plugins/keelbot/web/keelbotApi.ts) */
 type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
@@ -105,6 +106,8 @@ export function createDb() {
     mw: createMarketWorkflows(),
     /** rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md): installs land in `rules` */
     mr: createMarketRulePacks(),
+    /** 0.18.6 skills in the marketplace: the catalogs', keel's own, what the project installed */
+    ms: createMarketSkills(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -488,6 +491,7 @@ export function handlers(db: Db) {
       await log(request);
       return HttpResponse.json({ id: "imported-skill", kind: "knowledge", source: "yours", stack: "any", version: "v1", tokens: 500, agents: [], when: "", enabled: true });
     }),
+
     http.get("/api/mcp-servers", () => HttpResponse.json(db.mcpServers)),
     http.put("/api/mcp-servers/:name", async ({ request, params }) => {
       const b = (await log(request)) as { enabled?: boolean };
@@ -693,6 +697,7 @@ export function handlers(db: Db) {
     // before the plugin marketplace's: its /api/marketplace/:name would take /api/marketplace/workflows
     ...marketWorkflowHandlers(db.mw, db, log),
     ...marketRulePackHandlers(db.mr, db.rules, log),
+    ...marketSkillHandlers(db.ms, log),
     ...marketHandlers(db.market, log),
   ];
 }

@@ -1,0 +1,8 @@
+# keel's own skill symfony-implementation (content/skills in keel-v2), kept in this repo: skills/symfony-implementation/<version>.md
+name: symfony-implementation
+title: "Symfony implementation patterns"
+publisher: keel
+category: implementation
+summary: "How to write Symfony backend code in GREEN: controllers, request validation, error mapping, transaction boundaries, and the persistence edge."
+tags: [symfony, keel]
+keel: ">=0.18.6"

@@ -1,0 +1,8 @@
+# keel's own skill kotlin-spring-testing (content/skills in keel-v2), kept in this repo: skills/kotlin-spring-testing/<version>.md
+name: kotlin-spring-testing
+title: "Kotlin + Spring Boot test patterns"
+publisher: keel
+category: testing
+summary: "Test patterns for a Kotlin Spring Boot backend: choosing the layer, slice tests, body tests validated against the OpenAPI contract, Testcontainers, MockK, tagging tests with acceptance-criteria IDs, and keeping runs fast."
+tags: [kotlin, keel]
+keel: ">=0.18.6"

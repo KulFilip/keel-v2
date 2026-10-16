@@ -1,0 +1,8 @@
+# keel's own skill kotlin-spring-implementation (content/skills in keel-v2), kept in this repo: skills/kotlin-spring-implementation/<version>.md
+name: kotlin-spring-implementation
+title: "Kotlin/Spring implementation patterns"
+publisher: keel
+category: implementation
+summary: "How to write Kotlin/Spring backend code in GREEN: controllers, request validation, error mapping, transaction boundaries, and the persistence edge."
+tags: [kotlin, keel]
+keel: ">=0.18.6"

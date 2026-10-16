@@ -1,0 +1,8 @@
+# keel's own skill hunt (content/skills in keel-v2), kept in this repo: skills/hunt/<version>.md
+name: hunt
+title: "Hunt: lenses and severity"
+publisher: keel
+category: other
+summary: "The bug hunt's lens briefs and severity rubric."
+tags: [hunt, keel]
+keel: ">=0.18.6"

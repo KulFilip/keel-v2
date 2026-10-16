@@ -37,6 +37,10 @@ def test_the_block_names_the_workflows_the_flows_and_the_buttons():
     assert "How a rule pack is written" in rb and "How an agent is written" not in rb
     ab = keelbot.keel_block(KEEL, "create a new agent that writes the docs")
     assert "How an agent is written" in ab and "How a rule pack is written" not in ab
+    # 0.18.6 a new skill: its button always, its format only when the person wants one (not the agent's format)
+    assert "keel-skill" in b and "How a skill is written" not in b
+    sb = keelbot.keel_block(KEEL, "write a skill for the reviewer agent about our changelog")
+    assert "How a skill is written" in sb and "How an agent is written" not in sb
     assert keelbot.keel_block(None, "hi") == ""
 
 

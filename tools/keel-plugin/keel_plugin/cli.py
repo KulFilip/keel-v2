@@ -22,7 +22,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import PluginToolError, __version__, catalog, dev, minisign, rules, template, workflow
+from . import PluginToolError, __version__, catalog, dev, minisign, rules, skill, template, workflow
 from .lint import lint
 from .package import pack
 
@@ -126,7 +126,7 @@ def cmd_index(args) -> int:
             _out(f"  error    {e}")
         _out(f"marketplace: {len(cat.publishers)} publishers, {len(cat.plugins)} plugins, "
              f"{len(cat.revoked)} revoked, {len(cat.errors)} errors; {len(cat.workflows)} workflows, "
-             f"{len(cat.rules)} rule packs")
+             f"{len(cat.rules)} rule packs, {len(cat.skills)} skills")
         return 1 if cat.errors else 0
     if not args.releases:
         raise PluginToolError("give the releases with --releases <folder or url map> (or use --check)")
@@ -167,10 +167,12 @@ def cmd_index(args) -> int:
     versions = sum(len(p["versions"]) for p in plugins)
     flows = built.index["workflows"]
     packs = built.index["rules"]
+    skills = built.index["skills"]
     _out(f"index: {len(plugins)} plugins, {versions} versions, {len(built.problems)} left out: {out / 'index.json'}"
          f"{signed}, expires {built.index['expires']}; {len(flows)} workflows, "
          f"{sum(len(w['versions']) for w in flows)} workflow versions; {len(packs)} rule packs, "
-         f"{sum(len(r['versions']) for r in packs)} rule pack versions")
+         f"{sum(len(r['versions']) for r in packs)} rule pack versions; {len(skills)} skills, "
+         f"{sum(len(k['versions']) for k in skills)} skill versions")
     return 1 if args.strict and built.problems else 0
 
 
@@ -200,6 +202,32 @@ def cmd_rules_lint(args) -> int:
         _out(report.text())
         failed = failed or not report.ok
     return 1 if failed else 0
+
+
+def cmd_skills_lint(args) -> int:
+    if (args.name or args.version) and len(args.files) > 1:
+        raise PluginToolError("--name and --version are for one file")
+    failed = False
+    for f in args.files:
+        path = Path(f)
+        if not path.is_file():
+            raise PluginToolError(f"there is no file {path}")
+        report = skill.lint(path, args.name, args.version)
+        _out(report.text())
+        failed = failed or not report.ok
+    return 1 if failed else 0
+
+
+def cmd_skills_add(args) -> int:
+    try:
+        wrote = skill.add([Path(x) for x in args.skills], Path(args.market), args.version, args.publisher, args.keel)
+    except ValueError as exc:
+        raise PluginToolError(str(exc)) from None
+    for w in wrote:
+        _out(f"  wrote    {w}")
+    _out(f"{len(wrote) // 2} skills in {args.market}/skills: sign each <version>.md with 'keel-plugin sign' and the "
+         f"publisher's key, then open the pull request")
+    return 0
 
 
 def cmd_new(args) -> int:
@@ -268,7 +296,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--files-url", metavar="URL",
                    help="where the workflow and rule pack files kept in the marketplace repo are served "
                         "(workflows/<name>/<version>.yaml and rules/<name>/<version>"
-                        ".yaml under it; the sync's GitHub Pages address)")
+                        ".yaml, skills/<name>/<version>.md under it; the sync's GitHub Pages address)")
     p.set_defaults(fn=cmd_index)
 
     p = sub.add_parser("workflow", help="marketplace workflows: lint")
@@ -286,6 +314,21 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--name", help="the marketplace name, when the file name does not say it")
     r.add_argument("--version", help="the marketplace version, when the file name does not say it")
     r.set_defaults(fn=cmd_rules_lint)
+
+    p = sub.add_parser("skills", help="marketplace skills: lint")
+    ksub = p.add_subparsers(dest="skills_command", required=True, metavar="command")
+    k = ksub.add_parser("lint", help="check a SKILL.md for the marketplace and print its review")
+    k.add_argument("files", nargs="+", metavar="file.md", help="<name>-<version>.md (or skills/<name>/<version>.md)")
+    k.add_argument("--name", help="the marketplace name, when the file name does not say it")
+    k.add_argument("--version", help="the marketplace version, when the file name does not say it")
+    k.set_defaults(fn=cmd_skills_lint)
+    k = ksub.add_parser("add", help="put SKILL.md files into a marketplace folder (skills/<name>/<version>.md and its entry)")
+    k.add_argument("skills", nargs="+", metavar="dir|SKILL.md", help="a skill folder (with SKILL.md) or the file")
+    k.add_argument("--market", required=True, help="the marketplace folder (publishers/, plugins/, …)")
+    k.add_argument("--version", default="1.0.0", help="the marketplace version (default 1.0.0)")
+    k.add_argument("--publisher", default="keel", help="the publisher (default keel)")
+    k.add_argument("--keel", help="the keel versions it is for, a range like '>=0.18.6'")
+    k.set_defaults(fn=cmd_skills_add)
 
     p = sub.add_parser("new", help="a new plugin folder from the template")
     p.add_argument("name")

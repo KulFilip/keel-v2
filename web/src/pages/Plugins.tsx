@@ -23,7 +23,8 @@
 // Workflows (#/plugins?tab=market&kind=workflows); a workflow's own page is #/plugins/workflow/<name>
 // (MarketWorkflow.tsx).
 // Rule packs (docs/plugins/23-rules-in-marketplace.md §3) are the third kind: Plugins · Workflows · Rules
-// (?kind=rules); a pack's page is #/plugins/rules/<name> (MarketRulePack.tsx).
+// (?kind=rules); a pack's page is #/plugins/rules/<name> (MarketRulePack.tsx). keel 0.18.6: Skills is the fourth
+// (?kind=skills, MarketSkill.tsx): keel's own skills and the catalogs'; a skill's page is #/plugins/skills/<name>.
 //
 // Install opens a dialog that lists everything that will be installed and what each one may do.
 // #/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
@@ -108,6 +109,7 @@ import {
   type MarketKind,
 } from "./MarketWorkflow";
 import { MarketRulePackPage, RulesMarket } from "./MarketRulePack";
+import { MarketSkillPage, SkillsMarket } from "./MarketSkill";
 
 type Tab = "installed" | "market" | "sources";
 
@@ -126,6 +128,9 @@ const SUB_WORKFLOWS =
 const SUB_RULES =
   "Rule packs made by keel and the community: guard rules agents meet at every tool call. One installs into a project's .keel/rules/. keel checks its signature and shows everything it blocks first.";
 
+const SUB_SKILLS =
+  "Skills made by keel and the community: know-how an agent reads before it works. One installs into a project, for the agents you pick. keel checks its signature and shows all of it first.";
+
 export function PluginsPage(_props: PageProps) {
   const route = useRoute();
   // #/plugins/<name>: the router hands a keel-wide page no arg, so the page reads its own link
@@ -143,7 +148,7 @@ export function PluginsPage(_props: PageProps) {
   // the Marketplace's kind: #/plugins?tab=market&kind=workflows|rules (the link is the truth)
   const askedKind = queryValue(route, "kind");
   const kind: MarketKind =
-    askedKind === "workflows" || askedKind === "rules" ? askedKind : "plugins";
+    askedKind === "workflows" || askedKind === "rules" || askedKind === "skills" ? askedKind : "plugins";
   useEffect(() => {
     if (linked) setTab(linked);
   }, [linked, route.query]);
@@ -196,6 +201,10 @@ export function PluginsPage(_props: PageProps) {
     />
   );
 
+  // #/plugins/skills/<name>: a skill of the marketplace, or keel's own
+  if (arg?.startsWith("skills/"))
+    return <MarketSkillPage key={arg} name={arg.slice("skills/".length)} />;
+
   // #/plugins/rules/<name>: a rule pack of the marketplace
   if (arg?.startsWith("rules/"))
     return <MarketRulePackPage key={arg} name={arg.slice("rules/".length)} />;
@@ -244,7 +253,9 @@ export function PluginsPage(_props: PageProps) {
             ? SUB_WORKFLOWS
             : tab === "market" && kind === "rules"
               ? SUB_RULES
-              : SUB[tab]}
+              : tab === "market" && kind === "skills"
+                ? SUB_SKILLS
+                : SUB[tab]}
             <span className="mk-intro">
               Everything is on by default, like 0.16.1. Start with fewer
               plugins: <code>keel2 start --core</code>.
@@ -314,6 +325,7 @@ export function PluginsPage(_props: PageProps) {
           <WorkflowsMarket view={view.data} />
         )}
         {tab === "market" && kind === "rules" && <RulesMarket />}
+        {tab === "market" && kind === "skills" && <SkillsMarket />}
         {tab === "market" && kind === "plugins" && (
           <MarketTab
             view={view.data}

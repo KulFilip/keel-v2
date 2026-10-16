@@ -8,6 +8,9 @@ token, like every other engine route. A refusal answers 4xx {"error", "hint", ..
     GET    /marketplace/rule-packs?q=&category=       rule packs (23-rules-in-marketplace.md)
     GET    /marketplace/rule-packs/{name}             one rule pack: versions, review, checks
     POST   /marketplace/rule-packs/{name}/fetch {version?}  its verified YAML (the api installs it with the rules api)
+    GET    /marketplace/skills?q=&category=           skills (keel 0.18.6)
+    GET    /marketplace/skills/{name}                 one skill: versions, review, checks
+    POST   /marketplace/skills/{name}/fetch {version?}      its verified SKILL.md (the api saves it as a project skill)
     GET    /marketplace/plugins/{name}                one plugin: versions, permissions, needs, checks, plan
     POST   /marketplace/refresh?source=               read every source now (or one)
     GET    /marketplace/installed                     installed + image plugins, and what waits for a restart
@@ -38,7 +41,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import config
-from . import MarketError, catalog, install, live, local, rulepacks, sources, workflows
+from . import MarketError, catalog, install, live, local, rulepacks, skills, sources, workflows
 
 log = logging.getLogger("keel.marketplace")
 router = APIRouter()
@@ -92,11 +95,14 @@ def _notify(request: Request):
 
 def _search(q: str, category: str | None, kind: str) -> dict:
     """kind plugin (the default): step 4's answer as it was; workflow: the workflows' answer; rules: the rule packs'
-    answer; all: every list, with the other kinds' categories as workflow_categories and rules_categories."""
+    answer; skills: the skills' answer; all: every list, with the other kinds' categories as workflow_categories,
+    rules_categories and skills_categories."""
     if kind == "workflow":
         return workflows.search(q, category)
     if kind == "rules":
         return rulepacks.search(q, category)
+    if kind == "skills":
+        return skills.search(q, category)
     out = catalog.search(q, category)
     if kind == "all":
         found = workflows.search(q, category)
@@ -105,12 +111,15 @@ def _search(q: str, category: str | None, kind: str) -> dict:
         packs = rulepacks.search(q, category)
         out["rules"] = packs["rules"]
         out["rules_categories"] = packs["categories"]
+        found = skills.search(q, category)
+        out["skills"] = found["skills"]
+        out["skills_categories"] = found["categories"]
     return out
 
 
 @router.get("/marketplace/search")
 async def get_search(q: str = "", category: str | None = None,
-                     kind: Literal["plugin", "workflow", "rules", "all"] = "plugin"):
+                     kind: Literal["plugin", "workflow", "rules", "skills", "all"] = "plugin"):
     return await asyncio.to_thread(_search, q, category or None, kind)
 
 
@@ -153,6 +162,25 @@ async def get_rule_pack(name: str):
 @router.post("/marketplace/rule-packs/{name}/fetch")
 async def post_rule_pack_fetch(name: str, body: FetchBody | None = None):
     return await asyncio.to_thread(rulepacks.fetch, name, (body.version if body else None) or None)
+
+
+# ------------------------------------------------------------------ skills (keel 0.18.6)
+# No install route: a skill goes into a project through the api's skills (/projects/{pid}/skills/market/install), which
+# takes the text fetch gives back.
+
+@router.get("/marketplace/skills")
+async def get_skills(q: str = "", category: str | None = None):
+    return await asyncio.to_thread(skills.search, q, category or None)
+
+
+@router.get("/marketplace/skills/{name}")
+async def get_skill(name: str):
+    return await asyncio.to_thread(skills.detail, name)
+
+
+@router.post("/marketplace/skills/{name}/fetch")
+async def post_skill_fetch(name: str, body: FetchBody | None = None):
+    return await asyncio.to_thread(skills.fetch, name, (body.version if body else None) or None)
 
 
 def _detail(name: str) -> dict:

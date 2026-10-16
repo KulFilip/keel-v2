@@ -1,0 +1,8 @@
+# keel's own skill memory (content/skills in keel-v2), kept in this repo: skills/memory/<version>.md
+name: memory
+title: "Project memory"
+publisher: keel
+category: knowledge
+summary: "Read back what keel knows about this project — architecture, domain vocabulary, conventions, data and integrations — and how it is written."
+tags: [memory, keel]
+keel: ">=0.18.6"

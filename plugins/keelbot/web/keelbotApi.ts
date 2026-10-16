@@ -9,6 +9,7 @@ import {
   get,
   patch,
   post,
+  put,
   type CiRun,
   type FlowView,
   type GraphHit,
@@ -187,6 +188,11 @@ export const kb = {
   saveRule: (pid: string, yaml: string) => post<{ pack?: { id?: string } }>(`/projects/${e(pid)}/rules/packs`, { yaml }),
   saveAgent: (pid: string, body: { name: string; about: string; prompt: string; tools: string[]; phases: string[] }) =>
     post<{ id: string }>(`/projects/${e(pid)}/agents`, body),
+  // 0.18.6 a skill KeelBot wrote: save it (its SKILL.md, the api's import), then the agents that load it
+  agentIds: (pid: string) => get<{ id: string; label?: string }[]>(`/projects/${e(pid)}/agents`),
+  saveSkill: (pid: string, body: string) => post<{ id: string; tokens: number; agents: string[] }>(`/projects/${e(pid)}/skills/import`, { body }),
+  skillAgents: (pid: string, sid: string, agents: string[]) =>
+    put<{ id: string; agents: string[] }>(`/projects/${e(pid)}/skills/${e(sid)}`, { agents }),
 
   // 0.18.4 its flow buttons (keel-flow): decide the gate a flow waits at, stop a flow, a flow's run mode
   decideGate: (tid: string, body: { decision: "approve" | "reject"; why?: string }) =>

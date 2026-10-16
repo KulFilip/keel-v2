@@ -1,0 +1,8 @@
+# keel's own skill react-testing (content/skills in keel-v2), kept in this repo: skills/react-testing/<version>.md
+name: react-testing
+title: "Plain-JS React test patterns"
+publisher: keel
+category: testing
+summary: "Test patterns for a plain-JavaScript React frontend (no TypeScript) — everything the web-testing skill teaches, minus the type-level pieces."
+tags: [react, keel]
+keel: ">=0.18.6"

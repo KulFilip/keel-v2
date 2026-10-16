@@ -1,0 +1,8 @@
+# keel's own skill spec-writing (content/skills in keel-v2), kept in this repo: skills/spec-writing/<version>.md
+name: spec-writing
+title: "Writing the spec (keel v2)"
+publisher: keel
+category: authoring
+summary: "Write a spec a human can approve in one read: numbered, layer-tagged, observable acceptance criteria; an ASCII mockup with four states for screens; an ASCII request path marked new or changed; assumptions and out-of-scope written down."
+tags: [spec, keel]
+keel: ">=0.18.6"

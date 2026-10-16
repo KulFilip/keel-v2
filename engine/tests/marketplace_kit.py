@@ -83,6 +83,30 @@ class _Files(http.server.BaseHTTPRequestHandler):
         pass
 
 
+# a skill (keel 0.18.6): one SKILL.md, its front matter's name the marketplace name
+SKILL = """---
+name: {name}
+description: How to write a good changelog entry ({version}).
+---
+
+# {name}
+
+Write one line per change, in the past tense.
+
+## When
+
+At the end of a feature, before the pull request.
+
+## How
+
+```markdown
+## not a section: inside a fence
+```
+
+- Name the user-visible change, not the files.
+"""
+
+
 class Market:
     """One test catalog: its key, the publisher keel (verified) with its key, the plugins and versions published."""
 
@@ -95,6 +119,7 @@ class Market:
         self.plugins: dict[str, dict] = {}
         self.workflows: dict[str, dict] = {}     # 21-workflow-marketplace.md: an index without them reads as before
         self.rules: dict[str, dict] = {}         # 23-rules-in-marketplace.md: rule packs, the third kind
+        self.skills: dict[str, dict] = {}        # keel 0.18.6: skills, the fourth kind
         self.revoked: list[dict] = []
         self.built = "2026-10-09T06:00:00Z"
         self.expires = "2099-01-01T00:00:00Z"
@@ -216,12 +241,33 @@ class Market:
         entry["versions"].append(v)
         return v
 
+    def publish_skill(self, name: str, version: str, *, text: str | None = None, publisher: str = "keel",
+                      category: str = "authoring", keel: str | None = None, review: dict | None = None, sign_with=None,
+                      size: int | None = None, sha256: str | None = None, title: str | None = None) -> dict:
+        """Serve a signed SKILL.md and add its version to the index's skills (call serve() after)."""
+        text = text if text is not None else SKILL.format(name=name, version=version)
+        data = text.encode()
+        path = f"/skills/{name}/{version}/SKILL.md"
+        self.server.files[path] = data
+        self.server.files[path + ".minisig"] = signing.sign(data, sign_with or self.publisher_key, "SKILL.md").encode()
+        v = {"version": version, "released": "2026-10-16", "requires": {"keel": keel} if keel else {},
+             "url": self.url + path, "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
+             "review": review or kinds.skill_review(text)}
+        entry = self.skills.setdefault(name, {
+            "name": name, "kind": "skills", "title": title or name.replace("-", " ").capitalize(),
+            "publisher": publisher, "summary": f"The {name} skill for tests.", "category": category,
+            "tags": [name, "test"], "repo": "https://github.com/keel-studio/keel-skills", "versions": []})
+        entry["versions"].append(v)
+        return v
+
     def index(self) -> dict:
         doc = {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
                "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
         if self.workflows or self.rules:
             doc["workflows"] = list(self.workflows.values())
             doc["rules"] = list(self.rules.values())
+        if self.skills:
+            doc["skills"] = list(self.skills.values())
         return doc
 
     def serve(self, doc: dict | None = None, *, sign_with=None, raw: bytes | None = None) -> None:
