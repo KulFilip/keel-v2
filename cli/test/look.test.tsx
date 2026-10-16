@@ -7,7 +7,8 @@ import { App, type Probe } from "../src/ui/App";
 import { ThemeProvider } from "../src/ui/theme";
 import { FRAMES, FRAMES_ASCII, pickVerb, Thinking, VERBS } from "../src/ui/thinking";
 import { KeelCore } from "../src/core/keel";
-import { contrast, DARK, LIGHT, makeTheme, PLAIN, themeName } from "../src/core/theme";
+import { contrast, DARK, inkColor, LIGHT, makeTheme, PLAIN, TERMINAL, themeName, userTint } from "../src/core/theme";
+import { classifyDiff } from "../src/core/diff";
 import { highlight, language } from "../src/core/highlight";
 import { renderMarkdown } from "../src/core/markdown";
 import { colorDiagram } from "../src/core/colorize";
@@ -67,9 +68,12 @@ describe("code", () => {
   });
 
   it("colours a diff green and red, and nothing without colour", () => {
-    const d = highlight("@@ -1 +1 @@\n-old\n+new\n context", "diff", color.paint);
-    expect(d[1]).toBe(`${RGB(DARK.del)}-old\x1b[39m`);
-    expect(d[2]).toBe(`${RGB(DARK.add)}+new\x1b[39m`);
+    const d = highlight("@@ -1,2 +1,2 @@\n-old\n+new\n context", "diff", color.paint);
+    // each line with its number (xal's diff gutter): the old file's for a removed line, the new file's otherwise
+    expect(d[0]).toBe(`${RGB(DARK.faint)}     \x1b[39m${RGB(DARK.warn)}@@ -1,2 +1,2 @@\x1b[39m`);
+    expect(d[1]).toBe(`${RGB(DARK.faint)}   1 \x1b[39m${RGB(DARK.del)}-old\x1b[39m`);
+    expect(d[2]).toBe(`${RGB(DARK.faint)}   1 \x1b[39m${RGB(DARK.add)}+new\x1b[39m`);
+    expect(stripAnsi(d[3])).toBe("   2  context");
     expect(highlight("-old\n+new", "diff", PLAIN)).toEqual(["-old", "+new"]);
   });
 
@@ -225,5 +229,62 @@ describe("markdown and paths", () => {
     expect(stripAnsi(out)).toBe("  • entry: run() in src/scores/__init__.py:1 and bold here");
     expect(out).toContain(`${RGB(DARK.run)}src/scores/__init__.py:1`);
     expect(out).not.toMatch(/[^\x1b]\[\d+m/);                      // every colour code is whole
+  });
+});
+
+describe("what we took from xal", () => {
+  it("the terminal's own colours: a 16-colour terminal or KEEL_TUI_THEME=terminal", () => {
+    const t = makeTheme({}, 1);
+    expect(t.name).toBe("terminal");
+    expect(t.paint.accent("x")).toBe("\x1b[95mx\x1b[39m");                  // magenta (13), whatever shade the terminal has
+    expect(t.paint.bad("x")).toBe("\x1b[91mx\x1b[39m");
+    expect(t.paint.fg("x")).toBe("x");                                         // the terminal's own text colour
+    expect(makeTheme({ KEEL_TUI_THEME: "terminal" }, 3).palette).toBe(TERMINAL);
+    expect(inkColor("ansi:magentaBright")).toBe("magentaBright");
+    expect(inkColor("#a48bff")).toBe("#a48bff");
+  });
+
+  it("a person's message on a tinted background: 8 % toward the text colour", () => {
+    expect(userTint(DARK)).toBe("#262627");
+    expect(userTint(LIGHT)).toBe("#e3e2e0");
+    expect(userTint(TERMINAL)).toBeUndefined();
+  });
+
+  it("diffs keep their line numbers", () => {
+    expect(classifyDiff(["--- a/x", "+++ b/x", "@@ -10,2 +10,3 @@", " same", "-gone", "+new", "+more"]).map((l) => `${l.kind}:${l.number}`))
+      .toEqual(["faint:", "faint:", "hunk:", "plain:10", "removed:11", "added:11", "added:12"]);
+  });
+
+  it("tables in a box with the header in the accent, bullets by depth, links with their address faint", () => {
+    const md = "| step | state |\n|---|---|\n| spec | done |\n| red | waiting |\n\n- one\n  - two\n    - three\n\nSee [the docs](https://x.io).";
+    const out = renderMarkdown(md, color.paint, 60);
+    expect(stripAnsi(out)).toBe([
+      "  ┌──────┬─────────┐", "  │ step │ state   │", "  ├──────┼─────────┤", "  │ spec │ done    │", "  │ red  │ waiting │", "  └──────┴─────────┘",
+      "", "  • one", "    ◦ two", "      ▪ three", "", "See the docs (https://x.io)."].join("\n"));
+    expect(out).toContain(`${RGB(DARK.accent)}step`);
+    expect(out).toContain(`${RGB(DARK.faint)}(https://x.io)`);
+  });
+});
+
+describe("xal's layout ideas in keel TUI", () => {
+  it("a question is amber with a '?', a list is in the accent; the person's message sits on a tinted line", async () => {
+    const { Picker } = await import("../src/ui/parts");
+    const q = render(<ThemeProvider theme={color}><Picker title="Run with the fake model anyway?" choices={[{ label: "Yes", value: "y" }, { label: "No", value: "n" }]} index={0} filter="" /></ThemeProvider>);
+    expect(stripAnsi(q.lastFrame() ?? "")).toContain("? Run with the fake model anyway?");
+    expect(q.lastFrame()).toContain(RGB(DARK.gate));
+    expect(stripAnsi(q.lastFrame() ?? "")).toContain("↑↓ · Enter · type to filter · Esc");
+    q.unmount();
+    const stub = stubKeel();
+    const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
+    const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
+    const r = render(<App core={core} probe={probe} width={80} theme={color} />);
+    await waitFor(() => probe.started);
+    r.stdin.write("/status");
+    await tick(30);
+    r.stdin.write("\r");
+    await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("criteria  0/2 done"));
+    expect(r.lastFrame()).toContain("\x1b[48;2;38;38;39m");                  // userTint(DARK) behind " › /status"
+    expect(stripAnsi(r.lastFrame() ?? "")).toMatch(/\n › \/status {60,}\n/);
+    r.unmount();
   });
 });

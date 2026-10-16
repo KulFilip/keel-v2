@@ -21,7 +21,7 @@ export function pickVerb(seed?: string | null, rand: () => number = Math.random)
 
 export const elapsed = (since: number | null | undefined, now: number) => (since ? Math.max(0, Math.floor((now - since) / 1000)) : 0);
 
-export function Thinking({ verb, since, tokens, hint, who, interval = 120 }: {
+export function Thinking({ verb, since, tokens, hint, who, interval = 80 }: {
   verb: string; since?: number | null; tokens?: number; hint?: string; who?: string; interval?: number;
 }) {
   const t = useTheme();

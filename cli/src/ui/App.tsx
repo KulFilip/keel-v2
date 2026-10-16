@@ -65,6 +65,11 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
   const nextId = useRef(1);
 
   const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint }), [core, width, t.paint]);
+  // for the answer event's handler (it is set up once): the colours, the width and when the turn started
+  const look = useRef({ paint: t.paint, width });
+  look.current = { paint: t.paint, width };
+  const turnStart = useRef<number | null>(null);
+  if (snap.chat.startedAt) turnStart.current = snap.chat.startedAt;
 
   const push = useCallback((...bs: Block[]) => {
     if (!bs.length) return;
@@ -77,9 +82,16 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
       core.on("notice", (t) => push({ kind: "notice", text: t })),
       core.on("answer", (a) => {
         const d = a.message?.data;
+        const { paint, width: w } = look.current;
         const used = d ? [d.provider && d.model ? `${d.provider}/${d.model}` : "", d.tokens_in || d.tokens_out ? `${fmt.short((d.tokens_in ?? 0) + (d.tokens_out ?? 0))} tokens` : "",
           d.cost_usd ? `$${d.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
-        push({ kind: a.ok ? "markdown" : "error", text: a.text }, ...(used ? [{ kind: "dim" as const, text: `  KeelBot · ${used}` }] : []));
+        // what it did (its tools, settled: xal's way), the answer, then how the turn ended and what it used
+        const tools = fmt.toolLines(core.snapshot.chat.steps, w, paint);
+        const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
+        const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
+        push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: a.text },
+          { kind: "text", text: fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint) });
+        turnStart.current = null;
         setAnswers((n) => n + 1);
       }),
     ];
@@ -278,13 +290,13 @@ function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Prob
   return (
     <>
       <Static key={epoch} items={items}>
-        {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} />)}
+        {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} width={width} />)}
       </Static>
       <Box flexDirection="column">
         {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
         {chat.busy && (
           <Box flexDirection="column" marginTop={1}>
-            {tools.map((s) => <Text key={s.n} wrap="truncate-end"><Text color={t.color("faint")}>{"  ⎿ "}</Text>{fmt.stepLine(s, width - 6, t.paint)}</Text>)}
+            {tools.length > 0 && <Text>{fmt.toolLines(steps, width, t.paint, 4).join("\n")}</Text>}
             {writing && <Box marginLeft={2}><Text>{renderMarkdown(writing.slice(-3000), t.paint)}</Text></Box>}
             <Thinking verb={verb} since={chat.startedAt} tokens={Math.round(chat.wrote / 4) || undefined} hint="esc to interrupt" />
           </Box>

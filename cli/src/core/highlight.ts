@@ -18,6 +18,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import type { Paint, Role } from "./theme";
+import { renderDiff } from "./diff";
 
 const LANGS = { bash, css, diff, go, java, javascript, json, kotlin, markdown, python, rust, sql, typescript, xml, yaml };
 for (const [name, lang] of Object.entries(LANGS)) hljs.registerLanguage(name, lang);
@@ -70,8 +71,7 @@ export function highlight(code: string, lang: string, p: Paint): string[] {
   if (!p.colored) return lines;
   const l = language(lang) ?? (looksLikeDiff(code) ? "diff" : null);
   if (!l) return lines.map((x) => p.fg(x));
-  if (l === "diff") return lines.map((x) => (x.startsWith("+") && !x.startsWith("+++") ? p.add(x) : x.startsWith("-") && !x.startsWith("---")
-    ? p.del(x) : x.startsWith("@@") ? p.accent(x) : p.dim(x)));
+  if (l === "diff") return renderDiff(code, p);
   const html = hljs.highlight(code, { language: l, ignoreIllegals: true }).value;
   // a token may span lines (a block comment): close and reopen its colour on each line
   return splitHtmlLines(html).map((h) => htmlToAnsi(h, p));

@@ -296,3 +296,32 @@ export function which(url: string, h: Health | null): string {
   if (!h) return `${url} · not reachable`;
   return `${url} · ${h.native ? "native" : "docker"}` + (h.fake ? " · fake model" : "") + (h.engine ? "" : " · engine down");
 }
+
+/** An agent's tool steps as xal shows them: ">" reads, "*" changes, the title faint, the outcome at the right (✓ / x). */
+export function toolLines(steps: JobStep[], width: number, c: Paint = PLAIN, max = 6): string[] {
+  const tools = steps.filter((s) => !["text", "answer", "thinking"].includes(s.kind));
+  const shown = tools.slice(-max);
+  const out: string[] = [];
+  if (tools.length > shown.length) out.push(c.faint(`  … ${tools.length - shown.length} earlier steps`));
+  for (const s of shown) {
+    const changes = s.kind === "write" || s.kind === "edit";
+    const failed = s.ok === false || s.kind === "guard" || s.kind === "error";
+    const glyph = changes ? "*" : ">";
+    const title = (s.kind === "tool" ? `${s.tool ?? "tool"}${s.server ? ` (${s.server})` : ""} ` : `${s.kind} `)
+      + (s.path ?? String(s.text ?? "").replace(/\s+/g, " ").trim());
+    const status = (s.ms ? `${(s.ms / 1000).toFixed(1)}s ` : "") + (failed ? "x" : "✓");
+    const room = Math.max(10, width - 4 - status.length - 2);
+    const t = title.length > room ? title.slice(0, room - 1) + "…" : title;
+    const pad = " ".repeat(Math.max(1, width - 4 - t.length - status.length));
+    out.push(`  ${c.faint(glyph)} ${changes ? c.fg(t) : c.faint(t)}${pad}${c.faint(status.slice(0, -1))}${failed ? c.bad("x") : c.ok("✓")}`);
+  }
+  return out;
+}
+
+/** The line after a turn: ✓ Finished in 4.2s, x Failed after …, ! Interrupted after … (xal's status words). */
+export function turnFooter(outcome: "done" | "failed" | "stopped", ms: number, extra: string, c: Paint = PLAIN): string {
+  const s = `${(ms / 1000).toFixed(1)}s`;
+  const [glyph, words] = outcome === "done" ? [c.ok("✓"), `Finished in ${s}`] : outcome === "failed" ? [c.bad("x"), `Failed after ${s}`]
+    : [c.warn("!"), `Interrupted after ${s}`];
+  return `  ${glyph} ${c.dim(words + (extra ? ` · ${extra}` : ""))}`;
+}

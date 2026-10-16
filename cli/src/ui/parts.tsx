@@ -53,10 +53,10 @@ export function noticeRole(text: string): "gate" | "bad" | "ok" | "accent" | "di
   return "accent";
 }
 
-export function BlockView({ b }: { b: Block }) {
-  const { color, paint } = useTheme();
+export function BlockView({ b, width = 100 }: { b: Block; width?: number }) {
+  const { color, paint, tint } = useTheme();
   switch (b.kind) {
-    case "markdown": return <Box marginLeft={2}><Text>{renderMarkdown(b.text, paint)}</Text></Box>;
+    case "markdown": return <Box marginLeft={2}><Text>{renderMarkdown(b.text, paint, width - 2)}</Text></Box>;
     case "diagram": return <Box marginLeft={1}><Text>{colorDiagram(b.text, paint)}</Text></Box>;
     case "error": return <Text color={color("bad")}>{"✗ " + b.text}</Text>;
     case "ok": return <Text color={color("ok")}>{"✓ " + b.text}</Text>;
@@ -64,7 +64,15 @@ export function BlockView({ b }: { b: Block }) {
       const r = noticeRole(b.text);
       return <Text color={color(r)} bold={r === "gate"}>{"◆ " + b.text}</Text>;
     }
-    case "user": return <Text><Text color={color("accent")} bold>{"› "}</Text><Text bold>{b.text}</Text></Text>;
+    // the person's message: on its own tinted line, with air above it (xal's bubble)
+    case "user": {
+      const pad = " ".repeat(Math.max(0, width - 3 - [...b.text].length));
+      return (
+        <Box marginTop={1}>
+          <Text backgroundColor={tint}><Text color={color("accent")} bold>{" › "}</Text><Text bold>{b.text}</Text>{tint ? pad : ""}</Text>
+        </Box>
+      );
+    }
     case "dim": return <Text color={color("dim")}>{b.text}</Text>;
     default: return <Text>{b.text}</Text>;
   }
@@ -72,12 +80,15 @@ export function BlockView({ b }: { b: Block }) {
 
 export function Picker({ title, choices, index, filter }: { title: string; choices: Choice[]; index: number; filter: string }) {
   const { color } = useTheme();
+  // a question (a yes or no, a gate's question) in amber with a "?", like xal's permission prompt; a list in the accent
+  const ask = title.trim().endsWith("?");
+  const tone = ask ? color("gate") : color("accent");
   const max = 10;
   const start = Math.max(0, Math.min(index - Math.floor(max / 2), choices.length - max));
   const shown = choices.slice(start, start + max);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={color("accent")} paddingX={1}>
-      <Text bold color={color("accent")}>{title}</Text>
+    <Box flexDirection="column" borderStyle="round" borderColor={tone} paddingX={1}>
+      <Text bold color={tone}>{ask ? "? " : ""}{title}</Text>
       {filter && <Text color={color("dim")}>{`filter: ${filter}`}</Text>}
       {shown.length === 0 && <Text color={color("dim")}>nothing matches</Text>}
       {shown.map((c, k) => {
@@ -88,7 +99,7 @@ export function Picker({ title, choices, index, filter }: { title: string; choic
           </Text>
         );
       })}
-      <Text color={color("faint")}>↑/↓ choose · Enter picks · type to filter · Esc cancels</Text>
+      <Text color={color("faint")}>↑↓ · Enter · type to filter · Esc</Text>
     </Box>
   );
 }

@@ -2,9 +2,14 @@
 // truecolor, with a 256- or 16-colour fallback (chalk picks the closest the terminal has) and none with NO_COLOR.
 //
 //   KEEL_TUI_THEME=dark|light   which palette (default: the terminal's background from COLORFGBG, else dark)
+//   KEEL_TUI_THEME=terminal     the terminal's own 16 colours (its theme decides the shades; also used in a 16-colour
+//                               terminal), the way xal colours its TUI (cli/THIRD_PARTY_NOTICES.md)
 //   NO_COLOR=1                  no colour at all (https://no-color.org); FORCE_COLOR=1|2|3 forces a level
 //
 // No UI here: a Paint turns text into styled text for any terminal front end; keel TUI's Ink parts read the palette.
+//
+// The TERMINAL palette's role → ANSI index map and userTint()'s 8 % mix are adapted from xal
+// (https://github.com/xal-sh/xal, apps/cli/src/plugins/tui/theme/colors.ts), MIT License, Copyright (c) 2026 Saeed Vaziry.
 
 import chalk, { Chalk } from "chalk";
 
@@ -29,6 +34,31 @@ export const LIGHT: Palette = {
   add: "#1f7a45", del: "#b03024",
 };
 
+/** The terminal's own colours, by their ANSI names: gray (8), red (9), green (10), yellow (11), blue (12), magenta (13),
+ *  cyan (14), xal's map with keel's accent on magenta. "term:" = the terminal's own text colour. */
+export const TERMINAL: Palette = {
+  bg: "", fg: "term:", dim: "ansi:blackBright", faint: "ansi:blackBright", border: "ansi:blackBright",
+  accent: "ansi:magentaBright", run: "ansi:blueBright", ok: "ansi:greenBright", warn: "ansi:yellowBright", bad: "ansi:redBright",
+  gate: "ansi:yellowBright", kw: "ansi:magentaBright", str: "ansi:greenBright", num: "ansi:yellowBright", com: "ansi:blackBright",
+  fn: "ansi:blueBright", attr: "ansi:cyanBright", type: "ansi:cyanBright", add: "ansi:greenBright", del: "ansi:redBright",
+};
+type AnsiName = "blackBright" | "redBright" | "greenBright" | "yellowBright" | "blueBright" | "magentaBright" | "cyanBright";
+
+/** The background of a person's message: the terminal's background moved 8 % toward its text colour (xal's bubble). */
+export function userTint(p: Palette): string | undefined {
+  if (!p.bg.startsWith("#")) return undefined;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(p.bg.slice(i, i + 2), 16));
+  const target = r * 0.299 + g * 0.587 + b * 0.114 > 127 ? 0 : 255;
+  const mix = (v: number) => Math.round(v + (target - v) * 0.08).toString(16).padStart(2, "0");
+  return `#${mix(r)}${mix(g)}${mix(b)}`;
+}
+
+/** A palette value as Ink's color prop: "#hex", an ANSI colour name, or undefined (the terminal's own text colour). */
+export function inkColor(v: string): string | undefined {
+  if (v.startsWith("ansi:")) return v.slice(5);
+  return v.startsWith("#") ? v : undefined;
+}
+
 type Fn = (s: string) => string;
 export type Paint = Record<Role, Fn> & { bold: Fn; italic: Fn; underline: Fn; inverse: Fn; colored: boolean };
 
@@ -42,18 +72,22 @@ export const PLAIN: Paint = { ...(Object.fromEntries(ROLES.map((r) => [r, id])) 
 export function makePaint(p: Palette, level: 0 | 1 | 2 | 3): Paint {
   if (level === 0) return PLAIN;
   const c = new Chalk({ level });
-  return { ...(Object.fromEntries(ROLES.map((r) => [r, (s: string) => c.hex(p[r])(s)])) as Record<Role, Fn>),
+  const fn = (v: string): Fn => {
+    if (v.startsWith("ansi:")) return (s) => c[v.slice(5) as AnsiName](s);
+    return v.startsWith("#") ? (s) => c.hex(v)(s) : id;
+  };
+  return { ...(Object.fromEntries(ROLES.map((r) => [r, fn(p[r])])) as Record<Role, Fn>),
     bold: (s) => c.bold(s), italic: (s) => c.italic(s), underline: (s) => c.underline(s), inverse: (s) => c.inverse(s), colored: true };
 }
 
-export type Theme = { name: "dark" | "light"; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean };
+export type Theme = { name: "dark" | "light" | "terminal"; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean };
 
 type Env = Record<string, string | undefined>;
 
 /** dark or light: KEEL_TUI_THEME, else the background COLORFGBG says ("15;0" is light text on dark), else dark. */
-export function themeName(env: Env): "dark" | "light" {
+export function themeName(env: Env): "dark" | "light" | "terminal" {
   const want = (env.KEEL_TUI_THEME ?? "").toLowerCase();
-  if (want === "light" || want === "dark") return want;
+  if (want === "light" || want === "dark" || want === "terminal") return want;
   const bg = Number((env.COLORFGBG ?? "").split(";").pop());
   return bg === 7 || bg === 15 ? "light" : "dark";
 }
@@ -72,9 +106,10 @@ export function asciiOnly(env: Env): boolean {
 }
 
 export function makeTheme(env: Env = process.env, detected?: number): Theme {
-  const name = themeName(env);
   const level = colorLevel(env, detected);
-  const palette = name === "light" ? LIGHT : DARK;
+  // a 16-colour terminal: its own colours fit better than the nearest of 16 to keel's shades
+  const name = level === 1 && !env.KEEL_TUI_THEME ? "terminal" : themeName(env);
+  const palette = name === "light" ? LIGHT : name === "terminal" ? TERMINAL : DARK;
   return { name, palette, level, paint: makePaint(palette, level), ascii: asciiOnly(env) };
 }
 

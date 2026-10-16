@@ -92,7 +92,7 @@ describe("keel TUI", () => {
       data: { n: 2, kind: "text", text: "It starts in **src/main.ts:3**" } }) });
     await tick(50);
     expect(t.frame()).toMatch(new RegExp(`(${VERBS.join("|")})… \\(\\d+s · ~\\d+ tokens · esc to interrupt\\)`));
-    expect(t.frame()).toContain("⎿ grep: createApp");
+    expect(t.frame()).toMatch(/  > grep createApp +✓/);                      // a tool step, settled at the right
     expect(t.frame()).toContain("It starts in src/main.ts:3");
     t.stub.answer("It starts in `src/main.ts:3`, where **createApp** runs.");
     t.core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "s1", project_id: "demo", at: "x", data: { status: "done" } }) });
@@ -100,7 +100,8 @@ describe("keel TUI", () => {
     await tick(50);
     const f = t.frame();
     expect(f).toContain("It starts in src/main.ts:3, where createApp runs.");
-    expect(f).toContain("KeelBot · fake/fake · 1.5k tokens");
+    expect(f).toMatch(/✓ Finished in \d+\.\ds · KeelBot · fake\/fake · 1\.5k tokens/);
+    expect(f).toMatch(/  > grep createApp +✓\n/);                        // what it did, kept above the answer
     expect(f).not.toContain("esc to interrupt");
     expect(t.stub.calls.find((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn")?.body).toEqual({ text: "where does the app start?" });
     t.r.unmount();

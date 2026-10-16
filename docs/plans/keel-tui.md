@@ -122,6 +122,48 @@ orphans `buildFlowMap` gives); a pytest checks the Python port, a vitest checks 
 Everything above is built. The real check (`scripts/test-keel-tui.sh`) ran against a throw-away keel (an image with
 this branch's api, engine, plugins and keel TUI on top of 0.17.3's): captures in `docs/pictures/tui/`.
 
+## Colour, streaming and "working" (0.18.2, feat/tui-polish)
+
+```
+  runner (claude --include-partial-messages · API astream · fake)  emit("delta", chunk)
+     │
+     ▼  models/stream.py DeltaThrottle: the text so far, at most every 80 ms
+  engine  helper.delta (KeelBot) · agent.delta (a flow's agents)      ── never stored ──┐
+     │                                                                                   │
+     ▼  api EventService: published by name, not written to the events table             │
+  SSE  ──▶ dashboard KeelBot (live text + caret)   ──▶ keel TUI (the answer as it is written,
+                                                        the agents panel's "✎ …" line)
+  the whole message (helper.step text / answer) stays the record and replaces the live text
+```
+
+- **Colours**: the dashboard's palette (`cli/src/core/theme.ts`: DARK and LIGHT from `web/src/styles.css`, the code
+  colours from the code view's `--hl-*`), truecolor with a 256-colour fallback, NO_COLOR, `KEEL_TUI_THEME=dark|light|terminal`,
+  COLORFGBG for a light terminal. Both palettes are tested for contrast on their background (text ≥ 4.5:1).
+- **Code**: highlight.js (the web's highlighter) → the palette's code roles (`highlight.ts`); diffs with line numbers.
+- **Working**: a turning compass over a wave, a keel verb per turn, seconds, `~tokens`, `esc to interrupt` (Esc stops
+  the turn: `POST …/helper/sessions/{sid}/stop`); one line per agent at work.
+
+### What we took from xal
+
+xal (https://github.com/xal-sh/xal, MIT) is an open-source terminal coding harness. keel's palette stays the base; from
+xal we took how to use colour richly (code that was adapted keeps xal's notice; `cli/THIRD_PARTY_NOTICES.md`):
+
+| xal | keel TUI |
+|-----|----------|
+| colours are the terminal's own 16 (`theme/colors.ts`: faint 8, red 9, green 10, yellow 11, blue 12, magenta 13, cyan 14), so any terminal theme fits | `KEEL_TUI_THEME=terminal`, and the default in a 16-colour terminal (accent on magenta) |
+| a person's message on a background 8 % toward the text colour (`userMessageBackground`) | the same tint behind " › your words", with a line of air above |
+| tool calls settle as one line: `>` reads, `*` changes, the title faint, the outcome right-aligned (✓ green, x red, the seconds) | the live tool lines and the settled list above each answer |
+| the end of a turn: `✓ Finished in 4.2s`, `x Failed after …`, `! Interrupted after …` | the line under each answer, with the model and tokens |
+| a question is amber with `?` and `↑↓ · Enter · Esc` (`permission-popover.ts`) | pickers that ask (title ends in "?") in amber with "?"; lists stay in the accent |
+| diffs with line numbers from the hunk headers, hunks in yellow (`output/diff.ts`) | `cli/src/core/diff.ts` (adapted), in code blocks |
+| markdown: bullets by depth `• ◦ ▪ ·`, headings 1–2 in the accent, links with the address faint, tables in a box with the header in the accent (`markdown/render.ts`) | the same in `cli/src/core/markdown.ts` (the table layout adapted) |
+| a braille spinner at 80 ms | keel's own compass glyph, at xal's 80 ms |
+
+Captures: `docs/pictures/tui/before/` (0.18.1) and `docs/pictures/tui/after/` (this branch), each as text (`*.txt`), with
+colours (`*.ansi`, after only: 0.18.1's --script has no --ansi) and as a real terminal session (`interactive.ansi`:
+`cat` it in a terminal). The main run's captures (`docs/pictures/tui/*.txt|ansi`) include KeelBot while it writes
+(`11a-…`) and its answer (`11b-…`).
+
 ## Open questions (with my recommendation)
 
 1. Where does the TUI run with Docker? **Inside the container (`docker exec -it`)**: Node is there, nothing to
