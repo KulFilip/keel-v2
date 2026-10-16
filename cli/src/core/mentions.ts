@@ -134,7 +134,7 @@ export class Pastes {
       this.items.push(p);
       return { insert: `[image ${p.name} #${p.n}]`, pasted: p };
     }
-    const lines = text.split("\n").length;
+    const lines = text.replace(/\n+$/, "").split("\n").length;
     if (lines <= PASTE_LINES && text.length <= PASTE_CHARS) return { insert: text.replace(/\n/g, " ") };
     const p: Pasted = { n: this.next++, kind: "text", text, lines };
     this.items.push(p);

@@ -117,7 +117,7 @@ describe("paste", () => {
     await waitFor(() => t.probe.started);
     await t.type("explain ");
     await t.type("def a():\n    return 1\n\ndef b():\n    return 2\n");
-    expect(t.frame()).toContain("› explain [pasted 6 lines #1]");
+    expect(t.frame()).toContain("› explain [pasted 5 lines #1]");
     await t.type(" and ");
     await t.type("/tmp/err.png");
     expect(t.frame()).toContain("[image err.png #2]");

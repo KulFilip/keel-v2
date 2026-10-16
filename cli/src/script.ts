@@ -145,7 +145,8 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
           // KeelBot is writing: some of its answer is on screen, the turn has not ended
           else if (a1 === "streaming") await until(() => core.snapshot.chat.busy && core.snapshot.chat.stream.length > 20, secs, "KeelBot's text");
           else throw new Error(`no @wait ${a1}`);
-          await sleep(400);
+          // while KeelBot writes, the snap comes at once; otherwise the screen settles first
+          if (a1 !== "streaming") await sleep(400);
         } else {
           // type it, then Enter
           stdin.write(line);
