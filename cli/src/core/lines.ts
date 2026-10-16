@@ -32,7 +32,8 @@ export function wrap(text: string, width: number): string[] {
   return text.split("\n").flatMap((line) => {
     if (stringWidth(line) <= w) return [line];
     const raw = plain(line);
-    const col = /^(\s*\S.*?\s{2,})\S/.exec(raw)?.[1].length ?? 0;
+    // a line with a mark (✗ ✓ ◆): under its text; a two-column line (/help): under the second column
+    const col = /^[✗✓◆] /.test(raw) ? 2 : /^(\s*\S.*?\s{2,})\S/.exec(raw)?.[1].length ?? 0;
     const hang = col && col <= w * 0.6 ? col : Math.min(raw.length - raw.trimStart().length, Math.floor(w / 2));
     const [first, ...rest] = wrapAnsi(line, w, { hard: true, trim: false }).split("\n");
     if (!hang || !rest.length) return [first, ...rest];

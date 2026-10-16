@@ -186,3 +186,61 @@ describe("/project", () => {
     t.r.unmount();
   });
 });
+
+describe("clicks (the full screen with the mouse)", () => {
+  function screenSetup() {
+    const stub = stubKeel();
+    const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
+    const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
+    const r = render(<App core={core} probe={probe} width={100} rows={40} mouse theme={none} />);
+    const lines = () => stripAnsi(r.lastFrame() ?? "").split("\n");
+    /** a left click on the first line that has `text` (SGR: 1-based column and row) */
+    const click = async (text: string) => {
+      const row = lines().findIndex((l) => l.includes(text));
+      if (row < 0) throw new Error(`no line with ${text}:\n${lines().join("\n")}`);
+      const col = lines()[row].indexOf(text);
+      r.stdin.write(`\x1b[<0;${col + 2};${row + 1}M`);
+      await tick(20);
+      r.stdin.write(`\x1b[<0;${col + 2};${row + 1}m`);
+      await tick(60);
+    };
+    return { stub, core, probe, r, lines, click };
+  }
+
+  it("a click on an agent at work follows it: its steps, live; the line shows its last step and says so", async () => {
+    const t = screenSetup();
+    await waitFor(() => t.probe.started);
+    await waitFor(() => t.lines().some((l) => l.includes("explorer ·")));
+    expect(t.lines().find((l) => l.includes("explorer ·"))).toContain("click to follow");
+    await t.click("explorer ·");
+    await waitFor(() => t.lines().some((l) => l.includes("Agent · explorer · spec")));
+    await waitFor(() => t.lines().some((l) => l.includes("read_file")));
+    expect(t.lines().join("\n")).not.toContain("[<0;");                 // a click is never typed into the prompt
+    t.r.unmount();
+  });
+
+  it("Ctrl+F, then a click on what waits: a choice first, then the decision", async () => {
+    const t = screenSetup();
+    await waitFor(() => t.probe.started);
+    t.r.stdin.write("\x06");                                            // Ctrl+F
+    await tick(60);
+    await t.click("waiting for you: spec approval");
+    await waitFor(() => t.probe.pick);
+    expect(t.lines().join("\n")).toContain("spec approval: what do you do?");
+    expect(t.stub.calls.some((c) => c.path === "/api/inbox/t1/act")).toBe(false);
+    t.r.stdin.write("\r");                                              // Approve
+    await waitFor(() => t.stub.calls.some((c) => c.path === "/api/inbox/t1/act"));
+    expect(t.stub.calls.find((c) => c.path === "/api/inbox/t1/act")!.body).toMatchObject({ decision: "approve" });
+    t.r.unmount();
+  });
+
+  it("a click elsewhere in the flow panel shows /status", async () => {
+    const t = screenSetup();
+    await waitFor(() => t.probe.started);
+    t.r.stdin.write("\x06");
+    await tick(60);
+    await t.click("Flow · feature");
+    await waitFor(() => t.lines().join("\n").includes("Criteria: 0/2 done"));
+    t.r.unmount();
+  });
+});

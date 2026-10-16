@@ -17,6 +17,10 @@ import { noticeRole } from "../core/lines";
 export { noticeRole };
 import { useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
+import { Clickable } from "./click";
+
+/** What a click in a panel does (the full screen with the mouse): App.tsx gives it. */
+export type PanelActs = { agent: (jobId: string) => void; waiting: () => void; flow: () => void; inbox: (n: number) => void };
 
 export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
   const { color, paint } = useTheme();
@@ -48,16 +52,30 @@ export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
   );
 }
 
-export function BlockView({ b, width = 100 }: { b: Block; width?: number }) {
+/** A line with a mark (✗ ✓ ◆): a line that wraps goes on under its text, not under the mark. */
+function Marked({ mark, children, color, bold }: { mark: string; children: string; color?: string; bold?: boolean }) {
+  return (
+    <Box>
+      <Text color={color} bold={bold}>{mark + " "}</Text>
+      <Box flexShrink={1}><Text color={color} bold={bold}>{children}</Text></Box>
+    </Box>
+  );
+}
+
+export function BlockView({ b, width = 100, gap }: { b: Block; width?: number; gap?: boolean }) {
+  return <Box flexDirection="column" marginTop={gap ? 1 : 0}><BlockBody b={b} width={width} /></Box>;
+}
+
+function BlockBody({ b, width }: { b: Block; width: number }) {
   const { color, paint, tint } = useTheme();
   switch (b.kind) {
     case "markdown": return <Box marginLeft={2}><Text>{renderMarkdown(b.text, paint, width - 2)}</Text></Box>;
     case "diagram": return <Box marginLeft={1}><Text>{colorDiagram(b.text, paint)}</Text></Box>;
-    case "error": return <Text color={color("bad")}>{"✗ " + b.text}</Text>;
-    case "ok": return <Text color={color("ok")}>{"✓ " + b.text}</Text>;
+    case "error": return <Marked mark="✗" color={color("bad")}>{b.text}</Marked>;
+    case "ok": return <Marked mark="✓" color={color("ok")}>{b.text}</Marked>;
     case "notice": {
       const r = noticeRole(b.text);
-      return <Text color={color(r)} bold={r === "gate"}>{"◆ " + b.text}</Text>;
+      return <Marked mark="◆" color={color(r)} bold={r === "gate"}>{b.text}</Marked>;
     }
     // the person's message: on its own tinted line, with air above it (xal's bubble)
     case "user": {
@@ -149,7 +167,7 @@ export function railOf(s: Snapshot): { phase: string; state: string }[] {
   }));
 }
 
-export function FlowPanel({ s, width }: { s: Snapshot; width: number }) {
+export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: PanelActs }) {
   const { color, paint } = useTheme();
   const t = s.flow?.thread;
   if (!t) return <PanelBox title="Flow"><Text color={color("dim")}>No flow on this project. /flow starts one.</Text></PanelBox>;
@@ -157,7 +175,9 @@ export function FlowPanel({ s, width }: { s: Snapshot; width: number }) {
   const [done, all] = fmt.acCount(t);
   const gates = (s.flow?.workflow?.steps ?? []).filter((x) => x.kind === "gate");
   const cur = t.current?.replace(/__fix$/, "");
+  const flowAct = on?.flow ?? (() => undefined);
   return (
+    <Clickable act={flowAct}>
     <PanelBox title={<>{"Flow · "}<Text color={color("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}</>}>
       <Text wrap="wrap">{rail.map((r, i) => (
         <Text key={i} color={color(MARK_ROLE[r.state as keyof typeof MARK_ROLE])} bold={r.state === "now" || r.state === "wait"}>
@@ -171,13 +191,16 @@ export function FlowPanel({ s, width }: { s: Snapshot; width: number }) {
         <Text color={done === all ? color("ok") : undefined}>{`  ${done}/${all}`}</Text></Text>}
       {gates.length > 0 && <Text wrap="truncate-end"><Text color={color("dim")}>gates </Text>{gates.slice(0, Math.max(3, Math.floor(width / 22))).map((g, i) => (
         <Text key={g.id} color={g.id === cur ? color("gate") : color("dim")} bold={g.id === cur}>{(i ? " · " : "") + (g.id === cur ? `◆ ${g.name}` : g.name)}</Text>))}</Text>}
-      {t.waiting && <Text color={color("gate")} bold wrap="truncate-end">{`◆ waiting for you: ${t.waiting.title} · ${t.waiting.kind === "clarify" ? "/answer" : fmt.answerWords(t.waiting)}`}</Text>}
+      {t.waiting && <Clickable act={on?.waiting ?? (() => undefined)}><Text color={color("gate")} bold wrap="truncate-end">
+        {`◆ waiting for you: ${t.waiting.title} · ${t.waiting.kind === "clarify" ? "/answer" : fmt.answerWords(t.waiting)}${on ? " · click to answer" : ""}`}</Text></Clickable>}
       {t.error && <Text color={color("bad")}>{t.error}</Text>}
     </PanelBox>
+    </Clickable>
   );
 }
 
-export function AgentsPanel({ running, last, live, width }: { running: Job[]; last: Record<string, JobStep | undefined>; live?: Record<string, string>; width: number }) {
+export function AgentsPanel({ running, last, live, width, on }: { running: Job[]; last: Record<string, JobStep | undefined>; live?: Record<string, string>;
+  width: number; on?: PanelActs }) {
   const { color, paint } = useTheme();
   return (
     <PanelBox title={<>{"Agents · "}<Text color={running.length ? color("accent") : color("dim")}>{`${running.length} at work`}</Text></>}>
@@ -185,29 +208,31 @@ export function AgentsPanel({ running, last, live, width }: { running: Job[]; la
       {running.slice(0, 6).map((j) => {
         const writing = live?.[j.id];
         return (
-          <Box key={j.id} flexDirection="column">
+          <Clickable key={j.id} act={() => on?.agent(j.id)}>
             <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null} tokens={fmt.tokensOf(j) || undefined}
               hint={[j.step, j.ac].filter(Boolean).join(" ")} />
             {writing ? <Text color={color("fg")} wrap="truncate-end">{"   ✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text>
               : last[j.id] && <Text wrap="truncate-end">{"   " + fmt.stepLine(last[j.id]!, width - 6, paint)}</Text>}
-          </Box>
+          </Clickable>
         );
       })}
     </PanelBox>
   );
 }
 
-export function InboxPanel({ s }: { s: Snapshot }) {
+export function InboxPanel({ s, on }: { s: Snapshot; on?: PanelActs }) {
   const { color } = useTheme();
   return (
     <PanelBox title={<>{"Inbox · "}<Text color={s.inbox.length ? color("gate") : color("dim")}>{`${s.inbox.length} waiting`}</Text></>}>
       {s.inbox.length === 0 && <Text color={color("dim")}>Nothing waits for you.</Text>}
       {s.inbox.slice(0, 6).map((i, k) => (
-        <Text key={`${i.thread_id}-${k}`} wrap="truncate-end">
+        <Clickable key={`${i.thread_id}-${k}`} act={() => on?.inbox(k + 1)}>
+        <Text wrap="truncate-end">
           <Text color={color("gate")} bold>{`${k + 1}. `}</Text><Text color={color("dim")}>{`${i.project_name || i.project_id} · `}</Text>
           <Text color={color("gate")}>{`${i.kind}: ${i.title}`}</Text>
           <Text color={color("faint")}>{` · /approve ${k + 1} · /reject ${k + 1} <why>`}</Text>
         </Text>
+        </Clickable>
       ))}
     </PanelBox>
   );
@@ -278,10 +303,10 @@ export function JobPanel({ id, s, width }: { id: string; s: Snapshot; width: num
   );
 }
 
-export function Panel({ name, s, width }: { name: PanelName; s: Snapshot; width: number }) {
-  if (name === "flow") return <FlowPanel s={s} width={width} />;
-  if (name === "agents") return <AgentsPanel running={s.running} last={s.lastStep} live={s.liveText} width={width} />;
-  return <InboxPanel s={s} />;
+export function Panel({ name, s, width, on }: { name: PanelName; s: Snapshot; width: number; on?: PanelActs }) {
+  if (name === "flow") return <FlowPanel s={s} width={width} on={on} />;
+  if (name === "agents") return <AgentsPanel running={s.running} last={s.lastStep} live={s.liveText} width={width} on={on} />;
+  return <InboxPanel s={s} on={on} />;
 }
 
 type Seg = { text: string; role: "fg" | "dim" | "accent" | "gate" | "ok" | "bad" | "faint"; bold?: boolean };

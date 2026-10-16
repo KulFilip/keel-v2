@@ -281,6 +281,10 @@
       "does": "toggle the inbox"
     },
     {
+      "key": "Ctrl+O",
+      "does": "follow the agent at work (or click it; a click on what waits answers it)"
+    },
+    {
       "key": "PgUp / PgDn",
       "does": "scroll (also Shift+Up / Down, the wheel, Home and End)"
     },

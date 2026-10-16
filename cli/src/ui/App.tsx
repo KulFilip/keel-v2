@@ -22,11 +22,13 @@ import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
+import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
 import { elsewhere, pressButton, question, splitButtons, type Button } from "../core/buttons";
 import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
 
-type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block };
+/** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
+type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
 
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
 export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boolean; chatBusy: boolean; answers: number };
@@ -113,7 +115,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   const push = useCallback((...bs: Block[]) => {
     if (!bs.length) return;
-    setItems((xs) => [...xs, ...bs.map((b) => ({ id: nextId.current++, kind: "block" as const, b }))]);
+    setItems((xs) => {
+      const last = xs[xs.length - 1];
+      const prev = last?.kind === "block" ? last.b.kind : last ? "start" : null;
+      const gap = !!prev && prev !== "start" && bs[0].kind !== "user" && !(prev === "notice" && bs[0].kind === "notice");
+      return [...xs, ...bs.map((b, i) => ({ id: nextId.current++, kind: "block" as const, b, gap: i === 0 && gap }))];
+    });
   }, []);
 
   useEffect(() => {
@@ -340,6 +347,37 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     setCompIdx(0);
   };
 
+  // what a click does (the full screen with the wheel on): follow an agent, answer what waits, the flow's status
+  const clicks = useMemo(() => makeClicks(), []);
+  const followAgent = (id: string) => setPanels((ps) => [...ps.filter((x) => !x.startsWith("job:")), `job:${id}` as PanelId]);
+  const runNow = (cmd: string) => {
+    if (pending || running) return;
+    void submit(cmd);
+  };
+  /** A gate (this flow's, or inbox item n): a choice first, never a decision on one click. */
+  const answerGate = (n?: number) => {
+    if (pending || running) return;
+    const item = n ? snap.inbox[n - 1] : null;
+    const w = item ? { title: item.title, options: item.options, kind: item.kind } : snap.flow?.thread?.waiting;
+    if (!w) return;
+    const at = n ? ` ${n}` : "";
+    const opts = w.options ?? ["approve", "reject"];
+    const choices = [
+      ...(w.kind !== "clarify" && opts.includes("approve") ? [{ label: "Approve", value: "approve", hint: `/approve${at}` }] : []),
+      ...(opts.includes("reject") ? [{ label: "Send back…", value: "reject", hint: "you say why" }] : []),
+      ...(!n ? [{ label: "Answer… (its questions or choices)", value: "answer", hint: "/answer" }] : []),
+      { label: "Read it first", value: "status", hint: n ? "/inbox" : "/status" },
+    ];
+    setPending({ cmd: "gate", pick: { title: `${w.title}: what do you do?`, choices, then: (v) => {
+      if (v === "approve") return run(ctx, `/approve${at}`, botCmds);
+      if (v === "answer") return run(ctx, "/answer", botCmds);
+      if (v === "status") return run(ctx, n ? "/inbox" : "/status", botCmds);
+      return { blocks: [], ask: { prompt: "Why send it back? (the agent gets your words)", then: (why) => run(ctx, `/reject${at} ${why}`, botCmds) } };
+    } } });
+    setPickIdx(0);
+    setPickFilter("");
+  };
+
   // the full screen's transcript as lines (each block's lines kept until the width changes)
   const cache = useRef(new Map<number, { w: number; lines: string[] }>());
   const lines = useMemo(() => {
@@ -348,7 +386,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     for (const it of items) {
       let c = cache.current.get(it.id);
       if (!c || c.w !== width) {
-        c = { w: width, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : blockLines(it.b, width, t.paint, t.tint, t.level) };
+        c = { w: width, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : [...(it.gap ? [""] : []), ...blockLines(it.b, width, t.paint, t.tint, t.level)] };
         cache.current.set(it.id, c);
       }
       out.push(...c.lines);
@@ -377,12 +415,13 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       const s = String(chunk);
       const n = wheel(s);
       if (n) return scroll(n * 3);
+      for (const c of leftClicks(s)) clicks.hit(c.col, c.row)?.act();
       if (/^\x1b(\[(F|4~|8~)|OF)$/.test(s)) setOffset(0);
       else if (/^\x1b(\[(H|1~|7~)|OH)$/.test(s)) setOffset(Number.MAX_SAFE_INTEGER);
     };
     rawInput.on("input", on);
     return () => void rawInput.off("input", on);
-  }, [rawInput, screen, scroll]);
+  }, [rawInput, screen, scroll, clicks]);
 
   useInput((input, key) => {
     // the mouse's reports are read below, from the raw input; never typed into the prompt
@@ -424,6 +463,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     if (pluginPanel) {
       const id = `plugin:${pluginPanel.name}` as PanelId;
       setPanels((ps) => (ps.includes(id) ? ps.filter((x) => x !== id) : [...ps, id]));
+      return;
+    }
+    if (key.ctrl && input === "o") {
+      const j = snap.running[0];
+      if (j) followAgent(j.id);
+      else push({ kind: "dim", text: "  No agent at work. /agent lists yours." });
       return;
     }
     if (key.ctrl && CTRL_PANEL[input]) {
@@ -514,6 +559,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const liveRows = Math.max(3, Math.floor(height / 3));
     const writingLines = writing ? wrap(renderMarkdown(writing.slice(-3000), t.paint, width - 2), width - 2).slice(-liveRows) : [];
     return (
+      <ClicksProvider clicks={clicks}>
       <Box flexDirection="column" height={height} width={width}>
         <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
         <Text color={t.color("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
@@ -528,13 +574,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         )}
         {live(writingLines)}
       </Box>
+      </ClicksProvider>
     );
   }
 
   return (
     <>
       <Static key={epoch} items={items}>
-        {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} width={width} />)}
+        {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} width={width} gap={it.gap} />)}
       </Static>
       <Box flexDirection="column">
         {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
@@ -561,14 +608,23 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             <Thinking verb={verb} since={chat.startedAt} tokens={Math.round(chat.wrote / 4) || undefined} hint="esc to interrupt" />
           </Box>
         )}
-        {!chat.busy && agentsHere.map((j) => (
-          <Thinking key={j.id} who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null}
-            tokens={fmt.tokensOf(j) || undefined} hint={[j.step, j.ac].filter(Boolean).join(" ")} />
-        ))}
+        {!chat.busy && agentsHere.map((j) => {
+          // what it does now: the text it writes, else its last step; a click (or Ctrl+O) follows it
+          const now = snap.liveText[j.id] ? `✎ ${snap.liveText[j.id].replace(/\s+/g, " ").slice(-(width - 10))}`
+            : snap.lastStep[j.id] ? fmt.stepLine(snap.lastStep[j.id]!, width - 6, t.paint) : "";
+          return (
+            <Clickable key={j.id} act={() => followAgent(j.id)}>
+              <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null}
+                tokens={fmt.tokensOf(j) || undefined} hint={[j.step, j.ac, screen && mouse ? "click to follow" : "Ctrl+O follows"].filter(Boolean).join(" · ")} />
+              {now ? <Text wrap="truncate-end" color={t.color("dim")}>{"   " + now}</Text> : null}
+            </Clickable>
+          );
+        })}
         {running && <Text color={t.color("dim")}>{`… ${running}`}</Text>}
         {panels.map((p) => {
           if (p.startsWith("job:")) return <JobPanel key={p} id={p.slice(4)} s={snap} width={width} />;
-          if (!p.startsWith("plugin:")) return <Panel key={p} name={p as PanelName} s={snap} width={width} />;
+          if (!p.startsWith("plugin:")) return <Panel key={p} name={p as PanelName} s={snap} width={width}
+            on={{ agent: followAgent, waiting: () => answerGate(), flow: () => runNow("/status"), inbox: (n) => answerGate(n) }} />;
           const v = snap.plugins.plugins.find((x) => `plugin:${x.name}` === p);
           return v?.panel && snap.project ? <PluginPanel key={p} plugin={v.title} panel={v.panel} pid={snap.project.id} width={width} /> : null;
         })}
