@@ -324,7 +324,9 @@ export function statusSegments(s: Snapshot): Seg[] {
   ];
   if (t) segs.push({ text: `phase ${t.phase || "none"}`, role: "dim" });
   if (t && all) segs.push({ text: `AC ${done}/${all}`, role: done === all ? "ok" : "dim" });
-  segs.push({ text: `${here} waiting${s.inbox.length > here ? ` (+${s.inbox.length - here})` : ""}`, role: s.inbox.length ? "gate" : "dim", bold: here > 0 });
+  // "waiting" says what it counts: here, and in the other projects; a click on the line answers them
+  segs.push({ text: s.inbox.length ? `◆ ${here} waiting here${s.inbox.length > here ? `, ${s.inbox.length - here} in other projects` : ""}` : "nothing waits",
+    role: s.inbox.length ? "gate" : "dim", bold: s.inbox.length > 0 });
   if (t) segs.push({ text: `${fmt.short(fmt.tokensOf(t.usage))} tokens`, role: "dim" });
   if (s.chat.mode === "fix") segs.push({ text: "KeelBot fix", role: "accent" });
   segs.push({ text: `● ${s.live}`, role: s.live === "live" ? "ok" : s.live === "closed" ? "faint" : "gate" });

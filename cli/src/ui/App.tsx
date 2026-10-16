@@ -355,27 +355,54 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     void submit(cmd);
   };
   /** A gate (this flow's, or inbox item n): a choice first, never a decision on one click. */
-  const answerGate = (n?: number) => {
-    if (pending || running) return;
+  const gatePick = (n?: number): Pick | null => {
     const item = n ? snap.inbox[n - 1] : null;
-    const w = item ? { title: item.title, options: item.options, kind: item.kind } : snap.flow?.thread?.waiting;
-    if (!w) return;
+    const thread = snap.flow?.thread;
+    const w = item ? { title: item.title, options: item.options, kind: item.kind } : thread?.waiting;
+    if (!w) return null;
     const at = n ? ` ${n}` : "";
+    const tid = item ? item.thread_id : thread!.thread_id;
+    const flow = item ? `${item.project_name || item.project_id} · ${item.flow || item.thread_id.slice(0, 8)}` : `"${thread!.title}"`;
     const opts = w.options ?? ["approve", "reject"];
     const choices = [
       ...(w.kind !== "clarify" && opts.includes("approve") ? [{ label: "Approve", value: "approve", hint: `/approve${at}` }] : []),
-      ...(opts.includes("reject") ? [{ label: "Send back…", value: "reject", hint: "you say why" }] : []),
-      ...(!n ? [{ label: "Answer… (its questions or choices)", value: "answer", hint: "/answer" }] : []),
+      ...(opts.includes("reject") ? [{ label: "Send back…", value: "reject", hint: "you say why; the agent gets your words" }] : []),
+      ...(!n || w.kind === "clarify" ? [{ label: "Answer… (its questions or choices)", value: "answer", hint: "/answer" }] : []),
+      { label: "Stop the flow", value: "stop", hint: "agents stop; every finished step stays saved" },
       { label: "Read it first", value: "status", hint: n ? "/inbox" : "/status" },
     ];
-    setPending({ cmd: "gate", pick: { title: `${w.title}: what do you do?`, choices, then: (v) => {
+    return { title: `${flow} · ${w.title}: what do you do?`, choices, then: (v) => {
       if (v === "approve") return run(ctx, `/approve${at}`, botCmds);
-      if (v === "answer") return run(ctx, "/answer", botCmds);
+      if (v === "answer") return item && item.project_id !== snap.project?.id
+        ? { blocks: [{ kind: "dim", text: `  It is on ${item.project_id}: /project ${item.project_id}, then /answer.` }] } : run(ctx, "/answer", botCmds);
       if (v === "status") return run(ctx, n ? "/inbox" : "/status", botCmds);
+      if (v === "stop") return { blocks: [], pick: { title: `Stop ${flow}?`, choices: [{ label: "Yes, stop it", value: "yes" }, { label: "No", value: "no" }],
+        then: async (y) => {
+          if (y !== "yes") return { blocks: [{ kind: "dim", text: "  not stopped" }] };
+          const said = await pressButton({ kind: "stop", flows: [tid] }, snap.project?.id ?? "", () => flow);
+          await core.refresh().catch(() => undefined);
+          return { blocks: [{ kind: "ok", text: said }] };
+        } } };
       return { blocks: [], ask: { prompt: "Why send it back? (the agent gets your words)", then: (why) => run(ctx, `/reject${at} ${why}`, botCmds) } };
-    } } });
+    } };
+  };
+  const ask = (pick: Pick | null) => {
+    if (!pick || pending || running) return;
+    setPending({ cmd: "gate", pick });
     setPickIdx(0);
     setPickFilter("");
+  };
+  const answerGate = (n?: number) => ask(gatePick(n));
+  /** The status line's "waiting": one item answers at once; more are listed (every project) to pick from. */
+  const answerWaiting = () => {
+    const items = snap.inbox;
+    if (!items.length) return runNow("/status");
+    if (items.length === 1) return answerGate(1);
+    ask({ title: `${items.length} wait for you: which one?`, choices: items.map((i, k) => ({ label: `${i.project_name || i.project_id} · ${i.kind}: ${i.title}`,
+      value: String(k + 1), hint: i.flow || "" })), then: (v) => {
+      const p = gatePick(Number(v));
+      return p ? { blocks: [], pick: p } : { blocks: [{ kind: "dim", text: "  It does not wait any more." }] };
+    } });
   };
 
   // the full screen's transcript as lines (each block's lines kept until the width changes)
@@ -644,7 +671,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             {comps.length > 0 && <Completions items={comps} index={compIdx} />}
           </Box>
         )}
-        <StatusLine s={snap} />
+        <Clickable act={answerWaiting}><StatusLine s={snap} /></Clickable>
       </>
     );
   }

@@ -121,7 +121,7 @@ describe("keel TUI", () => {
     const t = setup();
     await waitFor(() => t.probe.started);
     await tick(30);
-    expect(t.frame()).toContain("demo (keel/health) · feature waiting · phase spec · AC 0/2 · 1 waiting · 15.4k tokens");
+    expect(t.frame()).toContain("demo (keel/health) · feature waiting · phase spec · AC 0/2 · ◆ 1 waiting here · 15.4k tokens");
     t.r.stdin.write("\x06");                      // Ctrl+F
     await tick(50);
     let f = t.frame();

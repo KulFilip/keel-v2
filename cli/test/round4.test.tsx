@@ -244,3 +244,31 @@ describe("clicks (the full screen with the mouse)", () => {
     t.r.unmount();
   });
 });
+
+describe("the status line's waiting", () => {
+  it("says what it counts, and a click on it asks what to do: approve, send back, answer, stop, read", async () => {
+    const stub = stubKeel();
+    const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
+    const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
+    const r = render(<App core={core} probe={probe} width={100} rows={40} mouse theme={none} />);
+    const lines = () => stripAnsi(r.lastFrame() ?? "").split("\n");
+    await waitFor(() => probe.started);
+    await tick(60);
+    const row = lines().findIndex((l) => l.includes("◆ 1 waiting here"));
+    expect(row).toBeGreaterThan(0);
+    r.stdin.write(`\x1b[<0;20;${row + 1}M`);
+    await waitFor(() => probe.pick);
+    const f = lines().join("\n");
+    expect(f).toContain("demo · Add a health endpoint · spec approval: what do you do?");
+    for (const c of ["Approve", "Send back…", "Stop the flow", "Read it first"]) expect(f).toContain(c);
+    r.stdin.write("\x1b[B");                                            // Send back…
+    await tick(40);
+    r.stdin.write("\x1b[B");                                            // Stop the flow
+    await tick(40);
+    r.stdin.write("\r");
+    await waitFor(() => lines().join("\n").includes("Stop demo · Add a health endpoint?"));
+    r.stdin.write("\r");                                                // Yes, stop it
+    await waitFor(() => stub.calls.some((c) => c.method === "POST" && c.path === "/api/threads/t1/stop"));
+    r.unmount();
+  });
+});
