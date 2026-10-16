@@ -4,7 +4,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { App } from "../App";
 import type { BoardFlow, ThreadState } from "../api";
 import type { InboxItem } from "../inboxApi";
@@ -72,6 +72,13 @@ function twoFlows() {
     workflow: structuredClone(fx.featureWorkflow),
   };
 }
+
+
+// keel 0.18.8 the Flow page keeps the other flows and the runs in one bar, closed by default: these tests open it
+beforeEach(() => {
+  localStorage.setItem("keel2.flow.others.open", "1");
+  localStorage.setItem("keel2.flow.others.tab", "flows");
+});
 
 describe("the flow board", () => {
   it("shows the project's flows side by side, what they share and where they conflict, and opens one by id", async () => {
