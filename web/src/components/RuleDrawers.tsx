@@ -4,6 +4,7 @@ import { useState } from "react";
 import { errorParts } from "../api";
 import { useApp, useLoad } from "../state";
 import { KIND_WORDS, packYaml, rulesApi, type PackRule, type RuleCheck, type RulePack, type RulesView } from "../rulesApi";
+import { CodeEditor } from "./CodeEditor";
 import { Async, Drawer, ErrorBox, Tabs } from "./ui";
 
 type Err = { message: string; hint?: string; details?: string[] } | null;
@@ -62,23 +63,62 @@ export function LibraryDrawer({ pid, installed, onClose, onView }: {
   );
 }
 
-const EMPTY_RULE: PackRule = { id: "my-rule", kind: "bash", match: [], how: "contains", phases: "all", reason: "" };
+// The starter pack: complete and valid as it is, in the style of keel's own packs (content/rules/).
+const STARTER_RULE: PackRule = { id: "no-kubectl-apply", kind: "bash", match: ["kubectl apply", "helm upgrade"], how: "contains",
+  phases: "all", reason: "Deploys are a person's job. Say what should be deployed and why in your answer." };
+const STARTER = { name: "no-deploys", title: "No deploys", summary: "Agents never deploy; a person does." };
+
+const DOCS = "https://github.com/MiladNalbandi/keel-v2/blob/main/docs/rules/pack-format.md";
+
+/** The pack's fields in short, next to the YAML (docs/rules/pack-format.md has all of it). */
+export function PackHelp() {
+  const row = (field: string, values: string, example: string) => (
+    <tr key={field}><td><code>{field}</code></td><td>{values}</td><td><code>{example}</code></td></tr>
+  );
+  return (
+    <details className="rl-help">
+      <summary>The fields of a rule pack</summary>
+      <table>
+        <thead><tr><th>Field</th><th>Allowed</th><th>Example</th></tr></thead>
+        <tbody>
+          {row("schema", "1 (required)", "schema: 1")}
+          {row("name", "lower-case letters, digits, dashes; the file name", "name: no-deploys")}
+          {row("title", "a few words", "title: No deploys")}
+          {row("version", "x.y.z", "version: 1.0.0")}
+          {row("publisher", "lower-case; local for your own", "publisher: local")}
+          {row("summary", "one sentence (optional)", "summary: Agents never deploy.")}
+          {row("requires.keel", "a version range (optional)", "keel: '>=0.17.2'")}
+          {row("rules[].id", "lower-case letters, digits, dashes", "- id: no-kubectl-apply")}
+          {row("rules[].kind", "bash · edit · read · mcp", "kind: bash")}
+          {row("rules[].match", "a text or a list of texts", "match: [kubectl apply]")}
+          {row("rules[].how", "contains · glob · name · regex (optional)", "how: regex")}
+          {row("rules[].phases", "all · in-flow · none · a list of phases", "phases: [green, refactor]")}
+          {row("rules[].lanes", "api · web (optional)", "lanes: [web]")}
+          {row("rules[].except", "paths that pass (edit, read)", "except: ['**/*.lock']")}
+          {row("rules[].reason", "plain words; the agent reads them", "reason: Deploys are a person's job.")}
+        </tbody>
+      </table>
+      <a href={DOCS} target="_blank" rel="noreferrer">The whole format: docs/rules/pack-format.md</a>
+    </details>
+  );
+}
 
 /** New rule (no `pack`) or edit an installed pack. The form writes YAML; the YAML view is the file as saved. */
 export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?: RulePack; onClose: () => void; onView: (v: RulesView) => void }) {
   const { toast } = useApp();
   const editing = !!pack;
   const [view, setView] = useState<"form" | "yaml">(editing ? "yaml" : "form");
-  const [id, setId] = useState(pack?.id ?? "my-rules");
-  const [name, setName] = useState(pack?.title ?? "My rules");
-  const [rule, setRule] = useState<PackRule>(pack?.rules[0] ?? EMPTY_RULE);
-  const [match, setMatch] = useState((pack?.rules[0]?.match ?? []).join("\n"));
+  const [id, setId] = useState(pack?.id ?? STARTER.name);
+  const [name, setName] = useState(pack?.title ?? STARTER.title);
+  const [rule, setRule] = useState<PackRule>(pack?.rules[0] ?? STARTER_RULE);
+  const [match, setMatch] = useState((pack?.rules[0]?.match ?? STARTER_RULE.match).join("\n"));
   const [yaml, setYaml] = useState<string | null>(null);
   const [check, setCheck] = useState<RuleCheck | null>(null);
   const [err, setErr] = useState<Err>(null);
   const [busy, setBusy] = useState(false);
   const loaded = useLoad(`rules:pack:${pid}:${pack?.id ?? ""}`, () => (pack ? rulesApi.text(pid, pack.id) : Promise.resolve("")), { live: false });
-  const fromForm = () => packYaml({ name: id, title: name, rules: [{ ...rule, match: match.split("\n").map((s) => s.trim()).filter(Boolean) }] });
+  const fromForm = () => packYaml({ name: id, title: name, summary: pack?.summary ?? STARTER.summary,
+    rules: [{ ...rule, match: match.split("\n").map((s) => s.trim()).filter(Boolean) }] });
   const text = yaml ?? (editing ? loaded.data ?? "" : fromForm());
   const runCheck = async () => {
     setBusy(true);
@@ -95,6 +135,13 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
     setBusy(true);
     setErr(null);
     try {
+      // check first: errors show at their line, nothing is saved; keel saves the pack tidy (2 spaces, long lists per line)
+      const c = await rulesApi.check(pid, text);
+      if (!c.ok) {
+        setCheck(c);
+        if (view === "form" && !editing) setView("yaml");
+        return;
+      }
       const r = editing ? await rulesApi.edit(pid, pack!.id, text) : await rulesApi.add(pid, text);
       onView(r.view);
       toast(`${r.pack.title} saved in .keel/rules/${r.pack.id}.yaml. Agents meet it at their next tool call.`);
@@ -136,17 +183,25 @@ export function PackDrawer({ pid, pack, onClose, onView }: { pid: string; pack?:
         </>
       ) : (
         <div className="field"><label htmlFor="rp-yaml">YAML</label>
-          <textarea id="rp-yaml" className="yaml-edit" rows={18} spellCheck={false} value={text} onChange={(e) => setYaml(e.target.value)} />
-          <span className="hint">schema 1 · name, title, version, publisher, summary, requires · rules: kind bash | edit | read | mcp, how contains | glob | name | regex, phases all | in-flow | none | [green, …] (docs/rules/pack-format.md)</span></div>
+          <CodeEditor id="rp-yaml" label="YAML" value={text} onChange={(v) => { setYaml(v); setCheck(null); }} errors={check?.lines ?? []} />
+          <PackHelp /></div>
       )}
-      {check && <CheckResult c={check} />}
+      {check && <CheckResult c={check} marked={view === "yaml" || editing} />}
       {err && <ErrorBox error={err} />}
     </Drawer>
   );
 }
 
-function CheckResult({ c }: { c: RuleCheck }) {
-  if (!c.ok) return <div className="errbox" role="alert"><b>Not valid yet</b>{c.errors.map((e) => <span key={e}>{e}</span>)}</div>;
+/** `marked`: the YAML editor is on screen and lists the errors at their lines; otherwise they are listed here. */
+function CheckResult({ c, marked = false }: { c: RuleCheck; marked?: boolean }) {
+  if (!c.ok) {
+    return (
+      <div className="errbox" role="status"><b>Not valid yet — nothing was saved.</b>
+        {marked && c.lines?.length ? <span>Fix the marked lines in the YAML ({c.lines.length}).</span>
+          : (c.lines?.length ? c.lines.map((l) => `line ${l.line}: ${l.message}`) : c.errors).map((e, i) => <span key={i}>{e}</span>)}
+      </div>
+    );
+  }
   const d = c.dry_run;
   return (
     <div className="rl-check" role="status">
@@ -168,11 +223,17 @@ export function ImportPackDrawer({ pid, onClose, onView }: { pid: string; onClos
   const { toast } = useApp();
   const [yaml, setYaml] = useState("");
   const [err, setErr] = useState<Err>(null);
+  const [check, setCheck] = useState<RuleCheck | null>(null);
   const [busy, setBusy] = useState(false);
   const doImport = async () => {
     setBusy(true);
     setErr(null);
     try {
+      const c = await rulesApi.check(pid, yaml);
+      if (!c.ok) {
+        setCheck(c);
+        return;
+      }
       const r = await rulesApi.add(pid, yaml);
       onView(r.view);
       toast(`${r.pack.title} imported into .keel/rules/${r.pack.id}.yaml.`);
@@ -188,9 +249,11 @@ export function ImportPackDrawer({ pid, onClose, onView }: { pid: string; onClos
       footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
         <button className="btn primary" type="button" onClick={doImport} disabled={busy || !yaml.trim()}>{busy ? "Reading…" : "Import"}</button></>}>
       <div className="field"><label htmlFor="ri-file">A .yaml file (from Export)</label>
-        <input type="file" id="ri-file" accept=".yaml,.yml" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setYaml(await f.text()); }} /></div>
+        <input type="file" id="ri-file" accept=".yaml,.yml" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { setYaml(await f.text()); setCheck(null); } }} /></div>
       <div className="field"><label htmlFor="ri-yaml">Or paste it</label>
-        <textarea id="ri-yaml" rows={12} spellCheck={false} value={yaml} onChange={(e) => setYaml(e.target.value)} /></div>
+        <CodeEditor id="ri-yaml" label="Or paste it" rows={14} value={yaml} onChange={(v) => { setYaml(v); setCheck(null); }} errors={check?.lines ?? []} />
+        <PackHelp /></div>
+      {check && !check.ok && <CheckResult c={check} marked />}
       {err && <ErrorBox error={err} />}
     </Drawer>
   );

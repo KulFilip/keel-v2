@@ -292,3 +292,124 @@ def pack_verdict(cfg: dict | None, kind: str, phase: str | None, target: str, la
             text = f"{target}: {r['reason']} {ref}" if kind in ("edit", "read") else f"{r['reason']} {ref}"
             return Verdict(False, "pack", text)
     return None
+
+
+# ---------------------------------------------------------------- the editor: errors at their line, a tidy file
+
+_WHERE = re.compile(r"^([A-Za-z_]+(?:\[\d+\])?(?:\.[A-Za-z_]+(?:\[\d+\])?)*):")
+
+
+def _path(where: str) -> list:
+    out: list = []
+    for part in where.split("."):
+        m = re.match(r"^([A-Za-z_]+)(?:\[(\d+)\])?$", part)
+        if not m:
+            break
+        out.append(m.group(1))
+        if m.group(2):
+            out.append(int(m.group(2)) - 1)       # rules[1] is the first rule
+    return out
+
+
+def _line_of(root_node, path: list) -> int | None:
+    """1-based line of the YAML node at `path` (the deepest one that exists)."""
+    node, line = root_node, (root_node.start_mark.line + 1 if root_node is not None else None)
+    for key in path:
+        if isinstance(node, yaml.MappingNode) and isinstance(key, str):
+            hit = next(((k, v) for k, v in node.value if getattr(k, "value", None) == key), None)
+            if not hit:
+                break
+            line, node = hit[0].start_mark.line + 1, hit[1]
+        elif isinstance(node, yaml.SequenceNode) and isinstance(key, int) and 0 <= key < len(node.value):
+            node = node.value[key]
+            line = node.start_mark.line + 1
+        else:
+            break
+    return line
+
+
+def error_lines(text: str, errors: list[str]) -> list[dict]:
+    """[{line, message}] for the errors parse_pack gave: the line of the field each names (else the first line)."""
+    try:
+        root_node = yaml.compose(text)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None) or getattr(exc, "context_mark", None)
+        return [{"line": (mark.line + 1) if mark else 1, "message": e} for e in errors]
+    out = []
+    for e in errors:
+        m = _WHERE.match(e)
+        line = _line_of(root_node, _path(m.group(1))) if m and root_node is not None else None
+        out.append({"line": line or 1, "message": e})
+    return out
+
+
+def yaml_error_line(text: str) -> int | None:
+    try:
+        yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        return mark.line + 1 if mark else None
+    return None
+
+
+HEAD_ORDER = ("schema", "kind", "name", "title", "version", "publisher", "summary", "stack", "requires", "rules")
+RULE_ORDER = ("id", "kind", "match", "how", "phases", "lanes", "except", "reason")
+FLOW_MAX = 60      # a list of short texts up to this long stays on one line: [a, b]
+
+
+class _Dumper(yaml.SafeDumper):
+    def increase_indent(self, flow=False, indentless=False):    # "- " items indented under their key
+        return super().increase_indent(flow, False)
+
+
+class _Flow(list):
+    pass
+
+
+def _flow(dumper, data):
+    return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=True)
+
+
+_Dumper.add_representer(_Flow, _flow)
+
+
+def _tidy(value):
+    if isinstance(value, list):
+        items = [_tidy(v) for v in value]
+        short = all(isinstance(v, (str, int, float)) for v in items) and len(", ".join(map(str, items))) <= FLOW_MAX
+        return _Flow(items) if short else items
+    if isinstance(value, dict):
+        return {k: _tidy(v) for k, v in value.items()}
+    return value
+
+
+def normalize(text: str) -> str:
+    """The pack as keel writes it on the Rules page: its leading comment lines kept, then the fields in the documented
+    order, 2-space indent, short lists on one line and long ones one item per line. Fields it does not know stay
+    after the known ones. A pack that does not parse comes back unchanged."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return text
+    if not isinstance(data, dict):
+        return text
+    head = []
+    for line in str(text).split("\n"):
+        if line.startswith("#") or (not line.strip() and head):
+            head.append(line)
+        else:
+            break
+    while head and not head[-1].strip():
+        head.pop()
+
+    def ordered(d: dict, order: tuple) -> dict:
+        return {**{k: d[k] for k in order if k in d}, **{k: v for k, v in d.items() if k not in order}}
+
+    out = ordered(data, HEAD_ORDER)
+    if isinstance(out.get("rules"), list):
+        out["rules"] = [ordered(r, RULE_ORDER) if isinstance(r, dict) else r for r in out["rules"]]
+    if isinstance(out.get("requires"), dict):
+        out["requires"] = ordered(out["requires"], ("keel", "plugins"))
+    body = yaml.dump(_tidy(out), Dumper=_Dumper, sort_keys=False, indent=2, width=120, allow_unicode=True,
+                     default_flow_style=False)
+    return ("\n".join(head) + "\n" if head else "") + body

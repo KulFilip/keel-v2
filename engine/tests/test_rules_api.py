@@ -76,12 +76,14 @@ def test_library_install_edit_export_remove(client, tmp_path):
             "stack-node", "stack-python"} <= set(ids)
     text = client.get("/rules/library/no-new-dependencies").json()["yaml"]
     out = client.post("/rules/packs", json={"root": str(r), "yaml": text})
-    assert out.status_code == 200 and (r / ".keel/rules/no-new-dependencies.yaml").read_text() == text
+    # a page save writes the pack tidy (packs.normalize); an install keeps the file as published (see below)
+    from keel_engine.rules.packs import normalize
+    assert out.status_code == 200 and (r / ".keel/rules/no-new-dependencies.yaml").read_text() == normalize(text)
     assert [p["id"] for p in out.json()["view"]["packs"]] == ["no-new-dependencies"]
     assert client.post("/rules/packs", json={"root": str(r), "yaml": text}).status_code == 409          # already there
     edited = text.replace("name: No new dependencies", "name: No packages")
     assert client.post("/rules/packs", json={"root": str(r), "yaml": edited, "replace": "no-new-dependencies"}).status_code == 200
-    assert client.get("/rules/packs/no-new-dependencies", params={"root": str(r)}).json()["yaml"] == edited
+    assert client.get("/rules/packs/no-new-dependencies", params={"root": str(r)}).json()["yaml"] == normalize(edited)
     bad = client.post("/rules/packs", json={"root": str(r), "yaml": "id: x\nrules: []"})
     assert bad.status_code == 422 and bad.json()["errors"]
     v = client.delete("/rules/packs/no-new-dependencies", params={"root": str(r)}).json()

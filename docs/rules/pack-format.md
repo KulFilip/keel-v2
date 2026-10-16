@@ -76,5 +76,11 @@ keel is refused (422). `name` and `version`, when sent, must equal the pack's ow
 **admin** level. keel checks a pack before it saves it; the Rules page's "Check and try it" also says which of the
 project's recent tool calls it would have refused (`POST rules/check {yaml}`).
 
+**Writing a pack on the Rules page.** The editor highlights the YAML and numbers its lines; `POST rules/check` answers
+`{ok, errors, lines: [{line, message}], formatted}` and the editor marks each error at its line. Save and Import check
+first and save nothing while a line is marked. A pack saved from the page (New rule, Edit, Import) is written tidy:
+its leading comment lines kept, the fields in the order above, 2-space indent, a short list on one line
+(`match: [a, b]`) and a long one an item per line. An install (library, marketplace) keeps the file byte for byte.
+
 `requires.plugins` is shown on the Rules page and kept for a marketplace to resolve; keel's guard does not need a
 plugin to apply a pack.

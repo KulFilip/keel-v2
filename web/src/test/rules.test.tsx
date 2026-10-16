@@ -63,7 +63,12 @@ describe("Rules page", () => {
     await user.type(within(drawer).getByLabelText("Pack name"), "No deploys");
     await user.clear(within(drawer).getByLabelText("File name (id)"));
     await user.type(within(drawer).getByLabelText("File name (id)"), "no-deploys");
+    // the starter is a complete pack: a real rule with its commands and a reason
+    expect(within(drawer).getByLabelText("Commands that contain")).toHaveValue("kubectl apply\nhelm upgrade");
+    expect(within(drawer).getByLabelText("Why (the agent reads this)")).toHaveValue("Deploys are a person's job. Say what should be deployed and why in your answer.");
+    await user.clear(within(drawer).getByLabelText("Commands that contain"));
     await user.type(within(drawer).getByLabelText("Commands that contain"), "kubectl apply");
+    await user.clear(within(drawer).getByLabelText("Why (the agent reads this)"));
     await user.click(within(drawer).getByRole("button", { name: "Check and try it" }));
     expect(await within(drawer).findByText(/reason: say in plain words/)).toBeInTheDocument();
     await user.type(within(drawer).getByLabelText("Why (the agent reads this)"), "Deploys are a person's job.");
@@ -87,11 +92,54 @@ describe("Rules page", () => {
   });
 });
 
+describe("the YAML editor", () => {
+  it("starts from a valid pack, marks an error at its line, and saves only after the check passes", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/rules";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "New rule" }));
+    const drawer = await screen.findByRole("dialog", { name: "New rule" });
+    await user.click(within(drawer).getByRole("tab", { name: "YAML" }));
+    const editor = within(drawer).getByLabelText("YAML") as HTMLTextAreaElement;
+    expect(editor.value.split("\n").slice(0, 2)).toEqual(["# keel rule pack: No deploys (format: docs/rules/pack-format.md)", "schema: 1"]);
+    expect(editor.value).toContain("requires:\n  keel: '>=0.17.2'");
+    expect(editor.value).toContain("match: [kubectl apply, helm upgrade]");
+    expect(drawer.querySelector(".ce-pre .hljs-attr")).not.toBeNull();            // highlighted like keel's code views
+    expect(within(drawer).getByText("The fields of a rule pack")).toBeInTheDocument();
+    // break it: no reason. Save checks first, saves nothing, and marks the line
+    const broken = editor.value.replace(/\n\s+reason: .*\n?$/, "\n");
+    await user.clear(editor);
+    await user.click(editor);
+    await user.paste(broken);
+    await user.click(within(drawer).getByRole("button", { name: "Save" }));
+    const list = await within(drawer).findByRole("alert", { name: "Errors" });
+    const line = broken.split("\n").findIndex((l) => l.trim().startsWith("- id:")) + 1;
+    expect(list).toHaveTextContent(`line ${line} rules[1].reason`);
+    expect(drawer.querySelector(".ce-gutter .ce-bad")).toHaveTextContent(String(line));
+    expect(calls("POST", "/api/projects/ludus-engine/rules/packs")).toHaveLength(0);
+  });
+
+  it("import checks the pasted pack before it adds it", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/rules";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Import" }));
+    const drawer = await screen.findByRole("dialog", { name: "Import a rule pack" });
+    await user.click(within(drawer).getByLabelText("Or paste it"));
+    await user.paste("schema: 1\nname: x\ntitle: X\nversion: 1.0.0\nrules:\n  - id: r\n    kind: bash\n    match: [x]\n");
+    await user.click(within(drawer).getByRole("button", { name: "Import" }));
+    expect(await within(drawer).findByRole("alert", { name: "Errors" })).toHaveTextContent("line 6");
+    expect(calls("POST", "/api/projects/ludus-engine/rules/packs")).toHaveLength(0);
+  });
+});
+
 describe("packYaml", () => {
   it("quotes what YAML would misread", () => {
     const y = packYaml({ name: "p", title: "No: deploys", rules: [{ id: "r", kind: "bash", match: ["a: b", "npm install"], how: "contains", phases: "in-flow", reason: "yes" }] });
     expect(y).toContain('title: "No: deploys"');
-    expect(y.split("\n").slice(0, 6)).toEqual(["schema: 1", "kind: rules", "name: p", 'title: "No: deploys"', "version: 1.0.0", "publisher: local"]);
+    expect(y.split("\n").slice(1, 7)).toEqual(["schema: 1", "kind: rules", "name: p", 'title: "No: deploys"', "version: 1.0.0", "publisher: local"]);
+    const long = packYaml({ name: "p", title: "P", rules: [{ id: "r", kind: "edit", match: ["**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock", "**/uv.lock"], how: "glob", phases: "all", reason: "x" }] });
+    expect(long).toContain("    match:\n      - **/package-lock.json\n");
     expect(y).toContain('match: ["a: b", npm install]');
     expect(y).toContain("phases: in-flow");
     expect(y).toContain('reason: "yes"');

@@ -128,7 +128,11 @@ export function rulesHandlers(db: RulesDb, log: (req: Request) => Promise<unknow
     http.post("/api/projects/:pid/rules/check", async ({ request }) => {
       await log(request);
       const { yaml } = (await request.clone().json()) as { yaml: string };
-      if (!/reason:\s*(?!""\s*$)\S/m.test(yaml)) return HttpResponse.json({ ok: false, errors: ["rules[1].reason: say in plain words why it is refused (the agent reads it)"] });
+      if (!/reason:\s*(?!""\s*$)\S/m.test(yaml)) {
+        const at = yaml.split("\n").findIndex((l) => l.trim().startsWith("- id:")) + 1;
+        const message = "rules[1].reason: say in plain words why it is refused (the agent reads it)";
+        return HttpResponse.json({ ok: false, errors: [message], lines: [{ line: at || 1, message }] });
+      }
       return HttpResponse.json({ ok: true, errors: [], dry_run: { checked: 37, blocked: [{ phase: "green", agent: "implementer", kind: "bash", target: "npm install left-pad", reason: "x" }] } });
     }),
     http.get("/api/threads/:tid/rules-now", ({ params }) => HttpResponse.json(rulesNow(params.tid as string))),

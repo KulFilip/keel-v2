@@ -22,6 +22,7 @@ from .events import EventBus, bus as default_bus
 from .marketplace import MarketError
 from .models import catalog
 from .runtime import evals, hunt, rules_view, scan
+from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp, worktrees
@@ -479,7 +480,9 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/rules/packs")
     async def post_rule_pack(body: RulePackBody):
         root = project_root(body.root)
-        pack = await asyncio.to_thread(rules_view.save_pack, root, body.yaml, body.replace, None if body.replace else "file")
+        # the Rules page's save (New rule, Edit, Import): written tidy (rules/packs.py normalize); installs keep the file
+        pack = await asyncio.to_thread(rules_view.save_pack, root, packs_normalize(body.yaml), body.replace,
+                                       None if body.replace else "file")
         return {"pack": pack, "view": await asyncio.to_thread(rules_view.view, root)}
 
     # v0.17.2 rule packs as installable items (a marketplace install calls these through the api)
