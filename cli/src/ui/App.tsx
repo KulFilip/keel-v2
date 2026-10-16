@@ -22,7 +22,17 @@ const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbo
 export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Probe; width?: number }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const width = fixedWidth ?? stdout?.columns ?? 100;
+  // a terminal may say 0 columns at first (docker exec -it sets the size a moment after the start): count it as 100
+  const cols = () => Math.max(40, stdout?.columns || 100);
+  const [termWidth, setTermWidth] = useState(cols);
+  useEffect(() => {
+    if (!stdout || fixedWidth) return;
+    const on = () => setTermWidth(cols());
+    stdout.on("resize", on);
+    return () => void stdout.off("resize", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stdout, fixedWidth]);
+  const width = fixedWidth ?? termWidth;
   const [snap, setSnap] = useState<Snapshot>(core.snapshot);
   const [items, setItems] = useState<Item[]>([]);
   const [epoch, setEpoch] = useState(0);

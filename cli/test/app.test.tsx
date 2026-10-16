@@ -149,3 +149,19 @@ describe("keel TUI", () => {
     t.r.unmount();
   });
 });
+
+describe("a terminal that says 0 columns at first (docker exec -it)", () => {
+  it("still draws the start screen at full width", async () => {
+    const { render: inkRender } = await import("ink");
+    const { FakeStdin, FakeStdout } = await import("../src/script");
+    const stub = stubKeel();
+    const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
+    const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
+    const out = new FakeStdout(0);
+    const app = inkRender(<App core={core} probe={probe} />, { stdin: new FakeStdin() as never, stdout: out as never, debug: true, patchConsole: false });
+    await waitFor(() => probe.started);
+    await tick(50);
+    expect(stripAnsi(out.last)).toContain("│ keel v2 0.17.3 · keel TUI 0.17.3");
+    app.unmount();
+  });
+});
