@@ -64,8 +64,8 @@ class SpecStatusService(
                 "WHERE project_id = ? AND $SHOWN ORDER BY created_at DESC, rowid DESC",
             { rs, _ ->
                 val status = rs.getString(4) ?: "running"
-                // only the states that can name a spec or a gate are read
-                val json = rs.getString(6)?.takeIf { it.contains("\"spec\"") || status == "waiting" }
+                // only the states that name a spec (keel stores them compact: "spec":"…") or wait at a gate are read
+                val json = rs.getString(6)?.takeIf { it.contains("\"spec\":\"") || status == "waiting" }
                 val state = json?.let { runCatching { mapper.readTree(it) }.getOrNull() }
                 Row(rs.getString(1), rs.getString(2), rs.getString(3) ?: "", status, rs.getString(5)?.takeIf { it != "none" },
                     text(state?.get("spec")), if (status == "waiting") waitingOf(state) else null, rs.getString(7), rs.getString(8))
