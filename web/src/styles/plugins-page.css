@@ -627,6 +627,16 @@ input.mk-sw:disabled {
     display: none;
   }
 }
+/* a medium width (a narrow window, the menu open): PARTS and FROM step aside so the control fits whole; the plugin's
+   own page still shows both */
+@container (min-width: 561px) and (max-width: 900px) {
+  table.mk-installed > thead > tr > th:nth-child(3),
+  table.mk-installed > thead > tr > th:nth-child(4),
+  table.mk-installed > tbody > tr > td:nth-child(3),
+  table.mk-installed > tbody > tr > td:nth-child(4) {
+    display: none;
+  }
+}
 /* the plugin's page: Projects, each with the same control */
 .mk-projlist {
   list-style: none;
