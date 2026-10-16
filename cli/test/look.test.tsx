@@ -217,3 +217,13 @@ describe("KeelBot streams", () => {
     r.unmount();
   });
 });
+
+describe("markdown and paths", () => {
+  it("keeps a file:line with underscores whole, in the link colour (no bold inside __init__.py)", () => {
+    const md = "- **entry**: `run()` in src/scores/__init__.py:1 and __bold__ here";
+    const out = renderMarkdown(md, color.paint);
+    expect(stripAnsi(out)).toBe("  • entry: run() in src/scores/__init__.py:1 and bold here");
+    expect(out).toContain(`${RGB(DARK.run)}src/scores/__init__.py:1`);
+    expect(out).not.toMatch(/[^\x1b]\[\d+m/);                      // every colour code is whole
+  });
+});

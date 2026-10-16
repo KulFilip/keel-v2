@@ -28,19 +28,32 @@ const isFileLine = (s: string) => {
   return ok;
 };
 
+// a code span, or a file:line: both are kept as they are (no bold or italic inside a path like __init__.py:1)
+const SPANS = /(`[^`]+`)|(\*\*)?((?<![\w/.-])(?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][\w]{0,7}:\d+(?::\d+)?(?![\w]))(\*\*)?/g;
+
 function inline(text: string, p: Paint): string {
-  // code spans first: their insides stay as they are
-  return text.split(/(`[^`]+`)/g).map((part) => {
-    if (part.length > 1 && part.startsWith("`") && part.endsWith("`")) {
-      const inner = part.slice(1, -1);
-      return isFileLine(inner) ? p.underline(p.run(inner)) : p.kw(inner);
+  let out = "";
+  let i = 0;
+  for (const m of text.matchAll(SPANS)) {
+    out += prose(text.slice(i, m.index), p);
+    if (m[1]) {
+      const inner = m[1].slice(1, -1);
+      out += isFileLine(inner) ? p.underline(p.run(inner)) : p.kw(inner);
+    } else {
+      // **path:line** is a bold link; a lone ** next to a path stays as it was written
+      const link = p.underline(p.run(m[3]));
+      out += m[2] && m[4] ? p.bold(link) : (m[2] ?? "") + link + (m[4] ?? "");
     }
-    return part
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t: string, u: string) => (t === u ? p.underline(p.run(u)) : `${t} (${p.underline(p.run(u))})`))
-      .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a?: string, b?: string) => p.bold(a ?? b ?? ""))
-      .replace(/(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])|(?<![_\w])_([^_\s][^_]*?)_(?![_\w])/g, (_, a?: string, b?: string) => p.italic(a ?? b ?? ""))
-      .replace(FILE_LINE, (m) => p.underline(p.run(m)));
-  }).join("");
+    i = (m.index ?? 0) + m[0].length;
+  }
+  return out + prose(text.slice(i), p);
+}
+
+function prose(t: string, p: Paint): string {
+  return t
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, x: string, u: string) => (x === u ? p.underline(p.run(u)) : `${x} (${p.underline(p.run(u))})`))
+    .replace(/\*\*([^*]+)\*\*|(?<!\w)__([^_]+)__(?!\w)/g, (_, a?: string, b?: string) => p.bold(a ?? b ?? ""))
+    .replace(/(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])|(?<![_\w])_([^_\s][^_]*?)_(?![_\w])/g, (_, a?: string, b?: string) => p.italic(a ?? b ?? ""));
 }
 
 /** Markdown → terminal lines (joined with \n). An unclosed code block (an answer still being written) is code too. */
