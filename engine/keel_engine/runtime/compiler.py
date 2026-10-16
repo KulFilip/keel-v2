@@ -288,9 +288,16 @@ class Compiler:
         async def begin(state: FlowState):
             if state.get("status") in ("stopped", "failed"):
                 return Command(goto=END)
-            nxt = next((a for a in get_list(state, lp.key) if a.get("status") not in finished), None)
+            items = get_list(state, lp.key)
+            nxt = next((a for a in items if a.get("status") not in finished), None)
             if not nxt:
                 return Command(update={cursor: None}, goto=self.nav.after_loop(lp))
+            if lp.per_ac:
+                # v0.17.4 a criterion waits for the ones it depends on (the plan's depends_on): the first unfinished one
+                # whose dependencies are finished; when none is (a cycle, or one that is not in the list), list order.
+                open_ids = {a["id"] for a in items if a.get("status") not in finished}
+                nxt = next((a for a in items if a.get("status") not in finished
+                            and not (set(a.get("depends_on") or []) & open_ids)), nxt)
             return Command(update={cursor: nxt["id"], "retries": {}}, goto=self.wf.steps[lp.first].id)
 
         begin.__name__ = f"loop_begin_{lp.id}"

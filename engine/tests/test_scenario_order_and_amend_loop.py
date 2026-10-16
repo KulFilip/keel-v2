@@ -186,3 +186,25 @@ def test_verify_red_says_no_test_ran_for_the_dash_filter(tmp_path, monkeypatch):
     r2 = asyncio.run(verify_red(a2))
     assert r2.ok and "red confirmed" in r2.note, r2
     assert re.search(r"AC006PluginSubstrateRegressionTest", r2.detail)
+
+
+# ------------------------------------------------------------------ depends_on (the review's suggestion 1)
+
+def test_depends_on_lines_are_read():
+    from keel_engine.runtime import feature_actions as fa
+
+    text = ("## Plan\n- **AC-001** depends on: AC-002, AC-007\n- AC-003 (depends on AC-001)\n- AC-004: after AC-3\n"
+            "- AC-005 depends on: none\n- **AC-6** [API] after login the page shows the rank\n")
+    assert fa.spec_depends(text) == {"AC-001": ["AC-002", "AC-007"], "AC-003": ["AC-001"], "AC-004": ["AC-3"]}
+
+
+def test_a_criterion_waits_for_what_it_depends_on(client, repo, monkeypatch):
+    spec_with(monkeypatch, "- AC-1 depends on: AC-3")            # no ORDER line: only the dependency
+    seen, calls, amends = ludus(monkeypatch)
+    tid = start(client, repo)
+    s = to_loop(client, tid)
+    s, pauses = run_to_end(client, tid, s)
+    assert s["status"] == "done"
+    assert [ac for kind, ac in calls] == ["AC-2", "AC-3", "AC-1"]   # AC-1 only after AC-3; never an AMEND
+    assert amends == [] and next(a for a in s["acs"] if a["id"] == "AC-1").get("depends_on") in (None, ["AC-3"])
+    assert values(client, tid)["acs"][0]["depends_on"] == ["AC-3"]

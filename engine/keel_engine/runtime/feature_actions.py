@@ -111,6 +111,28 @@ def spec_order(text: str | None) -> str | None:
     return found
 
 
+# "- **AC-1** depends on: AC-3, AC-7" / "AC-001 (depends on AC-002)" / "AC-1: after AC-3" / "AC-1 needs AC-3 first"
+DEPENDS_LINE = re.compile(r"(?mi)^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?([A-Z][A-Z0-9]*-[\w.]+?)(?:\*\*|__)?\b[^\n]*?"
+                          r"\b(?:depends[ _]on|after|needs)\b[ \t:]*([^\n]*)$")
+
+
+def spec_depends(text: str | None) -> dict[str, list[str]]:
+    """{criterion: the criteria it depends on} from the spec's lines (usually its Plan); "none" and unknown words drop."""
+    out: dict[str, list[str]] = {}
+    for m in DEPENDS_LINE.finditer(str(text or "")):
+        ac = m.group(1).upper()
+        deps = [d for d in dict.fromkeys(AC_ID.findall(m.group(2).upper())) if d != ac]
+        if deps:
+            out[ac] = list(dict.fromkeys(out.get(ac, []) + deps))
+    return out
+
+
+def with_depends(acs: list[dict], text: str | None) -> list[dict]:
+    """The criteria with `depends_on` from the spec (kept as it was for a criterion the spec says nothing about)."""
+    deps = spec_depends(text)
+    return [dict(x, depends_on=deps[x["id"].upper()]) if x["id"].upper() in deps else dict(x) for x in acs]
+
+
 def build_order(a, text: str | None) -> tuple[str | None, str]:
     """(the order, where it came from): the spec's ORDER line wins (the person reads and may edit it at the gate),
     else the plan agent's ORDER marker, else none (id order)."""
@@ -135,7 +157,7 @@ def _section(text: str, *names: str) -> str:
 
 def _criteria_lines(acs: list[dict]) -> list[str]:
     return [f"- {x['id']} [{x.get('layer', 'API')}] {x.get('title', '')}" + (f" ({x['status']})" if x.get("status") in DONE else "")
-            for x in acs]
+            + (f" · after {', '.join(x['depends_on'])}" if x.get("depends_on") else "") for x in acs]
 
 
 # ------------------------------------------------------------------ preflight
@@ -206,7 +228,7 @@ def spec_sync(a):
     seeded = bool((a.data.get("seed") or {}).get("acs"))
     acs = merge_acs(a.acs, prompts.parse_acs(text), drop=not seeded)
     order, source = build_order(a, text)
-    acs = order_acs(acs, order)
+    acs = with_depends(order_acs(acs, order), text)
     said = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "id": "criteria ids (no ORDER given)"}[source]
     lines = [f"Spec: {spec or '(no spec file found)'}", "", f"Criteria, in build order (from {said}):", *_criteria_lines(acs)]
     plan = _section(text, "plan")
@@ -514,7 +536,7 @@ def spec_amend_commit(a):
     spec = spec_path(a)
     text = _read(a.root, spec)
     # the build order stays as it is (the plan's, or as the person or keel moved it); new criteria go after the rest
-    acs = order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs))
+    acs = with_depends(order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs)), text)
     reopen = [i for i in _reopen(a) if any(x["id"].upper() == i for x in acs)]
     acs = [dict(x, status="todo") if x["id"].upper() in reopen else x for x in acs]
     amend = a.data.get("amend") or {}

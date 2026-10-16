@@ -58,7 +58,8 @@ steps:
       criterion that creates a row before the one that reads it), the files per criterion from the maps below, the
       contract delta (or "none"), and the test layer per criterion (the lowest that can express it). An exposure the
       maps found that no criterion covers becomes a new criterion now, numbered after the last one. Do not change the
-      other criteria. ORDER lists the criteria ids in build order. The explorers' maps:
+      other criteria. Under the plan, one line per criterion that needs another one built first:
+      "- AC-n depends on: AC-x, AC-y". ORDER lists the criteria ids in build order. The explorers' maps:
 
       {{data.report}}
   - { id: spec_sync, kind: code, name: criteria + plan for the gate, action: spec_sync, phase: spec }

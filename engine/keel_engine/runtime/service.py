@@ -291,11 +291,11 @@ class Engine:
         if spec:
             state["spec"] = spec
             if not state["acs"]:
-                from .feature_actions import order_acs, spec_order
+                from .feature_actions import order_acs, spec_order, with_depends
 
                 text = spec_check.read_spec(root, spec)
-                # v0.17.4 the spec's ORDER line is the build order from the start
-                state["acs"] = order_acs(prompts.parse_acs(text), spec_order(text))
+                # v0.17.4 the spec's ORDER line is the build order from the start, with each criterion's depends_on
+                state["acs"] = with_depends(order_acs(prompts.parse_acs(text), spec_order(text)), text)
         if git.is_repo(root):
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
