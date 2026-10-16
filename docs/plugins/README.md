@@ -54,7 +54,7 @@ In plain words:
 | Module Federation for the web                                         | ties plugins to one bundler; an **import map** is a web standard and simpler                                                                                                  |
 | one big repo forever, with feature flags                              | not "light"; others cannot publish                                                                                                                                            |
 
-Content-only and web-only plugins load **without** a restart. Only engine and api code needs one.
+Content-only and web-only plugins load **without** a restart (since 0.17.1: [22-one-plugins-page.md](22-one-plugins-page.md) §5). Only engine and api code needs one.
 
 ## Core and plugins: what goes where
 

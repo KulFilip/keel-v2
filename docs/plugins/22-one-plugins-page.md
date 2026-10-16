@@ -137,3 +137,54 @@ keel serves a plugin's web files `immutable` for a year, under `/plugins/<name>/
 Code plugin's page without a new plugin version (still 1.0.0), so a browser that had loaded it kept the old toolbar.
 Since 0.17.1 the urls in `/api/features` end with `?v=<the file's sha256, 12 hex>`: a changed file gets a new url,
 an unchanged one keeps its cache. (`PluginHost.webUrl`; `PluginHostApiTest`.)
+
+## 5 · What a change does now, and what waits for a restart
+
+The person: "everything is on by default and I cannot turn it on or off". The switches worked, but nothing visible
+happened until a restart, and only the banner at the top said so. Since 0.17.1:
+
+```
+  Installed                                                            last cell of the row
+  ─────────                                                            ────────────────────
+  keel core   …  On   (● always on)                                    no switch: core cannot go off
+  Wiki        …  Off  ( ○ ) Off          applies after restart  [Restart now]   engine/api plugin: waits
+  Notes       …  On   ( ● ) On                                    applied       web/content plugin: now
+  Notes       …  Off  ( ○ ) Off       applied — reload the page               its web part left
+  Database    …  On   [Off|This project|All projects]             applied       loaded keel-wide: now
+```
+
+- **The intro** has one more line: "Everything is on by default, like 0.16.1. Start with fewer plugins:
+  `keel2 start --core`."
+- **A change that waits.** Its row (the plugin's name is in the engine's `pending_restart.changes`) says **applies
+  after restart** with **Restart now** (`POST /api/plugins/restart {now: true}`; it asks first while agent steps run;
+  a keel that keel-start does not run says `keel2 restart`). The banner stays.
+- **A web or content-only plugin** (its parts are only `web` and/or `content`; none of keel's 12 today) applies at
+  once. After each change the api calls the engine's new `POST /marketplace/apply-live {names}`:
+
+  ```
+   web ── PUT /api/plugins/notes {on} ──▶ api ── PUT /marketplace/installed/notes ──▶ engine (installed.json)
+                                          api ── POST /marketplace/apply-live ──────▶ engine: live.apply()
+                                                   resolve; keep only the web/content-only changes whose
+                                                   needs stay loaded; write run/resolved.json + run/env
+                                                   (everything else as loaded); addons.reload_content()
+                                          api ◀── {applied, names: {notes: applied|restart|same}, pending_restart}
+                                          api: PluginHost.reload() (/api/features, /plugins/<name>/… files)
+   web ◀── {…, live} ── "applied"; a new web part: /api/features again → its page joins the menu
+                        a web part that left or changed: "applied — reload the page"
+  ```
+
+  A plugin with an engine, api or migrations part, or a web plugin that needs one that waits, keeps **applies after
+  restart**. keel never restarts by itself here. Only a change that waits marks the restart as due; a web/content-only
+  install's notification says "… is installed: it works now".
+- **The per-project control.** For a plugin keel has loaded, a project's choice applies at once: the api reads
+  `project_plugins` on every call (the plugin's pages and routes, each KeelBot turn, each flow it starts; a flow that
+  already runs keeps the list it started with). The row says **applied**. When the choice also turns the plugin on
+  keel-wide, that part waits: **applies after restart**. (Checked by `PluginsApiTest`: a flow started right after the
+  choice carries it, the next one after Off does not.)
+- **keel core's row** has no switch: an **always on** pill.
+
+Tests: engine `tests/test_marketplace_live.py` (on/off, update, content-only, code waits, api and migrations wait, needs
+that wait, a loaded plugin that needs it, no resolved.json, the route); api `MarketplaceApiTest` (a web plugin applies
+and the plugin host reads it, a plugin with code waits) and `PluginsApiTest` (a project's choice at once); web
+`marketplace.test.tsx` (core's pill and the intro, the row's Restart now and its question, a web plugin's page appears
+and its off asks for a reload) and `plugins.test.tsx` (the per-project control says applied, or applies after restart).
