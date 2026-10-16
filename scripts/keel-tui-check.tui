@@ -1,0 +1,40 @@
+# keel TUI's real check (scripts/test-keel-tui.sh): typed into the real app, in a throw-away keel on the fake model.
+# Every line is typed, then Enter; @ lines steer (cli/src/script.ts). The captures go to docs/pictures/tui/.
+@snap 01-start
+/help
+@snap 02-help
+/workflows feature
+@snap 03-workflows-feature
+/flow feature Add a /health endpoint that answers {"ok": true}
+@wait pick 60
+@snap 04-flow-asks-about-the-fake-model
+@key enter
+@wait waiting 300
+@key ctrl+f
+@snap 05-flow-at-its-first-gate
+/next
+@snap 06-next
+/approve
+@snap 07-approved
+@sleep 1500
+/live
+@key ctrl+a
+@snap 08-live
+/diagram flow
+@snap 09-diagram-flow
+/timeline
+@snap 10-timeline
+Where does this project start, and what is in it?
+@wait answer 240
+@snap 11-keelbot-answer
+/status
+@snap 12-status
+/flows
+/inbox
+/jobs
+/rules
+/plugins
+/budget
+/diagram map-er
+/dashboard
+@snap 13-more-commands

@@ -1,0 +1,147 @@
+… (146 lines above: the capture before)
+› /diagram flow
+ flow feature "Add a /health endpoint that answers {"ok": true}" - waiting at options - phase spec
+ criteria 0/2: [ ]AC-1 [ ]AC-2
+ waiting  gate "which optional phases run" at options
+ answer   approve ("Run these steps")
+ usage    176,100 tokens of 500,000 - $0.00
+
+ == Preflight: check the repo and move to the flow's own branch ==  id=preflight
+   [x] preflight + own branch  (code preflight)
+ == Spec: write and approve what to build ==  id=spec
+   [x] spec  (agent explorer)
+   [x] areas to map  (code explore_areas)
+   [x] one explorer per area  (parallel)
+   [x] collect the maps  (code report)
+   [x] plan under the criteria  (agent explorer)
+   [x] criteria + plan for the gate  (code spec_sync)
+   [x] spec approval  (gate, you decide)
+         approve -> freeze + commit the spec
+         edit -> edit the spec
+         rewrite -> edit the spec
+         review -> review the spec before approving
+         order -> plan under the criteria  (loops back)
+         reject -> the interview starts again
+         send back -> spec  (loops back)
+       \ [ ] edit the spec  (agent explorer)
+       \ [ ] criteria + plan for the gate  (code spec_sync)
+       \       then -> spec approval  (loops back)
+       \ [ ] review the spec before approving  (agent reviewer)
+       \ [ ] criteria + plan + the review for the gate  (code spec_sync)
+       \       then -> spec approval  (loops back)
+       \ [ ] the interview starts again  (code spec_restart)
+       \       then -> spec  (loops back)
+   [x] freeze + commit the spec  (code spec_freeze)
+         fails -> spec  (loops back)
+   [?] which optional phases run  (gate, you decide)   <-- waiting for you
+ == Contract: write the API surface the criteria change ==  id=contract
+   [ ] contract  (agent contract-author)
+   [ ] the contract delta  (code show_diff)
+   [ ] contract delta  (gate, you decide)
+         approve -> commit contract
+         change -> contract  (loops back)
+         amend -> put the contract draft back
+       \ [ ] put the contract draft back  (code reset+amend_start)
+       \       then -> spec amendment
+       \ [ ] spec amendment  (agent explorer)
+       \ [ ] the amendment for the gate  (code spec_amendment)
+       \       fails -> spec amendment  (loops back)
+       \ [ ] spec amendment  (gate, you decide)
+       \       approve -> commit the amendment
+       \       context -> spec amendment  (loops back)
+       \       change -> spec amendment  (loops back)
+       \       rebuild -> start the spec again in a new feature flow
+       \ [ ] commit the amendment  (code spec_amend_commit)
+       \ [ ] the contract moves  (branch)
+       \       yes -> back to the contract
+       \       no -> red  (loops back)
+       \ [ ] back to the contract  (code)
+       \       then -> contract  (loops back)
+       \ [ ] start the spec again in a new feature flow  (code start_flow)
+       \       starts the feature flow
+       \       then -> end of the flow
+   [ ] commit contract  (code commit)
+ loop: For each criterion (2 criteria)  id=ac
+   : [ ] red  (agent test-author)
+   : [ ] the spec needs an amendment  (branch) if red says AMEND?
+   :     yes: side path
+   :     |  [ ] to the amendment  (code amend_start)
+   :     |        then -> spec amendment
+   :     no: go on
+   : [ ] verify_red  (code verify_red+commit)
+   : [ ] green  (agent implementer)
+   : [ ] the spec needs an amendment  (branch) if green says AMEND?
+   :     yes: side path
+   :     |  [ ] to the amendment  (code amend_start)
+   :     |        then -> spec amendment
+   :     no: go on
+   : [ ] verify_green + commit  (code verify_green+commit)
+   : [ ] AC review  (agent ac-reviewer)
+   : [ ] AC gate  (gate, you decide)
+   :       send back -> red  (loops back)
+   `-- end of loop
+ == Integration: wire the real parts together ==  id=integration
+   [ ] integration  (agent implementer)
+   [ ] verify the suite + commit  (code verify_green+commit)
+   [ ] the diff for the integration gate  (code show_diff)
+   [ ] integration  (gate, you decide)
+         send back -> integration  (loops back)
+ == Security: audit the branch and its dependencies ==  id=security
+   [ ] verify deps  (code verify_deps)
+   [ ] what security reads  (code security_scope)
+   [ ] security auditor + dependency triager  (parallel)
+         after a fix -> verify deps  (loops back)
+ == Review fix: fix what a review or a check found ==  id=review-fix
+   [ ] fix the full-diff review's findings  (agent implementer)
+   [ ] verify the suite + commit the fix  (code verify_green+commit)
+ == Review: a reviewer, then you, check the work ==  id=gate
+   [ ] full-diff review  (agent code-reviewer)
+         blocking findings -> fix the full-diff review's findings  (loops back)
+ == End-to-end: browser tests for the user journeys ==  id=e2e
+   [ ] e2e criteria + tool  (code e2e_scope)
+   [ ] e2e criteria  (branch) if e2e criteria + tool says E2E = yes?
+       yes:
+       |  [ ] no e2e command  (gate, you decide)
+       |        write -> e2e specs without a tool
+       |        check -> e2e criteria + tool  (loops back)
+       |      \ [ ] e2e specs without a tool  (code e2e_unrun)
+       |      \       then -> e2e  (loops back)
+       |  [ ] e2e  (agent e2e-author)
+       |  [ ] verify e2e + commit  (code verify_e2e+commit)
+       |  [ ] e2e  (gate, you decide)
+       |        send back -> e2e  (loops back)
+       no: go on
+ == Smoke: quick checks that also run after a deploy ==  id=smoke
+   [ ] smoke checks  (code smoke_scope)
+   [ ] smoke checks  (branch) if smoke checks says SMOKE = yes?
+       yes:
+       |  [ ] smoke  (agent e2e-author)
+       |  [ ] run smoke + commit  (code verify_smoke+commit)
+       |  [ ] smoke  (gate, you decide)
+       |        send back -> smoke  (loops back)
+       no: go on
+ [+] include ship: checks, reviews and the pull request (30 steps)  id=ship
+ == Close: decision records and the closing note ==  id=close
+   [ ] ADR  (agent explorer)
+   [ ] commit the ADR  (code commit)
+   [ ] close  (code close_flow)
+         then -> end of the flow
+
+ [x] done  [>] running  [?] waiting for you  [!] failed  [#] stopped  [-] skipped  [ ] to do
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
+│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
+│ step  options · phase spec                                                                       │
+│ AC    □□  0/2                                                                                    │
+│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
+│ ◆ waiting for you: which optional phases run · /approve                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Agents · 0 at work                                                                               │
+│ No agent is running.                                                                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…

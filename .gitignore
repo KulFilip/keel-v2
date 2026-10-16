@@ -1,6 +1,8 @@
 .data/
 node_modules/
 web/dist/
+# keel TUI's bundle (cd cli && npm run build)
+cli/dist/
 # the plugins' web parts, built on their own (npm run build:plugins, build:product)
 plugins/*/web/dist/
 product/web/dist/

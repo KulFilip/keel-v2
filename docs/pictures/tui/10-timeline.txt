@@ -1,0 +1,42 @@
+… (275 lines above: the capture before)
+› /timeline
+10-16 13:37:03  step   freeze · spec frozen (2026-10-16); Recorded, not committed: layout keel keeps
+ keel's files out of git.
+10-16 13:37:03  step   spec_gate · spec approval: approve
+10-16 13:37:01  step   spec_sync · spec .keel/specs/add-a-health-endpoint-that-answers-ok-true.md: 2
+ criteria, order AC-1, AC-2
+10-16 13:37:01  step   plan · explorer · fake fake · Plan written under the criteria. · ORDER: AC-1,
+ AC-2
+10-16 13:37:01  agent  explorer done · plan · 44,000 tokens · fake/fake · job
+0382fa4fd10c4490b803f90d418a88a3
+10-16 13:37:01  step   maps · report ready
+10-16 13:37:01  step   explore · explorer · fake fake · MAP (api): src/scores/__init__.py:1 is the
+pattern; tests under tests/. MAP-END · MAP (data): src/scores/__init__.py:1 is the pattern; tests
+under tests/. MAP-END
+10-16 13:37:01  agent  explorer done · explore · 44,100 tokens · fake/fake · job
+b80f88bf0bee43d3ab1df05317ea83a1
+10-16 13:37:01  agent  explorer done · explore · 44,000 tokens · fake/fake · job
+34e9a24974654178b2d98102a7b27510
+10-16 13:37:01  step   explore_areas · explorers for api, data
+10-16 13:37:01  step   spec · explorer · fake fake · Spec written with 2 acceptance criteria.
+10-16 13:37:00  agent  explorer done · spec · 44,000 tokens · fake/fake · job
+db89d523b83948eaaee837fc94559828
+10-16 13:37:00  step   preflight · ready: on branch feat/add-a-health-endpoint-that-answers-ok-tr
+10-16 13:37:00  step   start · started
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Flow · feature "Add a /health endpoint that answers {"ok": true}" · waiting                      │
+│ ✔ preflight  ◆ spec  · contract  · red  · green  · gate  · integration  · security  ·            │
+│ review-fix  · e2e  · smoke  · ship  · coverage-fix  · final-review  · memory  · close  · review  │
+│ step  options · phase spec                                                                       │
+│ AC    □□  0/2                                                                                    │
+│ gates spec approval · ◆ which optional phases run · contract delta · AC gate                     │
+│ ◆ waiting for you: which optional phases run · /approve                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Agents · 0 at work                                                                               │
+│ No agent is running.                                                                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 · 1 waiting · 176.1k…

@@ -1,0 +1,6 @@
+tui.call {"via":"tui","client":"keel TUI 0.17.3","tool":"/flow","method":"POST","path":"/api/projects/scratch/flows","ok":false,"status":409}
+thread.started {"workflow":"feature","workflow_id":"feature","title":"Add a /health endpoint that answers {\"ok\": true}","flow":"feature","root":"/workspace","acs":0,"fake":true,"via":"tui"}
+tui.call {"via":"tui","client":"keel TUI 0.17.3","tool":"/flow","method":"POST","path":"/api/projects/scratch/flows","ok":true,"status":200}
+tui.call {"via":"tui","client":"keel TUI 0.17.3","tool":"/approve","method":"POST","path":"/api/inbox/43edd6679f724c78b61a2b8d10b1ae67/act","ok":true,"status":200}
+tui.call {"via":"tui","client":"keel TUI 0.17.3","tool":"KeelBot","method":"POST","path":"/api/projects/scratch/helper/sessions","ok":true,"status":200}
+tui.call {"via":"tui","client":"keel TUI 0.17.3","tool":"KeelBot","method":"POST","path":"/api/projects/scratch/helper/sessions/h_9a352e3fca6b498e/turn","ok":true,"status":200}

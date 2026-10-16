@@ -1,0 +1,18 @@
+database: 14 tables, 13 relations
+
+  table_00 (1 columns)
+  table_01 (1 columns) -> table_00
+  table_02 (1 columns) -> table_00
+  table_03 (1 columns) -> table_00
+  table_04 (1 columns) -> table_00
+  table_05 (1 columns) -> table_00
+  table_06 (1 columns) -> table_00
+  table_07 (1 columns) -> table_00
+  table_08 (1 columns) -> table_00
+  table_09 (1 columns) -> table_00
+  table_10 (1 columns) -> table_00
+  table_11 (1 columns) -> table_00
+  table_12 (1 columns) -> table_00
+  table_13 (1 columns) -> table_00
+
+zoom with id=<table> to see one table, its columns and its neighbours

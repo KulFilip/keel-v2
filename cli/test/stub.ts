@@ -1,0 +1,137 @@
+// A stub keel for keel TUI's tests: the api routes the TUI calls, with one project ("demo") whose feature flow waits
+// at its spec gate, an inbox, a running agent, KeelBot and the diagrams route. As a fetch (UI tests) or an http server
+// (the contract test); every call is recorded with its method, path, body and headers.
+import { createServer, type Server } from "node:http";
+
+export type Call = { method: string; path: string; query: string; body: unknown; headers: Record<string, string> };
+
+const AT = "2026-10-16T10:00:00Z";
+
+export function stubKeel() {
+  const calls: Call[] = [];
+  const workflow = {
+    id: "feature", name: "feature (keel)", keel_rules: true, version: 1, yaml: "", source: "keel",
+    steps: [
+      { id: "preflight", kind: "code", name: "preflight", phase: "preflight", action: "preflight" },
+      { id: "spec", kind: "agent", name: "spec", phase: "spec", agent: "explorer" },
+      { id: "spec_gate", kind: "gate", name: "spec approval", phase: "spec" },
+      { id: "red", kind: "agent", name: "red", phase: "red", agent: "test-author", per_ac: true },
+      { id: "green", kind: "agent", name: "green", phase: "green", agent: "implementer", per_ac: true },
+      { id: "ac_gate", kind: "gate", name: "criterion review", phase: "gate", per_ac: true },
+    ],
+  };
+  const waiting = { step: "spec_gate", kind: "gate", title: "spec approval", detail: "Read the spec.", options: ["approve", "reject"], id: "q1",
+    labels: { approve: "Approve the spec" } };
+  const state = {
+    thread: {
+      thread_id: "t1", project_id: "demo", workflow_id: "feature", title: "Add a health endpoint", status: "waiting", current: "spec_gate",
+      phase: "spec", ac: null, acs: [{ id: "AC-1", layer: "API", title: "GET /health", status: "todo" }, { id: "AC-2", layer: "WEB", title: "shows it", status: "todo" }],
+      waiting, usage: { tokens_in: 12000, tokens_out: 3400, cost_usd: 0.42, premium_requests: 0, cap_tokens: 500000 }, checkpoints: 2, updated_at: AT,
+    } as Record<string, unknown>,
+    session: null as null | Record<string, unknown>,
+    messages: [] as Record<string, unknown>[],
+  };
+  const project = { id: "demo", name: "demo", root: "/work/demo", branch: "keel/health", flow: "feature", phase: "spec", acs: [0, 2], waiting: 1, running: 1 };
+  const job = { id: "j1", project_id: "demo", thread_id: "t1", agent: "explorer", provider: "fake", model: "fake", step: "spec", phase: "spec", ac: null,
+    status: "running", started_at: AT, ended_at: null, tokens_in: 900, tokens_out: 100, cost_usd: 0, premium_requests: 0, steps_count: 3, mcp_calls: 0 };
+  const inboxItem = { project_id: "demo", project_name: "demo", thread_id: "t1", flow: "Add a health endpoint", workflow_id: "feature", step: "spec_gate",
+    kind: "gate", title: "spec approval", detail: "Read the spec.", more: false, options: ["approve", "reject"], id: "q1" };
+
+  const route = (method: string, path: string, query: URLSearchParams, body: any): [number, unknown] => {
+    const key = `${method} ${path}`;
+    switch (key) {
+      case "GET /api/health": return [200, { ok: true, engine: true, version: "0.17.3", fake: true, native: false }];
+      case "GET /api/projects": return [200, [project]];
+      case "GET /api/projects/demo/flow": return [200, { thread: state.thread, workflow }];
+      case "GET /api/threads/t1/history": return [200, [{ id: "c1", n: 1, step: "preflight", at: AT, note: "" }, { id: "c2", n: 2, step: "spec", at: AT, note: "" }]];
+      case "GET /api/inbox": return [200, { items: state.thread.status === "waiting" ? [inboxItem] : [], count: 1, kinds: ["gate"], projects: [] }];
+      case "GET /api/jobs": return [200, query.get("status") === "running" ? [job] : [job]];
+      case "GET /api/jobs/j1/steps": return [200, { steps: [{ n: 3, at: AT, kind: "tool", tool: "read_file", text: "src/app.ts" }], running: true }];
+      case "GET /api/projects/demo/workflows": return [200, [workflow]];
+      case "GET /api/projects/demo/runs": return [200, [{ thread_id: "t1", title: "Add a health endpoint", workflow_id: "feature", status: "waiting", phase: "spec",
+        current: "spec_gate", waiting: "spec approval", acs_done: 0, acs_total: 2, tokens: 15400, where: "folder", branch: "keel/health", error: null,
+        created_at: AT, updated_at: AT, cost_usd: 0.42, latest: true }]];
+      case "GET /api/projects/demo/budget/now": return [200, { today: { tokens: 15400, cost_usd: 0.42 }, month: { tokens: 99000, cost_usd: 3.1 }, flows: [], caps: [] }];
+      case "POST /api/diagrams/ascii": return [200, { kind: body.kind, text: `DIAGRAM ${body.kind} ${body.data?.workflow?.id ?? ""} w=${body.width}\n`, lines: 1 }];
+      case "POST /api/projects/demo/flows":
+        state.thread = { ...state.thread, thread_id: "t2", title: body.title, status: "running", current: "preflight", phase: "preflight", waiting: undefined };
+        return [200, state.thread];
+      case "POST /api/inbox/t1/act":
+        if (body.decision === "reject" && !body.why) return [400, { error: "why is missing" }];
+        state.thread = { ...state.thread, status: "running", current: "red", phase: "red", waiting: undefined };
+        return [200, state.thread];
+      case "GET /api/projects/demo/helper/commands": return [200, [{ name: "gate", description: "explain the gate", plugin: "keelbot", source: "keel" }]];
+      case "POST /api/projects/demo/helper/sessions":
+        state.session = { id: "s1", project: "demo", root: "/work/demo", mode: body.mode ?? "ask", title: body.title ?? "", model: body.model ?? { provider: "fake", mode: "api", model: "fake" },
+          status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0, turns: 0, created_at: AT, updated_at: AT };
+        return [200, state.session];
+      case "POST /api/projects/demo/helper/sessions/s1/turn":
+        state.messages.push({ n: state.messages.length + 1, role: "user", text: body.text, data: {}, at: AT });
+        return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
+      case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
+      case "GET /api/projects/demo/helper/sessions": return [200, state.session ? [state.session] : []];
+      case "POST /api/threads/t1/stop": state.thread = { ...state.thread, status: "stopped", waiting: undefined }; return [200, state.thread];
+      default: return [404, { error: `stub: no ${key}` }];
+    }
+  };
+
+  /** KeelBot's answer arrives (the stub's engine stored it). */
+  const answer = (text: string) => state.messages.push({ n: state.messages.length + 1, role: "helper", text, call_id: "call-9",
+    data: { provider: "fake", model: "fake", tokens_in: 1200, tokens_out: 300 }, at: AT });
+
+  const handle = (method: string, url: string, body: unknown, headers: Record<string, string>) => {
+    const u = new URL(url, "http://stub");
+    calls.push({ method, path: u.pathname, query: u.search, body, headers });
+    return route(method, u.pathname, u.searchParams, body);
+  };
+
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const h = Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]));
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const [status, data] = handle(init?.method ?? "GET", url, body, h);
+    return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  };
+
+  return { calls, state, fetch, handle, answer, workflow };
+}
+
+/** The same stub as an http server (the contract test): SSE on /api/events sends what `sse` is given. */
+export async function stubServer(): Promise<{ url: string; stub: ReturnType<typeof stubKeel>; sse: (event: string, data: unknown) => void; close: () => Promise<void> }> {
+  const stub = stubKeel();
+  const streams: import("node:http").ServerResponse[] = [];
+  const server: Server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, String(v)]));
+      if (req.url?.startsWith("/api/events")) {
+        stub.calls.push({ method: "GET", path: "/api/events", query: req.url.slice("/api/events".length), body: undefined, headers });
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+        res.write(":connected\n\n");
+        streams.push(res);
+        return;
+      }
+      const [status, data] = stub.handle(req.method ?? "GET", req.url ?? "/", raw ? JSON.parse(raw) : undefined, headers);
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(data));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  return {
+    url: `http://127.0.0.1:${port}`, stub,
+    sse: (event, data) => streams.forEach((s) => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
+    close: () => new Promise((r) => { streams.forEach((s) => s.end()); server.closeAllConnections?.(); server.close(() => r()); }),
+  };
+}
+
+export const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+
+export async function waitFor(cond: () => boolean, ms = 4000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error("waitFor timed out");
+    await tick(20);
+  }
+}

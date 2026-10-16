@@ -202,12 +202,14 @@ export type EngineEventType =
   | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed"
   | "helper.started" | "helper.step" | "helper.finished" | "helper.permission" | "helper.permission.answered" | "helper.commit"
   /** v0.16.0 a write keel's MCP server made (api McpAudit) */
-  | "mcp.call";
+  | "mcp.call"
+  /** a write keel TUI made (api McpAudit, X-Keel-Via: tui), or the xal client (X-Keel-Via: xal) */
+  | "tui.call" | "xal.call";
 export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
   "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
-  "mcp.call",
+  "mcp.call", "tui.call", "xal.call",
 ];
 /** v0.16.0: the one generic channel. The api sends every engine event the web does not list above (approval.*, a plugin's
  *  own events) as `event: engine`, its type inside; it lands in `recent` like the others. */
@@ -805,12 +807,35 @@ export class ApiError extends Error {
 
 export const OLD_SERVER_HINT = "The server sent a web page instead of data. Is the keel api running on port 8080?";
 
+/**
+ * Who sends the requests. The web app keeps the default: the same origin ("") and the browser's fetch. keel's terminal
+ * app (cli/, keel TUI) sets keel's address, Node's fetch and the headers that say who acts (X-Keel-Via: tui), so it
+ * uses this very client instead of a copy.
+ */
+export type Transport = {
+  /** keel's address before "/api", e.g. http://localhost:8080; "" = this page's own origin */
+  base: string;
+  /** extra headers for every request: a map, or a function asked at each request */
+  headers: Record<string, string> | (() => Record<string, string>);
+  /** the fetch to use; none = the global fetch at the time of the request */
+  fetch?: typeof fetch;
+};
+let transport: Transport = { base: "", headers: {} };
+/** Change the transport (keel TUI); the web app never calls it. */
+export function setTransport(t: Partial<Transport>) {
+  transport = { ...transport, ...t };
+}
+/** The full URL of an api path ("/projects" → base + "/api/projects"). */
+export const apiUrl = (path: string) => transport.base + "/api" + path;
+
 async function request<T>(method: string, path: string, body?: unknown, opts: { text?: boolean } = {}): Promise<T> {
   let res: Response;
+  const extra = typeof transport.headers === "function" ? transport.headers() : transport.headers;
+  const headers = { ...extra, ...(body === undefined ? {} : { "content-type": "application/json" }) };
   try {
-    res = await fetch("/api" + path, {
+    res = await (transport.fetch ?? fetch)(apiUrl(path), {
       method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
@@ -882,7 +907,7 @@ export const api = {
   health: () => get<Health>("/health"),
   features: () => get<Features>("/features"),
   /** `pid` "*" = every project (notifications + project.changed only). */
-  eventsUrl: (pid: string | null, notifyAll = false) => "/api/events" + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
+  eventsUrl: (pid: string | null, notifyAll = false) => apiUrl("/events") + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
   /** The raw answer; `normalizeCatalog` (ModelPicker) also accepts the pre-v0.3 `{provider: [{id,label}]}` shape. */
   providerModels: () => get<unknown>("/providers/models"),
 

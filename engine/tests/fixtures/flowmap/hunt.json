@@ -1,0 +1,316 @@
+{
+ "workflow": "hunt",
+ "name": "hunt (keel)",
+ "steps": [
+  {
+   "id": "start",
+   "kind": "code",
+   "name": "start the hunt",
+   "phase": "hunt-scope",
+   "action": "hunt_start",
+   "lock": true
+  },
+  {
+   "id": "confirm_lenses",
+   "kind": "gate",
+   "name": "confirm the lenses",
+   "phase": "hunt-scope",
+   "lock": true,
+   "choices": {
+    "confirm": "confirm",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "confirm",
+   "kind": "code",
+   "name": "lens set",
+   "phase": "hunt-scope",
+   "action": "hunt_confirm",
+   "lock": true
+  },
+  {
+   "id": "deps",
+   "kind": "code",
+   "name": "dependency audit (security lens)",
+   "phase": "hunt-sweep",
+   "action": "hunt_deps"
+  },
+  {
+   "id": "sweep",
+   "kind": "parallel",
+   "name": "one hunter per lens and lane",
+   "agent": "hunter",
+   "model": "default",
+   "phase": "hunt-sweep",
+   "from": "sweep_items",
+   "markers": [
+    "FINDINGS"
+   ],
+   "collect": "candidates"
+  },
+  {
+   "id": "ingest",
+   "kind": "code",
+   "name": "ingest candidates",
+   "phase": "hunt-sweep",
+   "action": "hunt_ingest",
+   "lock": true
+  },
+  {
+   "id": "sweep_gate",
+   "kind": "gate",
+   "name": "candidates (semi)",
+   "phase": "hunt-sweep",
+   "when": {
+    "data": "hunt.mode",
+    "equals": "semi"
+   },
+   "choices": {
+    "prove": "prove",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "prove",
+   "kind": "parallel",
+   "name": "one prover per candidate",
+   "agent": "prover",
+   "model": "default",
+   "phase": "hunt-prove",
+   "from": "prove_items",
+   "batch": "$data.hunt.prove_concurrency",
+   "markers": [
+    "PROOF"
+   ],
+   "collect": "verdicts"
+  },
+  {
+   "id": "verdicts",
+   "kind": "code",
+   "name": "record verdicts",
+   "phase": "hunt-prove",
+   "action": "hunt_verdicts",
+   "lock": true
+  },
+  {
+   "id": "all_proved",
+   "kind": "branch",
+   "name": "every candidate has a verdict",
+   "phase": "hunt-prove",
+   "no": "prove",
+   "when": {
+    "marker": "LEFT",
+    "equals": "none"
+   }
+  },
+  {
+   "id": "verdicts_gate",
+   "kind": "gate",
+   "name": "verdicts (semi)",
+   "phase": "hunt-prove",
+   "when": {
+    "data": "hunt.mode",
+    "equals": "semi"
+   },
+   "choices": {
+    "report": "group",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "group",
+   "kind": "parallel",
+   "name": "group shared causes",
+   "agent": "investigator",
+   "model": "default",
+   "phase": "hunt-report",
+   "from": "group_items",
+   "cap": 1,
+   "collect": "groups"
+  },
+  {
+   "id": "grouped",
+   "kind": "code",
+   "name": "record groups",
+   "phase": "hunt-report",
+   "action": "hunt_group"
+  },
+  {
+   "id": "report",
+   "kind": "code",
+   "name": "render the report",
+   "phase": "hunt-report",
+   "action": "hunt_report",
+   "lock": true
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit the report",
+   "phase": "hunt-report",
+   "action": "hunt_commit",
+   "lock": true
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "close a finding",
+   "phase": "hunt-triage",
+   "action": "hunt_close",
+   "back": "triage"
+  },
+  {
+   "id": "triage",
+   "kind": "gate",
+   "name": "triage",
+   "phase": "hunt-triage",
+   "choices": {
+    "take": "take",
+    "close": "close",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "take",
+   "kind": "code",
+   "name": "take the top group",
+   "phase": "hunt-triage",
+   "action": "start_flow",
+   "flow": "hunt-next",
+   "seed": {
+    "title": "Next finding from the hunt",
+    "run": "$data.hunt.run"
+   },
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "start",
+   "confirm_lenses",
+   "confirm",
+   "deps",
+   "sweep",
+   "ingest",
+   "sweep_gate",
+   "prove",
+   "verdicts",
+   "all_proved",
+   "verdicts_gate",
+   "group",
+   "grouped",
+   "report",
+   "commit",
+   "close",
+   "triage",
+   "take"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "hunt-scope",
+    "nodes": [
+     {
+      "step": "start",
+      "side": []
+     },
+     {
+      "step": "confirm_lenses",
+      "side": []
+     },
+     {
+      "step": "confirm",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "hunt-sweep",
+    "nodes": [
+     {
+      "step": "deps",
+      "side": []
+     },
+     {
+      "step": "sweep",
+      "side": []
+     },
+     {
+      "step": "ingest",
+      "side": []
+     },
+     {
+      "step": "sweep_gate",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "hunt-prove",
+    "nodes": [
+     {
+      "step": "prove",
+      "side": []
+     },
+     {
+      "step": "verdicts",
+      "side": []
+     },
+     {
+      "step": "all_proved",
+      "side": []
+     },
+     {
+      "step": "verdicts_gate",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "hunt-report",
+    "nodes": [
+     {
+      "step": "group",
+      "side": []
+     },
+     {
+      "step": "grouped",
+      "side": []
+     },
+     {
+      "step": "report",
+      "side": []
+     },
+     {
+      "step": "commit",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "hunt-triage",
+    "nodes": [
+     {
+      "step": "close",
+      "side": []
+     },
+     {
+      "step": "triage",
+      "side": []
+     },
+     {
+      "step": "take",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

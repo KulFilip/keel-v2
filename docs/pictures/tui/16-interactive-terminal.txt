@@ -1,0 +1,57 @@
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 …╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│       |\                _              _                                                         │
+│       | \              | | _____  ___ | |                                                        │
+│       |  \             | |/ / _ \/ _ \| |                                                        │
+│    ___|___\___         |   <  __/  __/| |                                                        │
+│    \_________/         |_|\_\___|\___||_|                                                        │
+│        \_/   ~~~~~~~~                v2                                                          │
+│                                                                                                  │
+│ keel v2 0.17.3 · keel TUI 0.17.3                                                                 │
+│ keel     http://localhost:8099 · docker                                                          │
+│ project  scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          │
+│ flow     feature "Add a /health endpoint that answers {"ok": true}" · waiting at options         │
+│ waiting  1 waiting for you · gate: which optional phases run                                     │
+│ next     waiting at options (which optional phases run): /approve ("Run these steps").           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox
+…
+│    \_________/         |_|\_\___|\___||_|                                                        │
+│        \_/   ~~~~~~~~                v2                                                          │
+│                                                                                                  │
+│ keel v2 0.17.3 · keel TUI 0.17.3                                                                 │
+│ keel     http://localhost:8099 · docker                                                          │
+│ project  scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr                          │
+│ flow     feature "Add a /health endpoint that answers {"ok": true}" · waiting at options         │
+│ waiting  1 waiting for you · gate: which optional phases run                                     │
+│ next     waiting at options (which optional phases run): /approve ("Run these steps").           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Ask KeelBot anything · /help · /flow starts a flow · Ctrl+F flow · Ctrl+A agents · Ctrl+B inbox
+› /status
+project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok":
+ true}" · waiting · thread 43edd6679f724c78b61a2b8d10b1ae67
+step      options · phase spec
+criteria  0/2 done
+  [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the
+main case works
+  [todo]        AC-2 API  Add a /health endpoint that answers {"ok": true}: bad
+input is refused with a clear message
+waiting   gate: which optional phases run
+          answer: /approve ("Run these steps")
+          Which steps run this time? Skipping a step is not the same as removing
+ its gate: every skip needs a reason, is shown again at the final review and
+printed in the PR body.
+          Always runs: contract, the contract delta, contract delta, commit
+contract, red, the spec needs an amendment, to the amendment, verify_red, green,
+ the spec needs an amendment, to the amendment, verify_green + commit, AC
+review, AC gate, integration, verify the suite + commit, the diff for the
+integration gate, fix the full-diff review's findings, verify the suite + commit
+ the fix, full-diff review
+          Optional: nothing …
+usage     176,100 tokens of cap 500,000 · in 160,100 · out 16,000 · cached 0 ·
+$0.00
+› /quit
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ›  Ask KeelBot, or / for commands                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase spec · AC 0/2 …

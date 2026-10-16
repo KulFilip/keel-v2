@@ -1,0 +1,120 @@
+{
+ "workflow": "hunt-next",
+ "name": "hunt next (keel)",
+ "steps": [
+  {
+   "id": "take",
+   "kind": "code",
+   "name": "take the top group",
+   "phase": "hunt-triage",
+   "action": "hunt_take",
+   "lock": true
+  },
+  {
+   "id": "has_work",
+   "kind": "branch",
+   "name": "anything open",
+   "phase": "hunt-triage",
+   "no": "end",
+   "when": {
+    "marker": "FLOW",
+    "in": [
+     "fix",
+     "feature"
+    ]
+   }
+  },
+  {
+   "id": "is_defect",
+   "kind": "branch",
+   "name": "defect or unspecified",
+   "phase": "hunt-triage",
+   "no": "to_feature",
+   "when": {
+    "marker": "FLOW",
+    "equals": "fix"
+   }
+  },
+  {
+   "id": "to_fix",
+   "kind": "code",
+   "name": "start the fix flow",
+   "phase": "hunt-triage",
+   "action": "start_flow",
+   "flow": "fix",
+   "seed": {
+    "title": "$data.next.title",
+    "request": "$data.next.request",
+    "recipe": "$data.next.recipe",
+    "symptoms": "$data.next.symptoms",
+    "needs_e2e": "$data.next.needs_e2e",
+    "hunt": "$data.next.hunt"
+   },
+   "then": "end"
+  },
+  {
+   "id": "to_feature",
+   "kind": "code",
+   "name": "start the feature flow",
+   "phase": "hunt-triage",
+   "action": "start_flow",
+   "flow": "feature",
+   "seed": {
+    "title": "$data.next.title",
+    "request": "$data.next.request",
+    "recipe": "$data.next.recipe",
+    "symptoms": "$data.next.symptoms",
+    "needs_e2e": "$data.next.needs_e2e",
+    "hunt": "$data.next.hunt"
+   },
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "take",
+   "has_work",
+   "is_defect",
+   "to_fix"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "hunt-triage",
+    "nodes": [
+     {
+      "step": "take",
+      "side": []
+     },
+     {
+      "step": "has_work",
+      "side": []
+     },
+     {
+      "if": "is_defect",
+      "cond": "FLOW = fix",
+      "side": [],
+      "yes": "go",
+      "no": {
+       "nodes": [
+        {
+         "step": "to_feature",
+         "side": []
+        }
+       ],
+       "side": true
+      }
+     },
+     {
+      "step": "to_fix",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {
+   "to_feature": "is_defect"
+  }
+ }
+}

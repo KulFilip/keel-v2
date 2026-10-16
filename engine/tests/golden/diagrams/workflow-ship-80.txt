@@ -1,0 +1,34 @@
+workflow ship "ship (keel)" - 30 steps, 5 gates
+
+== Ship: checks, reviews and the pull request ==  id=ship
+  [?] which ship steps run  (gate, you decide)
+== Review fix: fix what a review or a check found ==  id=review-fix
+   o  fix what the checks found  (agent implementer)
+   #  commit the fix  (code commit)
+== Ship: checks, reviews and the pull request ==  id=ship
+   #  verify fast + module  (code verify_fast+verify_module)
+   #  static checks  (code verify_lint)
+   #  verify release  (code verify_release)
+[+] include cover: measure coverage and close the gaps (11 steps)  id=cover
+== Ship: checks, reviews and the pull request ==  id=ship
+   #  verify deps  (code verify_deps)
+   #  audit  (code audit)
+   #  trace --strict  (code trace_strict)
+   #  review lenses  (code review_lenses)
+   =  ship review, one lens each  (parallel)
+        after a fix -> verify fast + module  (loops back)
+   o  walk the diff against the spec: name behaviour no criterion asks for  (...
+        after a fix -> verify fast + module  (loops back)
+== Final review: you read every verdict before the PR ==  id=final-review
+  [?] final review  (gate, you decide)
+        send back -> fix what the checks found  (loops back)
+== Knowledge: update what keel knows about the project ==  id=memory
+   o  knowledge update  (agent librarian)
+   #  knowledge check  (code knowledge_check)
+   #  commit memory  (code commit)
+== Close: decision records and the closing note ==  id=close
+   #  PR body  (code pr)
+  [?] open the PR  (gate, you decide)
+   #  open the PR (never pushes)  (code open_pr)
+
+ o  agent   #  code   [?] gate (you decide)   <  branch   =  parallel   [+] i...

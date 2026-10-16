@@ -5,6 +5,7 @@
 #   engine/            the engine's source, pyproject.toml and uv.lock (keel2 runs `uv sync --frozen` on install)
 #   content/           agents, skills, stacks, templates
 #   plugins/           every plugin of plugins/, packed as the full image has them (<name>/<version>/: scripts/build-plugin.sh)
+#   cli/keel-tui.mjs   keel TUI, keel in the terminal (keel2 tui runs it with this computer's Node)
 #   keel-native-start  starts the engine and the api (docker/keel-native-start) with keel-start's loop (docker/keel-start)
 #   VERSION
 #
@@ -22,6 +23,9 @@ mkdir -p "$stage" "$out"
 echo "web…"
 # keel's bundle first, then each plugin's web part on its own (plugins/<name>/web/dist), as the image's web stage does
 (cd "$src/web" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build >/dev/null && npm run build:plugins >/dev/null)
+echo "keel TUI…"
+(cd "$src/cli" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build >/dev/null)
+mkdir -p "$stage/cli" && cp "$src/cli/dist/keel-tui.mjs" "$stage/cli/keel-tui.mjs" && chmod +x "$stage/cli/keel-tui.mjs"
 echo "api…"
 # built from a copy, as the image does: the web app goes into the copy's static/ (the checkout's own stays untouched);
 # bootJar compiles and packs, it does not run the tests. The plugins' api jars (pluginJars) are built beside it, never

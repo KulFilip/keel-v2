@@ -1,0 +1,215 @@
+{
+ "workflow": "diagnose",
+ "name": "diagnose (keel)",
+ "steps": [
+  {
+   "id": "frame",
+   "kind": "agent",
+   "name": "frame the symptom",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "bug-investigate",
+   "collect": "hypotheses",
+   "instructions": "Frame the symptom in the reporter's words: the exact error text, when it happens and when it does not, what was expected, and what is already known to be irrelevant. Then list three or four distinct candidate causes (the hypotheses), each one testable on its own. Do not investigate them yet."
+  },
+  {
+   "id": "investigate",
+   "kind": "parallel",
+   "name": "one investigator per hypothesis",
+   "agent": "investigator",
+   "model": "default",
+   "phase": "bug-investigate",
+   "from": "hypotheses",
+   "cap": 4,
+   "markers": [
+    "ROOT-CAUSE"
+   ],
+   "instructions": "Confirm or kill only the hypothesis in your item, from evidence (code, history, logs, read-only queries). Nothing may be edited. Say what you found either way."
+  },
+  {
+   "id": "findings",
+   "kind": "code",
+   "name": "collect the findings",
+   "phase": "bug-investigate",
+   "action": "report"
+  },
+  {
+   "id": "rank",
+   "kind": "agent",
+   "name": "rank + reproduction recipe",
+   "agent": "investigator",
+   "model": "default",
+   "phase": "bug-investigate",
+   "markers": [
+    "RECIPE",
+    "KIND"
+   ],
+   "instructions": "Rank what the investigators found: each hypothesis, confirmed or killed, with the evidence either way. Then write a reproduction recipe: the exact conditions under which it fails (concurrency, data shape, order of runs). RECIPE is that recipe on one line (or \"none\"); KIND is defect (a bug), unspecified (the behaviour was never specified) or unknown. The investigators' answers:\n{{data.report}}"
+  },
+  {
+   "id": "report",
+   "kind": "code",
+   "name": "diagnosis report",
+   "phase": "bug-investigate",
+   "action": "report"
+  },
+  {
+   "id": "decide",
+   "kind": "gate",
+   "name": "diagnosis",
+   "phase": "bug-investigate",
+   "back": "frame",
+   "lock": true,
+   "choices": [
+    "fix",
+    "feature",
+    "unresolved"
+   ]
+  },
+  {
+   "id": "to_fix",
+   "kind": "branch",
+   "name": "hand to fix",
+   "phase": "bug-investigate",
+   "no": "to_feature",
+   "when": {
+    "marker": "CHOICE",
+    "equals": "fix",
+    "step": "decide"
+   }
+  },
+  {
+   "id": "hand_fix",
+   "kind": "code",
+   "name": "start the fix flow with the recipe",
+   "phase": "bug-investigate",
+   "action": "start_flow",
+   "flow": "fix",
+   "seed": {
+    "title": "$title",
+    "recipe": "$markers.rank.RECIPE",
+    "symptoms": [
+     "$request"
+    ]
+   },
+   "then": "end"
+  },
+  {
+   "id": "to_feature",
+   "kind": "branch",
+   "name": "hand to feature",
+   "phase": "bug-investigate",
+   "no": "note",
+   "when": {
+    "marker": "CHOICE",
+    "equals": "feature",
+    "step": "decide"
+   }
+  },
+  {
+   "id": "hand_feature",
+   "kind": "code",
+   "name": "start the feature flow with the evidence",
+   "phase": "bug-investigate",
+   "action": "start_flow",
+   "flow": "feature",
+   "seed": {
+    "title": "$title",
+    "evidence": "$data.report"
+   },
+   "then": "end"
+  },
+  {
+   "id": "note",
+   "kind": "code",
+   "name": "record unresolved",
+   "phase": "bug-investigate",
+   "action": "investigation_note",
+   "lock": true
+  }
+ ],
+ "expect": {
+  "main": [
+   "frame",
+   "investigate",
+   "findings",
+   "rank",
+   "report",
+   "decide",
+   "to_fix",
+   "to_feature",
+   "hand_feature"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "bug-investigate",
+    "nodes": [
+     {
+      "step": "frame",
+      "side": []
+     },
+     {
+      "step": "investigate",
+      "side": []
+     },
+     {
+      "step": "findings",
+      "side": []
+     },
+     {
+      "step": "rank",
+      "side": []
+     },
+     {
+      "step": "report",
+      "side": []
+     },
+     {
+      "step": "decide",
+      "side": []
+     },
+     {
+      "if": "to_fix",
+      "cond": "you chose fix at diagnosis",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "hand_fix",
+         "side": []
+        }
+       ],
+       "side": true
+      },
+      "no": "go"
+     },
+     {
+      "if": "to_feature",
+      "cond": "you chose feature at diagnosis",
+      "side": [],
+      "yes": "go",
+      "no": {
+       "nodes": [
+        {
+         "step": "note",
+         "side": []
+        }
+       ],
+       "side": true
+      }
+     },
+     {
+      "step": "hand_feature",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {
+   "hand_fix": "to_fix",
+   "note": "to_feature"
+  }
+ }
+}

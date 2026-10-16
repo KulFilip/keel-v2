@@ -1,0 +1,17 @@
+class keel_engine.runtime.service.Engine  engine/keel_engine/runtime/service.py:120
+  class Engine(bus, store)
+  impact: 17 places depend on it
+
+                   create_app (function) --> [ Engine ] --> EventBus (class)
+                                                        --> compile (function)
+... 4 more callees
+
+used two steps away by:
+  main (function)  main.py:10
+
+and through them:
+  emit (function)  events/bus.py:30
+
+where:
+  Engine -> compile (calls 3)  runtime/service.py:200
+  create_app -> Engine (instantiates 1)  app.py:310

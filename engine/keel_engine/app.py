@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import addons, approvals, config, extensions, models
+from . import addons, approvals, config, diagrams, extensions, models
 from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
@@ -47,6 +47,14 @@ class AC(BaseModel):
     layer: str = "API"
     title: str = ""
     status: str | None = None       # a criterion handed over finished (done, already-met) stays finished
+
+
+class DiagramBody(BaseModel):
+    kind: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    width: int = 100
+    max_lines: int = 60
+    zoom: str | None = None
 
 
 class Unlock(BaseModel):
@@ -387,6 +395,15 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             return _err(400, "The workflow does not parse.", "; ".join(r["errors"]), r["errors"])
         m = {k: v.model_dump() for k, v in (body.models or {}).items()}
         return estimate(r["workflow"], body.acs, body.history, m, body.knowledge_tokens)
+
+    @app.post("/diagrams/ascii")
+    async def post_diagram(body: DiagramBody):
+        """keel's ASCII diagrams (diagrams.py), for the api's POST /api/diagrams/ascii: keel TUI draws with it."""
+        try:
+            text = diagrams.render(body.kind, body.data, body.width, body.max_lines, body.zoom)
+        except diagrams.DiagramError as exc:
+            return _err(400, str(exc), "kinds: " + ", ".join(diagrams.KINDS))
+        return {"kind": body.kind, "text": text, "lines": len(text.splitlines())}
 
     @app.post("/steps/explain")
     async def post_explain(body: ExplainBody, request: Request):

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# keel TUI's real check (docs/plans/keel-tui.md): a throw-away keel of its own (name, data volume, port, config folder,
+# a scratch git repo) from an image built from this checkout, and keel TUI driven through its keyboard
+# (keel2 tui --script, inside keel's container) along scripts/keel-tui-check.tui: the start screen, /workflows, /flow
+# on keel's fake model to its first gate, /approve, /live, one KeelBot turn. Text captures land in docs/pictures/tui/.
+# Then the keel's records are checked (the flow says "via keel TUI", writes are tui.call events) and the keel, its volume
+# and its config folder are removed. The image stays: docker rmi it yourself.
+#
+#   scripts/test-keel-tui.sh [image]        (default keel-v2:tui-lab)
+set -euo pipefail
+src="$(cd "$(dirname "$0")/.." && pwd -P)"
+image="${1:-keel-v2:tui-lab}"
+export KEEL_NAME=keel-tui-lab KEEL_VOLUME=keel-tui-lab-data PORT=8099 KEEL_OPEN=0 KEEL_IMAGE="$image"
+work="$(mktemp -d "${TMPDIR:-/tmp}/keel-tui-check.XXXXXX")"
+export XDG_CONFIG_HOME="$work/config"
+out="$src/docs/pictures/tui"
+cleanup() {
+  docker rm -f "$KEEL_NAME" >/dev/null 2>&1 || true
+  docker volume rm "$KEEL_VOLUME" >/dev/null 2>&1 || true
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+docker image inspect "$image" >/dev/null 2>&1 || { echo "no image $image: build it first (docker build -t $image .)" >&2; exit 1; }
+
+# a scratch project: a small Python app in a git repo of its own
+repo="$work/scratch"
+mkdir -p "$repo/app"
+printf '# scratch\n\nA tiny app for keel TUI'"'"'s real check.\n' > "$repo/README.md"
+printf 'def main():\n    print("hello")\n\n\nif __name__ == "__main__":\n    main()\n' > "$repo/app/main.py"
+git -C "$repo" init -q -b main
+git -C "$repo" add -A
+git -C "$repo" -c user.name=check -c user.email=check@localhost commit -qm "Initial commit"
+
+"$src/keel2" start "$repo"
+port="$(docker port "$KEEL_NAME" 8080/tcp | head -1 | sed 's/.*://')"
+[ "$port" = 8099 ] || { echo "keel took port $port, not 8099" >&2; exit 1; }
+curl -fs "http://127.0.0.1:$port/api/health"; echo
+
+# the driver inside keel's container, through keel2 tui (docker exec)
+docker cp "$src/scripts/keel-tui-check.tui" "$KEEL_NAME:/tmp/keel-tui-check.tui"
+rc=0
+"$src/keel2" tui --script /tmp/keel-tui-check.tui --out /tmp/keel-tui-out --width 100 || rc=$?
+rm -rf "$out" && mkdir -p "$out"
+docker cp "$KEEL_NAME:/tmp/keel-tui-out/." "$out/"
+# one-shot commands too, the way a script would use keel TUI
+"$src/keel2" tui -c /status -c /next > "$out/14-one-shot-status-next.txt" 2>&1 || rc=$?
+
+# the interactive path too: plain keel2 in a real terminal (a pty from script(1)) opens keel TUI (docker exec -it);
+# /status, then /quit
+if command -v script >/dev/null 2>&1; then
+  feed() { sleep 8; printf '/status'; sleep 1; printf '\r'; sleep 4; printf '/quit'; sleep 1; printf '\r'; sleep 3; }
+  case "$(uname -s)" in
+    Darwin) feed | script -q "$work/tty.log" "$src/keel2" >/dev/null 2>&1 || true ;;
+    *) feed | script -qfec "$src/keel2" "$work/tty.log" >/dev/null 2>&1 || true ;;
+  esac
+  tty_bad=0
+  python3 - "$work/tty.log" "$out/16-interactive-terminal.txt" <<'PY' || tty_bad=1
+import re, sys
+raw = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[=>]|\r", "", raw)
+lines = [l.rstrip() for l in text.split("\n") if l.strip()]
+ok = any("keel v2" in l for l in lines) and any(l.startswith("criteria") for l in lines)
+# the start screen, then the last screen (the pty is 80 columns wide)
+start = next((i for i, l in enumerate(lines) if "keel v2" in l), 0)
+open(sys.argv[2], "w").write("\n".join(lines[max(0, start - 8):start + 8] + ["…"] + lines[-40:]) + "\n")
+sys.exit(0 if ok else 1)
+PY
+  [ "$tty_bad" = 0 ] \
+    || { echo "plain keel2 in a terminal did not show keel TUI and /status" >&2; rc=1; }
+fi
+
+# what keel recorded: the flow started via keel TUI, and keel TUI's writes as tui.call events
+api="http://127.0.0.1:$port/api"
+pid="$(curl -fs "$api/projects" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+events="$(docker exec "$KEEL_NAME" sqlite3 /data/keel.db "SELECT type || ' ' || data_json FROM events WHERE project_id = '$pid' AND type IN ('thread.started', 'tui.call') ORDER BY id")"
+printf '%s\n' "$events" > "$out/15-keel-records.txt"
+grep -q '"via":"tui"' <<<"$events" || { echo "no event says via keel TUI" >&2; rc=1; }
+grep -q '^tui.call ' <<<"$events" || { echo "no tui.call event" >&2; rc=1; }
+grep -q '^thread.started .*"via":"tui"' <<<"$events" || { echo "the flow was not recorded as started via keel TUI" >&2; rc=1; }
+ls "$out"/error-*.txt >/dev/null 2>&1 && { echo "the run had errors: $(ls "$out"/error-*.txt)" >&2; rc=1; }
+echo "captures: $out"
+exit "$rc"

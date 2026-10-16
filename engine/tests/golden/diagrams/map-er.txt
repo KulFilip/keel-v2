@@ -1,0 +1,16 @@
+database: 4 tables, 2 relations
+
++- audit (view) --------------------------------+  +- orders --------------------------------------+
+|    at timestamptz                             |  | PK id bigint                                  |
++-----------------------------------------------+  | FK user_id bigint -> users.id not null        |
+                                                   |    total numeric(10,2)                        |
+                                                   +-----------------------------------------------+
++- orgs ----------------------------------------+  +- users ---------------------------------------+
+| PK id bigint                                  |  | PK id bigint                                  |
+|    name text not null                         |  |    email text UQ not null                     |
++-----------------------------------------------+  | FK org_id bigint -> orgs.id                   |
+                                                   +-----------------------------------------------+
+
+relations:
+  orders.user_id --> users.id (n:1, on delete cascade)
+  users.org_id --> orgs.id (n:1)
