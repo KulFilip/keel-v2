@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import datetime
 import hashlib
 import json
 import logging
@@ -1330,6 +1331,44 @@ class Compiler:
                    note=" · ".join([f"{ac['id']} marked as already met" + (f": {why}" if why else ""), *notes[1:]]))
         return upd, AC_END if step.per_ac and self.nav.last is not None else self.nav.after(i)
 
+    def _choice_answer(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
+        """v0.17.4 a check that asks with real choices (a command that cannot run, a stuck criterion), never decided by a
+        run mode: recheck (this check again), retry (the agent again, with the note), skip (the criterion to the end of the
+        list, on with the next), edit (an amendment of the spec, with the note), stop. Plain approve = the first choice."""
+        q = r.ask
+        names = list(q["choices"])
+        question = {"step": step.id, "kind": "fix", "title": q["title"], "detail": q["detail"], "options": OPTIONS,
+                    "choices": names}
+        answer, extra = self._ask(state, question, gate="failure")
+        upd = {**upd, **extra}
+        why = (answer.get("why") or "").strip()
+        choice = str((answer.get("payload") or {}).get("choice") or (names[0] if answer.get("decision") == "approve" else "stop"))
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates["log"].append(f"{q['type']} {choice}" + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": choice, "why": why})
+        ac = _ac(state)
+        key = f"{step.id}:{(ac or {}).get('id')}"
+        retries = {**(state.get("retries") or {}), key: 0}
+        base = {**upd, "gates": gates, "retries": retries, "stall": {"fingerprint": None, "count": 0, "step": 0}}
+        if choice == "recheck":
+            return {**base, "note": f"{step.name}: checked again"}, step.id
+        if choice == "retry":
+            feedback = f"{r.note}\n{r.detail[-2000:]}".strip() + (f"\n\nFrom the user: {why}" if why else "")
+            target = self.nav.jump(q["retry_to"], i) if q.get("retry_to") else self.nav.retry_target(i)
+            return {**base, "feedback": feedback, "last_failure": r.note[:300], "note": f"{r.note} · tried again"[:300]}, target or step.id
+        lp = self.nav.loop_of(i)
+        if choice == "skip" and ac and lp and lp.per_ac:
+            acs = [x for x in state.get("acs") or [] if x["id"] != ac["id"]] + [x for x in state.get("acs") or [] if x["id"] == ac["id"]]
+            return {**base, "acs": acs, "ac": None, "feedback": None, "last_failure": None,
+                    "note": f"{ac['id']} moved to the end"}, self.nav.begin(lp)
+        if choice == "edit" and ac and any(s.id == "amend" for s in self.wf.steps):
+            data = {**(state.get("data") or {}), "amend": {"from": step.id, "ac": ac["id"], "route": "amend",
+                                                          "reason": f"{ac['id']} · {r.note}" + (f"\nThe person says: {why}" if why else ""),
+                                                          "at": datetime.date.today().isoformat()}}
+            return {**base, "data": data, "note": f"{ac['id']}: the spec is amended first"}, self.nav.jump("amend", i)
+        return {**base, "status": "stopped", "error": r.note + (f" ({why})" if why else ""),
+                "note": f"stopped: {q['title']}"[:300]}, END
+
     async def _answer_check(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
         """A commit check asked the user (new dependency, escalation). Apply the answer and run the step again.
 
@@ -1337,6 +1376,8 @@ class Compiler:
         question's answer to another.
         """
         q = r.ask
+        if q.get("choices"):
+            return self._choice_answer(i, step, state, r, upd)
         kind = {"deps": "dependency", "escalate": "escalate", "secrets": "secrets", "readonly": "readonly",
                 "plugin": "plugin"}.get(q["type"], "failure")
         question = {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"], "options": OPTIONS}
