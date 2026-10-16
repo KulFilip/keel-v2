@@ -680,8 +680,8 @@ LEVELS = ("read", "write", "admin")
 RANK = {"read": 0, "write": 1, "admin": 2}
 # Tools that change something hard to undo: the client asks the person first (MCP elicitation), or with --yes not.
 # A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
-CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
-           "keel_rule_edit"}
+CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
+           "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -748,9 +748,15 @@ def part_tools() -> dict[str, list[str]]:
 TOOLS: dict[str, tuple[str, ...]] = {
     "read": ("keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
-             "keel_read_file", "keel_actions", "keel_run_action", "keel_rules"),
-    "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"),
-    "admin": ("keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+             "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",
+             # 0.18.5 what keel TUI shows: the workflows, the agents, one agent, KeelBot's chats and changes, diagrams
+             "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram"),
+    "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
+              # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
+              # agent, ask KeelBot, keep or undo its changes (asks first)
+              "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start",
+              "keel_keelbot_ask", "keel_keelbot_keep", "keel_keelbot_undo"),
+    "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
 # the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
@@ -765,6 +771,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from mcp.types import ToolAnnotations
 
     from . import mcp_more as more
+    from . import mcp_tui as tui
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -776,8 +783,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
     rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
     srv = FastMCP("keel", instructions="keel v2: the flow on each project (phase, criteria, gates), what happened, what to do next, "
-                                         "and what each phase permits." + {"read": "", "write": " Write tools can decide gates and start flows.",
-                                                                          "admin": " Admin tools can also stop flows and change projects and workflows."}[lvl],
+                                         "and what each phase permits." + {"read": "", "write": " Write tools can decide gates, start, stop and resume flows, set a run mode, start agents and ask KeelBot.",
+                                                                          "admin": " Write tools can decide gates, start, stop and resume flows, set a run mode, start agents and ask KeelBot; admin tools can also change projects and workflows."}[lvl],
                   log_level="WARNING")
 
     def reg(ann, at: str | None = None):
@@ -998,6 +1005,87 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     def keel_workflows(project: str | None = None, workflow: str | None = None) -> str:
         """The project's workflows (id, name, steps); with `workflow`, its YAML."""
         return guard(more.workflows, api, project, workflow)
+
+    # ---------------------------------------------------------------- 0.18.5 what keel TUI can do
+
+    @reg(rx)
+    async def keel_stop_flows(flows: list[str] | None = None, all: bool = False, project: str | None = None,
+                              ctx: Context | None = None) -> str:
+        """Stop flows: these ids (keel_flows lists them; a start of 6+ characters is enough), or every running and waiting
+        one (`all`), or none given: the project's current one. Agents at work stop; every finished step stays saved."""
+        what = "stop every running or waiting flow" if all else f"stop {', '.join(flows)}" if flows else "stop the flow"
+        return await act(ctx, "keel_stop_flows", what, tui.stop_flows, api, project, flows, all)
+
+    @reg(rw)
+    async def keel_run_mode(mode: Literal["manual", "important", "auto", "readonly"] | None = None, thread_id: str | None = None,
+                            project: str | None = None, ctx: Context | None = None) -> str:
+        """A flow's run mode, from its next gate on: manual stops at every gate; important approves a criterion's gate when
+        its checks and review pass; auto approves every gate keel can decide (it still stops for money, new dependencies,
+        secrets and failures); readonly lets agents read but change nothing. No `mode`: what it is now."""
+        if not mode:
+            return guard(tui.run_mode, api, None, project, thread_id)
+        return await act(ctx, "keel_run_mode", f"run in {mode} mode", tui.run_mode, api, mode, project, thread_id)
+
+    @reg(rw)
+    async def keel_resume_flow(thread_id: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """Go on with a stopped or failed flow from its last saved step (the dashboard's Resume). A waiting flow is answered
+        with keel_approve_gate instead."""
+        return await act(ctx, "keel_resume_flow", "resume the flow", tui.resume_flow, api, project, thread_id)
+
+    @reg(ro)
+    def keel_agents(project: str | None = None) -> str:
+        """The agents at work on the project's flows, and the person's own agents (keel_agent_start), with their ids."""
+        return guard(tui.agents, api, project)
+
+    @reg(ro)
+    def keel_agent(agent_id: str, project: str | None = None, steps: int = 15) -> str:
+        """One agent: a flow's agent call (its last steps: what it reads, runs and writes, live) or one of the person's own
+        (its chat: the task and its answer)."""
+        return guard(tui.agent, api, agent_id, project, steps)
+
+    @reg(rw)
+    async def keel_agent_start(task: str, mode: Literal["side", "ask"] = "side", project: str | None = None,
+                               ctx: Context | None = None) -> str:
+        """Start an agent of the person's own on a task: side works in its own git worktree and branch (the project's
+        folder stays as it is), ask only reads. It works on its own; keel_agent shows how it does."""
+        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project)
+
+    @reg(rw)
+    async def keel_keelbot_ask(text: str, chat: str | None = None, mode: Literal["ask", "fix", "side"] = "ask", wait: int = 120,
+                               project: str | None = None, ctx: Context | None = None) -> str:
+        """Ask KeelBot, keel's own assistant that knows the project, its flows and keel's rules: a new chat, or `chat` to go
+        on. ask only reads; fix changes files under keel's rules while a flow waits; side works in its own worktree. Waits
+        up to `wait` seconds for the answer. Its buttons come back as the keel tools that do them."""
+        return await act(ctx, "keel_keelbot_ask", "ask KeelBot", tui.keelbot_ask, api, text, project, chat, mode, wait)
+
+    @reg(ro)
+    def keel_keelbot_chats(project: str | None = None) -> str:
+        """KeelBot's chats on the project (and the person's agents), newest first, with their ids."""
+        return guard(tui.keelbot_chats, api, project)
+
+    @reg(ro)
+    def keel_keelbot_changes(chat: str, project: str | None = None, diffs: bool = True) -> str:
+        """The files KeelBot (or an agent of the person's) changed in a chat and has not kept yet, with their diffs."""
+        return guard(tui.keelbot_changes, api, chat, project, diffs)
+
+    @reg(rw)
+    async def keel_keelbot_keep(chat: str, paths: list[str] | None = None, message: str = "", project: str | None = None,
+                                ctx: Context | None = None) -> str:
+        """Keep KeelBot's changes of a chat (these paths, or all): keel runs the checks, then commits them."""
+        return await act(ctx, "keel_keelbot_keep", f"keep {', '.join(paths) if paths else 'every change'} of chat {chat}",
+                         tui.keelbot_keep, api, chat, paths, message, project)
+
+    @reg(rx)
+    async def keel_keelbot_undo(chat: str, path: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """Put back what KeelBot changed in a chat (one path, or every file)."""
+        return await act(ctx, "keel_keelbot_undo", f"put back {path or 'every file'} of chat {chat}", tui.keelbot_undo, api, chat, path, project)
+
+    @reg(ro)
+    def keel_diagram(kind: Literal["flow", "workflow", "map-er", "map-system", "map-modules", "graph"], arg: str | None = None,
+                     project: str | None = None, width: int = 120) -> str:
+        """keel's ASCII diagrams: flow (the running flow, done steps and the waiting gate; arg zooms to a step), workflow
+        (arg: its id), map-er (arg: a table to focus), map-system, map-modules, graph (arg: a symbol's name)."""
+        return guard(tui.diagram, api, kind, arg, project, width)
 
     @reg(rx)
     async def keel_edit_workflow(workflow: str, yaml: str, project: str | None = None, ctx: Context | None = None) -> str:

@@ -60,14 +60,14 @@ The names are the keel TUI's (`docs/plans/keel-tui.md`), so the same words work 
 | `live` (`jobs`) | the agent calls running now | `keel_live` |
 | `flows [limit]` | this project's flows | `keel_flows` |
 | `timeline [all\|steps\|agents\|failed] [limit]`, `steps` | what happened | `keel_timeline` |
-| `workflows [id]` | the workflows, or one workflow's steps | `keel_workflows` (admin) |
+| `workflows [id]` | the workflows, or one workflow's steps | `keel_workflows` (read since 0.18.5) |
 | `rules`, `budget`, `plugins` | phase rules, tokens and money, keel's plugins | `keel_rules`, `keel_budget`, `keel_plugins_installed` |
 | `dashboard [flow\|map\|er]` | the link to keel's page | `keel_dashboard` |
 | `flow <workflow> <idea…>` | start a flow | `keel_start_flow` |
 | `approve [why…]`, `reject <why…>` | decide the gate that waits | `keel_approve_gate` |
 | `answer [approve\|reject] [why…]` | answer the Inbox's first item | `keel_answer` |
 | `resume [approve\|reject] [why…]` | continue a waiting flow | `keel_resume` |
-| `stop` | stop the flow; keel asks you first (yes/no) | `keel_stop_flow` (admin) |
+| `stop` | stop the flow; keel asks you first (yes/no) | `keel_stop_flow` (write since 0.18.5) |
 | `diagram <kind> [id]` | flow rail, workflow, map in plain text | `keel_diagram` (0.18), else `POST /api/diagrams/ascii` |
 | `ask [--new] <question…>` | ask KeelBot (read-only); the chat stays for the next question | KeelBot's REST |
 | `watch [on\|off]` | keel's events in the transcript as they happen | `GET /api/events` |

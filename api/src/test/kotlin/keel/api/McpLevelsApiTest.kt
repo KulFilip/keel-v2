@@ -43,10 +43,11 @@ class McpLevelsApiTest : ApiTest() {
 
     @Test
     fun `an admin route needs the admin token`() {
-        val res = post("/api/threads/t-stub-1/stop", null, mcp("write")).andExpect(status().isForbidden).json()
+        val res = post("/api/projects", mapOf("root" to "/nowhere"), mcp("write")).andExpect(status().isForbidden).json()
         assertThat(res["error"].asText()).contains("keel2 mcp --admin")
-        post("/api/threads/t-stub-1/stop", null, mcp("admin")).andExpect(status().isOk)
-        post("/api/projects", mapOf("root" to "/nowhere"), mcp("write")).andExpect(status().isForbidden)
+        // 0.18.5 stopping a flow is write, as in keel TUI (the MCP tool asks the person first); read still may not
+        post("/api/threads/t-stub-1/stop", null, mcp("write")).andExpect(status().isOk)
+        post("/api/threads/t-stub-1/stop", null, mcp("read")).andExpect(status().isForbidden)
     }
 
     @Test

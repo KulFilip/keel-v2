@@ -1937,6 +1937,22 @@ waits elsewhere opens live (Open, `#/flow/<tid>`), as before.
 - `GET /api/threads/{tid}/applied` → `{ thread_id, items: [{ kind, ref, subject, files, at }] }`.
 - Web: Wiki spec / knowledge / ADR pages show **History** (versions, who, phase, commit, a diff to the file now, Restore with a confirm); Code › keel files lists files that are missing (Restore) or changed outside keel; Flow shows **What keel applied**; the Wiki says when a project keeps keel's files in `docs/`.
 
+## 0.18.5: what keel TUI can do, as MCP tools (`keel_engine/mcp_tui.py`)
+
+Everything the person can do in keel's terminal app an MCP client can do for them, at the level it would need:
+
+- **read**: `keel_workflows` (was admin), `keel_agents` (`GET /jobs?project=&status=running` and the person's KeelBot
+  side chats), `keel_agent {agent_id}` (a job's steps `GET /jobs/{id}/steps`, else a chat's last messages),
+  `keel_keelbot_chats`, `keel_keelbot_changes {chat}` (`GET …/helper/sessions/{sid}/changes`), `keel_diagram {kind, arg}`
+  (`POST /diagrams/ascii` with the data keel TUI's `/diagram` sends: flow, workflow, map-er, map-system, map-modules, graph).
+- **write**: `keel_stop_flow` (was admin) and `keel_stop_flows {flows | all}` (`POST /threads/{tid}/stop` is a write route
+  for MCP tokens now; both ask the person first), `keel_run_mode {mode, thread_id}` (`POST /threads/{tid}/mode`),
+  `keel_resume_flow` (`POST /threads/{tid}/rewind` to the last checkpoint), `keel_agent_start {task, mode: side|ask}`
+  (`POST …/helper/sessions`, then `…/turn`), `keel_keelbot_ask {text, chat, mode, wait}` (waits for the answer; KeelBot's
+  buttons come back as the keel tools that do them), `keel_keelbot_keep {chat, paths}` and `keel_keelbot_undo {chat, path}`
+  (`…/done`, `…/undo`; both ask first).
+- keel's own agents still get read only.
+
 ## v0.16.0: full MCP (read, --write, --admin)
 
 - `keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]` → `python -m keel_engine.mcp` with the same flags. Each level includes the one below; a tool above the level, or not in `--allow`, is not registered. `--read-only` (what agents get: engine `tools/mcp.py`, api `McpService`) always wins over `--write`, `--admin`, `KEEL_MCP_WRITE` and `KEEL_MCP_LEVEL`. `--allow` (or `KEEL_MCP_ALLOW`) with an unknown tool name stops the server with the list of tools.

@@ -148,7 +148,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         private val DB_QUERY = Regex("^/api/projects/[^/]+/db/query$")
         private const val PLUGIN_REQUESTS = "/api/plugins/requests"
         private val ADMIN = listOf(
-            "POST" to Regex("^/api/threads/[^/]+/stop$"),
+            // 0.18.5 stopping a flow is write (keel TUI and the dashboard let the person do it; the MCP tool asks first)
             "DELETE" to Regex("^/api/projects/[^/]+/flows/[^/]+$"),
             "POST" to Regex("^/api/projects$"),
             "POST" to Regex("^/api/projects/bulk$"),

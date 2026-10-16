@@ -20,9 +20,14 @@ READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "kee
               "keel_dashboard",                                                                    # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
               "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
+              # 0.18.5 what keel TUI shows
+              "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram",
               *MARKET_TOOLS}
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"}
-ADMIN_TOOLS = {"keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
+               # 0.18.5 what keel TUI does
+               "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start", "keel_keelbot_ask",
+               "keel_keelbot_keep", "keel_keelbot_undo"}
+ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project",
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
 PROJECTS = [
@@ -121,12 +126,16 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
             "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
             "keel_actions", "keel_run_action"]
-    write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc"]
-    admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
-             "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
-    assert names("read") == read + MARKET_TOOLS
-    assert names("write") == read + write + MARKET_TOOLS
-    assert names("admin") == read + write + admin + MARKET_TOOLS
+    write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]
+    admin = ["keel_delete_run", "keel_add_project", "keel_remove_project"]
+    # 0.18.5 keel TUI's: after keel_workflows (read since 0.18.5), in the order they are written
+    tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram"]
+    tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
+           "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo", "keel_diagram"]
+    rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
+    assert names("read") == read + ["keel_workflows"] + tui_read + MARKET_TOOLS
+    assert names("write") == read + write + tui + MARKET_TOOLS
+    assert names("admin") == read + write + admin + tui + rules + MARKET_TOOLS
 
 
 async def test_allow_covers_the_marketplace_tools(stub):
@@ -420,8 +429,8 @@ async def test_admin_level_has_every_tool_and_read_only_wins(stub, monkeypatch):
 
 
 async def test_allow_registers_only_the_named_tools(stub):
-    srv = mcp_server.build_server(level="write", api=stub.api, allow={"keel_status", "keel_stop_flow"})
-    assert await tool_names(srv) == {"keel_status"}                     # stop is admin: not at write, even when allowed
+    srv = mcp_server.build_server(level="write", api=stub.api, allow={"keel_status", "keel_delete_run"})
+    assert await tool_names(srv) == {"keel_status"}                     # delete is admin: not at write, even when allowed
     assert mcp_server.allowed(["--allow", "keel_status,keel_next"]) == {"keel_status", "keel_next"}
     with pytest.raises(SystemExit, match="no tool called keel_nope"):
         mcp_server.allowed(["--allow=keel_nope"])
