@@ -6,12 +6,14 @@
 //   ```keel-flow  {"do": "approve" | "reject", "flow", "why"?}```           decide the gate a flow waits at
 //   ```keel-flow  {"do": "stop", "flows": [ids]}```                         stop flows (finished steps stay saved)
 //   ```keel-flow  {"do": "mode", "flow", "mode": manual|important|auto|readonly}```   a flow's run mode
-//   ```keel-workflow <yaml>```                                              a new workflow: saved in the dashboard
+//   ```keel-workflow <yaml>```                                              a new workflow (checked, then saved)
+//   ```keel-rule <yaml>```                                                  a new rule pack (checked, then saved)
+//   ```keel-agent {"name", "about", "prompt", "tools", "phases"}```         a new agent
 //
 // Other kinds (a plugin's keel-query, keel-git, keel-ci) are the dashboard's: the answer says where to press them.
 // No UI here: App.tsx shows the text and asks; `pressButton` does what a pressed button does.
 
-import { api, type RunMode } from "../../../web/src/api";
+import { api, post, type RunMode } from "../../../web/src/api";
 import { inboxApi } from "../../../web/src/inboxApi";
 
 export const RUN_MODES: RunMode[] = ["manual", "important", "auto", "readonly"];
@@ -24,12 +26,17 @@ export const RUN_MODE_ABOUT: Record<RunMode, string> = {
   readonly: "stops at every gate; agents may not edit, write or commit",
 };
 
+export type NewAgent = { name: string; about?: string; prompt: string; tools?: string[]; phases?: string[] };
+export const AGENT_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
+
 export type Button =
   | { kind: "start"; workflow: string; title: string; request?: string }
   | { kind: "decide"; decision: "approve" | "reject"; flow: string; why?: string }
   | { kind: "stop"; flows: string[] }
   | { kind: "mode"; flow: string; mode: RunMode }
   | { kind: "workflow"; yaml: string }
+  | { kind: "rule"; yaml: string }
+  | { kind: "agent"; agent: NewAgent }
   | { kind: "other"; name: string };
 
 const OPEN = /^\s*(`{3,}|~{3,})\s*keel-([a-z]+)\s*$/;
@@ -52,7 +59,15 @@ const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 /** One block as a button, or null when its body is not what its kind needs (it then stays text). */
 export function toButton(kind: string, body: string): Button | null {
-  if (kind === "workflow") return body.trim() ? { kind: "workflow", yaml: body } : null;
+  if (kind === "workflow" || kind === "rule") return body.trim() ? { kind, yaml: body } : null;
+  if (kind === "agent") {
+    const v = json(body);
+    const name = str(v?.name ?? v?.label);
+    const prompt = str(v?.prompt);
+    if (!v || !name || !prompt) return null;
+    const list = (x: unknown) => (Array.isArray(x) ? x.map(String).filter(Boolean) : undefined);
+    return { kind: "agent", agent: { name, prompt, about: str(v.about) || undefined, tools: list(v.tools), phases: list(v.phases) } };
+  }
   if (kind !== "start" && kind !== "flow") return { kind: "other", name: kind };
   const v = json(body);
   if (!v) return null;
@@ -112,8 +127,47 @@ export function question(b: Button, name: Names): string | null {
 
 /** Where to press a button the terminal does not have. */
 export function elsewhere(b: Button): string {
-  return b.kind === "workflow" ? "KeelBot wrote a new workflow: save it in the dashboard's KeelBot panel (/dashboard keelbot)."
-    : `KeelBot gave a ${b.kind === "other" ? b.name : b.kind} button: press it in the dashboard's KeelBot panel (/dashboard keelbot).`;
+  return `KeelBot gave a ${b.kind === "other" ? b.name : b.kind} button: press it in the dashboard's KeelBot panel (/dashboard keelbot).`;
+}
+
+type WorkflowReview = { name?: string; steps?: number; gates?: number; agents?: string[]; commands?: string[]; edits_files?: boolean;
+  valid?: boolean; errors?: string[]; warnings?: string[]; lines?: { line: number; message: string }[] };
+type RuleCheck = { ok?: boolean; errors?: string[]; dry_run?: { checked?: number; blocked?: { kind?: string; target?: string; agent?: string }[] } };
+
+const pathOf = (pid: string) => `/projects/${encodeURIComponent(pid)}`;
+
+/** A new workflow, rule pack or agent: keel's check first (nothing is saved), as the question and its detail; or why it
+ *  cannot be saved. The other buttons: their question only. */
+export async function prepare(b: Button, pid: string, name: Names): Promise<{ title: string; detail?: string } | { error: string } | null> {
+  if (b.kind === "workflow") {
+    const r = await post<WorkflowReview>(`${pathOf(pid)}/workflows/check`, { yaml: b.yaml });
+    const what = `${r.name ?? "it"}: ${r.steps ?? 0} steps, ${r.gates ?? 0} gates` + (r.agents?.length ? `, agents ${r.agents.join(", ")}` : "")
+      + (r.commands?.length ? `, runs ${r.commands.join(", ")}` : "") + (r.edits_files ? ", changes files" : ", changes no file");
+    if (r.errors?.length || r.valid === false) {
+      const at = new Map((r.lines ?? []).map((l) => [l.message, l.line]));
+      return { error: `KeelBot's workflow cannot be saved yet (${what}):
+` + (r.errors ?? []).map((e) => `  ${at.get(e) ? `line ${at.get(e)}: ` : ""}${e}`).join("\n")
+        + "\nAsk KeelBot to fix it." };
+    }
+    return { title: `KeelBot wrote a workflow: save ${r.name ?? "it"}?`, detail: what + (r.warnings?.length ? `\n${r.warnings.map((w) => `warning: ${w}`).join("\n")}` : "") };
+  }
+  if (b.kind === "rule") {
+    const r = await post<RuleCheck>(`${pathOf(pid)}/rules/check`, { yaml: b.yaml });
+    if (!r.ok) return { error: "KeelBot's rule pack cannot be saved yet:\n" + (r.errors ?? []).map((e) => `  ${e}`).join("\n") + "\nAsk KeelBot to fix it." };
+    const blocked = r.dry_run?.blocked ?? [];
+    const name = /^name:\s*(\S+)/m.exec(b.yaml)?.[1] ?? "it";
+    return { title: `KeelBot wrote a rule pack: save ${name}?`,
+      detail: `On the recent tool calls it would have refused ${blocked.length} of ${r.dry_run?.checked ?? 0}`
+        + (blocked.length ? `:\n${blocked.slice(0, 6).map((x) => `  ${x.kind}: ${x.target}${x.agent ? ` (${x.agent})` : ""}`).join("\n")}` : ".") };
+  }
+  if (b.kind === "agent") {
+    const bad = (b.agent.tools ?? []).filter((x) => !AGENT_TOOLS.includes(x));
+    if (bad.length) return { error: `KeelBot's agent has unknown tools: ${bad.join(", ")} (keel has ${AGENT_TOOLS.join(", ")}).` };
+    return { title: `KeelBot wrote an agent: save "${b.agent.name}"?`,
+      detail: `${b.agent.about ? b.agent.about + "\n" : ""}tools ${(b.agent.tools ?? ["Read", "Grep", "Glob"]).join(", ")} · phases ${(b.agent.phases ?? ["any"]).join(", ")}` };
+  }
+  const q = question(b, name);
+  return q ? { title: q } : null;
 }
 
 /** What a pressed button does; the words say what happened. */
@@ -145,6 +199,20 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
     case "mode": {
       await inboxApi.setMode(b.flow, b.mode);
       return `${name(b.flow)} runs in ${b.mode} mode from its next gate on.`;
+    }
+    case "workflow": {
+      const r = await post<{ workflow: { id: string; steps?: unknown[] } }>(`${pathOf(pid)}/workflows/import`, { yaml: b.yaml });
+      return `saved the workflow ${r.workflow.id} (${r.workflow.steps?.length ?? 0} steps). Start it: /flow ${r.workflow.id} <idea>.`;
+    }
+    case "rule": {
+      const r = await post<{ pack?: { id?: string } }>(`${pathOf(pid)}/rules/packs`, { yaml: b.yaml });
+      return `saved the rule pack ${r.pack?.id ?? ""} (.keel/rules/${r.pack?.id ?? "…"}.yaml): it applies from the next tool call. /rules shows it.`;
+    }
+    case "agent": {
+      const a = b.agent;
+      const r = await post<{ id: string; tools?: string[] }>(`${pathOf(pid)}/agents`, { name: a.name, about: a.about ?? "", prompt: a.prompt,
+        tools: a.tools ?? ["Read", "Grep", "Glob"], phases: a.phases ?? ["any"] });
+      return `saved the agent ${r.id} (tools ${(r.tools ?? a.tools ?? []).join(", ")}). A workflow uses it with agent: ${r.id}.`;
     }
     default: return elsewhere(b);
   }

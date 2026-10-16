@@ -139,6 +139,14 @@
       "group": "Flows"
     },
     {
+      "name": "create",
+      "args": "<workflow|rule|agent> [what it should do | --file <path>]",
+      "summary": "a new workflow, rule pack or agent: KeelBot writes it (or from a file), keel checks it, you save it",
+      "writes": true,
+      "local": false,
+      "group": "Flows"
+    },
+    {
       "name": "diagram",
       "args": "<flow|workflow <id>|map-er [table]|map-system|map-modules|graph <symbol>> [zoom]",
       "summary": "keel's diagrams in ASCII",

@@ -23,9 +23,9 @@ import {
 import { kb } from "./keelbotApi";
 
 export type Segment =
-  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci" | "flow"; body: string };
+  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci" | "flow" | "rule" | "agent"; body: string };
 
-const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git|ci|flow)\s*$/;
+const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git|ci|flow|rule|agent)\s*$/;
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const closes = (line: string, open: string) => {
   const t = line.trim();
@@ -51,7 +51,7 @@ export function splitActions(text: string): Segment[] {
       i++;
       flush();
       out.push({
-        kind: a[2] as "start" | "workflow" | "query" | "git" | "ci" | "flow",
+        kind: a[2] as Exclude<Segment["kind"], "text">,
         body: body.join("\n"),
       });
       continue;
@@ -487,6 +487,77 @@ export function FlowCard({ pid, body }: { pid: string; body: string }) {
             {busy ? "…" : label}</button>
         </div>
       )}
+    </section>
+  );
+}
+
+/** 0.18.5 a rule pack KeelBot wrote (```keel-rule```): keel checks it and says what it would have refused lately; Save
+ *  puts it in .keel/rules/. */
+export function RuleCard({ pid, body }: { pid: string; body: string }) {
+  const check = useLoad(pid && body.trim() ? `kb-rule-check:${pid}:${body.length}:${body.slice(0, 80)}` : null,
+    () => kb.checkRule(pid, body), { live: false });
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const name = /^name:\s*(\S+)/m.exec(body)?.[1] ?? "rule pack";
+  const c = check.data;
+  const blocked = c?.dry_run?.blocked ?? [];
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await kb.saveRule(pid, body);
+      setDone(`Saved ${r.pack?.id ?? name}: it applies from the next tool call.`);
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="kb-card" aria-label={`New rule pack: ${name}`}>
+      <div className="kb-card-h"><span className="kb-tag">Rule pack</span><b>{name}</b></div>
+      <CodeBlock text={body} gutter={false} />
+      {c && !c.ok && <div className="kb-err" role="alert"><b>keel cannot save it yet:</b>{(c.errors ?? []).map((e) => <div key={e} className="sub">{e}</div>)}</div>}
+      {c?.ok && <p className="sub">On the recent tool calls it would have refused {blocked.length} of {c.dry_run?.checked ?? 0}.</p>}
+      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      {done ? <p className="kb-done" role="status">{done}{" "}<button type="button" className="btn sm" onClick={() => go("rules")}>Open Rules ▸</button></p>
+        : <div className="row"><button type="button" className="btn sm primary" disabled={busy || !c?.ok} onClick={() => void save()}>{busy ? "Saving…" : "Save the rule pack"}</button></div>}
+    </section>
+  );
+}
+
+type AgentSpec = { name?: string; label?: string; about?: string; prompt?: string; tools?: string[]; phases?: string[] };
+
+/** 0.18.5 an agent KeelBot wrote (```keel-agent```): its tools and instructions; Save adds it to the project. */
+export function AgentCard({ pid, body }: { pid: string; body: string }) {
+  const spec = parseJson<AgentSpec>(body);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const name = spec?.name ?? spec?.label ?? "";
+  if (!spec || !name || !spec.prompt) return <p className="kb-card bad" role="note">KeelBot's agent could not be read. Ask it to give it again.</p>;
+  const tools = spec.tools?.length ? spec.tools : ["Read", "Grep", "Glob"];
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const a = await kb.saveAgent(pid, { name, about: spec.about ?? "", prompt: spec.prompt!, tools, phases: spec.phases?.length ? spec.phases : ["any"] });
+      setDone(`Saved ${a.id}. A workflow uses it with agent: ${a.id}.`);
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="kb-card" aria-label={`New agent: ${name}`}>
+      <div className="kb-card-h"><span className="kb-tag">Agent</span><b>{name}</b><span className="sub">{tools.join(", ")}</span></div>
+      {spec.about && <p>{spec.about}</p>}
+      <p className="kb-request"><span className="sub">Its instructions:</span> {spec.prompt}</p>
+      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      {done ? <p className="kb-done" role="status">{done}{" "}<button type="button" className="btn sm" onClick={() => go("agents")}>Open Agents ▸</button></p>
+        : <div className="row"><button type="button" className="btn sm primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save the agent"}</button></div>}
     </section>
   );
 }

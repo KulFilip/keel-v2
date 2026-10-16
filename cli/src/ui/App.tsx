@@ -23,7 +23,7 @@ import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
 import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
-import { elsewhere, pressButton, question, splitButtons, type Button } from "../core/buttons";
+import { elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
 
@@ -186,11 +186,18 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       return r ? `"${r.title}"` : `flow ${tid.slice(0, 8)}`;
     };
     for (const b of buttons) {
-      const title = question(b, name);
-      if (!title) {
+      // a new workflow or rule pack: keel's check first (it saves nothing), so the question says what it would be
+      const prep = await prepare(b, pid, name).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+      if (!prep) {
         push({ kind: "dim", text: "  " + elsewhere(b) });
         continue;
       }
+      if ("error" in prep) {
+        push({ kind: "error", text: prep.error });
+        continue;
+      }
+      if (prep.detail) push({ kind: "dim", text: prep.detail.split("\n").map((l) => "  " + l).join("\n") });
+      const title = prep.title;
       buttonAsks.current.push({ title, choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }],
         then: async (v) => {
           if (v !== "yes") return { blocks: [{ kind: "dim", text: "  not done" }] };

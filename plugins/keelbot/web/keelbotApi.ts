@@ -180,6 +180,14 @@ export const kb = {
     },
   ) => post<ThreadState>(`/projects/${e(pid)}/flows`, body),
 
+  // 0.18.5 a new rule pack or agent KeelBot wrote
+  checkRule: (pid: string, yaml: string) =>
+    post<{ ok: boolean; errors?: string[]; dry_run?: { checked?: number; blocked?: { kind?: string; target?: string }[] } }>(
+      `/projects/${e(pid)}/rules/check`, { yaml }),
+  saveRule: (pid: string, yaml: string) => post<{ pack?: { id?: string } }>(`/projects/${e(pid)}/rules/packs`, { yaml }),
+  saveAgent: (pid: string, body: { name: string; about: string; prompt: string; tools: string[]; phases: string[] }) =>
+    post<{ id: string }>(`/projects/${e(pid)}/agents`, body),
+
   // 0.18.4 its flow buttons (keel-flow): decide the gate a flow waits at, stop a flow, a flow's run mode
   decideGate: (tid: string, body: { decision: "approve" | "reject"; why?: string }) =>
     post<ThreadState>(`/inbox/${e(tid)}/act`, body),

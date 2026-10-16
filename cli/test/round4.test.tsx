@@ -272,3 +272,62 @@ describe("the status line's waiting", () => {
     r.unmount();
   });
 });
+
+describe("/create (0.18.5)", () => {
+  const WF = "id: docs-check\nname: docs check\nkeel_rules: false\nversion: 1\nsteps:\n  - { id: t, kind: code, name: tests, action: \"run: npm test\" }\n  - { id: look, kind: gate, name: look }";
+
+  it("an agent from four questions, saved after one yes", async () => {
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run("/create agent");
+    expect(t.frame()).toContain("Its name (for example: doc writer)?");
+    await t.run("doc writer");
+    await t.run("Writes the user docs.");
+    expect(t.frame()).toContain("What may it do?");
+    await t.type("\x1b[B");
+    await t.enter();                                                    // read and change files
+    await t.run("Read the spec and write docs/<feature>.md.");
+    expect(t.frame()).toContain('save "doc writer"?');
+    await t.enter();
+    expect(t.stub.calls.find((c) => c.path === "/api/projects/demo/agents")!.body).toEqual({ name: "doc writer", about: "Writes the user docs.",
+      prompt: "Read the spec and write docs/<feature>.md.", tools: ["Read", "Grep", "Glob", "Edit", "Write"], phases: ["any"] });
+    expect(t.frame()).toContain("✓ saved the agent doc-writer");
+    t.r.unmount();
+  });
+
+  it("KeelBot writes a workflow: keel's check shows what it is, one yes saves it; one with errors is never offered", async () => {
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run("/create workflow run the tests and let me look");
+    const sent = t.stub.calls.find((c) => c.path.endsWith("/s1/turn"))!.body as { text: string };
+    expect(sent.text).toContain("Write a new keel workflow for this project: run the tests and let me look");
+    expect(sent.text).toContain("keel-workflow block");
+    await waitFor(() => t.probe.chatBusy);
+    t.stub.answer("Here it is.\n\n```keel-workflow\n" + WF + "\n```");
+    finished(t.core);
+    await waitFor(() => t.probe.pick);
+    expect(t.frame()).toContain("docs check: 2 steps, 1 gates, runs npm test, changes no file");
+    expect(t.frame()).toContain("KeelBot wrote a workflow: save docs check?");
+    await t.enter();
+    await waitFor(() => t.stub.calls.some((c) => c.path === "/api/projects/demo/workflows/import"));
+    expect(t.frame()).toContain("✓ saved the workflow docs-check (2 steps). Start it: /flow docs-check <idea>.");
+    t.r.unmount();
+  });
+
+  it("a rule pack from a file: what it would have refused, then saved", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(join(tmpdir(), "keel-rule-"));
+    writeFileSync(join(dir, "pack.yaml"), "schema: 1\nkind: rules\nname: no-sql-edits\nrules: []\n");
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run(`/create rule --file ${join(dir, "pack.yaml")}`);
+    expect(t.frame()).toContain("would have refused 1 of 9");
+    expect(t.frame()).toContain("edit: db/V1__init.sql (implementer)");
+    await t.enter();
+    expect(t.stub.calls.some((c) => c.path === "/api/projects/demo/rules/packs")).toBe(true);
+    expect(t.frame()).toContain("✓ saved the rule pack no-sql-edits");
+    t.r.unmount();
+  });
+});

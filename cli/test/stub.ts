@@ -73,6 +73,16 @@ export function stubKeel() {
         return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
       case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
       case "GET /api/projects/demo/helper/sessions": return [200, state.session ? [state.session] : []];
+      // 0.18.5 a new workflow, rule pack or agent
+      case "POST /api/projects/demo/workflows/check": {
+        const bad = String(body.yaml).includes("kind: oops");
+        return [200, { name: "docs check", steps: 2, gates: 1, agents: [], commands: ["npm test"], edits_files: false, valid: !bad,
+          errors: bad ? ["steps[1].kind: one of agent, code, gate, branch"] : [], warnings: [], lines: bad ? [{ line: 7, message: "steps[1].kind: one of agent, code, gate, branch" }] : [] }];
+      }
+      case "POST /api/projects/demo/workflows/import": return [200, { workflow: { id: "docs-check", steps: [{}, {}] }, review: {} }];
+      case "POST /api/projects/demo/rules/check": return [200, { ok: true, errors: [], dry_run: { checked: 9, blocked: [{ kind: "edit", target: "db/V1__init.sql", agent: "implementer" }] } }];
+      case "POST /api/projects/demo/rules/packs": return [200, { pack: { id: "no-sql-edits" } }];
+      case "POST /api/projects/demo/agents": return [200, { id: "doc-writer", tools: body.tools }];
       case "POST /api/threads/t1/mode": state.thread = { ...state.thread, run_mode: body.mode }; return [200, state.thread];
       case "POST /api/threads/t1/stop": state.thread = { ...state.thread, status: "stopped", waiting: undefined }; return [200, state.thread];
       // round 3: @mentions, Fix mode's changes, Keep and Undo, questions, plugins

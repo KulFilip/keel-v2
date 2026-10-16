@@ -15,7 +15,7 @@ import {
   type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
-import { CiCard, FlowCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
+import { AgentCard, CiCard, FlowCard, RuleCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
 import { fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
@@ -101,6 +101,8 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} />
+          : seg.kind === "rule" ? <RuleCard key={i} pid={pid} body={seg.body} />
+          : seg.kind === "agent" ? <AgentCard key={i} pid={pid} body={seg.body} />
             : seg.kind === "workflow" ? <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />
               // a plugin's block (keel-query, keel-git): its card from the slot keelbot.card
               : <SlotCard key={i} pid={pid} block={{ kind: `keel-${seg.kind}`, body: seg.body }} />)}

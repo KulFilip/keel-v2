@@ -11,7 +11,9 @@ import { setCommand } from "./transport";
 import type { KeelCore } from "./keel";
 import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
-import { pressButton, RUN_MODE_ABOUT, RUN_MODES } from "./buttons";
+import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // ------------------------------------------------------------------ replies
 
@@ -201,6 +203,36 @@ async function flowDiagram(ctx: Ctx, zoom?: string): Promise<Reply> {
 }
 
 type MapView = { missing?: string; schema?: unknown; levels?: Record<string, unknown> };
+
+const CREATE_KINDS = ["workflow", "rule", "agent"] as const;
+type CreateKind = (typeof CREATE_KINDS)[number];
+const CREATE_WORDS: Record<CreateKind, string> = { workflow: "workflow", rule: "rule pack", agent: "agent" };
+
+/** /create <kind> --file <path>, or a button KeelBot gave: keel's check first, then one yes saves it. */
+async function confirmSave(ctx: Ctx, b: Button): Promise<Reply> {
+  const pid = needProject(ctx).id;
+  const prep = await prepare(b, pid, (x) => x);
+  if (!prep) return fail("Nothing to save.");
+  if ("error" in prep) return fail(prep.error.replace(/^KeelBot's /, "The "));
+  return { blocks: prep.detail ? [{ kind: "dim", text: prep.detail.split("\n").map((l) => "  " + l).join("\n") }] : [],
+    pick: { title: prep.title.replace(/^KeelBot wrote an? [a-z ]+: /, ""), choices: [{ label: "Yes, save it", value: "yes" }, { label: "No", value: "no" }],
+      then: async (v) => (v === "yes" ? ok(await pressButton(b, pid, (x) => x)) : text("Not saved.")) } };
+}
+
+/** /create agent with no words: its name, what it is for, its tools and its instructions, one question after the other. */
+function agentQuestions(ctx: Ctx): Reply {
+  return { blocks: [{ kind: "dim", text: "  A new agent: four questions. Esc stops." }], ask: { prompt: "Its name (for example: doc writer)?", then: (name) => {
+    if (!name.trim()) return text("No name: nothing saved.");
+    return { blocks: [], ask: { prompt: `What is "${name.trim()}" for (one sentence)?`, then: (about) => ({ blocks: [], pick: {
+      title: "What may it do?", choices: [
+        { label: "Read only", value: "Read,Grep,Glob", hint: "it reads and answers" },
+        { label: "Read and change files", value: "Read,Grep,Glob,Edit,Write", hint: "keel's rules and the phase still decide where" },
+        { label: "Read, change files and run commands", value: "Read,Grep,Glob,Edit,Write,Bash", hint: "commands go through keel's shell guard" }],
+      then: (tools) => ({ blocks: [], ask: { prompt: "Its instructions: what it does, how, and what its answer looks like?", then: (prompt) =>
+        prompt.trim() ? confirmSave(ctx, { kind: "agent", agent: { name: name.trim(), about: about.trim(), prompt: prompt.trim(), tools: tools.split(","), phases: ["any"] } })
+          : text("No instructions: nothing saved.") } }) } }) } };
+  } } };
+}
 
 /** /agent new: an agent of its own (a KeelBot chat in its own worktree, or one that only reads) works on the task. */
 async function spawn(ctx: Ctx, task: string, mode: HelperMode): Promise<Reply> {
@@ -540,6 +572,41 @@ const IMPLS: Impl[] = [
       if (!rows.length) return text(`${list}\n${help}`);
       return { blocks: [{ kind: "text", text: `${c.bold("Agents")}\n${list}\n${help}` }],
         pick: { title: "Go to which agent?", choices: rows.map((r, k) => ({ label: r.label, value: String(k), hint: r.hint })), then: (v) => rows[Number(v)].go() } };
+    },
+  },
+  {
+    // a new workflow, rule pack or agent: KeelBot writes it from your words (then keel checks it and you save it), or
+    // from a file (--file), or (an agent) from four questions
+    name: "create",
+    complete: (_ctx, a) => CREATE_KINDS.filter((k) => k.startsWith(a.trim())).map((k) => `${k} `),
+    run: async (ctx, a) => {
+      const m = /^(\S+)\s*([\s\S]*)$/.exec(a.trim());
+      const kind = m?.[1] as CreateKind | undefined;
+      if (!kind || !CREATE_KINDS.includes(kind)) {
+        return { blocks: [], pick: { title: "Create what?", choices: [
+          { label: "workflow", value: "workflow", hint: "the steps a flow runs: agents, checks, gates" },
+          { label: "rule", value: "rule", hint: "a rule pack: what agents may not do" },
+          { label: "agent", value: "agent", hint: "a new agent workflows can use" }],
+          then: (v) => COMMANDS_BY_NAME.create.run(ctx, v) } };
+      }
+      const rest = (m?.[2] ?? "").trim();
+      const file = /^--file\s+(\S+)$/.exec(rest)?.[1];
+      if (file) {
+        let body: string;
+        try {
+          body = readFileSync(resolve(process.env.KEEL_TUI_CWD || process.cwd(), file), "utf8");
+        } catch (e) {
+          return fail(`Cannot read ${file}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        const b = toButton(kind, body);
+        return b ? confirmSave(ctx, b) : fail(kind === "agent" ? "The file is not an agent's JSON: name, about, prompt, tools, phases." : `The file is empty.`);
+      }
+      if (!rest && kind === "agent") return agentQuestions(ctx);
+      const ask = (idea: string): Reply => ({ blocks: [{ kind: "dim", text: `  KeelBot writes the ${CREATE_WORDS[kind]}; keel checks it, then you save it.` }],
+        chat: `Write a new keel ${CREATE_WORDS[kind]} for this project: ${idea}\nUse this project's own commands, paths and agents. `
+          + `End your answer with the whole ${CREATE_WORDS[kind]} in one keel-${kind} block.` });
+      if (!rest) return { blocks: [], ask: { prompt: `What should the ${CREATE_WORDS[kind]} do?`, then: (idea) => (idea.trim() ? ask(idea.trim()) : text("Nothing to create.")) } };
+      return ask(rest);
     },
   },
   { name: "new", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },

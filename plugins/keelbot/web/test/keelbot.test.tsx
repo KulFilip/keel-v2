@@ -78,6 +78,24 @@ async function chatWith(text: string) {
   return panel();
 }
 
+describe("KeelBot's new rule pack and agent (0.18.5)", () => {
+  it("an agent: its tools and instructions, saved only when pressed", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith('A docs agent:\n\n```keel-agent\n{"name": "doc writer", "about": "Writes the docs.", "prompt": "Write docs/x.md.", "tools": ["Read", "Write"]}\n```');
+    const card = await within(p).findByRole("region", { name: "New agent: doc writer" });
+    expect(card).toHaveTextContent("Read, Write");
+    expect(card).toHaveTextContent("Write docs/x.md.");
+    expect(db.calls.some((c) => c.method === "POST" && c.path === "/api/projects/ludus-engine/agents")).toBe(false);
+    await user.click(within(card).getByRole("button", { name: "Save the agent" }));
+    await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path === "/api/projects/ludus-engine/agents")?.body)
+      .toMatchObject({ name: "doc writer", prompt: "Write docs/x.md.", tools: ["Read", "Write"], phases: ["any"] }));
+  });
+
+  it("a rule pack and an agent split out of the answer as their own cards", () => {
+    expect(splitActions("a\n```keel-rule\nname: x\n```\n```keel-agent\n{}\n```").map((s) => s.kind)).toEqual(["text", "rule", "agent"]);
+  });
+});
+
 describe("KeelBot's flow buttons (0.18.4)", () => {
   it("stop: names the flow, stops it only when pressed, then offers to open it", async () => {
     const user = userEvent.setup();
