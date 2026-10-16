@@ -119,6 +119,7 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [22-one-plugins-page.md](22-one-plugins-page.md)             | 0.17.1: Control › Plugins is the one place for plugins (Tools › Plugins is gone, a "This project" switch, a plugin's Projects), the Code page's toolbar, the menu's view switch |
 | [23-rules-in-marketplace.md](23-rules-in-marketplace.md)     | rule packs as the third marketplace kind (a generic catalog kind; the Rules tab waits for the rules session's final format)                                                                                                                                              |
 | [24-wiki-sections-spec-status.md](24-wiki-sections-spec-status.md) | 0.17.3: the Wiki menu's sections open and close (per project), a spec's build status (built, in progress, stopped, not built) with Resume and Start a flow from this spec, `GET /api/projects/{pid}/specs/status` |
+| [25-tui-plugins.md](25-tui-plugins.md) | 0.18.3: a plugin adds commands and a panel to keel TUI, as data (`contributes.tui`): calls to its own api routes and how the answer reads; `GET /api/tui/plugins`; the Git plugin's `/git status\|log\|diff` and branch panel |
 | [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos in `keel-studio` (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license; [move-plugin-repos.sh](tools/move-plugin-repos.sh) moves the first ones from `MiladNalbandi` there |
 
 ## Open questions for Milad

@@ -17,3 +17,30 @@ parts:
   web: { entry: web/index.js }
   content: content
 per_project: true
+# keel TUI (docs/plugins/25-tui-plugins.md): /git status | log | diff [path], and the branch panel (Ctrl+G). Data only:
+# each calls this plugin's own api routes, and says how the answer reads.
+contributes:
+  tui:
+    commands:
+      - name: git
+        args: "<status|log|diff [path]>"
+        summary: the branch and its changes, its last commits, or the uncommitted diff
+        sub:
+          status:
+            summary: the branch, how far from its base, and the files that changed
+            call: { path: "/projects/{pid}/git/status" }
+            show: { title: "{branch} · base {base} · ahead {ahead} · behind {behind}", items: changes, line: "{status}  {path}", empty: "nothing changed" }
+          log:
+            summary: the last commits on this branch
+            call: { path: "/projects/{pid}/git/log" }
+            show: { items: ".", line: "{sha}  {date}  {author}  {subject}", max: 20 }
+          diff:
+            summary: the uncommitted changes as a diff (one file with a path)
+            call: { path: "/projects/{pid}/git/diff?path={arg}" }
+            show: { diff: diff, empty: "no uncommitted change" }
+    panel:
+      title: Branch
+      key: g
+      every: 10
+      call: { path: "/projects/{pid}/git/status" }
+      show: { title: "{branch} · base {base} · ↑{ahead} ↓{behind}", items: changes, line: "{status}  {path}", empty: "clean", max: 6 }

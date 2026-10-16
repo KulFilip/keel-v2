@@ -225,6 +225,7 @@ def _names(c: _Check, name: str, data: dict) -> None:
         for event in each(events.get("emits"), "contributes.events.emits"):
             if not isinstance(event, str) or not event.startswith(f"{name}."):
                 c.error(f"contributes.events.emits: '{event}' must start with '{name}.'")
+    _tui(c, name, contributes.get("tui"))
     mcp = contributes.get("mcp")
     if isinstance(mcp, dict):
         for mode in ("read", "act"):
@@ -233,6 +234,65 @@ def _names(c: _Check, name: str, data: dict) -> None:
                     c.error(f"contributes.mcp.{mode}: the agent tool '{tool}' must start with '{under}_'")
     elif mcp is not None:
         c.error("contributes.mcp must be a mapping")
+
+
+TUI_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+TUI_TAKEN_KEYS = {"a", "b", "c", "f", "u"}
+
+
+def _tui(c: _Check, name: str, tui) -> None:
+    """contributes.tui (docs/plugins/25-tui-plugins.md): keel TUI's commands and panel, as data. The api checks the same
+    (keel.api.tui.TuiPluginService): the names, only the plugin's own routes, and a question before a POST."""
+    if tui is None:
+        return
+    if not isinstance(tui, dict):
+        c.error("contributes.tui must be a mapping like { commands: [...], panel: {...} }")
+        return
+
+    def call(where: str, x, confirm) -> None:
+        if not isinstance(x, dict) or not isinstance(x.get("path"), str):
+            c.error(f"contributes.tui {where}: call needs a path")
+            return
+        method = x.get("method", "GET")
+        path = x["path"].split("?", 1)[0]
+        if method not in ("GET", "POST"):
+            c.error(f"contributes.tui {where}: the method is GET or POST")
+        if method == "POST" and not confirm:
+            c.error(f"contributes.tui {where} changes something (POST): it needs a confirm question")
+        if not (path.startswith(f"/projects/{{pid}}/{name}/") or path == f"/projects/{{pid}}/{name}" or path.startswith(f"/{name}/")) \
+                or ".." in x["path"] or "://" in x["path"] or "//" in x["path"]:
+            c.error(f"contributes.tui {where} may only call the plugin's own routes (/projects/{{pid}}/{name}/...), not {x['path']}")
+
+    commands = tui.get("commands") or []
+    if not isinstance(commands, list):
+        c.error("contributes.tui.commands must be a list")
+        commands = []
+    for cmd in commands:
+        if not isinstance(cmd, dict):
+            c.error("contributes.tui.commands: each command is a mapping")
+            continue
+        cname = cmd.get("name")
+        if not isinstance(cname, str) or not TUI_NAME.match(cname) or not (cname == name or cname.startswith(f"{name}-")):
+            c.error(f"contributes.tui.commands: '{cname}' must be named {name} or {name}-<word>")
+            continue
+        if not str(cmd.get("summary") or "").strip():
+            c.error(f"contributes.tui /{cname} needs a summary")
+        if ("sub" in cmd) == ("call" in cmd):
+            c.error(f"contributes.tui /{cname} has either sub (subcommands) or one call")
+        if "call" in cmd:
+            call(f"/{cname}", cmd["call"], cmd.get("confirm"))
+        for word, a in (cmd.get("sub") or {}).items():
+            call(f"/{cname} {word}", (a or {}).get("call"), (a or {}).get("confirm"))
+    panel = tui.get("panel")
+    if panel is not None:
+        if not isinstance(panel, dict) or not str(panel.get("title") or "").strip():
+            c.error("contributes.tui.panel needs a title")
+            return
+        if panel.get("key") is not None and (not re.match(r"^[a-z]$", str(panel["key"])) or panel["key"] in TUI_TAKEN_KEYS):
+            c.error(f"contributes.tui.panel: the key is one letter, not one of keel TUI's own ({', '.join(sorted(TUI_TAKEN_KEYS))})")
+        if (panel.get("call") or {}).get("method", "GET") != "GET":
+            c.error("contributes.tui.panel only reads (GET)")
+        call("panel", panel.get("call"), None)
 
 
 def _permissions(c: _Check, name: str, data: dict) -> dict:
