@@ -90,6 +90,7 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 | Command | What it does |
 |---|---|
 | `keel2 start [folder]` | start keel |
+| `keel2` | keel in your terminal: KeelBot, flows, gates, live agents and diagrams, with `/` commands (also `keel2 tui`) |
 | `keel2 stop` | stop keel |
 | `keel2 add <folder> [<folder> …]` | add more projects (each a git repo, or a folder of repos) |
 | `keel2 folders` | which project folders keel has |
