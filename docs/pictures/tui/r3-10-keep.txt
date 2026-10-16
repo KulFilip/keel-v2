@@ -1,0 +1,9 @@
+… (97 lines above: the capture before)
+
+ › /keep src/scores/helper_fix.py
+✓ kept 1 file(s): feat(AC-1): Add the small helper the gate asks for. 22e9894 · tools: not
+installed: ruff-fix (22e9894)
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase gate · AC 0/2 · 1 waiting · 278.1k…

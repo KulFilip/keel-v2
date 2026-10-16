@@ -1,0 +1,30 @@
+… (62 lines above: the capture before)
+
+ › /approve
+◆ contract_gate approved
+◆ agent test-author started · red · AC-1 · fake/fake
+✓ approved contract delta. The flow is running at contract_commit (phase contract).
+◆ agent implementer started · green · AC-1 · fake/fake
+◆ agent ac-reviewer started · ac_review · AC-1 · fake/fake
+◆ waiting for you: AC gate · AC-1 · /approve or /reject <why> (/next says more)
+
+ › /next
+waiting at ac_gate (AC gate · AC-1) for AC-1: /approve or /reject <why>.
+
+ › /mode fix
+✓ KeelBot: fix mode (a new chat starts with the next message).
+
+ › Add the small helper the gate asks for.
+
+  > keel_next (keel) {}                                                                       0.0s ✓
+  > read README.md                                                                            0.0s ✓
+  * write src/scores/helper_fix.py                                                                 ✓
+         @@ -0,0 +1,2 @@
+       1 +def helped():
+       2 +    return "fixed by KeelBot"
+  Changed src/scores/helper_fix.py: a small helper the gate asked
+◜∼ Mooring… (0s · ~26 tokens · esc to interrupt)
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase gate · AC 0/2 · 1 waiting · 278.1k…

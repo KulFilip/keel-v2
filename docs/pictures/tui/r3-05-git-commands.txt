@@ -1,0 +1,15 @@
+… (52 lines above: the capture before)
+
+ › /git status
+feat/add-a-health-endpoint-that-answers-ok-tr · base main · ahead 0 · behind 0
+??  docs/contract/add-a-health-endpoint-that-answers-ok-true.md
+
+ › /git log
+eec47ca  2026-10-16  check  Initial commit
+
+ › /git diff
+no uncommitted change
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

@@ -39,6 +39,11 @@ KeelBot
   /new                                 a new KeelBot chat
   /mode <ask|fix>                      KeelBot's mode: ask (reads, changes nothing) or fix (keel's
 rules apply)
+  /changes                             the files KeelBot changed in this chat (Fix, Side), with
+their diffs
+  /keep [path|all]                     keep KeelBot's change: the checks run, then keel commits it
+(one file, or all)
+  /undo [path|all]                     put KeelBot's change back (one file, or all)
 
 Screen
   /help                                what keel TUI can do

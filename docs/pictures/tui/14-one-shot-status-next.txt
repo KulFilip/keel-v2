@@ -1,5 +1,5 @@
 project   scratch · branch feat/add-a-health-endpoint-that-answers-ok-tr
-flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok": true}" · ◆ waiting · thread 7029357521c342c8a07ab27fe58b6b8e
+flow      feature (keel) (feature) · "Add a /health endpoint that answers {"ok": true}" · ◆ waiting · thread 94557d5a134943fdbfa51061f41e6f6b
 step      contract_gate · phase contract
 criteria  0/2 done
   [todo]        AC-1 API  Add a /health endpoint that answers {"ok": true}: the main case works

@@ -1,7 +1,7 @@
-… (396 lines above: the capture before)
+… (401 lines above: the capture before)
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/flows[22m                                                                                           [49m
-[38;2;107;103;95m7029357521c342c8a07ab27fe58b6b8e[39m  [38;2;164;139;255mfeature[39m [1m"Add a /health endpoint that answers {"ok": true}"[22m · [1m[38;2;233;181;58m◆ [39m[22m
+[38;2;107;103;95m94557d5a134943fdbfa51061f41e6f6b[39m  [38;2;164;139;255mfeature[39m [1m"Add a /health endpoint that answers {"ok": true}"[22m · [1m[38;2;233;181;58m◆ [39m[22m
 waiting at contract_gate · criteria 0/2 · [38;2;154;149;140m194,100 tokens · $0.00 · folder[39m [7m[38;2;164;139;255m latest [39m[27m
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/inbox[22m                                                                                           [49m
@@ -16,18 +16,18 @@ waiting at contract_gate · criteria 0/2 · [38;2;154;149;140m194,100 tokens ·
 [1m[38;2;233;181;58m/approve <n>[39m[22m or [1m[38;2;233;181;58m/reject <n> <why>[39m[22m answers one; [38;2;164;139;255mCtrl+B[39m keeps the inbox on screen.
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/jobs[22m                                                                                            [49m
-[38;2;78;192;124m✔ done[39m [1mhelper[22m · helper · [38;2;154;149;140mfake/fake · 23,000 tokens · $0.00 · 10-16 16:40:08[39m [38;2;107;103;95mjob [39m
-1ef6f0a079ae4d4d85a8e1ec100abcdd
-[38;2;78;192;124m✔ done[39m [1mcontract-author[22m · contract · [38;2;154;149;140mfake/fake · 18,000 tokens · $0.00 · 10-16 16:40:03[39m [38;2;107;103;95mjob [39m
-64458b2b3ffd45d3b92edcd7a74942c1
-[38;2;78;192;124m✔ done[39m [1mexplorer[22m · plan · [38;2;154;149;140mfake/fake · 44,000 tokens · $0.00 · 10-16 16:40:00[39m [38;2;107;103;95mjob [39m
-9c29831f226b4460bbd824f8ffc2df74
-[38;2;78;192;124m✔ done[39m [1mexplorer[22m · explore · [38;2;154;149;140mfake/fake · 44,100 tokens · $0.00 · 10-16 16:40:00[39m [38;2;107;103;95mjob [39m
-06b38566a1724eef9a8201a1e60c32c8
-[38;2;78;192;124m✔ done[39m [1mexplorer[22m · explore · [38;2;154;149;140mfake/fake · 44,000 tokens · $0.00 · 10-16 16:40:00[39m [38;2;107;103;95mjob [39m
-f5a894d01fd341c8b1e3a5e4db400264
-[38;2;78;192;124m✔ done[39m [1mexplorer[22m · spec · [38;2;154;149;140mfake/fake · 44,000 tokens · $0.00 · 10-16 16:39:59[39m [38;2;107;103;95mjob [39m
-9a7f64d272c34dc3ab061a06249ad2d5
+[38;2;78;192;124m✔ done[39m [1mhelper[22m · helper · [38;2;154;149;140mfake/fake · 23,000 tokens · $0.00 · 10-16 17:33:57[39m [38;2;107;103;95mjob [39m
+523e23e2030e4ab78c8dceb3b2593726
+[38;2;78;192;124m✔ done[39m [1mcontract-author[22m · contract · [38;2;154;149;140mfake/fake · 18,000 tokens · $0.00 · 10-16 17:33:52[39m [38;2;107;103;95mjob [39m
+8dd71183cd704dc9a6c5d40a356a2bb6
+[38;2;78;192;124m✔ done[39m [1mexplorer[22m · plan · [38;2;154;149;140mfake/fake · 44,000 tokens · $0.00 · 10-16 17:33:49[39m [38;2;107;103;95mjob [39m
+5ef66f17053848feadcb12d0a4d1e423
+[38;2;78;192;124m✔ done[39m [1mexplorer[22m · explore · [38;2;154;149;140mfake/fake · 44,100 tokens · $0.00 · 10-16 17:33:49[39m [38;2;107;103;95mjob [39m
+e81a9b1688f847a1b3a8552ea384509a
+[38;2;78;192;124m✔ done[39m [1mexplorer[22m · explore · [38;2;154;149;140mfake/fake · 44,000 tokens · $0.00 · 10-16 17:33:49[39m [38;2;107;103;95mjob [39m
+540ec690811f4e24a75d604956de97f3
+[38;2;78;192;124m✔ done[39m [1mexplorer[22m · spec · [38;2;154;149;140mfake/fake · 44,000 tokens · $0.00 · 10-16 17:33:48[39m [38;2;107;103;95mjob [39m
+64f33e6998814d0a9a08d68bd4e4acf1
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/rules[22m                                                                                           [49m
 keel's rules for [1mscratch[22m [38;2;154;149;140m(saved in .keel/config.yml and .keel/rules/)[39m:

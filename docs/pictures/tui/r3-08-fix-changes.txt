@@ -1,0 +1,16 @@
+… (78 lines above: the capture before)
+  > keel_next (keel) {}                                                                       0.0s ✓
+  > read README.md                                                                            0.0s ✓
+  * write src/scores/helper_fix.py                                                                 ✓
+  Changed src/scores/helper_fix.py: a small helper the gate asked for.
+  ✓ Finished in 0.5s · KeelBot · fake/fake · 23.0k tokens
+1 file(s) changed · not kept yet
+A src/scores/helper_fix.py  +2 -0
+       @@ -0,0 +1,2 @@
+     1 +def helped():
+     2 +    return "fixed by KeelBot"
+/keep [path|all] runs the checks and commits · /undo [path|all] · /changes
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase gate · AC 0/2 · 1 waiting · 278.1k…

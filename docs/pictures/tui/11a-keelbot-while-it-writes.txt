@@ -1,12 +1,11 @@
-… (360 lines above: the capture before)
+… (365 lines above: the capture before)
 
  › Where does this project start, and what is in it?
 
   > keel_next (keel) {}                                                                       0.0s ✓
   > read README.md                                                                            0.0s ✓
-  You asked: Where does this project start, and what is in it?
-  The package starts in src/scores/__init__.py:1.
-◟≈ Hoisting… (0s · ~49 tokens · esc to interrupt)
+  You asked: Where does this project start,
+◞∼ Mooring… (0s · ~31 tokens · esc to interrupt)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Flow · feature "Add a /health endpoint that answers {"ok": true}" · ◆ waiting                    │
 │ ✔ preflight  ✔ spec  ◆ contract  · red  · green  · gate  · integration  · security  ·            │

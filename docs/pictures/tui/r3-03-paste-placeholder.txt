@@ -1,0 +1,4 @@
+… (36 lines above: the capture before)
+│ › Explain this:[pasted 40 lines #1]                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

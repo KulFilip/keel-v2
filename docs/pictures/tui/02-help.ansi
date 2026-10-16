@@ -39,6 +39,11 @@ right now
   [1m[38;2;164;139;255m/new[39m[22m                                 [38;2;154;149;140ma new KeelBot chat[39m
   [1m[38;2;164;139;255m/mode[39m[22m [38;2;232;192;122m<ask|fix>[39m                      [38;2;154;149;140mKeelBot's mode: ask (reads, changes nothing) or fix (keel's [39m
 rules apply)
+  [1m[38;2;164;139;255m/changes[39m[22m                             [38;2;154;149;140mthe files KeelBot changed in this chat (Fix, Side), with [39m
+their diffs
+  [1m[38;2;164;139;255m/keep[39m[22m [38;2;232;192;122m[path|all][39m                     [38;2;154;149;140mkeep KeelBot's change: the checks run, then keel commits it [39m
+(one file, or all)
+  [1m[38;2;164;139;255m/undo[39m[22m [38;2;232;192;122m[path|all][39m                     [38;2;154;149;140mput KeelBot's change back (one file, or all)[39m
 
 [1m[38;2;233;181;58mScreen[39m[22m
   [1m[38;2;164;139;255m/help[39m[22m                                [38;2;154;149;140mwhat keel TUI can do[39m

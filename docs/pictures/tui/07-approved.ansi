@@ -1,10 +1,10 @@
-… (155 lines above: the capture before)
+… (160 lines above: the capture before)
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/approve[22m                                                                                         [49m
 [38;2;78;192;124m◆ spec_gate approved[39m
 [38;2;78;192;124m◆ options approved — "chosen at spec_gate"[39m
 [38;2;164;139;255m◆ agent contract-author started · contract · fake/fake[39m
-[38;2;78;192;124m✓ approved spec approval. The flow is running at contract (phase contract).[39m
+[38;2;78;192;124m✓ approved spec approval. The flow is running at options (phase spec).[39m
 [1m[38;2;233;181;58m◆ waiting for you: contract delta · /approve or /reject <why> (/next says more)[39m[22m
 [38;2;61;61;67m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐[39m
 [38;2;61;61;67m│[39m [1mFlow · [38;2;164;139;255mfeature[39m "Add a /health endpoint that answers {"ok": true}" · [38;2;233;181;58m◆ waiting[39m[22m                    [38;2;61;61;67m│[39m

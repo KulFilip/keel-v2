@@ -1,9 +1,9 @@
-… (140 lines above: the capture before)
+… (145 lines above: the capture before)
 [38;2;154;149;140m  Run with the fake model anyway? → Yes, start it[39m
 [38;2;164;139;255m◆ flow started via keel TUI: feature "Add a /health endpoint that answers {"ok": true}"[39m
 [38;2;164;139;255m◆ agent explorer started · spec · fake/fake[39m
 [38;2;78;192;124m✓ started feature "Add a /health endpoint that answers {"ok": true}" on scratch (thread [39m
-[38;2;78;192;124m7029357521c342c8a07ab27fe58b6b8e), recorded as started via keel TUI.[39m
+[38;2;78;192;124m94557d5a134943fdbfa51061f41e6f6b), recorded as started via keel TUI.[39m
 [38;2;78;192;124mIt is running at - (phase none); it runs until its first gate for you.[39m
 [38;2;78;192;124mFollow it: Ctrl+F (flow rail), /live (agents), /next.[39m
 [38;2;164;139;255m◆ agent explorer started · explore · fake/fake[39m

@@ -1,0 +1,22 @@
+… (35 lines above: the capture before)
+
+ › Explain this:[pasted 40 lines #1]
+  > keel_next (keel) {}                                                                       0.0s ✓
+  > read README.md                                                                            0.0s ✓
+  You asked: Explain this:
+  The package starts in src/scores/__init__.py:1. This is answer 2 of this session.
+
+  Where to look
+
+    • entry: run() in src/scores/__init__.py:1
+    • the tests: tests/test_scores.py:3
+
+    python
+    │ def run(players: list[str]) -> dict:
+    │     # rank the players, best first
+    │     return {"ok": True, "count": len(players)}
+  ✓ Finished in 2.5s · KeelBot · fake/fake · 23.0k tokens
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase contract · AC 0/2 · 1 waiting · 19…

@@ -1,9 +1,9 @@
-… (377 lines above: the capture before)
+… (382 lines above: the capture before)
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/status[22m                                                                                          [49m
 [38;2;164;139;255mproject[39m   [1mscratch[22m · branch [38;2;87;174;255mfeat/add-a-health-endpoint-that-answers-ok-tr[39m
 [38;2;164;139;255mflow[39m      [1mfeature (keel) (feature)[22m · "Add a /health endpoint that answers {"ok": true}" · [1m[38;2;233;181;58m◆ waiting[39m[22m
-· [38;2;107;103;95mthread 7029357521c342c8a07ab27fe58b6b8e[39m
+· [38;2;107;103;95mthread 94557d5a134943fdbfa51061f41e6f6b[39m
 [38;2;164;139;255mstep[39m      contract_gate · phase [1mcontract[22m
 [38;2;164;139;255mcriteria[39m  0/2 done
   [38;2;154;149;140m[todo]        [39m[1mAC-1[22m [38;2;154;149;140mAPI[39m  Add a /health endpoint that answers {"ok": true}: the main case works

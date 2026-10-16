@@ -1,7 +1,7 @@
-… (396 lines above: the capture before)
+… (401 lines above: the capture before)
 
  › /flows
-7029357521c342c8a07ab27fe58b6b8e  feature "Add a /health endpoint that answers {"ok": true}" · ◆
+94557d5a134943fdbfa51061f41e6f6b  feature "Add a /health endpoint that answers {"ok": true}" · ◆
 waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00 · folder  latest
 
  › /inbox
@@ -16,18 +16,18 @@ waiting at contract_gate · criteria 0/2 · 194,100 tokens · $0.00 · folder  l
 /approve <n> or /reject <n> <why> answers one; Ctrl+B keeps the inbox on screen.
 
  › /jobs
-✔ done helper · helper · fake/fake · 23,000 tokens · $0.00 · 10-16 16:40:08 job
-1ef6f0a079ae4d4d85a8e1ec100abcdd
-✔ done contract-author · contract · fake/fake · 18,000 tokens · $0.00 · 10-16 16:40:03 job
-64458b2b3ffd45d3b92edcd7a74942c1
-✔ done explorer · plan · fake/fake · 44,000 tokens · $0.00 · 10-16 16:40:00 job
-9c29831f226b4460bbd824f8ffc2df74
-✔ done explorer · explore · fake/fake · 44,100 tokens · $0.00 · 10-16 16:40:00 job
-06b38566a1724eef9a8201a1e60c32c8
-✔ done explorer · explore · fake/fake · 44,000 tokens · $0.00 · 10-16 16:40:00 job
-f5a894d01fd341c8b1e3a5e4db400264
-✔ done explorer · spec · fake/fake · 44,000 tokens · $0.00 · 10-16 16:39:59 job
-9a7f64d272c34dc3ab061a06249ad2d5
+✔ done helper · helper · fake/fake · 23,000 tokens · $0.00 · 10-16 17:33:57 job
+523e23e2030e4ab78c8dceb3b2593726
+✔ done contract-author · contract · fake/fake · 18,000 tokens · $0.00 · 10-16 17:33:52 job
+8dd71183cd704dc9a6c5d40a356a2bb6
+✔ done explorer · plan · fake/fake · 44,000 tokens · $0.00 · 10-16 17:33:49 job
+5ef66f17053848feadcb12d0a4d1e423
+✔ done explorer · explore · fake/fake · 44,100 tokens · $0.00 · 10-16 17:33:49 job
+e81a9b1688f847a1b3a8552ea384509a
+✔ done explorer · explore · fake/fake · 44,000 tokens · $0.00 · 10-16 17:33:49 job
+540ec690811f4e24a75d604956de97f3
+✔ done explorer · spec · fake/fake · 44,000 tokens · $0.00 · 10-16 17:33:48 job
+64f33e6998814d0a9a08d68bd4e4acf1
 
  › /rules
 keel's rules for scratch (saved in .keel/config.yml and .keel/rules/):

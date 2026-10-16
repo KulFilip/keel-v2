@@ -1,0 +1,13 @@
+… (89 lines above: the capture before)
+
+ › /changes
+A src/scores/helper_fix.py  +2 -0
+       @@ -0,0 +1,2 @@
+     1 +def helped():
+     2 +    return "fixed by KeelBot"
+
+/keep [path|all] · /undo [path|all]
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ›  A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+scratch (feat/add-a-health-endpoint-…) · feature waiting · phase gate · AC 0/2 · 1 waiting · 278.1k…

@@ -1,0 +1,29 @@
+> @snap 01-start
+snap 01-start -> /tmp/keel-tui-prof/01-start.txt
+> /help
+> @snap 02-help
+snap 02-help -> /tmp/keel-tui-prof/02-help.txt
+> /flows
+> /status
+> @snap 03-flows-status
+snap 03-flows-status -> /tmp/keel-tui-prof/03-flows-status.txt
+> /workflows feature
+> @snap 04-workflow
+snap 04-workflow -> /tmp/keel-tui-prof/04-workflow.txt
+> /next
+> /timeline
+> @snap 05-next-timeline
+snap 05-next-timeline -> /tmp/keel-tui-prof/05-next-timeline.txt
+keel TUI profile
+  startup     419 ms to the start screen
+  api calls   p50 17.9 ms · p95 123.1 ms · max 128.3 ms (24)
+    GET /api/projects/{id}/flow                      p50 110.4 ms · p95 128.3 ms · max 128.3 ms (3)
+    GET /api/inbox                                   p50 23 ms · p95 123.1 ms · max 123.1 ms (3)
+    GET /api/threads/{id}/history                    p50 34.4 ms · p95 35.8 ms · max 35.8 ms (4)
+    GET /api/projects/{id}/workflows                 p50 71.6 ms · p95 71.6 ms · max 71.6 ms (1)
+    GET /api/projects                                p50 8 ms · p95 21.9 ms · max 21.9 ms (4)
+  live events none late
+  frames      p50 3.1 ms · p95 33.4 ms · max 90.8 ms (36)
+  memory      rss up to 106.6 MB · heap up to 24.7 MB
+  saved       /tmp/keel-tui-profiles/profile-2026-10-16T17-34-48-924Z.json (on this computer only)
+  The profile is on this computer now: /tmp/keel-tui-check.g2Qy7s/state/keel2/tui-profiles/profile-2026-10-16T17-34-48-924Z.json

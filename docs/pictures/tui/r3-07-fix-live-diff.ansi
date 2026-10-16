@@ -1,0 +1,30 @@
+… (62 lines above: the capture before)
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/approve[22m                                                                                         [49m
+[38;2;78;192;124m◆ contract_gate approved[39m
+[38;2;164;139;255m◆ agent test-author started · red · AC-1 · fake/fake[39m
+[38;2;78;192;124m✓ approved contract delta. The flow is running at contract_commit (phase contract).[39m
+[38;2;164;139;255m◆ agent implementer started · green · AC-1 · fake/fake[39m
+[38;2;164;139;255m◆ agent ac-reviewer started · ac_review · AC-1 · fake/fake[39m
+[1m[38;2;233;181;58m◆ waiting for you: AC gate · AC-1 · /approve or /reject <why> (/next says more)[39m[22m
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/next[22m                                                                                            [49m
+[38;2;233;181;58mwaiting at ac_gate (AC gate · AC-1)[39m for AC-1: [1m[38;2;233;181;58m/approve[39m[22m or [1m[38;2;233;181;58m/reject <why>[39m[22m.
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39m/mode fix[22m                                                                                        [49m
+[38;2;78;192;124m✓ KeelBot: fix mode (a new chat starts with the next message).[39m
+
+[48;2;38;38;39m[1m[38;2;164;139;255m › [39mAdd the small helper the gate asks for.[22m                                                          [49m
+
+  [38;2;107;103;95m>[39m [38;2;107;103;95mkeel_next (keel) {}[39m                                                                       [38;2;107;103;95m0.0s [38;2;78;192;124m✓[39m
+  [38;2;107;103;95m>[39m [38;2;107;103;95mread README.md[39m                                                                            [38;2;107;103;95m0.0s [38;2;78;192;124m✓[39m
+  [38;2;107;103;95m*[39m [38;2;247;246;243mwrite src/scores/helper_fix.py[39m                                                                 [38;2;78;192;124m✓[39m
+    [38;2;107;103;95m     [38;2;224;161;58m@@ -0,0 +1,2 @@[39m
+    [38;2;107;103;95m   1 [38;2;78;192;124m+def helped():[39m
+    [38;2;107;103;95m   2 [38;2;78;192;124m+    return "fixed by KeelBot"[39m
+  Changed src/scores/helper_fix.py: a small helper the gate asked
+[1m[38;2;164;139;255m◜∼ [22mMooring…[38;2;154;149;140m (0s · ~26 tokens · esc to interrupt)[39m
+[38;2;233;181;58m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;2;233;181;58m│[39m [1m[38;2;164;139;255m› [39m[22m[7m [27m[38;2;154;149;140mA gate waits for you: /approve, /reject <why>, /next … or ask KeelBot[39m                         [38;2;233;181;58m│[39m
+[38;2;233;181;58m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[1m[38;2;247;246;243mscratch (feat/add-a-health-endpoint-…)[22m[38;2;107;103;95m · [38;2;233;181;58mfeature waiting[38;2;107;103;95m · [38;2;154;149;140mphase gate[38;2;107;103;95m · [38;2;154;149;140mAC 0/2[38;2;107;103;95m · [1m[38;2;233;181;58m1 waiting[22m[38;2;107;103;95m · [38;2;154;149;140m278.1k[39m…[0m

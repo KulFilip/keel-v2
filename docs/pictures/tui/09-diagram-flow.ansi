@@ -1,4 +1,4 @@
-… (165 lines above: the capture before)
+… (170 lines above: the capture before)
 
 [48;2;38;38;39m[1m[38;2;164;139;255m › [39m/diagram flow[22m                                                                                    [49m
  [38;2;164;139;255mflow[39m feature "Add a /health endpoint that answers {"ok": true}" - waiting at contract_gate - phase

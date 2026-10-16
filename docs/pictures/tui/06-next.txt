@@ -1,4 +1,4 @@
-… (151 lines above: the capture before)
+… (156 lines above: the capture before)
 
  › /next
 waiting at spec_gate (spec approval): /approve, /reject <why> or /answer <edit | rewrite | review |
