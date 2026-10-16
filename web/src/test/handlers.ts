@@ -344,8 +344,18 @@ export function handlers(db: Db) {
         agents: [...yaml.matchAll(/agent: ([\w-]+)/g)].map((m) => m[1]), mcp: [], tools: [],
         commands: [...yaml.matchAll(/action: "run: ([^"]+)"/g)].map((m) => m[1]), edits_files: false,
         valid: !yaml.includes("INVALID"), errors: yaml.includes("INVALID") ? ["Step 'look': INVALID is not a step kind."] : [], warnings: [],
+        lines: yaml.includes("INVALID") ? [{ line: lines.findIndex((l) => l.includes("INVALID")) + 1, message: "Step 'look': INVALID is not a step kind." }] : [],
       };
       return HttpResponse.json(check);
+    }),
+    // 0.17.4 New workflow's "a small example" (the engine's starter, in short)
+    http.get("/api/projects/:pid/workflows/starter", ({ request, params }) => {
+      const q = new URL(request.url).searchParams;
+      const name = q.get("name") || "My workflow";
+      const id = `${String(params.pid)}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      return HttpResponse.json({ id, yaml: `# ${name}: a small workflow to start from. Change it, then Save.\n\nid: ${id}\nname: ${name}\nversion: 1\n` +
+        `keel_rules: ${q.get("keel_rules") ?? "true"}\n\nsteps:\n\n  - id: plan\n    kind: agent\n    name: plan\n    agent: explorer\n\n` +
+        `  - id: plan_ok\n    kind: gate\n    name: plan approval\n    back: plan\n    lock: true\n` });
     }),
     http.put("/api/projects/:pid/workflows/:wid/folder", async ({ request, params }) => {
       const { folder } = (await log(request)) as { folder: string };

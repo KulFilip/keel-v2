@@ -10,10 +10,12 @@
 // a template says it can't be deleted and offers a copy. YAML of another workflow (another id) is imported, not saved.
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, errorParts, type Agent, type Estimate, type OnCap, type Step, type StepKind, type Workflow } from "../api";
+import { api, errorLines, errorParts, type Agent, type Estimate, type OnCap, type Step, type StepKind, type Workflow } from "../api";
 import { Blocks, BlocksLegend, Palette, StepTable, type BlocksHandle } from "../components/Blocks";
 import { useBuilder, type BuilderApi } from "../components/Builder";
 import { clone, same, updateStep } from "../components/builderOps";
+import { CodeEditor, type LineError } from "../components/CodeEditor";
+import { WorkflowHelp } from "../components/WorkflowHelp";
 import { buildFlowMap, exitsOf, PHASES, phaseMeaning, phaseTitle, sumOf } from "../components/flowmap";
 import { Graph, GraphLegend } from "../components/Graph";
 import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
@@ -256,6 +258,11 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
   const currentYaml = w ? (yamlText ?? (stepsDirty || !w.yaml ? toYaml(w) : w.yaml)) : "";
   // keel tells workflows apart by id (a new name alone is a rename): YAML with another id is another workflow
   const otherId = yamlText !== null ? otherWorkflowId(yamlText, wid, saved?.yaml) : null;
+  // each error at its line: keel's check of the typed YAML (600 ms after the last key), or a refused save's lines
+  const checked = useYamlCheck(pid, yamlText !== null && !otherId ? yamlText : null);
+  const [saveLines, setSaveLines] = useState<LineError[]>([]);
+  useEffect(() => setSaveLines([]), [draft]); // a change in the blocks: the refused save's lines no longer fit
+  const marks = otherId ? [] : yamlText !== null && checked ? checked : saveLines;
   const [importing, setImporting] = useState(false);
   const [importErr, setImportErr] = useState<{ message: string; hint?: string } | null>(null);
   const select = (id: string | null) => { setSel(id); if (id) setSide((s) => (s === "estimate" ? "block" : s)); };
@@ -274,11 +281,13 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
   const listed: Workflow = { ...w, market: row?.market ?? w.market ?? null };
 
   const save = async () => {
-    if (otherId) return;
+    if (otherId || marks.length) return;
     setBusy(true);
     setErr(null);
+    setSaveLines([]);
     try {
       // A hand-edited YAML is the source of truth: the api validates it with the engine and sends back the parsed steps.
+      // It comes back as keel writes it (key order, 2-space indent, comments kept): the YAML tab shows that.
       const out = await api.saveWorkflow({ ...w, yaml: yamlText ?? toYaml(w) });
       setYamlText(null);
       loaded.setData(out);
@@ -287,6 +296,7 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
       toast(`Saved as version ${out.version}. New flows use it; running flows keep their version.`);
     } catch (e) {
       setErr(errorParts(e));
+      setSaveLines(errorLines(e));
     } finally {
       setBusy(false);
     }
@@ -350,8 +360,9 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
                 }} /> keel rules {w.keel_rules ? "on" : "off"}</label>
               {dirty ? <span className="hint amber wf-dirty">unsaved changes</span> : <span className="hint">saved</span>}
               {dirty && <button className="btn sm ghost" type="button" onClick={discard}>Discard</button>}
-              <button className="btn primary" type="button" onClick={save} disabled={busy || !dirty || !!otherId}
-                title={otherId ? "This YAML is another workflow: use Import" : undefined}>{busy ? "Saving…" : dirty ? "Save" : "Saved"}</button>
+              <button className="btn primary" type="button" onClick={save} disabled={busy || !dirty || !!otherId || marks.length > 0}
+                title={otherId ? "This YAML is another workflow: use Import" : marks.length ? "Fix the marked lines in the YAML first" : undefined}>
+                {busy ? "Saving…" : dirty ? "Save" : "Saved"}</button>
             </div>
           </div>
           <div className="wf-top-row">
@@ -381,9 +392,8 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
             <section className="panel wf-yaml" aria-label="YAML">
               <div className="panel-body grid" style={{ gap: 8 }}>
                 <label htmlFor="wyaml" className="sub">Edit the workflow as text. Save checks it with the engine; problems show below. {dirty ? "(with your unsaved changes)" : `(version ${w.version})`}</label>
-                <textarea id="wyaml" className="yaml-edit" spellCheck={false} value={currentYaml}
-                  aria-invalid={err?.details?.length ? true : undefined} aria-describedby={err ? "wyaml-err" : undefined}
-                  onChange={(e) => setYamlText(e.target.value)} />
+                <CodeEditor id="wyaml" value={currentYaml} rows={24} errors={marks} onChange={(v) => { setYamlText(v); setSaveLines([]); }} />
+                {marks.length > 0 && <span className="hint amber">Save waits until the marked lines are fixed.</span>}
                 {otherId ? (
                   <div id="wyaml-err" className="errbox" role="alert">
                     <b>This YAML is a different workflow (id {otherId}). Use Import to add it as a new workflow.</b>
@@ -393,8 +403,9 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
                       <button className="btn sm ghost" type="button" onClick={discard} disabled={importing}>Discard the YAML</button>
                     </span>
                   </div>
-                ) : err && <div id="wyaml-err"><ErrorBox error={err} /></div>}
-                {yamlText !== null && !otherId && <span className="hint">The blocks show your YAML after you save.</span>}
+                ) : err && <div id="wyaml-err"><ErrorBox error={marks.length ? { message: err.message, hint: `The marked lines say why (${marks.length}).` } : err} /></div>}
+                {yamlText !== null && !otherId && <span className="hint">The blocks show your YAML after you save. Save writes it as keel does: the documented key order, 2-space indent, your comments kept.</span>}
+                <WorkflowHelp />
               </div>
             </section>
           ) : view === "graph" ? (
@@ -583,6 +594,30 @@ function useDraftEstimate(pid: string, yaml: string | null, acs: number) {
     };
   }, [pid, yaml, acs]);
   return { est, error };
+}
+
+/** keel's check of YAML typed in the YAML tab (POST …/workflows/check, 600 ms after the last change): each error at its
+ *  line. null: nothing to check, or no answer yet (the last answer stays until the next one comes). */
+function useYamlCheck(pid: string, yaml: string | null): LineError[] | null {
+  const [lines, setLines] = useState<LineError[] | null>(null);
+  useEffect(() => {
+    if (yaml === null) {
+      setLines(null);
+      return;
+    }
+    let gone = false;
+    const t = window.setTimeout(() => {
+      api.checkWorkflow(pid, yaml).then(
+        (c) => { if (!gone) setLines(c.valid ? [] : c.lines?.length ? c.lines : c.errors.map((message) => ({ line: 1, message }))); },
+        () => { if (!gone) setLines(null); },
+      );
+    }, 600);
+    return () => {
+      gone = true;
+      window.clearTimeout(t);
+    };
+  }, [pid, yaml]);
+  return lines;
 }
 
 const ON_LIMIT: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to a cheaper model"], ["stop", "stop the step"]];

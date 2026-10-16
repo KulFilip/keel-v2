@@ -13,6 +13,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type Agent, type Workflow } from "../api";
+import { CodeEditor } from "../components/CodeEditor";
 import { Graph } from "../components/Graph";
 import { TrustTag } from "../components/Permissions";
 import { Drawer, ErrorBox, Loading, Pill } from "../components/ui";
@@ -628,7 +629,7 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
           )}
           <details className="wfm-yaml">
             <summary>The YAML</summary>
-            <pre className="mono" aria-label={`YAML of ${title}`}>{w.yaml}</pre>
+            <CodeEditor id="wfm-yaml" label={`YAML of ${title}`} value={w.yaml ?? ""} onChange={() => undefined} readOnly rows={18} />
           </details>
         </Section>
       </div>

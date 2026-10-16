@@ -88,7 +88,15 @@ export type RunRow = {
 export type WorkflowCheck = {
   name: string; steps: number; gates: number; keel_rules: boolean; agents: string[]; mcp: string[]; tools: string[];
   commands: string[]; edits_files: boolean; valid: boolean; errors: string[]; warnings: string[];
+  /** 0.17.4 each error at its line of the YAML (the editor marks it) */
+  lines?: { line: number; message: string }[];
 };
+
+/** 0.17.4 the lines a refused workflow save or import names (its 400/422 body's `lines`), or none. */
+export function errorLines(err: unknown): { line: number; message: string }[] {
+  const lines = err instanceof ApiError ? err.body?.lines : undefined;
+  return Array.isArray(lines) ? lines.filter((l): l is { line: number; message: string } => typeof l?.line === "number") : [];
+}
 
 /** v0.3: "already-met" = an earlier criterion's code already covers it (shown like done, own label). */
 export type AcStatus = "todo" | "red" | "green" | "done" | "already-met";
@@ -950,6 +958,9 @@ export const api = {
 
   // workflows
   workflows: (pid: string) => get<Workflow[]>(`/projects/${e(pid)}/workflows`),
+  /** 0.17.4 what New workflow's "a small example" makes: the engine's starter with the id it would get */
+  workflowStarter: (pid: string, name: string, keelRules: boolean) =>
+    get<{ id: string; yaml: string }>(`/projects/${e(pid)}/workflows/starter?name=${e(name)}&keel_rules=${keelRules}`),
   newWorkflow: (pid: string, body: { name: string; from: string; keel_rules: boolean }) =>
     post<Workflow>(`/projects/${e(pid)}/workflows`, body),
   workflow: (wid: string) => get<Workflow>(`/workflows/${e(wid)}`),

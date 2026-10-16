@@ -133,6 +133,10 @@ describe("A workflow's page", () => {
     const yaml = screen.getByText("The YAML").closest("details")!;
     expect(yaml).not.toHaveAttribute("open");
     expect(within(yaml).getByLabelText("YAML of Release notes")).toHaveTextContent("agent: release-writer");
+    // keel's code editor, read only (0.17.4)
+    expect(within(yaml).getByLabelText("YAML of Release notes")).toHaveClass("ce-input");
+    expect(within(yaml).getByLabelText("YAML of Release notes")).toHaveAttribute("readonly");
+    expect(yaml.querySelector(".ce-gutter")).not.toBeNull();
 
     const review = screen.getByRole("region", { name: "Install review" });
     const list = within(review).getByRole("list", { name: "Install review" });
