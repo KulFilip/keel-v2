@@ -7,7 +7,7 @@ const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
 export function eventLine(ev: EngineEvent): { k: string; text: string } {
   const d = ev.data ?? {};
   switch (ev.type) {
-    case "thread.started": return { k: "flow", text: d.via === "mcp" ? "flow started via MCP" : "flow started" };
+    case "thread.started": return { k: "flow", text: d.via === "mcp" ? "flow started via MCP" : d.via === "tui" ? "flow started via keel TUI" : "flow started" };
     case "step.started": return { k: "phase", text: `${ev.step ?? "step"} started` };
     case "step.finished": return { k: "phase", text: `${ev.step ?? "step"} finished${d.status ? " · " + str(d.status) : ""}` };
     case "helper.started":
@@ -24,6 +24,8 @@ export function eventLine(ev: EngineEvent): { k: string; text: string } {
     case "helper.permission.answered": return { k: "gate", text: `KeelBot's command ${str(d.decision) === "deny" ? "refused" : "allowed"}${d.why ? ` — "${str(d.why)}"` : ""}` };
     case "helper.commit": return { k: "commit", text: `KeelBot's change committed: ${str(d.message)}` };
     case "mcp.call": return { k: "mcp", text: `via MCP · ${str(d.client) || "a client"}: ${str(d.tool) || "a tool"}${d.ok === false ? " (refused)" : ""}` };
+    // keel TUI (cli/): the person's command in the terminal (api McpAudit, X-Keel-Via: tui)
+    case "tui.call": return { k: "tui", text: `via keel TUI · ${str(d.tool) || "a command"}${d.ok === false ? " (refused)" : ""}` };
     case "thread.done": return { k: "flow", text: "flow done" };
     case "thread.failed": return { k: "flow", text: `flow failed${d.error ? ": " + str(d.error) : ""}` };
     default: return { k: "event", text: ev.type };

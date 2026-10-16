@@ -25,13 +25,15 @@ import org.springframework.web.filter.OncePerRequestFilter
  * v0.16.0 every write keel's MCP server sends (`keel2 mcp --write | --admin`) says who acted: X-Keel-Via: mcp,
  * X-Keel-Client (the client's own name, a label) and X-Keel-Tool. After the request this records an `mcp.call` event
  * on the project (and thread), so its timeline shows "via MCP · <client>: <tool>". Reads are not recorded.
+ * keel TUI (cli/, `keel2 tui`) does the same with X-Keel-Via: tui and its command in X-Keel-Tool: a `tui.call` event,
+ * "via keel TUI · /approve". It acts as the person at the keyboard, like the dashboard ([McpLevelGuard] leaves it be).
  */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE - 1)   // before McpLevelGuard, so a refused call is recorded too
 class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
-        request.method == "GET" || request.getHeader("X-Keel-Via") != "mcp" || !request.requestURI.startsWith("/api/")
+        request.method == "GET" || request.getHeader("X-Keel-Via") !in VIAS || !request.requestURI.startsWith("/api/")
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         try {
@@ -43,19 +45,23 @@ class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate)
 
     private fun record(request: HttpServletRequest, status: Int) {
         val path = request.requestURI
+        val via = request.getHeader("X-Keel-Via") ?: "mcp"
         val tid = THREAD.find(path)?.groupValues?.get(1) ?: INBOX.find(path)?.groupValues?.get(1)
         val pid = PROJECT.find(path)?.groupValues?.get(1)
             ?: tid?.let { jdbc.query("SELECT project_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) }, it).firstOrNull() }
             ?: return
-        val client = request.getHeader("X-Keel-Client")?.take(80)?.ifBlank { null } ?: "an MCP client"
-        val tool = request.getHeader("X-Keel-Tool")?.take(80)?.ifBlank { null } ?: "a tool"
-        events.ingest(listOf(EngineEvent("mcp.call", tid ?: "mcp", pid, "mcp", Time.now(), null, mapOf(
-            "via" to "mcp", "client" to client, "tool" to tool, "method" to request.method, "path" to path,
+        val tui = via == "tui"
+        val client = request.getHeader("X-Keel-Client")?.take(80)?.ifBlank { null } ?: if (tui) "keel TUI" else "an MCP client"
+        val tool = request.getHeader("X-Keel-Tool")?.take(80)?.ifBlank { null } ?: if (tui) "a command" else "a tool"
+        events.ingest(listOf(EngineEvent(if (tui) "tui.call" else "mcp.call", tid ?: via, pid, via, Time.now(), null, mapOf(
+            "via" to via, "client" to client, "tool" to tool, "method" to request.method, "path" to path,
             "ok" to (status < 400), "status" to status,
         ))))
     }
 
     companion object {
+        /** who may say they acted: keel's MCP server and keel TUI */
+        val VIAS = setOf("mcp", "tui")
         private val PROJECT = Regex("^/api/projects/([^/]+)")
         private val THREAD = Regex("^/api/threads/([^/]+)")
         private val INBOX = Regex("^/api/inbox/(?!tasks/)([^/]+)/act")
