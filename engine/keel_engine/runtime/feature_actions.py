@@ -453,6 +453,35 @@ def amend_reorder(a):
     return _ok(note, update={"acs": acs, "ac": nxt, "gates": gates, "data": data, "show": None})
 
 
+def stuck(a):
+    """The red / green agent said BLOCKED (or GREEN-RESULT: stalled): no retry of the same thing. When the reason names
+    unfinished criteria, those are built first (the order changes, the gate log says so); otherwise the person chooses:
+    retry with a note, skip the criterion, edit the spec, stop."""
+    from .actions import ActionResult
+
+    ac = a.state.get("ac") or (a.ac or {}).get("id")
+    src = "green" if a.phase == "green" else "red"
+    why = str(((a.state.get("markers") or {}).get(src) or {}).get("BLOCKED") or "").strip()
+    first = _named(a, why, ac)
+    if first:
+        acs = move_before(a.acs, first, ac)
+        gates = _gates(a)
+        note = f"{ac} is blocked until {', '.join(first)} is built: keel moved {', '.join(first)} before {ac}"
+        gates["log"].append(note[:300])
+        data = {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
+        return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "feedback": None})
+    lines = [f"The {src} agent cannot go on with {ac}:", why or "(no reason given)", "",
+             "Trying the same thing again will not help.",
+             'Choose one (approve with payload {"choice": "<name>"} and a note):',
+             f"- retry: the {src} agent again, with your note (say what to change: the command, the setup, the approach)",
+             f"- skip: move {ac} to the end of the list and go on with the next criterion",
+             f"- edit: amend the spec for {ac} first (your note says what is wrong)",
+             "- stop: stop the flow here (the commits so far stay)"]
+    return ActionResult(False, f"{ac} is blocked: {why[:200]}", why, ask={
+        "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines),
+        "choices": ["retry", "skip", "edit", "stop"]})
+
+
 def amend_with_note(a):
     """The choice gate's edit: the amendment is written again, with the person's note added to the reason."""
     amend = dict(a.data.get("amend") or {})
@@ -708,7 +737,7 @@ def close_flow(a):
 
 ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": spec_sync, "spec_freeze": spec_freeze,
            "spec_restart": spec_restart, "amend_start": amend_start, "spec_amendment": spec_amendment,
-           "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note,
+           "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note, "stuck": stuck,
            "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow}

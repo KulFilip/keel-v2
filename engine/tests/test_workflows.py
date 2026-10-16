@@ -17,8 +17,8 @@ def test_templates_are_valid_and_have_phases():
 def test_feature_template_shape():
     t = get_template("feature")
     loop = [s.id for s in t.steps if s.per_ac]
-    assert loop == ["red", "red_amend", "red_to_amend", "verify_red", "green", "green_amend", "green_to_amend", "verify_green",
-                    "ac_review", "ac_gate"]
+    assert loop == ["red", "red_amend", "red_to_amend", "red_blocked", "red_stuck", "verify_red", "green", "green_amend",
+                    "green_to_amend", "green_blocked", "green_stuck", "verify_green", "ac_review", "ac_gate"]
     assert t.step("ac_gate").back == "red" and t.step("spec_gate").back == "spec"
     assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
     main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]

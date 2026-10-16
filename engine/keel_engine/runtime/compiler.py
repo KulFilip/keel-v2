@@ -40,6 +40,7 @@ from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check
 from . import blockers as push_gates
+from . import flow_actions
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
@@ -299,7 +300,18 @@ class Compiler:
                 open_ids = {a["id"] for a in items if a.get("status") not in finished}
                 nxt = next((a for a in items if a.get("status") not in finished
                             and not (set(a.get("depends_on") or []) & open_ids)), nxt)
-            return Command(update={cursor: nxt["id"], "retries": {}}, goto=self.wf.steps[lp.first].id)
+            update = {cursor: nxt["id"], "retries": {}}
+            esc = (state.get("data") or {}).get("ladder_escalated")
+            if lp.per_ac and esc and esc.get("ac") != nxt["id"]:
+                # the stall ladder's stronger model was for that criterion only: the agent's model goes back
+                models_ = dict(state.get("agent_models") or {})
+                if esc.get("before"):
+                    models_[esc["agent"]] = esc["before"]
+                else:
+                    models_.pop(esc["agent"], None)
+                data = {k: v for k, v in (state.get("data") or {}).items() if k != "ladder_escalated"}
+                update.update(agent_models=models_, data=data)
+            return Command(update=update, goto=self.wf.steps[lp.first].id)
 
         begin.__name__ = f"loop_begin_{lp.id}"
         return begin
@@ -974,6 +986,11 @@ class Compiler:
         upd: dict = {}
         data = dict(state.get("data") or {})
         found = [markers.parse(r.text, step.markers) if step.markers else {} for r in results]
+        if "BLOCKED" in [m.upper() for m in step.markers or []]:
+            for f, r in zip(found, results):
+                why = markers.blocked(r.text or "")
+                if why:
+                    f["BLOCKED"] = why
         if step.items_from:
             data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "title": item_of[n].get("title") or item_of[n]["id"],
                                            "text": (r.text or "")[:16000], "markers": found[n]} for n, r in enumerate(results)]
@@ -1190,7 +1207,7 @@ class Compiler:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
                         upd[k] = r.update[k]
-                return self._check_failed(i, step, st, ac or item, r, upd)
+                return await self._check_failed(i, step, st, ac or item, r, upd)
             st.update(r.update)
             upd.update(r.update)
             notes.append(r.note)
@@ -1321,7 +1338,7 @@ class Compiler:
             res = await run_action(action, self._action_input(st, ac))
             if not res.ok or res.ask:
                 # A refused commit is an ordinary failed check (it goes back to the red agent).
-                return self._check_failed(i, step, st, ac, res, {**upd, "gates": gates})
+                return await self._check_failed(i, step, st, ac, res, {**upd, "gates": gates})
             st.update(res.update)
             upd.update(res.update)
             notes.append(res.note)
@@ -1330,6 +1347,21 @@ class Compiler:
                    stall={"fingerprint": None, "count": 0, "step": 0},
                    note=" · ".join([f"{ac['id']} marked as already met" + (f": {why}" if why else ""), *notes[1:]]))
         return upd, AC_END if step.per_ac and self.nav.last is not None else self.nav.after(i)
+
+    def _stuck_question(self, step: Step, ac: dict, r: ActionResult, rounds: int, attempts: int) -> dict:
+        """The question after the stall ladder: retry with a note / skip the criterion / edit the spec / stop."""
+        edit = any(s.id == "amend" for s in self.wf.steps)
+        choices = ["retry", "skip"] + (["edit"] if edit else []) + ["stop"]
+        lines = [f"{step.name} failed {rounds} times for {ac['id']}: the same agent, an investigator's proposal and a "
+                 "stronger model did not fix it.", "", r.note, "", r.detail[-1500:], "",
+                 'Choose one (approve with payload {"choice": "<name>"} and a note):',
+                 "- retry: one more round, with your note for the agent",
+                 f"- skip: move {ac['id']} to the end of the list and go on with the next criterion"]
+        if edit:
+            lines.append(f"- edit: amend the spec for {ac['id']} first (your note says what is wrong)")
+        lines.append("- stop: stop the flow here (the commits so far stay)")
+        return {"type": "stuck", "kind": "fix", "title": f"{ac['id']} is stuck at {step.name}", "detail": "\n".join(lines),
+                "choices": choices, "retries_after": attempts}
 
     def _choice_answer(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
         """v0.17.4 a check that asks with real choices (a command that cannot run, a stuck criterion), never decided by a
@@ -1348,7 +1380,7 @@ class Compiler:
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": choice, "why": why})
         ac = _ac(state)
         key = f"{step.id}:{(ac or {}).get('id')}"
-        retries = {**(state.get("retries") or {}), key: 0}
+        retries = {**(state.get("retries") or {}), key: int(q.get("retries_after") or 0) if choice == "retry" else 0}
         base = {**upd, "gates": gates, "retries": retries, "stall": {"fingerprint": None, "count": 0, "step": 0}}
         if choice == "recheck":
             return {**base, "note": f"{step.name}: checked again"}, step.id
@@ -1357,6 +1389,11 @@ class Compiler:
             target = self.nav.jump(q["retry_to"], i) if q.get("retry_to") else self.nav.retry_target(i)
             return {**base, "feedback": feedback, "last_failure": r.note[:300], "note": f"{r.note} · tried again"[:300]}, target or step.id
         lp = self.nav.loop_of(i)
+        if choice in ("skip", "edit") and ac:
+            # the stuck criterion's uncommitted work goes back (keel's agents' files only, never the person's), so the next
+            # criterion's red commit is not refused for it; its commits stay
+            back = flow_actions.reset(self._action_input(state, ac))
+            gates["log"].append(f"{ac['id']}: {back.note}"[:300])
         if choice == "skip" and ac and lp and lp.per_ac:
             acs = [x for x in state.get("acs") or [] if x["id"] != ac["id"]] + [x for x in state.get("acs") or [] if x["id"] == ac["id"]]
             return {**base, "acs": acs, "ac": None, "feedback": None, "last_failure": None,
@@ -1436,7 +1473,52 @@ class Compiler:
         gates["log"].append(f"escalation-override: {why or q['why']}")
         return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
 
-    def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
+    async def _ladder(self, count: int, i: int, step: Step, state: FlowState, target: str, feedback: str) -> tuple[str, dict, str]:
+        """v0.17.4 the stall ladder of a criterion's check, one rung per failed round:
+        1. the same agent again, with the concrete failure (no extra call);
+        2. an investigator (read only) reads the failure and the code and proposes a fix; the agent gets its proposal;
+        3. the agent's model is escalated once (for this criterion), with the investigator's proposal;
+        after that the person chooses (_check_failed). Returns (feedback, state update, what this round did)."""
+        tstep = self.wf.steps[self.nav.index[target]] if target in self.nav.index else None
+        agent = (tstep.agent if tstep and tstep.kind == "agent" else None) or ""
+        data = dict(state.get("data") or {})
+        ac_id = (_ac(state) or {}).get("id")
+        if count == 2:
+            inv = step.model_copy(update={"id": f"{step.id}_investigate", "kind": "agent", "name": f"{step.name}: why does it keep failing",
+                                          "agent": "investigator", "phase": "review", "markers": None, "instructions": None})
+            ask = (f"{feedback}\n\nThis check failed twice for {ac_id}. Read the failure and the code (read only). Say in a few "
+                   "lines what really goes wrong and what the next try must change. If the cause is outside the agent's "
+                   "reach (the test command, the build, a criterion that must be built first), say so.")
+            try:
+                res, _m, _tb = await self._run_agent({**state, "phase": "review", "feedback": ask}, inv, "investigator", 0)
+            except (asyncio.CancelledError, GraphBubbleUp):
+                raise
+            except Exception as exc:          # the ladder goes on without the proposal
+                return feedback, {}, f"the investigator failed ({str(exc)[:120]}); tried again"
+            usage = dict(state.get("usage") or {})
+            for k in ("tokens_in", "tokens_out", "tokens_cached", "premium_requests"):
+                usage[k] = usage.get(k, 0) + getattr(res, k, 0)
+            usage["cost_usd"] = round(usage.get("cost_usd", 0.0) + res.cost_usd, 6)
+            proposal = (res.text or "").strip()[-3000:]
+            data["ladder_proposal"] = proposal
+            return (f"{feedback}\n\nAn investigator read this failure. Its proposal:\n{proposal}", {"usage": usage, "data": data},
+                    "an investigator proposed a fix; tried again")
+        if count == 1:
+            return feedback, {}, "the same agent again, with the failure"
+        proposal = data.get("ladder_proposal")
+        extra = f"\n\nThe investigator's proposal:\n{proposal}" if proposal else ""
+        if count == 3 and agent and not data.get("ladder_escalated"):
+            r = self._escalate_model(tstep, state)
+            before = (state.get("agent_models") or {}).get(agent)
+            data["ladder_escalated"] = {"agent": agent, "ac": ac_id, "before": before}
+            upd = {**r.update, "data": data}
+            mk = dict(upd.get("markers") or {})
+            mk.pop(tstep.id, None)
+            upd["markers"] = mk
+            return feedback + extra, upd, r.note
+        return feedback + extra, {}, "tried again"
+
+    async def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
         key = f"{step.id}:{(ac or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         count = retries.get(key, 0) + 1
@@ -1455,14 +1537,24 @@ class Compiler:
         target = self.nav.jump(step.back, i) if step.back else self.nav.retry_target(i)
         attempts = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
+        lp = self.nav.loop_of(i)
+        ladder = bool(step.per_ac and lp and lp.per_ac and ac and target and not step.after_rounds)
         if target and count <= attempts:
             retries[key] = count
+            if ladder:
+                fb, more, did = await self._ladder(count, i, step, {**state, **upd}, target, feedback)
+                gates = copy.deepcopy(base.get("gates") or state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+                gates["log"].append(f"stall {ac['id']} round {count}: {did}"[:300])
+                return {**base, **more, "gates": gates, "feedback": fb, "retries": retries,
+                        "note": f"{r.note} · round {count}: {did}"[:300]}, target
             return {**base, "retries": retries}, target
         if step.after_rounds:
             # keel v1 "fails twice: reset and reproduce again": a fresh start instead of another try in the same place.
             return {**base, "retries": {**retries, key: 0}, "note": f"{r.note} · on to {step.after_rounds}"[:300]}, \
                 self.nav.jump(step.after_rounds, i)
-        lp = self.nav.loop_of(i)
+        if ladder:
+            return self._choice_answer(i, step, state, ActionResult(False, r.note, r.detail, ask=self._stuck_question(
+                step, ac, r, count - 1, attempts)), base)
         in_items = bool(lp and not lp.per_ac and ac)
         reject = "reject to mark this item failed and go on with the next one" if in_items else "reject to stop the flow"
         answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",

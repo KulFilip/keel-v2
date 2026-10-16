@@ -9,6 +9,8 @@
     SECURITY: clean | findings                 (security-auditor)
     DEPS: clean | findings                     (dependency-triager)
     AMEND: <what the frozen spec gets wrong>   (feature: test-author / implementer, only when the spec is wrong)
+    BLOCKED: <tooling | needs AC-x>: <what>    (feature: test-author / implementer, only when they cannot go on;
+                                                the implementer's `GREEN-RESULT: stalled` counts as BLOCKED too)
     NAME: any value                            any other name a step declares in `markers: [NAME]`
 
 A registered marker with values keeps only its first word, lower case (`REPRO: Confirmed — the test fails` ->
@@ -33,6 +35,7 @@ REGISTRY: dict[str, tuple[str, ...]] = {
     "SECURITY": ("clean", "findings"),
     "DEPS": ("clean", "findings"),
     "AMEND": (),
+    "BLOCKED": (),
 }
 
 _FENCE = re.compile(r"```(?:json|keel-items)\s*\n(.*?)```", re.S)
@@ -57,6 +60,18 @@ def parse(text: str, names: list[str] | None = None) -> dict[str, str]:
         if value:
             out[name] = value
     return out
+
+
+def blocked(text: str) -> str | None:
+    """v0.17.4 BLOCKED, or the implementer's `GREEN-RESULT: stalled` read as BLOCKED (with the answer's last lines)."""
+    found = parse(text, ["BLOCKED"]).get("BLOCKED")
+    if found:
+        return found
+    result = parse(text, ["GREEN-RESULT"]).get("GREEN-RESULT", "")
+    if result.lower().startswith("stalled"):
+        lines = [x for x in (text or "").strip().splitlines() if x.strip() and not _line("GREEN-RESULT").match(x)]
+        return ("stalled: " + " ".join(lines[-3:]))[:600]
+    return None
 
 
 def matches(value: str | None, when: dict) -> bool:

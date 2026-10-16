@@ -129,7 +129,7 @@ def test_a_branch_in_words_and_an_included_step(client):
     out = explain(client, "red_amend")
     assert out["branch"]["condition"] == "marker AMEND from red is set"
     yes, no = out["branch"]["routes"]
-    assert yes["to"] == "red_to_amend" and no["to"] == "verify_red"
+    assert yes["to"] == "red_to_amend" and no["to"] == "red_blocked"
     inc = explain(client, "ship_audit")
     assert inc["included_from"]["flow"] == "ship" and inc["included_from"]["step"] == "audit"
 

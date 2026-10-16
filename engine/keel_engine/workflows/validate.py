@@ -21,7 +21,7 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 "escalate_model",
                 # the feature flow (runtime/feature_actions.py)
                 "preflight", "explore_areas", "spec_sync", "spec_freeze", "spec_restart", "amend_start", "spec_amendment",
-                "spec_amend_commit", "amend_reorder", "amend_with_note", "amend_stop", "show_diff", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
+                "spec_amend_commit", "amend_reorder", "amend_with_note", "amend_stop", "stuck", "show_diff", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
                 "verify_smoke", "close_flow",
                 # static checks (runtime/lint_actions.py)
                 "lint_scope", "lint_run", "lint_report", "verify_lint"}

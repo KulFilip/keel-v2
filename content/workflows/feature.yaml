@@ -89,13 +89,17 @@ steps:
     phase: red
     per_ac: true
     tools: ["mcp:keel:*"]
-    markers: [AMEND]
+    markers: [AMEND, BLOCKED]
     instructions: >-
       If the frozen spec is wrong for this criterion (it cannot be true, it contradicts what the code shows, or a
       criterion is missing), do not work around it: stop and end your answer with one line AMEND: <what the spec
-      says, what the code shows, what should change>. Otherwise do not write that line.
-  - { id: red_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: red }, no: verify_red, per_ac: true, phase: red }
+      says, what the code shows, what should change>. If you cannot go on for another reason (the test command or
+      the build does not work, or another criterion must be built first), end with one line BLOCKED: <tooling, or
+      needs AC-x>: <what>. Otherwise do not write those lines.
+  - { id: red_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: red }, no: red_blocked, per_ac: true, phase: red }
   - { id: red_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend_entry, per_ac: true, phase: red }
+  - { id: red_blocked, kind: branch, name: "is the agent blocked?", when: { marker: BLOCKED, step: red }, no: verify_red, per_ac: true, phase: red }
+  - { id: red_stuck, kind: code, name: blocked, action: stuck, then: red, per_ac: true, phase: red }
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
   - id: green
     kind: agent
@@ -105,13 +109,16 @@ steps:
     phase: green
     per_ac: true
     tools: ["mcp:keel:*"]
-    markers: [AMEND]
+    markers: [AMEND, BLOCKED]
     instructions: >-
       If the frozen spec turns out to be wrong for this criterion, do not build around it: stop and end your answer
-      with one line AMEND: <what the spec says, what the code shows, what should change>. Otherwise do not write
-      that line.
-  - { id: green_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: green }, no: verify_green, per_ac: true, phase: green }
+      with one line AMEND: <what the spec says, what the code shows, what should change>. If you cannot go on for
+      another reason (the test command or the build does not work, or another criterion must be built first), end
+      with one line BLOCKED: <tooling, or needs AC-x>: <what>. Otherwise do not write those lines.
+  - { id: green_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: green }, no: green_blocked, per_ac: true, phase: green }
   - { id: green_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend_entry, per_ac: true, phase: green }
+  - { id: green_blocked, kind: branch, name: "is the agent blocked?", when: { marker: BLOCKED, step: green }, no: verify_green, per_ac: true, phase: green }
+  - { id: green_stuck, kind: code, name: blocked, action: stuck, then: red, per_ac: true, phase: green }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
   - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
