@@ -72,6 +72,7 @@ jobs:
   merge:
     needs: build
     strategy:
+      fail-fast: false
       matrix:
         edition: [full, core, product]
     runs-on: ubuntu-latest
@@ -128,7 +129,7 @@ jobs:
           args=(); for tg in "${tags[@]}"; do args+=(-t "$tg"); done
           docker buildx imagetools create "${args[@]}" "${sources[@]}"
           for tg in "${tags[@]}"; do echo "$tg"; done
-          docker buildx imagetools inspect "${tags[0]}" | head -12
+          docker buildx imagetools inspect "${tags[0]}"
 
   # v0.16.1 the native release (keel2 start --native downloads it): keel-v2-<version>-native.tar.gz and its sha256,
   # attached to the GitHub release of the tag when there is one, else kept as the run's artifact
