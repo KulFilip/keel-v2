@@ -18,6 +18,9 @@ class GraphApiTest : ApiTest() {
     @Test
     fun `the index routes proxy the engine, and a rebuild scans again with a full index`() {
         val (pid, _) = newProject("index-routes")
+        // adding a project starts its first index scan in the background: let it reach the engine first, or it can
+        // overwrite the "ready" below with "indexing" (a race seen on slower CI runners)
+        repeat(100) { if (engine.index[pid] == null) Thread.sleep(50) }
         engine.index[pid] = mapOf("project" to pid, "status" to "ready", "files" to 42, "symbols" to 310, "indexed_at" to "2026-10-05T10:00:00Z")
         val idx = get("/api/projects/$pid/index").andExpect(status().isOk).json()
         assertThat(idx["status"].asText()).isEqualTo("ready")
