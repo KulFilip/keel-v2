@@ -1717,7 +1717,7 @@ class Compiler:
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
         routes = isinstance(step.choices, dict) and not no_criteria
         if routes:
-            question.update(options=["approve"], choices=list(step.choices))
+            question.update(options=["approve"], choices=self._open_choices(step, state))
         elif step.choices and not no_criteria:
             # A list outside a loop: named exits as markers CHOICE and WHY (branches route on them); reject sends back.
             question.update(choices=list(step.choices), detail=detail + "\n\nApprove with one of: " + ", ".join(step.choices)
@@ -1806,11 +1806,11 @@ class Compiler:
         state.data["<gate id>_answer"] for the step it leads to ({choice, why, payload})."""
         payload = answer.get("payload") or {}
         why = (answer.get("why") or "").strip()
-        names = list(step.choices or {})
+        names = self._open_choices(step, state)
         # A plain "send back" picks the exit named reject when the gate has one; otherwise the first exit.
         plain = "reject" if answer.get("decision") == "reject" and "reject" in names else names[0]
         choice = str(payload.get("choice") or plain)
-        if choice not in step.choices:
+        if choice not in names:
             gates["log"].append(f"gate {step.id} unknown choice {choice}")
             return {"gates": gates, **extra, "note": f"{step.name}: '{choice}' is not one of {', '.join(names)}"}, step.id
         gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
@@ -1819,6 +1819,14 @@ class Compiler:
         upd = {"gates": gates, **extra, "data": data, "feedback": (None if answer.get("auto") else why) or None,
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
+
+    @staticmethod
+    def _open_choices(step: Step, state: FlowState) -> list[str]:
+        """A dict-choice gate's exits, minus the ones a step before it ruled out this time (data["<gate id>_without"],
+        v0.17.5: amend_loop has no `first` when nothing else is unfinished)."""
+        without = set((state.get("data") or {}).get(f"{step.id}_without") or [])
+        names = [c for c in step.choices or {} if c not in without]
+        return names or list(step.choices or {})
 
     def _menu_steps(self, after: int) -> list[int]:
         return [j for j, s in enumerate(self.wf.steps) if j > after and s.skip_menu]

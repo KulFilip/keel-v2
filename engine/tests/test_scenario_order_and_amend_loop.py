@@ -263,3 +263,23 @@ def test_a_stuck_criterion_is_bounded_ends_at_real_choices_and_every_token_is_co
     assert any(e["data"]["status"] == "failed" for e in calls)
     assert usage["tokens_in"] == sum(e["data"]["tokens_in"] for e in calls)
     assert abs(usage["cost_usd"] - sum(e["data"]["cost_usd"] for e in calls)) < 1e-6 and usage["cost_usd"] >= 1.25
+
+
+def test_first_is_offered_only_when_another_criterion_is_unfinished(client, repo, monkeypatch):
+    """0.17.4 left this open: amend_loop listed `first` with nothing else to build (choosing it acted like skip)."""
+    monkeypatch.setattr(fake_mod, "default_acs", lambda title: [dict(THREE[0])])
+    by_step(monkeypatch, {
+        "red": lambda req, real: (None, "", "No seam.\nAMEND: AC-1 needs a ranking table", {}),
+        "spec amendment": lambda req, real: (None, "", ORDER_ISSUE, {})})
+    tid = start(client, repo)
+    s = to_loop(client, tid)
+    for _ in range(8):
+        if s["waiting"]["step"] == "amend_loop":
+            break
+        s = decide(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "amend_loop" and w["choices"] == ["skip", "edit", "stop"], w
+    s = decide(client, tid, payload={"choice": "first"})                     # not offered: asked again
+    assert s["waiting"]["step"] == "amend_loop" and "gate amend_loop unknown choice first" in s["gate_log"]
+    s = decide(client, tid, payload={"choice": "stop"})
+    assert s["status"] == "stopped"

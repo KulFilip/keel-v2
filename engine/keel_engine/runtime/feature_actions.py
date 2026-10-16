@@ -338,7 +338,7 @@ def amend_start(a):
     rounds = [h for h in a.data.get("amend_history") or [] if ac and h.get("ac") == ac and "changed" in h]
     if rounds and rounds[-1]["changed"] is False:
         amend = {**amend, "route": "ask", "next": _next_for(a, ac, f"{reason} {rounds[-1].get('said', '')}")}
-        data = {**a.data, "amend": amend}
+        data = {**a.data, "amend": amend, "amend_loop_without": [] if amend["next"] else ["first"]}
         return _ok(f"{ac} came back with an AMEND after an amendment that changed nothing: asking you, not looping"[:300],
                    update={"markers": mk, "data": data, "show": _loop_text(a, amend, rounds[-1])})
     return _ok(f"spec amendment needed: {reason}"[:300], update={"markers": mk, "data": {**a.data, "amend": amend}})
@@ -444,7 +444,7 @@ def _no_change(a, spec: str | None, amend: dict):
                 "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
         return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "show": None})
     amend = {**amend, "route": "ask", "next": _next_for(a, ac, text)}
-    data = {**a.data, "amend": amend, "amend_history": hist}
+    data = {**a.data, "amend": amend, "amend_history": hist, "amend_loop_without": [] if amend["next"] else ["first"]}
     return _ok(f"the amendment for {ac} changed nothing in the spec: asking you", update={
         "data": data, "show": _loop_text(a, amend, hist[-1])})
 
