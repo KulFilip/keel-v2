@@ -177,7 +177,7 @@
    "phase": "red",
    "action": "amend_start",
    "per_ac": true,
-   "then": "amend"
+   "then": "amend_entry"
   },
   {
    "id": "verify_red",
@@ -223,7 +223,7 @@
    "phase": "green",
    "action": "amend_start",
    "per_ac": true,
-   "then": "amend"
+   "then": "amend_entry"
   },
   {
    "id": "verify_green",
@@ -881,6 +881,62 @@
    "then": "amend"
   },
   {
+   "id": "amend_entry",
+   "kind": "branch",
+   "name": "the same question again?",
+   "phase": "spec",
+   "no": "amend",
+   "when": {
+    "data": "amend.route",
+    "equals": "ask"
+   }
+  },
+  {
+   "id": "amend_loop",
+   "kind": "gate",
+   "name": "the amendment changed nothing",
+   "phase": "spec",
+   "lock": true,
+   "choices": {
+    "first": "amend_first",
+    "skip": "amend_skip",
+    "edit": "amend_edit",
+    "stop": "amend_stop"
+   }
+  },
+  {
+   "id": "amend_first",
+   "kind": "code",
+   "name": "build the other criterion first",
+   "phase": "spec",
+   "action": "amend_reorder",
+   "then": "red"
+  },
+  {
+   "id": "amend_skip",
+   "kind": "code",
+   "name": "move the criterion to the end",
+   "phase": "spec",
+   "action": "amend_reorder",
+   "then": "red"
+  },
+  {
+   "id": "amend_edit",
+   "kind": "code",
+   "name": "the amendment again with your note",
+   "phase": "spec",
+   "action": "amend_with_note",
+   "then": "amend"
+  },
+  {
+   "id": "amend_stop",
+   "kind": "code",
+   "name": "stop the flow",
+   "phase": "spec",
+   "action": "amend_stop",
+   "then": "end"
+  },
+  {
    "id": "amend",
    "kind": "agent",
    "name": "spec amendment",
@@ -900,6 +956,17 @@
    "phase": "spec",
    "action": "spec_amendment",
    "back": "amend"
+  },
+  {
+   "id": "amend_changed",
+   "kind": "branch",
+   "name": "did the spec change?",
+   "phase": "spec",
+   "no": "amend_none",
+   "when": {
+    "data": "amend.route",
+    "equals": "gate"
+   }
   },
   {
    "id": "amend_gate",
@@ -939,6 +1006,24 @@
    "name": "back to the contract",
    "phase": "contract",
    "then": "contract"
+  },
+  {
+   "id": "amend_none",
+   "kind": "branch",
+   "name": "an order question?",
+   "phase": "spec",
+   "no": "amend_loop",
+   "when": {
+    "data": "amend.route",
+    "equals": "reorder"
+   }
+  },
+  {
+   "id": "amend_reordered",
+   "kind": "code",
+   "name": "the other criterion first",
+   "phase": "spec",
+   "then": "red"
   },
   {
    "id": "rebuild",
@@ -1116,12 +1201,20 @@
       "step": "contract_gate",
       "side": [
        "contract_undo",
+       "amend_loop",
+       "amend_first",
+       "amend_skip",
+       "amend_edit",
+       "amend_stop",
        "amend",
        "amend_show",
+       "amend_changed",
        "amend_gate",
        "amend_commit",
        "amend_contract",
        "amend_to_contract",
+       "amend_none",
+       "amend_reordered",
        "rebuild"
       ]
      },
@@ -1150,6 +1243,10 @@
          "nodes": [
           {
            "step": "red_to_amend",
+           "side": []
+          },
+          {
+           "step": "amend_entry",
            "side": []
           }
          ],
@@ -1565,10 +1662,19 @@
   "orphans": [],
   "parent_of": {
    "amend": "contract_gate",
+   "amend_changed": "contract_gate",
    "amend_commit": "contract_gate",
    "amend_contract": "contract_gate",
+   "amend_edit": "contract_gate",
+   "amend_entry": "red_amend",
+   "amend_first": "contract_gate",
    "amend_gate": "contract_gate",
+   "amend_loop": "contract_gate",
+   "amend_none": "contract_gate",
+   "amend_reordered": "contract_gate",
    "amend_show": "contract_gate",
+   "amend_skip": "contract_gate",
+   "amend_stop": "contract_gate",
    "amend_to_contract": "contract_gate",
    "contract_undo": "contract_gate",
    "e2e_unrun": "e2e_tool",

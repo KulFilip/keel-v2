@@ -41,20 +41,20 @@ usage    15,400 tokens of 500,000 - $0.42
         amend -> put the contract draft back
       \ [ ] put the contract draft back  (code reset+amend_start)
       \       then -> spec amendment
+      \ [ ] the amendment changed nothing  (gate, you decide)
+      \       first -> build the other criterion first
+      \       skip -> move the criterion to the end
+      \       edit -> the amendment again with your note
+      \       stop -> stop the flow
+      \ [ ] build the other criterion first  (code amend_reorder)
+      \       then -> red  (loops back)
+      \ [ ] move the criterion to the end  (code amend_reorder)
+      \       then -> red  (loops back)
+      \ [ ] the amendment again with your note  (code amend_with_note)
+      \       then -> spec amendment
+      \ [ ] stop the flow  (code amend_stop)
+      \       then -> end of the flow
       \ [ ] spec amendment  (agent explorer)
       \ [ ] the amendment for the gate  (code spec_amendment)
       \       fails -> spec amendment  (loops back)
-      \ [ ] spec amendment  (gate, you decide)
-      \       approve -> commit the amendment
-      \       context -> spec amendment  (loops back)
-      \       change -> spec amendment  (loops back)
-      \       rebuild -> start the spec again in a new feature flow
-      \ [ ] commit the amendment  (code spec_amend_commit)
-      \ [ ] the contract moves  (branch)
-      \       yes -> back to the contract
-      \       no -> red  (loops back)
-      \ [ ] back to the contract  (code)
-      \       then -> contract  (loops back)
-      \ [ ] start the spec again in a new feature flow  (code start_flow)
-      \       starts the feature flow
-... 69 more (zoom with id=contract)
+... 93 more (zoom with id=contract)
