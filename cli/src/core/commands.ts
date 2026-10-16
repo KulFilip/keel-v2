@@ -11,6 +11,7 @@ import { setCommand } from "./transport";
 import type { KeelCore } from "./keel";
 import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
+import { fixRequest } from "../../../web/src/askFix";
 import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -759,6 +760,16 @@ const IMPLS: Impl[] = [
           + `End your answer with the whole ${CREATE_WORDS[kind]} in one keel-${kind} block.` });
       if (!rest) return { blocks: [], ask: { prompt: `What should the ${CREATE_WORDS[kind]} do?`, then: (idea) => (idea.trim() ? ask(idea.trim()) : text("Nothing to create.")) } };
       return ask(rest);
+    },
+  },
+  {
+    // keel 0.18.9 the last thing that failed, to KeelBot: it finds the cause and proposes the fix as buttons you press
+    name: "fix",
+    run: (ctx, a) => {
+      const last = ctx.core.lastError;
+      if (!last && !a.trim()) return text("Nothing failed lately. /fix <what went wrong> asks KeelBot about something else.");
+      return { blocks: [{ kind: "dim", text: "  KeelBot looks for the cause and a fix; nothing changes until you press its button." }],
+        chat: fixRequest(a.trim() ? `what the person describes: ${a.trim()}` : "the last thing keel TUI did", { message: last ?? a.trim() }) };
     },
   },
   { name: "new", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },

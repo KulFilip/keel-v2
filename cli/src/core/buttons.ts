@@ -12,10 +12,14 @@
 //   ```keel-skill <SKILL.md>```                                             a new skill (checked, saved, put on the
 //                                                                           agents its front matter names)
 //
-// Other kinds (a plugin's keel-query, keel-git, keel-ci) are the dashboard's: the answer says where to press them.
+//   ```keel-git {"op": "switch" | "commit" | "push" | "pr" | "sync", …}```  the Git plugin's (0.18.9)
+//   ```keel-ci {"op": "fix" | "rerun", "run"?}```                           the CI/CD plugin's (0.18.9)
+//   ```keel-query {"sql", "connection"?}```                                  the Database plugin's (0.18.9)
+//
+// Another plugin's kind is the dashboard's: the answer says where to press it.
 // No UI here: App.tsx shows the text and asks; `pressButton` does what a pressed button does.
 
-import { api, post, type RunMode } from "../../../web/src/api";
+import { api, get, post, type RunMode } from "../../../web/src/api";
 import { inboxApi } from "../../../web/src/inboxApi";
 
 export const RUN_MODES: RunMode[] = ["manual", "important", "auto", "readonly"];
@@ -40,6 +44,10 @@ export type Button =
   | { kind: "rule"; yaml: string }
   | { kind: "agent"; agent: NewAgent }
   | { kind: "skill"; text: string }
+  | { kind: "git"; op: "switch" | "commit" | "push" | "pr" | "sync"; branch?: string; create?: boolean; message?: string; title?: string;
+      body?: string; draft?: boolean; stash?: boolean }
+  | { kind: "ci"; op: "fix" | "rerun"; run?: number }
+  | { kind: "query"; sql: string; connection?: string }
   | { kind: "other"; name: string };
 
 const OPEN = /^\s*(`{3,}|~{3,})\s*keel-([a-z]+)\s*$/;
@@ -94,6 +102,16 @@ export function toButton(kind: string, body: string): Button | null {
     const list = (x: unknown) => (Array.isArray(x) ? x.map(String).filter(Boolean) : undefined);
     return { kind: "agent", agent: { name, prompt, about: str(v.about) || undefined, tools: list(v.tools), phases: list(v.phases) } };
   }
+  if (kind === "git" || kind === "ci" || kind === "query") {
+    const v = json(body);
+    if (!v) return null;
+    if (kind === "query") return str(v.sql) ? { kind, sql: str(v.sql), connection: str(v.connection) || undefined } : null;
+    if (kind === "ci") return str(v.op) === "fix" || str(v.op) === "rerun" ? { kind, op: str(v.op) as "fix" | "rerun", run: typeof v.run === "number" ? v.run : undefined } : null;
+    const op = str(v.op) as "switch" | "commit" | "push" | "pr" | "sync";
+    if (!["switch", "commit", "push", "pr", "sync"].includes(op) || (op === "switch" && !str(v.branch))) return null;
+    return { kind, op, branch: str(v.branch) || undefined, create: !!v.create, message: str(v.message) || undefined, title: str(v.title) || undefined,
+      body: str(v.body) || undefined, draft: !!v.draft };
+  }
   if (kind !== "start" && kind !== "flow") return { kind: "other", name: kind };
   const v = json(body);
   if (!v) return null;
@@ -147,8 +165,33 @@ export function question(b: Button, name: Names): string | null {
     case "decide": return `KeelBot suggests: ${b.decision} the gate of ${name(b.flow)}${b.why ? ` (${b.why})` : ""}?`;
     case "stop": return b.flows.length === 1 ? `KeelBot suggests: stop ${name(b.flows[0])}?` : `KeelBot suggests: stop ${b.flows.length} flows (${b.flows.map(name).join(", ")})?`;
     case "mode": return `KeelBot suggests: run ${name(b.flow)} in ${b.mode} mode (${RUN_MODE_ABOUT[b.mode]})?`;
+    case "git": return `KeelBot suggests: ${gitWords(b)}?`;
+    case "ci": return b.op === "fix" ? `KeelBot suggests: fix the failed CI run${b.run ? ` #${b.run}` : ""} (a ci-fix flow on this branch)?`
+      : `KeelBot suggests: run the failed CI jobs${b.run ? ` of run #${b.run}` : ""} again?`;
+    case "query": return `KeelBot suggests: run this on ${b.connection || "the local database"}: ${b.sql.replace(/\s+/g, " ").slice(0, 90)}?`;
     default: return null;
   }
+}
+
+/** A git button in words: "switch to main", "commit \"fix: …\"", "push", "open the pull request \"…\"". */
+export function gitWords(b: Extract<Button, { kind: "git" }>): string {
+  switch (b.op) {
+    case "switch": return `${b.create ? "create and switch to" : "switch to"} ${b.branch}`;
+    case "commit": return `commit ${b.message ? `"${b.message.split("\n")[0]}"` : "the changes"}`;
+    case "push": return "push the branch";
+    case "pr": return `open the pull request${b.title ? ` "${b.title}"` : ""}`;
+    default: return "update the branch from the base branch";
+  }
+}
+
+/** A failed git switch that the folder's changes block: keel can stash them and switch (the Git plugin, 0.18.9). */
+export const blockedByChanges = (b: Button, message: string) => b.kind === "git" && b.op === "switch" && /would be overwritten|local changes/i.test(message);
+
+/** What a button tried, for KeelBot's fix request. */
+export function buttonWords(b: Button): string {
+  return b.kind === "git" ? `git: ${gitWords(b)}` : b.kind === "ci" ? `CI: ${b.op}` : b.kind === "query" ? `the query ${b.sql.slice(0, 120)}`
+    : b.kind === "stop" ? "stopping flows" : b.kind === "decide" ? `${b.decision} a gate` : b.kind === "mode" ? `the run mode ${b.mode}`
+    : b.kind === "start" ? `starting the ${b.workflow} flow` : `saving the ${b.kind}`;
 }
 
 /** Where to press a button the terminal does not have. */
@@ -256,6 +299,33 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
       const r = await post<{ id: string; tokens?: number }>(`${pathOf(pid)}/skills/import`, { body: b.text });
       if (h.agents.length) await api.saveSkill(pid, r.id, { agents: h.agents });
       return `saved the skill ${r.id}` + (h.agents.length ? `; loaded by ${h.agents.join(", ")} from their next run.` : `. Put it on agents: /skill attach ${r.id} <agent…>.`);
+    }
+    case "git": {
+      const body: Record<string, unknown> = b.op === "switch" ? { branch: b.branch, create: !!b.create, ...(b.stash ? { stash: true } : {}) }
+        : b.op === "commit" ? { message: b.message ?? "" } : b.op === "pr" ? { title: b.title ?? "", body: b.body ?? "", draft: !!b.draft } : {};
+      const r = await post<Record<string, any>>(`${pathOf(pid)}/git/${b.op}`, body);
+      if (b.op === "switch") return `on ${r.branch} now.` + (r.stashed ? ` Your changes from ${r.stashed.from} are in git's stash: switch back to ${r.stashed.from} and run git stash pop to get them back.` : "");
+      if (b.op === "commit") return `committed ${String(r.sha).slice(0, 7)} ${r.subject}.`;
+      if (b.op === "push") return `pushed ${r.branch} (${String(r.sha).slice(0, 7)}).`;
+      if (b.op === "pr") return `${r.updated ? "updated" : "opened"} the pull request${r.url ? `: ${r.url}` : "."}`;
+      return r.merged ? `merged ${r.from} into ${r.branch}.` : `${r.branch} already has ${r.from}.`;
+    }
+    case "ci": {
+      if (b.op === "fix") {
+        const t = await post<{ thread_id: string }>(`${pathOf(pid)}/ci/fix`, b.run ? { run: b.run } : {});
+        return `the ci-fix flow started (${t.thread_id.slice(0, 8)}): it reads the failure, fixes it, commits, pushes and waits for CI.`;
+      }
+      const run = b.run ?? (await get<{ id: number; failed?: boolean }[]>(`${pathOf(pid)}/ci/runs`)).find((r) => r.failed)?.id;
+      if (!run) return "no failed CI run to start again.";
+      await post(`${pathOf(pid)}/ci/runs/${run}/rerun`, {});
+      return `the failed jobs of run #${run} run again.`;
+    }
+    case "query": {
+      const r = await post<{ columns?: string[]; rows?: unknown[][]; count?: number; changed?: number; kind?: string }>(`${pathOf(pid)}/db/query`,
+        { connection: b.connection ?? "", sql: b.sql, change: true, confirm: true });
+      if (r.kind === "change") return `done: ${r.changed ?? 0} row(s) changed.`;
+      const rows = (r.rows ?? []).slice(0, 15).map((x) => x.map((c) => String(c ?? "")).join(" | "));
+      return [`${r.count ?? rows.length} row(s)`, (r.columns ?? []).join(" | "), ...rows].filter(Boolean).join("\n");
     }
     default: return elsewhere(b);
   }

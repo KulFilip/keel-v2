@@ -105,6 +105,8 @@ export class KeelCore {
   /** 0.18.6 the shared focus, and this app's own id in it (so it never follows its own change) */
   private focus: Focus | null = null;
   readonly client = `tui-${Math.random().toString(36).slice(2, 10)}`;
+  /** keel 0.18.9 the last error the app showed: /fix hands it to KeelBot */
+  lastError: string | null = null;
   private sending = false;
   /** the agents the person started (/agent new): KeelBot chats that work on their own, until each one finishes */
   private spawned = new Map<string, { pid: string; title: string }>();

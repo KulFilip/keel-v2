@@ -212,6 +212,14 @@
       "group": "KeelBot"
     },
     {
+      "name": "fix",
+      "args": "[what went wrong]",
+      "summary": "the last error (or what you describe) to KeelBot: it finds the cause and proposes the fix as buttons you press",
+      "writes": true,
+      "local": false,
+      "group": "KeelBot"
+    },
+    {
       "name": "new",
       "summary": "a new KeelBot chat",
       "writes": false,

@@ -163,6 +163,11 @@ export function stubKeel() {
       case "GET /api/projects/demo/git/log": return [200, [{ sha: "abc1234", author: "Ada", date: "2026-10-16", subject: "feat: health" }]];
       case "GET /api/projects/demo/git/diff": return [200, { diff: `--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n keep();\n${query.get("path") ? "" : ""}` }];
       case "POST /api/projects/demo/git/push": return [200, { pushed: true }];
+      // 0.18.9 a switch the folder's changes block, unless keel stashes them first
+      case "POST /api/projects/demo/git/switch":
+        if (body.branch === "main" && !body.stash) return [409, { error: "git could not switch to main: error: Your local changes to the following files would be overwritten by checkout: docs/spec.md",
+          hint: "Stash them and switch, or commit them first." }];
+        return [200, { branch: body.branch, created: false, ...(body.stash ? { stashed: { from: "keel/health", message: "keel: changes" } } : {}) }];
       case "GET /api/projects/demo/review/open": {
         const ref = query.get("ref") ?? "";
         if (ref === "404") return [404, { error: "No pull request #404" }];

@@ -24,7 +24,9 @@ import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
 import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
-import { elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
+import { blockedByChanges, buttonWords, elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
+import { fixRequest } from "../../../web/src/askFix";
+import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
 import type { ModeSession } from "../core/modes";
@@ -128,6 +130,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   const push = useCallback((...bs: Block[]) => {
     if (!bs.length) return;
+    const lastErr = [...bs].reverse().find((b) => b.kind === "error");
+    if (lastErr) core.lastError = lastErr.text;               // /fix hands it to KeelBot (0.18.9)
     setItems((xs) => {
       const last = xs[xs.length - 1];
       const prev = last?.kind === "block" ? last.b.kind : last ? "start" : null;
@@ -199,6 +203,31 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     };
   }, [core, push]);
 
+  /** After a failed button: stash and switch (a git switch the folder's changes block), ask KeelBot to find the fix, or
+   *  leave it. */
+  const fixPick = (b: Button, err: { message: string; hint?: string }, pid: string, name: (tid: string) => string): Pick => ({
+    title: "It did not work. Find a fix?",
+    choices: [
+      ...(blockedByChanges(b, err.message) ? [{ label: "Stash my changes and switch", value: "stash", hint: "git stash pop on your branch brings them back" }] : []),
+      { label: "Ask KeelBot to find a fix", value: "ask", hint: "it reads the error and the project, and proposes a fix you press" },
+      { label: "No", value: "no" },
+    ],
+    then: async (v) => {
+      if (v === "ask") return { blocks: [], chat: fixRequest(buttonWords(b), err) };
+      if (v === "stash" && b.kind === "git") {
+        try {
+          const said = await pressButton({ ...b, stash: true }, pid, name);
+          await core.refresh().catch(() => undefined);
+          return { blocks: [{ kind: "ok", text: said }] };
+        } catch (e) {
+          const again = errorParts(e);
+          return { blocks: [{ kind: "error", text: again.message }], pick: fixPick({ ...b, stash: true }, again, pid, name) };
+        }
+      }
+      return { blocks: [{ kind: "dim", text: "  left as it is" }] };
+    },
+  });
+
   /** Each of KeelBot's buttons as a yes / no; one only the dashboard has says where to press it. */
   const askButtons = useCallback(async (buttons: Button[]) => {
     const pid = core.snapshot.project?.id;
@@ -229,7 +258,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             await core.refresh().catch(() => undefined);
             return { blocks: [{ kind: "ok", text: said }] };
           } catch (e) {
-            return { blocks: [{ kind: "error", text: e instanceof Error ? e.message : String(e) }] };
+            // keel 0.18.9 a button that failed: a way out (stash and switch, when that is it) or KeelBot finds the fix
+            const err = errorParts(e);
+            return { blocks: [{ kind: "error", text: err.hint ? `${err.message} ${err.hint}` : err.message }], pick: fixPick(b, err, pid, name) };
           }
         } });
     }

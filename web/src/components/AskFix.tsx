@@ -2,15 +2,11 @@
 // card offers to hand the error to KeelBot, which finds the cause in the project and proposes a fix as buttons the person
 // presses. KeelBot's chat provides the way to ask (AskKeelBot); a card outside a chat shows no such button.
 import { createContext, useContext } from "react";
+import { fixRequest } from "../askFix";
+
+export { fixRequest };
 
 export const AskKeelBot = createContext<((text: string) => void) | null>(null);
-
-/** What KeelBot gets: what was tried, keel's error and hint, and what to do with them. */
-export function fixRequest(what: string, error: { message: string; hint?: string }): string {
-  return `This failed: ${what}.\nkeel said: ${error.message}${error.hint ? `\nkeel's hint: ${error.hint}` : ""}\n`
-    + "Find the cause in this project (look at its state: git status, the files, the flow), explain it in one or two plain "
-    + "sentences, and propose how to fix it, with the buttons that do it. Change nothing yourself.";
-}
 
 export function AskFixButton({ what, error }: { what: string; error: { message: string; hint?: string } | null }) {
   const ask = useContext(AskKeelBot);
