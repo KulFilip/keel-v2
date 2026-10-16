@@ -456,7 +456,10 @@ export function handlers(db: Db) {
       if (op === "commit") return HttpResponse.json({ sha: "abc1234def", subject: String(b.message).split("\n")[0], files: ["src/a.ts"] });
       if (op === "push") return HttpResponse.json({ branch: "feat/euro", sha: "abc1234def" });
       if (op === "sync") return HttpResponse.json({ merged: true, from: "origin/main", branch: "feat/euro" });
-      if (op === "switch") return HttpResponse.json({ branch: b.branch });
+      // keel 0.18.9 a folder with changes main has too: git refuses, unless keel stashes them first
+      if (op === "switch" && b.branch === "main" && !b.stash) return HttpResponse.json({ error: "git could not switch to main: error: Your local changes to the following files would be overwritten by checkout: docs/spec.md",
+        hint: "Stash them and switch (keel keeps them in git's stash; `git stash pop` on your branch brings them back), or commit them first." }, { status: 409 });
+      if (op === "switch") return HttpResponse.json({ branch: b.branch, ...(b.stash ? { stashed: { from: "feat/euro", message: "keel: changes on feat/euro before switching to main" } } : {}) });
       if (op === "pr") return HttpResponse.json({ url: "https://github.com/o/r/pull/7", updated: false });
       return HttpResponse.json({});
     }),

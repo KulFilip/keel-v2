@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { errorParts, Markdown, type KeelbotCardProps } from "@keel/web-sdk";
+import { AskFixButton } from "@keel/web-sdk";
 import { gitApi } from "./gitApi";
 
 type GitOp = {
@@ -127,12 +128,13 @@ export function GitCard({ pid, block }: KeelbotCardProps) {
           )}
         </>
       )}
-      {err && (
+      {err && (<>
         <p className="kb-err" role="alert">
           <b>{err.message}</b>
           {err.hint && <span className="sub"> {err.hint}</span>}
         </p>
-      )}
+          <AskFixButton what={`git: ${label[op]}${op === "switch" ? ` ${spec.branch ?? ""}` : ""}`} error={err} />
+      </>)}
       {done ? (
         <p className="kb-done" role="status">
           {done}

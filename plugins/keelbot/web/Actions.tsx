@@ -21,6 +21,7 @@ import {
   type WorkflowCheck,
 } from "@keel/web-sdk";
 import { kb } from "./keelbotApi";
+import { AskFixButton } from "@keel/web-sdk";
 
 export type Segment =
   { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci" | "flow" | "rule" | "agent" | "skill"; body: string };
@@ -412,6 +413,7 @@ export function CiCard({ pid, body }: { pid: string; body: string }) {
     <section className="kb-card" aria-label={`CI: ${label}`}>
       <div className="kb-card-h"><span className="kb-tag">CI</span><b>{label}</b>{spec.run ? <span className="sub">run #{spec.run}</span> : null}</div>
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      <AskFixButton what={`KeelBot's CI button "${label}"`} error={err} />
       {done ? (
         <p className="kb-done" role="status">{done.text}{" "}
           {done.tid && <button type="button" className="btn sm" onClick={() => go("flow", done.tid)}>Open the flow ▸</button>}</p>
@@ -478,6 +480,7 @@ export function FlowCard({ pid, body }: { pid: string; body: string }) {
       {op === "reject" && <p className="kb-request"><span className="sub">The reason the agent gets:</span> {spec!.why}</p>}
       {op === "mode" && <p className="kb-request"><span className="sub">{spec!.mode}:</span> {MODE_ABOUT[spec!.mode!]}</p>}
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      <AskFixButton what={`KeelBot's flow button "${label}"`} error={err} />
       {done ? (
         <p className="kb-done" role="status">{done}{" "}
           <button type="button" className="btn sm" onClick={() => go("flow", flows[0])}>Open the flow ▸</button></p>
@@ -521,6 +524,7 @@ export function RuleCard({ pid, body }: { pid: string; body: string }) {
       {c && !c.ok && <div className="kb-err" role="alert"><b>keel cannot save it yet:</b>{(c.errors ?? []).map((e) => <div key={e} className="sub">{e}</div>)}</div>}
       {c?.ok && <p className="sub">On the recent tool calls it would have refused {blocked.length} of {c.dry_run?.checked ?? 0}.</p>}
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      <AskFixButton what={`saving the rule pack ${name}`} error={err} />
       {done ? <p className="kb-done" role="status">{done}{" "}<button type="button" className="btn sm" onClick={() => go("rules")}>Open Rules ▸</button></p>
         : <div className="row"><button type="button" className="btn sm primary" disabled={busy || !c?.ok} onClick={() => void save()}>{busy ? "Saving…" : "Save the rule pack"}</button></div>}
     </section>
@@ -556,6 +560,7 @@ export function AgentCard({ pid, body }: { pid: string; body: string }) {
       {spec.about && <p>{spec.about}</p>}
       <p className="kb-request"><span className="sub">Its instructions:</span> {spec.prompt}</p>
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      <AskFixButton what={`saving the agent ${name}`} error={err} />
       {done ? <p className="kb-done" role="status">{done}{" "}<button type="button" className="btn sm" onClick={() => go("agents")}>Open Agents ▸</button></p>
         : <div className="row"><button type="button" className="btn sm primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save the agent"}</button></div>}
     </section>
@@ -614,6 +619,7 @@ export function SkillCard({ pid, body }: { pid: string; body: string }) {
         </div>
       )}
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      <AskFixButton what={`saving the skill KeelBot wrote`} error={err} />
       {done ? <p className="kb-done" role="status">{done}{" "}<button type="button" className="btn sm" onClick={() => go("skills")}>Open Skills ▸</button></p>
         : <div className="row"><button type="button" className="btn sm primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save the skill"}</button></div>}
     </section>

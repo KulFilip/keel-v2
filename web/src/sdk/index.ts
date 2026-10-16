@@ -78,6 +78,8 @@ export {
 export { Markdown } from "../components/Markdown";
 // a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
 export { CodeBlock } from "../components/Code";
+// keel 0.18.9 a failed button's "Ask KeelBot to fix it" (KeelBot's chat provides AskKeelBot)
+export { AskFixButton, AskKeelBot, fixRequest as askFixRequest } from "../components/AskFix";
 export { ClarifyForm, answersOf } from "../components/ClarifyForm";
 export type { ClarifyAnswers } from "../components/ClarifyForm";
 export { clock, kfmt } from "../format";

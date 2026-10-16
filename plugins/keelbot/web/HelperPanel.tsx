@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
-  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus,
+  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot,
   type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
@@ -95,6 +95,7 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
     return !!link;
   };
   return (
+    <AskKeelBot.Provider value={onAsk}>
     <div ref={box} className="hp-answer" onClick={(e) => go(e.target)}
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && go(e.target)) e.preventDefault(); }}>
       {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
@@ -108,6 +109,7 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
               // a plugin's block (keel-query, keel-git): its card from the slot keelbot.card
               : <SlotCard key={i} pid={pid} block={{ kind: `keel-${seg.kind}`, body: seg.body }} />)}
     </div>
+      </AskKeelBot.Provider>
   );
 }
 

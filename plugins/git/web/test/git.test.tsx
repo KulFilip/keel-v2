@@ -158,6 +158,23 @@ describe("Code › Git", () => {
 });
 
 describe("KeelBot's git buttons", () => {
+  it("a switch git refuses for local changes: stash them and switch, or ask KeelBot to fix it (0.18.9)", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith('Switch:\n```keel-git\n{"op": "switch", "branch": "main"}\n```');
+    const g = await within(p).findByRole("region", { name: "Git: Switch" });
+    await user.click(within(g).getByRole("button", { name: "Switch" }));
+    expect(await within(g).findByRole("alert")).toHaveTextContent("would be overwritten");
+    // ask KeelBot: the error goes to it with what was tried, and it proposes the fix
+    await user.click(within(g).getByRole("button", { name: "Ask KeelBot to fix it" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/helper/sessions/h1/turn")[0]?.body).toMatchObject({
+      text: expect.stringContaining("This failed: git: Switch main.\nkeel said: git could not switch to main"),
+    }));
+    // or stash and switch, in one press
+    await user.click(within(g).getByRole("button", { name: "Stash my changes and switch" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/git/switch").at(-1)?.body).toEqual({ branch: "main", create: false, stash: true }));
+    expect(await within(g).findByRole("status")).toHaveTextContent("Your changes from feat/euro are in git's stash");
+  });
+
   it("a commit uses the message the person may edit", async () => {
     const user = userEvent.setup();
     const p = await chatWith(

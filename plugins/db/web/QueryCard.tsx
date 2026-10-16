@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { CodeBlock, errorParts, type KeelbotCardProps } from "@keel/web-sdk";
+import { AskFixButton } from "@keel/web-sdk";
 import { dbApi, type DbResult } from "./dbApi";
 import { ResultTable } from "./QueryPanel";
 
@@ -60,12 +61,13 @@ export function QueryCard({ pid, block }: KeelbotCardProps) {
         <b>{spec.connection || "local"}</b>
       </div>
       <CodeBlock text={spec.sql} lang="sql" gutter={false} />
-      {err && (
+      {err && (<>
         <p className="kb-err" role="alert">
           <b>{err.message}</b>
           {err.hint && <span className="sub"> {err.hint}</span>}
         </p>
-      )}
+          <AskFixButton what={"KeelBot's database query"} error={err} />
+      </>)}
       {r?.kind === "change" && !r.done && (
         <div className="row" role="group" aria-label="Change data">
           <span>
