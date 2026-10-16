@@ -42,6 +42,29 @@ ALWAYS_DENY = {
 # The project's rule files: an agent that could edit them could switch off the guard that judges it.
 RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/")]
 
+# v0.17.5 keel's own keys (api auth/LocalAuth): the internal token and the web key, in keel's data folder (Docker
+# /data/run/, native ~/.keel2/<name>/run/ and ~/.keel2/<name>/data/run/). Whoever reads one can act as keel or as the
+# person through plain HTTP, so no agent reads, prints, changes or sends them.
+KEEL_KEY_FILES = re.compile(r"(?:^|/)run/(?:internal-token|web-key|token|hook-token)$|(?:^|/)\.keel2/[^/\s]+/(?:data/)?run(?:/|$)"
+                            r"|^/data/run(?:/|$)")
+KEEL_KEY_WORDS = re.compile(r"/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/(?:data/)?run/|(?:^|[\s'\"=])/data/run/"
+                            r"|\bKEEL_INTERNAL_TOKEN\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\(", re.I)
+
+
+def keel_key_file(path: str | Path | None) -> bool:
+    """Is this one of keel's own key files (KEEL_KEY_FILES), also under the engine's data folder?"""
+    if not path:
+        return False
+    p = str(path).replace("\\", "/")
+    if KEEL_KEY_FILES.search(p):
+        return True
+    try:
+        from .. import config
+        run = str((config.data_dir() / "run").resolve()).replace("\\", "/")
+        return p == run or p.startswith(run + "/")
+    except Exception:  # noqa: BLE001 - the rule must never crash the guard
+        return False
+
 LANE_OF = {"api-main": "api", "api-test": "api", "migration": "api", "web-src": "web", "web-test": "web"}
 LANE_SCOPED_PHASES = {"red", "green"}
 
@@ -92,6 +115,9 @@ BUILTINS: list[dict] = [
      "words": ".env files hold secrets: agents never read, print or change them (setup may write the env file)."},
     {"id": "keel-rules-files", "kind": "edit", "phases": "always", "can_off": False,
      "words": "Agents never change .keel/config.yml or .keel/rules/: an agent may not change its own rules."},
+    {"id": "keel-keys", "kind": "edit, read, shell", "phases": "always", "can_off": False,
+     "words": "keel's own keys (its internal token and the sign-in key) are never read, printed, changed or sent by an "
+              "agent: with them anyone could act as keel or as you."},
     {"id": "migrations-immutable", "kind": "edit", "phases": "always", "can_off": False,
      "words": "An existing database migration is never changed; a new migration file is added instead."},
     {"id": "force-push", "kind": "shell", "phases": "always", "can_off": False,
@@ -348,6 +374,8 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
                lane: str | None = None, flow_active: bool = True, unlocks: list[dict] | None = None) -> Verdict:
     """May a file be written in this phase? `exists` = the file is already there (for new-only rules)."""
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
+    if keel_key_file(path):
+        return Verdict(False, "keel-keys", "This is one of keel's own keys: agents never change it.")
     bucket = classify(cfg, path)
     rel = _rel(path, cfg.get("root"))
     env_file = str(cfg.get("setup", {}).get("env_file") or ".env.local").removeprefix("./")
@@ -387,6 +415,8 @@ def check_read(path: str, cfg: dict | None = None, *, full: str | Path | None = 
                phase: str | None = None) -> Verdict:
     """May a file be read? `full`: the file on disk, for the big-file rule; `ranged`: the read names offset or limit."""
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
+    if keel_key_file(path) or keel_key_file(full):
+        return Verdict(False, "keel-keys", "This is one of keel's own keys: agents never read it.")
     bucket = classify(cfg, path)
     rel = _rel(path, cfg.get("root"))
     if bucket == "protected-env":
@@ -531,6 +561,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     env = prints_env_file(cmd)
     if env:
         return Verdict(False, reason=f"Printing {env} would put secrets in the conversation.")
+    if KEEL_KEY_WORDS.search(cmd):
+        return Verdict(False, "keel-keys", "This command reads or sends one of keel's own keys; agents never do. "
+                                           "Use keel's MCP tools instead.")
     v = pack_verdict(cfg, "bash", phase, cmd)
     if v:
         return v

@@ -226,6 +226,10 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         v = rules.check_content(rel, added, cfg)
         return None if v.ok else v.reason
 
+    # v0.17.5 keel's own keys (rules.keel_key_file): no tool reads, searches, lists or writes them
+    keyed = _path_arg(ti)
+    if keyed and tool != "Bash" and rules.keel_key_file(_locate(root, keyed)[1]):
+        return "This is keel's own key folder: agents never read, search or change it."
     if readonly and tool in WRITE_TOOLS:
         return run_mode.READONLY_EDIT
     if tool in WRITE_TOOLS:
@@ -295,6 +299,8 @@ def fail_closed(tool: str, ti: dict, why: str) -> str | None:
     """No context: read-only tools pass (secrets stay blocked), everything else is refused."""
     if tool in READ_ONLY:
         path = _path_arg(ti)
+        if path and rules.keel_key_file(path):
+            return "This is keel's own key folder: agents never read, search or change it."
         v = rules.check_read(path, rules.make_config()) if tool == "Read" and path else None
         return None if v is None or v.ok else v.reason
     return f"{why}, so keel cannot check {tool or 'this tool'} against the flow's phase. Only reads are allowed until it is fixed."

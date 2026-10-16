@@ -1,6 +1,8 @@
 // Typed client for the keel v2 api (docs/CONTRACT.md, "The api"). Every path is relative, so the same
 // build works behind the Spring Boot api (which serves web/dist) and behind the Vite dev proxy.
 
+import { signInNeeded } from "./signIn";
+
 // ---------- shared types (copied from CONTRACT.md) ----------
 
 export type Provider = "fake" | "claude" | "codex" | "copilot";
@@ -833,15 +835,20 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   const extra = typeof transport.headers === "function" ? transport.headers() : transport.headers;
   const headers = { ...extra, ...(body === undefined ? {} : { "content-type": "application/json" }) };
   try {
+    // v0.17.5 X-Keel-Web says the call comes from keel's own page: another site's page cannot send it (keel answers
+    // no CORS preflight), so a change needs it next to the sign-in cookie (api auth/LocalAuth). keel TUI's transport
+    // adds its own credential (Authorization: Bearer, the web key).
     res = await (transport.fetch ?? fetch)(apiUrl(path), {
       method,
-      headers: Object.keys(headers).length ? headers : undefined,
+      credentials: "same-origin",
+      headers: { "X-Keel-Web": "1", ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
     throw new ApiError("Cannot reach the keel api.", 0, "Start it (docker run … or ./gradlew bootRun) and reload.");
   }
   const type = res.headers.get("content-type") ?? "";
+  if (res.status === 401 && res.headers.get("x-keel-auth") === "sign-in") signInNeeded();
   if (!res.ok) {
     let err: { error?: string; hint?: string; errors?: unknown } = {};
     if (type.includes("json")) err = await res.json().catch(() => ({}));

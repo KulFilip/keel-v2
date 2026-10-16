@@ -57,6 +57,8 @@ from pathlib import Path
 NAME = os.environ.get("KEEL_NAME") or "keel-mkt"
 VOLUME = os.environ.get("KEEL_VOLUME") or f"{NAME}-data"
 PORT = int(os.environ.get("KEEL_PORT") or 8096)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "hello"
@@ -82,7 +84,7 @@ def sh(*args: str, check: bool = True, cwd: Path | None = None, env: dict | None
 def http(method: str, path: str, body: object | None = None, timeout: float = 60) -> tuple[int, dict, str]:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=data, method=method,
-                                 headers={"content-type": "application/json"} if data else {})
+                                 headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read().decode(errors="replace")
@@ -167,6 +169,7 @@ def start(image: str, ws: Path) -> None:
 
 def clean() -> None:
     sh("docker", "rm", "-f", NAME, check=False)
+    keelauth.forget(NAME)
     sh("docker", "volume", "rm", VOLUME, check=False)
 
 

@@ -21,13 +21,17 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
- * v0.16.1 MCP level tokens: three random tokens (read, write, admin), made at start and kept only in memory. keel's MCP
- * server gets the one for its level from POST /api/mcp/token, which needs the internal token (KEEL_INTERNAL_TOKEN: keel2
- * and the engine have it, agents never do), and sends it as X-Keel-Mcp-Token; [McpLevelGuard] checks it.
+ * v0.16.1 MCP level tokens (read, write, admin). keel's MCP server gets the one for its level from POST /api/mcp/token,
+ * which needs the internal token (KEEL_INTERNAL_TOKEN: keel2 and the engine have it, agents never do), and sends it as
+ * X-Keel-Mcp-Token; [McpLevelGuard] checks it. v0.17.5: each token is an HMAC of the internal token and its level, so it
+ * stays the same while keel runs, also across an api restart (a plugin install restarts the api; the MCP servers of a
+ * client and of keel's running agents keep working). Without an internal token they are random, as before.
  */
 @Component
-class McpTokens {
-    private val tokens: Map<String, String> = LEVELS.associateWith { newToken() }
+class McpTokens(props: KeelProperties) {
+    private val tokens: Map<String, String> = LEVELS.associateWith { level ->
+        if (props.internalToken.isEmpty()) newToken() else hmac(props.internalToken, "keel-mcp:$level")
+    }
 
     fun tokenFor(level: String): String = tokens[level] ?: throw BadRequest("No MCP level called \"$level\"", "One of: ${LEVELS.joinToString(", ")}")
 
@@ -45,6 +49,11 @@ class McpTokens {
         fun same(a: String, b: String): Boolean = MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
         private val random = SecureRandom()
         private fun newToken(): String = ByteArray(32).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        private fun hmac(key: String, text: String): String {
+            val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+            mac.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(), "HmacSHA256"))
+            return mac.doFinal(text.toByteArray()).joinToString("") { "%02x".format(it) }
+        }
     }
 }
 
@@ -68,6 +77,8 @@ class McpTokenController(private val tokens: McpTokens, private val props: KeelP
  * v0.16.1 the api refuses an MCP call above the level its token proves. It only looks at requests that say they come
  * from MCP (X-Keel-Via: mcp, or an X-Keel-Mcp-Token header) and at the MCP-only route POST /api/projects/{pid}/actions/{name};
  * the web app sends neither header, so it works as before. Without a valid token a request is at the read level.
+ * v0.17.5: [keel.api.auth.LocalAuth] runs first: a request reaches this guard only with a credential; this guard
+ * keeps an MCP call within its level, and a person (browser, TUI) or keel itself (internal token) is not limited here.
  * GET is fine at read; other methods need write; [admin] routes need admin; an action needs the level the engine gives
  * it ([READ_ACTIONS], [ADMIN_ACTIONS], others write). It runs inside [McpAudit], so a refused call is still recorded.
  */
@@ -78,6 +89,8 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
     override fun shouldNotFilter(request: HttpServletRequest): Boolean {
         val path = request.requestURI
         if (!path.startsWith("/api/") || path == "/api/mcp/token") return true
+        val who = request.getAttribute(keel.api.auth.LocalAuth.WHO_ATTR)
+        if (who != null && who != "mcp" && request.getHeader("X-Keel-Via") != "mcp") return true
         return request.getHeader("X-Keel-Via") != "mcp" && request.getHeader(TOKEN_HEADER) == null && action(request) == null
     }
 

@@ -23,6 +23,12 @@ data class KeelProperties(
     val mcpPython: String = "",
     /** Where `keel2 start --with-keel-v1 <path>` mounts a keel v1 checkout; its MCP server is offered only when it is there. */
     val keelV1Optional: String = "/opt/keel-v1-optional",
+    /** v0.17.5 the dashboard as people open it (KEEL_PUBLIC_URL): its host and origin are keel's own too (auth/LocalAuth). */
+    val publicUrl: String = "",
+    /** v0.17.5 more host names keel answers on (KEEL_ALLOWED_HOSTS, comma-separated), besides localhost. */
+    val allowedHosts: String = "",
+    /** v0.17.5 other origins keel's own page may come from (KEEL_DEV_ORIGINS, comma-separated): the Vite dev server. */
+    val devOrigins: String = "",
 ) {
     /** The command for keel's builtin MCP server. */
     val mcpPythonCommand: String by lazy {

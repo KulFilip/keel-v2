@@ -21,17 +21,15 @@ class EventController(
     fun stream(@RequestParam(required = false) project: String?, @RequestParam(required = false) notify: String?): SseEmitter =
         hub.subscribe(project, notify)
 
-    /** Engine → api. Checks X-Keel-Token when KEEL_INTERNAL_TOKEN is set (dev without it accepts any). */
+    /** Engine → api, with X-Keel-Token. v0.17.5: without KEEL_INTERNAL_TOKEN nobody may send events (it was "accept any"). */
     @PostMapping("/internal/events")
     fun ingest(
         @RequestHeader("X-Keel-Token", required = false) token: String?,
         @RequestBody body: List<EngineEvent>,
     ): Map<String, Any> {
         val expected = props.internalToken
-        if (expected.isNotEmpty()) {
-            val ok = token != null && MessageDigest.isEqual(token.toByteArray(), expected.toByteArray())
-            if (!ok) throw Forbidden("Wrong or missing X-Keel-Token")
-        }
+        val ok = expected.isNotEmpty() && token != null && MessageDigest.isEqual(token.toByteArray(), expected.toByteArray())
+        if (!ok) throw Forbidden("Wrong or missing X-Keel-Token", "Set KEEL_INTERNAL_TOKEN for the api and the engine (keel2 does).")
         val stored = events.ingest(body)
         return mapOf("ok" to true, "stored" to stored)
     }

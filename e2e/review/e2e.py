@@ -25,6 +25,8 @@ import urllib.request
 from pathlib import Path
 
 NAME, VOLUME, PORT, HOST_PORT = "keel-lab", "keel-lab-data", 8099, 8097
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 BASE = f"http://127.0.0.1:{PORT}/api"
 HERE = Path(__file__).resolve().parent
 CHECKS: list[str] = []
@@ -43,7 +45,7 @@ def git(root: Path, *a: str) -> str:
 
 def call(method: str, path: str, body: object | None = None, ok: tuple[int, ...] = (200,)):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(BASE + path, data=data, method=method, headers={"content-type": "application/json"} if data else {})
+    req = urllib.request.Request(BASE + path, data=data, method=method, headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=120) as r:
             text, code, kind = r.read().decode(), r.status, r.headers.get("content-type", "")
@@ -140,6 +142,7 @@ def main() -> int:
         fake = subprocess.Popen([sys.executable, str(HERE / "fake_host.py"), "--port", str(HOST_PORT), "--state", str(sf)],
                                 stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
         sh("docker", "rm", "-f", NAME, check=False)
+        keelauth.forget(NAME)
         sh("docker", "volume", "rm", VOLUME, check=False)
         sh("docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-v", f"{VOLUME}:/data", "-v", f"{ws}:/workspace",
            "--add-host", "host.docker.internal:host-gateway",
@@ -226,6 +229,7 @@ def main() -> int:
     finally:
         if not args.keep:
             sh("docker", "rm", "-f", NAME, check=False)
+            keelauth.forget(NAME)
             sh("docker", "volume", "rm", VOLUME, check=False)
             if fake:
                 fake.terminate()

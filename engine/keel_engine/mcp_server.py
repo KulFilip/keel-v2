@@ -87,7 +87,10 @@ class KeelApi:
         # v0.16.1 the api checks the level: with the internal token (keel2 mcp has it, agents never do) this asks the api
         # for its level's token once and sends it as X-Keel-Mcp-Token; without it, no token, so the api treats it as read.
         # A dict, so the copies acting() makes share it.
-        self._proof = {"internal": internal_token(), "level": "read", "asked": False}
+        # v0.17.5 without the internal token, the token the engine gave this server (KEEL_MCP_TOKEN: keel's agents' own
+        # server, read level), since the api answers no caller without one.
+        self._proof = {"internal": internal_token(), "level": "read", "asked": False,
+                       "given": os.environ.get("KEEL_MCP_TOKEN", "").strip()}
         # v0.16.0 who acts: every write the api gets from here says "via MCP · <client>: <tool>" (api McpAudit)
         self.client = "an MCP client"
         self.tool = ""
@@ -105,7 +108,12 @@ class KeelApi:
 
     def _prove(self) -> None:
         p = self._proof
-        if p["asked"] or not p["internal"]:
+        if p["asked"]:
+            return
+        if not p["internal"]:
+            if p["given"]:
+                self.http.headers[MCP_TOKEN_HEADER] = p["given"]
+                p["asked"] = True
             return
         try:
             res = self.http.post("/mcp/token", json={"level": p["level"]}, headers={"X-Keel-Token": p["internal"]})

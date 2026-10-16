@@ -35,7 +35,10 @@ web `cd web && npm run dev` (port 5173, proxies `/api` to 8080).
 | `KEEL_V1_OPTIONAL` | `/opt/keel-v1-optional` | api — where `keel2 start --with-keel-v1` mounts a keel v1 checkout (its MCP server only) |
 | `KEEL_ENGINE_URL` | `http://127.0.0.1:8090` | api |
 | `KEEL_API_URL` | `http://127.0.0.1:8080` | engine — where it POSTs events |
-| `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls |
+| `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls; v0.17.5 also keel2's and the e2e suites' api calls (the api refuses `/internal/events` when it is empty) |
+| `KEEL_PUBLIC_URL` | — | api (v0.17.5) — the dashboard as people open it: its host and origin count as keel's own (sign-in) |
+| `KEEL_ALLOWED_HOSTS` | — | api (v0.17.5) — more host names keel answers on (comma-separated), besides localhost |
+| `KEEL_DEV_ORIGINS` | — | api (v0.17.5) — more origins keel's own page may come from (comma-separated) |
 | `KEEL_FAKE` | `0` | engine — `1` forces the fake model everywhere (tests, demo) |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN` | — | optional; Connections can store keys instead |
 
@@ -2009,3 +2012,47 @@ Plan: `docs/plans/0.17.4.md`.
 - **Saved as keel writes it**: a save (`PUT /api/workflows/{wid}`) stores the engine's `formatted` (`workflows/editor.py normalize`): head comments kept, the head in the order `id, name, source, version, about, est_tokens, mcp, needs_plugins, based_on, keel_rules, budget, steps`, each step `id, kind, name, phase`, then the Step model's order with `instructions` last, unknown keys after; 2-space indent, a blank line between steps, short lists on one line. A file with comments below its head is kept as it is.
 - **The starter**: engine `GET /workflows/starter?name=&id=&keel_rules=` → `{yaml}`: a small valid workflow (plan agent, plan gate, red / verify_red / green / verify_green per AC, a final gate). `POST /api/projects/{pid}/workflows {from: "blank"}` makes it (the old empty workflow only when the engine cannot answer); `GET /api/projects/{pid}/workflows/starter?name=&keel_rules=` → `{id, yaml}` shows it first.
 - **Web**: `components/CodeEditor.tsx` edits the YAML tab, Import's "Or paste it" and shows New workflow's example and the marketplace workflow page's YAML (read only); errors are marked in the gutter and listed (a click jumps to the line); Save waits while a line is marked. `components/WorkflowHelp.tsx`: "The fields of a workflow".
+
+## v0.17.5: keel's local api proves every caller
+
+Plan: `docs/plans/agent-clients.md`, section 0. Until 0.17.4 a request without the MCP headers passed with no check:
+any local program, or a web page through the browser, could approve a gate, start a flow or delete a secret.
+
+- **Filter** `api/.../auth/LocalAuth.kt` (before McpAudit and McpLevelGuard), for every request: the Host must be
+  `localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, the host of `KEEL_PUBLIC_URL` or one of `KEEL_ALLOWED_HOSTS`, else
+  403 (DNS rebinding). Outside `/api/` and `/internal/` (the web app's files, plugins' web files, `/web/login`) and for
+  `GET /api/health` nothing more is needed. Otherwise, in this order: `X-Keel-Mcp-Token` (a level token: McpLevelGuard
+  keeps the call within its level, whatever else it carries), `X-Keel-Token` (the internal token: the engine, keel2,
+  keel's scripts), `Authorization: Bearer <web key>` (a person's terminal app: the keel TUI), the sign-in cookie (a GET
+  passes with it; any other method also needs `X-Keel-Web: 1` and, when the browser sends one, an `Origin` that is
+  keel's own, `KEEL_PUBLIC_URL`'s or one of `KEEL_DEV_ORIGINS`). A wrong token → 403; nothing → 401 with
+  `X-Keel-Auth: sign-in` and `{error: "keel needs you to sign in", hint: "Run keel2 open …"}`. The request attribute
+  `keel.auth.who` is `mcp`, `internal`, `person` or `browser`; McpLevelGuard only judges MCP calls (`who = mcp`, or
+  `X-Keel-Via: mcp`). keel never answers CORS (no `Access-Control-Allow-*`, a preflight gets 401).
+- **Web key** (`auth/WebSignIn.kt WebKey`): 32 random bytes, hex, in `$KEEL_DATA/run/web-key` (0600), made once, kept
+  across restarts. The cookie is `keel_<first 8 hex of sha256(key)>` (two keels on localhost keep theirs apart),
+  value the key, `HttpOnly; SameSite=Strict; Path=/; Max-Age=400 days`.
+- **Sign-in**: `POST /api/web/code` (internal token only) → `{code, path: "/web/login?code=…", expires_in: 60}`; a code
+  works once. `GET /web/login?code=&next=` sets the cookie and redirects to `next` (a path on this keel only) or `/`; a
+  used or old code redirects to `/?signin=expired`. `POST /api/web/sign-out` clears this browser's cookie.
+  `GET /api/web/me` → `{signed_in: true, via}`.
+- **MCP level tokens** (`McpTokens`) are `HMAC-SHA256(internal token, "keel-mcp:<level>")`: the same while the
+  container runs, also across an api restart (exit 75). The engine computes the read one (`config.mcp_token`) and hands
+  it to keel's agents' own MCP server as `KEEL_MCP_TOKEN` (`tools/mcp.py keel_server_env`); `mcp_server.KeelApi` sends
+  it when it has no internal token.
+- **Web**: `web/src/api.ts` sends `X-Keel-Web: 1` and `credentials: "same-origin"` on every call (plugins' pages too,
+  through `@keel/web-sdk`); a 401 with `X-Keel-Auth: sign-in` shows `components/SignIn.tsx` ("Run keel2 open", Try
+  again). The Vite dev server forwards `/web/login` and sends the api's own origin.
+- **keel2**: `api()` calls send `X-Keel-Token` read from the container (`docker exec … cat /data/run/internal-token`)
+  or `~/.keel2/<name>/run/token`, through a pipe (`curl -H @<(…)`), never on a command line. `keel2 open [--print]
+  [--dev]` opens (or prints) a one-time sign-in link; `start` and native start open one. `keel2 auth reset` deletes the
+  web key and restarts keel. Test: `scripts/test-keel2-auth.sh` (CI `scripts` job).
+- **Built-in rule `keel-keys`** (never off): no agent reads, searches, lists, changes or sends keel's own keys
+  (`/data/run/…`, `~/.keel2/<name>/run/…`, `~/.keel2/<name>/data/run/…`, the engine's `$KEEL_DATA/run/`), and no shell
+  command names them, `KEEL_INTERNAL_TOKEN`, `X-Keel-Token` or `X-Keel-Mcp-Token` (`rules.keel_key_file`,
+  `KEEL_KEY_WORDS`; the hook checks every tool's path, also without a context).
+- **Callers**: the e2e suites read the container's token (`e2e/keelauth.py`) and sign their browser walks in
+  (`KEEL_SIGNIN`, parity `KEEL_SIGNIN_A` / `_B`); `keel-plugin dev` sends the token (`$KEEL_INTERNAL_TOKEN`, else read
+  from the container); the api tests send it by default (`support/SignedIn.kt`, `ApiTest.bare` for none).
+- **Limit**: a program of the same user that reads keel's files can still act as keel; the sign-in closes plain HTTP
+  (other programs, other users, web pages) and the rule keeps agents away from the files.

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,8 @@ from pathlib import Path
 
 NAME, VOLUME, PORT = "keel-core", "keel-core-data", 8097
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 PROJECT = "shop"
 CHECKS: list[str] = []
 
@@ -62,7 +65,7 @@ def sh(*args: str, check: bool = True, cwd: Path | None = None) -> str:
 def http(method: str, path: str, body: object | None = None, timeout: float = 30) -> tuple[int, dict, str]:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=data, method=method,
-                                 headers={"content-type": "application/json"} if data else {})
+                                 headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, dict(r.headers), r.read().decode(errors="replace")
@@ -106,6 +109,7 @@ def ours_only() -> None:
 
 def clean() -> None:
     sh("docker", "rm", "-f", NAME, check=False)
+    keelauth.forget(NAME)
     sh("docker", "volume", "rm", VOLUME, check=False)
 
 
@@ -171,7 +175,8 @@ def flows(pid: str) -> list[str]:
 def walk(out: Path, extra: list[str], label: str) -> None:
     print(f"   the web, in headless Chromium ({label})")
     cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "walk.mjs"), f"http://127.0.0.1:{PORT}", str(out), *extra]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
+    env = {**os.environ, "KEEL_SIGNIN": keelauth.signin_url(f"http://127.0.0.1:{PORT}", NAME)}
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, env=env)
     line = next((x for x in reversed(r.stdout.splitlines()) if x.startswith("{")), "")
     if not line:
         raise AssertionError(f"walk.mjs gave no answer ({r.returncode}): {(r.stderr or r.stdout)[-2000:]}")

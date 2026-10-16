@@ -11,6 +11,7 @@ import { resetLauncherCache } from "../components/launcher/sources";
 import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
 import { createDb, handlers, type Db } from "./handlers";
+import { signInDone } from "../signIn";
 
 // keel as the full image has it: every plugin in plugins/ is there, and its setup() has run once (as addons.ts does at
 // start with the web parts /api/features lists), so the menu and the slots are the same as for people
@@ -31,6 +32,7 @@ export const server = setupServer();
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 beforeEach(() => {
+  signInDone();   // v0.17.5 a late 401 of the test before must not leave the sign-in screen up
   db = createDb();
   server.resetHandlers(...handlers(db));
   (globalThis as unknown as { __db: Db }).__db = db;

@@ -20,7 +20,9 @@
 #   keel2 status                is keel running, for which project, on which port, which edition (core or full)
 #   keel2 tui                   keel in the terminal (keel TUI): KeelBot, slash commands, the live flow, agents and the
 #                               inbox. Plain `keel2` opens it too, in a terminal while keel runs (KEEL_TUI_DEFAULT=0: help)
-#   keel2 open                  open the dashboard in the browser
+#   keel2 open [--print|--dev]  open the dashboard in the browser, signed in (--print: only print the one-time link;
+#                               --dev: for the web's dev server on :5173)
+#   keel2 auth reset            a new sign-in key: every browser signs in again (keel restarts)
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
 #   keel2 update                get the newest image and restart keel if it is running (native: the newest
@@ -159,11 +161,32 @@ ensure_image() {
 
 api() { echo "http://localhost:${1:-$(running_port)}/api"; }
 
+# v0.17.5 keel's api answers no caller without a credential (api auth/LocalAuth): keel2 sends keel's internal token.
+# It never goes on a command line (other users of this computer can read those): curl reads the header from a pipe.
+keel_token() {
+  if native_mode && ! docker_keel_running; then cat "$ND/run/token" 2>/dev/null || true
+  else docker exec "$NAME" cat /data/run/internal-token 2>/dev/null || true; fi
+}
+kcurl() { curl -H @<(printf 'X-Keel-Token: %s\n' "$(keel_token)") "$@"; }
+
+signin_url() {  # signin_url <api port> [page port] — a one-time sign-in link (60 s) for the dashboard; fails on an old keel
+  local body path
+  body="$(kcurl -fsS -m 10 -X POST "$(api "$1")/web/code" 2>/dev/null)" || return 1
+  path="$(printf '%s' "$body" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')"
+  [ -n "$path" ] || return 1
+  printf 'http://localhost:%s%s' "${2:-$1}" "$path"
+}
+
+open_signed_in() {  # open_signed_in <port> — the dashboard, signed in (an older keel: just the page)
+  local u; u="$(signin_url "$1")" || u="http://localhost:$1"
+  open_url "$u"
+}
+
 # Agents working right now (a restart or stop would throw their work away and the step starts again).
 busy_agents() {
   container_running || { echo 0; return; }
   # grep finds nothing when no agent works: that is not an error (set -e / pipefail would end the script silently)
-  { curl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null || true; } | { grep -o '"agent":"[^"]*"' || true; } | wc -l | tr -d ' '
+  { kcurl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null || true; } | { grep -o '"agent":"[^"]*"' || true; } | wc -l | tr -d ' '
 }
 
 guard_busy() {  # guard_busy "restart" — asks (or refuses) when agents are working; KEEL_FORCE=1 / --force skips it
@@ -259,7 +282,7 @@ abs_path() {  # like project_path, but the folder may be gone (for keel2 remove)
 register_added() {  # register_added <port> <folder>… — every git repo in the added folders becomes a keel project
   local port="$1"; shift
   [ $# -gt 0 ] || return 0
-  local known f r j out; known="$(curl -fs -m 10 "$(api "$port")/projects" 2>/dev/null || true)"
+  local known f r j out; known="$(kcurl -fs -m 10 "$(api "$port")/projects" 2>/dev/null || true)"
   local roots=()
   for f in "$@"; do
     if is_repo "$f"; then roots+=("$f"); continue; fi
@@ -271,7 +294,7 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
   for r in ${roots[@]+"${roots[@]}"}; do
     j="$(json_str "$r")"
     if printf '%s' "$known" | grep -qF "\"root\":\"$j\""; then continue; fi
-    if out="$(curl -fsS -m 30 -X POST "$(api "$port")/projects" -H 'content-type: application/json' \
+    if out="$(kcurl -fsS -m 30 -X POST "$(api "$port")/projects" -H 'content-type: application/json' \
                 --data-binary "{\"root\":\"$j\"}" 2>&1)"; then
       ok "project added: $(basename "$r")  ${D}($r)${N}"
     else
@@ -385,7 +408,7 @@ cmd_start() {
   register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
-  [ "${KEEL_OPEN:-1}" = 1 ] && open_url "http://localhost:$port" || true
+  [ "${KEEL_OPEN:-1}" = 1 ] && open_signed_in "$port" || true
 }
 
 open_url() {
@@ -546,10 +569,39 @@ edition_text() {
   esac
 }
 
-cmd_open() {
+cmd_open() {  # keel2 open [--print] [--dev] — v0.17.5 signed in: a one-time link (60 s) that sets this browser's cookie
+  local print=0 page="" a
+  for a in "$@"; do
+    case "$a" in
+      --print) print=1 ;;
+      --dev) page=5173 ;;
+      *) die "Unknown option $a" "usage: keel2 open [--print] [--dev]" ;;
+    esac
+  done
   need_docker
   container_running || die "keel is not running." "Start it: keel2 start /path/to/project"
-  local u="http://localhost:$(running_port)"; info "$u"; open_url "$u"
+  local port u; port="$(running_port)"
+  u="$(signin_url "$port" "${page:-$port}")" || u="http://localhost:${page:-$port}"
+  if [ "$print" = 1 ]; then
+    printf '%s\n' "$u"
+    info "${D}The link signs one browser in; it works once, for 60 seconds.${N}" >&2
+    return 0
+  fi
+  info "http://localhost:${page:-$port}"; open_url "$u"
+}
+
+cmd_auth() {  # keel2 auth reset — v0.17.5 a new sign-in key (api auth/WebKey): every browser and terminal app signs in again
+  case "${1:-}" in
+    reset)
+      need_docker
+      container_running || die "keel is not running." "Start it: keel2 start /path/to/project"
+      if native_mode && ! docker_keel_running; then rm -f "$ND/data/run/web-key"
+      else docker exec "$NAME" rm -f /data/run/web-key || die "Could not remove the sign-in key."; fi
+      ok "The old sign-in key is gone. keel makes a new one when it starts again."
+      cmd_restart --force
+      info "  ${D}Every browser signs in again: keel2 open${N}" ;;
+    *) die "usage: keel2 auth reset" "It makes a new sign-in key: every browser has to sign in again (keel2 open)." ;;
+  esac
 }
 
 cmd_doctor() {
@@ -623,7 +675,7 @@ cmd_token() {
   # JSON is built inside keel's container (it has python3), so this computer needs no python.
   local body out
   body="$(printf '%s' "$value" | kpy -c 'import json,sys; print(json.dumps({"value": sys.stdin.read()}))')"
-  out="$(printf '%s' "$body" | curl -fsS -X PUT "$(api)/secrets/$name" -H 'content-type: application/json' --data-binary @-)" \
+  out="$(printf '%s' "$body" | kcurl -fsS -X PUT "$(api)/secrets/$name" -H 'content-type: application/json' --data-binary @-)" \
     || die "Could not save $name." "Is it complete? Try the dashboard: Control › Connections."
   ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | kpy -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')"
 }
@@ -631,7 +683,7 @@ cmd_token() {
 cmd_tokens() {
   need_docker
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
-  curl -fs "$(api)/connections" | kpy -c '
+  kcurl -fs "$(api)/connections" | kpy -c '
 import json, sys
 for p in json.load(sys.stdin)["providers"]:
     if p["id"] == "fake":
@@ -908,7 +960,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   local added=(); while IFS= read -r f; do [ "$f" != "$project" ] && [ -d "$f" ] && added+=("$f"); done < <(list_folders)
   register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Logs: keel2 logs${N}"
-  [ "${KEEL_OPEN:-1}" = 1 ] && open_url "http://localhost:$port" || true
+  [ "${KEEL_OPEN:-1}" = 1 ] && open_signed_in "$port" || true
 }
 
 native_stop_quiet() {
@@ -1104,7 +1156,8 @@ case "$cmd" in
   add)              cmd_add "$@" ;;
   remove|rm)        cmd_remove "$@" ;;
   folders)          cmd_folders ;;
-  open)             cmd_open ;;
+  open)             cmd_open "$@" ;;
+  auth)             cmd_auth "$@" ;;
   logs)             if native_mode && ! docker_keel_running; then [ -f "$ND/logs/keel.log" ] || die "keel has no log yet."; exec tail -n 100 -F "$ND/logs/keel.log"; fi
                     need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
   doctor|check)     cmd_doctor "$@" ;;

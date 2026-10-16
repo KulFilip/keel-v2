@@ -52,11 +52,12 @@ def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProces
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
 
 
-def _http(method: str, url: str, body: dict | None = None, timeout: float = 30) -> tuple[int, object]:
+def _http(method: str, url: str, body: dict | None = None, timeout: float = 30,
+          headers: dict | None = None) -> tuple[int, object]:
     """(status, JSON answer or text); status 0 when keel does not answer."""
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"content-type": "application/json"} if data is not None else {})
+                                 headers={**({"content-type": "application/json"} if data is not None else {}), **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             code, text = r.status, r.read().decode(errors="replace")
@@ -75,6 +76,7 @@ class Dev:
     keel: str = DEFAULT_KEEL
     container: str = DEFAULT_CONTAINER
     keel_src: Path | None = None
+    token: str | None = None
     timeout: float = 300.0
     run: Callable[..., subprocess.CompletedProcess] = _run
     http: Callable[..., tuple[int, object]] = _http
@@ -84,6 +86,16 @@ class Dev:
 
     def api(self, path: str) -> str:
         return self.keel.rstrip("/") + "/api" + path
+
+    def call(self, method: str, path: str, body: dict | None, timeout: float) -> tuple[int, object]:
+        """One api call, as keel2 makes it: keel 0.17.5 answers no caller without a credential (its api's auth/LocalAuth).
+        keel's internal token: $KEEL_INTERNAL_TOKEN, else read from the container (/data/run/internal-token)."""
+        if self.token is None:
+            self.token = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
+            if not self.token:
+                r = self.run(["docker", "exec", self.container, "cat", "/data/run/internal-token"])
+                self.token = r.stdout.strip() if r.returncode == 0 else ""
+        return self.http(method, self.api(path), body, timeout, {"X-Keel-Token": self.token} if self.token else {})
 
     # ---------------------------------------------------------------- 1 build
 
@@ -161,7 +173,7 @@ class Dev:
     # ---------------------------------------------------------------- 4 install, 5 restart
 
     def install(self, path: str) -> dict:
-        code, res = self.http("POST", self.api("/plugins/install-file"), {"path": path, "force": True}, 120)
+        code, res = self.call("POST", "/plugins/install-file", {"path": path, "force": True}, 120)
         if code == 0:
             raise DevError(f"keel does not answer at {self.keel}: is it running? (give --keel <url>)")
         if code != 200 or not isinstance(res, dict):
@@ -172,7 +184,7 @@ class Dev:
         return res
 
     def restart(self) -> None:
-        code, res = self.http("POST", self.api("/plugins/restart"), {"now": True}, 30)
+        code, res = self.call("POST", "/plugins/restart", {"now": True}, 30)
         if code == 409:
             error = res.get("error") if isinstance(res, dict) else res
             raise DevError(f"keel cannot restart itself ({error}). Restart keel by hand (keel2 restart), then look at "
@@ -183,7 +195,7 @@ class Dev:
         self.sleep(3)
         deadline = time.monotonic() + self.timeout
         while True:
-            code, res = self.http("GET", self.api("/plugins/installed"), None, 10)
+            code, res = self.call("GET", "/plugins/installed", None, 10)
             if code == 200 and isinstance(res, dict) and not (res.get("restart") or {}).get("pending"):
                 return
             if time.monotonic() > deadline:
@@ -194,7 +206,7 @@ class Dev:
     # ---------------------------------------------------------------- 6 report
 
     def report(self, m: Manifest, folder: Path) -> bool:
-        code, host = self.http("GET", self.api("/plugin-host"), None, 10)
+        code, host = self.call("GET", "/plugin-host", None, 10)
         if code != 200 or not isinstance(host, dict):
             raise DevError(f"keel's /api/plugin-host did not answer ({code})")
         mine = next((p for p in host.get("plugins") or [] if p.get("name") == m.name), None)

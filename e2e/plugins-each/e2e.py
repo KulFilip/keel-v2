@@ -47,6 +47,8 @@ import urllib.request
 from pathlib import Path
 
 NAME, VOLUME, PORT = "keel-each", "keel-each-data", 8091
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 HERE = Path(__file__).resolve().parent
 PROJECT = "shop"
 
@@ -94,7 +96,7 @@ def sh(*args: str, check: bool = True, cwd: Path | None = None) -> str:
 def http(method: str, path: str, body: object | None = None, timeout: float = 30) -> tuple[int, str, str]:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=data, method=method,
-                                 headers={"content-type": "application/json"} if data else {})
+                                 headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.headers.get("content-type", ""), r.read().decode(errors="replace")
@@ -128,6 +130,7 @@ def exists(name: str) -> bool:
 
 def clean() -> None:
     sh("docker", "rm", "-f", NAME, check=False)
+    keelauth.forget(NAME)
     sh("docker", "volume", "rm", VOLUME, check=False)
 
 
@@ -229,7 +232,8 @@ def walk(out: Path, label: str, off: set[str], extra: list[str], pid: str) -> di
     cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "walk.mjs"), f"http://127.0.0.1:{PORT}",
            str(out / label), json.dumps(routes), *extra]
     # the walk opens this project (the product image has a second one, keel Product's own keel-product)
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, env={**os.environ, "KEEL_WALK_PROJECT": pid})
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, env={**os.environ, "KEEL_WALK_PROJECT": pid,
+                       "KEEL_SIGNIN": keelauth.signin_url(f"http://127.0.0.1:{PORT}", NAME)})
     line = next((x for x in reversed(r.stdout.splitlines()) if x.startswith("{")), "")
     if not line:
         raise AssertionError(f"walk.mjs gave no answer ({r.returncode}): {(r.stderr or r.stdout)[-2000:]}")

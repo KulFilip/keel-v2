@@ -295,6 +295,20 @@ saved encrypted in keel's own database (the `keel-data` volume), so it survives 
 
 From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to list them.
 
+## Signing in
+
+keel answers only you. There is no password: `keel2 start` and `keel2 open` open keel in your browser already signed
+in. A browser that is not signed in shows one screen: "Run keel2 open in a terminal".
+
+```bash
+keel2 open            # open keel signed in (a link that works once, for 60 seconds)
+keel2 open --print    # print that link, to open it in another browser
+keel2 auth reset      # a new key: every browser signs in again (keel restarts)
+```
+
+Other programs on your computer, and web pages, cannot change anything in keel. keel2, keel's MCP server and keel's
+own engine bring their own keys. keel's agents never read those keys (a rule that cannot be switched off).
+
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
 keel has an MCP server with three levels; each includes the one below:

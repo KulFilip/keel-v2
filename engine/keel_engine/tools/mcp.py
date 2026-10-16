@@ -22,8 +22,13 @@ PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
 
 def keel_server_env() -> dict:
     """What keel's own MCP server needs: the api, and the engine's plugins (their tools in it, like the CI/CD plugin's).
-    Only that process gets the plugin variables: a project's commands never see them (models/cli.py project_env)."""
-    return {"KEEL_API_URL": config.api_url(), **{k: os.environ[k] for k in PLUGIN_ENV if os.environ.get(k)}}
+    Only that process gets the plugin variables: a project's commands never see them (models/cli.py project_env).
+    v0.17.5 and the api's read token (KEEL_MCP_TOKEN): the api answers no caller without one (api auth/LocalAuth). Agents
+    get keel's server read-only, so a read token gives them nothing they did not have."""
+    env = {"KEEL_API_URL": config.api_url(), **{k: os.environ[k] for k in PLUGIN_ENV if os.environ.get(k)}}
+    if tok := config.mcp_token("read"):
+        env["KEEL_MCP_TOKEN"] = tok
+    return env
 
 
 def keel_server_spec() -> dict:

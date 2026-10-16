@@ -24,7 +24,7 @@ set -euo pipefail
 echo "$*" >> "$PB_DOCKER_LOG"
 case "$1" in
   inspect) if [ -n "${PB_DOCKER_DOWN:-}" ]; then echo "Error: No such object: $4" >&2; exit 1; fi; echo true ;;
-  exec) exit 0 ;;
+  exec) case "$*" in *internal-token*) printf 'dev-token' ;; esac; exit 0 ;;
   cp) dst="${3#*:}"; mkdir -p "$PB_DOCKER_ROOT$(dirname "$dst")"; cp "$2" "$PB_DOCKER_ROOT$dst" ;;
   *) exit 3 ;;
 esac
@@ -53,6 +53,7 @@ class Keel(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         s = self.state
+        s.setdefault("tokens", []).append(self.headers.get("X-Keel-Token"))
         s["calls"].append(("POST", self.path, self._body()))
         if self.path == "/api/plugins/install-file":
             code, body = s["install"]
@@ -65,6 +66,7 @@ class Keel(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         s = self.state
+        s.setdefault("tokens", []).append(self.headers.get("X-Keel-Token"))
         s["calls"].append(("GET", self.path, None))
         if self.path == "/api/plugins/installed":
             s["pending_reads"] = max(0, s.get("pending_reads", 0) - 1)
@@ -102,6 +104,7 @@ def docker(tmp_path, monkeypatch):
     monkeypatch.setenv("PB_DOCKER_ROOT", str(root))
     monkeypatch.delenv("PB_DOCKER_DOWN", raising=False)
     monkeypatch.delenv("KEEL_NAME", raising=False)
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.setattr(dev.time, "sleep", lambda s: None)
     return log, root
 
@@ -121,7 +124,10 @@ def test_dev_puts_a_content_only_plugin_into_keel_unsigned_and_says_what_loaded(
     code, out, err = run("dev", notes, "--keel", keel["url"], "--container", "keel-dev")
     assert code == 0, out + err
     assert calls(log) == ["inspect -f {{.State.Running}} keel-dev", "exec keel-dev mkdir -p /data/plugins/dev",
-                          f"cp {calls(log)[2].split()[1]} keel-dev:/data/plugins/dev/notes-0.1.0.kplug"]
+                          f"cp {calls(log)[2].split()[1]} keel-dev:/data/plugins/dev/notes-0.1.0.kplug",
+                          "exec keel-dev cat /data/run/internal-token"]
+    # keel 0.17.5 answers no caller without a credential: every call carries keel's internal token
+    assert set(keel["tokens"]) == {"dev-token"}
     copied = root / "data/plugins/dev/notes-0.1.0.kplug"
     report = lint(copied)
     assert report.ok and report.manifest.trust() == "content"

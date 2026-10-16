@@ -48,6 +48,8 @@ sys.path.insert(0, str(ROOT / "tools/keel-plugin"))
 from keel_plugin import miniyaml  # noqa: E402  (stdlib only: no cryptography needed here)
 
 NAME, VOLUME, PORT = "keel-s5", "keel-s5-data", 8093
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 IMAGE_LOCK, IMAGE_SRC_NEW, IMAGE_SRC_OLD = "keel-v2:s5-lock", "keel-v2:s5-src-new", "keel-v2:s5-src-old"
 PLUGINS = ["tasks", "wiki", "jira"]
 KEELBOT = "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>"
@@ -272,6 +274,7 @@ class Server:
 
 def docker_clean(images: bool) -> None:
     sh("docker", "rm", "-f", NAME, f"{NAME}-check", check_rc=False)
+    keelauth.forget(NAME)
     sh("docker", "volume", "rm", VOLUME, check_rc=False)
     if images:
         sh("docker", "image", "rm", IMAGE_LOCK, IMAGE_SRC_NEW, IMAGE_SRC_OLD, check_rc=False)
@@ -279,7 +282,8 @@ def docker_clean(images: bool) -> None:
 
 def http_get(path: str, timeout: float = 10) -> tuple[int, bytes]:
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}{path}", timeout=timeout) as r:
+        req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", headers=keelauth.headers(NAME))
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()

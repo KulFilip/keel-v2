@@ -43,6 +43,8 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 KEELS = {"a": ("keel-parity-a", "keel-parity-a-data", 8094), "b": ("keel-parity-b", "keel-parity-b-data", 8095)}
 PROJECT = "shop"
 # v0.15.9: a new project with no keel files in docs/ gets the "keel" layout (.keel/…, hidden from git). "notes" is one:
@@ -75,7 +77,7 @@ class Keel:
         """(status, content type, body) of one call; never raises for an http status."""
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.url + path, data=data, method=method,
-                                     headers={"content-type": "application/json"} if data else {})
+                                     headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(self.name)})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.status, r.headers.get("content-type", ""), r.read()
@@ -104,6 +106,7 @@ class Keel:
 
     def remove(self) -> None:
         sh("docker", "rm", "-f", self.name, check=False)
+        keelauth.forget(self.name)
         sh("docker", "volume", "rm", self.volume, check=False)
 
     def logs(self) -> str:
@@ -651,7 +654,8 @@ def web_parity(a: Keel, b: Keel, out: Path, phase: str, sets: bool = False) -> l
     shutil.rmtree(where, ignore_errors=True)
     where.mkdir(parents=True)
     cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "pages.mjs"), a.url, b.url, str(where), *(["--sets"] if sets else [])]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    env = {**os.environ, "KEEL_SIGNIN_A": keelauth.signin_url(a.url, a.name), "KEEL_SIGNIN_B": keelauth.signin_url(b.url, b.name)}
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, env=env)
     report = where / "web.json"
     if not report.exists():
         raise RuntimeError(f"pages.mjs did not finish ({r.returncode}): {(r.stderr or r.stdout)[-3000:]}")

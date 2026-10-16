@@ -34,6 +34,8 @@ import zipfile
 from pathlib import Path
 
 NAME, VOLUME, PORT = "keel-lab", "keel-lab-data", 8099
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
 ROOT = Path(__file__).resolve().parents[2]
 CHECKS: list[str] = []
 
@@ -48,7 +50,7 @@ def sh(*args: str, check: bool = True, cwd: Path | None = None) -> str:
 def http(method: str, path: str, body: object | None = None) -> tuple[int, dict, str]:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=data, method=method,
-                                 headers={"content-type": "application/json"} if data else {})
+                                 headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status, dict(r.headers), r.read().decode(errors="replace")
@@ -89,12 +91,14 @@ def healthy():
 
 def clean() -> None:
     sh("docker", "rm", "-f", NAME, check=False)
+    keelauth.forget(NAME)
     sh("docker", "volume", "rm", VOLUME, check=False)
 
 
 def start(image: str, ws: Path, env: dict[str, str] | None = None, fresh: bool = True) -> None:
     """keel-lab from this image; fresh = a new, empty volume."""
     sh("docker", "rm", "-f", NAME, check=False)
+    keelauth.forget(NAME)
     if fresh:
         sh("docker", "volume", "rm", VOLUME, check=False)
     args = ["docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-v", f"{VOLUME}:/data", "-v", f"{ws}:/workspace"]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 from pathlib import Path
 
@@ -20,6 +22,16 @@ def api_url() -> str:
 
 def internal_token() -> str:
     return os.environ.get("KEEL_INTERNAL_TOKEN", "")
+
+
+def mcp_token(level: str) -> str:
+    """v0.17.5 the api's token for an MCP level (api mcp/McpLevels.kt McpTokens): an HMAC of the internal token and the
+    level, so the engine can hand keel's agents' own MCP server its read token without asking the api. "" without an
+    internal token."""
+    tok = internal_token()
+    if not tok:
+        return ""
+    return hmac.new(tok.encode(), f"keel-mcp:{level}".encode(), hashlib.sha256).hexdigest()
 
 
 def fake() -> bool:

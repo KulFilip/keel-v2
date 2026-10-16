@@ -59,7 +59,8 @@ class EventsApiTest : ApiTest() {
 
     @Test
     fun `events need the internal token`() {
-        post("/internal/events", emptyList<Any>()).andExpect(status().isForbidden)
+        bare.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/internal/events")
+            .contentType("application/json").content("[]")).andExpect(status().isUnauthorized)
         post("/internal/events", emptyList<Any>(), mapOf("X-Keel-Token" to "wrong")).andExpect(status().isForbidden)
         send(emptyList()).andExpect(status().isOk)
     }

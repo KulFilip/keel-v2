@@ -4,9 +4,12 @@ import keel.api.mcp.McpLevelGuard
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.http.MediaType
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.16.1 the api itself refuses an MCP call above the level its token proves; the web app works as before. */
+/** v0.16.1 the api itself refuses an MCP call above the level its token proves. v0.17.5: every caller proves who it is
+ *  (auth/LocalAuth); the tests' plain requests carry the internal token (support/SignedIn), as keel's engine does. */
 class McpLevelsApiTest : ApiTest() {
 
     private fun token(level: String): String =
@@ -19,7 +22,8 @@ class McpLevelsApiTest : ApiTest() {
 
     @Test
     fun `a level token comes only with the internal token`() {
-        post("/api/mcp/token", mapOf("level" to "admin")).andExpect(status().isForbidden)
+        bare.perform(MockMvcRequestBuilders.post("/api/mcp/token").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"level\":\"admin\"}")).andExpect(status().isUnauthorized)
         post("/api/mcp/token", mapOf("level" to "admin"), mapOf("X-Keel-Token" to "wrong")).andExpect(status().isForbidden)
         val write = token("write")
         assertThat(write).hasSize(64).isNotEqualTo(token("admin")).isNotEqualTo(token("read"))
@@ -46,7 +50,7 @@ class McpLevelsApiTest : ApiTest() {
     }
 
     @Test
-    fun `the web app's plain requests work as before`() {
+    fun `keel's own requests (the internal token) are not limited by MCP levels`() {
         val (pid, _) = newProject("lv-web")
         post("/api/projects/$pid/flows", flow).andExpect(status().isOk)
         post("/api/threads/t-stub-1/stop").andExpect(status().isOk)
@@ -54,9 +58,10 @@ class McpLevelsApiTest : ApiTest() {
     }
 
     @Test
-    fun `actions need the action's level, even without X-Keel-Via`() {
+    fun `actions need the action's level`() {
         val (pid, _) = newProject("lv-actions")
-        post("/api/projects/$pid/actions/verify_fast", emptyMap<String, Any>()).andExpect(status().isForbidden)
+        post("/api/projects/$pid/actions/verify_fast", emptyMap<String, Any>(), mcp()).andExpect(status().isForbidden)
+        post("/api/projects/$pid/actions/verify_fast", emptyMap<String, Any>(), mapOf("X-Keel-Mcp-Token" to token("read"))).andExpect(status().isForbidden)
         post("/api/projects/$pid/actions/verify_fast", emptyMap<String, Any>(), mcp("read")).andExpect(status().isForbidden)
         post("/api/projects/$pid/actions/open_pr", emptyMap<String, Any>(), mcp("write")).andExpect(status().isForbidden)
         assertThat(post("/api/projects/$pid/actions/trace", emptyMap<String, Any>()).andReturn().response.status).isNotEqualTo(403)

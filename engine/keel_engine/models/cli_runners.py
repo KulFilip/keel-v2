@@ -523,6 +523,11 @@ class CodexCLIRunner:
         for s in mcp.servers_for(req.mcp_specs, req.tools_allow):
             argv += ["-c", f"mcp_servers.{s['name']}.command={json.dumps(s['command'])}",
                      "-c", f"mcp_servers.{s['name']}.args={json.dumps(list(s.get('args') or []))}"]
+            # v0.17.5 its environment too (keel's own server: the api and its read token, KEEL_MCP_TOKEN): codex starts
+            # MCP servers with almost none. A TOML inline table; json.dumps gives TOML-safe strings.
+            if s.get("env"):
+                table = ", ".join(f"{k} = {json.dumps(str(v))}" for k, v in s["env"].items() if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k))
+                argv += ["-c", f"mcp_servers.{s['name']}.env={{{table}}}"]
         # Sessions live in CODEX_HOME on /data; continue this step's session when there is one.
         argv += ["resume", req.session, "-"] if (req.session and req.resume) else ["-"]
         state: dict = {}
@@ -575,7 +580,8 @@ class CopilotCLIRunner:
             argv += ["--model", req.model["model"]]
         servers = mcp.servers_for(req.mcp_specs, req.tools_allow)
         if servers:
-            cfg = {"mcpServers": {s["name"]: {"type": "local", "command": s["command"], "args": list(s.get("args") or []), "tools": ["*"]}
+            cfg = {"mcpServers": {s["name"]: {"type": "local", "command": s["command"], "args": list(s.get("args") or []), "tools": ["*"],
+                                              **({"env": dict(s["env"])} if s.get("env") else {})}
                                   for s in servers}}
             argv += ["--additional-mcp-config", json.dumps(cfg)]
         login = copilot_login_env(req.keys) or ({"GH_TOKEN": req.key, "COPILOT_GITHUB_TOKEN": req.key} if req.key else {})

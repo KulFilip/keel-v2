@@ -11,6 +11,8 @@ import { FlowPage } from "./pages/Flow";
 import { ProjectsPage } from "./pages/Projects";
 import { SCREEN } from "./routes";
 import { PageBoundary } from "./components/PageBoundary";
+import { SignIn } from "./components/SignIn";
+import { useSignIn } from "./signIn";
 import { pageOf, usePages } from "./sdk/registry";
 import { AppProvider, useApp, useRoute } from "./state";
 
@@ -124,6 +126,9 @@ function Router() {
 }
 
 export function App() {
+  // v0.17.5 not signed in (api auth/LocalAuth): one screen that says how, instead of every page failing
+  const signIn = useSignIn();
+  if (signIn.needed) return <SignIn state={signIn} />;
   return (
     <AppProvider>
       <Shell>
