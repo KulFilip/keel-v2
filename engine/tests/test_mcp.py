@@ -57,6 +57,7 @@ class StubApi:
     def __init__(self, thread=THREAD):
         self.thread = thread
         self.posts: list[tuple[str, dict]] = []
+        self.fake_keel = False
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         path = req.url.path
@@ -67,6 +68,9 @@ class StubApi:
         if req.method == "POST" and path == "/api/projects/shop/flows":
             body = json.loads(req.content)
             self.posts.append((path, body))
+            if self.fake_keel and not body.get("allow_fake"):
+                return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
+                                                          "files, not real code.", "hint": "Pick a real model."})
             return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
         routes = {
             "/api/projects": PROJECTS,
@@ -379,6 +383,20 @@ def test_start_flow_posts_to_the_dashboards_endpoint(stub):
     assert body == {"workflow_id": "feature", "title": "Player scores", "request": "Player scores\nSave a score and show the top ten.",
                     "options": {"started_via": "mcp"}}
     assert "recorded as started via MCP" in text and "It waits for a human: Approve the spec" in text
+
+
+async def test_start_flow_on_a_fake_model_keel_needs_allow_fake(stub):
+    """v0.17.5 (the xal client test): a keel on the fake model refused keel_start_flow with 409, the tool could not
+    send allow_fake. It says how now, and allow_fake=true starts the flow."""
+    import pytest as _pytest
+
+    stub.fake_keel = True
+    with _pytest.raises(mcp_server.ApiError, match="call keel_start_flow again with allow_fake=true"):
+        mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None)
+    assert "allow_fake" not in stub.posts[-1][1]
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "allow_fake": True})
+    assert stub.posts[-1][1]["allow_fake"] is True and "recorded as started via MCP" in text
 
 
 def test_start_flow_refuses_an_unknown_type_and_an_empty_idea(stub):
