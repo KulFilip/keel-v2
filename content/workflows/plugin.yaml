@@ -1,0 +1,125 @@
+id: plugin
+name: plugin (keel)
+keel_rules: true
+version: 1
+# Build a keel plugin in this repo's plugins/<name>/ (docs/plugins/17-publish-your-plugin.md, keel 0.18.6): the plugin's
+# spec (its name, its parts, the permissions it asks for, numbered criteria) and its gate; the scaffold from keel's
+# template (tools/keel-plugin: keel-plugin new) in one commit; the test-first loop per criterion; keel-plugin lint on the
+# built package and the plugin's own tests (scripts/plugin-check.sh lint | test: scripts/build-plugin.sh, keel-plugin lint,
+# scripts/test-plugins.sh <name>), each with up to 2 fix rounds before keel asks; the whole-diff review and its gate.
+# scripts/plugin-check.sh finds the plugin from the branch's changes under plugins/ (or KEEL_BASE's).
+steps:
+  - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  - id: spec
+    kind: agent
+    name: plugin spec
+    agent: explorer
+    model: default
+    phase: spec
+    tools: ["mcp:keel:*"]
+    instructions: >-
+      This flow builds a keel plugin in plugins/<name>/. Read docs/plugins/17-publish-your-plugin.md and one plugin
+      like it first (plugins/wiki for pages and content, plugins/db for engine actions and MCP tools). Ask questions
+      when the request leaves the plugin's job open. Then write its spec: the plugin's name (a-z, 0-9 and '-', starting
+      with a letter, not one of keel's own names or plugins), its title and one-sentence summary, the parts it needs and
+      no more (engine: routes, actions for code steps, MCP tools; api; web: pages, slots, KeelBot cards; content:
+      workflows, agents, skills), the permissions it asks for and why each is needed, and numbered acceptance criteria,
+      each one provable by the plugin's own tests (plugins/<name>/engine/tests, or web tests). Keep the first version
+      small. Put "PLUGIN: <name>" on its own line at the top of the spec.
+  - { id: spec_sync, kind: code, name: criteria for the gate, action: spec_sync, phase: spec }
+  - { id: spec_gate, kind: gate, name: plugin spec approval, back: spec, lock: true, phase: spec }
+  - { id: freeze, kind: code, name: freeze + commit the spec, action: spec_freeze, back: spec, lock: true, phase: spec }
+  - id: scaffold
+    kind: agent
+    name: scaffold the plugin with keel-plugin new
+    agent: implementer
+    model: default
+    phase: ac
+    instructions: >-
+      Make the plugin's folder from keel's template, with only the parts the frozen spec names (a comma list of engine,
+      web, content): cd tools/keel-plugin && uv run keel-plugin new <name> --dir ../../plugins --publisher keel --parts
+      <parts>. Then fill plugins/<name>/keel-plugin.yml from the spec: title, summary and the permissions it asks for.
+      Write no feature code and no feature tests: the criteria come next, one by one. Check the scaffold with
+      scripts/plugin-check.sh lint <name> and scripts/plugin-check.sh test <name>, and fix what they report in the files
+      you made. Never edit another plugin or keel's own code.
+  - { id: scaffold_commit, kind: code, name: commit the scaffold, action: commit, phase: ac }
+  - id: red
+    kind: agent
+    name: red
+    agent: test-author
+    model: default
+    phase: red
+    per_ac: true
+    instructions: >-
+      The plugin lives in plugins/<name>/ (the spec's PLUGIN line). Write the failing test for this criterion in the
+      plugin's own tests (plugins/<name>/engine/tests for the engine part, web tests next to its pages); they run with
+      scripts/test-plugins.sh <name>.
+  - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
+  - id: green
+    kind: agent
+    name: green
+    agent: implementer
+    model: default
+    phase: green
+    per_ac: true
+    instructions: >-
+      Make this criterion's test pass with the least code, inside plugins/<name>/ only. keel's own code (engine/, api/,
+      web/src) stays as it is: a plugin reaches keel through its parts and keel's SDK, never by changing keel.
+  - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
+  - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
+  - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
+  # keel-plugin lint on the package the plugin builds to; up to 2 fix rounds, then keel asks
+  - { id: lint, kind: code, name: "keel-plugin lint (scripts/plugin-check.sh lint)", action: "run: scripts/plugin-check.sh lint", soft: true, phase: review-fix }
+  - { id: lint_findings, kind: branch, name: keel-plugin lint found problems, when: { marker: RESULT, step: lint, equals: fail }, no: tests, phase: review-fix }
+  - id: lint_fix
+    kind: agent
+    name: fix what keel-plugin lint found
+    agent: implementer
+    model: default
+    phase: review-fix
+    instructions: >-
+      Fix only what keel-plugin lint reports, in plugins/<name>/ (its keel-plugin.yml, its parts' files). Do not change
+      behaviour and do not touch the tests. What it said (the first run, then the last one):
+
+      {{data.lint_output}}
+
+      {{data.relint_output}}
+  - { id: lint_fix_commit, kind: code, name: commit the lint fix, action: commit, phase: review-fix }
+  - { id: relint, kind: code, name: keel-plugin lint again, action: "run: scripts/plugin-check.sh lint", soft: true, phase: review-fix }
+  - { id: lint_clean, kind: branch, name: keel-plugin lint passes, when: { marker: RESULT, step: relint, equals: pass }, no: lint_fix, rounds: 2, phase: review-fix }
+  # the plugin's own tests (scripts/test-plugins.sh <name>); up to 2 fix rounds, then keel asks
+  - { id: tests, kind: code, name: "the plugin's tests (scripts/test-plugins.sh)", action: "run: scripts/plugin-check.sh test", soft: true, phase: review-fix }
+  - { id: test_failures, kind: branch, name: the plugin's tests fail, when: { marker: RESULT, step: tests, equals: fail }, no: review_fix, phase: review-fix }
+  - id: test_fix
+    kind: agent
+    name: make the plugin's tests pass
+    agent: implementer
+    model: default
+    phase: review-fix
+    instructions: >-
+      The plugin's tests fail. Fix the plugin's code in plugins/<name>/ so they pass; change a test only when it is
+      wrong against the frozen spec, and say why in one line. What they said (the first run, then the last one):
+
+      {{data.tests_output}}
+
+      {{data.retest_output}}
+  - { id: test_fix_commit, kind: code, name: commit the test fix, action: commit, phase: review-fix }
+  - { id: retest, kind: code, name: the plugin's tests again, action: "run: scripts/plugin-check.sh test", soft: true, phase: review-fix }
+  - { id: tests_clean, kind: branch, name: the plugin's tests pass, when: { marker: RESULT, step: retest, equals: pass }, no: test_fix, rounds: 2, phase: review-fix }
+  # the whole-diff review and the person's gate
+  - { id: review_fix, kind: agent, name: fix the review's findings, agent: implementer, model: default, phase: review-fix, retry_only: true }
+  - { id: review_fix_commit, kind: code, name: verify the suite + commit the fix, action: verify_green+commit, phase: review-fix }
+  - id: code_review
+    kind: agent
+    name: plugin review
+    agent: code-reviewer
+    model: default
+    phase: gate
+    back: review_fix
+    rounds: 2
+    instructions: >-
+      Read the frozen spec, then the whole branch diff. Check the plugin as a plugin: it changes nothing outside
+      plugins/<name>/ (and its spec), it asks only for the permissions the spec gives reasons for, its keel-plugin.yml
+      names only parts it has, and every criterion has a test that proves it. Report only real problems.
+  - { id: review_gate, kind: gate, name: plugin review, back: review_fix, lock: true, phase: gate }
+  - { id: close, kind: code, name: close, action: close_flow, then: end, phase: close }

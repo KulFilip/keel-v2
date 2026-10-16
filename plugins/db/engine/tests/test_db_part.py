@@ -108,9 +108,19 @@ def test_keel2_mcp_lists_its_tools_in_keel_0_16_1s_order(with_ci):
     admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
              "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]       # v0.17.2 rules
     market = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-    assert names("read") == read + market
-    assert names("write") == read + write + market
-    assert names("admin") == read + write + admin + market
+    # keel 0.18.5 and later add tools of their own (keel TUI's, the create tools, 0.18.6's skills) and move two of
+    # 0.16.1's to a lower level (keel_workflows is read, keel_stop_flow write): 0.16.1's others keep their order
+    moved = {"keel_workflows", "keel_stop_flow"}
+
+    def same_order(level: str, want: list[str]) -> None:
+        got = names(level)
+        assert [n for n in got if n in set(want) - moved] == [n for n in want if n not in moved]
+        assert got[-4:] == market
+
+    same_order("read", read + market)
+    same_order("write", read + write + market)
+    same_order("admin", read + write + admin + market)
+    assert "keel_workflows" in names("read") and "keel_stop_flow" in names("write")
     assert mcp_server.build_server(write=True, api=object())                      # write=True is the write level
 
 
@@ -123,7 +133,8 @@ def test_its_tools_have_0_16_1s_levels_and_risk(with_ci):
     assert mcp_server.tool_level("keel_db_change") == "write" and mcp_server.tool_level("keel_db_query") == "read"
     assert mcp_server.allowed(["--allow", "keel_db_query,keel_git_push"]) == {"keel_db_query", "keel_git_push"}
     tools = {t.name: t for t in asyncio.run(mcp_server.build_server(level="write", api=object()).list_tools())}
-    destructive = {n for n, t in tools.items() if t.annotations and t.annotations.destructiveHint}
+    parts = {n for lv in mcp_server.part_tools().values() for n in lv}
+    destructive = {n for n, t in tools.items() if t.annotations and t.annotations.destructiveHint and n in parts}
     assert destructive == {"keel_db_change", "keel_git_push"}
     assert not tools["keel_db_query"].annotations.destructiveHint and tools["keel_db_query"].annotations.readOnlyHint
     srv = mcp_server.build_server(level="read", api=object(), allow={"keel_db_query", "keel_db_change"})
