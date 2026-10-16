@@ -3,7 +3,7 @@
 AI agents write **tested** code for your project. You approve the important steps.
 Everything runs in one Docker container.
 
-![keel v2: the budget bar, a flow waiting at a gate, the inbox, the database diagram, the code graph, the repo, and a person approving the spec](docs/keel-v2.gif)
+![keel v2: the budget bar, a flow waiting at a gate, the inbox, Control › Plugins (keel core and a plugin on for this project or all projects), the database diagram, the code graph, the Wiki with a spec and its build status, the repo, and a person approving the spec](docs/keel-v2.gif)
 
 <sub>Recorded from a real keel v2 run (Claude Haiku on a small shop project), not drawn.</sub>
 
