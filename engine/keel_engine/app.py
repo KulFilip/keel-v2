@@ -26,6 +26,7 @@ from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp, worktrees
+from .workflows import editor as wf_editor
 from .workflows.estimate import estimate
 from .workflows.model import WorkflowError, from_dict
 from .workflows.templates import templates
@@ -367,10 +368,17 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/workflows/validate")
     async def post_validate(body: YamlBody):
         r = validate_yaml(body.yaml)
-        out = {"ok": r["ok"], "errors": r["errors"]}
+        # lines: each error at its line (the editor marks it); formatted: the file as keel saves it (the api stores it)
+        out = {"ok": r["ok"], "errors": r["errors"], "lines": wf_editor.error_lines(body.yaml, r["errors"])}
         if r.get("workflow") is not None:
             out["workflow"] = r["workflow"].model_dump()
+            out["formatted"] = wf_editor.normalize(body.yaml)
         return out
+
+    @app.get("/workflows/starter")
+    async def get_starter(name: str = "My workflow", id: str | None = None, keel_rules: bool = True):
+        """A new workflow's YAML: small, valid as it is, in keel's style (Build › Workflows › New workflow)."""
+        return {"yaml": wf_editor.starter(name, id, keel_rules)}
 
     @app.post("/workflows/estimate")
     async def post_estimate(body: EstimateBody):
