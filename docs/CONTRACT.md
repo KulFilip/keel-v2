@@ -35,10 +35,10 @@ web `cd web && npm run dev` (port 5173, proxies `/api` to 8080).
 | `KEEL_V1_OPTIONAL` | `/opt/keel-v1-optional` | api — where `keel2 start --with-keel-v1` mounts a keel v1 checkout (its MCP server only) |
 | `KEEL_ENGINE_URL` | `http://127.0.0.1:8090` | api |
 | `KEEL_API_URL` | `http://127.0.0.1:8080` | engine — where it POSTs events |
-| `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls; v0.17.5 also keel2's and the e2e suites' api calls (the api refuses `/internal/events` when it is empty) |
-| `KEEL_PUBLIC_URL` | — | api (v0.17.5) — the dashboard as people open it: its host and origin count as keel's own (sign-in) |
-| `KEEL_ALLOWED_HOSTS` | — | api (v0.17.5) — more host names keel answers on (comma-separated), besides localhost |
-| `KEEL_DEV_ORIGINS` | — | api (v0.17.5) — more origins keel's own page may come from (comma-separated) |
+| `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls; v0.18.1 also keel2's and the e2e suites' api calls (the api refuses `/internal/events` when it is empty) |
+| `KEEL_PUBLIC_URL` | — | api (v0.18.1) — the dashboard as people open it: its host and origin count as keel's own (sign-in) |
+| `KEEL_ALLOWED_HOSTS` | — | api (v0.18.1) — more host names keel answers on (comma-separated), besides localhost |
+| `KEEL_DEV_ORIGINS` | — | api (v0.18.1) — more origins keel's own page may come from (comma-separated) |
 | `KEEL_FAKE` | `0` | engine — `1` forces the fake model everywhere (tests, demo) |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN` | — | optional; Connections can store keys instead |
 
@@ -2013,9 +2013,9 @@ Plan: `docs/plans/0.17.4.md`.
 - **The starter**: engine `GET /workflows/starter?name=&id=&keel_rules=` → `{yaml}`: a small valid workflow (plan agent, plan gate, red / verify_red / green / verify_green per AC, a final gate). `POST /api/projects/{pid}/workflows {from: "blank"}` makes it (the old empty workflow only when the engine cannot answer); `GET /api/projects/{pid}/workflows/starter?name=&keel_rules=` → `{id, yaml}` shows it first.
 - **Web**: `components/CodeEditor.tsx` edits the YAML tab, Import's "Or paste it" and shows New workflow's example and the marketplace workflow page's YAML (read only); errors are marked in the gutter and listed (a click jumps to the line); Save waits while a line is marked. `components/WorkflowHelp.tsx`: "The fields of a workflow".
 
-## v0.17.5: keel's local api proves every caller
+## v0.18.1: keel's local api proves every caller
 
-Plan: `docs/plans/agent-clients.md`, section 0. Until 0.17.4 a request without the MCP headers passed with no check:
+Plan: `docs/plans/agent-clients.md`, section 0. Until 0.18.0 a request without the MCP headers passed with no check:
 any local program, or a web page through the browser, could approve a gate, start a flow or delete a secret.
 
 - **Filter** `api/.../auth/LocalAuth.kt` (before McpAudit and McpLevelGuard), for every request: the Host must be

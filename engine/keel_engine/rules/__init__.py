@@ -42,13 +42,14 @@ ALWAYS_DENY = {
 # The project's rule files: an agent that could edit them could switch off the guard that judges it.
 RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/")]
 
-# v0.17.5 keel's own keys (api auth/LocalAuth): the internal token and the web key, in keel's data folder (Docker
+# v0.18.1 keel's own keys (api auth/LocalAuth): the internal token and the web key, in keel's data folder (Docker
 # /data/run/, native ~/.keel2/<name>/run/ and ~/.keel2/<name>/data/run/). Whoever reads one can act as keel or as the
 # person through plain HTTP, so no agent reads, prints, changes or sends them.
 KEEL_KEY_FILES = re.compile(r"(?:^|/)run/(?:internal-token|web-key|token|hook-token)$|(?:^|/)\.keel2/[^/\s]+/(?:data/)?run(?:/|$)"
                             r"|^/data/run(?:/|$)")
 KEEL_KEY_WORDS = re.compile(r"/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/(?:data/)?run/|(?:^|[\s'\"=])/data/run/"
-                            r"|\bKEEL_INTERNAL_TOKEN\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\(", re.I)
+                            r"|\bKEEL_INTERNAL_TOKEN\b|\bKEEL_WEB_KEY\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\("
+                            r"|\bkeel2\s+auth\s+key\b", re.I)
 
 
 def keel_key_file(path: str | Path | None) -> bool:

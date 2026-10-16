@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test keel2's sign-in (v0.17.5, docs/plans/agent-clients.md section 0): keel2 sends keel's internal token to the api
+# Test keel2's sign-in (v0.18.1, docs/plans/agent-clients.md section 0): keel2 sends keel's internal token to the api
 # (never on a command line), `keel2 open` opens a one-time sign-in link, --print prints it, --dev points it at the web's
 # dev server, and an older keel without sign-in gets the plain page. A fake `docker` and a fake `curl` on PATH answer
 # from environment variables and record every call; nothing runs.
@@ -19,7 +19,7 @@ case "$1" in
   info) exit 0 ;;
   inspect) case "$*" in *State.Running*) echo true ;; esac; exit 0 ;;
   port) echo "127.0.0.1:8188"; exit 0 ;;
-  exec) case "$*" in *internal-token*) printf 'secret-internal-token' ;; esac; exit 0 ;;
+  exec) case "$*" in *internal-token*) printf 'secret-internal-token' ;; *web-key*) printf 'secret-web-key' ;; esac; exit 0 ;;
   *) exit 0 ;;
 esac
 FAKE
@@ -61,6 +61,8 @@ check "an older keel (no sign-in yet) gets the plain page" "$(FAKE_OLD=1 "$keel2
 "$keel2" tokens >/dev/null 2>&1 || true
 if grep -q "X-Keel-Token: secret-internal-token" "$FAKE_HEADERS"; then pass "keel2 tokens reads with the token too"
 else fail "keel2 tokens sent no token"; fi
+
+check "keel2 auth key prints the sign-in key (for your own terminal apps)" "$("$keel2" auth key 2>/dev/null)" "secret-web-key"
 
 out="$("$keel2" open --nope 2>&1 || true)"
 if printf '%s' "$out" | grep -q "usage: keel2 open"; then pass "an unknown option says how to use it"; else fail "no usage: $out"; fi

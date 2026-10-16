@@ -83,7 +83,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function session(browser, base, side) {
   const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, colorScheme: "light", reducedMotion: "reduce" });
   const page = await ctx.newPage();
-  // v0.17.5 keel's api answers a signed-in browser only (api auth/LocalAuth): parity.py hands a one-time link per keel
+  // v0.18.1 keel's api answers a signed-in browser only (api auth/LocalAuth): parity.py hands a one-time link per keel
   const signin = process.env[`KEEL_SIGNIN_${side.toUpperCase()}`];
   if (signin) await page.goto(signin);
   const projects = await (await ctx.request.get(`${base}/api/projects`)).json().catch(() => []);

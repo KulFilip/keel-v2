@@ -88,7 +88,7 @@ class Dev:
         return self.keel.rstrip("/") + "/api" + path
 
     def call(self, method: str, path: str, body: dict | None, timeout: float) -> tuple[int, object]:
-        """One api call, as keel2 makes it: keel 0.17.5 answers no caller without a credential (its api's auth/LocalAuth).
+        """One api call, as keel2 makes it: keel 0.18.1 answers no caller without a credential (its api's auth/LocalAuth).
         keel's internal token: $KEEL_INTERNAL_TOKEN, else read from the container (/data/run/internal-token)."""
         if self.token is None:
             self.token = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()

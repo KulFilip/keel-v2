@@ -44,7 +44,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 KEELS = {"a": ("keel-parity-a", "keel-parity-a-data", 8094), "b": ("keel-parity-b", "keel-parity-b-data", 8095)}
 PROJECT = "shop"
 # v0.15.9: a new project with no keel files in docs/ gets the "keel" layout (.keel/…, hidden from git). "notes" is one:

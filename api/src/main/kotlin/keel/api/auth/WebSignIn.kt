@@ -21,7 +21,7 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * v0.17.5 the key a person's browser and terminal app sign in with: 32 random bytes in $KEEL_DATA/run/web-key (0600),
+ * v0.18.1 the key a person's browser and terminal app sign in with: 32 random bytes in $KEEL_DATA/run/web-key (0600),
  * made once and kept across restarts, so a signed-in browser stays signed in. `keel2 auth reset` deletes the file: the
  * api makes a new key at its next start and every browser signs in again.
  *
@@ -39,6 +39,12 @@ class WebKey(private val props: KeelProperties) {
     fun matches(candidate: String?): Boolean = !candidate.isNullOrEmpty() && MessageDigest.isEqual(candidate.toByteArray(), value.toByteArray())
 
     fun cookieOf(request: HttpServletRequest): String? = request.cookies?.firstOrNull { it.name == cookieName }?.value
+
+    /** The key is made when keel starts: a terminal app (keel TUI, xal) reads the file before its first request. */
+    @jakarta.annotation.PostConstruct
+    fun ensure() {
+        value
+    }
 
     private fun load(): String {
         val f = file

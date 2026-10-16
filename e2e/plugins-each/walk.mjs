@@ -65,7 +65,7 @@ const { chromium } = loadPlaywright();
 const browser = await launch(chromium);
 const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, colorScheme: "light", reducedMotion: "reduce" });
 const page = await ctx.newPage();
-// v0.17.5 keel's api answers a signed-in browser only (api auth/LocalAuth): e2e/keelauth.py hands a one-time link
+// v0.18.1 keel's api answers a signed-in browser only (api auth/LocalAuth): e2e/keelauth.py hands a one-time link
 if (process.env.KEEL_SIGNIN) await page.goto(process.env.KEEL_SIGNIN);
 const seen = { console: [], failed: [], offAsked: [], inflight: new Map() };
 const rel = (url) => {

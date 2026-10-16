@@ -8,7 +8,7 @@ import { sdkShims } from "./tools/sdkShims";
 // plugins' web parts) to the Spring Boot api on :8080. `npm run build` writes web/dist, which the api serves at /.
 // Override with KEEL_API=http://host:port npm run dev when the api runs elsewhere.
 const API = process.env.KEEL_API ?? "http://127.0.0.1:8080";
-// v0.17.5 the api takes a change only from its own origin (api auth/LocalAuth): the dev server's requests say they come
+// v0.18.1 the api takes a change only from its own origin (api auth/LocalAuth): the dev server's requests say they come
 // from the api's origin. Sign this browser in with `keel2 open --dev` (it opens :5173/web/login?code=…, forwarded below).
 const AS_API = { changeOrigin: true, headers: { origin: new URL(API).origin } };
 

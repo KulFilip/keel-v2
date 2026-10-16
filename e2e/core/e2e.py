@@ -32,7 +32,7 @@ from pathlib import Path
 NAME, VOLUME, PORT = "keel-core", "keel-core-data", 8097
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 PROJECT = "shop"
 CHECKS: list[str] = []
 

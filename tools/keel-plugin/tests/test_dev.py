@@ -126,7 +126,7 @@ def test_dev_puts_a_content_only_plugin_into_keel_unsigned_and_says_what_loaded(
     assert calls(log) == ["inspect -f {{.State.Running}} keel-dev", "exec keel-dev mkdir -p /data/plugins/dev",
                           f"cp {calls(log)[2].split()[1]} keel-dev:/data/plugins/dev/notes-0.1.0.kplug",
                           "exec keel-dev cat /data/run/internal-token"]
-    # keel 0.17.5 answers no caller without a credential: every call carries keel's internal token
+    # keel 0.18.1 answers no caller without a credential: every call carries keel's internal token
     assert set(keel["tokens"]) == {"dev-token"}
     copied = root / "data/plugins/dev/notes-0.1.0.kplug"
     report = lint(copied)

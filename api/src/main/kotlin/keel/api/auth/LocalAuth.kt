@@ -16,7 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter
 import java.net.URI
 
 /**
- * v0.17.5 keel's local api proves every caller (docs/plans/agent-clients.md section 0). Until 0.17.4 a request without
+ * v0.18.1 keel's local api proves every caller (docs/plans/agent-clients.md section 0). Until 0.18.0 a request without
  * the MCP headers passed with no check at all, so any local program, or a web page through the browser, could approve a
  * gate, start a flow or delete a secret.
  *

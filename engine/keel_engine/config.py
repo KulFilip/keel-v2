@@ -7,7 +7,7 @@ import hmac
 import os
 from pathlib import Path
 
-VERSION = "0.18.0"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
+VERSION = "0.18.1"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
 
 
 def data_dir() -> Path:
@@ -25,7 +25,7 @@ def internal_token() -> str:
 
 
 def mcp_token(level: str) -> str:
-    """v0.17.5 the api's token for an MCP level (api mcp/McpLevels.kt McpTokens): an HMAC of the internal token and the
+    """v0.18.1 the api's token for an MCP level (api mcp/McpLevels.kt McpTokens): an HMAC of the internal token and the
     level, so the engine can hand keel's agents' own MCP server its read token without asking the api. "" without an
     internal token."""
     tok = internal_token()

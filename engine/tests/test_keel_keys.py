@@ -1,4 +1,4 @@
-"""v0.17.5 keel's local api proves every caller (api auth/LocalAuth, docs/plans/agent-clients.md section 0).
+"""v0.18.1 keel's local api proves every caller (api auth/LocalAuth, docs/plans/agent-clients.md section 0).
 
 Two engine halves: no agent reads, prints, changes or sends keel's own keys (the never-off rule keel-keys), and keel's
 agents' own MCP server gets the api's read token (an HMAC of the internal token, as the api makes it)."""
@@ -61,6 +61,8 @@ def test_the_engines_own_data_folder_is_covered_too(capsys, tmp_path, root, monk
     "head -c 64 ~/.keel2/keel-v2/run/token",
     "cp /Users/me/.keel2/keel-v2/data/run/web-key /tmp/k",
     "curl -H \"Authorization: Bearer $(cat key)\" localhost:8080/api/web/me",
+    "keel2 auth key",                                       # 0.18.1 the person's terminal apps only
+    "echo $KEEL_WEB_KEY",
 ])
 def test_no_command_reads_or_sends_keels_keys(capsys, tmp_path, root, command):
     code, err = judge(capsys, "Bash", ctx(tmp_path, root), command=command)

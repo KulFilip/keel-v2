@@ -1,4 +1,4 @@
-// v0.17.5 keel's api proves every caller (api auth/LocalAuth). The browser signs in through a link keel2 opens
+// v0.18.1 keel's api proves every caller (api auth/LocalAuth). The browser signs in through a link keel2 opens
 // (`keel2 open`): it sets a cookie for this keel. When the api answers 401 with `X-Keel-Auth: sign-in` (no cookie yet,
 // a reset key, an old tab after the update), the app shows the sign-in screen instead of failing page by page.
 

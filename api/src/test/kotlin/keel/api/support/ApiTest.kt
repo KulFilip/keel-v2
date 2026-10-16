@@ -27,7 +27,7 @@ abstract class ApiTest {
     @Autowired lateinit var wac: org.springframework.web.context.WebApplicationContext
     @Autowired lateinit var filters: List<jakarta.servlet.Filter>
 
-    /** v0.17.5 the same app with no credential at all: a caller that never signed in (auth/LocalAuth). */
+    /** v0.18.1 the same app with no credential at all: a caller that never signed in (auth/LocalAuth). */
     val bare: MockMvc by lazy { SignedIn.bare(wac, filters) }
 
     fun get(url: String): ResultActions = mvc.perform(MockMvcRequestBuilders.get(url))

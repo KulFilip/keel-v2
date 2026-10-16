@@ -1,4 +1,4 @@
-// v0.17.5 the sign-in screen: this browser has no sign-in for this keel yet (or it was reset, or the link was used up).
+// v0.18.1 the sign-in screen: this browser has no sign-in for this keel yet (or it was reset, or the link was used up).
 // keel has no password: `keel2 open` in a terminal opens keel signed in (api auth/WebSignIn).
 
 import { useState } from "react";

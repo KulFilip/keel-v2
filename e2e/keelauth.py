@@ -1,4 +1,4 @@
-"""v0.17.5 keel's api answers no caller without a credential (api auth/LocalAuth, docs/plans/agent-clients.md section 0).
+"""v0.18.1 keel's api answers no caller without a credential (api auth/LocalAuth, docs/plans/agent-clients.md section 0).
 
 The e2e suites call their throw-away keel as keel2 does: with keel's internal token, read from the container
 (/data/run/internal-token, written by docker/keel-start). The browser walks sign in first through a one-time link

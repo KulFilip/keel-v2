@@ -23,6 +23,7 @@
 #   keel2 open [--print|--dev]  open the dashboard in the browser, signed in (--print: only print the one-time link;
 #                               --dev: for the web's dev server on :5173)
 #   keel2 auth reset            a new sign-in key: every browser signs in again (keel restarts)
+#   keel2 auth key              print the sign-in key, for your own terminal apps (xal's keel plugin); agents never may
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
 #   keel2 update                get the newest image and restart keel if it is running (native: the newest
@@ -54,7 +55,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.18.0"
+KEEL2_VERSION="0.18.1"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -161,7 +162,7 @@ ensure_image() {
 
 api() { echo "http://localhost:${1:-$(running_port)}/api"; }
 
-# v0.17.5 keel's api answers no caller without a credential (api auth/LocalAuth): keel2 sends keel's internal token.
+# v0.18.1 keel's api answers no caller without a credential (api auth/LocalAuth): keel2 sends keel's internal token.
 # It never goes on a command line (other users of this computer can read those): curl reads the header from a pipe.
 keel_token() {
   if native_mode && ! docker_keel_running; then cat "$ND/run/token" 2>/dev/null || true
@@ -569,7 +570,7 @@ edition_text() {
   esac
 }
 
-cmd_open() {  # keel2 open [--print] [--dev] — v0.17.5 signed in: a one-time link (60 s) that sets this browser's cookie
+cmd_open() {  # keel2 open [--print] [--dev] — v0.18.1 signed in: a one-time link (60 s) that sets this browser's cookie
   local print=0 page="" a
   for a in "$@"; do
     case "$a" in
@@ -590,7 +591,7 @@ cmd_open() {  # keel2 open [--print] [--dev] — v0.17.5 signed in: a one-time l
   info "http://localhost:${page:-$port}"; open_url "$u"
 }
 
-cmd_auth() {  # keel2 auth reset — v0.17.5 a new sign-in key (api auth/WebKey): every browser and terminal app signs in again
+cmd_auth() {  # keel2 auth reset — v0.18.1 a new sign-in key (api auth/WebKey): every browser and terminal app signs in again
   case "${1:-}" in
     reset)
       need_docker
@@ -600,7 +601,16 @@ cmd_auth() {  # keel2 auth reset — v0.17.5 a new sign-in key (api auth/WebKey)
       ok "The old sign-in key is gone. keel makes a new one when it starts again."
       cmd_restart --force
       info "  ${D}Every browser signs in again: keel2 open${N}" ;;
-    *) die "usage: keel2 auth reset" "It makes a new sign-in key: every browser has to sign in again (keel2 open)." ;;
+    key)  # v0.18.1 for the person's own terminal apps on this computer (xal's keel plugin); keel's rule keel-keys
+          # refuses it to every agent
+      need_docker
+      container_running || die "keel is not running." "Start it: keel2 start /path/to/project"
+      local k
+      if native_mode && ! docker_keel_running; then k="$(cat "$ND/data/run/web-key" 2>/dev/null || true)"
+      else k="$(docker exec "$NAME" cat /data/run/web-key 2>/dev/null || true)"; fi
+      [ -n "$k" ] || die "This keel has no sign-in key yet (keel 0.18.1 and newer make one)." "Update keel: keel2 update"
+      printf '%s\n' "$k" ;;
+    *) die "usage: keel2 auth reset | keel2 auth key" "reset makes a new sign-in key: every browser has to sign in again (keel2 open)." ;;
   esac
 }
 
@@ -1117,14 +1127,16 @@ cmd_tui() {
     local js="${KEEL_TUI_JS:-$ND/current/cli/keel-tui.mjs}"
     [ -f "$js" ] || die "This keel has no terminal app (keel TUI) yet." "Get a newer release: keel2 update"
     command -v node >/dev/null 2>&1 || die "keel TUI needs Node 20 or newer on this computer." "Install it: $(native_hint node)"
-    exec node "$js" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
+    KEEL_WEB_KEY_FILE="$ND/data/run/web-key" exec node "$js" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
   fi
   need_docker
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
   port="$(running_port)"; public="${KEEL_PUBLIC_URL:-http://localhost:$port}"
   if [ -n "${KEEL_TUI_JS:-}" ]; then
     command -v node >/dev/null 2>&1 || die "KEEL_TUI_JS needs Node 20 or newer on this computer."
-    exec node "$KEEL_TUI_JS" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
+    # v0.18.1 the sign-in key from keel's container (an env value: never on a command line)
+    KEEL_WEB_KEY="$(docker exec "$NAME" cat /data/run/web-key 2>/dev/null || true)" \
+      exec node "$KEEL_TUI_JS" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
   fi
   # this folder as keel's container sees it (the project is at /workspace; with --docker and added folders, at the same path)
   local project here="" f
@@ -1138,7 +1150,7 @@ cmd_tui() {
     || die "This keel's image has no terminal app (keel TUI) yet." "Get a newer image: keel2 update"
   local tty=(-i); if interactive; then tty=(-it); fi
   DOCKER_CLI_HINTS=false exec docker exec "${tty[@]}" -e TERM="${TERM:-xterm-256color}" -e COLORTERM="${COLORTERM:-}" -e KEEL_PUBLIC_URL="$public" \
-    -e KEEL_TUI_CWD="$here" "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@"
+    -e KEEL_TUI_CWD="$here" -e KEEL_WEB_KEY_FILE=/data/run/web-key "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@"
 }
 
 # ---------------------------------------------------------------- main

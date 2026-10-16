@@ -28,6 +28,7 @@ function setup(routes: Parameters<typeof fakeFetch>[0] = {}, cfg: Record<string,
       return server.transport();
     },
     fetch: http.fetch,
+    key: () => "test-web-key",            // never the real keel2 auth key in a test
   });
   return { server, calls, http, keel, started: () => started };
 }
@@ -228,6 +229,7 @@ test("keel's MCP server does not start: one plain message with the command and w
       return { ...t, send: () => queueMicrotask(() => server.die("keel2 mcp exited (1): keel is not running.")) };
     },
     fetch: fakeFetch({}).fetch,
+    key: () => undefined,
   });
   const out = recorder();
   assert.equal(await runSpec(specFor("status")!, [], keel, out), false);

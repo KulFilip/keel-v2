@@ -58,7 +58,7 @@ NAME = os.environ.get("KEEL_NAME") or "keel-mkt"
 VOLUME = os.environ.get("KEEL_VOLUME") or f"{NAME}-data"
 PORT = int(os.environ.get("KEEL_PORT") or 8096)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "hello"

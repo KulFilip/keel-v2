@@ -21,7 +21,7 @@ class EventController(
     fun stream(@RequestParam(required = false) project: String?, @RequestParam(required = false) notify: String?): SseEmitter =
         hub.subscribe(project, notify)
 
-    /** Engine → api, with X-Keel-Token. v0.17.5: without KEEL_INTERNAL_TOKEN nobody may send events (it was "accept any"). */
+    /** Engine → api, with X-Keel-Token. v0.18.1: without KEEL_INTERNAL_TOKEN nobody may send events (it was "accept any"). */
     @PostMapping("/internal/events")
     fun ingest(
         @RequestHeader("X-Keel-Token", required = false) token: String?,

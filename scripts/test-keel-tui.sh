@@ -71,7 +71,9 @@ fi
 
 # what keel recorded: the flow started via keel TUI, and keel TUI's writes as tui.call events
 api="http://127.0.0.1:$port/api"
-pid="$(curl -fs "$api/projects" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+# keel 0.18.1 answers no caller without a credential: keel's internal token, through a pipe (never on a command line)
+token="$(docker exec "$KEEL_NAME" cat /data/run/internal-token)"
+pid="$(curl -fs -H @<(printf 'X-Keel-Token: %s\n' "$token") "$api/projects" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
 events="$(docker exec "$KEEL_NAME" sqlite3 /data/keel.db "SELECT type || ' ' || data_json FROM events WHERE project_id = '$pid' AND type IN ('thread.started', 'tui.call') ORDER BY id")"
 printf '%s\n' "$events" > "$out/15-keel-records.txt"
 grep -q '"via":"tui"' <<<"$events" || { echo "no event says via keel TUI" >&2; rc=1; }

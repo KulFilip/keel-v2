@@ -226,7 +226,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         v = rules.check_content(rel, added, cfg)
         return None if v.ok else v.reason
 
-    # v0.17.5 keel's own keys (rules.keel_key_file): no tool reads, searches, lists or writes them
+    # v0.18.1 keel's own keys (rules.keel_key_file): no tool reads, searches, lists or writes them
     keyed = _path_arg(ti)
     if keyed and tool != "Bash" and rules.keel_key_file(_locate(root, keyed)[1]):
         return "This is keel's own key folder: agents never read, search or change it."

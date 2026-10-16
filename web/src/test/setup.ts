@@ -32,7 +32,7 @@ export const server = setupServer();
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 beforeEach(() => {
-  signInDone();   // v0.17.5 a late 401 of the test before must not leave the sign-in screen up
+  signInDone();   // v0.18.1 a late 401 of the test before must not leave the sign-in screen up
   db = createDb();
   server.resetHandlers(...handlers(db));
   (globalThis as unknown as { __db: Db }).__db = db;

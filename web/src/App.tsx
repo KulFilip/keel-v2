@@ -126,7 +126,7 @@ function Router() {
 }
 
 export function App() {
-  // v0.17.5 not signed in (api auth/LocalAuth): one screen that says how, instead of every page failing
+  // v0.18.1 not signed in (api auth/LocalAuth): one screen that says how, instead of every page failing
   const signIn = useSignIn();
   if (signIn.needed) return <SignIn state={signIn} />;
   return (

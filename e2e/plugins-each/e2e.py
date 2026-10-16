@@ -48,7 +48,7 @@ from pathlib import Path
 
 NAME, VOLUME, PORT = "keel-each", "keel-each-data", 8091
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 HERE = Path(__file__).resolve().parent
 PROJECT = "shop"
 

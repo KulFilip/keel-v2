@@ -8,7 +8,7 @@ import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.16.1 the api itself refuses an MCP call above the level its token proves. v0.17.5: every caller proves who it is
+/** v0.16.1 the api itself refuses an MCP call above the level its token proves. v0.18.1: every caller proves who it is
  *  (auth/LocalAuth); the tests' plain requests carry the internal token (support/SignedIn), as keel's engine does. */
 class McpLevelsApiTest : ApiTest() {
 

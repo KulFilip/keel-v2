@@ -87,7 +87,7 @@ class KeelApi:
         # v0.16.1 the api checks the level: with the internal token (keel2 mcp has it, agents never do) this asks the api
         # for its level's token once and sends it as X-Keel-Mcp-Token; without it, no token, so the api treats it as read.
         # A dict, so the copies acting() makes share it.
-        # v0.17.5 without the internal token, the token the engine gave this server (KEEL_MCP_TOKEN: keel's agents' own
+        # v0.18.1 without the internal token, the token the engine gave this server (KEEL_MCP_TOKEN: keel's agents' own
         # server, read level), since the api answers no caller without one.
         self._proof = {"internal": internal_token(), "level": "read", "asked": False,
                        "given": os.environ.get("KEEL_MCP_TOKEN", "").strip()}

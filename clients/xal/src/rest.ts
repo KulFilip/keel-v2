@@ -1,6 +1,7 @@
 // keel's REST api for what the MCP server has no tool for yet: the brief (one read of /api/projects), the live
 // event stream (/api/events), the shared ASCII diagram renderer (/api/diagrams/ascii) and KeelBot.
-// Every request says who it is (X-Keel-Via: xal, X-Keel-Client), like the keel TUI's "X-Keel-Via: tui".
+// Every request says who it is (X-Keel-Via: xal, X-Keel-Client), like the keel TUI's "X-Keel-Via: tui", and (keel
+// 0.18.1, which answers no caller without a credential) signs in with the person's key: Authorization: Bearer <key>.
 // TODO(feat/keel-tui): when web/src/api.ts gets its transport (setTransport), use that typed client here instead.
 
 export class KeelHttpError extends Error {
@@ -21,16 +22,21 @@ export class KeelRest {
   private readonly client: string;
   private readonly timeoutMs: number;
   private readonly fetcher: Fetch;
+  private readonly key: () => string | undefined;
 
-  constructor(base: string, client: string, timeoutMs = 15_000, fetcher: Fetch = (u, i) => fetch(u, i)) {
+  constructor(base: string, client: string, timeoutMs = 15_000, fetcher: Fetch = (u, i) => fetch(u, i),
+              key: () => string | undefined = () => undefined) {
     this.base = base;
     this.client = client;
     this.timeoutMs = timeoutMs;
     this.fetcher = fetcher;
+    this.key = key;
   }
 
   headers(tool?: string): Record<string, string> {
-    return { "X-Keel-Via": "xal", "X-Keel-Client": this.client, ...(tool ? { "X-Keel-Tool": tool } : {}) };
+    const k = this.key();
+    return { "X-Keel-Via": "xal", "X-Keel-Client": this.client, ...(tool ? { "X-Keel-Tool": tool } : {}),
+             ...(k ? { Authorization: `Bearer ${k}` } : {}) };
   }
 
   get<T>(path: string, tool?: string): Promise<T> {
@@ -64,7 +70,8 @@ export class KeelRest {
     if (!res.ok) {
       let err: { error?: string; hint?: string } = {};
       if (type.includes("json")) err = ((await res.json().catch(() => ({}))) ?? {}) as typeof err;
-      throw new KeelHttpError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint);
+      const hint = res.status === 401 ? "keel needs your sign-in key: is keel2 on PATH (keel2 auth key), or set KEEL_WEB_KEY." : err.hint;
+      throw new KeelHttpError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, hint);
     }
     if (res.status === 204) return undefined as T;
     if (!type.includes("json")) throw new KeelHttpError("Unexpected answer from keel (not JSON).", res.status, "Is the URL keel's, not another app's?");

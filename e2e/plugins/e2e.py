@@ -35,7 +35,7 @@ from pathlib import Path
 
 NAME, VOLUME, PORT = "keel-lab", "keel-lab-data", 8099
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 ROOT = Path(__file__).resolve().parents[2]
 CHECKS: list[str] = []
 

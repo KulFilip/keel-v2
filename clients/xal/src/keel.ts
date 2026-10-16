@@ -1,6 +1,7 @@
 // One keel connection per xal process: keel's MCP server (started on the first command, closed at shutdown), the
 // REST client, the project, the live notices and the KeelBot chat.
 
+import { spawnSync } from "node:child_process";
 import { briefText, pickProject, type Project } from "./brief.ts";
 import type { KeelConfig } from "./config.ts";
 import { McpClient, processTransport, type Elicit, type Transport } from "./mcp.ts";
@@ -20,6 +21,8 @@ export type KeelDeps = {
   /** keel's MCP server; a child process by default */
   transport?: (command: string[]) => Transport;
   fetch?: Fetch;
+  /** keel 0.18.1 the person's sign-in key; by default KEEL_WEB_KEY, else what pluginConfig.keel.keyCommand prints */
+  key?: () => string | undefined;
 };
 
 export class Keel {
@@ -40,7 +43,23 @@ export class Keel {
     this.cfg = cfg;
     this.deps = deps;
     this.client = `xal ${deps.version} (keel plugin)`;
-    this.rest = new KeelRest(cfg.url, this.client, Math.min(cfg.timeoutMs, 30_000), deps.fetch);
+    this.rest = new KeelRest(cfg.url, this.client, Math.min(cfg.timeoutMs, 30_000), deps.fetch, () => this.webKey());
+  }
+
+  private key: string | null | undefined;
+
+  /** The person's sign-in key, found once: KEEL_WEB_KEY, else the output of keyCommand (keel2 auth key). */
+  webKey(): string | undefined {
+    if (this.key === undefined) {
+      if (this.deps.key) this.key = this.deps.key() ?? null;
+      else if (this.cfg.key) this.key = this.cfg.key;
+      else {
+        const [cmd, ...args] = this.cfg.keyCommand;
+        const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 15_000 });
+        this.key = r.status === 0 ? String(r.stdout || "").trim() || null : null;
+      }
+    }
+    return this.key ?? undefined;
   }
 
   /** keel's MCP server, started once; a failed start is forgotten so the next command tries again. */

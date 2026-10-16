@@ -6,7 +6,7 @@ import { App } from "../App";
 import { get, post } from "../api";
 import { server } from "./setup";
 
-// v0.17.5 keel's api proves every caller (api auth/LocalAuth): the page says it is keel's own, and a 401 "sign-in"
+// v0.18.1 keel's api proves every caller (api auth/LocalAuth): the page says it is keel's own, and a 401 "sign-in"
 // shows one screen that says how to sign in.
 describe("signing in to keel", () => {
   it("every call says it comes from keel's own page and sends the browser's cookie", async () => {

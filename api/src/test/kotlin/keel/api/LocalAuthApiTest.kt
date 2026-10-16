@@ -22,7 +22,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermission
 
-/** v0.17.5 keel's local api proves every caller (auth/LocalAuth, docs/plans/agent-clients.md section 0). */
+/** v0.18.1 keel's local api proves every caller (auth/LocalAuth, docs/plans/agent-clients.md section 0). */
 class LocalAuthApiTest : ApiTest() {
     @Autowired lateinit var key: WebKey
     @Autowired @Qualifier("requestMappingHandlerMapping") lateinit var mappings: RequestMappingHandlerMapping

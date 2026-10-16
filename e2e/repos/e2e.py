@@ -49,7 +49,7 @@ from keel_plugin import miniyaml  # noqa: E402  (stdlib only: no cryptography ne
 
 NAME, VOLUME, PORT = "keel-s5", "keel-s5-data", 8093
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 IMAGE_LOCK, IMAGE_SRC_NEW, IMAGE_SRC_OLD = "keel-v2:s5-lock", "keel-v2:s5-src-new", "keel-v2:s5-src-old"
 PLUGINS = ["tasks", "wiki", "jira"]
 KEELBOT = "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>"

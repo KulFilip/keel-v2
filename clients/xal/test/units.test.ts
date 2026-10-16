@@ -103,3 +103,23 @@ test("guard: runHook hands the call as JSON on stdin and reads the exit code and
   });
   assert.equal(await guardDecision(["sh", "-c", script], "read", { file_path: "a" }, "/w", sig, runHook), undefined);
 });
+
+
+test("keel 0.18.1: the REST calls sign in with the person's key; KEEL_WEB_KEY wins, keyCommand prints it", async () => {
+  const { KeelRest } = await import("../src/rest.ts");
+  assert.deepEqual(readConfig({}).keyCommand, ["keel2", "auth", "key"]);
+  assert.equal(readConfig({}, { KEEL_WEB_KEY: " k1 \n" }).key, "k1");
+  assert.deepEqual(readConfig({ keyCommand: ["my-keel2", "auth", "key"] }).keyCommand, ["my-keel2", "auth", "key"]);
+  assert.throws(() => readConfig({ key: "in-the-file" }), /unknown field key/);       // a secret never in config.json
+  const seen: Record<string, string>[] = [];
+  const rest = new KeelRest("http://keel.test", "xal test", 5000, async (_u, init) => {
+    seen.push(init?.headers as Record<string, string>);
+    return new Response("{}", { headers: { "content-type": "application/json" } });
+  }, () => "k2");
+  await rest.get("/projects");
+  assert.equal(seen[0]!.Authorization, "Bearer k2");
+  assert.equal(seen[0]!["X-Keel-Via"], "xal");
+  const none = new KeelRest("http://keel.test", "xal test", 5000, async () => new Response(JSON.stringify({ error: "keel needs you to sign in" }),
+    { status: 401, headers: { "content-type": "application/json" } }));
+  await assert.rejects(none.get("/projects"), (e: Error & { hint?: string }) => /keel2 auth key/.test(e.hint ?? ""));
+});

@@ -11,7 +11,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.web.context.WebApplicationContext
 
 /**
- * v0.17.5 keel's api proves every caller (auth/LocalAuth). The tests call it as keel's own engine does: every MockMvc
+ * v0.18.1 keel's api proves every caller (auth/LocalAuth). The tests call it as keel's own engine does: every MockMvc
  * request carries the internal token unless the test sends its own credential header (a request's own header wins).
  * The sign-in tests use [bare] instead: the same app with no credential at all.
  */

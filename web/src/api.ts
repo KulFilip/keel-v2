@@ -835,7 +835,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   const extra = typeof transport.headers === "function" ? transport.headers() : transport.headers;
   const headers = { ...extra, ...(body === undefined ? {} : { "content-type": "application/json" }) };
   try {
-    // v0.17.5 X-Keel-Web says the call comes from keel's own page: another site's page cannot send it (keel answers
+    // v0.18.1 X-Keel-Web says the call comes from keel's own page: another site's page cannot send it (keel answers
     // no CORS preflight), so a change needs it next to the sign-in cookie (api auth/LocalAuth). keel TUI's transport
     // adds its own credential (Authorization: Bearer, the web key).
     res = await (transport.fetch ?? fetch)(apiUrl(path), {

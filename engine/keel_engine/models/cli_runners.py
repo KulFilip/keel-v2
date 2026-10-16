@@ -523,7 +523,7 @@ class CodexCLIRunner:
         for s in mcp.servers_for(req.mcp_specs, req.tools_allow):
             argv += ["-c", f"mcp_servers.{s['name']}.command={json.dumps(s['command'])}",
                      "-c", f"mcp_servers.{s['name']}.args={json.dumps(list(s.get('args') or []))}"]
-            # v0.17.5 its environment too (keel's own server: the api and its read token, KEEL_MCP_TOKEN): codex starts
+            # v0.18.1 its environment too (keel's own server: the api and its read token, KEEL_MCP_TOKEN): codex starts
             # MCP servers with almost none. A TOML inline table; json.dumps gives TOML-safe strings.
             if s.get("env"):
                 table = ", ".join(f"{k} = {json.dumps(str(v))}" for k, v in s["env"].items() if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k))

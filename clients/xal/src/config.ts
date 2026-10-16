@@ -15,9 +15,13 @@ export type KeelConfig = {
   guardCommand: string[];
   /** Per request, in milliseconds. keel_start_flow waits up to 20 s for the first gate. */
   timeoutMs: number;
+  /** keel 0.18.1: the command that prints the person's sign-in key for the REST calls (KEEL_WEB_KEY wins). */
+  keyCommand: string[];
+  /** The sign-in key from KEEL_WEB_KEY (never from config.json: it is a secret). */
+  key?: string;
 };
 
-const FIELDS = ["url", "project", "mcp", "brief", "guard", "guardCommand", "timeoutMs"];
+const FIELDS = ["url", "project", "mcp", "brief", "guard", "guardCommand", "timeoutMs", "keyCommand"];
 
 export const DEFAULTS: KeelConfig = {
   url: "http://localhost:8080",
@@ -26,6 +30,7 @@ export const DEFAULTS: KeelConfig = {
   guard: false,
   guardCommand: ["keel2", "hook", "pre-tool"],
   timeoutMs: 60_000,
+  keyCommand: ["keel2", "auth", "key"],
 };
 
 function words(name: string, v: unknown): string[] {
@@ -39,7 +44,7 @@ function words(name: string, v: unknown): string[] {
 export function readConfig(raw: Record<string, unknown>, env: Record<string, string | undefined> = {}): KeelConfig {
   const unknown = Object.keys(raw).filter((k) => !FIELDS.includes(k));
   if (unknown.length) throw new Error(`pluginConfig.keel: unknown field ${unknown.join(", ")} (known: ${FIELDS.join(", ")})`);
-  const cfg: KeelConfig = { ...DEFAULTS, mcp: [...DEFAULTS.mcp], guardCommand: [...DEFAULTS.guardCommand] };
+  const cfg: KeelConfig = { ...DEFAULTS, mcp: [...DEFAULTS.mcp], guardCommand: [...DEFAULTS.guardCommand], keyCommand: [...DEFAULTS.keyCommand] };
   const url = raw.url ?? env.KEEL_URL;
   if (url !== undefined) {
     if (typeof url !== "string" || !/^https?:\/\/[^\s]+$/.test(url)) throw new Error("pluginConfig.keel.url must be an http(s) URL");
@@ -52,6 +57,8 @@ export function readConfig(raw: Record<string, unknown>, env: Record<string, str
   }
   if (raw.mcp !== undefined) cfg.mcp = words("mcp", raw.mcp);
   if (raw.guardCommand !== undefined) cfg.guardCommand = words("guardCommand", raw.guardCommand);
+  if (raw.keyCommand !== undefined) cfg.keyCommand = words("keyCommand", raw.keyCommand);
+  if (env.KEEL_WEB_KEY?.trim()) cfg.key = env.KEEL_WEB_KEY.trim();
   for (const k of ["brief", "guard"] as const) {
     if (raw[k] === undefined) continue;
     if (typeof raw[k] !== "boolean") throw new Error(`pluginConfig.keel.${k} must be true or false`);

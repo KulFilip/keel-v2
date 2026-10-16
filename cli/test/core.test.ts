@@ -5,7 +5,7 @@ import { KeelCore } from "../src/core/keel";
 import { fileLines, plain, renderMarkdown } from "../src/core/markdown";
 import { notice } from "../src/core/notices";
 import { SseParser } from "../src/core/sse";
-import { normalizeUrl, setCommand, viaHeaders } from "../src/core/transport";
+import { normalizeUrl, resetWebKey, setCommand, viaHeaders, webKey } from "../src/core/transport";
 import * as fmt from "../src/core/format";
 import { stubKeel } from "./stub";
 
@@ -113,6 +113,23 @@ describe("transport", () => {
     setCommand("");
     expect(viaHeaders()["X-Keel-Tool"]).toBeUndefined();
     expect(normalizeUrl("localhost:8080/api/")).toBe("http://localhost:8080");
+  });
+
+  it("signs in with the person's key (keel 0.18.1): KEEL_WEB_KEY, else the file KEEL_WEB_KEY_FILE names", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keel-tui-")), "web-key");
+    fs.writeFileSync(file, "k-from-file\n");
+    resetWebKey();
+    expect(webKey({ KEEL_WEB_KEY_FILE: file })).toBe("k-from-file");
+    resetWebKey();
+    expect(webKey({ KEEL_WEB_KEY: "k-env", KEEL_WEB_KEY_FILE: file })).toBe("k-env");
+    expect(viaHeaders().Authorization).toBe("Bearer k-env");
+    resetWebKey();
+    expect(webKey({ KEEL_WEB_KEY_FILE: "/no/such/file" })).toBeNull();
+    expect(viaHeaders().Authorization).toBeUndefined();
+    resetWebKey();
   });
 });
 

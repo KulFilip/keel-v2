@@ -26,7 +26,7 @@ from pathlib import Path
 
 NAME, VOLUME, PORT, HOST_PORT = "keel-lab", "keel-lab-data", 8099, 8097
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.17.5)
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 BASE = f"http://127.0.0.1:{PORT}/api"
 HERE = Path(__file__).resolve().parent
 CHECKS: list[str] = []
