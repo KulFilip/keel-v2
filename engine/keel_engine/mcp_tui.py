@@ -220,8 +220,9 @@ def _buttons_hint(text: str) -> str:
 def keelbot_ask(api: KeelApi, text: str, project: str | None = None, chat: str | None = None, mode: str = "ask",
                 wait: int = 120) -> str:
     """Ask KeelBot (a new chat, or `chat` to go on with one) and wait up to `wait` seconds for its answer."""
-    if mode not in ("ask", "fix", "side"):
-        raise ApiError("mode is ask (it reads), fix (it changes files under keel's rules) or side (its own worktree).")
+    if mode not in ("ask", "edit", "fix", "side"):
+        raise ApiError("mode is ask (it reads), edit (it changes the project folder, no flow needed), fix (at a gate, under "
+                       "its phase's rules) or side (its own worktree).")
     p = _project(api, project)
     base = f"/projects/{p['id']}/helper/sessions"
     sid = chat or (api.post(base, {"mode": mode, "title": text.strip()[:60]}) or {})["id"]

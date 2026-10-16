@@ -160,6 +160,10 @@ starts or is saved until you press one.
   rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow
   once**, **Always**, **Deny**). The panel lists every changed file with its diff and **Undo**. **Done** runs the tests
   and lets keel commit only those files; if the tests fail, one click hands the failure back to KeelBot.
+- **Edit mode** (any time, keel 0.18.7): switch to **Edit** (in `keel2`: `/mode edit`) and KeelBot changes files and runs
+  commands in the project folder itself, with no flow. keel's always-on rules still hold (no secrets, no `.git`, no
+  applied migration), a command that changes something (`git checkout`, a build) asks you first, and KeelBot never
+  commits or pushes: **Keep** runs the checks and makes keel's commit, **Undo** puts a file back.
 - **Side sessions** (any time): switch to **Side** to try an idea in KeelBot's own copy of the project (a git
   worktree on its own branch). Nothing touches your project folder or a running flow. **Keep** runs the tests and
   commits on that branch. Then **Make a task**, **Start a flow on the branch** (a change flow writes the tests for it),

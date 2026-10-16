@@ -169,7 +169,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         setAnswers((n) => n + 1);
         // Fix and Side: the files KeelBot changed, with their diffs, and how to keep or undo them
         const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
-        if (mode === "fix" || mode === "side") {
+        if (mode === "fix" || mode === "side" || mode === "edit") {
           void core.changes().then((ch) => {
             setChanged(core.snapshot.chat.session?.id ?? "", ch.map((c) => c.path));
             if (!ch.length) return;
@@ -598,7 +598,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
           setText(c.value);
           return;
         }
-        void submit(c && c.value.trim() !== line.trim() && !line.includes(" ") ? c.value : line);
+        // what was typed is a command as it is (/mode, though /model starts the same): run that, not the suggestion
+        const exact = comps.some((x) => x.value.trim() === line.trim());
+        void submit(c && !exact && c.value.trim() !== line.trim() && !line.includes(" ") ? c.value : line);
         return;
       }
       void submit(line);
@@ -716,7 +718,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
           return (
             <Clickable key={j.id} act={() => followAgent(j.id)}>
               <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null}
-                tokens={fmt.tokensOf(j) || undefined} hint={[j.step, j.ac, screen && mouse ? "click to follow" : "Ctrl+O follows"].filter(Boolean).join(" · ")} />
+                tokens={fmt.tokensOf(j) || undefined} hint={[fmt.flowOf(snap.flowTitles, j.thread_id), [j.step, j.ac].filter(Boolean).join(" "),
+                  screen && mouse ? "click to follow" : "Ctrl+O follows"].filter(Boolean).join(" · ")} />
               {now ? <Text wrap="truncate-end" color={t.color("dim")}>{"   " + now}</Text> : null}
             </Clickable>
           );

@@ -31,7 +31,7 @@ router = APIRouter()
 class HelperCreate(BaseModel):
     project_id: str
     root: str
-    mode: Literal["ask", "fix", "side"] = "ask"
+    mode: Literal["ask", "edit", "fix", "side"] = "ask"
     model: ModelSpec | None = None
     title: str = ""
     thread_id: str | None = None

@@ -32,7 +32,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Paths
 
-/** A new Helper session: mode "ask" (read only), "fix" (while the project's flow waits at a gate) or "side" (its own
+/** A new Helper session: mode "ask" (read only), "edit" (the project folder, no flow needed; 0.18.7), "fix" (while the
+ *  project's flow waits at a gate) or "side" (its own
  *  worktree and branch); the model defaults to the helper agent's. */
 data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "")
 data class HelperUndo(val path: String? = null)
@@ -92,7 +93,7 @@ class HelperService(
 
     fun create(pid: String, body: HelperCreate): JsonNode {
         val project = projects.require(pid)
-        if (body.mode !in MODES) throw BadRequest("Unknown KeelBot mode ${body.mode}", "Use ask, fix or side.")
+        if (body.mode !in MODES) throw BadRequest("Unknown KeelBot mode ${body.mode}", "Use ask, edit, fix or side.")
         val thread = if (body.mode == "fix") waitingThread(pid) else null
         val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(
@@ -225,7 +226,8 @@ class HelperService(
         val flow = when (s.path("mode").asText()) {
             "fix" -> fixContext(pid, s.path("thread_id").asText())
             "side" -> emptyMap()            // Keep: the checks, then keel's commit on the side session's own branch
-            else -> throw BadRequest("Only a Fix chat or a side session has changes to commit")
+            "edit" -> emptyMap()            // keel 0.18.7 Keep: the checks, then keel's commit in the project folder
+            else -> throw BadRequest("Only a Fix, Edit or side chat has changes to commit")
         }
         val eff = settings.effective(pid)
         val commit = mapOf("commit_author" to eff.commitAuthor.trim().ifBlank { null }, "commit_coauthor" to eff.commitCoauthor)
@@ -386,7 +388,7 @@ class HelperService(
 
     companion object {
         const val AGENT = "helper"
-        val MODES = setOf("ask", "fix", "side")
+        val MODES = setOf("ask", "edit", "fix", "side")
     }
 }
 

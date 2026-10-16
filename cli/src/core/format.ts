@@ -367,3 +367,10 @@ export function changesText(changes: HelperChange[], c: Paint = PLAIN, lines = 2
 }
 
 const stripStyle = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+/** keel 0.18.7 an agent's flow, short, for its line: "implement next step" (cut at 32 characters), or nothing. */
+export function flowOf(titles: Record<string, string>, threadId?: string | null): string {
+  const t = threadId ? titles[threadId] : "";
+  return t ? `"${t.length > 32 ? t.slice(0, 31).trimEnd() + "…" : t}"` : "";
+}
+

@@ -130,7 +130,7 @@ describe("keel TUI", () => {
     expect(f).toContain("◆ waiting for you: spec approval · /approve or /reject <why>");
     t.r.stdin.write("\x01");                      // Ctrl+A
     await waitFor(() => t.frame().includes("Agents · 1 at work"));
-    expect(t.frame()).toMatch(new RegExp(`explorer · (${VERBS.join("|")})… \\(\\d+s · ~1\\.0k tokens · spec\\)`));
+    expect(t.frame()).toMatch(new RegExp(`explorer · (${VERBS.join("|")})… \\(\\d+s · ~1\\.0k tokens · "Add a health endpoint" · spec\\)`));
     t.r.stdin.write("\x02");                      // Ctrl+B
     await tick(50);
     f = t.frame();

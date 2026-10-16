@@ -9,6 +9,9 @@ the hook reads on every tool call, and the diff guard as the backstop for engine
             fix   while the project's flow waits at a gate: edits under the flow's phase rules and unlocks; a command
                   that changes something waits for the person's OK (runtime/permissions.py); keel remembers each file
                   as it was before KeelBot's first change (Undo), and Done runs the checks and makes keel's commit
+            edit  any time, in the project folder itself (keel 0.18.7): edits under keel's always-on rules only (secrets,
+                  .git, old migrations; no flow's phase), commands that change something (git checkout, a build) asked
+                  as in Fix; keel remembers each file as it was (Undo) and Keep runs the checks and makes keel's commit
             side  any time, in its own copy of the project (a git worktree on branch keel/helper/<id>, tools/worktrees.py):
                   free edits there and nowhere else, commands asked as in Fix; Keep runs the checks and commits on that
                   branch; the person hands it over (a task, a change flow on the branch) or throws it away
@@ -58,7 +61,7 @@ from . import keelbot
 
 log = logging.getLogger(__name__)
 
-MODES = ("ask", "fix", "side")
+MODES = ("ask", "edit", "fix", "side")
 AGENT = "helper"
 RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session (runtime/compiler.py RESUMABLE)
 TRANSCRIPT_CHARS = 6000                  # the conversation so far, for the engines that cannot continue a session
@@ -72,6 +75,11 @@ MODE_TEXT = {
             "({phase}) does not allow. Reading, searching and running the tests need no OK; any other command that changes "
             "something waits for the person's OK. Never commit: when the person presses Done, keel runs the checks and "
             "commits your change. End with one short line per file you changed."),
+    "edit": ("Mode: Edit. You work in the project folder itself, with no flow: edit what the person asks, with the smallest "
+             "change; keel's always-on rules still apply (no secrets, no .git, no applied migration). Reading, searching and "
+             "running the tests need no OK; any other command that changes something (git checkout, a build, an install) "
+             "waits for the person's OK. Never commit or push: when the person keeps your change, keel runs the checks and "
+             "commits it. End with one short line per file you changed."),
     "side": ("Mode: Side session. You work in your own copy of the project: a git worktree on branch {branch}, not the "
              "main folder. Edit freely there, but only there (keel refuses a file outside it); nothing you do touches the "
              "main folder or a flow running in it. Reading, searching and running the tests need no OK; any other command "
@@ -409,8 +417,8 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     from keel_engine.runtime import actions          # late: actions imports most of the runtime
 
     s = get(sid, messages=False)
-    if s["mode"] not in ("fix", "side"):
-        raise HelperError(400, "Only a Fix chat or a side session has changes to commit.")
+    if s["mode"] not in ("fix", "side", "edit"):
+        raise HelperError(400, "Only a Fix, Edit or side chat has changes to commit.")
     if s["mode"] == "side" and not s.get("worktree"):
         raise HelperError(409, "This side session was handed over; its worktree is gone.")
     root = workdir(s)
@@ -728,8 +736,9 @@ class HelperRunner:
                               knowledge=know, readonly=flow.get("run_mode") == "readonly",
                               ask={"url": f"http://127.0.0.1:{config.port()}{ASK_PATH}", "key": key, "session": sid},
                               asker=lambda command: self.ask_blocking(sid, key, command))
-        elif mode == "side":
+        elif mode in ("side", "edit"):
             # no flow's phase: only keel's always-on rules (secrets, .git, old migrations), and nothing outside the worktree
+            # (side) or the project folder (edit); a command that changes something waits for the person's OK
             phase, unlocks, ac = "none", [], None
             key = secrets.token_urlsafe(24)
             self.ask_keys[sid] = key
@@ -739,7 +748,7 @@ class HelperRunner:
         else:
             phase, unlocks, ac = "none", [], None
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
-        if mode in ("fix", "side"):
+        if mode in ("fix", "side", "edit"):
             # keel v1's push gate for KeelBot's own `git push` / `gh pr create` (rules.push_gate)
             toolbox.push_blockers = await asyncio.to_thread(push_blockers_for, root, flow.get("base_head"), project)
         resumable = model.get("mode") != "api" and provider in RESUMABLE
@@ -804,9 +813,11 @@ class HelperRunner:
         if mode == "ask":
             for r in guard.guard_diff(root, "none", before, cfg, None, None, True):
                 emit("guard", f"Put back {r['path']}: KeelBot's Ask mode changes nothing.", path=r["path"], ok=False)
-        elif mode == "side":
+        elif mode in ("side", "edit"):
             for r in guard.guard_diff(root, "none", before, cfg, None, None, False):
                 emit("guard", f"Put back {r['path']}: {r['reason']}", path=r["path"], ok=False)
+            if mode == "edit":
+                remember_originals(sid, root, before)          # Undo and Keep, as in Fix
         else:
             for r in guard.guard_diff(root, phase, before, cfg, rules.ac_lane(ac) if ac else None, unlocks,
                                       flow.get("run_mode") == "readonly"):

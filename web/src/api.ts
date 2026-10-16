@@ -654,7 +654,7 @@ export type FlowSpend = {
   thread_id: string; title: string; status: ThreadStatus; tokens: number; cost_usd: number; cap_tokens: number | null; cap_usd: number | null;
 };
 /** v0.6.0 KeelBot (`/api/projects/{pid}/helper/...`): chat sessions in the Code page, run by keel's own harness. */
-export type HelperMode = "ask" | "fix" | "side";
+export type HelperMode = "ask" | "edit" | "fix" | "side";
 /** A side session's hand-over: its branch, the commits kept on it, what is not kept yet, and its last answer. */
 export type HelperHandover = { session: string; title: string; branch: string; base: string; worktree: string;
   commits: { sha: string; subject: string }[]; uncommitted: string[]; asked: string[]; answer: string };

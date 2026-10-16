@@ -199,8 +199,8 @@ export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: P
   );
 }
 
-export function AgentsPanel({ running, last, live, width, on }: { running: Job[]; last: Record<string, JobStep | undefined>; live?: Record<string, string>;
-  width: number; on?: PanelActs }) {
+export function AgentsPanel({ running, last, live, width, on, flowTitles }: { running: Job[]; last: Record<string, JobStep | undefined>; live?: Record<string, string>;
+  width: number; on?: PanelActs; flowTitles?: Record<string, string> }) {
   const { color, paint } = useTheme();
   return (
     <PanelBox title={<>{"Agents · "}<Text color={running.length ? color("accent") : color("dim")}>{`${running.length} at work`}</Text></>}>
@@ -210,7 +210,7 @@ export function AgentsPanel({ running, last, live, width, on }: { running: Job[]
         return (
           <Clickable key={j.id} act={() => on?.agent(j.id)}>
             <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null} tokens={fmt.tokensOf(j) || undefined}
-              hint={[j.step, j.ac].filter(Boolean).join(" ")} />
+              hint={[flowTitles ? fmt.flowOf(flowTitles, j.thread_id) : "", [j.step, j.ac].filter(Boolean).join(" ")].filter(Boolean).join(" · ")} />
             {writing ? <Text color={color("fg")} wrap="truncate-end">{"   ✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text>
               : last[j.id] && <Text wrap="truncate-end">{"   " + fmt.stepLine(last[j.id]!, width - 6, paint)}</Text>}
           </Clickable>
@@ -293,7 +293,7 @@ export function JobPanel({ id, s, width }: { id: string; s: Snapshot; width: num
   const writing = s.liveText[id];
   const shown = steps.filter((x) => x.kind !== "thinking").slice(-6);
   return (
-    <PanelBox title={<>{"Agent · "}<Text color={color("accent")}>{j ? `${j.agent} · ${[j.step, j.ac].filter(Boolean).join(" ")}` : id.slice(0, 8)}</Text>
+    <PanelBox title={<>{"Agent · "}<Text color={color("accent")}>{j ? [j.agent, fmt.flowOf(s.flowTitles, j.thread_id), [j.step, j.ac].filter(Boolean).join(" ")].filter(Boolean).join(" · ") : id.slice(0, 8)}</Text>
       <Text color={color("dim")}>{running ? "" : " · finished"}{" · Esc stops following"}</Text></>}>
       {running && j && <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null} tokens={fmt.tokensOf(j) || undefined} />}
       {shown.length === 0 && <Text color={color("dim")}>no steps yet</Text>}
@@ -305,7 +305,7 @@ export function JobPanel({ id, s, width }: { id: string; s: Snapshot; width: num
 
 export function Panel({ name, s, width, on }: { name: PanelName; s: Snapshot; width: number; on?: PanelActs }) {
   if (name === "flow") return <FlowPanel s={s} width={width} on={on} />;
-  if (name === "agents") return <AgentsPanel running={s.running} last={s.lastStep} live={s.liveText} width={width} on={on} />;
+  if (name === "agents") return <AgentsPanel running={s.running} last={s.lastStep} live={s.liveText} width={width} on={on} flowTitles={s.flowTitles} />;
   return <InboxPanel s={s} on={on} />;
 }
 

@@ -402,3 +402,34 @@ def test_a_chat_title_is_cut_at_a_word():
     t = helper.short_title(long)
     assert t == "Add formatUsd(cents) next to formatEuro in src/domain/money.js (returns $12.50…" and len(t) <= 80
     assert helper.short_title("x" * 120) == "x" * 79 + "…"
+
+
+# ------------------------------------------------------------------ keel 0.18.7 Edit mode: the project folder, no flow
+
+def test_edit_changes_the_project_folder_with_no_flow_and_keep_commits_only_its_files(client, repo):
+    (Path(repo) / "NOTES.md").write_text("the person's own unsaved notes\n")      # never part of KeelBot's commit
+    s = new_session(client, repo, mode="edit")
+    assert s["mode"] == "edit" and not s.get("worktree")
+    _, s2 = ask(client, s["id"], "Add a small helper.")
+    assert (Path(repo) / "src" / "scores" / "helper_fix.py").exists()           # in the project folder itself
+    ch = client.get(f"/helper/sessions/{s['id']}/changes").json()
+    assert [(c["path"], c["status"]) for c in ch] == [("src/scores/helper_fix.py", "added")]
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": {}, "message": "a helper for ranks"}).json()
+    assert r["ok"] is True, r
+    log = _git(repo, "log", "-1", "--format=%s", "--name-only")
+    assert log.startswith("fix(helper): a helper for ranks\n") and "helper_fix.py" in log and "NOTES.md" not in log
+    assert client.get(f"/helper/sessions/{s['id']}/changes").json() == []
+
+
+def test_edit_undo_puts_the_file_back_and_the_turn_is_checked_after_it_too(client, repo):
+    s = new_session(client, repo, mode="edit")
+    ask(client, s["id"], "Add it.")
+    assert client.post(f"/helper/sessions/{s['id']}/undo", json={}).json() == []
+    assert not (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
+    # the rogue model also writes a file behind keel's back: the diff guard checks it after the turn (no flow's phase in
+    # Edit, so an ordinary file stays; keel's always-on rules are the guard's own, tested in the engine's guard tests)
+    r = new_session(client, repo, mode="edit", model={"provider": "fake", "mode": "api", "model": "fake-rogue"})
+    ask(client, r["id"], "Fix it.")
+    assert (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
+    assert (Path(repo) / "tests" / "test_rogue_helper.py").exists()
+    assert "Mode: Edit" in helper.MODE_TEXT["edit"] and "edit" in helper.MODES

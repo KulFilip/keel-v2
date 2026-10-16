@@ -43,6 +43,8 @@ export type Snapshot = {
   visited: string[];
   inbox: InboxItem[];
   running: Job[];
+  /** keel 0.18.7 each running agent's flow by its id (thread id → the flow's title), so agent lines say whose they are */
+  flowTitles: Record<string, string>;
   lastStep: Record<string, JobStep | undefined>;
   /** what each running agent is writing now (agent.delta), by call id */
   liveText: Record<string, string>;
@@ -106,7 +108,7 @@ export class KeelCore {
     const url = connect(opts.url, this.f);
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
-      visited: [], inbox: [], running: [], lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
+      visited: [], inbox: [], running: [], flowTitles: {}, lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
       chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], stream: "", startedAt: null, wrote: 0 },
     };
   }
@@ -254,7 +256,12 @@ export class KeelCore {
     for (const k of Object.keys(lastStep)) if (!running.some((j) => j.id === k)) delete lastStep[k];
     const liveText = { ...this.snapshot.liveText };
     for (const k of Object.keys(liveText)) if (!running.some((j) => j.id === k)) delete liveText[k];
-    this.set({ flow, inbox, running, projects, project, visited, lastStep, liveText });
+    // the flows the running agents work for: their titles (one runs list per project that has an agent at work)
+    const flowTitles = { ...this.snapshot.flowTitles };
+    const unknown = [...new Set(running.filter((j) => j.thread_id && !flowTitles[j.thread_id]).map((j) => j.project_id))];
+    await Promise.all(unknown.map((p) => api.runs(p, undefined, 30).then((rows) => rows.forEach((r) => (flowTitles[r.thread_id] = r.title)))
+      .catch(() => undefined)));
+    this.set({ flow, inbox, running, flowTitles, projects, project, visited, lastStep, liveText });
     return this.snapshot;
   }
 

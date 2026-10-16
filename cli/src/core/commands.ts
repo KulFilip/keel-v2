@@ -390,9 +390,23 @@ const IMPLS: Impl[] = [
   { name: "flows", run: async (ctx) => text(fmt.flows(await api.runs(needProject(ctx).id, undefined, 20), P(ctx))) },
   {
     name: "resume",
-    run: async (ctx) => {
-      const t = flowNow(ctx);
-      if (!t) return fail("No flow on this project.");
+    run: async (ctx, a) => {
+      // keel 0.18.7 /resume <n>: a flow from /flows by its number (or the start of its id), else the project's newest
+      const arg = a.trim();
+      let t: ThreadState | null = flowNow(ctx);
+      if (arg) {
+        const p = needProject(ctx);
+        const rows = await api.runs(p.id, undefined, 20);
+        const n = /^#?(\d+)$/.exec(arg);
+        const row = n ? rows[Number(n[1]) - 1] : rows.find((r) => arg.length >= 6 && r.thread_id.startsWith(arg));
+        if (!row) return fail(`No flow ${arg}: /flows lists them, numbered.`);
+        t = (await api.flowOf(p.id, row.thread_id)).thread;
+        if (!t) return fail(`No flow ${arg}.`);
+      }
+      if (!t) {
+        const others = ctx.core.snapshot.projects.filter((p) => p.flow && p.id !== ctx.core.snapshot.project?.id).map((p) => p.id);
+        return fail("No flow on this project." + (others.length ? ` Flows are on ${others.join(", ")}: /project ${others[0]}, then /resume.` : ""));
+      }
       if (t.status === "waiting" || t.status === "running") return text(`The flow is ${t.status}: nothing to resume. ${t.status === "waiting" ? "/approve or /reject <why>." : ""}`);
       if (t.status === "done") return text("The flow is done: start a new one with /flow.");
       const h = await api.history(t.thread_id);
@@ -750,12 +764,20 @@ const IMPLS: Impl[] = [
   { name: "new", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },
   {
     name: "mode",
-    complete: (_c, a) => ["ask", "fix"].filter((x) => x.startsWith(a)),
+    complete: (_c, a) => ["ask", "edit", "fix", "side"].filter((x) => x.startsWith(a)),
     run: (ctx, a) => {
-      const m = a.trim();
-      if (m !== "ask" && m !== "fix") return text(`KeelBot is in ${ctx.core.snapshot.chat.mode} mode. /mode ask or /mode fix.`);
+      const m = a.trim() as HelperMode;
+      const about: Record<string, string> = {
+        ask: "it reads and answers; it changes nothing",
+        edit: "it changes files and runs commands in the project folder; keel's always-on rules apply, a command that changes something asks you first, /keep commits",
+        fix: "it changes files for the gate a flow waits at, inside that phase's rules",
+        side: "it works in its own copy of the project (a worktree on its own branch); /keep commits there",
+      };
+      if (!about[m]) return text(`KeelBot is in ${ctx.core.snapshot.chat.mode} mode. /mode ask | edit | fix | side:\n`
+        + Object.entries(about).map(([k, v]) => `  ${k}: ${v}`).join("\n"));
+      if (m === "fix" && ctx.core.snapshot.flow?.thread?.status !== "waiting") return fail("Fix works while a flow waits at a gate. /mode edit changes the project folder without a flow.");
       ctx.core.setChatMode(m);
-      return ok(`KeelBot: ${m} mode (a new chat starts with the next message).`);
+      return ok(`KeelBot: ${m} mode: ${about[m]}. A new chat starts with the next message.`);
     },
   },
   {

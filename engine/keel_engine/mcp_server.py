@@ -1063,10 +1063,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project)
 
     @reg(rw)
-    async def keel_keelbot_ask(text: str, chat: str | None = None, mode: Literal["ask", "fix", "side"] = "ask", wait: int = 120,
+    async def keel_keelbot_ask(text: str, chat: str | None = None, mode: Literal["ask", "edit", "fix", "side"] = "ask", wait: int = 120,
                                project: str | None = None, ctx: Context | None = None) -> str:
         """Ask KeelBot, keel's own assistant that knows the project, its flows and keel's rules: a new chat, or `chat` to go
-        on. ask only reads; fix changes files under keel's rules while a flow waits; side works in its own worktree. Waits
+        on. ask only reads; edit changes the project folder with no flow (a command that changes something asks the person
+        in keel first); fix changes files under keel's rules while a flow waits; side works in its own worktree. Waits
         up to `wait` seconds for the answer. Its buttons come back as the keel tools that do them."""
         return await act(ctx, "keel_keelbot_ask", "ask KeelBot", tui.keelbot_ask, api, text, project, chat, mode, wait)
 

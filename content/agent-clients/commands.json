@@ -36,9 +36,10 @@
     },
     {
       "name": "resume",
-      "summary": "go on with a stopped or failed flow from its last saved step",
+      "summary": "go on with a stopped or failed flow from its last saved step (the newest, or n from /flows)",
       "writes": true,
-      "group": "Flows"
+      "group": "Flows",
+      "args": "[n]"
     },
     {
       "name": "stop",
@@ -219,8 +220,8 @@
     },
     {
       "name": "mode",
-      "args": "<ask|fix>",
-      "summary": "KeelBot's mode: ask (reads, changes nothing) or fix (keel's rules apply)",
+      "args": "<ask|edit|fix|side>",
+      "summary": "KeelBot's mode: ask (reads only), edit (changes the project folder, no flow needed), fix (at a gate), side (its own branch)",
       "writes": false,
       "complete": "mode",
       "local": true,

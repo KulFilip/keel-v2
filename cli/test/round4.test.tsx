@@ -143,7 +143,7 @@ describe("/agent", () => {
     expect(t.frame()).toContain("▶ explorer (flow)");
     await t.enter();
     await waitFor(() => t.frame().includes("read_file"));
-    expect(t.frame()).toContain("Agent · explorer · spec");
+    expect(t.frame()).toContain('Agent · explorer · "Add a health endpoint" · spec');
     expect(t.frame()).toContain("Esc stops following");
     await t.type("\x1b");
     await tick(60);
@@ -194,7 +194,8 @@ describe("clicks (the full screen with the mouse)", () => {
     const stub = stubKeel();
     const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
     const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
-    const r = render(<App core={core} probe={probe} width={100} rows={40} mouse theme={none} />);
+    // wide enough for the whole agent line (0.18.7: it names its flow too)
+    const r = render(<App core={core} probe={probe} width={130} rows={40} mouse theme={none} />);
     const lines = () => stripAnsi(r.lastFrame() ?? "").split("\n");
     /** a left click on the first line that has `text` (SGR: 1-based column and row) */
     const click = async (text: string) => {
@@ -215,7 +216,7 @@ describe("clicks (the full screen with the mouse)", () => {
     await waitFor(() => t.lines().some((l) => l.includes("explorer ·")));
     expect(t.lines().find((l) => l.includes("explorer ·"))).toContain("click to follow");
     await t.click("explorer ·");
-    await waitFor(() => t.lines().some((l) => l.includes("Agent · explorer · spec")));
+    await waitFor(() => t.lines().some((l) => l.includes(`Agent · explorer · "Add a health endpoint" · spec`)));
     await waitFor(() => t.lines().some((l) => l.includes("read_file")));
     expect(t.lines().join("\n")).not.toContain("[<0;");                 // a click is never typed into the prompt
     t.r.unmount();

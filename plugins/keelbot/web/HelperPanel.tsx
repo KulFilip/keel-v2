@@ -257,7 +257,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const mode: HelperMode = s?.mode ?? (newMode === "fix" && !fixable ? "ask" : newMode);
   const fix = mode === "fix";
   const side = mode === "side";
-  const edits = fix || side;                 // a chat that changes files: its changes, Undo, Done / Keep
+  const editMode = mode === "edit";          // keel 0.18.7: the project folder itself, no flow needed
+  const edits = fix || side || editMode;     // a chat that changes files: its changes, Undo, Done / Keep
   const handed = side && !!s && !s.worktree;  // a side session handed over: its worktree is gone
   const changes = useLoad(sid && edits && !handed ? `helper:${pid}:${sid}:changes` : null, () => kb.changes(pid, sid!), { live: false });
   const handover = useLoad(sid && side && !handed ? `helper:${pid}:${sid}:handover` : null, () => kb.handover(pid, sid!), { live: false });
@@ -628,11 +629,15 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
               title={fix || fixable ? "Fix: KeelBot changes files at this gate, inside the phase's rules"
                 : readonlyRun ? "This flow runs read-only: change its run mode on the Flow page to let KeelBot edit"
                   : "Fix works while a flow waits at a gate"}>Fix</button>
+            <button type="button" aria-pressed={editMode} onClick={() => switchMode("edit")}
+              title="Edit: KeelBot changes files in the project folder (no flow needed); keel's always-on rules apply and a command that changes something asks you first">Edit</button>
             <button type="button" aria-pressed={side} onClick={() => switchMode("side")}
               title="Side session: KeelBot changes files in its own copy of the project (a git worktree on its own branch)">Side</button>
           </div>
           {fix
             ? <span className="hp-mode fix" title="Fix mode: keel's rules of this phase apply">Fix{phase ? ` · ${phase}` : ""}</span>
+            : editMode
+              ? <span className="hp-mode fix" title="Edit mode: KeelBot changes files in the project folder; keel's always-on rules apply">Edit · project folder</span>
             : side
               ? <span className="hp-mode side" title={s?.branch ? `Branch ${s.branch}` : "Its own worktree and branch"}>Side{s?.branch ? ` · ${s.branch.split("/").pop()}` : ""}</span>
               : <span className="hp-mode" title="Ask mode: KeelBot reads and answers; it changes no file">Ask · read only</span>}
