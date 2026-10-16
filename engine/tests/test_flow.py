@@ -187,17 +187,23 @@ def test_contract_is_committed_on_its_own(client, repo):
 
 
 def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeypatch):
+    import asyncio
     import threading
     import time as _t
     from keel_engine.models import fake as fake_mod
-    real = fake_mod._plan
+    real = fake_mod.FakeRunner.run
     release = threading.Event()
 
-    def slow(req):
+    async def slow(self, req, emit):
+        # Holds the contract step until the test has looked. An async wait: the fake model runs on the engine's event
+        # loop, so a blocking wait there froze every request, the test's own polling too (31 s instead of 1 s).
         if req.agent == "contract-author":
-            release.wait(30)        # holds the contract step until the test has looked
-        return real(req)
-    monkeypatch.setattr(fake_mod, "_plan", slow)
+            for _ in range(600):
+                if release.is_set():
+                    break
+                await asyncio.sleep(0.05)
+        return await real(self, req, emit)
+    monkeypatch.setattr(fake_mod.FakeRunner, "run", slow)
     tid = start(client, repo)
     assert wait(client, tid)["waiting"]["step"] == "spec_gate"
     client.post(f"/threads/{tid}/resume", json={"decision": "approve"})       # the spec gate (and its options menu)
