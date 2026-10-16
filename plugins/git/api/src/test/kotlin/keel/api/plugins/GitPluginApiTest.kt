@@ -27,6 +27,11 @@ class GitPluginApiTest : ApiTest() {
         post("/api/projects/$pid/git/pr", mapOf("title" to "X", "body" to "why")).andExpect(status().isOk)
         assertThat(engine.lastBody("/plugins/git/pr")!!["title"].asText()).isEqualTo("X")
         delete("/api/secrets/GITHUB_REPO_TOKEN").andExpect(status().isOk)
+        // keel 0.18.3 the uncommitted diff, one file or all (keel TUI's /git diff)
+        get("/api/projects/$pid/git/diff?path=README.md").andExpect(status().isOk)
+        assertThat(engine.lastBody("/plugins/git/diff")!!["path"].asText()).isEqualTo("README.md")
+        get("/api/projects/$pid/git/diff").andExpect(status().isOk)
+        assertThat(engine.lastBody("/plugins/git/diff")!!["path"].asText()).isEmpty()
     }
 
     @Test

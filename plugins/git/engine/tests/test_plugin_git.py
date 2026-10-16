@@ -213,3 +213,13 @@ def test_its_mcp_server_offers_only_read_tools():
     assert {t.name for t in tools} == READ_TOOLS and all(t.annotations.readOnlyHint for t in tools)
     spec = extensions.server_specs(["git", "nope"], "pk_x")
     assert [s["name"] for s in spec] == ["keel-git"] and spec[0]["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
+
+
+def test_diff_shows_the_uncommitted_changes_whole_or_one_file(client, remote):
+    # keel 0.18.3 keel TUI's /git diff (GET /api/projects/{pid}/git/diff)
+    (remote / "README.md").write_text((remote / "README.md").read_text() + "one more line\n")
+    (remote / "src" / "scores" / "__init__.py").write_text("X = 2\n")
+    whole = gitcall(client, remote, "diff").json()["diff"]
+    assert "+one more line" in whole and "src/scores/__init__.py" in whole
+    one = gitcall(client, remote, "diff", path="README.md").json()["diff"]
+    assert "+one more line" in one and "src/scores/__init__.py" not in one

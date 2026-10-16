@@ -42,6 +42,8 @@ async def post_plugin_git(op: str, body: PluginGit):
         "status": lambda: g.status(body.root),
         "branches": lambda: g.branches(body.root),
         "log": lambda: g.log(body.root, 30),
+        # keel 0.18.3 the uncommitted diff (keel TUI's /git diff): one file with path, else all of it
+        "diff": lambda: {"diff": g.diff(body.root, body.path or None)},
         "switch": lambda: g.switch(body.root, body.branch, body.create),
         "commit": lambda: g.commit(body.root, body.message, body.settings),
         "sync": lambda: g.sync(body.root, token),

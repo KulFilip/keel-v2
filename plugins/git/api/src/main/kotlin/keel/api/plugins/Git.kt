@@ -52,6 +52,8 @@ class GitPluginService(
     fun status(pid: String) = call(pid, "status")
     fun branches(pid: String) = call(pid, "branches")
     fun log(pid: String) = call(pid, "log")
+    /** keel 0.18.3 the uncommitted changes as one diff ({diff}), or one file's: keel TUI's /git diff. */
+    fun diff(pid: String, path: String?) = call(pid, "diff", mapOf("path" to (path ?: "")))
     fun pr(pid: String) = call(pid, "pr_status", long = true)
     fun switch(pid: String, b: GitSwitchBody) = call(pid, "switch", mapOf("branch" to b.branch, "create" to b.create))
     fun commit(pid: String, b: GitCommitBody) = call(pid, "commit", mapOf("message" to b.message))
@@ -80,6 +82,7 @@ class GitPluginController(private val git: GitPluginService, private val hub: Ev
     @GetMapping("/branches") fun branches(@PathVariable pid: String) = git.branches(pid)
     @GetMapping("/branch") fun branch(@PathVariable pid: String, @RequestParam name: String) = git.branch(pid, name)
     @GetMapping("/log") fun log(@PathVariable pid: String) = git.log(pid)
+    @GetMapping("/diff") fun diff(@PathVariable pid: String, @RequestParam(required = false) path: String?) = git.diff(pid, path)
     @GetMapping("/pr") fun pr(@PathVariable pid: String) = git.pr(pid)
     @PostMapping("/switch") fun switch(@PathVariable pid: String, @RequestBody body: GitSwitchBody) = changed(pid, git.switch(pid, body))
     @PostMapping("/commit") fun commit(@PathVariable pid: String, @RequestBody body: GitCommitBody) = changed(pid, git.commit(pid, body))

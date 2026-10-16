@@ -235,6 +235,28 @@ def test_done_runs_the_checks_and_makes_keels_commit_of_only_the_helpers_files(c
     assert nothing["ok"] is False and nothing["step"] == "changes"
 
 
+def test_keep_one_file_commits_only_it_and_leaves_the_others_to_keep_or_undo(client, repo):
+    s = fix_session(client, repo)
+    ask(client, s["id"], "Add the helper.", flow=FLOW)
+    # a second file KeelBot changed in this chat (recorded the way its guarded tools record one)
+    (Path(repo) / "README.md").write_text("# demo\nchanged by KeelBot\n")
+    with helper.db.connect() as conn:
+        conn.execute("insert into helper_files(session_id, path, existed, content, at) values (?, ?, 1, ?, ?)",
+                     (s["id"], "README.md", b"# demo\n", helper.db.now()))
+    paths = [c["path"] for c in client.get(f"/helper/sessions/{s['id']}/changes").json()]
+    assert paths == ["README.md", "src/scores/helper_fix.py"]
+    bad = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW, "paths": ["nope.py"]})
+    assert bad.status_code == 404 and "nope.py" in bad.json()["error"]
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW, "paths": ["src/scores/helper_fix.py"]}).json()
+    assert r["ok"] is True and r["files"] == ["src/scores/helper_fix.py"], r
+    log = _sp.run(["git", "log", "-1", "--name-only", "--format="], cwd=repo, capture_output=True, text=True).stdout.split()
+    assert log == ["src/scores/helper_fix.py"]
+    # README.md is still KeelBot's change: it can be kept or undone later
+    assert [c["path"] for c in client.get(f"/helper/sessions/{s['id']}/changes").json()] == ["README.md"]
+    assert client.post(f"/helper/sessions/{s['id']}/undo", json={"path": "README.md"}).json() == []
+    assert (Path(repo) / "README.md").read_text() == "# demo\n"
+
+
 def test_done_stops_when_the_checks_fail(client, repo):
     s = fix_session(client, repo)
     ask(client, s["id"], "Add the helper.", flow=FLOW)

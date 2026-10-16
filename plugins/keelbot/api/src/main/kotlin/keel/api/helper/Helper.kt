@@ -37,7 +37,8 @@ import java.nio.file.Paths
 data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "")
 data class HelperUndo(val path: String? = null)
 /** Done: the commit's subject as the person wrote it (blank: the chat's title). */
-data class HelperDoneBody(val message: String = "")
+/** keel 0.18.3 `paths`: keep only these of KeelBot's files (keel TUI's /keep <path>); none = every file. */
+data class HelperDoneBody(val message: String = "", val paths: List<String>? = null)
 /** Hand a side session over: as a task (its description says what was done and on which branch) ... */
 data class HelperTaskBody(val title: String = "", val type: String = "task")
 /** ... or as a flow on its branch (a change flow by default: it writes the tests for what the branch does). */
@@ -230,6 +231,7 @@ class HelperService(
         val commit = mapOf("commit_author" to eff.commitAuthor.trim().ifBlank { null }, "commit_coauthor" to eff.commitCoauthor)
             .filterValues { it != null }
         return engine.post("/helper/sessions/$sid/done", mapOf("flow" to flow, "message" to body.message.trim().take(200),
+            "paths" to body.paths?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() },
             "commit" to commit), long = true)
     }
 

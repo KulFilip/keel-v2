@@ -401,9 +401,11 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
     return changes(sid)
 
 
-def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None = None) -> dict:
+def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None = None,
+         paths: list[str] | None = None) -> dict:
     """Run the checks, then keel's commit of only the files KeelBot changed (runtime/actions.py `commit`: the phase's
-    commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event."""
+    commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event.
+    keel 0.18.3 `paths`: keep only these of its files (keel TUI's /keep <path>); the others stay changes to keep or undo."""
     from keel_engine.runtime import actions          # late: actions imports most of the runtime
 
     s = get(sid, messages=False)
@@ -413,6 +415,11 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
         raise HelperError(409, "This side session was handed over; its worktree is gone.")
     root = workdir(s)
     files = [c["path"] for c in changes(sid)]
+    if paths:
+        unknown = [p for p in paths if p not in files]
+        if unknown:
+            raise HelperError(404, f"KeelBot did not change {', '.join(unknown[:5])} in this chat.", "/changes lists its files.")
+        files = [f for f in files if f in paths]
     if not files:
         return {"ok": False, "step": "changes", "error": "Nothing to commit: KeelBot changed no file in this chat."}
     # the module's tests (the criterion's own test is one of them): the change works and nothing else broke
@@ -436,7 +443,7 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
         return {"ok": False, "step": "commit", "error": res.note, "output": res.detail or ""}
     sha = git.head(root)
     with db.connect() as conn:
-        conn.execute("delete from helper_files where session_id = ?", (sid,))
+        conn.executemany("delete from helper_files where session_id = ? and path = ?", [(sid, f) for f in files])
     where = f" on branch {s['branch']}" if s["mode"] == "side" else ""
     note = f"keel committed KeelBot's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
     subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()

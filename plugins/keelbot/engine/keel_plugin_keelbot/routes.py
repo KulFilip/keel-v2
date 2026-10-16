@@ -65,6 +65,7 @@ class HelperDone(BaseModel):
     flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
     message: str = ""                                    # the commit's subject, as the person wrote it (else the chat's title)
     commit: dict[str, Any] = Field(default_factory=dict)  # the project's commit_author / commit_coauthor settings
+    paths: list[str] | None = None                       # keel 0.18.3 Keep one file (or some): only these; none = all
 
 
 class HelperPatch(BaseModel):
@@ -243,7 +244,7 @@ async def post_helper_done(sid: str, body: HelperDone, request: Request):
     bus_ = request.app.state.bus
     return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
                                    lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message,
-                                   body.commit)
+                                   body.commit, body.paths)
 
 
 @router.post("/helper/commands")
