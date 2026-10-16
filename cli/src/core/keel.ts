@@ -30,6 +30,11 @@ export type ChatState = {
   wrote: number;
 };
 
+/** keel 0.18.8 a login keel can use (Connections): its name and whether its chosen way works now. */
+export type Login = { id: string; label: string; ready: boolean };
+/** keel 0.18.8 what keel spent today and this month (the dashboard's budget bar). */
+export type Spent = { today: { tokens: number; cost_usd: number }; month: { tokens: number; cost_usd: number } };
+
 export type Snapshot = {
   url: string;
   /** the dashboard as the person's browser sees it */
@@ -43,6 +48,9 @@ export type Snapshot = {
   visited: string[];
   inbox: InboxItem[];
   running: Job[];
+  /** keel 0.18.8 the logins (no fake), and the spend: the top line shows them */
+  logins: Login[];
+  spent: Spent | null;
   /** keel 0.18.7 each running agent's flow by its id (thread id → the flow's title), so agent lines say whose they are */
   flowTitles: Record<string, string>;
   lastStep: Record<string, JobStep | undefined>;
@@ -108,7 +116,7 @@ export class KeelCore {
     const url = connect(opts.url, this.f);
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
-      visited: [], inbox: [], running: [], flowTitles: {}, lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
+      visited: [], inbox: [], running: [], logins: [], spent: null, flowTitles: {}, lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
       chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], stream: "", startedAt: null, wrote: 0 },
     };
   }
@@ -145,7 +153,7 @@ export class KeelCore {
       return this.snapshot;
     }
     await this.loadProjects();
-    await Promise.all([this.refresh(), this.loadPlugins()]);
+    await Promise.all([this.refresh(), this.loadPlugins(), this.loadLogins()]);
     if (this.pid) this.shareFocus({ project: this.pid });
     await this.openFocusChat("the chat open in keel");
     this.follow();
@@ -203,6 +211,7 @@ export class KeelCore {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.spawnTimer) clearInterval(this.spawnTimer);
+    if (this.loginTimer) clearInterval(this.loginTimer);
   }
 
   async loadProjects() {
@@ -237,14 +246,32 @@ export class KeelCore {
     return true;
   }
 
+  /** keel 0.18.8 the logins keel can use and whether each works now (read again every minute: a login can expire). */
+  private loginTimer: ReturnType<typeof setInterval> | null = null;
+  async loadLogins() {
+    const read = async () => {
+      try {
+        const c = await api.connections();
+        const logins = c.providers.filter((x) => x.id !== "fake")
+          .map((x) => ({ id: x.id, label: x.label, ready: !!x.modes.find((m) => m.id === x.selected)?.ready }));
+        this.set({ logins });
+      } catch {
+        /* an older keel or a short outage: the top line leaves them out */
+      }
+    };
+    await read();
+    if (!this.loginTimer && !this.opts.noLive) this.loginTimer = setInterval(() => void read(), 60_000);
+  }
+
   /** The project's flow, its checkpoints, the inbox, the running agents. */
   async refresh(): Promise<Snapshot> {
     const pid = this.pid;
-    const [flow, inbox, running, projects] = await Promise.all([
+    const [flow, inbox, running, projects, spent] = await Promise.all([
       pid ? api.flow(pid).catch(() => null) : Promise.resolve(null),
       inboxApi.list().then((v) => v.items).catch(() => [] as InboxItem[]),
       api.jobs({ status: "running", limit: 50 }).catch(() => [] as Job[]),
       api.projects().catch(() => this.snapshot.projects),
+      pid ? api.budgetNow(pid).then((b) => ({ today: b.today, month: b.month })).catch(() => this.snapshot.spent) : Promise.resolve(this.snapshot.spent),
     ]);
     let visited: string[] = [];
     if (flow?.thread) {
@@ -261,7 +288,7 @@ export class KeelCore {
     const unknown = [...new Set(running.filter((j) => j.thread_id && !flowTitles[j.thread_id]).map((j) => j.project_id))];
     await Promise.all(unknown.map((p) => api.runs(p, undefined, 30).then((rows) => rows.forEach((r) => (flowTitles[r.thread_id] = r.title)))
       .catch(() => undefined)));
-    this.set({ flow, inbox, running, flowTitles, projects, project, visited, lastStep, liveText });
+    this.set({ flow, inbox, running, flowTitles, projects, project, visited, lastStep, liveText, spent });
     return this.snapshot;
   }
 

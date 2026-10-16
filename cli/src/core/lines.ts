@@ -103,14 +103,18 @@ export function startLines(s: Snapshot, width: number, p: Paint): string[] {
   ];
 }
 
-/** The line that stays at the top: keel's name, its version, the project and branch, and the flow. */
+/** The line that stays at the top: keel itself — its version, the logins it can use (✓ works now, ✗ not), and what it
+ *  spent today and this month. Where the person is (the project, its branch, the flow) is the bottom line's (0.18.8). */
 export function headerLine(s: Snapshot, width: number, p: Paint): string {
-  const pr = s.project;
-  const t = s.flow?.thread;
+  const logins = s.logins.map((l) => (l.ready ? p.ok(`${l.label.toLowerCase()} ✓`) : p.faint(`${l.label.toLowerCase()} ✗`)));
+  // short, so the whole line fits 80 columns: "today 1.9M $9.03"
+  const spend = (label: string, x: { tokens: number; cost_usd: number }) =>
+    p.dim(`${label} `) + fmt.short(x.tokens) + " " + p.bold(`$${x.cost_usd.toFixed(2)}`);
   const parts = [
     p.dim(`v2 ${s.health?.version ?? VERSION}`),
-    pr ? p.bold(pr.name || pr.id) + (pr.branch ? p.dim(" · ") + p.run(pr.branch) : "") : p.dim("no project"),
-    t ? p.accent(t.workflow_id) + ` "${t.title}" ` + fmt.badge(t.status, p) + (t.current ? p.dim(` at ${t.current}`) : "") : "",
+    logins.length ? logins.join(" ") : "",
+    s.spent ? spend("today", s.spent.today) : "",
+    s.spent ? spend("month", s.spent.month) : "",
   ].filter(Boolean);
   const name = p.colored ? p.bold(p.inverse(p.accent(" keel "))) : "[ keel ]";
   return wrapAnsi(`${name} ${parts.join(p.faint(" · "))}`, width, { hard: true, trim: false }).split("\n")[0];

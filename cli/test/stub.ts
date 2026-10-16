@@ -127,6 +127,11 @@ export function stubKeel() {
       case "POST /api/projects/demo/skills/market/install":
         state.installed = { version: "1.0.0", agents: body.agents ?? [] };
         return [200, { skill: { id: body.name, agents: body.agents ?? [], tokens: 1200 }, market: { version: "1.0.0", catalog: "keel" } }];
+      case "GET /api/connections": return [200, { providers: [
+        { id: "fake", label: "Fake (demo)", modes: [{ id: "api", label: "Fake", ready: true, detail: "" }], selected: "api", key_set: false },
+        { id: "claude", label: "Claude", modes: [{ id: "subscription", label: "Claude subscription", ready: true, detail: "" }], selected: "subscription", key_set: false },
+        { id: "codex", label: "Codex", modes: [{ id: "subscription", label: "Codex login", ready: false, detail: "Log in" }], selected: "subscription", key_set: false },
+      ], machine: [] }];
       case "GET /api/ui/focus": return [200, state.focus];
       case "PUT /api/ui/focus": {
         const pid = body.chat_project ?? body.project ?? state.focus.project;

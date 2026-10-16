@@ -64,7 +64,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const { exit } = useApp();
   const { stdout } = useStdout();
   // a terminal may say 0 columns at first (docker exec -it sets the size a moment after the start): count it as 100
-  const cols = () => Math.max(40, stdout?.columns || 100);
+  // two columns free on the right: some terminals hide their last columns (a scrollbar, the Claude app's panel edge)
+  // and a line that fills the last column wraps in others (0.18.8)
+  const cols = () => Math.max(40, (stdout?.columns || 102) - 2);
   const [termWidth, setTermWidth] = useState(cols);
   const [termRows, setTermRows] = useState(fixedRows ?? 0);
   useEffect(() => {
