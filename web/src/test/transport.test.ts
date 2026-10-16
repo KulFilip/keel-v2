@@ -25,8 +25,9 @@ describe("transport", () => {
     await api.health();
     await api.resume("t1", "approve");
     expect(seen.map((s) => s.url)).toEqual(["http://localhost:8099/api/health", "http://localhost:8099/api/threads/t1/resume"]);
-    expect(seen[0].init?.headers).toEqual({ "X-Keel-Via": "tui", "X-Keel-Tool": "/cmd1" });
-    expect(seen[1].init?.headers).toEqual({ "X-Keel-Via": "tui", "X-Keel-Tool": "/cmd2", "content-type": "application/json" });
+    // keel 0.18.1: every call also says it is keel's own client (X-Keel-Web); the TUI's own credential comes in its headers
+    expect(seen[0].init?.headers).toEqual({ "X-Keel-Web": "1", "X-Keel-Via": "tui", "X-Keel-Tool": "/cmd1" });
+    expect(seen[1].init?.headers).toEqual({ "X-Keel-Web": "1", "X-Keel-Via": "tui", "X-Keel-Tool": "/cmd2", "content-type": "application/json" });
     expect(api.eventsUrl(null, true)).toBe("http://localhost:8099/api/events?project=*");
   });
 });
