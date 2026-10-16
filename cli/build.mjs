@@ -1,5 +1,6 @@
 // Builds keel TUI into one file, dist/keel-tui.mjs, that needs only Node 20+: the app, Ink, React and keel's own typed
-// client (web/src/api.ts, web/src/inboxApi.ts, web/src/rulesApi.ts, plugins/keelbot/web/keelbotApi.ts) all inside.
+// client (web/src/api.ts, web/src/inboxApi.ts, web/src/rulesApi.ts, web/src/signIn.ts, plugins/keelbot/web/keelbotApi.ts) all
+// inside.
 import { build } from "esbuild";
 import { readFileSync, chmodSync } from "node:fs";
 import { fileURLToPath } from "node:url";

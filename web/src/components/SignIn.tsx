@@ -1,9 +1,12 @@
 // v0.18.1 the sign-in screen: this browser has no sign-in for this keel yet (or it was reset, or the link was used up).
 // keel has no password: `keel2 open` in a terminal opens keel signed in (api auth/WebSignIn).
 
-import { useState } from "react";
-import { signInDone, type SignInState } from "../signIn";
+import { useState, useSyncExternalStore } from "react";
+import { signInDone, signInState, subscribeSignIn, type SignInState } from "../signIn";
 import { EmptyState } from "./EmptyState";
+
+/** Is this browser signed in to keel (the last answer of the api says)? */
+export const useSignIn = (): SignInState => useSyncExternalStore(subscribeSignIn, signInState, signInState);
 
 export function SignIn({ state }: { state: SignInState }) {
   const [checking, setChecking] = useState(false);

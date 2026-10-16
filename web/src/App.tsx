@@ -11,8 +11,7 @@ import { FlowPage } from "./pages/Flow";
 import { ProjectsPage } from "./pages/Projects";
 import { SCREEN } from "./routes";
 import { PageBoundary } from "./components/PageBoundary";
-import { SignIn } from "./components/SignIn";
-import { useSignIn } from "./signIn";
+import { SignIn, useSignIn } from "./components/SignIn";
 import { pageOf, usePages } from "./sdk/registry";
 import { AppProvider, useApp, useRoute } from "./state";
 

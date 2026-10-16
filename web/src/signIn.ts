@@ -2,8 +2,6 @@
 // (`keel2 open`): it sets a cookie for this keel. When the api answers 401 with `X-Keel-Auth: sign-in` (no cookie yet,
 // a reset key, an old tab after the update), the app shows the sign-in screen instead of failing page by page.
 
-import { useSyncExternalStore } from "react";
-
 export type SignInState = { needed: boolean; reason: "none" | "signed-out" | "expired" };
 
 const fromUrl = (): SignInState => {
@@ -31,12 +29,12 @@ export const signInNeeded = () => set({ needed: true, reason: state.reason === "
 /** Back to normal (tests; and after "Try again" found the browser signed in). */
 export const signInDone = () => set({ needed: false, reason: "none" });
 
-export const useSignIn = (): SignInState =>
-  useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => state,
-    () => state,
-  );
+/** For the sign-in screen's hook (components/SignIn.tsx useSignIn): no React here, keel TUI bundles this file. */
+export const subscribeSignIn = (l: () => void) => {
+  listeners.add(l);
+  return () => {
+    listeners.delete(l);
+  };
+};
+
+export const signInState = (): SignInState => state;
