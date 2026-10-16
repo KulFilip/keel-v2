@@ -105,6 +105,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [compIdx, setCompIdx] = useState(0);
   const [botCmds, setBotCmds] = useState<{ name: string; description: string }[]>([]);
   const [answers, setAnswers] = useState(0);
+  const [footer, setFooter] = useState<string | null>(null);
   const ctrlC = useRef(0);
   // the full screen's scroll: lines up from the newest, the transcript area's height, and the wheel on or off
   const [offset, setOffset] = useState(0);
@@ -164,9 +165,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
         const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
         const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
-        push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
-          // two empty lines after "✓ Finished …", so the answer stands apart from what comes next
-          { kind: "text", text: fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint) + "\n\n" });
+        push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" });
+        // keel 0.18.8 "✓ Finished …" sits on the prompt (the last turn's), with room between it and the answer above
+        setFooter(fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint));
         turnStart.current = null;
         if (buttons.length) void askButtons(buttons);
         setAnswers((n) => n + 1);
@@ -749,7 +750,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         ) : (
           <Box flexDirection="column">
             {pending?.ask && <Text color={t.color("accent")} bold>{pending.ask.prompt}<Text color={t.color("dim")} bold={false}> (Esc cancels)</Text></Text>}
-            <Box borderStyle="round" borderColor={border} paddingX={1} marginTop={1}>
+            {footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
+            <Box borderStyle="round" borderColor={border} paddingX={1} marginTop={footer && !chat.busy ? 0 : 1}>
               <Text>
                 <Text color={t.color("accent")} bold>{"› "}</Text>
                 {line ? <>{inputText(line.slice(0, cursor))}<Text inverse>{line[cursor] ?? " "}</Text>{inputText(line.slice(cursor + 1))}</>

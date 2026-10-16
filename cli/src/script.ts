@@ -23,6 +23,7 @@ import type { Profiler } from "./core/profile";
 
 export const KEYS: Record<string, string> = {
   tab: "\t", enter: "\r", esc: "\x1b", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", backspace: "\x7f",
+  "alt+tab": "\x1b\t", "shift+tab": "\x1b[Z", "ctrl+o": "\x0f",
   pgup: "\x1b[5~", pgdn: "\x1b[6~", home: "\x1b[H", end: "\x1b[F", "shift+up": "\x1b[1;2A", "shift+down": "\x1b[1;2B",
   wheelup: "\x1b[<64;10;10M", wheeldown: "\x1b[<65;10;10M",
   "ctrl+f": "\x06", "ctrl+a": "\x01", "ctrl+b": "\x02", "ctrl+g": "\x07", "ctrl+u": "\x15", "ctrl+c": "\x03",

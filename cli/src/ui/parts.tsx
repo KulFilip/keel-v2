@@ -311,8 +311,9 @@ export function Panel({ name, s, width, on }: { name: PanelName; s: Snapshot; wi
 
 type Seg = { text: string; role: "fg" | "dim" | "accent" | "gate" | "ok" | "bad" | "faint"; bold?: boolean };
 
-/** keel 0.18.8 KeelBot's mode as the status line's first word. */
-export const MODE_MARK: Record<string, string> = { edit: "📝 edit", ask: "💬 ask", fix: "🔧 fix", side: "🌿 side" };
+/** keel 0.18.8 KeelBot's mode as the status line's first word, with a small ASCII tool (every terminal and font has
+ *  these): a question, a pencil, a wrench, a branch. */
+export const MODE_MARK: Record<string, string> = { ask: "[?] ask", edit: "[=/] edit", fix: "[-{] fix", side: "[-<] side" };
 
 /** project · flow · phase · AC n/m · gates waiting · tokens · live, each with the role it is coloured with. */
 export function statusSegments(s: Snapshot): Seg[] {

@@ -82,7 +82,7 @@ describe("the full screen", () => {
     expect(ls[0]).toContain("claude ✓ codex ✗");
     expect(ls[0]).toContain("today 15.4k $0.42 · month 99.0k $3.10");
     expect(ls[0]).not.toContain("demo");
-    expect(ls.at(-1)).toMatch(/^ 💬 ask · demo/);          // KeelBot's mode first, then the project and its branch
+    expect(ls.at(-1)).toMatch(/^ \[\?\] ask · demo/);          // KeelBot's mode first, then the project and its branch
     expect(ls.at(-3)).toMatch(/^│ › .*KeelBot/);
     expect(ls.join("\n")).toContain("keel v2");
   });
