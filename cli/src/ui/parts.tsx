@@ -13,16 +13,16 @@ import { VERSION } from "../core/version";
 
 export const ACCENT = "#e8a33d";
 
-export function StartScreen({ s }: { s: Snapshot }) {
+export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
   const p = s.project;
   const t = s.flow?.thread ?? null;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box borderStyle="round" borderColor={ACCENT} flexDirection="column" paddingX={1}>
+      <Box borderStyle="round" borderColor={ACCENT} flexDirection="column" paddingX={1} width={width}>
         {LOGO.map((l, i) => <Text key={i} color={ACCENT}>{l}</Text>)}
         <Text> </Text>
         <Text><Text bold>keel v2 {s.health?.version ?? VERSION}</Text><Text dimColor> · keel TUI {VERSION}</Text></Text>
-        <Text><Text dimColor>keel     </Text>{fmt.which(s.url, s.health)}</Text>
+        <Text><Text dimColor>keel     </Text>{fmt.which(s.publicUrl, s.health)}</Text>
         {s.error
           ? <Text color="red">{`keel is not reachable: ${s.error}\nStart it: keel2 start (or pass --url).`}</Text>
           : <>
@@ -125,7 +125,7 @@ export function FlowPanel({ s, width }: { s: Snapshot; width: number }) {
       <Text><Text dimColor>step  </Text>{t.current || "-"}{t.ac ? ` · ${t.ac}` : ""}<Text dimColor>{` · phase ${t.phase || "none"}`}</Text></Text>
       {all > 0 && <Text><Text dimColor>AC    </Text>{t.acs.map((a) => (a.status === "done" || a.status === "already-met" ? "■" : a.id === t.ac ? "▶" : "□")).join("")}{`  ${done}/${all}`}</Text>}
       {gates.length > 0 && <Text wrap="truncate-end"><Text dimColor>gates </Text>{gates.slice(0, Math.max(3, Math.floor(width / 22))).map((g) => (g.id === cur ? `◆ ${g.name}` : g.name)).join(" · ")}</Text>}
-      {t.waiting && <Text color="yellow">{`◆ waiting for you: ${t.waiting.title} · ${t.waiting.kind === "clarify" ? "/answer" : t.waiting.choices?.length ? "/answer <choice>" : "/approve or /reject <why>"}`}</Text>}
+      {t.waiting && <Text color="yellow" wrap="truncate-end">{`◆ waiting for you: ${t.waiting.title} · ${t.waiting.kind === "clarify" ? "/answer" : fmt.answerWords(t.waiting)}`}</Text>}
       {t.error && <Text color="red">{t.error}</Text>}
     </PanelBox>
   );
@@ -179,7 +179,7 @@ export function statusParts(s: Snapshot): string[] {
   const [done, all] = fmt.acCount(t);
   const here = s.project ? s.inbox.filter((i) => i.project_id === s.project!.id).length : 0;
   return [
-    s.project ? `${s.project.id}${s.project.branch ? ` (${s.project.branch})` : ""}` : "no project",
+    s.project ? `${s.project.id}${s.project.branch ? ` (${s.project.branch.length > 28 ? s.project.branch.slice(0, 27) + "…" : s.project.branch})` : ""}` : "no project",
     t ? `${t.workflow_id} ${t.status}` : "no flow",
     t ? `phase ${t.phase || "none"}` : "",
     t && all ? `AC ${done}/${all}` : "",

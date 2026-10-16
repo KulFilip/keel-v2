@@ -7,6 +7,7 @@
 //   if (reply.chat) await core.send(reply.chat);                     // plain text asks KeelBot
 
 export { KeelCore, type Snapshot, type ChatState, type CoreOptions, type CoreEvents } from "./keel";
+export { TABLE, type CommandSpec } from "./commands";
 export { COMMANDS, COMMANDS_BY_NAME, complete, draw, follow, helpText, parse, run, dashboardUrl, type Block, type BlockKind, type Choice,
   type Command, type Completion, type Ctx, type PanelName, type Parsed, type Pick, type Ask, type Reply } from "./commands";
 export * as format from "./format";

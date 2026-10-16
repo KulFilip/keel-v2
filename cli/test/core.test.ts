@@ -1,6 +1,6 @@
 // keel TUI's core without a UI: command parsing and autocomplete, the SSE parser, markdown, notices, the via headers.
 import { describe, expect, it } from "vitest";
-import { complete, COMMANDS, helpText, parse, run } from "../src/core/commands";
+import { complete, COMMANDS, helpText, parse, run, TABLE } from "../src/core/commands";
 import { KeelCore } from "../src/core/keel";
 import { fileLines, plain, renderMarkdown } from "../src/core/markdown";
 import { notice } from "../src/core/notices";
@@ -20,6 +20,14 @@ describe("commands", () => {
     for (const n of ["help", "project", "flow", "flows", "resume", "stop", "status", "next", "inbox", "approve", "reject", "answer", "jobs", "live",
       "steps", "timeline", "workflows", "diagram", "rules", "plugins", "budget", "dashboard", "quit", "model", "chats", "panel"]) expect(names).toContain(n);
     expect(helpText()).toContain("/reject [n] <why>");
+  });
+
+  it("takes every command's words from the shared table, and the table has no command keel TUI lacks", () => {
+    expect(COMMANDS.map((c) => c.name)).toEqual(TABLE.commands.map((c) => c.name));
+    const approve = COMMANDS.find((c) => c.name === "approve")!;
+    expect(approve).toMatchObject({ args: "[n]", writes: true });
+    expect(COMMANDS.find((c) => c.name === "status")?.writes).toBe(false);
+    expect(TABLE.keys.map((k) => k.key)).toContain("Ctrl+F");
   });
 
   it("parses commands, chat text and escaped slashes", () => {
@@ -145,5 +153,15 @@ describe("format", () => {
     expect(fmt.next({ id: "demo", branch: "x" } as never, view)).toBe('waiting at spec_gate (spec approval): /approve ("Approve the spec") or /reject <why>.');
     expect(fmt.status({ id: "demo", branch: "keel/health" } as never, view)).toContain("criteria  0/2 done");
     expect(fmt.short(1234)).toBe("1.2k");
+  });
+});
+
+describe("answer words", () => {
+  it("names /approve, /reject and /answer for what a gate takes", () => {
+    const w = (x: object) => ({ step: "g", kind: "gate", title: "t", detail: "", options: ["approve", "reject"], ...x }) as never;
+    expect(fmt.answerWords(w({}))).toBe("/approve or /reject <why>");
+    expect(fmt.answerWords(w({ choices: ["approve", "edit", "review"] }))).toBe("/approve, /reject <why> or /answer <edit | review>");
+    expect(fmt.answerWords(w({ options: ["approve"], choices: ["continue", "stop"] }))).toBe("/answer <continue | stop>");
+    expect(fmt.cut("one two three four", 9)).toBe("one two …");
   });
 });

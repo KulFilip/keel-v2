@@ -1,0 +1,221 @@
+{
+  "about": "keel's commands for terminal clients: keel TUI (cli/), the xal client (clients/xal) and any other front end. One table: names, arguments, help text, whether a command writes (decides a gate, starts or stops a flow), what its argument completes from, and local = it never calls keel. keel TUI builds its commands from it (cli/src/core/commands.ts, a test keeps both the same). Every request a client sends says who acts: X-Keel-Via (tui, xal, mcp), X-Keel-Client (its name and version) and X-Keel-Tool (the command); the api records a write as a <via>.call event.",
+  "version": 1,
+  "commands": [
+    {
+      "name": "help",
+      "summary": "what keel TUI can do",
+      "aliases": [
+        "?"
+      ],
+      "writes": false,
+      "local": true
+    },
+    {
+      "name": "project",
+      "args": "[name]",
+      "summary": "pick the project (or switch to one by name)",
+      "writes": false,
+      "complete": "projects"
+    },
+    {
+      "name": "flow",
+      "args": "[workflow] [idea…]",
+      "summary": "start a flow: pick the workflow, then say the idea",
+      "writes": true,
+      "complete": "workflows"
+    },
+    {
+      "name": "flows",
+      "summary": "this project's flows, newest first",
+      "writes": false
+    },
+    {
+      "name": "resume",
+      "summary": "go on with a stopped or failed flow from its last saved step",
+      "writes": true
+    },
+    {
+      "name": "stop",
+      "summary": "stop the project's flow (every finished step stays saved)",
+      "writes": true
+    },
+    {
+      "name": "status",
+      "summary": "the flow: step, phase, criteria, what waits, tokens",
+      "writes": false
+    },
+    {
+      "name": "next",
+      "summary": "what to do next",
+      "writes": false
+    },
+    {
+      "name": "inbox",
+      "summary": "everything that waits for you, in every project",
+      "writes": false
+    },
+    {
+      "name": "approve",
+      "args": "[n]",
+      "summary": "approve what waits (or inbox item n)",
+      "writes": true
+    },
+    {
+      "name": "reject",
+      "args": "[n] <why>",
+      "summary": "send back what waits, with the reason",
+      "writes": true
+    },
+    {
+      "name": "answer",
+      "args": "[choice | q1=answer …]",
+      "summary": "answer a gate's questions or choose one of its exits",
+      "writes": true
+    },
+    {
+      "name": "jobs",
+      "summary": "the project's agent calls, newest first",
+      "writes": false
+    },
+    {
+      "name": "live",
+      "summary": "the agents at work now and their last step",
+      "writes": false
+    },
+    {
+      "name": "steps",
+      "args": "[job]",
+      "summary": "the flow's steps with their state (or one agent call's steps)",
+      "writes": false
+    },
+    {
+      "name": "timeline",
+      "summary": "what happened: steps and agent runs, newest first",
+      "writes": false
+    },
+    {
+      "name": "workflows",
+      "args": "[workflow]",
+      "summary": "the project's workflows, and a workflow as a diagram",
+      "writes": false,
+      "complete": "workflows"
+    },
+    {
+      "name": "diagram",
+      "args": "<flow|workflow <id>|map-er [table]|map-system|map-modules|graph <symbol>> [zoom]",
+      "summary": "keel's diagrams in ASCII",
+      "writes": false,
+      "complete": "diagram"
+    },
+    {
+      "name": "rules",
+      "summary": "keel's rules for this project, and what agents may change right now",
+      "writes": false
+    },
+    {
+      "name": "plugins",
+      "summary": "the plugins keel has, and which are on here",
+      "writes": false
+    },
+    {
+      "name": "budget",
+      "summary": "tokens and money today, this month, per flow, and the caps",
+      "writes": false
+    },
+    {
+      "name": "dashboard",
+      "args": "[flow|map|er|keelbot|inbox]",
+      "summary": "the dashboard's link for this project",
+      "writes": false,
+      "complete": "dashboard",
+      "local": true
+    },
+    {
+      "name": "model",
+      "summary": "KeelBot's model (from keel's catalog)",
+      "writes": false
+    },
+    {
+      "name": "chats",
+      "summary": "earlier KeelBot chats of this project: open one",
+      "writes": false
+    },
+    {
+      "name": "new",
+      "summary": "a new KeelBot chat",
+      "writes": false,
+      "local": true
+    },
+    {
+      "name": "mode",
+      "args": "<ask|fix>",
+      "summary": "KeelBot's mode: ask (reads, changes nothing) or fix (keel's rules apply)",
+      "writes": false,
+      "complete": "mode",
+      "local": true
+    },
+    {
+      "name": "panel",
+      "args": "<flow|agents|inbox|off>",
+      "summary": "show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle them)",
+      "writes": false,
+      "complete": "panel",
+      "local": true
+    },
+    {
+      "name": "clear",
+      "summary": "clear the screen",
+      "writes": false,
+      "local": true
+    },
+    {
+      "name": "quit",
+      "summary": "leave keel TUI (keel keeps running)",
+      "aliases": [
+        "exit",
+        "q"
+      ],
+      "writes": false,
+      "local": true
+    }
+  ],
+  "keys": [
+    {
+      "key": "Tab",
+      "does": "complete the command or its argument"
+    },
+    {
+      "key": "Up / Down",
+      "does": "the history, or the completion to take"
+    },
+    {
+      "key": "Ctrl+F",
+      "does": "toggle the flow rail"
+    },
+    {
+      "key": "Ctrl+A",
+      "does": "toggle the agents at work"
+    },
+    {
+      "key": "Ctrl+B",
+      "does": "toggle the inbox"
+    },
+    {
+      "key": "Esc",
+      "does": "stop KeelBot's answer, or cancel a choice"
+    },
+    {
+      "key": "Ctrl+C twice",
+      "does": "leave (keel keeps running)"
+    }
+  ],
+  "diagrams": [
+    "flow",
+    "workflow",
+    "map-er",
+    "map-system",
+    "map-modules",
+    "graph"
+  ]
+}

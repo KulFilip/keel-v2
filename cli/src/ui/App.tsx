@@ -251,7 +251,7 @@ export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?
   return (
     <>
       <Static key={epoch} items={items}>
-        {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} /> : <BlockView key={it.id} b={it.b} />)}
+        {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} />)}
       </Static>
       <Box flexDirection="column">
         {!started && <Text dimColor>connecting to keel at {snap.url} …</Text>}

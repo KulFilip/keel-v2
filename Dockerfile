@@ -35,13 +35,15 @@ RUN rm -rf /src/product/web/dist /src/plugins/*/web/dist && mkdir -p /src/produc
     && if [ "$EDITION" = "product" ] && [ "$PLUGINS" != "lock" ]; then npm run build:product; fi
 
 # ---------- keel TUI (cli/): keel in the terminal, one file (dist/keel-tui.mjs) that needs only Node ----------
-# It uses the web's own typed client (no copy): the api, inbox and rules clients and KeelBot's, bundled in.
+# It uses the web's own typed client (no copy): the api, inbox and rules clients and KeelBot's, bundled in, and the
+# command table keel's terminal clients share (content/agent-clients/commands.json).
 FROM node:20-bookworm-slim AS cli
 WORKDIR /src/cli
 COPY cli/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/src/api.ts web/src/inboxApi.ts web/src/rulesApi.ts /src/web/src/
 COPY plugins/keelbot/web/keelbotApi.ts /src/plugins/keelbot/web/
+COPY content/agent-clients/commands.json /src/content/agent-clients/
 COPY cli/ ./
 RUN npm run build
 

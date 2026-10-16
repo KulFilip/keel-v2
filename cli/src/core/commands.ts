@@ -9,6 +9,7 @@ import { rulesApi } from "../../../web/src/rulesApi";
 import * as fmt from "./format";
 import { setCommand } from "./transport";
 import type { KeelCore } from "./keel";
+import table from "../../../content/agent-clients/commands.json";
 
 // ------------------------------------------------------------------ replies
 
@@ -36,15 +37,18 @@ export function errorReply(e: unknown): Reply {
 // ------------------------------------------------------------------ the registry
 
 export type Ctx = { core: KeelCore; width: number };
-export type Command = {
-  name: string;
-  args?: string;
-  summary: string;
+
+/** One row of content/agent-clients/commands.json, the command table keel's terminal clients share. */
+export type CommandSpec = { name: string; args?: string; summary: string; aliases?: string[]; writes: boolean; complete?: string; local?: boolean };
+export const TABLE = table as { version: number; commands: CommandSpec[]; keys: { key: string; does: string }[]; diagrams: string[] };
+type Impl = { name: string; run: Command["run"]; complete?: Command["complete"] };
+
+export type Command = Omit<CommandSpec, "complete" | "writes"> & {
+  writes?: boolean;
   /** the words after the name; "" when none */
   run: (ctx: Ctx, args: string) => Promise<Reply> | Reply;
   /** completions for the argument being typed */
   complete?: (ctx: Ctx, arg: string) => string[];
-  aliases?: string[];
 };
 
 const needProject = (ctx: Ctx): Project => {
@@ -123,8 +127,11 @@ async function decide(ctx: Ctx, decision: "approve" | "reject", rest: string): P
 async function actOnFlow(ctx: Ctx, t: ThreadState, decision: "approve" | "reject", why: string, payload?: Record<string, unknown>): Promise<Reply> {
   const before = t.waiting?.title ?? "the gate";
   try {
-    const s = await inboxApi.act(t.thread_id, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}), id: t.waiting?.id ?? null });
+    const answered = await inboxApi.act(t.thread_id, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}), id: t.waiting?.id ?? null });
     await ctx.core.refresh();
+    // the flow moves on at once: say where it is now (the answer above is from the moment of the decision)
+    const now = ctx.core.snapshot.flow?.thread;
+    const s = now && now.thread_id === t.thread_id ? now : answered;
     const after = `${s.status} at ${s.current || "-"} (phase ${s.phase || "none"})` + (s.waiting ? `; now waiting: ${s.waiting.title}` : "");
     return ok(`${decision === "approve" ? "approved" : "sent back"} ${before}. The flow is ${after}.`);
   } catch (e) {
@@ -184,10 +191,11 @@ async function flowDiagram(ctx: Ctx, zoom?: string): Promise<Reply> {
 
 type MapView = { missing?: string; schema?: unknown; levels?: Record<string, unknown> };
 
-export const COMMANDS: Command[] = [
-  { name: "help", summary: "what keel TUI can do", run: () => text(helpText()) , aliases: ["?"] },
+/** What each command does; its name, arguments, help text and aliases are in the shared table (TABLE). */
+const IMPLS: Impl[] = [
+  { name: "help", run: () => text(helpText())  },
   {
-    name: "project", args: "[name]", summary: "pick the project (or switch to one by name)",
+    name: "project",
     complete: (ctx, a) => ctx.core.snapshot.projects.map((p) => p.id).filter((x) => x.startsWith(a)),
     run: async (ctx, a) => {
       const name = a.trim();
@@ -201,7 +209,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "flow", args: "[workflow] [idea…]", summary: "start a flow: pick the workflow, then say the idea",
+    name: "flow",
     complete: (ctx, a) => cachedWorkflowIds(ctx).filter((x) => x.startsWith(a)),
     run: async (ctx, a) => {
       const rows = await workflows(ctx);
@@ -218,9 +226,9 @@ export const COMMANDS: Command[] = [
       return pickWorkflowThen(ctx, rows, ask, "Which flow?");
     },
   },
-  { name: "flows", summary: "this project's flows, newest first", run: async (ctx) => text(fmt.flows(await api.runs(needProject(ctx).id, undefined, 20))) },
+  { name: "flows", run: async (ctx) => text(fmt.flows(await api.runs(needProject(ctx).id, undefined, 20))) },
   {
-    name: "resume", summary: "go on with a stopped or failed flow from its last saved step",
+    name: "resume",
     run: async (ctx) => {
       const t = flowNow(ctx);
       if (!t) return fail("No flow on this project.");
@@ -235,7 +243,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "stop", summary: "stop the project's flow (every finished step stays saved)",
+    name: "stop",
     run: (ctx) => {
       const t = flowNow(ctx);
       if (!t || !["running", "waiting"].includes(t.status)) return text("No running flow to stop.");
@@ -249,23 +257,23 @@ export const COMMANDS: Command[] = [
         } } };
     },
   },
-  { name: "status", summary: "the flow: step, phase, criteria, what waits, tokens", run: async (ctx) => {
+  { name: "status", run: async (ctx) => {
     await ctx.core.refresh();
     return text(fmt.status(needProject(ctx), ctx.core.snapshot.flow));
   } },
-  { name: "next", summary: "what to do next", run: async (ctx) => {
+  { name: "next", run: async (ctx) => {
     await ctx.core.refresh();
     return text(fmt.next(ctx.core.snapshot.project, ctx.core.snapshot.flow));
   } },
-  { name: "inbox", summary: "everything that waits for you, in every project", run: async (ctx) => {
+  { name: "inbox", run: async (ctx) => {
     await ctx.core.refresh();
     const items = ctx.core.snapshot.inbox;
     return text(fmt.inbox(items) + (items.length ? "\n\n/approve <n> or /reject <n> <why> answers one; Ctrl+B keeps the inbox on screen." : ""));
   } },
-  { name: "approve", args: "[n]", summary: "approve what waits (or inbox item n)", run: (ctx, a) => decide(ctx, "approve", a) },
-  { name: "reject", args: "[n] <why>", summary: "send back what waits, with the reason", run: (ctx, a) => decide(ctx, "reject", a) },
+  { name: "approve", run: (ctx, a) => decide(ctx, "approve", a) },
+  { name: "reject", run: (ctx, a) => decide(ctx, "reject", a) },
   {
-    name: "answer", args: "[choice | q1=answer …]", summary: "answer a gate's questions or choose one of its exits",
+    name: "answer",
     run: async (ctx, a) => {
       await ctx.core.refresh();
       const t = flowNow(ctx);
@@ -285,9 +293,9 @@ export const COMMANDS: Command[] = [
       return text(`${w.title}: /approve or /reject <why>.`);
     },
   },
-  { name: "jobs", summary: "the project's agent calls, newest first", run: async (ctx) => text(fmt.jobs(await api.jobs({ project: needProject(ctx).id, limit: 20 }))) },
+  { name: "jobs", run: async (ctx) => text(fmt.jobs(await api.jobs({ project: needProject(ctx).id, limit: 20 }))) },
   {
-    name: "live", summary: "the agents at work now and their last step", run: async (ctx) => {
+    name: "live", run: async (ctx) => {
       const running = await api.jobs({ status: "running", limit: 50 });
       const last: Record<string, JobStep | undefined> = {};
       await Promise.all(running.map(async (j: Job) => {
@@ -298,7 +306,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "steps", args: "[job]", summary: "the flow's steps with their state (or one agent call's steps)",
+    name: "steps",
     run: async (ctx, a) => {
       const id = a.trim();
       if (!id) return flowDiagram(ctx);
@@ -308,7 +316,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "timeline", summary: "what happened: steps and agent runs, newest first",
+    name: "timeline",
     run: async (ctx) => {
       const p = needProject(ctx);
       const t = flowNow(ctx);
@@ -317,7 +325,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "workflows", args: "[workflow]", summary: "the project's workflows, and a workflow as a diagram",
+    name: "workflows",
     complete: (ctx, a) => cachedWorkflowIds(ctx).filter((x) => x.startsWith(a)),
     run: async (ctx, a) => {
       const rows = await workflows(ctx);
@@ -331,7 +339,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "diagram", args: "<flow|workflow <id>|map-er [table]|map-system|map-modules|graph <symbol>> [zoom]", summary: "keel's diagrams in ASCII",
+    name: "diagram",
     complete: (ctx, a) => {
       const [k, rest] = a.split(/\s+/, 2);
       if (rest === undefined) return DIAGRAM_KINDS.filter((x) => x.startsWith(k));
@@ -368,7 +376,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "rules", summary: "keel's rules for this project, and what agents may change right now",
+    name: "rules",
     run: async (ctx) => {
       const p = needProject(ctx);
       const t = flowNow(ctx);
@@ -377,7 +385,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "plugins", summary: "the plugins keel has, and which are on here",
+    name: "plugins",
     run: async (ctx) => {
       const body = await get<unknown>("/plugins/installed");
       const rows = (Array.isArray(body) ? body : ((body as { plugins?: unknown[] })?.plugins ?? [])) as never[];
@@ -385,14 +393,14 @@ export const COMMANDS: Command[] = [
       return text(fmt.plugins(rows, here.map((x) => ({ name: x.name, enabled: !!(x as { enabled?: boolean }).enabled }))));
     },
   },
-  { name: "budget", summary: "tokens and money today, this month, per flow, and the caps", run: async (ctx) => text(fmt.budget(await api.budgetNow(needProject(ctx).id))) },
+  { name: "budget", run: async (ctx) => text(fmt.budget(await api.budgetNow(needProject(ctx).id))) },
   {
-    name: "dashboard", args: "[flow|map|er|keelbot|inbox]", summary: "the dashboard's link for this project",
+    name: "dashboard",
     complete: (_c, a) => ["flow", "map", "er", "keelbot", "inbox"].filter((x) => x.startsWith(a)),
     run: (ctx, a) => text(dashboardUrl(ctx, a.trim() || "flow") + "\nOpen it in your browser: the same keel, the same flows and chats."),
   },
   {
-    name: "model", summary: "KeelBot's model (from keel's catalog)",
+    name: "model",
     run: async (ctx) => {
       const raw = (await api.providerModels()) as Record<string, { label?: string; modes?: Record<string, { id: string; label: string }[]>; default?: Model }>;
       const choices: Choice[] = [];
@@ -410,7 +418,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "chats", summary: "earlier KeelBot chats of this project: open one",
+    name: "chats",
     run: async (ctx) => {
       const rows = await ctx.core.chats();
       if (!rows.length) return text("No chats yet: type a question.");
@@ -424,9 +432,9 @@ export const COMMANDS: Command[] = [
         } } };
     },
   },
-  { name: "new", summary: "a new KeelBot chat", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },
+  { name: "new", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },
   {
-    name: "mode", args: "<ask|fix>", summary: "KeelBot's mode: ask (reads, changes nothing) or fix (keel's rules apply)",
+    name: "mode",
     complete: (_c, a) => ["ask", "fix"].filter((x) => x.startsWith(a)),
     run: (ctx, a) => {
       const m = a.trim();
@@ -436,7 +444,7 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    name: "panel", args: "<flow|agents|inbox|off>", summary: "show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle them)",
+    name: "panel",
     complete: (_c, a) => PANELS.filter((x) => x.startsWith(a)),
     run: (_c, a) => {
       const p = a.trim() as PanelName | "off";
@@ -444,9 +452,18 @@ export const COMMANDS: Command[] = [
       return { blocks: [], panel: p };
     },
   },
-  { name: "clear", summary: "clear the screen", run: () => ({ blocks: [], clear: true }) },
-  { name: "quit", summary: "leave keel TUI (keel keeps running)", run: () => ({ blocks: [], quit: true }), aliases: ["exit", "q"] },
+  { name: "clear", run: () => ({ blocks: [], clear: true }) },
+  { name: "quit", run: () => ({ blocks: [], quit: true }) },
 ];
+
+/** keel's commands: the shared table's words with what each one does here. */
+export const COMMANDS: Command[] = TABLE.commands.map((spec) => {
+  const impl = IMPLS.find((i) => i.name === spec.name);
+  if (!impl) throw new Error(`content/agent-clients/commands.json names /${spec.name}, but keel TUI does not have it`);
+  const { complete: _from, ...words } = spec;      // `complete` in the table names the source; here it is the function
+  return { ...words, run: impl.run, complete: impl.complete };
+});
+for (const i of IMPLS) if (!TABLE.commands.some((c) => c.name === i.name)) throw new Error(`/${i.name} is missing from content/agent-clients/commands.json`);
 
 export const COMMANDS_BY_NAME: Record<string, Command> = Object.fromEntries(COMMANDS.flatMap((c) => [[c.name, c], ...(c.aliases ?? []).map((a) => [a, c])]));
 
@@ -467,7 +484,7 @@ export function helpText(): string {
       const head = `/${c.name}${c.args ? " " + c.args : ""}`;
       return head.length > cut + 1 ? `  ${head}\n  ${" ".repeat(cut + 3)}${c.summary}` : `  ${head.padEnd(cut + 3)}${c.summary}`;
     }),
-    "", "Keys: Tab completes · ↑/↓ history · Ctrl+F flow rail · Ctrl+A agents · Ctrl+B inbox · Esc stops KeelBot's answer · Ctrl+C twice quits",
+    "", "Keys: " + TABLE.keys.map((k) => `${k.key} ${k.does}`).join(" · "),
     "KeelBot's own commands (/gate, /where …) go to KeelBot as they are."].join("\n");
 }
 

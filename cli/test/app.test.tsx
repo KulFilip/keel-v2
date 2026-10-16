@@ -35,7 +35,7 @@ describe("keel TUI", () => {
     const f = t.frame();
     expect(f).toContain("|_|\\_\\___|\\___||_|");
     expect(f).toContain("keel v2 0.17.3");
-    expect(f).toContain("keel     http://keel.test · docker · fake model");
+    expect(f).toContain("keel     http://localhost:8080 · docker · fake model");
     expect(f).toContain("project  demo · branch keel/health");
     expect(f).toContain('flow     feature "Add a health endpoint" · waiting at spec_gate');
     expect(f).toContain("waiting  1 waiting for you · gate: spec approval");

@@ -1,7 +1,8 @@
 // keel-tui --script <file>: drive the real app without a person, through its own keyboard. Each line of the file is
 // typed into the prompt (then Enter); lines that start with @ steer the run:
 //
-//   @snap <name>             save what the terminal shows now (ANSI removed) as <out>/<name>.txt (or print it)
+//   @snap <name>             save what the terminal shows now (ANSI removed), from where the capture before ends,
+//                            as <out>/<name>.txt (or print it)
 //   @wait started|idle|waiting|answer|pick|ask [seconds]   wait for the app or the flow (default 120 s)
 //   @key tab|enter|esc|up|down|ctrl+f|ctrl+a|ctrl+b        press a key
 //   @sleep <ms>              wait
@@ -82,8 +83,15 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
   const idle = () => !probe.busy;
+  // each capture holds what is new since the one before (the transcript only grows), the first one the whole screen
+  let before: string[] = [];
   const snap = (name: string) => {
-    const text = stripAnsi(stdout.last).split("\n").map((l) => l.replace(/\s+$/, "")).join("\n").replace(/\n+$/, "") + "\n";
+    const lines = stripAnsi(stdout.last).split("\n").map((l) => l.replace(/\s+$/, ""));
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
+    let same = 0;
+    while (same < lines.length && same < before.length && lines[same] === before[same]) same++;
+    before = lines;
+    const text = (same > 0 ? `… (${same} lines above: the capture before)\n` : "") + lines.slice(same).join("\n") + "\n";
     if (opts.out) {
       mkdirSync(opts.out, { recursive: true });
       writeFileSync(join(opts.out, `${name}.txt`), text);

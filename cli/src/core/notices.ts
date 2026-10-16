@@ -8,7 +8,7 @@ export function notice(ev: EngineEvent): string | null {
   const d = (ev.data ?? {}) as Record<string, unknown>;
   switch (ev.type) {
     case "thread.started": {
-      const via = d.via === "mcp" ? " via MCP" : d.via === "tui" ? " via keel TUI" : "";
+      const via = d.via === "mcp" ? " via MCP" : d.via === "tui" ? " via keel TUI" : d.via === "xal" ? " via xal" : "";
       return `flow started${via}: ${s(d.workflow) || "flow"} "${s(d.title)}"`;
     }
     case "gate.waiting": return `waiting for you: ${s(d.title) || ev.step || "a gate"} · /approve or /reject <why> (/next says more)`;
@@ -22,6 +22,7 @@ export function notice(ev: EngineEvent): string | null {
     case "guard.refused": return `keel refused: ${s(d.text) || s(d.path) || "a write the phase does not allow"}`;
     case "helper.permission": return `KeelBot asks to run: ${s(d.command).slice(0, 120)} · /inbox`;
     case "mcp.call": return `via MCP · ${s(d.client) || "a client"}: ${s(d.tool) || "a tool"}${d.ok === false ? " (refused)" : ""}`;
+    case "xal.call": return `via xal · ${s(d.tool) || "a command"}${d.ok === false ? " (refused)" : ""}`;
     default: return null;
   }
 }

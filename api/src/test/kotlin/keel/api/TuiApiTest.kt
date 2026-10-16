@@ -27,6 +27,16 @@ class TuiApiTest : ApiTest() {
     }
 
     @Test
+    fun `the xal client says so too, as an xal call`() {
+        val (pid, _) = newProject("xal-audit")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Scores"),
+            mapOf("X-Keel-Via" to "xal", "X-Keel-Tool" to "/flow")).andExpect(status().isOk)
+        val rows = jdbc.queryForList("SELECT data_json FROM events WHERE project_id = ? AND type = 'xal.call'", String::class.java, pid)
+        assertThat(rows).hasSize(1)
+        assertThat(rows[0]).contains("\"via\":\"xal\"").contains("\"client\":\"xal\"").contains("\"tool\":\"/flow\"")
+    }
+
+    @Test
     fun `keel TUI is not held to an MCP level`() {
         val (pid, _) = newProject("tui-level")
         // an admin route for MCP: keel TUI acts as the person at the keyboard, like the dashboard

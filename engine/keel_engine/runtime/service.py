@@ -306,8 +306,8 @@ class Engine:
         if body.get("parent"):
             started["parent"] = body["parent"]
         via = (body.get("data") or {}).get("started_via")
-        if via in ("mcp", "tui"):
-            started["via"] = via            # v0.15.8 keel_start_flow (keel2 mcp --write), keel TUI's /flow: the timeline says so
+        if via in ("mcp", "tui", "xal"):
+            started["via"] = via            # v0.15.8 keel_start_flow (keel2 mcp --write), keel TUI's /flow, xal: the timeline says so
         ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid

@@ -6,7 +6,7 @@ import { api, type EngineEvent, type FlowView, type Health, type HelperMessage, 
   type JobStep, type Model, type Project } from "./sdk";
 import { inboxApi, type InboxItem } from "../../../web/src/inboxApi";
 import { kb } from "../../../plugins/keelbot/web/keelbotApi";
-import { connect, viaHeaders } from "./transport";
+import { connect, setCommand, viaHeaders } from "./transport";
 import { subscribe, type LiveState, type SseMessage, type Subscription } from "./sse";
 import { notice } from "./notices";
 
@@ -264,6 +264,15 @@ export class KeelCore {
   async send(text: string): Promise<HelperSession> {
     const pid = this.pid;
     if (!pid) throw new Error("no project: /project picks one");
+    setCommand("KeelBot");                                   // the timeline: "via keel TUI · KeelBot"
+    try {
+      return await this.sendTurn(pid, text);
+    } finally {
+      setCommand("");
+    }
+  }
+
+  private async sendTurn(pid: string, text: string): Promise<HelperSession> {
     let s = this.snapshot.chat.session;
     if (!s) {
       const { mode, model } = this.snapshot.chat;

@@ -43,7 +43,7 @@ export function waitingLines(w: Waiting): string[] {
       out.push(`          ${q.id}: ${q.question}  [${choices}]`);
     }
   } else if (w.choices?.length) {
-    out.push(`          answer: /answer <${w.choices.join(" | ")}>`);
+    out.push(`          answer: ${answerWords(w)}`);
   } else {
     const opts = w.options ?? ["approve", "reject"];
     const parts = [];
@@ -52,8 +52,27 @@ export function waitingLines(w: Waiting): string[] {
     out.push(`          answer: ${parts.join(" or ") || "-"}`);
   }
   const detail = (w.detail ?? "").trim();
-  if (detail) out.push(...detail.slice(0, 600).split("\n").map((l) => "          " + l));
+  if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + l));
   return out;
+}
+
+/** A text cut at a word near `max`, with "…" when it was longer. */
+export function cut(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const at = text.lastIndexOf(" ", max);
+  return text.slice(0, at > max * 0.6 ? at : max).trimEnd() + " …";
+}
+
+/** How to answer a gate with named exits: /approve when it has one, /reject when it may, /answer for the others. */
+export function answerWords(w: Waiting): string {
+  const choices = w.choices ?? [];
+  const opts = w.options ?? [];
+  const parts = [];
+  if (choices.includes("approve") || (!choices.length && opts.includes("approve"))) parts.push("/approve");
+  if (opts.includes("reject") || choices.includes("reject")) parts.push("/reject <why>");
+  const other = choices.filter((c) => c !== "approve" && c !== "reject");
+  if (other.length) parts.push(`/answer <${other.join(" | ")}>`);
+  return (parts.length > 2 ? parts.slice(0, -1).join(", ") + " or " + parts[parts.length - 1] : parts.join(" or ")) || "/approve or /reject <why>";
 }
 
 export function status(p: Project, view: FlowView | null): string {
@@ -89,7 +108,7 @@ export function next(p: Project | null, view: FlowView | null): string {
     if (w.kind === "clarify") out = [`waiting at ${w.title}: answer the ${(w.questions ?? []).length} question(s) with /answer.`];
     else if (w.kind === "budget") out = [`waiting at ${w.title}: /approve to go past the token cap, or /reject <why> to stop.`];
     else if (w.kind === "fix") out = [`waiting at ${w.title}: /approve to try again, or /reject <why> to stop the flow.`];
-    else if (w.choices?.length) out = [`waiting at ${w.title}: choose with /answer <${w.choices.join(" | ")}>.`];
+    else if (w.choices?.length) out = [`waiting at ${w.step} (${w.title})${ac}: ${answerWords(w)}.`];
     else {
       const l = w.labels ?? {};
       out = [`waiting at ${w.step} (${w.title})${ac}: /approve` + (l.approve ? ` ("${l.approve}")` : "")
