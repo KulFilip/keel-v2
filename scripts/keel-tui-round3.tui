@@ -1,0 +1,38 @@
+# keel TUI round 3's real check (scripts/test-keel-tui.sh): @mentions, a paste, the Git plugin's commands and panel,
+# Fix mode's live diff, changes and Keep. Runs after scripts/keel-tui-check.tui (its flow waits at the contract gate).
+@type What does @READ
+@sleep 1200
+@snap r3-01-mention-picker
+@key tab
+@type  say?
+@key enter
+@wait answer 120
+@snap r3-02-mention-sent
+@type Explain this:
+@paste 40
+@snap r3-03-paste-placeholder
+@key enter
+@wait answer 120
+@snap r3-04-paste-answer
+/git status
+/git log
+/git diff
+@snap r3-05-git-commands
+@key ctrl+g
+@sleep 2000
+@snap r3-06-git-panel
+@key ctrl+g
+/approve
+@wait waiting 300
+/next
+/mode fix
+Add the small helper the gate asks for.
+@wait streaming 60
+@snap r3-07-fix-live-diff
+@wait answer 240
+@sleep 1500
+@snap r3-08-fix-changes
+/changes
+@snap r3-09-changes
+/keep src/scores/helper_fix.py
+@snap r3-10-keep

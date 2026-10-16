@@ -107,6 +107,7 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
     } else process.stdout.write(`===== ${name} =====\n${text}`);
   };
   let failed = 0;
+  let sent = 0;
   try {
     await until(() => probe.started, 60, "keel TUI to start");
     await sleep(300);
@@ -128,16 +129,17 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
           stdin.write(line.slice("@type ".length));
           await sleep(500);
         } else if (cmd === "@key") {
+          if (a1 === "enter") sent = probe.answers;
           stdin.write(KEYS[a1] ?? a1);
           await sleep(200);
         } else if (cmd === "@wait") {
           const secs = Number(a2) || 120;
-          const answers = probe.answers;
           if (a1 === "started") await until(() => probe.started, secs, "start");
           else if (a1 === "idle") await until(() => idle() && !probe.chatBusy, secs, "idle");
           else if (a1 === "pick") await until(() => probe.pick, secs, "a choice");
           else if (a1 === "ask") await until(() => probe.ask, secs, "a question");
-          else if (a1 === "answer") await until(() => !probe.chatBusy && probe.answers > 0 && (probe.answers > answers || !probe.chatBusy), secs, "KeelBot's answer");
+          // the answer to what was sent last (a line typed, or Enter): one more answer than then, and the turn over
+          else if (a1 === "answer") await until(() => !probe.chatBusy && probe.answers > sent, secs, "KeelBot's answer");
           else if (a1 === "waiting") await until(() => core.snapshot.flow?.thread?.status === "waiting", secs, "the flow to wait at a gate", () => void core.refresh());
           else if (a1 === "running") await until(() => core.snapshot.running.length > 0, secs, "an agent", () => void core.refresh());
           // KeelBot is writing: some of its answer is on screen, the turn has not ended
@@ -148,6 +150,7 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
           // type it, then Enter
           stdin.write(line);
           await sleep(60);
+          sent = probe.answers;
           stdin.write("\r");
           await sleep(150);
           await until(idle, 300, `${line} to finish`);

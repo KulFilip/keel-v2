@@ -43,7 +43,8 @@ curl -fs "http://127.0.0.1:$port/api/health"; echo
 docker cp "$src/scripts/keel-tui-check.tui" "$KEEL_NAME:/tmp/keel-tui-check.tui"
 rc=0
 FORCE_COLOR=3 COLORTERM=truecolor "$src/keel2" tui --script /tmp/keel-tui-check.tui --out /tmp/keel-tui-out --width 100 --ansi || rc=$?
-rm -rf "$out" && mkdir -p "$out"
+# the captures of this run (before/ and after/ stay unless BEFORE_JS makes them again)
+mkdir -p "$out" && find "$out" -maxdepth 1 -type f -delete
 docker cp "$KEEL_NAME:/tmp/keel-tui-out/." "$out/"
 # one-shot commands too, the way a script would use keel TUI
 "$src/keel2" tui -c /status -c /next > "$out/14-one-shot-status-next.txt" 2>&1 || rc=$?
@@ -71,6 +72,21 @@ PY
   [ "$tty_bad" = 0 ] \
     || { echo "plain keel2 in a terminal did not show keel TUI and /status" >&2; rc=1; }
 fi
+
+# round 3: @mentions, a paste, the Git plugin's commands and panel (it is turned on for the project first), Fix mode's
+# live diff, changes and Keep; then the same look script once with --profile (its summary in r3-11-profile.txt)
+token3="$(docker exec "$KEEL_NAME" cat /data/run/internal-token)"
+curl -fs -X PUT -H @<(printf 'X-Keel-Token: %s\n' "$token3") -H 'content-type: application/json' \
+  --data '{"enabled":true}' "http://127.0.0.1:$port/api/projects/$(basename "$repo")/plugins/git" >/dev/null || rc=$?
+docker cp "$src/scripts/keel-tui-round3.tui" "$KEEL_NAME:/tmp/keel-tui-round3.tui"
+FORCE_COLOR=3 COLORTERM=truecolor "$src/keel2" tui --script /tmp/keel-tui-round3.tui --out /tmp/keel-tui-r3 --width 100 --ansi || rc=$?
+docker cp "$KEEL_NAME:/tmp/keel-tui-r3/." "$out/"
+docker cp "$src/scripts/keel-tui-look.tui" "$KEEL_NAME:/tmp/keel-tui-look.tui"
+XDG_STATE_HOME="$work/state" "$src/keel2" tui --profile --script /tmp/keel-tui-look.tui --out /tmp/keel-tui-prof --width 100 \
+  > "$out/r3-11-profile.txt" 2>&1 || rc=$?
+ls "$work/state/keel2/tui-profiles/"profile-*.json >/dev/null 2>&1 || { echo "keel2 tui --profile left no profile file" >&2; rc=1; }
+cp "$(ls -t "$work/state/keel2/tui-profiles/"profile-*.json | head -1)" "$out/r3-11-profile.json" 2>/dev/null || true
+grep -q "startup" "$out/r3-11-profile.txt" || { echo "no profile summary" >&2; rc=1; }
 
 # before and after: the same screens with an older build (on this computer's Node) and with this one (in keel's container)
 pty() {  # pty <log> <command…>: a real terminal session, typing /help, /flows and /status, then /quit
