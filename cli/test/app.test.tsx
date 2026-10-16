@@ -121,7 +121,7 @@ describe("keel TUI", () => {
     const t = setup();
     await waitFor(() => t.probe.started);
     await tick(30);
-    expect(t.frame()).toContain("demo (keel/health) · KeelBot ask · feature waiting · phase spec · AC 0/2 · ◆ 1 waiting here");   // (0.18.8 KeelBot's mode is on the line too: the tokens are cut at 100 columns)
+    expect(t.frame()).toContain("💬 ask · demo (keel/health) · feature waiting · phase spec · AC 0/2 · ◆ 1 waiting here");   // (0.18.8 KeelBot's mode is on the line too: the tokens are cut at 100 columns)
     t.r.stdin.write("\x06");                      // Ctrl+F
     await tick(50);
     let f = t.frame();

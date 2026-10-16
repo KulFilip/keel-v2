@@ -311,6 +311,9 @@ export function Panel({ name, s, width, on }: { name: PanelName; s: Snapshot; wi
 
 type Seg = { text: string; role: "fg" | "dim" | "accent" | "gate" | "ok" | "bad" | "faint"; bold?: boolean };
 
+/** keel 0.18.8 KeelBot's mode as the status line's first word. */
+export const MODE_MARK: Record<string, string> = { edit: "📝 edit", ask: "💬 ask", fix: "🔧 fix", side: "🌿 side" };
+
 /** project · flow · phase · AC n/m · gates waiting · tokens · live, each with the role it is coloured with. */
 export function statusSegments(s: Snapshot): Seg[] {
   const t = s.flow?.thread;
@@ -319,10 +322,9 @@ export function statusSegments(s: Snapshot): Seg[] {
   const flowRole: Seg["role"] = !t ? "dim" : t.status === "waiting" ? "gate" : t.status === "running" ? "accent" : t.status === "done" ? "ok"
     : t.status === "failed" ? "bad" : "faint";
   const segs: Seg[] = [
+    // keel 0.18.8 KeelBot's mode comes first (Alt+Tab or Shift+Tab changes it): ask quiet, a mode that changes files bright
+    { text: MODE_MARK[s.chat.mode] ?? s.chat.mode, role: s.chat.mode === "ask" ? "dim" : "accent", bold: s.chat.mode !== "ask" },
     { text: s.project ? `${s.project.id}${s.project.branch ? ` (${s.project.branch.length > 28 ? s.project.branch.slice(0, 27) + "…" : s.project.branch})` : ""}` : "no project", role: "fg", bold: true },
-    // keel 0.18.8 KeelBot's mode, always, near the front so a narrow terminal never cuts it (Alt+Tab or Shift+Tab
-    // changes it): ask quiet, a mode that changes files bright
-    { text: `KeelBot ${s.chat.mode}`, role: s.chat.mode === "ask" ? "dim" : "accent", bold: s.chat.mode !== "ask" },
     { text: t ? `${t.workflow_id} ${t.status}` : "no flow", role: flowRole },
   ];
   if (t) segs.push({ text: `phase ${t.phase || "none"}`, role: "dim" });

@@ -31,14 +31,6 @@ import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
 
 /** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
-/** keel 0.18.8 KeelBot's modes in a few words (Alt+Tab / Shift+Tab, the status line). */
-const MODE_WORDS: Record<HelperMode, string> = {
-  ask: "it reads and answers, changes nothing",
-  edit: "it changes the project folder (commands ask first, /keep commits)",
-  fix: "it changes files for the waiting gate",
-  side: "it works on its own branch",
-};
-
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
 
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
@@ -584,8 +576,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       const waits = core.snapshot.flow?.thread?.status === "waiting";
       const order: HelperMode[] = ["ask", "edit", ...(waits ? (["fix"] as HelperMode[]) : []), "side"];
       const next = order[(order.indexOf(now) + 1) % order.length] ?? "ask";
-      core.setChatMode(next);
-      push({ kind: "dim", text: `  KeelBot: ${next} mode · ${MODE_WORDS[next]} · Alt+Tab or Shift+Tab: next` });
+      core.setChatMode(next);          // the status line's first word changes; nothing goes into the transcript
       return;
     }
     if (key.tab) {

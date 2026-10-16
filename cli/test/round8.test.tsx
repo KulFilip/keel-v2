@@ -18,7 +18,7 @@ describe("KeelBot's mode from the keyboard", () => {
     const r = render(<App core={core} probe={probe} width={140} theme={none} />);
     const frame = () => stripAnsi(r.lastFrame() ?? "");
     await waitFor(() => probe.started);
-    expect(frame()).toContain("KeelBot ask");
+    expect(frame()).toContain("💬 ask · demo");                      // the mode is the status line's first word
     const seen: string[] = [];
     for (const k of ["\x1b\t", "\x1b[Z", "\x1b\t", "\x1b[Z"]) {
       r.stdin.write(k);
@@ -26,10 +26,10 @@ describe("KeelBot's mode from the keyboard", () => {
       seen.push(core.snapshot.chat.mode);
     }
     expect(seen).toEqual(["edit", "fix", "side", "ask"]);          // the stub's flow waits at a gate: fix is in the turn
-    expect(frame()).toContain("KeelBot: edit mode · it changes the project folder");
+    expect(frame()).not.toContain("KeelBot: ");                     // a switch writes nothing into the transcript
     r.stdin.write("\x1b\t");
     await tick(50);
-    expect(frame()).toContain("KeelBot edit");
+    expect(frame()).toContain("📝 edit · demo");
     expect(frame()).not.toContain("\t");                            // never typed into the prompt
     r.unmount();
   });

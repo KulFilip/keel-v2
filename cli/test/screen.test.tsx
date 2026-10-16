@@ -79,7 +79,7 @@ describe("the full screen", () => {
     expect(ls.length).toBe(ROWS - 1);
     expect(ls[0]).toMatch(/^\[ keel \] v2 /);
     expect(ls[0]).toContain("demo");
-    expect(ls.at(-1)).toMatch(/^ demo/);
+    expect(ls.at(-1)).toMatch(/^ 💬 ask · demo/);          // KeelBot's mode first, then the project and its branch
     expect(ls.at(-3)).toMatch(/^│ › .*KeelBot/);
     expect(ls.join("\n")).toContain("keel v2");
   });
