@@ -32,6 +32,23 @@ class PluginsApiTest : ApiTest() {
     }
 
     @Test
+    fun `a project's choice applies at once for a plugin keel has loaded, with no restart`() {
+        // v0.17.1 (docs/plugins/22-one-plugins-page.md §5): the api reads project_plugins on every call, so the next
+        // page call, KeelBot turn and flow start see the change; a flow that runs already keeps the list it started with
+        val (pid, _) = newProject("plug-now")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
+        engine.nextThreadIds.add("t-plug-now-1")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "On", "allow_fake" to true, "allow_dirty" to true))
+            .andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["settings"]["plugins"].map { it.asText() }).containsExactly("db")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to false)).andExpect(status().isOk)
+        engine.nextThreadIds.add("t-plug-now-2")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Off", "allow_fake" to true, "allow_dirty" to true))
+            .andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["settings"].path("plugins").let { it.isNull || it.isMissingNode }).isTrue()
+    }
+
+    @Test
     fun `flows carry the plugins and their secrets`() {
         val (pid, _) = newProject("plug-flow")
         put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)

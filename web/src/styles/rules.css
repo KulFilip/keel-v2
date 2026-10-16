@@ -67,3 +67,30 @@
 
 .rl-engine { align-content: start; }
 .rl-page .panel-head h2 .sub, .rl-matrix .panel-head h2 .sub { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+
+/* CodeEditor (components/CodeEditor.tsx): highlighted text under a transparent textarea, with line numbers */
+.ce-wrap { display: grid; gap: 6px; }
+.ce { --ce-lh: 19px; --ce-pad: 8px; display: flex; border: 1px solid var(--border); border-radius: 8px; background: var(--term); overflow: hidden; }
+.ce:focus-within { border-color: var(--accent); }
+.ce-gutter { flex: none; overflow: hidden; padding: var(--ce-pad) 8px var(--ce-pad) 10px; text-align: right; color: var(--faint); user-select: none;
+  font-family: var(--f-mono); font-size: 12.5px; line-height: var(--ce-lh); border-right: 1px solid var(--border); background: var(--panel-2); }
+.ce-gutter span { display: block; min-width: 2ch; }
+.ce-gutter .ce-bad { color: var(--bad); font-weight: 700; background: var(--bad-soft); border-radius: 3px; padding: 0 3px; margin: 0 -3px; }
+.ce-body { position: relative; flex: 1; min-width: 0; }
+.ce .ce-pre, .ce textarea.ce-input { position: absolute; inset: 0; margin: 0; padding: var(--ce-pad) 10px; font-family: var(--f-mono); font-size: 12.5px;
+  line-height: var(--ce-lh); white-space: pre; tab-size: 2; overflow: auto; border: 0; font-variant-ligatures: none; }
+.ce .ce-pre { pointer-events: none; color: var(--fg); overflow: hidden; background: transparent; }
+.ce-pre code { font: inherit; background: none; padding: 0; }
+/* textarea.ce-input inside .ce wins over .field textarea (which gives inputs a background, a border and a min-height) */
+.ce textarea.ce-input { color: transparent; background: transparent; caret-color: var(--fg); resize: none; outline: none;
+  width: 100%; height: 100%; min-height: 0; border-radius: 0; }
+.ce-input::selection { background: var(--accent-soft); color: transparent; }
+.ce-errors { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12.5px; color: var(--bad); }
+.ce-line { border: 0; background: var(--bad-soft); color: var(--bad); border-radius: 4px; padding: 0 6px; font: 600 12px var(--f-mono); cursor: pointer; }
+
+/* the rule pack fields, next to the YAML */
+.rl-help { font-size: 12.5px; }
+.rl-help summary { cursor: pointer; font-weight: 600; color: var(--dim); }
+.rl-help table { margin-top: 6px; }
+.rl-help td, .rl-help th { padding: 3px 6px; vertical-align: top; text-align: left; border-bottom: 1px solid var(--border); }
+.rl-help code { font-family: var(--f-mono); font-size: 12px; font-variant-ligatures: none; }

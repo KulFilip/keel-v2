@@ -299,3 +299,29 @@ def test_opencode_plugin_sends_the_new_text(tmp_path):
     conf = cli_runners.write_opencode_plugin(tmp_path / "oc")
     js = (Path(conf) / "plugins" / "keel-guard.js").read_text()
     assert "new_string: added" in js and "content: args.content" in js and "patchFiles" in js
+
+
+# ------------------------------------------------------------------ the editor (v0.17.2 feedback)
+
+def test_errors_name_their_line():
+    from keel_engine.rules import packs
+    text = "schema: 1\nname: p\ntitle: P\nversion: 1.0.0\nrules:\n  - id: r\n    kind: shell\n    match: [x]\n"
+    _, errors = packs.parse_pack(text)
+    lines = {e["message"].split(":")[0]: e["line"] for e in packs.error_lines(text, errors)}
+    assert lines["rules[1].kind"] == 7 and lines["rules[1].reason"] == 6
+    assert packs.error_lines("a: [1\nb: 2\n", ["not valid YAML"])[0]["line"] == 2
+
+
+def test_normalize_keeps_the_meaning_and_the_header_comment():
+    from keel_engine.rules import packs
+    for f in sorted((Path(__file__).resolve().parents[2] / "content" / "rules").glob("*.yaml")):
+        text = f.read_text()
+        tidy = packs.normalize(text)
+        assert packs.parse_pack(tidy) == packs.parse_pack(text), f.name
+        assert tidy.startswith("#") and "\n  - id: " in tidy and packs.normalize(tidy) == tidy, f.name
+    messy = "rules: [{reason: Not here., match: [a, b], kind: bash, id: r}]\nversion: 1.0.0\ntitle: T\nname: t\nschema: 1\n"
+    tidy = packs.normalize(messy)
+    assert tidy.split("\n")[:4] == ["schema: 1", "name: t", "title: T", "version: 1.0.0"]
+    assert "    match: [a, b]\n" in tidy and tidy.index("  - id: r") < tidy.index("    kind: bash") < tidy.index("    reason:")
+    long = messy.replace("[a, b]", "[" + ", ".join(f"pattern-number-{i}" for i in range(6)) + "]")
+    assert "    match:\n      - pattern-number-0\n" in packs.normalize(long)

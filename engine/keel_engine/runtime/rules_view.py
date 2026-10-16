@@ -331,8 +331,11 @@ def library_pack(pack_id: str, version: str | None = None) -> str:
 
 
 def check_pack(text: str) -> dict:
+    """Valid or not, each error with its line (the editor marks it), and the pack as keel would save it."""
     pack, errors = packs_mod.parse_pack(text)
-    return {"ok": not errors, "errors": errors, **({"pack": pack} if pack else {})}
+    out = {"ok": not errors, "errors": errors, "lines": packs_mod.error_lines(text, errors) if errors else [],
+           **({"pack": pack, "formatted": packs_mod.normalize(text)} if pack else {})}
+    return out
 
 
 def save_pack(root: str, text: str, replace: str | None = None, source: str | None = None) -> dict:

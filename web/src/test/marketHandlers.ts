@@ -140,6 +140,12 @@ export function createMarket() {
     ] as PluginSet[],
     removed: [] as { name: string; data: string | null }[],
     searches: [] as { q: string; category: string }[],
+    /** v0.17.1 the plugins a change touched that wait for the restart (the engine's pending_restart.changes) */
+    waiting: new Set<string>(),
+    /** v0.17.1 web/content-only plugins: their changes apply at once (POST /marketplace/apply-live) */
+    liveOnly: new Set<string>(),
+    /** v0.17.1 called when a web/content-only plugin comes (true) or goes (false): a test changes /api/features */
+    onLive: null as ((name: string, on: boolean) => void) | null,
   };
 }
 export type Market = ReturnType<typeof createMarket>;
@@ -178,14 +184,41 @@ export function marketHandlers(
       },
       { status: 404 },
     );
+  // what waits for the restart: the new plugins (status restart) and the ones a change touched
   const pending = () => ({
     pending: m.restart.pending,
-    changes: m.installed.map((x) => ({
-      name: x.name,
-      now: null,
-      next: x.version ?? null,
-    })),
+    changes: [
+      ...m.installed
+        .filter((x) => x.status === "restart" || m.waiting.has(x.name))
+        .map((x) => ({
+          name: x.name,
+          now: x.loaded ?? null,
+          next: x.on === false ? null : (x.version ?? null),
+        })),
+      ...[...m.waiting]
+        .filter((n) => !m.installed.some((x) => x.name === n))
+        .map((n) => ({ name: n, now: "1.0.0", next: null })),
+    ],
   });
+  /** The answer's `live` (the api adds it after POST /marketplace/apply-live), and the waiting list. */
+  const live = (name: string, from: string | null, to: string | null) => {
+    if (m.liveOnly.has(name)) {
+      const p = m.installed.find((x) => x.name === name);
+      if (p) {
+        p.status = to ? "loaded" : "off";
+        p.loaded = to;
+      }
+      m.onLive?.(name, !!to);
+      return {
+        applied: [{ name, from, to, web: true, content: true }],
+        names: { [name]: "applied" },
+        pending_restart: pending(),
+      };
+    }
+    m.waiting.add(name);
+    m.restart = { ...m.restart, pending: true };
+    return { applied: [], names: { [name]: "restart" }, pending_restart: pending() };
+  };
   const install = (name: string, version?: string) => {
     const p = entry(name)!;
     m.installed.push({
@@ -292,6 +325,8 @@ export function marketHandlers(
         if (!m.installed.some((x) => x.name === n) && entry(n)) install(n);
       install(name, b.version as string | undefined);
       const version = m.installed.find((x) => x.name === name)!.version;
+      if (m.liveOnly.has(name)) m.restart = { ...m.restart, pending: false };
+      const now = live(name, null, version ?? null);
       return HttpResponse.json({
         name,
         title: entry(name)!.title,
@@ -299,6 +334,7 @@ export function marketHandlers(
         installed: [{ name, version, from: null }],
         turned_on: [],
         pending_restart: pending(),
+        live: now,
       });
     }),
     http.post("/api/plugins/install-file", async ({ request }) => {
@@ -377,7 +413,7 @@ export function marketHandlers(
           ? p.update
           : entry(p.name)?.versions?.[0]?.version;
       p.update = null;
-      m.restart = { ...m.restart, pending: true };
+      const now = live(p.name, from, p.version ?? null);
       return HttpResponse.json({
         name: p.name,
         version: p.version,
@@ -385,6 +421,7 @@ export function marketHandlers(
         installed: [{ name: p.name, version: p.version, from }],
         turned_on: [],
         pending_restart: pending(),
+        live: now,
       });
     }),
     http.post("/api/plugins/:name/rollback", async ({ request, params }) => {
@@ -392,24 +429,30 @@ export function marketHandlers(
       const p = m.installed.find((x) => x.name === params.name)!;
       const from = p.version ?? null;
       [p.version, p.previous] = [p.previous ?? p.version, null];
-      m.restart = { ...m.restart, pending: true };
+      const now = live(p.name, from, p.version ?? null);
       return HttpResponse.json({
         name: p.name,
         version: p.version,
         from,
         pending_restart: pending(),
+        live: now,
       });
     }),
     http.put("/api/plugins/:name", async ({ request, params }) => {
       const b = await log(request);
       const p = m.installed.find((x) => x.name === params.name)!;
       p.on = Boolean(b.on);
-      m.restart = { ...m.restart, pending: true };
+      const now = live(
+        p.name,
+        p.on ? null : (p.version ?? null),
+        p.on ? (p.version ?? null) : null,
+      );
       return HttpResponse.json({
         name: p.name,
         on: p.on,
         also: [],
         pending_restart: pending(),
+        live: now,
       });
     }),
     http.delete("/api/plugins/:name", async ({ request, params }) => {
@@ -420,13 +463,14 @@ export function marketHandlers(
       });
       const gone = m.installed.find((x) => x.name === params.name);
       m.installed = m.installed.filter((x) => x.name !== params.name);
-      m.restart = { ...m.restart, pending: true };
+      const now = live(String(params.name), gone?.version ?? null, null);
       return HttpResponse.json({
         name: params.name,
         removed: gone?.version,
         data: new URL(request.url).searchParams.get("data"),
         back_to_image: null,
         pending_restart: pending(),
+        live: now,
       });
     }),
   ];

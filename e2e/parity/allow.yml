@@ -72,3 +72,52 @@
 
 - what: web #/plugins *
   why: step 4, the Control › Plugins page (Installed, Marketplace, Sources and rules); 0.16.1 has no such page
+
+# ---- 0.17.1 (docs/plugins/22-one-plugins-page.md): only what is gone, against 0.17.0 / 0.16.1
+
+- what: web #/tools *
+  detail: '*only in A*'
+  why: 0.17.1, plugins are switched only in Control › Plugins (the Tools page's Plugins section and its cards are gone)
+
+- what: web #/repo*
+  detail: '*"KeelBot only" only in A'
+  why: 0.17.1, the Code page's toolbar - Focus and Rebuild in the status bar, KeelBot only removed
+
+- what: web #/repo*
+  detail: '*"Focus" only in A'
+  why: 0.17.1, the Code page's toolbar - Focus and Rebuild in the status bar, KeelBot only removed
+
+- what: web #/repo*
+  detail: '*Rebuild" only in [AB]'
+  why: 0.17.1, the Code page's toolbar - Focus and Rebuild in the status bar ("↻ Rebuild"), KeelBot only removed
+
+- what: web #/repo*
+  detail: '*"Index: *" only in [AB]'
+  why: 0.17.1, the Code page's toolbar - the code graph index moved from the head to the status bar
+
+- what: web #/repo*
+  detail: '*look(s) only in *'
+  why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
+
+- what: web #/repo*
+  detail: '*style only in *'
+  why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
+
+- what: web #/code*
+  detail: '*"KeelBot only" only in A'
+  why: 0.17.1, the Code page's toolbar - Focus and Rebuild in the status bar, KeelBot only removed
+- what: web #/code*
+  detail: '*"Focus" only in A'
+  why: 0.17.1, the Code page's toolbar - Focus and Rebuild in the status bar, KeelBot only removed
+- what: web #/code*
+  detail: '*Rebuild" only in [AB]'
+  why: 0.17.1, the Code page's toolbar - Focus and Rebuild in the status bar ("↻ Rebuild"), KeelBot only removed
+- what: web #/code*
+  detail: '*"Index: *" only in [AB]'
+  why: 0.17.1, the Code page's toolbar - the code graph index moved from the head to the status bar
+- what: web #/code*
+  detail: '*look(s) only in *'
+  why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone
+- what: web #/code*
+  detail: '*style only in *'
+  why: 0.17.1, the Code page's toolbar - the status bar's index item has its own look (sb-index), the head's tag is gone

@@ -54,6 +54,9 @@ class StubMarket {
     /** name → the permissions an update to the newest version adds (refused without allow_more_permissions). */
     val more = ConcurrentHashMap<String, List<String>>()
 
+    /** v0.17.1 name → what POST /marketplace/apply-live says for it: applied (a web/content-only plugin), same; else restart. */
+    val live = ConcurrentHashMap<String, String>()
+
     fun reset() {
         installed.clear()
         pendingRestart = false
@@ -63,6 +66,7 @@ class StubMarket {
         sources += OFFICIAL
         refusals.clear()
         more.clear()
+        live.clear()
         workflowNewest.clear()
     }
 
@@ -271,6 +275,14 @@ class StubMarket {
                 pendingRestart = true
                 200 to mapOf("name" to parts[1], "removed" to gone["version"], "data" to query(q)["data"], "back_to_image" to null,
                     "pending_restart" to pending())
+            }
+            path == "/marketplace/apply-live" -> {
+                val names = body?.path("names")?.map { it.asText() }.orEmpty()
+                val applied = names.filter { live[it] == "applied" }.map {
+                    mapOf("name" to it, "from" to null, "to" to installed[it]?.get("version"), "web" to true, "content" to true)
+                }
+                if (applied.isNotEmpty() && names.all { live[it] != null }) pendingRestart = false
+                200 to mapOf("applied" to applied, "names" to names.associateWith { live[it] ?: "restart" }, "pending_restart" to pending())
             }
             path == "/marketplace/sources" && method == "PUT" -> {
                 @Suppress("UNCHECKED_CAST")

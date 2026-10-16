@@ -8,6 +8,8 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App";
+import { setAddonImporter } from "../addons";
+import { definePlugin } from "../sdk";
 import {
   allPages,
   registerPage,
@@ -119,7 +121,8 @@ describe("Control › Plugins: Installed", () => {
     expect(rows[0]).toHaveTextContent("0.4.1");
     expect(rows[0]).toHaveTextContent("engineapiwebcontent");
     expect(rows[0]).toHaveTextContent("the image");
-    expect(within(rows[0]).getByRole("switch")).toBeDisabled();
+    expect(within(rows[0]).queryByRole("switch")).toBeNull(); // v0.17.1 always on: a pill, no switch
+    expect(rows[0]).toHaveTextContent("always on");
 
     expect(code).toHaveTextContent("in the image");
     expect(code).toHaveTextContent("db needs it");
@@ -382,6 +385,105 @@ describe("Control › Plugins: Installed", () => {
       await screen.findByText(/restart it by hand with keel2 restart/),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Restart keel" })).toBeNull();
+  });
+});
+
+// v0.17.1 (docs/plugins/22-one-plugins-page.md §5): each row says what its change does; keel core has no switch
+describe("Control › Plugins: what a change does now", () => {
+  it("keel core is always on: a pill, no switch; the intro says everything is on and how to start with fewer", async () => {
+    installSome();
+    await openPlugins();
+    const core = await screen.findByTestId("keel-core");
+    expect(within(core).queryByRole("switch")).toBeNull();
+    expect(within(core).getByText("always on")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Everything is on by default, like 0\.16\.1\. Start with fewer plugins:/),
+    ).toHaveTextContent("keel2 start --core");
+  });
+
+  it("a change that needs a restart: its row says so, with Restart now; the banner stays", async () => {
+    const user = userEvent.setup();
+    installSome();
+    await openPlugins();
+    const code = await screen.findByTestId("plugin-code");
+    expect(within(code).queryByText("applies after restart")).toBeNull();
+    await user.click(within(code).getByRole("switch", { name: "Code on" }));
+    expect(
+      await within(screen.getByTestId("plugin-code")).findByText("applies after restart"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Code is off after the next restart.")).toBeInTheDocument();
+    expect(screen.getByText("Changes wait for a restart")).toBeInTheDocument();
+    // only the row that changed says it
+    expect(within(screen.getByTestId("plugin-db")).queryByText("applies after restart")).toBeNull();
+    await user.click(
+      within(screen.getByTestId("plugin-code")).getByRole("button", { name: "Restart now" }),
+    );
+    await waitFor(() =>
+      expect(calls("POST", "/api/plugins/restart")[0]?.body).toEqual({ now: true }),
+    );
+    expect(
+      await screen.findByText("keel restarts now. This page comes back in about 30 seconds."),
+    ).toBeInTheDocument();
+  });
+
+  it("Restart now asks first when agent steps run; a keel that keel-start does not run says to restart by hand", async () => {
+    const user = userEvent.setup();
+    installSome();
+    db.market.waiting.add("code");
+    db.market.restart = { pending: true, scheduled: false, supervised: true, running: 1 };
+    await openPlugins();
+    const code = await screen.findByTestId("plugin-code");
+    await user.click(await within(code).findByRole("button", { name: "Restart now" }));
+    expect(within(code).getByRole("group", { name: "Confirm" })).toHaveTextContent(
+      "1 agent step run now. They stop, and go on after the restart.",
+    );
+    expect(calls("POST", "/api/plugins/restart")).toHaveLength(0);
+  });
+
+  it("a web and content-only plugin applies at once: its page appears, and turning it off asks only for a page reload", async () => {
+    const user = userEvent.setup();
+    const off: (() => void)[] = [];
+    try {
+      db.market.installed = [
+        { name: "notes", title: "Notes", version: "1.0.0", from: "file", on: false, parts: ["web", "content"],
+          status: "off", can_remove: true },
+      ];
+      db.market.liveOnly.add("notes");
+      const ENTRY = "/plugins/notes/1.0.0/web/index.js";
+      db.market.onLive = (name, on) => {
+        db.features = { ...db.features, plugins: on ? [{ name, title: "Notes", version: "1.0.0", web: { entry: ENTRY, css: [] } }] : [] };
+      };
+      const NotesPage = () => <h1>Notes board</h1>;
+      setAddonImporter(async () => ({
+        default: definePlugin({
+          name: "notes",
+          setup: (sdk) => {
+            off.push(sdk.registerPage({ id: "notes-board", label: "Notes board", group: "know", order: 90, component: NotesPage }));
+          },
+        }),
+      }));
+      await openPlugins();
+      const row = await screen.findByTestId("plugin-notes");
+      const nav = screen.getByRole("navigation", { name: "Screens" });
+      expect(within(nav).queryByRole("link", { name: "Notes board" })).toBeNull();
+
+      await user.click(within(row).getByRole("switch", { name: "Notes on" }));
+      expect(await within(screen.getByTestId("plugin-notes")).findByText("applied")).toBeInTheDocument();
+      expect(await screen.findByText("Notes is on now.")).toBeInTheDocument();
+      expect(await within(nav).findByRole("link", { name: "Notes board" })).toBeInTheDocument();
+      expect(screen.queryByText("Changes wait for a restart")).toBeNull();
+      expect(screen.queryByText("applies after restart")).toBeNull();
+      expect(within(screen.getByTestId("plugin-notes")).queryByText("after restart")).toBeNull(); // its status: On
+
+      await user.click(within(screen.getByTestId("plugin-notes")).getByRole("switch", { name: "Notes on" }));
+      const note = await within(screen.getByTestId("plugin-notes")).findByText(/^applied —/);
+      expect(note).toHaveTextContent("applied — reload the page");
+      expect(within(note).getByRole("button", { name: "reload the page" })).toBeInTheDocument();
+      expect(screen.getByText("Notes is off now. Reload the page to see it.")).toBeInTheDocument();
+      expect(screen.queryByText("Changes wait for a restart")).toBeNull();
+    } finally {
+      off.forEach((f) => f());
+    }
   });
 });
 

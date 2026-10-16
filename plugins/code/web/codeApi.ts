@@ -115,7 +115,7 @@ export type UpdateFromBase = {
   output: string;
 };
 export type Unlock = { path: string; phase: string };
-/** Tools › Plugins: a plugin, and whether it is on for this project (the Code page reads only these two). */
+/** Control › Plugins: a plugin, and whether it is on for this project (the Code page reads only these two). */
 export type PluginOn = { name: string; enabled?: boolean };
 
 const e = encodeURIComponent;

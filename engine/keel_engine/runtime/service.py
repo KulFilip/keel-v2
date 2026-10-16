@@ -26,7 +26,7 @@ from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
-from . import db, migrate, run_mode
+from . import db, migrate, prompts, run_mode, spec_check
 from .compiler import compile_workflow
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -286,6 +286,12 @@ class Engine:
         state = initial_state(ctx, body.get("acs"))
         state["data"] = dict(body.get("data") or {})
         state["parent"] = body.get("parent")
+        # 0.17.3 started from a spec (the Wiki): it is the flow's spec, and its criteria are the flow's criteria
+        spec = spec_check.start_spec(root, state["data"].get("spec"))
+        if spec:
+            state["spec"] = spec
+            if not state["acs"]:
+                state["acs"] = prompts.parse_acs(spec_check.read_spec(root, spec))
         if git.is_repo(root):
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
@@ -373,6 +379,8 @@ class Engine:
                     for a in v.get("acs") or []],
             "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0, "cap_usd": 0.0}, **(v.get("usage") or {})},
             "checkpoints": n, "updated_at": row["updated_at"],
+            # 0.17.3 the spec the flow works on (or was started from): the Wiki's spec status links the two
+            "spec": v.get("spec") or None,
             "blockers": list(v.get("blockers") or []),
             "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in merge_unlocks(list(v.get("unlocks") or []), ctx_now.api_unlocks)],
             "run_mode": run_mode.normalize((ctx_now.settings or {}).get("run_mode")),

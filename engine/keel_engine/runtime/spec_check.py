@@ -95,6 +95,24 @@ def read_spec(root: str, rel: str | None) -> str:
         return ""
 
 
+def start_spec(root: str, rel) -> str | None:
+    """A flow started from a spec (StartThread.data.spec, the Wiki's "Start a flow from this spec"): that path when it is
+    a .md file inside the project (no symlink, nothing outside it), else None."""
+    if not isinstance(rel, str) or not rel.strip():
+        return None
+    rel = rel.strip().removeprefix("./")
+    if rel.startswith("/") or ".." in rel.split("/") or not rel.endswith(".md"):
+        return None
+    base = Path(root).resolve()
+    p = base / rel
+    try:
+        if p.is_symlink() or not p.is_file() or not p.resolve().is_relative_to(base):
+            return None
+    except OSError:
+        return None
+    return rel
+
+
 def revision_note(findings: list[dict]) -> str:
     fixes = [f["text"] for f in findings if f["level"] == "fix"]
     return ("keel's spec check found problems in your spec. Change the existing file to fix them (do not explore again, "

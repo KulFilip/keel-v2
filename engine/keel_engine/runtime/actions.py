@@ -149,11 +149,15 @@ def _with_ac_status(acs: list[dict], ac_id: str | None, status: str) -> list[dic
 async def _tests(a: ActionInput, whole_suite: bool = False) -> tuple[str | None, int, str]:
     ac_id = None if whole_suite else (a.ac or {}).get("id")
     layer = (a.ac or {}).get("layer", "API")
-    cmd = testcmd.command_for(a.root, ac_id, layer)
+    cmd, rel = testcmd.located(a.root, ac_id, layer)
     if not cmd:
         return None, 1, "No test command found. Add commands to .keel/config.yml."
-    code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 900, command_env())
-    return cmd, code, out
+    code, out = await asyncio.to_thread(testcmd.run, str(Path(a.root) / rel) if rel else a.root, cmd, 900, command_env())
+    if testcmd.cannot_run(code, out):
+        out += (f"\n\nkeel could not start this command (run from {rel + '/' if rel else 'the repo root'}). "
+                "Retrying will not help: check the test commands in .keel/config.yml (commands.api_test_ac / "
+                "api_test_module, or web_*) and the backend.dir / frontend.dir they run in.")
+    return testcmd.shown(cmd, rel), code, out
 
 
 async def verify_red(a: ActionInput) -> ActionResult:
@@ -206,6 +210,8 @@ async def verify_green(a: ActionInput) -> ActionResult:
     if ac_id and testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
+    if testcmd.cannot_run(code, out):
+        return ActionResult(False, f"The test command for {label} cannot run.", f"$ {cmd}\n{tail(out, 3000)}")
     if code != 0:
         return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
     if not ac_id:

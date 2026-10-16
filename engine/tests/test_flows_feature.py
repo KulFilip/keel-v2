@@ -496,3 +496,33 @@ def test_merge_and_order_keep_finished_and_handed_over_criteria():
     assert feature_actions._frontmatter("---\nstatus: draft\nid: 7\n---\n# T\n", {"status": "frozen"}).startswith(
         "---\nstatus: frozen\nid: 7\n---\n")
 
+
+# ------------------------------------------------------------------ 0.17.3 started from a spec (the Wiki)
+
+def test_a_flow_started_from_a_spec_takes_its_path_and_criteria(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    write(repo, "docs/specs/scores.md", "# Scores\n\n- **AC-1** [API] scores are saved\n- **AC-2** [WEB] the board shows them\n")
+    commit_all(repo, "docs: scores spec")
+    tid = start(client, repo, title="Scores", data={"spec": "docs/specs/scores.md"})
+    s = wait(client, tid)
+    assert s["spec"] == "docs/specs/scores.md"
+    assert [a["id"] for a in s["acs"]] == ["AC-1", "AC-2"]
+    spec = [r for r in seen if r.step_name == "spec"][0]
+    assert "keel-questions" not in spec.prompt and "starts from the spec docs/specs/scores.md" in spec.prompt
+    assert s["waiting"]["step"] == "spec_gate" and "Spec: docs/specs/scores.md" in s["waiting"]["detail"]
+
+
+def test_a_spec_outside_the_project_or_not_a_file_is_not_taken(tmp_path):
+    from keel_engine.runtime import spec_check
+
+    root = tmp_path / "p"
+    (root / "docs/specs").mkdir(parents=True)
+    (root / "docs/specs/a.md").write_text("# A\n")
+    (tmp_path / "out.md").write_text("# out\n")
+    assert spec_check.start_spec(str(root), "docs/specs/a.md") == "docs/specs/a.md"
+    assert spec_check.start_spec(str(root), "./docs/specs/a.md") == "docs/specs/a.md"
+    for bad in ("../out.md", "/etc/passwd.md", "docs/specs/none.md", "docs/specs", "README.txt", None, 3, ""):
+        assert spec_check.start_spec(str(root), bad) is None, bad
+    (root / "docs/specs/link.md").symlink_to(tmp_path / "out.md")
+    assert spec_check.start_spec(str(root), "docs/specs/link.md") is None
+

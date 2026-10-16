@@ -1,13 +1,13 @@
 // Tools (MCP) (Build): servers your agents can call, a test for each (the result stays next to it), who may use
 // what as a compact matrix (one column per server, its state in the header), and recent calls. The parts add cards
-// under the servers (slot tools.card: Jira's MCP catalog).
+// under the servers (slot tools.card: Jira's MCP catalog). v0.17.1: plugins are switched only in Control › Plugins; a
+// plugin that is on still brings its server here (withPlugins).
 
 import { Fragment, useState } from "react";
 import { api, errorParts, type JobStep, type McpAllow, type McpServer, type Plugin } from "../api";
 import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
-import { PluginCards } from "../components/PluginCards";
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type ToolsCardItem } from "../sdk/slots";
 import { useApp, useLoad, type Loaded } from "../state";
@@ -131,13 +131,8 @@ export function ToolsPage({ pid }: { pid: string }) {
 
   return (
     <>
-      <PageHead title="Tools (MCP servers)" sub="Plugins keel adds, programs your agents can call for extra tools, and which agent may use which."
+      <PageHead title="Tools (MCP servers)" sub="Programs your agents can call for extra tools, and which agent may use which. Plugins are turned on in Control › Plugins."
         actions={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>} />
-      <Section title="Plugins" sub="keel's own add-ons. Install one and keel changes where you already work: KeelBot, Workflows, Connections and the Map or Code page.">
-        {plugins.error ? <ErrorBox error={plugins.error} onRetry={() => void plugins.reload()} />
-          : !plugins.data ? <div className="panel"><Skeleton lines={2} label="Loading plugins" /></div>
-            : <PluginCards pid={pid} plugins={plugins} />}
-      </Section>
       <div className="tl-top">
         <Section title="Servers" sub="Test a server to see its tools. A turned-off server gives no agent anything.">
           {mcpServers.error ? <ErrorBox error={mcpServers.error} onRetry={() => void mcpServers.reload()} /> : !mcpServers.data ? <div className="panel"><Skeleton lines={3} label="Loading servers" /></div> : !mcpServers.data.length ? (

@@ -174,11 +174,11 @@ class WikiService(
         // a symlinked .md is skipped: a cloned repo could link docs/specs/x.md to a file outside it
         else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) && !Files.isSymbolicLink(it) }.sorted().toList() }
 
-    private fun countAcs(f: Path) = runCatching { Regex("\\bAC-\\d+").findAll(Files.readString(f)).map { it.value }.distinct().count() }.getOrDefault(0)
+    internal fun countAcs(f: Path) = runCatching { Regex("\\bAC-\\d+").findAll(Files.readString(f)).map { it.value }.distinct().count() }.getOrDefault(0)
 
     private fun mtime(p: Path): String? = runCatching { Time.iso(Files.getLastModifiedTime(p).toMillis()) }.getOrNull()
 
-    private fun title(f: Path): String = runCatching {
+    internal fun title(f: Path): String = runCatching {
         Files.readAllLines(f).firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()
     }.getOrNull() ?: f.fileName.toString().removeSuffix(".md")
 }

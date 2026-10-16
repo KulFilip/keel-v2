@@ -31,6 +31,9 @@ export type {
   ProjectSettings,
   RunMode,
   Step,
+  SpecFlow,
+  SpecState,
+  SpecStatus,
   WikiPage,
   WikiTree,
   Workflow,
@@ -228,3 +231,8 @@ export { playKeelBot } from "../notify";
 // 0.15.7–0.16.1 (main's releases, ported to the plugin track): keel's file history (0.15.9), the panels the Wiki plugin
 // (a page's versions, restore) and the Code page's keel view (files keel could not read or write) show
 export { DocHistoryPanel, DocProblems } from "../components/DocHistory";
+// 0.17.3 a spec's build status in the Wiki plugin: the Flow page's Resume (a rewind to the last saved step) and keel's
+// Start a flow drawer, started from a spec (its path and its number of criteria)
+export { ResumeRow } from "../components/ResumeRow";
+export { StartFlowDrawer } from "../components/StartFlow";
+export type { StartFromSpec } from "../components/StartFlow";

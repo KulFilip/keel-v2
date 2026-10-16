@@ -36,7 +36,11 @@ export type RulesView = {
   phases: { phase: string; meaning: string; matrix: Record<string, string> }[];
 };
 export type DryRunHit = { at?: string; thread?: string; agent?: string; phase?: string; tool?: string; kind: string; target: string; reason: string };
-export type RuleCheck = { ok: boolean; errors: string[]; pack?: RulePack; dry_run?: { checked: number; blocked: DryRunHit[] } };
+export type RuleCheck = {
+  ok: boolean; errors: string[]; /** each error at its line (the editor marks it) */ lines?: { line: number; message: string }[];
+  pack?: RulePack; /** the pack as keel saves it (rules/packs.py normalize) */ formatted?: string;
+  dry_run?: { checked: number; blocked: DryRunHit[] };
+};
 
 export type NowBucket = { bucket: string; what: string; rule?: string; words: string };
 export type Fired = { reason: string; rule?: string | null; count: number; phase?: string; examples: string[]; source: string; last_at?: string; step?: string };
@@ -73,18 +77,22 @@ export const rulesApi = {
 };
 
 /** A pack as YAML, from the New rule form (the engine checks it again before it is saved). */
-export function packYaml(p: { name: string; title: string; version?: string; summary?: string; rules: PackRule[] }): string {
+export function packYaml(p: { name: string; title: string; version?: string; summary?: string; keel?: string; rules: PackRule[] }): string {
   const s = (v: string) => (/^[\w./*!-][\w ./*!@:-]*$/.test(v) && !/^(yes|no|true|false|null|on|off)$/i.test(v) && !/:\s/.test(v) ? v : JSON.stringify(v));
   const list = (xs: string[]) => `[${xs.map(s).join(", ")}]`;
-  const lines = ["schema: 1", "kind: rules", `name: ${p.name}`, `title: ${s(p.title)}`, `version: ${p.version || "1.0.0"}`, "publisher: local"];
+  // like keel's own packs: a short list on one line, a long one an item per line (rules/packs.py normalize)
+  const field = (key: string, xs: string[]) => (list(xs).length <= 62 ? [`    ${key}: ${list(xs)}`] : [`    ${key}:`, ...xs.map((x) => `      - ${s(x)}`)]);
+  const lines = [`# keel rule pack: ${p.title} (format: docs/rules/pack-format.md)`, "schema: 1", "kind: rules", `name: ${p.name}`,
+    `title: ${s(p.title)}`, `version: ${p.version || "1.0.0"}`, "publisher: local"];
   if (p.summary) lines.push(`summary: ${s(p.summary)}`);
+  lines.push("requires:", `  keel: '${p.keel || ">=0.17.2"}'`);
   lines.push("rules:");
   for (const r of p.rules) {
-    lines.push(`  - id: ${r.id}`, `    kind: ${r.kind}`, `    match: ${list(r.match)}`);
+    lines.push(`  - id: ${r.id}`, `    kind: ${r.kind}`, ...field("match", r.match));
     if (r.how && r.how !== { bash: "contains", edit: "glob", read: "glob", mcp: "name" }[r.kind]) lines.push(`    how: ${r.how}`);
     lines.push(`    phases: ${Array.isArray(r.phases) ? list(r.phases) : r.phases || "all"}`);
     if (r.lanes?.length) lines.push(`    lanes: ${list(r.lanes)}`);
-    if (r.except?.length) lines.push(`    except: ${list(r.except)}`);
+    if (r.except?.length) lines.push(...field("except", r.except));
     lines.push(`    reason: ${s(r.reason)}`);
   }
   return lines.join("\n") + "\n";

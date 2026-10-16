@@ -131,7 +131,7 @@ describe("KeelBot keeps the chat when you leave", () => {
     expect(within(p).getByRole("textbox", { name: "Ask KeelBot" })).toHaveValue("half a thought");
     await user.click(within(await chatList()).getByRole("button", { name: "New chat" }));
     expect(within(p).getByRole("textbox", { name: "Ask KeelBot" })).toHaveValue("a new idea");
-  });
+  }, 20000);   // many steps (type, two page changes, scroll): slow CI runners need more than 5 s
 
   it("forgets a chat only when the server says it is gone, not when the server does not answer", async () => {
     db.helper.sessions = [chat("h_9", "Scores API")];

@@ -49,7 +49,9 @@ rm -f "$stage/plugins"/*.kplug
 
 echo "engine, content…"
 mkdir -p "$stage/engine"
-cp "$src/engine/pyproject.toml" "$src/engine/uv.lock" "$stage/engine/"
+# .python-version pins the engine to the Python the image uses (3.12): without it uv takes the newest Python on
+# the computer, and a dependency may have no build for it yet (ormsgpack on 3.15)
+cp "$src/engine/pyproject.toml" "$src/engine/uv.lock" "$src/engine/.python-version" "$stage/engine/"
 (cd "$src/engine" && tar --exclude '__pycache__' --exclude '.pytest_cache' -cf - keel_engine) | (cd "$stage/engine" && tar -xf -)
 cp -R "$src/content" "$stage/content"
 cp "$src/docker/keel-native-start" "$stage/keel-native-start"

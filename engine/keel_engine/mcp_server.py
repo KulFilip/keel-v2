@@ -597,7 +597,7 @@ def plugin_request(api: KeelApi, name: str, reason: str, version: str | None = N
 
 # ---------------------------------------------------------------- server
 
-# ---- v0.10.0 plugins (Tools › Plugins): each part adds its tools (its `keel_mcp`, keel_engine/extensions.py), through
+# ---- v0.10.0 plugins (Control › Plugins): each part adds its tools (its `keel_mcp`, keel_engine/extensions.py), through
 # the api and keel's rules; these are what they share
 
 ASK_WAIT = 600          # an acting tool waits this long for the person's answer in keel's Inbox
@@ -607,7 +607,7 @@ ASK_POLL = 3
 def _plugin_on(api: KeelApi, pid: str, name: str):
     on = [p["name"] for p in api.get(f"/projects/{pid}/plugins") or [] if p.get("enabled")]
     if name not in on:
-        raise ApiError(f"The {extensions.title(name)} plugin is off for {pid}: turn it on in keel (Tools › Plugins).")
+        raise ApiError(f"The {extensions.title(name)} plugin is off for {pid}: turn it on in keel (Control › Plugins).")
 
 
 def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sleep) -> tuple[bool, str]:

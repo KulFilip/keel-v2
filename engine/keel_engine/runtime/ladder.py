@@ -74,7 +74,12 @@ def plan(root: str) -> list[dict]:
         cmds[6] = c.get("api_test_module") or testcmd.command_for(root)
     out = [{"n": 1, "name": NAMES[0], "cmd": "check: " + ", ".join(_toolchain(root)), "status": "waiting"}]
     for n in range(2, 12):
-        out.append({"n": n, "name": NAMES[n - 1], "cmd": cmds.get(n), "status": "waiting"})
+        rung = {"n": n, "name": NAMES[n - 1], "cmd": cmds.get(n), "status": "waiting"}
+        # which .keel/config.yml command this rung runs, if any: it runs in its part's folder (see run)
+        key = CONFIG_KEY.get(n) if c.get(CONFIG_KEY.get(n)) else ("api_test_module" if n == 6 and c.get("api_test_module") else None)
+        if key and c.get(key) == cmds.get(n):
+            rung.update(key=key, configured=True)
+        out.append(rung)
     out.append({"n": 12, "name": NAMES[11], "cmd": SELF_TEST, "status": "waiting"})
     setup = (rules.load_config(root) or {}).get("setup") or {}
     excluded = {int(n) for n in setup.get("ladder_exclude") or [] if str(n).isdigit()}
@@ -133,7 +138,9 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
         elif simulate:
             rung["status"], rung["detail"] = "pass", "simulated"
         else:
-            code, out = runner(root, rung["cmd"])
+            # a command from .keel/config.yml runs in its part's folder (backend.dir / frontend.dir), like keel v1
+            rel = testcmd.dir_for_key(root, rung.get("key")) if rung.get("configured") else ""
+            code, out = runner(str(Path(root) / rel) if rel else root, rung["cmd"])
             rung["status"] = "pass" if code == 0 else "fail"
             rung["detail"] = f"exit {code}" + (f": {out.strip()[-400:]}" if code else "")
         if rung["status"] == "fail":
