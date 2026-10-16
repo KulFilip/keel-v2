@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import datetime
 import hashlib
 import json
@@ -33,7 +34,7 @@ from .. import addons, extensions, models, rules
 from . import doc_history
 from ..models import catalog
 from ..models import usage as provider_usage
-from ..models.base import AgentRequest, AgentResult
+from ..models.base import AgentRequest, AgentResult, ModelError
 from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
@@ -74,6 +75,38 @@ def add_usage(usage: dict, used: dict | None) -> dict:
     if (used or {}).get("cost_usd"):
         usage["cost_usd"] = round(float(usage.get("cost_usd", 0.0)) + float(used["cost_usd"]), 6)
     return usage
+
+
+CONTINUE = ("You used all your turns before you finished. Continue the same task from where you stopped: everything you "
+            "changed is still on disk. Do not start over. End with the answer the task asks for (and its result lines).")
+
+
+async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, memory) -> AgentResult:
+    """v0.17.4 an agent that runs out of turns continues its own session once with "continue" (claude --resume, codex
+    exec resume) instead of starting fresh; the tokens of the cut-off run are added to the result. `memory` returns the
+    step's memory row (its session) or None."""
+    try:
+        return await runner.run(req, emit)
+    except ModelError as exc:
+        if not (exc.max_turns and can_resume):
+            raise
+        row = memory()
+        row = (await row) if row is not None and hasattr(row, "__await__") else row
+        sid = (row or {}).get("session") or req.session
+        if not sid:
+            raise
+        spent = dict(exc.usage or {})
+    emit("text", "The agent used all its turns: keel continues its own session (\"continue\").")
+    try:
+        res = await runner.run(dataclasses.replace(req, prompt=CONTINUE, session=sid, resume=True), emit)
+    except ModelError as exc:
+        exc.usage = add_usage(dict(exc.usage or {}), spent)
+        raise
+    res.tokens_in += int(spent.get("tokens_in", 0))
+    res.tokens_out += int(spent.get("tokens_out", 0))
+    res.tokens_cached += int(spent.get("tokens_cached", 0))
+    res.cost_usd += float(spent.get("cost_usd", 0.0))
+    return res
 
 
 def budget_tokens(usage: dict) -> int:
@@ -540,7 +573,8 @@ class Compiler:
             ctx.guards.extend(live)
             t0 = time.time()
             try:
-                res = await models.runner_for(model).run(req, emit)
+                res = await run_or_continue(models.runner_for(model), req, emit, can_resume,
+                                            lambda: mem.get(key) if mem else None)
             except asyncio.CancelledError:
                 ctx.emit("agent.finished", step=step.id, call_id=call_id, data={"agent": agent, "status": "stopped", "tokens_in": 0,
                                                                                 "tokens_out": 0, "cost_usd": 0, "premium_requests": 0})

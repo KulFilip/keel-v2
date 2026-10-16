@@ -262,3 +262,77 @@ def test_add_usage():
     assert add_usage({"tokens_in": 1, "cost_usd": 0.5}, {"tokens_in": 2, "tokens_out": 3, "cost_usd": 0.25}) == \
         {"tokens_in": 3, "tokens_out": 3, "cost_usd": 0.75}
     assert add_usage({}, None) == {}
+
+
+# ------------------------------------------------------------------ 6. out of turns: continue the same session
+
+class TurnsRunner:
+    """Runs out of turns the first time, finishes when its session is continued."""
+
+    def __init__(self, fail_again=False):
+        self.reqs, self.fail_again = [], fail_again
+
+    async def run(self, req, emit):
+        from keel_engine.models.base import AgentResult, ModelError
+
+        self.reqs.append(req)
+        if len(self.reqs) == 1 or self.fail_again:
+            err = ModelError("The agent used all its turns (30) before it finished.", usage={"tokens_in": 1000, "cost_usd": 0.5})
+            err.max_turns = True
+            raise err
+        return AgentResult(text="done\nGREEN-RESULT: pass", tokens_in=10, tokens_out=5, cost_usd=0.01)
+
+
+def turns_req(session="s-1"):
+    from keel_engine.models.base import AgentRequest
+
+    return AgentRequest(agent="implementer", system="", prompt="build AC-1", root="/tmp", phase="green", model={"provider": "claude"},
+                        toolbox=None, session=session)
+
+
+def test_out_of_turns_continues_its_own_session_once():
+    from keel_engine.runtime.compiler import CONTINUE, run_or_continue
+
+    r, said = TurnsRunner(), []
+    res = asyncio.run(run_or_continue(r, turns_req(), lambda kind, text="", **k: said.append(text), True, lambda: None))
+    assert [q.prompt for q in r.reqs] == ["build AC-1", CONTINUE]
+    assert r.reqs[1].session == "s-1" and r.reqs[1].resume is True                # the same session, not a fresh one
+    assert res.tokens_in == 1010 and abs(res.cost_usd - 0.51) < 1e-9              # the cut-off run is counted
+    assert any("continues its own session" in t for t in said)
+
+
+def test_the_session_from_memory_wins_and_a_second_limit_is_raised_with_both_runs_counted():
+    from keel_engine.models.base import ModelError
+    from keel_engine.runtime.compiler import run_or_continue
+
+    async def memory():
+        return {"session": "codex-77"}
+    r = TurnsRunner(fail_again=True)
+    try:
+        asyncio.run(run_or_continue(r, turns_req(session=None), lambda *a, **k: None, True, memory))
+        raise AssertionError("no error")
+    except ModelError as exc:
+        assert exc.usage["tokens_in"] == 2000 and len(r.reqs) == 2 and r.reqs[1].session == "codex-77"
+
+
+def test_no_continue_without_a_resumable_session():
+    from keel_engine.models.base import ModelError
+    from keel_engine.runtime.compiler import run_or_continue
+
+    for can, sid in ((False, "s-1"), (True, None)):
+        r = TurnsRunner()
+        try:
+            asyncio.run(run_or_continue(r, turns_req(session=sid), lambda *a, **k: None, can, lambda: None))
+            raise AssertionError("no error")
+        except ModelError:
+            assert len(r.reqs) == 1
+
+
+def test_claude_max_turns_is_marked():
+    import json
+
+    from keel_engine.models import cli
+
+    out = json.dumps({"type": "result", "subtype": "error_max_turns", "num_turns": 30, "usage": {"input_tokens": 5}})
+    err = cli.classify_failure("claude", out, "", 1)
+    assert err.max_turns and err.usage["tokens_in"] == 5 and "continued its session" in err.hint
