@@ -471,6 +471,11 @@ class Compiler:
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
+        started_from = (state.get("data") or {}).get("spec")
+        if phase == "spec" and started_from and started_from == state.get("spec") and not state.get("feedback"):
+            # 0.17.3 started from a spec (the Wiki): the agents change that file instead of writing another one
+            prompt += (f"\nThis flow starts from the spec {started_from}: change that file (keep its criteria ids and words), "
+                       "do not write a new spec file.")
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes:
             why = "know them while you review" if rules.read_only(phase) else "fix them when they are in your scope"
