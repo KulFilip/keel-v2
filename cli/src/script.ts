@@ -2,8 +2,8 @@
 // typed into the prompt (then Enter); lines that start with @ steer the run:
 //
 //   @snap <name>             save what the terminal shows now (ANSI removed), from where the capture before ends,
-//                            as <out>/<name>.txt (or print it)
-//   @wait started|idle|waiting|answer|pick|ask [seconds]   wait for the app or the flow (default 120 s)
+//                            as <out>/<name>.txt (or print it); with --ansi also <out>/<name>.ansi, colours kept
+//   @wait started|idle|waiting|answer|pick|ask|running|streaming [seconds]   wait for the app or the flow (default 120 s)
 //   @key tab|enter|esc|up|down|ctrl+f|ctrl+a|ctrl+b        press a key
 //   @sleep <ms>              wait
 //   # …                      a comment
@@ -17,6 +17,7 @@ import React from "react";
 import { render } from "ink";
 import { App, type Probe } from "./ui/App";
 import type { KeelCore } from "./core/keel";
+import type { Theme } from "./core/theme";
 
 export const KEYS: Record<string, string> = {
   tab: "\t", enter: "\r", esc: "\x1b", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", backspace: "\x7f",
@@ -73,12 +74,13 @@ async function until(cond: () => boolean, seconds: number, what: string, tick?: 
   }
 }
 
-export async function runScript(core: KeelCore, file: string, opts: { out?: string; width: number; log?: (s: string) => void }): Promise<number> {
+export async function runScript(core: KeelCore, file: string, opts: { out?: string; width: number; log?: (s: string) => void; ansi?: boolean;
+  theme?: Theme }): Promise<number> {
   const stdin = new FakeStdin();
   const stdout = new FakeStdout(opts.width);
   const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
   const log = opts.log ?? ((s: string) => process.stderr.write(s + "\n"));
-  const app = render(React.createElement(App, { core, probe, width: opts.width }), {
+  const app = render(React.createElement(App, { core, probe, width: opts.width, theme: opts.theme }), {
     stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, stderr: stdout as unknown as NodeJS.WriteStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
@@ -92,9 +94,13 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
     while (same < lines.length && same < before.length && lines[same] === before[same]) same++;
     before = lines;
     const text = (same > 0 ? `… (${same} lines above: the capture before)\n` : "") + lines.slice(same).join("\n") + "\n";
+    // --ansi: the same lines with keel's colours kept (view them with cat or less -R)
+    const raw = stdout.last.split("\n").map((l) => l.replace(/\s+$/, ""));
+    const colours = (same > 0 ? `… (${same} lines above: the capture before)\n` : "") + raw.slice(same, lines.length).join("\n") + "\x1b[0m\n";
     if (opts.out) {
       mkdirSync(opts.out, { recursive: true });
       writeFileSync(join(opts.out, `${name}.txt`), text);
+      if (opts.ansi) writeFileSync(join(opts.out, `${name}.ansi`), colours);
       log(`snap ${name} -> ${join(opts.out, `${name}.txt`)}`);
     } else process.stdout.write(`===== ${name} =====\n${text}`);
   };
@@ -123,6 +129,8 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
           else if (a1 === "answer") await until(() => !probe.chatBusy && probe.answers > 0 && (probe.answers > answers || !probe.chatBusy), secs, "KeelBot's answer");
           else if (a1 === "waiting") await until(() => core.snapshot.flow?.thread?.status === "waiting", secs, "the flow to wait at a gate", () => void core.refresh());
           else if (a1 === "running") await until(() => core.snapshot.running.length > 0, secs, "an agent", () => void core.refresh());
+          // KeelBot is writing: some of its answer is on screen, the turn has not ended
+          else if (a1 === "streaming") await until(() => core.snapshot.chat.busy && core.snapshot.chat.stream.length > 20, secs, "KeelBot's text");
           else throw new Error(`no @wait ${a1}`);
           await sleep(400);
         } else {

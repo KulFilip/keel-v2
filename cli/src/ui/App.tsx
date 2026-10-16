@@ -7,8 +7,11 @@ import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { complete, follow, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
+import { applyLevel, makeTheme, type Theme } from "../core/theme";
+import { ThemeProvider, useTheme } from "./theme";
+import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
-import { ACCENT, BlockView, Completions, Panel, Picker, StartScreen, StatusLine } from "./parts";
+import { BlockView, Completions, Panel, Picker, StartScreen, StatusLine } from "./parts";
 
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block };
 
@@ -19,7 +22,15 @@ type Pending = { cmd: string; pick?: Pick; ask?: Ask };
 
 const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbox" };
 
-export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Probe; width?: number }) {
+/** keel TUI in keel's colours (the theme: the dashboard's palette, NO_COLOR, KEEL_TUI_THEME). */
+export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme }) {
+  const th = useMemo(() => theme ?? makeTheme(), [theme]);
+  applyLevel(th);
+  return <ThemeProvider theme={th}><Main {...props} /></ThemeProvider>;
+}
+
+function Main({ core, probe, width: fixedWidth }: { core: KeelCore; probe?: Probe; width?: number }) {
+  const t = useTheme();
   const { exit } = useApp();
   const { stdout } = useStdout();
   // a terminal may say 0 columns at first (docker exec -it sets the size a moment after the start): count it as 100
@@ -53,7 +64,7 @@ export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?
   const ctrlC = useRef(0);
   const nextId = useRef(1);
 
-  const ctx: Ctx = useMemo(() => ({ core, width }), [core, width]);
+  const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint }), [core, width, t.paint]);
 
   const push = useCallback((...bs: Block[]) => {
     if (!bs.length) return;
@@ -257,6 +268,12 @@ export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?
   const steps = chat.steps;
   const lastText = [...steps].reverse().find((s) => s.kind === "text" || s.kind === "answer");
   const tools = steps.filter((s) => s.kind !== "text" && s.kind !== "answer" && s.kind !== "thinking").slice(-4);
+  // what KeelBot is writing now (helper.delta), else its last whole message of this turn
+  const writing = chat.stream || lastText?.text || "";
+  const verb = useMemo(() => pickVerb(), [chat.callId]);
+  const flowWaits = snap.flow?.thread?.status === "waiting";
+  const border = pending?.ask || line ? t.color("accent") : flowWaits ? t.color("gate") : t.color("border");
+  const agentsHere = panels.includes("agents") ? [] : snap.running.slice(0, 3);
 
   return (
     <>
@@ -264,26 +281,31 @@ export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?
         {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} />)}
       </Static>
       <Box flexDirection="column">
-        {!started && <Text dimColor>connecting to keel at {snap.url} …</Text>}
+        {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
         {chat.busy && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={ACCENT}>{"● KeelBot is working"}<Text dimColor>{` · ${steps.length} steps · Esc stops`}</Text></Text>
-            {tools.map((s) => <Text key={s.n} dimColor wrap="truncate-end">{"  ⎿ " + fmt.stepLine(s, width - 6)}</Text>)}
-            {lastText && <Box marginLeft={2}><Text>{renderMarkdown(lastText.text.slice(-1500))}</Text></Box>}
+            {tools.map((s) => <Text key={s.n} wrap="truncate-end"><Text color={t.color("faint")}>{"  ⎿ "}</Text>{fmt.stepLine(s, width - 6, t.paint)}</Text>)}
+            {writing && <Box marginLeft={2}><Text>{renderMarkdown(writing.slice(-3000), t.paint)}</Text></Box>}
+            <Thinking verb={verb} since={chat.startedAt} tokens={Math.round(chat.wrote / 4) || undefined} hint="esc to interrupt" />
           </Box>
         )}
-        {running && <Text dimColor>{`… ${running}`}</Text>}
+        {!chat.busy && agentsHere.map((j) => (
+          <Thinking key={j.id} who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null}
+            tokens={fmt.tokensOf(j) || undefined} hint={[j.step, j.ac].filter(Boolean).join(" ")} />
+        ))}
+        {running && <Text color={t.color("dim")}>{`… ${running}`}</Text>}
         {panels.map((p) => <Panel key={p} name={p} s={snap} width={width} />)}
         {pending?.pick ? (
           <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} />
         ) : (
           <Box flexDirection="column">
-            {pending?.ask && <Text color={ACCENT}>{pending.ask.prompt}<Text dimColor> (Esc cancels)</Text></Text>}
-            <Box borderStyle="round" borderColor={pending?.ask ? ACCENT : "gray"} paddingX={1}>
+            {pending?.ask && <Text color={t.color("accent")} bold>{pending.ask.prompt}<Text color={t.color("dim")} bold={false}> (Esc cancels)</Text></Text>}
+            <Box borderStyle="round" borderColor={border} paddingX={1}>
               <Text>
-                <Text color={ACCENT}>{"› "}</Text>
-                {line ? <>{line.slice(0, cursor)}<Text inverse>{line[cursor] ?? " "}</Text>{line.slice(cursor + 1)}</>
-                  : <><Text inverse> </Text><Text dimColor>{pending?.ask ? "type the answer, Enter sends" : "Ask KeelBot, or / for commands"}</Text></>}
+                <Text color={t.color("accent")} bold>{"› "}</Text>
+                {line ? <>{inputText(line.slice(0, cursor))}<Text inverse>{line[cursor] ?? " "}</Text>{inputText(line.slice(cursor + 1))}</>
+                  : <><Text inverse> </Text><Text color={t.color("dim")}>{pending?.ask ? "type the answer, Enter sends"
+                    : flowWaits ? "A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot" : "Ask KeelBot, or / for commands"}</Text></>}
               </Text>
             </Box>
             {comps.length > 0 && <Completions items={comps} index={compIdx} />}
@@ -293,4 +315,11 @@ export function App({ core, probe, width: fixedWidth }: { core: KeelCore; probe?
       </Box>
     </>
   );
+
+  /** The prompt's text: a command's name in the accent colour while it is typed. */
+  function inputText(x: string) {
+    const m = /^(\/\S*)(.*)$/s.exec(x);
+    if (!m || x !== line.slice(0, x.length) || !line.startsWith("/")) return <Text>{x}</Text>;
+    return <><Text color={t.color("accent")} bold>{m[1]}</Text><Text>{m[2]}</Text></>;
+  }
 }

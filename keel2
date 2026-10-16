@@ -1149,7 +1149,9 @@ cmd_tui() {
   docker exec "$NAME" test -f /opt/keel-v2/cli/keel-tui.mjs 2>/dev/null \
     || die "This keel's image has no terminal app (keel TUI) yet." "Get a newer image: keel2 update"
   local tty=(-i); if interactive; then tty=(-it); fi
+  # keel's colours follow this terminal: NO_COLOR, FORCE_COLOR, KEEL_TUI_THEME, KEEL_TUI_ASCII and COLORFGBG go in when set
   DOCKER_CLI_HINTS=false exec docker exec "${tty[@]}" -e TERM="${TERM:-xterm-256color}" -e COLORTERM="${COLORTERM:-}" -e KEEL_PUBLIC_URL="$public" \
+    -e NO_COLOR -e FORCE_COLOR -e KEEL_TUI_THEME -e KEEL_TUI_ASCII -e COLORFGBG \
     -e KEEL_TUI_CWD="$here" -e KEEL_WEB_KEY_FILE=/data/run/web-key "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@"
 }
 

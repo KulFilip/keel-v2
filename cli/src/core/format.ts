@@ -3,6 +3,7 @@
 
 import type { BudgetNow, Checkpoint, FlowView, Health, Job, JobStep, Project, RunRow, ThreadState, Workflow } from "./sdk";
 import type { InboxItem } from "../../../web/src/inboxApi";
+import { PLAIN, type Paint } from "./theme";
 
 export const n = (x: unknown) => {
   const v = Number(x ?? 0);
@@ -32,27 +33,45 @@ export function acCount(t: ThreadState | null | undefined): [number, number] {
 
 type Waiting = NonNullable<ThreadState["waiting"]>;
 
+/** A flow's or an agent call's status as a small badge: running accent, waiting amber, done green, failed red. */
+export function badge(status: string, c: Paint = PLAIN): string {
+  switch (status) {
+    case "running": return c.bold(c.accent("▶ running"));
+    case "waiting": return c.bold(c.gate("◆ waiting"));
+    case "done": return c.ok("✔ done");
+    case "failed": return c.bad("✗ failed");
+    case "guard": return c.bad("✗ refused");
+    case "stopped": return c.faint("■ stopped");
+    default: return c.dim(status);
+  }
+}
+
+/** n/m criteria: green when all are done. */
+const criteria = (done: number, all: number, c: Paint) => (all && done === all ? c.ok(`${done}/${all}`) : `${done}/${all}`);
+const label = (s: string, c: Paint) => c.accent(s);
+
 /** What waits, and how to answer it in keel TUI. */
-export function waitingLines(w: Waiting): string[] {
+export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
   const labels = w.labels ?? {};
-  const out = [`waiting   ${w.kind || "gate"}: ${w.title}`];
+  const cmd = (s: string) => c.bold(c.gate(s));
+  const out = [`${c.bold(c.gate("waiting"))}   ${c.gate(`${w.kind || "gate"}: ${w.title}`)}`];
   if (w.kind === "clarify") {
-    out.push(`          answer: /answer (one question after the other)`);
+    out.push(`          answer: ${cmd("/answer")} (one question after the other)`);
     for (const q of w.questions ?? []) {
-      const choices = q.options.map((o) => o.label + (o.recommended ? " (recommended)" : "")).join(" / ");
-      out.push(`          ${q.id}: ${q.question}  [${choices}]`);
+      const choices = q.options.map((o) => o.label + (o.recommended ? c.ok(" (recommended)") : "")).join(" / ");
+      out.push(`          ${c.dim(q.id + ":")} ${q.question}  [${choices}]`);
     }
   } else if (w.choices?.length) {
-    out.push(`          answer: ${answerWords(w)}`);
+    out.push(`          answer: ${cmd(answerWords(w))}`);
   } else {
     const opts = w.options ?? ["approve", "reject"];
     const parts = [];
-    if (opts.includes("approve")) parts.push("/approve" + (labels.approve ? ` ("${labels.approve}")` : ""));
-    if (opts.includes("reject")) parts.push("/reject <why>" + (labels.reject ? ` ("${labels.reject}")` : ""));
+    if (opts.includes("approve")) parts.push(cmd("/approve") + (labels.approve ? c.dim(` ("${labels.approve}")`) : ""));
+    if (opts.includes("reject")) parts.push(cmd("/reject <why>") + (labels.reject ? c.dim(` ("${labels.reject}")`) : ""));
     out.push(`          answer: ${parts.join(" or ") || "-"}`);
   }
   const detail = (w.detail ?? "").trim();
-  if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + l));
+  if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + c.dim(l)));
   return out;
 }
 
@@ -75,52 +94,58 @@ export function answerWords(w: Waiting): string {
   return (parts.length > 2 ? parts.slice(0, -1).join(", ") + " or " + parts[parts.length - 1] : parts.join(" or ")) || "/approve or /reject <why>";
 }
 
-export function status(p: Project, view: FlowView | null): string {
-  const head = `project   ${p.id} · branch ${p.branch || "-"}`;
+export function status(p: Project, view: FlowView | null, c: Paint = PLAIN): string {
+  const head = `${label("project", c)}   ${c.bold(p.id)} · branch ${c.run(p.branch || "-")}`;
   const t = view?.thread;
-  if (!t) return `${head}\nflow      none. Start one: /flow`;
+  if (!t) return `${head}\n${label("flow", c)}      none. Start one: ${c.accent("/flow")}`;
   const out = [head,
-    `flow      ${flowName(t, view?.workflow ?? null)} · "${t.title}" · ${t.status} · thread ${t.thread_id}`,
-    `step      ${t.current || "-"} · phase ${t.phase || "none"}` + (t.ac ? ` · ${t.ac}` : "")
+    `${label("flow", c)}      ${c.bold(flowName(t, view?.workflow ?? null))} · "${t.title}" · ${badge(t.status, c)} · ${c.faint("thread " + t.thread_id)}`,
+    `${label("step", c)}      ${t.current || "-"} · phase ${c.bold(t.phase || "none")}` + (t.ac ? ` · ${c.accent(t.ac)}` : "")
       + (t.run_mode && t.run_mode !== "manual" ? ` · run mode ${t.run_mode}` : "")];
   if (t.acs?.length) {
     const [done, all] = acCount(t);
-    out.push(`criteria  ${done}/${all} done`);
-    t.acs.forEach((a) => out.push(`  ${`[${a.status}]`.padEnd(14)}${a.id} ${a.layer}  ${a.title}`));
+    out.push(`${label("criteria", c)}  ${criteria(done, all, c)} done`);
+    t.acs.forEach((a) => {
+      const st = `[${a.status}]`.padEnd(14);
+      const col = a.status === "done" || a.status === "already-met" ? c.ok : a.status === "red" ? c.bad : a.status === "green" ? c.ok : c.dim;
+      out.push(`  ${col(st)}${c.bold(a.id)} ${c.dim(a.layer)}  ${a.title}`);
+    });
   }
-  if (t.waiting) out.push(...waitingLines(t.waiting));
+  if (t.waiting) out.push(...waitingLines(t.waiting, c));
   const u = t.usage ?? ({} as ThreadState["usage"]);
   const cap = u.cap_tokens ? ` of cap ${n(u.cap_tokens)}` : " (no cap)";
-  out.push(`usage     ${n(tokensOf(u))} tokens${cap} · in ${n(u.tokens_in)} · out ${n(u.tokens_out)} · cached ${n(u.tokens_cached)} · ${usd(u.cost_usd)}`);
-  if (t.error) out.push(`error     ${t.error}`);
-  (t.blockers ?? []).forEach((b) => out.push(`blocker   ${b.gate}: ${b.why} -> ${b.fix}`));
+  out.push(`${label("usage", c)}     ${n(tokensOf(u))} tokens${c.dim(cap)} · ${c.dim(`in ${n(u.tokens_in)} · out ${n(u.tokens_out)} · cached ${n(u.tokens_cached)}`)} · ${usd(u.cost_usd)}`);
+  if (t.error) out.push(`${c.bad("error")}     ${c.bad(t.error)}`);
+  (t.blockers ?? []).forEach((b) => out.push(`${c.warn("blocker")}   ${c.bad(b.gate + ":")} ${b.why} ${c.faint("->")} ${c.warn(b.fix)}`));
   return out.join("\n");
 }
 
-export function next(p: Project | null, view: FlowView | null): string {
+export function next(p: Project | null, view: FlowView | null, c: Paint = PLAIN): string {
   const t = view?.thread;
+  const cmd = (x: string) => c.bold(c.gate(x));
   if (!p) return "no project: add one in the dashboard (All projects › Add projects), then /project.";
-  if (!t) return "no flow: start one with /flow (feature, change, fix, diagnose, review, cover, ship, hunt, lint, init …).";
+  if (!t) return `no flow: start one with ${c.accent("/flow")} (feature, change, fix, diagnose, review, cover, ship, hunt, lint, init …).`;
   const w = t.waiting;
   const ac = t.ac ? ` for ${t.ac}` : "";
   let out: string[];
+  const at = (x: string) => c.gate(`waiting at ${x}`);
   if (t.status === "waiting" && w) {
-    if (w.kind === "clarify") out = [`waiting at ${w.title}: answer the ${(w.questions ?? []).length} question(s) with /answer.`];
-    else if (w.kind === "budget") out = [`waiting at ${w.title}: /approve to go past the token cap, or /reject <why> to stop.`];
-    else if (w.kind === "fix") out = [`waiting at ${w.title}: /approve to try again, or /reject <why> to stop the flow.`];
-    else if (w.choices?.length) out = [`waiting at ${w.step} (${w.title})${ac}: ${answerWords(w)}.`];
+    if (w.kind === "clarify") out = [`${at(w.title)}: answer the ${(w.questions ?? []).length} question(s) with ${cmd("/answer")}.`];
+    else if (w.kind === "budget") out = [`${at(w.title)}: ${cmd("/approve")} to go past the token cap, or ${cmd("/reject <why>")} to stop.`];
+    else if (w.kind === "fix") out = [`${at(w.title)}: ${cmd("/approve")} to try again, or ${cmd("/reject <why>")} to stop the flow.`];
+    else if (w.choices?.length) out = [`${at(`${w.step} (${w.title})`)}${ac}: ${cmd(answerWords(w))}.`];
     else {
       const l = w.labels ?? {};
-      out = [`waiting at ${w.step} (${w.title})${ac}: /approve` + (l.approve ? ` ("${l.approve}")` : "")
-        + ((w.options ?? []).includes("reject") ? " or /reject <why>" + (l.reject ? ` ("${l.reject}")` : "") : "") + "."];
+      out = [`${at(`${w.step} (${w.title})`)}${ac}: ${cmd("/approve")}` + (l.approve ? c.dim(` ("${l.approve}")`) : "")
+        + ((w.options ?? []).includes("reject") ? ` or ${cmd("/reject <why>")}` + (l.reject ? c.dim(` ("${l.reject}")`) : "") : "") + "."];
     }
-  } else if (t.status === "running") out = [`running ${t.current || "the next step"} (phase ${t.phase || "none"})${ac}: nothing to do, keel is working. /live follows the agents.`];
-  else if (t.status === "done") out = [`flow ${flowName(t, view?.workflow ?? null)} is done. Review the branch ${p.branch || ""} and open a PR, or start a new flow (/flow).`];
-  else if (t.status === "failed") out = [`flow failed at ${t.current}: ${t.error || "see /timeline"}. /resume goes on from the last saved step.`];
-  else if (t.status === "stopped") out = [`flow stopped at ${t.current}. /resume goes on from the last saved step, or start a new flow (/flow).`];
+  } else if (t.status === "running") out = [`${c.accent("running")} ${t.current || "the next step"} (phase ${t.phase || "none"})${ac}: nothing to do, keel is working. ${c.accent("/live")} follows the agents.`];
+  else if (t.status === "done") out = [`flow ${flowName(t, view?.workflow ?? null)} is ${c.ok("done")}. Review the branch ${p.branch || ""} and open a PR, or start a new flow (${c.accent("/flow")}).`];
+  else if (t.status === "failed") out = [`flow ${c.bad("failed")} at ${t.current}: ${t.error || "see /timeline"}. ${c.accent("/resume")} goes on from the last saved step.`];
+  else if (t.status === "stopped") out = [`flow ${c.faint("stopped")} at ${t.current}. ${c.accent("/resume")} goes on from the last saved step, or start a new flow (${c.accent("/flow")}).`];
   else out = [`flow is ${t.status} at ${t.current}.`];
   const blockers = t.blockers ?? [];
-  if (blockers.length) out.push("", "blocking a push:", ...blockers.map((b) => `  ${b.gate}: ${b.why} -> ${b.fix}`));
+  if (blockers.length) out.push("", c.warn("blocking a push:"), ...blockers.map((b) => `  ${c.bad(b.gate + ":")} ${b.why} ${c.faint("->")} ${c.warn(b.fix)}`));
   return out.join("\n");
 }
 
@@ -134,77 +159,88 @@ export function waitingBrief(inbox: InboxItem[], p: Project | null): string {
     + (here.length && elsewhere ? ` · ${elsewhere} in other projects` : "");
 }
 
-export function timeline(history: Checkpoint[], jobs: Job[], limit = 20, thread?: ThreadState | null): string {
+export function timeline(history: Checkpoint[], jobs: Job[], limit = 20, thread?: ThreadState | null, c: Paint = PLAIN): string {
   const ev: [number, string][] = [];
   const at = (s?: string | null) => (s ? Date.parse(s) || 0 : 0);
-  history.forEach((c) => ev.push([at(c.at), `${clock(c.at)}  step   ${c.step}` + (c.note ? ` · ${c.note}` : "")]));
+  history.forEach((h) => ev.push([at(h.at), `${c.faint(clock(h.at))}  ${c.run("step ")}  ${c.bold(h.step)}` + (h.note ? c.dim(` · ${h.note}`) : "")]));
   jobs.forEach((j) => {
     const where = [j.step, j.ac].filter(Boolean).join(" ");
-    ev.push([at(j.started_at), `${clock(j.started_at)}  agent  ${j.agent} ${j.status} · ${where} · ${n(tokensOf(j))} tokens · ${j.provider}/${j.model} · job ${j.id}`]);
+    ev.push([at(j.started_at), `${c.faint(clock(j.started_at))}  ${c.accent("agent")}  ${c.bold(j.agent)} ${badge(j.status, c)} · ${where} · `
+      + c.dim(`${n(tokensOf(j))} tokens · ${j.provider}/${j.model}`) + " " + c.faint(`job ${j.id}`)]);
   });
-  if (thread?.error) ev.push([at(thread.updated_at), `${clock(thread.updated_at)}  flow   ${thread.status} · ${thread.error}`]);
+  if (thread?.error) ev.push([at(thread.updated_at), `${c.faint(clock(thread.updated_at))}  ${c.bad("flow ")}  ${badge(thread.status, c)} · ${c.bad(thread.error)}`]);
   if (!ev.length) return thread ? "no events yet." : "nothing yet: no flow has run on this project.";
   return ev.sort((a, b) => b[0] - a[0]).slice(0, limit).map(([, l]) => l).join("\n");
 }
 
-export function flows(rows: RunRow[]): string {
-  if (!rows.length) return "no flow has run on this project yet. /flow starts one.";
-  return rows.map((r) => `${r.thread_id}  ${r.workflow_id || "?"} "${r.title}" · ${r.status}` + (r.current ? ` at ${r.current}` : "")
-    + ` · criteria ${r.acs_done ?? 0}/${r.acs_total ?? 0} · ${n(r.tokens)} tokens · ${usd(r.cost_usd)} · ${r.where || "folder"}`
-    + (r.branch ? ` · branch ${r.branch}` : "") + (r.latest ? " · latest" : "") + (r.error ? ` · error: ${r.error}` : "")).join("\n");
+export function flows(rows: RunRow[], c: Paint = PLAIN): string {
+  if (!rows.length) return `no flow has run on this project yet. ${c.accent("/flow")} starts one.`;
+  return rows.map((r) => `${c.faint(r.thread_id)}  ${c.accent(r.workflow_id || "?")} ${c.bold(`"${r.title}"`)} · ${badge(r.status, c)}`
+    + (r.current ? ` at ${r.current}` : "")
+    + ` · criteria ${criteria(r.acs_done ?? 0, r.acs_total ?? 0, c)} · ${c.dim(`${n(r.tokens)} tokens · ${usd(r.cost_usd)} · ${r.where || "folder"}`)}`
+    + (r.branch ? c.dim(` · branch ${r.branch}`) : "") + (r.latest ? " " + c.inverse(c.accent(" latest ")) : "")
+    + (r.error ? ` · ${c.bad("error: " + r.error)}` : "")).join("\n");
 }
 
-export function inbox(items: InboxItem[]): string {
+export function inbox(items: InboxItem[], c: Paint = PLAIN): string {
   if (!items.length) return "nothing waits for a person.";
   const out: string[] = [];
   items.forEach((i, k) => {
-    out.push(`${k + 1}. ${i.project_name || i.project_id} · ${i.flow || i.thread_id} · ${i.kind}: ${i.title}` + (i.ac ? ` (${i.ac})` : "")
-      + ` · ${(i.options ?? []).join(" / ") || "-"}`);
-    (i.questions ?? []).forEach((q) => out.push(`     ${q.id}: ${q.question}`));
-    if (i.permission) out.push(`     command: ${i.permission.command}`);
-    if (i.detail) out.push(...String(i.detail).slice(0, 300).split("\n").map((l) => "     " + l));
+    out.push(`${c.bold(c.gate(`${k + 1}.`))} ${c.dim(i.project_name || i.project_id)} · ${c.bold(i.flow || i.thread_id)} · ${c.gate(`${i.kind}: ${i.title}`)}`
+      + (i.ac ? ` (${c.accent(i.ac)})` : "") + ` · ${c.dim((i.options ?? []).join(" / ") || "-")}`);
+    (i.questions ?? []).forEach((q) => out.push(`     ${c.dim(q.id + ":")} ${q.question}`));
+    if (i.permission) out.push(`     command: ${c.kw(i.permission.command)}`);
+    if (i.detail) out.push(...String(i.detail).slice(0, 300).split("\n").map((l) => "     " + c.dim(l)));
   });
   return out.join("\n");
 }
 
-export function jobs(rows: Job[]): string {
+export function jobs(rows: Job[], c: Paint = PLAIN): string {
   if (!rows.length) return "no agent calls yet.";
-  return rows.map((j) => `${j.status.padEnd(8)} ${j.agent} · ${[j.step, j.ac].filter(Boolean).join(" ") || "-"} · ${j.provider}/${j.model} · `
-    + `${n(tokensOf(j))} tokens · ${usd(j.cost_usd)} · ${clock(j.started_at)} · job ${j.id}`).join("\n");
+  return rows.map((j) => `${badge(j.status, c)} ${c.bold(j.agent)} · ${[j.step, j.ac].filter(Boolean).join(" ") || "-"} · `
+    + c.dim(`${j.provider}/${j.model} · ${n(tokensOf(j))} tokens · ${usd(j.cost_usd)} · ${clock(j.started_at)}`) + " " + c.faint(`job ${j.id}`)).join("\n");
 }
 
-export function stepLine(s: JobStep, width = 160): string {
+export function stepLine(s: JobStep, width = 160, c: Paint = PLAIN): string {
   const head = s.kind === "tool" ? `${s.tool ?? "tool"}${s.server ? ` (${s.server})` : ""}: ` : s.path ? `${s.kind} ${s.path}: ` : `${s.kind}: `;
   const text = String(s.text ?? "").replace(/\s+/g, " ").trim();
   const line = head + text;
-  return line.length > width ? line.slice(0, width - 1) + "…" : line;
+  const cutLine = line.length > width ? line.slice(0, width - 1) + "…" : line;
+  if (!c.colored) return cutLine;
+  const h = cutLine.slice(0, Math.min(head.length, cutLine.length));
+  const col = s.ok === false || s.kind === "guard" || s.kind === "error" ? c.bad : s.kind === "write" || s.kind === "edit" ? c.ok : s.kind === "read" ? c.run : c.accent;
+  return col(h) + c.dim(cutLine.slice(h.length));
 }
 
-export function live(running: Job[], last: Record<string, JobStep | undefined>): string {
+export function live(running: Job[], last: Record<string, JobStep | undefined>, c: Paint = PLAIN): string {
   if (!running.length) return "no agent is running.";
   const out: string[] = [];
   running.forEach((j) => {
-    out.push(`${j.agent} on ${j.project_id} · ${[j.step, j.ac].filter(Boolean).join(" ")} · ${j.provider}/${j.model} · ${n(tokensOf(j))} tokens · since ${clock(j.started_at)} · job ${j.id}`);
+    out.push(`${badge("running", c)} ${c.bold(j.agent)} on ${j.project_id} · ${[j.step, j.ac].filter(Boolean).join(" ")} · `
+      + c.dim(`${j.provider}/${j.model} · ${n(tokensOf(j))} tokens · since ${clock(j.started_at)}`) + " " + c.faint(`job ${j.id}`));
     const s = last[j.id];
-    if (s) out.push(`    last: ${stepLine(s)}`);
+    if (s) out.push(`    ${c.faint("last:")} ${stepLine(s, 160, c)}`);
   });
   return out.join("\n");
 }
 
-export function budget(now: BudgetNow): string {
-  const out = [`today  ${n(now.today?.tokens)} tokens · ${usd(now.today?.cost_usd)}`, `month  ${n(now.month?.tokens)} tokens · ${usd(now.month?.cost_usd)}`];
-  (now.flows ?? []).forEach((f) => out.push(`flow   "${f.title}" (${f.status}) · ${n(f.tokens)} tokens${f.cap_tokens ? ` of cap ${n(f.cap_tokens)}` : ""} · ${usd(f.cost_usd)}`));
-  (now.caps ?? []).forEach((c) => {
-    const x = c as unknown as Record<string, unknown>;
-    out.push(`cap    ${x.scope} ${x.window ?? ""}: ${x.left} of ${x.limit} ${x.unit} left` + (x.resets_at ? ` (resets ${x.resets_at})` : "") + ` · then ${x.action}`);
+export function budget(now: BudgetNow, c: Paint = PLAIN): string {
+  const out = [`${label("today", c)}  ${c.bold(n(now.today?.tokens))} tokens · ${usd(now.today?.cost_usd)}`,
+    `${label("month", c)}  ${c.bold(n(now.month?.tokens))} tokens · ${usd(now.month?.cost_usd)}`];
+  (now.flows ?? []).forEach((f) => out.push(`${label("flow ", c)}  "${c.bold(f.title)}" ${badge(f.status, c)} · ${n(f.tokens)} tokens`
+    + c.dim(f.cap_tokens ? ` of cap ${n(f.cap_tokens)}` : "") + ` · ${usd(f.cost_usd)}`));
+  (now.caps ?? []).forEach((cp) => {
+    const x = cp as unknown as Record<string, unknown>;
+    out.push(`${c.warn("cap  ")}  ${x.scope} ${x.window ?? ""}: ${x.left} of ${x.limit} ${x.unit} left` + c.dim(x.resets_at ? ` (resets ${x.resets_at})` : "") + ` · then ${x.action}`);
   });
   return out.join("\n");
 }
 
-export function workflowsList(rows: Workflow[]): string {
+export function workflowsList(rows: Workflow[], c: Paint = PLAIN): string {
   if (!rows.length) return "no workflows.";
-  return rows.map((w) => `${w.id.padEnd(18)} ${w.name} · ${w.steps.length} steps · ${w.steps.filter((s) => s.kind === "gate").length} gates`
-    + (w.source ? ` · ${w.source}` : "") + (w.runs ? ` · ran ${w.runs}x` : "")).join("\n");
+  return rows.map((w) => `${c.accent(w.id.padEnd(18))} ${c.bold(w.name)} · ${c.dim(`${w.steps.length} steps`)} · `
+    + c.gate(`${w.steps.filter((s) => s.kind === "gate").length} gates`)
+    + c.dim((w.source ? ` · ${w.source}` : "") + (w.runs ? ` · ran ${w.runs}x` : ""))).join("\n");
 }
 
 type RulesLike = {
@@ -217,41 +253,43 @@ type RulesLike = {
 };
 type RulesNowLike = { phase?: string; meaning?: string; may?: { what: string }[]; may_not?: { what: string }[]; fired?: { count: number; reason: string }[] };
 
-export function rules(p: Project, v: RulesLike, now?: RulesNowLike | null): string {
-  const out = [`keel's rules for ${p.name || p.id} (saved in ${v.config_file} and ${v.rules_folder}/):`, "", "Engines:"];
-  (v.engines ?? []).forEach((e) => out.push(`  ${e.engine}: ${e.words}`));
-  out.push("", "Always on:");
-  (v.builtins ?? []).filter((b) => !b.can_off).forEach((b) => out.push(`  ${b.id}: ${b.words} (${b.phases})`));
-  out.push("", "keel's rules you can switch off:");
-  (v.builtins ?? []).filter((b) => b.can_off).forEach((b) => out.push(`  ${b.id}${b.off ? " [OFF]" : ""}: ${b.words} (${b.phases})`));
+export function rules(p: Project, v: RulesLike, now?: RulesNowLike | null, c: Paint = PLAIN): string {
+  const h = (x: string) => c.bold(c.accent(x));
+  const out = [`keel's rules for ${c.bold(p.name || p.id)} ${c.dim(`(saved in ${v.config_file} and ${v.rules_folder}/)`)}:`, "", h("Engines:")];
+  (v.engines ?? []).forEach((e) => out.push(`  ${c.bold(e.engine)}: ${e.words}`));
+  out.push("", h("Always on:"));
+  (v.builtins ?? []).filter((b) => !b.can_off).forEach((b) => out.push(`  ${c.kw(b.id)}: ${b.words} ${c.dim(`(${b.phases})`)}`));
+  out.push("", h("keel's rules you can switch off:"));
+  (v.builtins ?? []).filter((b) => b.can_off).forEach((b) => out.push(`  ${c.kw(b.id)}${b.off ? c.bad(" [OFF]") : ""}: ${b.words} ${c.dim(`(${b.phases})`)}`));
   if (v.lists?.length) {
-    out.push("", "The project's lists:");
-    v.lists.forEach((x) => out.push(`  ${x.key} = ${x.value}  (${x.saved_in})`));
+    out.push("", h("The project's lists:"));
+    v.lists.forEach((x) => out.push(`  ${c.attr(x.key)} = ${x.value}  ${c.dim(`(${x.saved_in})`)}`));
   }
   const packs = v.packs ?? [];
-  out.push("", packs.length ? "Rule packs:" : "Rule packs: none (the dashboard's Rules page adds one from the library).");
+  out.push("", packs.length ? h("Rule packs:") : `${h("Rule packs:")} none (the dashboard's Rules page adds one from the library).`);
   packs.forEach((pk) => {
-    out.push(`  ${pk.id} ${pk.version ?? ""}${pk.off ? " [OFF]" : ""} — ${pk.title}: ${pk.summary ?? ""}`);
-    (pk.rules ?? []).forEach((r) => out.push(`    ${r.kind} ${r.match} (${r.phases}): ${r.reason}`));
+    out.push(`  ${c.kw(pk.id)} ${pk.version ?? ""}${pk.off ? c.bad(" [OFF]") : ""} — ${c.bold(pk.title)}: ${pk.summary ?? ""}`);
+    (pk.rules ?? []).forEach((r) => out.push(`    ${c.warn(r.kind)} ${r.match} ${c.dim(`(${r.phases})`)}: ${r.reason}`));
   });
-  (v.pack_errors ?? []).forEach((e) => out.push(`  NOT USED ${e.file}: ${e.errors.join("; ")}`));
+  (v.pack_errors ?? []).forEach((e) => out.push(`  ${c.bad("NOT USED")} ${e.file}: ${e.errors.join("; ")}`));
   if (now) {
-    out.push("", `Now (phase ${now.phase}): ${now.meaning ?? ""}`,
-      "  may change: " + ((now.may ?? []).map((b) => b.what).join(", ") || "nothing"),
-      "  may not change: " + ((now.may_not ?? []).map((b) => b.what).join(", ") || "—"));
-    (now.fired ?? []).forEach((f) => out.push(`  stopped ${f.count}x: ${f.reason}`));
+    out.push("", `${h("Now")} (phase ${c.bold(now.phase ?? "")}): ${now.meaning ?? ""}`,
+      `  ${c.ok("may change:")} ` + ((now.may ?? []).map((b) => b.what).join(", ") || "nothing"),
+      `  ${c.bad("may not change:")} ` + ((now.may_not ?? []).map((b) => b.what).join(", ") || "—"));
+    (now.fired ?? []).forEach((f) => out.push(`  ${c.warn(`stopped ${f.count}x:`)} ${f.reason}`));
   }
   return out.join("\n");
 }
 
 type InstalledLike = { name: string; version?: string; title?: string; from?: string; on?: boolean; status?: string; update?: string; problems?: string[] };
 
-export function plugins(installed: InstalledLike[], here?: { name: string; enabled: boolean }[]): string {
+export function plugins(installed: InstalledLike[], here?: { name: string; enabled: boolean }[], c: Paint = PLAIN): string {
   if (!installed.length) return "keel has no plugins (a core-only keel). Control › Plugins adds them.";
   const on = new Map((here ?? []).map((p) => [p.name, p.enabled]));
-  return ["keel has:", ...installed.map((p) => `  ${p.name.padEnd(10)} ${p.version ?? ""}  ${p.title ?? ""} · ${p.on ? "on" : "off"}`
-    + (on.has(p.name) ? ` · this project: ${on.get(p.name) ? "on" : "off"}` : "") + (p.from ? ` · from ${p.from}` : "")
-    + (p.update ? ` · update ${p.update}` : "") + (p.problems?.length ? ` · problem: ${p.problems.join("; ")}` : ""))].join("\n");
+  const onOff = (b: boolean | undefined) => (b ? c.ok("on") : c.faint("off"));
+  return ["keel has:", ...installed.map((p) => `  ${c.accent(p.name.padEnd(10))} ${c.dim(p.version ?? "")}  ${c.bold(p.title ?? "")} · ${onOff(p.on)}`
+    + (on.has(p.name) ? ` · this project: ${onOff(on.get(p.name))}` : "") + c.dim(p.from ? ` · from ${p.from}` : "")
+    + (p.update ? c.warn(` · update ${p.update}`) : "") + (p.problems?.length ? c.bad(` · problem: ${p.problems.join("; ")}`) : ""))].join("\n");
 }
 
 export function which(url: string, h: Health | null): string {

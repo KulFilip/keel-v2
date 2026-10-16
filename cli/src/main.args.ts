@@ -5,7 +5,7 @@ export const HELP = `keel-tui ${VERSION}: keel v2 in the terminal (KeelBot, slas
 
   keel-tui [options]              the app (needs a terminal)
   keel-tui -c "/status" [-c …]    run commands, print the answers as text, leave
-  keel-tui --script <file>        drive the app from a file (--out <dir> saves the @snap captures)
+  keel-tui --script <file>        drive the app from a file (--out <dir> saves the @snap captures, --ansi with colours too)
 
 options
   --url <url>          keel's address (KEEL_URL, default http://localhost:8080)
@@ -15,7 +15,7 @@ options
   --width <n>          columns for -c and --script (default 100)
   --version, --help`;
 
-export type Args = { url: string; publicUrl?: string; project?: string; cwd: string; commands: string[]; script?: string; out?: string; width: number };
+export type Args = { url: string; publicUrl?: string; project?: string; cwd: string; commands: string[]; script?: string; out?: string; width: number; ansi?: boolean };
 
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): Args | "help" | "version" {
   const a: Args = { url: env.KEEL_URL || "http://localhost:8080", publicUrl: env.KEEL_PUBLIC_URL || undefined, project: env.KEEL_PROJECT || undefined,
@@ -36,6 +36,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     else if (k === "-c" || k === "--command") a.commands.push(v());
     else if (k === "--script") a.script = v();
     else if (k === "--out") a.out = v();
+    else if (k === "--ansi") a.ansi = true;
     else if (k === "--width") a.width = Math.max(60, Number(v()) || 100);
     else throw new Error(`unknown option ${k} (keel-tui --help)`);
   }

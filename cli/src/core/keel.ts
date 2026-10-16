@@ -18,6 +18,11 @@ export type ChatState = {
   /** the running turn's agent call, and its live steps */
   callId: string | null;
   steps: JobStep[];
+  /** the text KeelBot is writing now (helper.delta: the current block so far; "" once that block is a whole step) */
+  stream: string;
+  /** when the running turn started (ms), and how much text it wrote so far (for "~N tokens") */
+  startedAt: number | null;
+  wrote: number;
 };
 
 export type Snapshot = {
@@ -34,6 +39,8 @@ export type Snapshot = {
   inbox: InboxItem[];
   running: Job[];
   lastStep: Record<string, JobStep | undefined>;
+  /** what each running agent is writing now (agent.delta), by call id */
+  liveText: Record<string, string>;
   live: LiveState;
   chat: ChatState;
 };
@@ -72,8 +79,8 @@ export class KeelCore {
     const url = connect(opts.url, this.f);
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
-      visited: [], inbox: [], running: [], lastStep: {}, live: opts.noLive ? "closed" : "connecting",
-      chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [] },
+      visited: [], inbox: [], running: [], lastStep: {}, liveText: {}, live: opts.noLive ? "closed" : "connecting",
+      chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], stream: "", startedAt: null, wrote: 0 },
     };
   }
 
@@ -164,7 +171,9 @@ export class KeelCore {
     const project = pid ? projects.find((p) => p.id === pid) ?? this.snapshot.project : this.snapshot.project;
     const lastStep = { ...this.snapshot.lastStep };
     for (const k of Object.keys(lastStep)) if (!running.some((j) => j.id === k)) delete lastStep[k];
-    this.set({ flow, inbox, running, projects, project, visited, lastStep });
+    const liveText = { ...this.snapshot.liveText };
+    for (const k of Object.keys(liveText)) if (!running.some((j) => j.id === k)) delete liveText[k];
+    this.set({ flow, inbox, running, projects, project, visited, lastStep, liveText });
     return this.snapshot;
   }
 
@@ -206,12 +215,31 @@ export class KeelCore {
     }
     if (!ev || typeof ev.type !== "string") return;
     const chat = this.snapshot.chat;
+    // live text: KeelBot's answer, or an agent's, as it is written (never a notice, never a refresh)
+    if ((ev.type === "helper.delta" || ev.type === "agent.delta") && ev.call_id) {
+      const text = String((ev.data as { text?: unknown }).text ?? "");
+      if (ev.type === "agent.delta") this.set({ liveText: { ...this.snapshot.liveText, [ev.call_id]: text } });
+      else if (ev.call_id === chat.callId && chat.busy) {
+        const grew = Math.max(0, text.length - chat.stream.length);
+        this.setChat({ stream: text, wrote: chat.wrote + grew });
+      }
+      return;
+    }
     if ((ev.type === "helper.step" || ev.type === "agent.step") && ev.call_id) {
       const d = ev.data as Partial<JobStep>;
       const step: JobStep = { n: Number(d.n) || 0, at: ev.at, kind: String(d.kind ?? "text"), text: String(d.text ?? ""),
         tool: d.tool, server: d.server, path: d.path, ms: d.ms, ok: d.ok };
       if (ev.type === "agent.step") this.set({ lastStep: { ...this.snapshot.lastStep, [ev.call_id]: step } });
-      if (ev.call_id === chat.callId && !chat.steps.some((x) => x.n === step.n)) this.setChat({ steps: [...chat.steps, step].slice(-STEP_KEEP) });
+      if (ev.type === "agent.step" && (step.kind === "text" || step.kind === "answer") && ev.call_id in this.snapshot.liveText) {
+        const { [ev.call_id]: _done, ...rest } = this.snapshot.liveText;
+        this.set({ liveText: rest });
+      }
+      if (ev.call_id === chat.callId && !chat.steps.some((x) => x.n === step.n)) {
+        // a whole message arrived: the streamed block is in it now
+        const whole = step.kind === "text" || step.kind === "answer";
+        this.setChat({ steps: [...chat.steps, step].slice(-STEP_KEEP), ...(whole ? { stream: "" } : {}),
+          wrote: chat.wrote + (whole && !chat.stream ? step.text.length : 0) });
+      }
       return;
     }
     if (ev.type === "helper.finished" && chat.session && ev.thread_id === chat.session.id && chat.busy) {
@@ -280,7 +308,7 @@ export class KeelCore {
       this.setChat({ session: s });
     }
     const t = await kb.turn(pid, s.id, { text, ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}) });
-    this.setChat({ busy: true, callId: t.call_id, steps: [] });
+    this.setChat({ busy: true, callId: t.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
     // a missed helper.finished never leaves the chat "working": look every 3 s
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = setInterval(() => void this.pollTurn(), 3000);
@@ -316,7 +344,7 @@ export class KeelCore {
       }
       const msgs = s.messages ?? [];
       const last = msgs[msgs.length - 1];
-      this.setChat({ session: s, busy: false, callId: null });
+      this.setChat({ session: s, busy: false, callId: null, stream: "", startedAt: null });
       if (last && last.role !== "user") this.emit("answer", { text: last.text, ok: last.role === "helper", message: last });
       else this.emit("answer", { text: s.error || "KeelBot did not answer.", ok: false });
     } finally {

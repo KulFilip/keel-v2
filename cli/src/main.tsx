@@ -11,14 +11,21 @@ import { render } from "ink";
 import { App } from "./ui/App";
 import { KeelCore } from "./core/keel";
 import { run, follow, type Reply } from "./core/commands";
-import { renderMarkdown, plain } from "./core/markdown";
+import { renderMarkdown } from "./core/markdown";
+import { colorDiagram } from "./core/colorize";
+import { applyLevel, makeTheme, PLAIN, type Paint } from "./core/theme";
 import { VERSION } from "./core/version";
 import { runScript } from "./script";
 import { HELP, parseArgs } from "./main.args";
 
-function printReply(r: Reply) {
+// keel's colours: the dashboard's palette (NO_COLOR, KEEL_TUI_THEME, FORCE_COLOR); -c writes them only into a terminal
+const theme = makeTheme();
+applyLevel(theme);
+
+function printReply(r: Reply, c: Paint) {
   for (const b of r.blocks) {
-    const t = b.kind === "markdown" ? renderMarkdown(b.text, plain) : b.kind === "error" ? `error: ${b.text}` : b.text;
+    const t = b.kind === "markdown" ? renderMarkdown(b.text, c) : b.kind === "diagram" ? colorDiagram(b.text, c)
+      : b.kind === "error" ? c.bad(`error: ${b.text}`) : b.kind === "ok" ? c.ok(b.text) : b.text;
     process.stdout.write(t + "\n");
   }
   if (r.pick) process.stdout.write(`${r.pick.title}\n${r.pick.choices.map((c, i) => `  ${i + 1}. ${c.label}${c.hint ? `  (${c.hint})` : ""}`).join("\n")}\n`);
@@ -37,7 +44,7 @@ async function main(): Promise<number> {
   if (args === "version") return void process.stdout.write(`keel-tui ${VERSION}\n`), 0;
   const oneShot = args.commands.length > 0;
   const core = new KeelCore({ url: args.url, publicUrl: args.publicUrl, project: args.project, cwd: args.cwd, noLive: oneShot });
-  if (args.script) return runScript(core, args.script, { out: args.out, width: args.width });
+  if (args.script) return runScript(core, args.script, { out: args.out, width: args.width, ansi: args.ansi, theme });
   if (oneShot) {
     const s = await core.start();
     if (!s.health) {
@@ -45,16 +52,17 @@ async function main(): Promise<number> {
       return 1;
     }
     let code = 0;
+    const paint = process.stdout.isTTY || process.env.FORCE_COLOR ? theme.paint : PLAIN;
     for (const c of args.commands) {
-      const r = await run({ core, width: args.width }, c);
+      const r = await run({ core, width: args.width, paint }, c);
       if (r.chat) {
         const done = new Promise<{ text: string; ok: boolean }>((res) => core.on("answer", (a) => res(a)));
         core.follow();
         await follow("chat", () => core.send(r.chat!).then(() => ({ blocks: [] })));
         const a = await done;
-        process.stdout.write(renderMarkdown(a.text, plain) + "\n");
+        process.stdout.write(renderMarkdown(a.text, paint) + "\n");
         if (!a.ok) code = 1;
-      } else printReply(r);
+      } else printReply(r, paint);
       if (r.blocks.some((b) => b.kind === "error")) code = 1;
     }
     core.stop();
@@ -64,7 +72,7 @@ async function main(): Promise<number> {
     process.stderr.write("keel-tui needs a terminal. Without one: keel-tui -c \"/status\" or keel-tui --script <file>.\n");
     return 2;
   }
-  const app = render(<App core={core} />, { exitOnCtrlC: false });
+  const app = render(<App core={core} theme={theme} />, { exitOnCtrlC: false });
   await app.waitUntilExit();
   return 0;
 }

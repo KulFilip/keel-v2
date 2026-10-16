@@ -9,6 +9,7 @@ import { rulesApi } from "../../../web/src/rulesApi";
 import * as fmt from "./format";
 import { setCommand } from "./transport";
 import type { KeelCore } from "./keel";
+import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
 
 // ------------------------------------------------------------------ replies
@@ -36,11 +37,15 @@ export function errorReply(e: unknown): Reply {
 
 // ------------------------------------------------------------------ the registry
 
-export type Ctx = { core: KeelCore; width: number };
+/** What a command runs with: keel, the terminal's width, and the colours to write in (PLAIN: none). */
+export type Ctx = { core: KeelCore; width: number; paint?: Paint };
+const P = (ctx: Ctx): Paint => ctx.paint ?? PLAIN;
 
 /** One row of content/agent-clients/commands.json, the command table keel's terminal clients share. */
-export type CommandSpec = { name: string; args?: string; summary: string; aliases?: string[]; writes: boolean; complete?: string; local?: boolean };
-export const TABLE = table as { version: number; commands: CommandSpec[]; keys: { key: string; does: string }[]; diagrams: string[] };
+export type CommandSpec = { name: string; args?: string; summary: string; aliases?: string[]; writes: boolean; complete?: string; local?: boolean;
+  group?: string };
+export const TABLE = table as { version: number; commands: CommandSpec[]; keys: { key: string; does: string }[]; diagrams: string[];
+  groups?: string[] };
 type Impl = { name: string; run: Command["run"]; complete?: Command["complete"] };
 
 export type Command = Omit<CommandSpec, "complete" | "writes"> & {
@@ -193,7 +198,7 @@ type MapView = { missing?: string; schema?: unknown; levels?: Record<string, unk
 
 /** What each command does; its name, arguments, help text and aliases are in the shared table (TABLE). */
 const IMPLS: Impl[] = [
-  { name: "help", run: () => text(helpText())  },
+  { name: "help", run: (ctx) => text(helpText(P(ctx))) },
   {
     name: "project",
     complete: (ctx, a) => ctx.core.snapshot.projects.map((p) => p.id).filter((x) => x.startsWith(a)),
@@ -226,7 +231,7 @@ const IMPLS: Impl[] = [
       return pickWorkflowThen(ctx, rows, ask, "Which flow?");
     },
   },
-  { name: "flows", run: async (ctx) => text(fmt.flows(await api.runs(needProject(ctx).id, undefined, 20))) },
+  { name: "flows", run: async (ctx) => text(fmt.flows(await api.runs(needProject(ctx).id, undefined, 20), P(ctx))) },
   {
     name: "resume",
     run: async (ctx) => {
@@ -259,16 +264,17 @@ const IMPLS: Impl[] = [
   },
   { name: "status", run: async (ctx) => {
     await ctx.core.refresh();
-    return text(fmt.status(needProject(ctx), ctx.core.snapshot.flow));
+    return text(fmt.status(needProject(ctx), ctx.core.snapshot.flow, P(ctx)));
   } },
   { name: "next", run: async (ctx) => {
     await ctx.core.refresh();
-    return text(fmt.next(ctx.core.snapshot.project, ctx.core.snapshot.flow));
+    return text(fmt.next(ctx.core.snapshot.project, ctx.core.snapshot.flow, P(ctx)));
   } },
   { name: "inbox", run: async (ctx) => {
     await ctx.core.refresh();
     const items = ctx.core.snapshot.inbox;
-    return text(fmt.inbox(items) + (items.length ? "\n\n/approve <n> or /reject <n> <why> answers one; Ctrl+B keeps the inbox on screen." : ""));
+    const c = P(ctx);
+    return text(fmt.inbox(items, c) + (items.length ? `\n\n${c.bold(c.gate("/approve <n>"))} or ${c.bold(c.gate("/reject <n> <why>"))} answers one; ${c.accent("Ctrl+B")} keeps the inbox on screen.` : ""));
   } },
   { name: "approve", run: (ctx, a) => decide(ctx, "approve", a) },
   { name: "reject", run: (ctx, a) => decide(ctx, "reject", a) },
@@ -293,7 +299,7 @@ const IMPLS: Impl[] = [
       return text(`${w.title}: /approve or /reject <why>.`);
     },
   },
-  { name: "jobs", run: async (ctx) => text(fmt.jobs(await api.jobs({ project: needProject(ctx).id, limit: 20 }))) },
+  { name: "jobs", run: async (ctx) => text(fmt.jobs(await api.jobs({ project: needProject(ctx).id, limit: 20 }), P(ctx))) },
   {
     name: "live", run: async (ctx) => {
       const running = await api.jobs({ status: "running", limit: 50 });
@@ -302,7 +308,7 @@ const IMPLS: Impl[] = [
         const s = await api.jobSteps(j.id).catch(() => ({ steps: [] as JobStep[] }));
         last[j.id] = s.steps[s.steps.length - 1];
       }));
-      return { ...text(fmt.live(running, last) + (running.length ? "\n\nCtrl+A keeps the agents on screen." : "")) };
+      return { ...text(fmt.live(running, last, P(ctx)) + (running.length ? `\n\n${P(ctx).accent("Ctrl+A")} keeps the agents on screen.` : "")) };
     },
   },
   {
@@ -311,7 +317,7 @@ const IMPLS: Impl[] = [
       const id = a.trim();
       if (!id) return flowDiagram(ctx);
       const r = await api.jobSteps(id);
-      return text(r.steps.length ? r.steps.map((s) => `${String(s.n).padStart(3)} ${fmt.stepLine(s, Math.max(60, ctx.width - 6))}`).join("\n") + (r.running ? "\n… still running" : "")
+      return text(r.steps.length ? r.steps.map((s) => `${P(ctx).faint(String(s.n).padStart(3))} ${fmt.stepLine(s, Math.max(60, ctx.width - 6), P(ctx))}`).join("\n") + (r.running ? "\n… still running" : "")
         : "no steps yet.");
     },
   },
@@ -321,7 +327,7 @@ const IMPLS: Impl[] = [
       const p = needProject(ctx);
       const t = flowNow(ctx);
       const [hist, jobs] = await Promise.all([t ? api.history(t.thread_id) : Promise.resolve([]), api.jobs({ project: p.id, limit: 20 })]);
-      return text(fmt.timeline(hist, jobs, 20, t));
+      return text(fmt.timeline(hist, jobs, 20, t, P(ctx)));
     },
   },
   {
@@ -335,7 +341,7 @@ const IMPLS: Impl[] = [
         if (!w) return fail(`No workflow "${id}". This project has: ${rows.map((x) => x.id).join(", ")}`);
         return diagram(await draw(ctx, "workflow", { workflow: w }, zoom));
       }
-      return join(text(fmt.workflowsList(rows)), pickWorkflowThen(ctx, rows, async (w) => diagram(await draw(ctx, "workflow", { workflow: w })), "Draw which workflow?"));
+      return join(text(fmt.workflowsList(rows, P(ctx))), pickWorkflowThen(ctx, rows, async (w) => diagram(await draw(ctx, "workflow", { workflow: w })), "Draw which workflow?"));
     },
   },
   {
@@ -381,7 +387,7 @@ const IMPLS: Impl[] = [
       const p = needProject(ctx);
       const t = flowNow(ctx);
       const [v, now] = await Promise.all([rulesApi.view(p.id), t ? rulesApi.now(t.thread_id).catch(() => null) : Promise.resolve(null)]);
-      return text(fmt.rules(p, v as never, now as never));
+      return text(fmt.rules(p, v as never, now as never, P(ctx)));
     },
   },
   {
@@ -390,10 +396,10 @@ const IMPLS: Impl[] = [
       const body = await get<unknown>("/plugins/installed");
       const rows = (Array.isArray(body) ? body : ((body as { plugins?: unknown[] })?.plugins ?? [])) as never[];
       const here = ctx.core.pid ? await api.plugins(ctx.core.pid).catch(() => []) : [];
-      return text(fmt.plugins(rows, here.map((x) => ({ name: x.name, enabled: !!(x as { enabled?: boolean }).enabled }))));
+      return text(fmt.plugins(rows, here.map((x) => ({ name: x.name, enabled: !!(x as { enabled?: boolean }).enabled })), P(ctx)));
     },
   },
-  { name: "budget", run: async (ctx) => text(fmt.budget(await api.budgetNow(needProject(ctx).id))) },
+  { name: "budget", run: async (ctx) => text(fmt.budget(await api.budgetNow(needProject(ctx).id), P(ctx))) },
   {
     name: "dashboard",
     complete: (_c, a) => ["flow", "map", "er", "keelbot", "inbox"].filter((x) => x.startsWith(a)),
@@ -476,16 +482,26 @@ export function dashboardUrl(ctx: Ctx, view: string): string {
   return `${base}/#/projects/${encodeURIComponent(pid)}/${path}`;
 }
 
-export function helpText(): string {
-  const w = Math.max(...COMMANDS.map((c) => (c.name + (c.args ? " " + c.args : "")).length));
+/** /help: the commands by group (the shared table's groups), names in the accent colour, arguments in a second one. */
+export function helpText(c: Paint = PLAIN): string {
+  const w = Math.max(...COMMANDS.map((x) => (x.name + (x.args ? " " + x.args : "")).length));
   const cut = Math.min(w, 34);
-  return ["Type a question for KeelBot, or a command:", "",
-    ...COMMANDS.map((c) => {
-      const head = `/${c.name}${c.args ? " " + c.args : ""}`;
-      return head.length > cut + 1 ? `  ${head}\n  ${" ".repeat(cut + 3)}${c.summary}` : `  ${head.padEnd(cut + 3)}${c.summary}`;
-    }),
-    "", "Keys: " + TABLE.keys.map((k) => `${k.key} ${k.does}`).join(" · "),
-    "KeelBot's own commands (/gate, /where …) go to KeelBot as they are."].join("\n");
+  const groups = TABLE.groups ?? [...new Set(COMMANDS.map((x) => x.group ?? ""))];
+  const out = [`Type a question for ${c.accent("KeelBot")}, or a command:`];
+  for (const g of groups) {
+    const cmds = COMMANDS.filter((x) => (x.group ?? "") === g);
+    if (!cmds.length) continue;
+    out.push("", c.bold(c.gate(g)));
+    for (const x of cmds) {
+      const plainHead = `/${x.name}${x.args ? " " + x.args : ""}`;
+      const head = c.bold(c.accent(`/${x.name}`)) + (x.args ? " " + c.attr(x.args) : "");
+      const pad = " ".repeat(Math.max(1, cut + 3 - plainHead.length));
+      out.push(plainHead.length > cut + 1 ? `  ${head}\n  ${" ".repeat(cut + 3)}${c.dim(x.summary)}` : `  ${head}${pad}${c.dim(x.summary)}`);
+    }
+  }
+  out.push("", c.bold(c.gate("Keys")), "  " + TABLE.keys.map((k) => `${c.bold(c.accent(k.key))} ${c.dim(k.does)}`).join(c.faint(" · ")),
+    "", c.dim("KeelBot's own commands (/gate, /where …) go to KeelBot as they are."));
+  return out.join("\n");
 }
 
 // ------------------------------------------------------------------ parse, complete, run

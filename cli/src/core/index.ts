@@ -11,7 +11,10 @@ export { TABLE, type CommandSpec } from "./commands";
 export { COMMANDS, COMMANDS_BY_NAME, complete, draw, follow, helpText, parse, run, dashboardUrl, type Block, type BlockKind, type Choice,
   type Command, type Completion, type Ctx, type PanelName, type Parsed, type Pick, type Ask, type Reply } from "./commands";
 export * as format from "./format";
-export { renderMarkdown, fileLines, ansi, plain, FILE_LINE, type Style } from "./markdown";
+export { renderMarkdown, fileLines, plain, FILE_LINE, type Style } from "./markdown";
+export { makeTheme, makePaint, applyLevel, colorLevel, themeName, contrast, DARK, LIGHT, PLAIN, type Paint, type Palette, type Theme, type Role } from "./theme";
+export { highlight, language } from "./highlight";
+export { colorDiagram } from "./colorize";
 export { notice } from "./notices";
 export { SseParser, subscribe, type LiveState, type SseMessage } from "./sse";
 export { connect, normalizeUrl, setCommand, viaHeaders } from "./transport";

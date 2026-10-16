@@ -1,5 +1,5 @@
 {
-  "about": "keel's commands for terminal clients: keel TUI (cli/), the xal client (clients/xal) and any other front end. One table: names, arguments, help text, whether a command writes (decides a gate, starts or stops a flow), what its argument completes from, and local = it never calls keel. keel TUI builds its commands from it (cli/src/core/commands.ts, a test keeps both the same). Every request a client sends says who acts: X-Keel-Via (tui, xal, mcp), X-Keel-Client (its name and version) and X-Keel-Tool (the command); the api records a write as a <via>.call event.",
+  "about": "keel's commands for terminal clients: keel TUI (cli/), the xal client (clients/xal) and any other front end. One table: names, arguments, help text, whether a command writes (decides a gate, starts or stops a flow), what its argument completes from, and local = it never calls keel, group = where /help lists it (groups gives their order). keel TUI builds its commands from it (cli/src/core/commands.ts, a test keeps both the same). Every request a client sends says who acts: X-Keel-Via (tui, xal, mcp), X-Keel-Client (its name and version) and X-Keel-Tool (the command); the api records a write as a <via>.call event.",
   "version": 1,
   "commands": [
     {
@@ -9,119 +9,140 @@
         "?"
       ],
       "writes": false,
-      "local": true
+      "local": true,
+      "group": "Screen"
     },
     {
       "name": "project",
       "args": "[name]",
       "summary": "pick the project (or switch to one by name)",
       "writes": false,
-      "complete": "projects"
+      "complete": "projects",
+      "group": "Flows"
     },
     {
       "name": "flow",
       "args": "[workflow] [idea…]",
       "summary": "start a flow: pick the workflow, then say the idea",
       "writes": true,
-      "complete": "workflows"
+      "complete": "workflows",
+      "group": "Flows"
     },
     {
       "name": "flows",
       "summary": "this project's flows, newest first",
-      "writes": false
+      "writes": false,
+      "group": "Flows"
     },
     {
       "name": "resume",
       "summary": "go on with a stopped or failed flow from its last saved step",
-      "writes": true
+      "writes": true,
+      "group": "Flows"
     },
     {
       "name": "stop",
       "summary": "stop the project's flow (every finished step stays saved)",
-      "writes": true
+      "writes": true,
+      "group": "Flows"
     },
     {
       "name": "status",
       "summary": "the flow: step, phase, criteria, what waits, tokens",
-      "writes": false
+      "writes": false,
+      "group": "Flows"
     },
     {
       "name": "next",
       "summary": "what to do next",
-      "writes": false
+      "writes": false,
+      "group": "Flows"
     },
     {
       "name": "inbox",
       "summary": "everything that waits for you, in every project",
-      "writes": false
+      "writes": false,
+      "group": "Gates"
     },
     {
       "name": "approve",
       "args": "[n]",
       "summary": "approve what waits (or inbox item n)",
-      "writes": true
+      "writes": true,
+      "group": "Gates"
     },
     {
       "name": "reject",
       "args": "[n] <why>",
       "summary": "send back what waits, with the reason",
-      "writes": true
+      "writes": true,
+      "group": "Gates"
     },
     {
       "name": "answer",
       "args": "[choice | q1=answer …]",
       "summary": "answer a gate's questions or choose one of its exits",
-      "writes": true
+      "writes": true,
+      "group": "Gates"
     },
     {
       "name": "jobs",
       "summary": "the project's agent calls, newest first",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "live",
       "summary": "the agents at work now and their last step",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "steps",
       "args": "[job]",
       "summary": "the flow's steps with their state (or one agent call's steps)",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "timeline",
       "summary": "what happened: steps and agent runs, newest first",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "workflows",
       "args": "[workflow]",
       "summary": "the project's workflows, and a workflow as a diagram",
       "writes": false,
-      "complete": "workflows"
+      "complete": "workflows",
+      "group": "Flows"
     },
     {
       "name": "diagram",
       "args": "<flow|workflow <id>|map-er [table]|map-system|map-modules|graph <symbol>> [zoom]",
       "summary": "keel's diagrams in ASCII",
       "writes": false,
-      "complete": "diagram"
+      "complete": "diagram",
+      "group": "Look"
     },
     {
       "name": "rules",
       "summary": "keel's rules for this project, and what agents may change right now",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "plugins",
       "summary": "the plugins keel has, and which are on here",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "budget",
       "summary": "tokens and money today, this month, per flow, and the caps",
-      "writes": false
+      "writes": false,
+      "group": "Look"
     },
     {
       "name": "dashboard",
@@ -129,23 +150,27 @@
       "summary": "the dashboard's link for this project",
       "writes": false,
       "complete": "dashboard",
-      "local": true
+      "local": true,
+      "group": "Look"
     },
     {
       "name": "model",
       "summary": "KeelBot's model (from keel's catalog)",
-      "writes": false
+      "writes": false,
+      "group": "KeelBot"
     },
     {
       "name": "chats",
       "summary": "earlier KeelBot chats of this project: open one",
-      "writes": false
+      "writes": false,
+      "group": "KeelBot"
     },
     {
       "name": "new",
       "summary": "a new KeelBot chat",
       "writes": false,
-      "local": true
+      "local": true,
+      "group": "KeelBot"
     },
     {
       "name": "mode",
@@ -153,7 +178,8 @@
       "summary": "KeelBot's mode: ask (reads, changes nothing) or fix (keel's rules apply)",
       "writes": false,
       "complete": "mode",
-      "local": true
+      "local": true,
+      "group": "KeelBot"
     },
     {
       "name": "panel",
@@ -161,13 +187,15 @@
       "summary": "show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle them)",
       "writes": false,
       "complete": "panel",
-      "local": true
+      "local": true,
+      "group": "Screen"
     },
     {
       "name": "clear",
       "summary": "clear the screen",
       "writes": false,
-      "local": true
+      "local": true,
+      "group": "Screen"
     },
     {
       "name": "quit",
@@ -177,7 +205,8 @@
         "q"
       ],
       "writes": false,
-      "local": true
+      "local": true,
+      "group": "Screen"
     }
   ],
   "keys": [
@@ -217,5 +246,12 @@
     "map-system",
     "map-modules",
     "graph"
+  ],
+  "groups": [
+    "Flows",
+    "Gates",
+    "Look",
+    "KeelBot",
+    "Screen"
   ]
 }

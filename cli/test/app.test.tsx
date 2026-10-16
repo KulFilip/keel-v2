@@ -7,6 +7,7 @@ import { App, type Probe } from "../src/ui/App";
 import { KeelCore } from "../src/core/keel";
 import { stripAnsi } from "../src/script";
 import { stubKeel, tick, waitFor } from "./stub";
+import { VERBS } from "../src/ui/thinking";
 
 function setup() {
   const stub = stubKeel();
@@ -37,10 +38,11 @@ describe("keel TUI", () => {
     expect(f).toContain("keel v2 0.17.3");
     expect(f).toContain("keel     http://localhost:8080 · docker · fake model");
     expect(f).toContain("project  demo · branch keel/health");
-    expect(f).toContain('flow     feature "Add a health endpoint" · waiting at spec_gate');
+    expect(f).toContain('flow     feature "Add a health endpoint" · ◆ waiting at spec_gate');
     expect(f).toContain("waiting  1 waiting for you · gate: spec approval");
     expect(f).toContain("next     waiting at spec_gate (spec approval): /approve");
-    expect(f).toContain("Ask KeelBot, or / for commands");
+    // a gate waits on this project: the prompt says how to answer it
+    expect(f).toContain("A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot");
     t.r.unmount();
   });
 
@@ -89,7 +91,7 @@ describe("keel TUI", () => {
     t.core.onMessage({ event: "helper.step", data: JSON.stringify({ type: "helper.step", thread_id: "s1", project_id: "demo", at: "x", call_id: "call-9",
       data: { n: 2, kind: "text", text: "It starts in **src/main.ts:3**" } }) });
     await tick(50);
-    expect(t.frame()).toContain("KeelBot is working");
+    expect(t.frame()).toMatch(new RegExp(`(${VERBS.join("|")})… \\(\\d+s · ~\\d+ tokens · esc to interrupt\\)`));
     expect(t.frame()).toContain("⎿ grep: createApp");
     expect(t.frame()).toContain("It starts in src/main.ts:3");
     t.stub.answer("It starts in `src/main.ts:3`, where **createApp** runs.");
@@ -99,7 +101,7 @@ describe("keel TUI", () => {
     const f = t.frame();
     expect(f).toContain("It starts in src/main.ts:3, where createApp runs.");
     expect(f).toContain("KeelBot · fake/fake · 1.5k tokens");
-    expect(f).not.toContain("KeelBot is working");
+    expect(f).not.toContain("esc to interrupt");
     expect(t.stub.calls.find((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn")?.body).toEqual({ text: "where does the app start?" });
     t.r.unmount();
   });
@@ -122,12 +124,12 @@ describe("keel TUI", () => {
     t.r.stdin.write("\x06");                      // Ctrl+F
     await tick(50);
     let f = t.frame();
-    expect(f).toContain('Flow · feature "Add a health endpoint" · waiting');
+    expect(f).toContain('Flow · feature "Add a health endpoint" · ◆ waiting');
     expect(f).toContain("✔ preflight  ◆ spec  · red  · green  · gate");
     expect(f).toContain("◆ waiting for you: spec approval · /approve or /reject <why>");
     t.r.stdin.write("\x01");                      // Ctrl+A
     await waitFor(() => t.frame().includes("Agents · 1 at work"));
-    expect(t.frame()).toContain("▶ explorer · spec · fake/fake · 1.0k tokens");
+    expect(t.frame()).toMatch(new RegExp(`explorer · (${VERBS.join("|")})… \\(\\d+s · ~1\\.0k tokens · spec\\)`));
     t.r.stdin.write("\x02");                      // Ctrl+B
     await tick(50);
     f = t.frame();
