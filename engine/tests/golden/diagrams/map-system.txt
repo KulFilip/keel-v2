@@ -1,0 +1,20 @@
+map system: 4 parts, 3 links
+
++- web (React) ----------------+
+| the dashboard                |
+| pages: 12                    |
+| id=web                       |
++------------------------------+
++- api (Kotlin) ---------------+  +- engine (Python) ------------+
+| REST + SSE                   |  | LangGraph                    |
+| SQLite                       |  | id=engine                    |
+| id=api                       |  +------------------------------+
++------------------------------+
++- keel.db --------------------+
+| id=db                        |
++------------------------------+
+
+links:
+  api (Kotlin) --> keel.db (jdbc)
+  api (Kotlin) --> engine (Python) (http)
+  web (React) --> api (Kotlin) (REST)

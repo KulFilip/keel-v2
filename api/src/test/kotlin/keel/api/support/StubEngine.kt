@@ -128,6 +128,8 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.startsWith("/marketplace/") -> market.route(method, path, body, query)
         path == "/threads" && method == "POST" && threadRefusal != null -> threadRefusal!!
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
+        path == "/diagrams/ascii" -> if (body?.path("kind")?.asText() == "pie") 400 to mapOf("error" to "no diagram kind \"pie\"")
+            else 200 to mapOf("kind" to body?.path("kind")?.asText(), "text" to "stub ${body?.path("kind")?.asText()} ${body?.path("width")?.asInt()}\n", "lines" to 1)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
         path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate, ciFixTemplate) + extraTemplates
         path == "/plugins/ci/runs" -> 200 to ciRuns.filter { body?.path("branch")?.asText().isNullOrBlank() || it["branch"] == body?.path("branch")?.asText() }

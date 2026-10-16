@@ -1,0 +1,877 @@
+{
+ "workflow": "change",
+ "name": "change (keel)",
+ "steps": [
+  {
+   "id": "triage",
+   "kind": "agent",
+   "name": "triage",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "triage",
+   "markers": [
+    "SIZE"
+   ],
+   "instructions": "Triage this change with one question: could a test notice a difference? No \u2192 trivial (refactor, rename, formatting, docs, a dependency bump with no effect, a UI typo): write no criteria. Yes \u2192 does it touch the contract, a migration or auth, or need more than three criteria? Then it is a feature. Otherwise it is small: one to three criteria. A trivial change may add new test files but never edit an existing test, so a change that must edit one (a rename the tests call, say) is small, not trivial. Say the size, the reason and the files you expect to touch. SIZE is trivial, small or feature."
+  },
+  {
+   "id": "size",
+   "kind": "code",
+   "name": "size + criteria",
+   "phase": "triage",
+   "action": "change_size"
+  },
+  {
+   "id": "scope_gate",
+   "kind": "gate",
+   "name": "scope check",
+   "phase": "small-change",
+   "back": "triage",
+   "lock": true,
+   "recommend": "SIZE",
+   "choices": [
+    "small",
+    "trivial",
+    "feature"
+   ]
+  },
+  {
+   "id": "is_feature",
+   "kind": "branch",
+   "name": "escalate to a feature",
+   "phase": "small-change",
+   "no": "is_trivial",
+   "when": {
+    "marker": "CHOICE",
+    "equals": "feature",
+    "step": "scope_gate"
+   }
+  },
+  {
+   "id": "to_feature",
+   "kind": "code",
+   "name": "start the feature flow with the inline criteria",
+   "phase": "small-change",
+   "action": "start_flow",
+   "flow": "feature",
+   "seed": {
+    "title": "$title",
+    "acs": "$acs",
+    "escalated_from": "change"
+   },
+   "then": "end"
+  },
+  {
+   "id": "is_trivial",
+   "kind": "branch",
+   "name": "trivial",
+   "phase": "small-change",
+   "no": "small",
+   "when": {
+    "marker": "CHOICE",
+    "equals": "trivial",
+    "step": "scope_gate"
+   }
+  },
+  {
+   "id": "trivial",
+   "kind": "agent",
+   "name": "trivial change",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "trivial",
+   "instructions": "Make the change. Nothing observable may change: do not touch existing tests, the contract or migrations. If the change needs an existing test edited, it is not trivial: stop and say so."
+  },
+  {
+   "id": "trivial_commit",
+   "kind": "code",
+   "name": "verify + trivial commit",
+   "phase": "trivial",
+   "action": "verify_green+commit",
+   "lock": true,
+   "then": "ship_plan",
+   "rounds": 1,
+   "after_rounds": "not_trivial"
+  },
+  {
+   "id": "small",
+   "kind": "code",
+   "name": "small change",
+   "phase": "small-change",
+   "action": "change_start",
+   "back": "triage",
+   "rounds": 1
+  },
+  {
+   "id": "red",
+   "kind": "agent",
+   "name": "red",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "red",
+   "per_ac": true
+  },
+  {
+   "id": "verify_red",
+   "kind": "code",
+   "name": "verify_red",
+   "phase": "red",
+   "action": "verify_red+commit",
+   "per_ac": true,
+   "lock": true
+  },
+  {
+   "id": "green",
+   "kind": "agent",
+   "name": "green",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "green",
+   "per_ac": true
+  },
+  {
+   "id": "verify_green",
+   "kind": "code",
+   "name": "verify_green + commit",
+   "phase": "green",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "lock": true
+  },
+  {
+   "id": "ac_gate",
+   "kind": "gate",
+   "name": "AC gate",
+   "phase": "gate",
+   "per_ac": true,
+   "back": "red",
+   "lock": true
+  },
+  {
+   "id": "ship_plan",
+   "kind": "gate",
+   "name": "which ship steps run",
+   "phase": "ship",
+   "lock": true,
+   "skip_menu": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify_fix",
+   "kind": "agent",
+   "name": "fix what the checks found",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "review-fix",
+   "retry_only": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify_fix_commit",
+   "kind": "code",
+   "name": "commit the fix",
+   "phase": "review-fix",
+   "action": "commit",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify",
+   "kind": "code",
+   "name": "verify fast + module",
+   "phase": "ship",
+   "action": "verify_fast+verify_module",
+   "lock": true,
+   "rounds": 2,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_lint",
+   "kind": "code",
+   "name": "static checks",
+   "phase": "ship",
+   "action": "verify_lint",
+   "soft": true,
+   "skippable": "optional",
+   "group": "lint",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_release",
+   "kind": "code",
+   "name": "verify release",
+   "phase": "ship",
+   "action": "verify_release",
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "release",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_cover_measure",
+   "kind": "code",
+   "name": "measure coverage",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_measured",
+   "kind": "branch",
+   "name": "the coverage command failed",
+   "phase": "coverage-fix",
+   "no": "ship_cover_needs_work",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_measure_failed",
+   "kind": "gate",
+   "name": "coverage could not be measured",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": {
+    "try_again": "ship_cover_measure",
+    "go_on": "ship_cover_report"
+   },
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_needs_work",
+   "kind": "branch",
+   "name": "coverage fails",
+   "phase": "coverage-fix",
+   "no": "ship_cover_report",
+   "when": {
+    "marker": "RESULT",
+    "step": "ship_cover_measure",
+    "equals": "fail"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_decide",
+   "kind": "gate",
+   "name": "decide test / delete / accept",
+   "phase": "coverage-fix",
+   "lock": true,
+   "for_each": "coverage_groups",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": [
+    "test",
+    "delete",
+    "accept"
+   ],
+   "on_skip": {
+    "choice": "accept",
+    "record": "coverage_accepted"
+   },
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_write",
+   "kind": "agent",
+   "name": "cover the group: write the test, or delete the unreachable lines",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "coverage-fix",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_review",
+   "kind": "agent",
+   "name": "review the coverage test: assertions lens",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "coverage-fix",
+   "back": "ship_cover_write",
+   "lock": true,
+   "per_item": true,
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_commit",
+   "kind": "code",
+   "name": "coverage commit",
+   "phase": "coverage-fix",
+   "action": "commit",
+   "back": "ship_cover_write",
+   "lock": true,
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_remeasure",
+   "kind": "code",
+   "name": "measure again",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_covered",
+   "kind": "branch",
+   "name": "coverage passes",
+   "phase": "coverage-fix",
+   "no": "ship_cover_decide",
+   "when": {
+    "marker": "RESULT",
+    "step": "ship_cover_remeasure",
+    "equals": "pass"
+   },
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_report",
+   "kind": "code",
+   "name": "coverage verdict",
+   "phase": "coverage-fix",
+   "action": "coverage_report",
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_deps",
+   "kind": "code",
+   "name": "verify deps",
+   "phase": "ship",
+   "action": "verify_deps",
+   "skippable": "deferred",
+   "group": "deps",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_audit",
+   "kind": "code",
+   "name": "audit",
+   "phase": "ship",
+   "action": "audit",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_trace",
+   "kind": "code",
+   "name": "trace --strict",
+   "phase": "ship",
+   "action": "trace_strict",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_lenses",
+   "kind": "code",
+   "name": "review lenses",
+   "phase": "ship",
+   "action": "review_lenses",
+   "skippable": "optional",
+   "group": "reviewers",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_review",
+   "kind": "parallel",
+   "name": "ship review, one lens each",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "from": "review_lenses",
+   "rounds": 2,
+   "redo": "ship_verify",
+   "skippable": "optional",
+   "group": "reviewers",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_spec_walk",
+   "kind": "agent",
+   "name": "walk the diff against the spec: name behaviour no criterion asks for",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "rounds": 2,
+   "redo": "ship_verify",
+   "skippable": "optional",
+   "group": "spec_walk",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_final_review",
+   "kind": "gate",
+   "name": "final review",
+   "phase": "final-review",
+   "back": "ship_verify_fix",
+   "lock": true,
+   "report": "verdicts",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory",
+   "kind": "agent",
+   "name": "knowledge update",
+   "agent": "librarian",
+   "model": "default",
+   "phase": "memory",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_check",
+   "kind": "code",
+   "name": "knowledge check",
+   "phase": "memory",
+   "action": "knowledge_check",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_commit",
+   "kind": "code",
+   "name": "commit memory",
+   "phase": "memory",
+   "action": "commit",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_pr",
+   "kind": "code",
+   "name": "PR body",
+   "phase": "close",
+   "action": "pr",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_pr_gate",
+   "kind": "gate",
+   "name": "open the PR",
+   "phase": "close",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_open_pr",
+   "kind": "code",
+   "name": "open the PR (never pushes)",
+   "phase": "close",
+   "action": "open_pr",
+   "included_from": "ship"
+  },
+  {
+   "id": "finish",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "then": "end"
+  },
+  {
+   "id": "not_trivial",
+   "kind": "code",
+   "name": "not trivial; put it back and triage again",
+   "phase": "small-change",
+   "action": "reset",
+   "then": "triage"
+  }
+ ],
+ "expect": {
+  "main": [
+   "triage",
+   "size",
+   "scope_gate",
+   "is_feature",
+   "is_trivial",
+   "small",
+   "red",
+   "verify_red",
+   "green",
+   "verify_green",
+   "ac_gate",
+   "ship_plan",
+   "ship_verify_fix",
+   "ship_verify_fix_commit",
+   "ship_verify",
+   "ship_lint",
+   "ship_release",
+   "ship_cover_measure",
+   "ship_cover_measured",
+   "ship_cover_measure_failed",
+   "ship_cover_needs_work",
+   "ship_cover_decide",
+   "ship_cover_write",
+   "ship_cover_review",
+   "ship_cover_commit",
+   "ship_cover_remeasure",
+   "ship_cover_covered",
+   "ship_cover_report",
+   "ship_deps",
+   "ship_audit",
+   "ship_trace",
+   "ship_lenses",
+   "ship_review",
+   "ship_spec_walk",
+   "ship_final_review",
+   "ship_memory",
+   "ship_memory_check",
+   "ship_memory_commit",
+   "ship_pr",
+   "ship_pr_gate",
+   "ship_open_pr",
+   "finish"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "triage",
+    "nodes": [
+     {
+      "step": "triage",
+      "side": []
+     },
+     {
+      "step": "size",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "small-change",
+    "nodes": [
+     {
+      "step": "scope_gate",
+      "side": []
+     },
+     {
+      "if": "is_feature",
+      "cond": "you chose feature at scope check",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "to_feature",
+         "side": []
+        }
+       ],
+       "side": true
+      },
+      "no": "go"
+     },
+     {
+      "if": "is_trivial",
+      "cond": "you chose trivial at scope check",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "trivial",
+         "side": []
+        },
+        {
+         "step": "trivial_commit",
+         "side": []
+        },
+        {
+         "step": "not_trivial",
+         "side": []
+        }
+       ],
+       "side": true
+      },
+      "no": "go"
+     },
+     {
+      "step": "small",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "loop",
+    "phase": "ac",
+    "nodes": [
+     {
+      "loop": "ac",
+      "body": [
+       {
+        "step": "red",
+        "side": []
+       },
+       {
+        "step": "verify_red",
+        "side": []
+       },
+       {
+        "step": "green",
+        "side": []
+       },
+       {
+        "step": "verify_green",
+        "side": []
+       },
+       {
+        "step": "ac_gate",
+        "side": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "include",
+    "phase": "ship",
+    "nodes": [
+     {
+      "include": "ship",
+      "count": 30,
+      "body": [
+       {
+        "kind": "phase",
+        "phase": "ship",
+        "nodes": [
+         {
+          "step": "ship_plan",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "review-fix",
+        "nodes": [
+         {
+          "step": "ship_verify_fix",
+          "side": []
+         },
+         {
+          "step": "ship_verify_fix_commit",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "ship",
+        "nodes": [
+         {
+          "step": "ship_verify",
+          "side": []
+         },
+         {
+          "step": "ship_lint",
+          "side": []
+         },
+         {
+          "step": "ship_release",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "include",
+        "phase": "cover",
+        "nodes": [
+         {
+          "include": "ship/cover",
+          "count": 11,
+          "body": [
+           {
+            "kind": "phase",
+            "phase": "coverage-fix",
+            "nodes": [
+             {
+              "step": "ship_cover_measure",
+              "side": []
+             },
+             {
+              "if": "ship_cover_measured",
+              "cond": "coverage error is set",
+              "side": [],
+              "yes": {
+               "nodes": [
+                {
+                 "step": "ship_cover_measure_failed",
+                 "side": []
+                }
+               ],
+               "side": false
+              },
+              "no": "go"
+             },
+             {
+              "if": "ship_cover_needs_work",
+              "cond": "measure coverage says RESULT = fail",
+              "side": [],
+              "yes": {
+               "nodes": [
+                {
+                 "loop": "ship_cover_decide",
+                 "body": [
+                  {
+                   "step": "ship_cover_decide",
+                   "side": []
+                  },
+                  {
+                   "step": "ship_cover_write",
+                   "side": []
+                  },
+                  {
+                   "step": "ship_cover_review",
+                   "side": []
+                  },
+                  {
+                   "step": "ship_cover_commit",
+                   "side": []
+                  }
+                 ]
+                },
+                {
+                 "step": "ship_cover_remeasure",
+                 "side": []
+                },
+                {
+                 "step": "ship_cover_covered",
+                 "side": []
+                }
+               ],
+               "side": false
+              },
+              "no": "go"
+             },
+             {
+              "step": "ship_cover_report",
+              "side": []
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "ship",
+        "nodes": [
+         {
+          "step": "ship_deps",
+          "side": []
+         },
+         {
+          "step": "ship_audit",
+          "side": []
+         },
+         {
+          "step": "ship_trace",
+          "side": []
+         },
+         {
+          "step": "ship_lenses",
+          "side": []
+         },
+         {
+          "step": "ship_review",
+          "side": []
+         },
+         {
+          "step": "ship_spec_walk",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "final-review",
+        "nodes": [
+         {
+          "step": "ship_final_review",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "memory",
+        "nodes": [
+         {
+          "step": "ship_memory",
+          "side": []
+         },
+         {
+          "step": "ship_memory_check",
+          "side": []
+         },
+         {
+          "step": "ship_memory_commit",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "close",
+        "nodes": [
+         {
+          "step": "ship_pr",
+          "side": []
+         },
+         {
+          "step": "ship_pr_gate",
+          "side": []
+         },
+         {
+          "step": "ship_open_pr",
+          "side": []
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "finish",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {
+   "not_trivial": "is_trivial",
+   "to_feature": "is_feature",
+   "trivial": "is_trivial",
+   "trivial_commit": "is_trivial"
+  }
+ }
+}

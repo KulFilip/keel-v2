@@ -1,0 +1,301 @@
+{
+ "workflow": "init",
+ "name": "init (keel)",
+ "steps": [
+  {
+   "id": "discover",
+   "kind": "agent",
+   "name": "discover",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "setup"
+  },
+  {
+   "id": "arch_detect",
+   "kind": "code",
+   "name": "detect the architecture",
+   "phase": "setup",
+   "action": "arch_detect"
+  },
+  {
+   "id": "arch_survey",
+   "kind": "parallel",
+   "name": "arch-surveyor (low confidence only)",
+   "agent": "arch-surveyor",
+   "model": "default",
+   "phase": "setup",
+   "from": "arch_items",
+   "cap": 1,
+   "markers": [
+    "ARCH"
+   ]
+  },
+  {
+   "id": "questions",
+   "kind": "gate",
+   "name": "questions",
+   "phase": "setup",
+   "back": "discover"
+  },
+  {
+   "id": "plan_gate",
+   "kind": "gate",
+   "name": "setup plan",
+   "phase": "setup",
+   "back": "discover",
+   "lock": true
+  },
+  {
+   "id": "write_config",
+   "kind": "code",
+   "name": "write config",
+   "phase": "setup",
+   "action": "write_config",
+   "lock": true
+  },
+  {
+   "id": "arch_set",
+   "kind": "code",
+   "name": "record the architecture",
+   "phase": "setup",
+   "action": "arch_set"
+  },
+  {
+   "id": "lanes",
+   "kind": "parallel",
+   "name": "ladder + knowledge",
+   "phase": "setup",
+   "parallel": 3,
+   "lanes": [
+    {
+     "name": "ladder",
+     "sub": "ladder_soft",
+     "kind": "code"
+    },
+    {
+     "name": "knowledge",
+     "sub": "librarian",
+     "kind": "agent"
+    }
+   ]
+  },
+  {
+   "id": "doctor",
+   "kind": "parallel",
+   "name": "setup-doctor per failing rung",
+   "agent": "setup-doctor",
+   "model": "default",
+   "phase": "setup",
+   "from": "failed_rungs",
+   "markers": [
+    "DIAGNOSIS"
+   ]
+  },
+  {
+   "id": "ladder_retry",
+   "kind": "code",
+   "name": "run the ladder again",
+   "phase": "setup",
+   "action": "ladder_retry"
+  },
+  {
+   "id": "ladder_ok",
+   "kind": "branch",
+   "name": "green or a rung to decide",
+   "phase": "setup",
+   "no": "doctor",
+   "when": {
+    "marker": "LADDER",
+    "in": [
+     "green",
+     "stuck"
+    ]
+   }
+  },
+  {
+   "id": "rung_gate",
+   "kind": "gate",
+   "name": "a rung keeps failing",
+   "phase": "setup",
+   "when": {
+    "data": "rung_question"
+   },
+   "choices": {
+    "fix": "rung_apply",
+    "exclude": "rung_apply",
+    "accept": "rung_apply"
+   }
+  },
+  {
+   "id": "rung_apply",
+   "kind": "code",
+   "name": "apply the rung decision",
+   "phase": "setup",
+   "action": "rung_apply"
+  },
+  {
+   "id": "ladder_done",
+   "kind": "branch",
+   "name": "ladder green",
+   "phase": "setup",
+   "no": "doctor",
+   "when": {
+    "marker": "LADDER",
+    "equals": "green"
+   }
+  },
+  {
+   "id": "memory_check",
+   "kind": "code",
+   "name": "knowledge check",
+   "phase": "setup",
+   "action": "knowledge_check"
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit",
+   "phase": "setup",
+   "action": "commit",
+   "lock": true
+  },
+  {
+   "id": "audit_now",
+   "kind": "gate",
+   "name": "audit now",
+   "phase": "setup",
+   "choices": {
+    "skip": "hand_over",
+    "hunt": "start_hunt"
+   }
+  },
+  {
+   "id": "start_hunt",
+   "kind": "code",
+   "name": "start a bug hunt",
+   "phase": "setup",
+   "action": "start_flow",
+   "flow": "hunt",
+   "seed": {
+    "title": "Bug hunt after init",
+    "mode": "semi",
+    "scope": "all"
+   },
+   "then": "end"
+  },
+  {
+   "id": "hand_over",
+   "kind": "gate",
+   "name": "hand over",
+   "phase": "setup"
+  }
+ ],
+ "expect": {
+  "main": [
+   "discover",
+   "arch_detect",
+   "arch_survey",
+   "questions",
+   "plan_gate",
+   "write_config",
+   "arch_set",
+   "lanes",
+   "doctor",
+   "ladder_retry",
+   "ladder_ok",
+   "rung_gate",
+   "rung_apply",
+   "ladder_done",
+   "memory_check",
+   "commit",
+   "audit_now",
+   "hand_over"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "setup",
+    "nodes": [
+     {
+      "step": "discover",
+      "side": []
+     },
+     {
+      "step": "arch_detect",
+      "side": []
+     },
+     {
+      "step": "arch_survey",
+      "side": []
+     },
+     {
+      "step": "questions",
+      "side": []
+     },
+     {
+      "step": "plan_gate",
+      "side": []
+     },
+     {
+      "step": "write_config",
+      "side": []
+     },
+     {
+      "step": "arch_set",
+      "side": []
+     },
+     {
+      "step": "lanes",
+      "side": []
+     },
+     {
+      "step": "doctor",
+      "side": []
+     },
+     {
+      "step": "ladder_retry",
+      "side": []
+     },
+     {
+      "step": "ladder_ok",
+      "side": []
+     },
+     {
+      "step": "rung_gate",
+      "side": []
+     },
+     {
+      "step": "rung_apply",
+      "side": []
+     },
+     {
+      "step": "ladder_done",
+      "side": []
+     },
+     {
+      "step": "memory_check",
+      "side": []
+     },
+     {
+      "step": "commit",
+      "side": []
+     },
+     {
+      "step": "audit_now",
+      "side": [
+       "start_hunt"
+      ]
+     },
+     {
+      "step": "hand_over",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {
+   "start_hunt": "audit_now"
+  }
+ }
+}

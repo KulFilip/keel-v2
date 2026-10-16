@@ -1,0 +1,60 @@
+{
+ "workflow": "knowledge-refresh",
+ "name": "knowledge refresh (keel)",
+ "steps": [
+  {
+   "id": "librarians",
+   "kind": "parallel",
+   "name": "librarian per section",
+   "agent": "librarian",
+   "model": "default",
+   "phase": "memory",
+   "parallel": 5
+  },
+  {
+   "id": "memory_check",
+   "kind": "code",
+   "name": "knowledge check",
+   "phase": "memory",
+   "action": "knowledge_check",
+   "lock": true
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit",
+   "phase": "memory",
+   "action": "commit",
+   "lock": true
+  }
+ ],
+ "expect": {
+  "main": [
+   "librarians",
+   "memory_check",
+   "commit"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "memory",
+    "nodes": [
+     {
+      "step": "librarians",
+      "side": []
+     },
+     {
+      "step": "memory_check",
+      "side": []
+     },
+     {
+      "step": "commit",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

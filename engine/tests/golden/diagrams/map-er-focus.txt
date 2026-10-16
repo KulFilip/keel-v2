@@ -1,0 +1,15 @@
+database: users and its 2 neighbour table(s)
+
++- users ---------------------------------------+  +- orders --------------------------------------+
+| PK id bigint                                  |  | PK id bigint                                  |
+|    email text UQ not null                     |  | FK user_id bigint -> users.id not null        |
+| FK org_id bigint -> orgs.id                   |  |    total numeric(10,2)                        |
++-----------------------------------------------+  +-----------------------------------------------+
++- orgs ----------------------------------------+
+| PK id bigint                                  |
+|    name text not null                         |
++-----------------------------------------------+
+
+relations:
+  orders.user_id --> users.id (n:1, on delete cascade)
+  users.org_id --> orgs.id (n:1)

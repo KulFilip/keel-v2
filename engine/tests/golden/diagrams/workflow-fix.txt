@@ -1,0 +1,63 @@
+workflow fix "fix (keel)" - 56 steps, 7 gates
+
+== Bug report: take in the bug report ==  id=bug-report
+   #  bug report  (code bug_intake)
+== Reproduce: prove the bug with a failing test ==  id=bug-repro
+   o  bug-repro  (agent reproducer)
+   <  reproduced  (branch) if bug-repro says REPRO = confirmed?
+      yes: go on
+      no: side path
+      |   #  hand to diagnose  (code start_flow)
+      |        starts the diagnose flow
+      |        then -> end of the flow
+   #  verify red + commit  (code verify_red+commit)
+== Gate R: you confirm the bug is reproduced ==  id=gate-r
+  [?] gate R  (gate, you decide)
+        choices: investigate / stop
+        send back -> bug-repro  (loops back)
+   <  stop at gate R  (branch) if you chose stop at gate R?
+      yes: side path
+      |   #  stop; the reproducing test stays on the branch  (code)
+      |        then -> end of the flow
+      no: go on
+== Investigate: find the root cause from evidence ==  id=bug-investigate
+   o  hypotheses  (agent investigator)
+   =  one investigator per hypothesis  (parallel)
+   #  collect the findings  (code report)
+   <  a cause is confirmed  (branch) if one investigator per hypothesis (any of them) says ROOT-C...
+      yes: go on
+      no: side path
+      |   <  model already escalated  (branch)
+      |        yes -> hand to diagnose
+      |        no -> escalate the investigator's model once
+      |   #  escalate the investigator's model once  (code escalate_model)
+      |        then -> one investigator per hypothesis  (loops back)
+   o  fix plan  (agent investigator)
+   #  plan for gate F  (code report)
+== Gate F: you approve the fix plan ==  id=gate-f
+  [?] gate F  (gate, you decide)
+        choices: fix / feature
+        send back -> fix plan  (loops back)
+   <  a missing requirement  (branch) if you chose feature at gate F?
+      yes: side path
+      |   #  start the feature flow with the evidence  (code start_flow)
+      |        starts the feature flow
+      |        then -> end of the flow
+      no: go on
+== Fix: fix the bug while the tests stay frozen ==  id=bug-fix
+   o  bug-fix  (agent implementer)
+   #  verify + commit  (code verify_green+commit)
+        after 1 round -> reset and reproduce again
+      \  #  reset and reproduce again  (code reset)
+      \       then -> bug-repro  (loops back)
+   <  regression e2e needed  (branch) if bug report or fix plan says E2E = yes?
+      yes:
+      |   o  regression e2e  (agent e2e-author)
+      |   #  commit e2e  (code commit)
+      no: go on
+[+] include ship: checks, reviews and the pull request (30 steps)  id=ship
+== Close: decision records and the closing note ==  id=close
+   #  done  (code)
+        then -> end of the flow
+
+ o  agent   #  code   [?] gate (you decide)   <  branch   =  parallel   [+] included flow

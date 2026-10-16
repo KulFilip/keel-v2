@@ -1,0 +1,77 @@
+{
+ "workflow": "review",
+ "name": "review (keel)",
+ "steps": [
+  {
+   "id": "scope",
+   "kind": "code",
+   "name": "review scope",
+   "phase": "review",
+   "action": "review_scope",
+   "lock": true
+  },
+  {
+   "id": "reviewers",
+   "kind": "parallel",
+   "name": "one reviewer per lens",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "review",
+   "from": "review_lenses",
+   "markers": [
+    "BLOCKING",
+    "CODE-REVIEW",
+    "AC-REVIEW"
+   ],
+   "instructions": "Review only the scope in your item (its diff, or the criterion's commits) and only through your lens. Report every finding in your own words, blocking and non-blocking separately. Do not fix anything."
+  },
+  {
+   "id": "report",
+   "kind": "code",
+   "name": "report",
+   "phase": "review",
+   "action": "report"
+  },
+  {
+   "id": "read_report",
+   "kind": "gate",
+   "name": "review report",
+   "phase": "review",
+   "back": "reviewers"
+  }
+ ],
+ "expect": {
+  "main": [
+   "scope",
+   "reviewers",
+   "report",
+   "read_report"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "review",
+    "nodes": [
+     {
+      "step": "scope",
+      "side": []
+     },
+     {
+      "step": "reviewers",
+      "side": []
+     },
+     {
+      "step": "report",
+      "side": []
+     },
+     {
+      "step": "read_report",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

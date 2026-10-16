@@ -1,0 +1,154 @@
+{
+ "workflow": "lint",
+ "name": "lint (keel)",
+ "steps": [
+  {
+   "id": "scope",
+   "kind": "code",
+   "name": "lint scope",
+   "phase": "lint-fix",
+   "action": "lint_scope",
+   "lock": true
+  },
+  {
+   "id": "run",
+   "kind": "code",
+   "name": "run the static checks",
+   "phase": "lint-fix",
+   "action": "lint_run",
+   "lock": true,
+   "soft": true
+  },
+  {
+   "id": "findings",
+   "kind": "branch",
+   "name": "the checks found problems",
+   "phase": "lint-fix",
+   "no": "commit",
+   "when": {
+    "marker": "RESULT",
+    "step": "run",
+    "equals": "fail"
+   }
+  },
+  {
+   "id": "fix",
+   "kind": "agent",
+   "name": "fix what the checks found, without changing behaviour",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "lint-fix",
+   "instructions": "Fix only what these static checks report, in the files they name. Do not change behaviour: no new features, no changed logic, no deleted or weakened tests, no disabled rules or suppression comments unless the finding is a false positive you explain in one line. Run nothing that needs the network. What the checks said:\n{{data.lint_findings}}"
+  },
+  {
+   "id": "rerun",
+   "kind": "code",
+   "name": "run the checks again",
+   "phase": "lint-fix",
+   "action": "lint_run",
+   "lock": true,
+   "soft": true
+  },
+  {
+   "id": "clean",
+   "kind": "branch",
+   "name": "the checks pass",
+   "phase": "lint-fix",
+   "no": "fix",
+   "when": {
+    "marker": "RESULT",
+    "step": "rerun",
+    "equals": "pass"
+   },
+   "rounds": 2
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit: chore(lint)",
+   "phase": "lint-fix",
+   "action": "commit",
+   "lock": true
+  },
+  {
+   "id": "report",
+   "kind": "code",
+   "name": "lint report",
+   "phase": "lint-fix",
+   "action": "lint_report"
+  },
+  {
+   "id": "read_report",
+   "kind": "gate",
+   "name": "lint report",
+   "phase": "lint-fix",
+   "back": "run"
+  }
+ ],
+ "expect": {
+  "main": [
+   "scope",
+   "run",
+   "findings",
+   "fix",
+   "rerun",
+   "clean",
+   "commit",
+   "report",
+   "read_report"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "lint-fix",
+    "nodes": [
+     {
+      "step": "scope",
+      "side": []
+     },
+     {
+      "step": "run",
+      "side": []
+     },
+     {
+      "if": "findings",
+      "cond": "run the static checks says RESULT = fail",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "fix",
+         "side": []
+        },
+        {
+         "step": "rerun",
+         "side": []
+        },
+        {
+         "step": "clean",
+         "side": []
+        }
+       ],
+       "side": false
+      },
+      "no": "go"
+     },
+     {
+      "step": "commit",
+      "side": []
+     },
+     {
+      "step": "report",
+      "side": []
+     },
+     {
+      "step": "read_report",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

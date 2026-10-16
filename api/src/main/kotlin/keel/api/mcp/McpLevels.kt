@@ -151,6 +151,10 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall)$"),
         )
         /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
-        private val READ_POSTS = listOf(Regex("^/api/projects/[^/]+/rules/check$"))
+        private val READ_POSTS = listOf(
+            Regex("^/api/projects/[^/]+/rules/check$"),
+            // keel's ASCII diagrams (keel TUI, keel2 mcp's diagram tools): drawing changes nothing
+            Regex("^/api/diagrams/ascii$"),
+        )
     }
 }

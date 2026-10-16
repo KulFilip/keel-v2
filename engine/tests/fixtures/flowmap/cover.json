@@ -1,0 +1,216 @@
+{
+ "workflow": "cover",
+ "name": "cover (keel)",
+ "steps": [
+  {
+   "id": "measure",
+   "kind": "code",
+   "name": "measure coverage",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true
+  },
+  {
+   "id": "measured",
+   "kind": "branch",
+   "name": "the coverage command failed",
+   "phase": "coverage-fix",
+   "no": "needs_work",
+   "when": {
+    "data": "coverage_error"
+   }
+  },
+  {
+   "id": "measure_failed",
+   "kind": "gate",
+   "name": "coverage could not be measured",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_error"
+   },
+   "choices": {
+    "try_again": "measure",
+    "go_on": "report"
+   }
+  },
+  {
+   "id": "needs_work",
+   "kind": "branch",
+   "name": "coverage fails",
+   "phase": "coverage-fix",
+   "no": "report",
+   "when": {
+    "marker": "RESULT",
+    "step": "measure",
+    "equals": "fail"
+   }
+  },
+  {
+   "id": "decide",
+   "kind": "gate",
+   "name": "decide test / delete / accept",
+   "phase": "coverage-fix",
+   "lock": true,
+   "for_each": "coverage_groups",
+   "per_item": true,
+   "choices": [
+    "test",
+    "delete",
+    "accept"
+   ],
+   "on_skip": {
+    "choice": "accept",
+    "record": "coverage_accepted"
+   }
+  },
+  {
+   "id": "write",
+   "kind": "agent",
+   "name": "cover the group: write the test, or delete the unreachable lines",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "coverage-fix",
+   "per_item": true
+  },
+  {
+   "id": "review",
+   "kind": "agent",
+   "name": "review the coverage test: assertions lens",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "coverage-fix",
+   "back": "write",
+   "lock": true,
+   "per_item": true,
+   "rounds": 2
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "coverage commit",
+   "phase": "coverage-fix",
+   "action": "commit",
+   "back": "write",
+   "lock": true,
+   "per_item": true
+  },
+  {
+   "id": "remeasure",
+   "kind": "code",
+   "name": "measure again",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true
+  },
+  {
+   "id": "covered",
+   "kind": "branch",
+   "name": "coverage passes",
+   "phase": "coverage-fix",
+   "no": "decide",
+   "when": {
+    "marker": "RESULT",
+    "step": "remeasure",
+    "equals": "pass"
+   },
+   "rounds": 2
+  },
+  {
+   "id": "report",
+   "kind": "code",
+   "name": "coverage verdict",
+   "phase": "coverage-fix",
+   "action": "coverage_report"
+  }
+ ],
+ "expect": {
+  "main": [
+   "measure",
+   "measured",
+   "measure_failed",
+   "needs_work",
+   "decide",
+   "write",
+   "review",
+   "commit",
+   "remeasure",
+   "covered",
+   "report"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "coverage-fix",
+    "nodes": [
+     {
+      "step": "measure",
+      "side": []
+     },
+     {
+      "if": "measured",
+      "cond": "coverage error is set",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "measure_failed",
+         "side": []
+        }
+       ],
+       "side": false
+      },
+      "no": "go"
+     },
+     {
+      "if": "needs_work",
+      "cond": "measure coverage says RESULT = fail",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "loop": "decide",
+         "body": [
+          {
+           "step": "decide",
+           "side": []
+          },
+          {
+           "step": "write",
+           "side": []
+          },
+          {
+           "step": "review",
+           "side": []
+          },
+          {
+           "step": "commit",
+           "side": []
+          }
+         ]
+        },
+        {
+         "step": "remeasure",
+         "side": []
+        },
+        {
+         "step": "covered",
+         "side": []
+        }
+       ],
+       "side": false
+      },
+      "no": "go"
+     },
+     {
+      "step": "report",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}
