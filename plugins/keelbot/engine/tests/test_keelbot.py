@@ -31,6 +31,12 @@ def test_the_block_names_the_workflows_the_flows_and_the_buttons():
     # 0.18.4 the person's other buttons: decide a gate, stop flows, a run mode (KeelBot never says it cannot)
     assert "```keel-flow" in b and '"do": "stop"' in b and '"do": "mode"' in b and '"do": "approve"' in b
     assert "How a workflow is written" not in b                 # the format only when the person wants a workflow
+    # 0.18.5 a new rule pack or agent: its format only when the person wants one
+    assert "keel-rule" in b and "keel-agent" in b and "How a rule pack is written" not in b
+    rb = keelbot.keel_block(KEEL, "write a rule that blocks edits to applied migrations")
+    assert "How a rule pack is written" in rb and "How an agent is written" not in rb
+    ab = keelbot.keel_block(KEEL, "create a new agent that writes the docs")
+    assert "How an agent is written" in ab and "How a rule pack is written" not in ab
     assert keelbot.keel_block(None, "hi") == ""
 
 

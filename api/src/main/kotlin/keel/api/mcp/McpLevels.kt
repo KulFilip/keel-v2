@@ -158,7 +158,8 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             // v0.17.2 keel's rules: a change decides what agents may do
             "PUT" to Regex("^/api/projects/[^/]+/rules/config$"),
             "POST" to Regex("^/api/projects/[^/]+/rules/library/[^/]+/install$"),
-            "POST" to Regex("^/api/projects/[^/]+/rules/packs$"),
+            // 0.18.5 a new rule pack is write (it only refuses; keel_rule_create asks the person first); changing or
+            // removing one stays admin
             "PUT" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
             "DELETE" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
             "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall|market/install)$"),
@@ -168,6 +169,8 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             Regex("^/api/projects/[^/]+/rules/check$"),
             // keel's ASCII diagrams (keel TUI, keel2 mcp's diagram tools): drawing changes nothing
             Regex("^/api/diagrams/ascii$"),
+            // 0.18.5 a workflow's check (keel_workflow_check): it saves nothing
+            Regex("^/api/projects/[^/]+/workflows/check$"),
         )
     }
 }

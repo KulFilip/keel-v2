@@ -22,11 +22,12 @@ READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "kee
               "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
               # 0.18.5 what keel TUI shows
               "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram",
+              "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",          # 0.18.5 create
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
                "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start", "keel_keelbot_ask",
-               "keel_keelbot_keep", "keel_keelbot_undo"}
+               "keel_keelbot_keep", "keel_keelbot_undo", "keel_workflow_create", "keel_rule_create", "keel_agent_create"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project",
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
@@ -129,9 +130,12 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]
     admin = ["keel_delete_run", "keel_add_project", "keel_remove_project"]
     # 0.18.5 keel TUI's: after keel_workflows (read since 0.18.5), in the order they are written
-    tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram"]
+    tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
+                "keel_rule_check", "keel_agent_definitions", "keel_diagram"]
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
-           "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo", "keel_diagram"]
+           "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
+           "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
+           "keel_agent_definitions", "keel_agent_create", "keel_diagram"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
     assert names("read") == read + ["keel_workflows"] + tui_read + MARKET_TOOLS
     assert names("write") == read + write + tui + MARKET_TOOLS

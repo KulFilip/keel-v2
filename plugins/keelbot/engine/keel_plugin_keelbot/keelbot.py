@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from keel_engine import addons, extensions
+from keel_engine import addons, extensions, formats
 
 # One line per keel template (docs/GUIDE.md "Flows in detail"): what it is for.
 ABOUT = {
@@ -45,6 +45,8 @@ ABOUT = {
 MAX_FLOWS = 8
 WRITE_WORDS = re.compile(r"\b(new|make|create|write|generate|build|own|change|edit|save|automat\w*|custom)\b", re.I)
 ABOUT_WORKFLOW = re.compile(r"\bwork ?flows?\b", re.I)
+ABOUT_RULE = re.compile(r"\brules?\b|\brule ?packs?\b|\bguard\b|\bforbid|\bblock\b", re.I)
+ABOUT_AGENT = re.compile(r"\bagents?\b|\bsub-?agents?\b", re.I)
 
 ACTIONS = """Buttons (actions). You never start or save anything yourself: you give the person a button, and nothing \
 happens until they press it. Put each one as its own fenced block at the end of your answer:
@@ -55,6 +57,8 @@ words, with the details you agreed>"}
 ```
 - A new workflow (keel checks it and shows Save): the whole workflow YAML in a fenced block with the info string \
 keel-workflow.
+- A new rule pack (keel checks it, shows what it would have refused lately, then Save): its YAML in a keel-rule block.
+- A new agent (Save adds it to the project; workflows use it with `agent: <id>`): its JSON in a keel-agent block.
 - Decide a gate, stop flows, or change a flow's run mode (the flow ids are in the flows list above; the person sees \
 the button and presses it, so offer it whenever they ask for one of these, never say you cannot):
 ```keel-flow
@@ -76,39 +80,7 @@ answered in the dashboard or with /answer, not approved.
 When the person asks how to build, change or fix something, say which workflow fits best and why (one or two \
 sentences, and when another one fits better), then give the start button with a good title and request."""
 
-FORMAT = """How a workflow is written (YAML; ids are lower-case words with dashes):
-id: <id>
-name: <short name>
-keel_rules: false        # true only when you copy a keel template whole: its locked steps (lock: true) must stay
-version: 1
-steps:                    # run one after another, top to bottom
-  - { id: <id>, kind: code, name: <what it does>, action: <action>, phase: <phase> }
-  - id: <id>
-    kind: agent           # an AI agent does the step
-    name: <what it does>
-    agent: <agent id>
-    phase: <phase>
-    instructions: >-
-      <what the agent must do, in plain words>
-  - { id: <id>, kind: gate, name: <what the person checks>, back: <an earlier step to go back to on reject> }
-  - { id: <id>, kind: branch, name: <the question>, when: { marker: RESULT, step: <step id>, equals: pass }, no: <step id> }
-A workflow does not need agents: a few code steps (`run: <shell command>`) and a gate automate a task without any \
-model. Use only the steps the task needs. A `run:` command must be this project's own: look it up first (the \
-`commands` in .keel/config.yml, package.json scripts, pyproject.toml, the Gradle or Maven build, a Makefile); never \
-copy the example's commands. `phase` decides which files a step may change (leave it out for steps that \
-change nothing). A `run:` command goes through keel's shell guard: no git commit or push (use the commit action), no \
-dependency install.
-Example, code steps only (for a project whose tests run with npm):
-```keel-workflow
-id: check-before-push
-name: check before push
-keel_rules: false
-version: 1
-steps:
-  - { id: lint, kind: code, name: run the linters, action: "run: npm run lint", soft: true }
-  - { id: tests, kind: code, name: run the tests, action: "run: npm test" }
-  - { id: look, kind: gate, name: look at the results }
-```"""
+FORMAT = formats.WORKFLOW
 
 USEFUL_ACTIONS = ["run:", "commit", "verify_green", "verify_red", "verify_lint", "lint_run", "lint_report",
                   "verify_coverage", "coverage_report", "verify_deps", "audit", "show_diff", "push_check", "report",
@@ -204,8 +176,13 @@ def keel_block(keel: dict | None, question: str) -> str:
     parts.append(ACTIONS)
     on = list(keel.get("plugins") or [])
     parts += [kb["prompt"] for kb in extensions.keelbot(on) if kb.get("prompt")]     # the parts on (Database ...)
-    if ABOUT_WORKFLOW.search(question or "") and WRITE_WORDS.search(question or ""):
+    q = question or ""
+    if ABOUT_WORKFLOW.search(q) and WRITE_WORDS.search(q):
         parts.append(format_block(on))
+    if ABOUT_RULE.search(q) and WRITE_WORDS.search(q):
+        parts.append(formats.RULE)
+    if ABOUT_AGENT.search(q) and WRITE_WORDS.search(q):
+        parts.append(formats.AGENT)
     return "\n\n".join(parts)
 
 

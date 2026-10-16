@@ -681,7 +681,8 @@ RANK = {"read": 0, "write": 1, "admin": 2}
 # Tools that change something hard to undo: the client asks the person first (MCP elicitation), or with --yes not.
 # A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
 CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
-           "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo"}
+           "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
+           "keel_workflow_create", "keel_rule_create", "keel_agent_create"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -750,12 +751,16 @@ TOOLS: dict[str, tuple[str, ...]] = {
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
              "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",
              # 0.18.5 what keel TUI shows: the workflows, the agents, one agent, KeelBot's chats and changes, diagrams
-             "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram"),
+             "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram",
+             # 0.18.5 a new workflow, rule pack or agent: the format, a check that saves nothing, the agents there are
+             "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions"),
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
               # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
               # agent, ask KeelBot, keep or undo its changes (asks first)
               "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start",
-              "keel_keelbot_ask", "keel_keelbot_keep", "keel_keelbot_undo"),
+              "keel_keelbot_ask", "keel_keelbot_keep", "keel_keelbot_undo",
+              # 0.18.5 save a new one (each asks the person first)
+              "keel_workflow_create", "keel_rule_create", "keel_agent_create"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
@@ -772,6 +777,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     from . import mcp_more as more
     from . import mcp_tui as tui
+    from . import mcp_create as create
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -1079,6 +1085,50 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     async def keel_keelbot_undo(chat: str, path: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
         """Put back what KeelBot changed in a chat (one path, or every file)."""
         return await act(ctx, "keel_keelbot_undo", f"put back {path or 'every file'} of chat {chat}", tui.keelbot_undo, api, chat, path, project)
+
+    # ---------------------------------------------------------------- 0.18.5 new workflows, rule packs and agents
+
+    @reg(ro)
+    def keel_format(kind: Literal["workflow", "rule", "agent"]) -> str:
+        """How a new workflow (YAML), rule pack (YAML) or agent (JSON) is written, with an example. Read it before
+        keel_workflow_create, keel_rule_create or keel_agent_create."""
+        return guard(create.fmt, kind)
+
+    @reg(ro)
+    def keel_workflow_check(yaml: str, project: str | None = None) -> str:
+        """What a workflow YAML would be (steps, gates, agents, commands) and its errors, line by line; saves nothing."""
+        return guard(create.check_workflow, api, yaml, project)
+
+    @reg(rw)
+    async def keel_workflow_create(yaml: str, folder: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """Save a new workflow (its whole YAML; keel_format kind=workflow shows how), in a folder of the Workflows page if
+        given. keel checks it first and saves nothing when it has errors. Asks the person first."""
+        return await act(ctx, "keel_workflow_create", "save this new workflow", create.create_workflow, api, yaml, folder, project)
+
+    @reg(ro)
+    def keel_rule_check(yaml: str, project: str | None = None) -> str:
+        """Check a rule pack's YAML and what it would have refused on the project's recent tool calls; saves nothing."""
+        return guard(create.check_rule, api, yaml, project)
+
+    @reg(rw)
+    async def keel_rule_create(yaml: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Save a new rule pack (its YAML; keel_format kind=rule shows how) in .keel/rules/: it only refuses, from the next
+        tool call on. keel checks it first. Asks the person first."""
+        return await act(ctx, "keel_rule_create", "save this new rule pack", create.create_rule, api, yaml, project)
+
+    @reg(ro)
+    def keel_agent_definitions(project: str | None = None) -> str:
+        """The agents a workflow can use on the project (keel's and the person's own): id, tools, phases, what each is for."""
+        return guard(create.agent_definitions, api, project)
+
+    @reg(rw)
+    async def keel_agent_create(name: str, prompt: str, about: str = "", tools: list[str] | None = None,
+                                phases: list[str] | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """Save a new agent for the project: its name, instructions (prompt), what it is for, its tools (Read, Grep, Glob
+        read only; Edit, Write change files; Bash runs commands) and phases (any, or keel phases). keel's rules and the
+        phase still decide what it may change. Asks the person first."""
+        return await act(ctx, "keel_agent_create", f"save the new agent {name}", create.create_agent, api, name, prompt, about,
+                         tools, phases, project)
 
     @reg(ro)
     def keel_diagram(kind: Literal["flow", "workflow", "map-er", "map-system", "map-modules", "graph"], arg: str | None = None,
