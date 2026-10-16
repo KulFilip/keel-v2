@@ -27,6 +27,16 @@ describe("Flow gate", () => {
     await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual({ decision: "approve", payload: { choice: "feature" } }));
   });
 
+  it("v0.17.4 a stuck criterion shows its real choices (retry / skip / edit / stop), not only approve", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "verify_green", kind: "fix", title: "AC-002 is stuck at verify_green",
+      detail: "failed 3 times", options: ["approve", "reject"], choices: ["retry", "skip", "edit", "stop"] };
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "edit" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "skip" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual({ decision: "approve", payload: { choice: "skip" } }));
+  });
+
   it("Send back needs a reason, then sends it", async () => {
     const user = userEvent.setup();
     render(<App />);
