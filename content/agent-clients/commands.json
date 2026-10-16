@@ -311,6 +311,10 @@
       "does": "follow the agent at work (or click it; a click on what waits answers it)"
     },
     {
+      "key": "Alt+Tab / Shift+Tab",
+      "does": "KeelBot's next mode: ask, edit, fix (when a gate waits), side"
+    },
+    {
       "key": "PgUp / PgDn",
       "does": "scroll (also Shift+Up / Down, the wheel, Home and End)"
     },

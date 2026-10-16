@@ -320,6 +320,9 @@ export function statusSegments(s: Snapshot): Seg[] {
     : t.status === "failed" ? "bad" : "faint";
   const segs: Seg[] = [
     { text: s.project ? `${s.project.id}${s.project.branch ? ` (${s.project.branch.length > 28 ? s.project.branch.slice(0, 27) + "…" : s.project.branch})` : ""}` : "no project", role: "fg", bold: true },
+    // keel 0.18.8 KeelBot's mode, always, near the front so a narrow terminal never cuts it (Alt+Tab or Shift+Tab
+    // changes it): ask quiet, a mode that changes files bright
+    { text: `KeelBot ${s.chat.mode}`, role: s.chat.mode === "ask" ? "dim" : "accent", bold: s.chat.mode !== "ask" },
     { text: t ? `${t.workflow_id} ${t.status}` : "no flow", role: flowRole },
   ];
   if (t) segs.push({ text: `phase ${t.phase || "none"}`, role: "dim" });
@@ -328,7 +331,6 @@ export function statusSegments(s: Snapshot): Seg[] {
   segs.push({ text: s.inbox.length ? `◆ ${here} waiting here${s.inbox.length > here ? `, ${s.inbox.length - here} in other projects` : ""}` : "nothing waits",
     role: s.inbox.length ? "gate" : "dim", bold: s.inbox.length > 0 });
   if (t) segs.push({ text: `${fmt.short(fmt.tokensOf(t.usage))} tokens`, role: "dim" });
-  if (s.chat.mode === "fix") segs.push({ text: "KeelBot fix", role: "accent" });
   segs.push({ text: `● ${s.live}`, role: s.live === "live" ? "ok" : s.live === "closed" ? "faint" : "gate" });
   return segs;
 }

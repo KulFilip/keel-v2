@@ -22,6 +22,7 @@ import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
+import type { HelperMode } from "../core/sdk";
 import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
 import { elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { api } from "../core/sdk";
@@ -30,6 +31,14 @@ import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
 
 /** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
+/** keel 0.18.8 KeelBot's modes in a few words (Alt+Tab / Shift+Tab, the status line). */
+const MODE_WORDS: Record<HelperMode, string> = {
+  ask: "it reads and answers, changes nothing",
+  edit: "it changes the project folder (commands ask first, /keep commits)",
+  fix: "it changes files for the waiting gate",
+  side: "it works on its own branch",
+};
+
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
 
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
@@ -567,6 +576,16 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         push({ kind: "dim", text: "  stopping KeelBot's answer…" });
         void core.stopChat();
       } else if (panels.some((x) => x.startsWith("job:"))) setPanels((ps) => ps.filter((x) => !x.startsWith("job:")));
+      return;
+    }
+    // keel 0.18.8 Alt+Tab (the terminal sends Escape, Tab) or Shift+Tab: KeelBot's next mode, for the next message
+    if ((input === "\t" && !key.tab) || (key.tab && key.shift)) {
+      const now = core.snapshot.chat.mode;
+      const waits = core.snapshot.flow?.thread?.status === "waiting";
+      const order: HelperMode[] = ["ask", "edit", ...(waits ? (["fix"] as HelperMode[]) : []), "side"];
+      const next = order[(order.indexOf(now) + 1) % order.length] ?? "ask";
+      core.setChatMode(next);
+      push({ kind: "dim", text: `  KeelBot: ${next} mode · ${MODE_WORDS[next]} · Alt+Tab or Shift+Tab: next` });
       return;
     }
     if (key.tab) {
