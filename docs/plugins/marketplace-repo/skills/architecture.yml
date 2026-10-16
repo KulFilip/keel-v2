@@ -1,0 +1,8 @@
+# keel's own skill architecture (content/skills in keel-v2), kept in this repo: skills/architecture/<version>.md
+name: architecture
+title: "Where the code goes"
+publisher: keel
+category: implementation
+summary: "Where new code belongs in this codebase, for the architecture style the project actually uses: hexagonal, DDD, layered, MVC or feature-sliced."
+tags: [architecture, keel]
+keel: ">=0.18.6"

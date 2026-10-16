@@ -190,6 +190,7 @@ def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None
 # ---------------------------------------------------------------- KeelBot
 
 FLOW_BLOCK = re.compile(r"```keel-(flow|start)\s*\n(.*?)\n```", re.S)
+SKILL_BLOCK = re.compile(r"```keel-skill\s*\n(.*?)\n```", re.S)
 
 
 def _buttons_hint(text: str) -> str:
@@ -209,6 +210,10 @@ def _buttons_hint(text: str) -> str:
                          + (f", why={b.get('why')!r}" if b.get("why") else "") + ")")
         elif b.get("do") == "mode":
             hints.append(f"run mode: keel_run_mode(mode={b.get('mode')!r}, thread_id={b.get('flow')!r})")
+    # 0.18.6 a new skill: its whole SKILL.md is the tool's text
+    for body in SKILL_BLOCK.findall(text or ""):
+        name = re.search(r"^name:\s*(\S+)", body, re.M)
+        hints.append(f"save the skill {name[1] if name else ''}: keel_skill_create(text=<the keel-skill block, whole>)")
     return ("\n\nKeelBot's buttons (each happens only when called, after the person agrees):\n" + "\n".join(f"- {h}" for h in hints)) if hints else ""
 
 

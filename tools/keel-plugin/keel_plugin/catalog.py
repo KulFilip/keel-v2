@@ -9,6 +9,8 @@ folder and the plugins' releases, signed with the catalog key.
     <marketplace>/workflows/<name>/<version>.yaml (+ .minisig)   a workflow file kept in the marketplace repo itself
     <marketplace>/rules/<name>.yml      name, title, publisher, repo?, category, summary, tags, keel?   (a rule pack)
     <marketplace>/rules/<name>/<version>.yaml (+ .minisig)       a rule pack kept in the marketplace repo itself
+    <marketplace>/skills/<name>.yml     name, title, publisher, repo?, category, summary, tags, keel?   (a skill)
+    <marketplace>/skills/<name>/<version>.md (+ .minisig)        a skill (its SKILL.md) kept in the marketplace repo
 
 Workflows and rule packs (21-workflow-marketplace.md §5, 23-rules-in-marketplace.md §2) are the file kinds of one
 table (FILE_KINDS): a release asset <name>-<version>.yaml (+ .minisig, + <file>.json) in the releases folder (a rule
@@ -38,6 +40,7 @@ from typing import Callable
 
 from . import PluginToolError, miniyaml
 from . import rules as rulelint
+from . import skill as skilllint
 from . import workflow as wflint
 from .lint import lint
 from .manifest import NAME, VERSION, file_sha256
@@ -52,8 +55,10 @@ WORKFLOW_KEYS = {"name", "title", "publisher", "repo", "category", "summary", "t
 WORKFLOW_CATEGORIES = ("code", "review", "docs", "release", "quality", "ops", "other")
 RULES_KEYS = WORKFLOW_KEYS
 RULES_CATEGORIES = ("safety", "code", "git", "files", "secrets", "other")      # keel's engine: kinds.RULES
-RESERVED = ("workflows", "rules", "rule-packs", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
-KINDS = ("plugin", "workflow", "rules")
+SKILLS_KEYS = WORKFLOW_KEYS
+SKILLS_CATEGORIES = ("testing", "implementation", "review", "debugging", "knowledge", "authoring", "other")  # kinds.SKILLS
+RESERVED = ("workflows", "rules", "rule-packs", "skills", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
+KINDS = ("plugin", "workflow", "rules", "skills")
 RANGE = re.compile(r"^\s*(?:(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)(?:,\s*(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)*$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -73,6 +78,7 @@ class Catalog:
     workflows: dict[str, dict] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     rules: dict[str, dict] = field(default_factory=dict)
+    skills: dict[str, dict] = field(default_factory=dict)
 
 
 def url_problem(url: str, allow_http: bool = False) -> str | None:
@@ -218,7 +224,7 @@ def _file_entry(kind: "FileKind", path: Path, cat: Catalog) -> None:
     repo = data.get("repo")
     if repo is not None and (not isinstance(repo, str) or not re.match(r"^https://github\.com/[\w.-]+/[\w.-]+$", repo)):
         errors.append(f"{where}: repo must be a https://github.com/<owner>/<repo> URL (its releases hold the files), "
-                      f"or left out when the files are in this repo ({kind.list}/<name>/<version>.yaml)")
+                      f"or left out when the files are in this repo ({kind.list}/<name>/<version>{kind.suffix})")
     keel = data.get("keel")
     if keel is not None and (not isinstance(keel, str) or not RANGE.match(keel)):
         errors.append(f"{where}: keel must be a version range like '>=0.16.1'")
@@ -244,14 +250,14 @@ def _revoked(path: Path, cat: Catalog) -> None:
         cat.errors.append("revoked.yml: revoked must be a list ('revoked: []' when nothing is revoked)")
         return
     for i, item in enumerate(items):
-        rule = rulelint.PACK if isinstance(item, dict) and item.get("kind") == "rules" else NAME
+        rule = rulelint.PACK if isinstance(item, dict) and item.get("kind") in ("rules", "skills") else NAME
         ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and rule.match(item["name"])
               and isinstance(item.get("version"), str) and VERSION.match(item["version"])
               and isinstance(item.get("why"), str) and item["why"].strip()
               and item.get("kind", "plugin") in KINDS)
         if not ok:
             cat.errors.append(f"revoked.yml: revoked[{i}] must have a plugin name, a version (x.y.z, in quotes) "
-                              "and why (and kind: plugin, workflow or rules, when it is not a plugin)")
+                              "and why (and kind: plugin, workflow, rules or skills, when it is not a plugin)")
             continue
         out = {"name": item["name"], "version": item["version"], "why": item["why"].strip()}
         if "kind" in item:
@@ -396,6 +402,10 @@ def _rules_agree(entry: dict, report) -> str | None:
     return None
 
 
+def _skill_requires(entry: dict, _report) -> dict:
+    return {"keel": entry["keel"]} if entry.get("keel") else {}
+
+
 @dataclass(frozen=True)
 class FileKind:
     """One kind of catalog entry whose version is one signed YAML file (keel's engine: marketplace/kinds.py)."""
@@ -409,6 +419,7 @@ class FileKind:
     requires: Callable              # (entry, report) → the version's requires
     agrees: Callable | None = None  # (entry, report) → why a file is not the entry's, or None
     name_rule: re.Pattern = NAME    # an entry's name (rule packs: keel's pack name rule)
+    suffix: str = ".yaml"           # a version's file (skills: .md)
 
     def entries(self, cat: Catalog) -> dict[str, dict]:
         return getattr(cat, self.list)
@@ -418,13 +429,19 @@ WORKFLOWS = FileKind("workflow", "workflows", "workflow", frozenset(WORKFLOW_KEY
                      wflint.name_version, _workflow_requires)
 RULES = FileKind("rules", "rules", "rule pack", frozenset(RULES_KEYS), RULES_CATEGORIES, rulelint.lint,
                  rulelint.name_version, _rules_requires, _rules_agree, rulelint.PACK)
-FILE_KINDS = (WORKFLOWS, RULES)
+SKILLS = FileKind("skills", "skills", "skill", frozenset(SKILLS_KEYS), SKILLS_CATEGORIES, skilllint.lint,
+                  skilllint.name_version, _skill_requires, None, skilllint.NAME, ".md")
+FILE_KINDS = (WORKFLOWS, RULES, SKILLS)
 
 
 def yaml_releases_in(folder: Path) -> dict[str, list[ItemFile]]:
     """Every <name>-<version>.yaml under a releases folder, with its <file>.json (url, released) when there is one,
     by kind: a rule pack (a mapping with a list of rules and no steps) or a workflow (anything else)."""
     out: dict[str, list[ItemFile]] = {k.name: [] for k in FILE_KINDS}
+    for f in sorted(folder.rglob("*.md")):
+        if skilllint.FILE.match(f.name):
+            meta = _side(f)
+            out[SKILLS.name].append(ItemFile(f, meta.get("url"), meta.get("released")))
     for f in sorted(folder.rglob("*.yaml")):
         if not wflint.FILE.match(f.name) and not rulelint.FILE.match(f.name):
             continue
@@ -441,13 +458,23 @@ def yaml_releases_in(folder: Path) -> dict[str, list[ItemFile]]:
     return out
 
 
+def _side(f: Path) -> dict:
+    """A release file's <file>.json (url, released), or {}."""
+    side = f.with_name(f.name + ".json")
+    try:
+        meta = json.loads(side.read_text(encoding="utf-8")) if side.is_file() else {}
+    except (ValueError, UnicodeDecodeError):
+        meta = {}
+    return meta if isinstance(meta, dict) else {}
+
+
 def marketplace_files(kind: FileKind, root: Path, files_url: str | None) -> list[ItemFile]:
-    """The files of a kind kept in the marketplace repo: <list>/<name>/<version>.yaml."""
+    """The files of a kind kept in the marketplace repo: <list>/<name>/<version>.yaml (skills: .md)."""
     out = []
     folder = root / kind.list
-    for f in sorted(folder.glob("*/*.yaml")) if folder.is_dir() else []:
+    for f in sorted(folder.glob(f"*/*{kind.suffix}")) if folder.is_dir() else []:
         name, version = f.parent.name, f.stem
-        url = f"{files_url.rstrip('/')}/{kind.list}/{name}/{version}.yaml" if files_url else None
+        url = f"{files_url.rstrip('/')}/{kind.list}/{name}/{version}{kind.suffix}" if files_url else None
         out.append(ItemFile(f, url, None, name, version))
     return out
 
@@ -458,7 +485,7 @@ def _which(kind: FileKind, cat: Catalog, item: ItemFile) -> tuple[str | None, st
         return item.name, item.version
     best = None
     for name in kind.entries(cat):
-        rest = item.file.name[len(name) + 1:-len(".yaml")] if item.file.name.startswith(name + "-") else None
+        rest = item.file.name[len(name) + 1:-len(kind.suffix)] if item.file.name.startswith(name + "-") else None
         if rest and VERSION.match(rest) and (best is None or len(name) > len(best[0])):
             best = (name, rest)
     if best:

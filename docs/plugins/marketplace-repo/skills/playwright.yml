@@ -1,0 +1,8 @@
+# keel's own skill playwright (content/skills in keel-v2), kept in this repo: skills/playwright/<version>.md
+name: playwright
+title: "Playwright patterns"
+publisher: keel
+category: testing
+summary: "End-to-end and smoke test patterns with Playwright: stable locators, API seeding in fixtures, tagging by acceptance criterion, trimmed output, and the smoke subset."
+tags: [playwright, keel]
+keel: ">=0.18.6"

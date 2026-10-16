@@ -1,0 +1,8 @@
+# keel's own skill review (content/skills in keel-v2), kept in this repo: skills/review/<version>.md
+name: review
+title: "Review"
+publisher: keel
+category: review
+summary: "How keel's review agents are scoped and how they report — the whole-branch code review, one lens or all lenses of the ship review, or one acceptance criterion's review."
+tags: [review, keel]
+keel: ">=0.18.6"

@@ -1,0 +1,8 @@
+# keel's own skill web-testing (content/skills in keel-v2), kept in this repo: skills/web-testing/<version>.md
+name: web-testing
+title: "TypeScript frontend test patterns"
+publisher: keel
+category: testing
+summary: "Test patterns for a TypeScript frontend: Vitest with Testing Library, MSW handlers generated from the API contract, zod response parsing, and tagging tests with acceptance-criteria IDs."
+tags: [web, keel]
+keel: ">=0.18.6"

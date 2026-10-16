@@ -40,6 +40,10 @@ export function stubKeel() {
         comments: [{ id: "1", author: "bo", body: "Should 20 come from config?", at: AT, url: null }] }],
       submitted: null as null | Record<string, unknown>,
     },
+    // 0.18.6 skills: the agents each is on, and the reviewer's own skill list (an override wins over the skill's list)
+    skillAgents: { debugging: ["reproducer"], "changelog-entries": [] } as Record<string, string[]>,
+    reviewerSkills: ["review"],
+    installed: null as null | { version: string; agents: string[] },
   };
   const reviewView = (key: string) => ({ key, kind: key.startsWith("pr:") ? "pr" : "branch", number: key.startsWith("pr:") ? Number(key.slice(3)) : null,
     title: key === "pr:8" ? "Mine" : "Save the page size", author: "ana", base: "main", branch: "feat/paging", base_sha: "b", head_sha: "h", url: null, state: "open",
@@ -99,6 +103,27 @@ export function stubKeel() {
       case "POST /api/projects/demo/rules/check": return [200, { ok: true, errors: [], dry_run: { checked: 9, blocked: [{ kind: "edit", target: "db/V1__init.sql", agent: "implementer" }] } }];
       case "POST /api/projects/demo/rules/packs": return [200, { pack: { id: "no-sql-edits" } }];
       case "POST /api/projects/demo/agents": return [200, { id: "doc-writer", tools: body.tools }];
+      // 0.18.6 skills
+      case "GET /api/projects/demo/skills": return [200, [
+        { id: "debugging", kind: "debugging", source: "keel", stack: "any", version: "v2", tokens: 2300, agents: state.skillAgents.debugging, when: "bug-repro", enabled: true },
+        { id: "mine", kind: "knowledge", source: "yours", stack: "any", version: "v1", tokens: 40, agents: [], when: "on demand", enabled: false }]];
+      case "GET /api/projects/demo/agents": return [200, [
+        { id: "reproducer", label: "reproducer", overridden: [], skills: [], phases: ["bug-repro"] },
+        { id: "investigator", label: "investigator", overridden: [], skills: [], phases: ["bug-investigate"] },
+        { id: "reviewer", label: "reviewer", overridden: ["skills"], skills: state.reviewerSkills, phases: ["ship"] }]];
+      case "PUT /api/projects/demo/agents/reviewer": state.reviewerSkills = body.skills; return [200, { id: "reviewer" }];
+      case "POST /api/projects/demo/skills/import": return [200, { id: "changelog-entries", tokens: 30, agents: [] }];
+      case "GET /api/marketplace/skills": return [200, { catalog_error: null,
+        skills: [{ name: "flaky-tests", title: "Flaky tests", publisher: "keel", publisher_title: "keel", version: "1.0.0", summary: "Find why a test fails sometimes.",
+          review: { tokens: 1200, sections: ["Steps"], description: "Flaky tests." }, installed: state.installed && { ...state.installed, sid: "flaky-tests" }, update: null }],
+        builtin: [{ name: "debugging", summary: "Find the cause.", source: "keel", tokens: 2300, agents: state.skillAgents.debugging }] }];
+      case "GET /api/marketplace/skills/flaky-tests": return [200, { name: "flaky-tests", title: "Flaky tests", publisher: "keel", publisher_title: "keel",
+        version: "1.0.0", summary: "Find why a test fails sometimes.", review: { tokens: 1200, sections: ["Steps"], description: "Flaky tests." },
+        installed: null, update: null, builtin: false, text: "---\nname: flaky-tests\n---\nx", fetch_error: null, refused: null }];
+      case "GET /api/marketplace/skills/debugging": return [200, { name: "debugging", builtin: true, installed: null, update: null }];
+      case "POST /api/projects/demo/skills/market/install":
+        state.installed = { version: "1.0.0", agents: body.agents ?? [] };
+        return [200, { skill: { id: body.name, agents: body.agents ?? [], tokens: 1200 }, market: { version: "1.0.0", catalog: "keel" } }];
       case "POST /api/threads/t1/mode": state.thread = { ...state.thread, run_mode: body.mode }; return [200, state.thread];
       case "POST /api/threads/t1/stop": state.thread = { ...state.thread, status: "stopped", waiting: undefined }; return [200, state.thread];
       // round 3: @mentions, Fix mode's changes, Keep and Undo, questions, plugins
@@ -148,6 +173,18 @@ export function stubKeel() {
         state.review.submitted = body;
         return [200, { posted: state.review.drafts.length, in_body: 0, event: body.event, url: "https://github.com/acme/shop/pull/7#review-1", view: reviewView(body.key) }];
       default: return [404, { error: `stub: no ${key}` }];
+      default:
+        if (method === "GET" && path.startsWith("/api/skills/")) {
+          const sid = path.slice("/api/skills/".length);
+          return [200, { id: sid, kind: "debugging", stack: "any", source: "keel", version: "v2", tokens: 2300, agents: state.skillAgents[sid] ?? [],
+            when: "bug-repro", enabled: true, body: "# Debugging\n\nFind the **cause** first.", refs: [{ path: "references/bisect.md", tokens: 900 }] }];
+        }
+        if (method === "PUT" && path.startsWith("/api/projects/demo/skills/")) {
+          const sid = path.slice("/api/projects/demo/skills/".length);
+          state.skillAgents[sid] = body.agents;
+          return [200, { id: sid, agents: body.agents }];
+        }
+        return [404, { error: `stub: no ${key}` }];
     }
   };
 

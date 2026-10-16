@@ -140,8 +140,8 @@
     },
     {
       "name": "create",
-      "args": "<workflow|rule|agent> [what it should do | --file <path>]",
-      "summary": "a new workflow, rule pack or agent: KeelBot writes it (or from a file), keel checks it, you save it",
+      "args": "<workflow|rule|agent|skill> [what it should do | --file <path>]",
+      "summary": "a new workflow, rule pack, agent or skill: KeelBot writes it (or from a file), keel checks it, you save it",
       "writes": true,
       "local": false,
       "group": "Flows"
@@ -158,6 +158,23 @@
       "name": "rules",
       "summary": "keel's rules for this project, and what agents may change right now",
       "writes": false,
+      "group": "Look"
+    },
+    {
+      "name": "skills",
+      "args": "[market [words…]]",
+      "summary": "the project's skills and the agents that load each; market: the marketplace's skills",
+      "writes": false,
+      "local": false,
+      "group": "Look"
+    },
+    {
+      "name": "skill",
+      "args": "<id> | attach <id> <agent…> | detach <id> <agent…> | install <name> [agent…]",
+      "summary": "one skill's text; attach or detach puts it on agents or takes it off; install brings one from the marketplace",
+      "writes": true,
+      "complete": "skills",
+      "local": false,
       "group": "Look"
     },
     {

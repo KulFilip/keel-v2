@@ -1,5 +1,6 @@
 package keel.api.skills
 
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -33,4 +34,11 @@ class SkillController(private val skills: SkillService) {
     @PutMapping("/projects/{pid}/skills/{sid}")
     fun update(@PathVariable pid: String, @PathVariable sid: String, @RequestBody body: SkillPatch): Skill =
         skills.update(pid, sid, body.agents, body.`when`, body.body, body.enabled)
+
+    /** keel 0.18.6: remove one of the project's own skills (written here, imported, or from the marketplace). */
+    @DeleteMapping("/projects/{pid}/skills/{sid}")
+    fun delete(@PathVariable pid: String, @PathVariable sid: String): Map<String, Any> {
+        skills.delete(pid, sid)
+        return mapOf("removed" to sid)
+    }
 }

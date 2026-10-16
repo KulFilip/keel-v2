@@ -1,0 +1,8 @@
+# keel's own skill react-implementation (content/skills in keel-v2), kept in this repo: skills/react-implementation/<version>.md
+name: react-implementation
+title: "Writing plain-JS React code"
+publisher: keel
+category: implementation
+summary: "How to write plain-JavaScript React code (no TypeScript) — everything the web-implementation skill teaches, minus the type-level pieces."
+tags: [react, keel]
+keel: ">=0.18.6"

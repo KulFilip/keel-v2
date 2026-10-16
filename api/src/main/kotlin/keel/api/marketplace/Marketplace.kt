@@ -56,6 +56,18 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
     fun fetchRulePack(name: String, version: String?): JsonNode =
         pass { engine.post("/marketplace/rule-packs/${checkPackName(name)}/fetch", versionBody(version), long = true) }
 
+    // ---- skills (keel 0.18.6): the engine reads the catalogs; the api's skills install
+
+    fun skills(q: String?, category: String?): JsonNode = pass {
+        engine.get("/marketplace/skills?q={q}&category={category}", mapOf("q" to q?.trim().orEmpty(), "category" to category?.trim().orEmpty()))
+    }
+
+    fun skill(name: String): JsonNode = pass { engine.get("/marketplace/skills/${checkPackName(name, "skill")}") }
+
+    /** The verified SKILL.md of one version (the newest that fits without [version]), exactly as published. */
+    fun fetchSkill(name: String, version: String?): JsonNode =
+        pass { engine.post("/marketplace/skills/${checkPackName(name, "skill")}/fetch", versionBody(version), long = true) }
+
     /** keel's own reading of a pack (the rules work's parser): each rule with who enforces it. */
     fun readRulePack(yaml: String): JsonNode = pass { engine.post("/rules/read", mapOf("yaml" to yaml)) }
 
@@ -159,9 +171,9 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
         /** A rule pack's name (docs/rules/pack-format.md): a-z, 0-9 and '-', 64 at most. */
         val PACK_NAME = Regex("^[a-z0-9][a-z0-9-]{0,63}$")
 
-        fun checkPackName(name: String): String {
+        fun checkPackName(name: String, kind: String = "rule pack"): String {
             val n = name.trim()
-            if (!PACK_NAME.matches(n)) throw BadRequest("$n is not a rule pack name", "A rule pack's name is a-z, 0-9 and '-', 64 at most.")
+            if (!PACK_NAME.matches(n)) throw BadRequest("$n is not a $kind name", "A $kind's name is a-z, 0-9 and '-', 64 at most.")
             return n
         }
 

@@ -673,7 +673,7 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
 
 ## v0.4.0 additions: review, diagnose, fix and change
 
-Workflows in `content/workflows/` (ORDER: feature, change, fix, diagnose, review, init, knowledge-refresh, cover, ship, hunt, hunt-next).
+Workflows in `content/workflows/` (ORDER: feature, change, fix, diagnose, review, init, knowledge-refresh, cover, ship, hunt, hunt-next; then lint and, from 0.18.6, plugin).
 
 - **review** (read-only, phase `review`): `review_scope` reads `data.lens` (code | all | correctness | security | performance |
   architecture | assertions | ac <ID>) and `data.base` (default base_branch, main, master) and builds `data.review_lenses`
@@ -1977,6 +1977,62 @@ Everything the person can do in keel's terminal app an MCP client can do for the
   `keel_review_submit {event: APPROVE | REQUEST_CHANGES | COMMENT, body}`. Each first opens the review with
   `GET …/review/open` and refuses when the plugin is off for the project. Levels: GET is read; every POST is write
   (`McpLevelGuard`'s default).
+
+## 0.18.6: skills from everywhere, the skills marketplace, the plugin workflow
+
+**Skills** (`api/.../skills/`): a skill is a SKILL.md an agent reads before it works (it never gives the agent more
+power: keel's rules and the phase decide that). keel's own (`content/skills`, the keel packs') are in every project; a
+project's own are written here, imported from a link, or installed from the marketplace (`source: marketplace`,
+`market: {catalog, name, version, edited}`; V18__skill_market.sql adds `market_catalog`, `market_name`, `market_version`,
+`market_sha256` to `custom_skills`). `DELETE /api/projects/{pid}/skills/{sid}` removes one of the project's own (keel's:
+409). Attaching a skill to agents is the skill's `agents` (`PUT …/skills/{sid}`); an agent whose own `skills` list is
+set in the project (an override, which wins) gets it there too.
+
+**MCP** (`keel_engine/mcp_skills.py`): read `keel_skills`, `keel_skill {skill}`; write, each asks the person first:
+`keel_skill_create {text, agents?}` (keel checks the front matter first: name, description, text),
+`keel_skill_import {url, agents?}`, `keel_skill_attach {skill, agents, detach?}`, `keel_skill_market_install {name,
+version?, agents?, replace?}`; `keel_format kind=skill`; `keel_marketplace_search` lists the skills that match too (the
+catalogs' and keel's own). McpLevels: the skill writes are write; `DELETE …/skills/{sid}` is admin; a read token reads only.
+
+**keel TUI**: `/skills` (the list, the agents of each), `/skills market [words]`, `/skill <id>`, `/skill attach|detach
+<id> <agent…>`, `/skill install <name> [agent…]` (the review, then one yes), `/create skill <what it should teach>
+[--for <agent…>] | --file <SKILL.md>`. KeelBot's `keel-skill` block (a whole SKILL.md; `agents: [...]` in its front
+matter): a card in the dashboard (agents to tick, Save), a yes/no in keel TUI (checked first; refused ones are never
+offered).
+
+**The marketplace's fourth kind, `skills`** (engine `marketplace/kinds.py` SKILLS, `marketplace/skills.py`; tools
+`keel_plugin/skill.py`): an entry `{name, kind: skills, title, publisher, summary, category (testing, implementation,
+review, debugging, knowledge, authoring, other), tags, versions: [{version, released, requires: {keel?}, url, sha256,
+size ≤ 256 KB, review: {tokens, sections, description}}]}`; the file is the SKILL.md, shipped unchanged (its front
+matter's name is the catalog name; its `version`, when it has one, the catalog version). `skills` joins the names a
+plugin may not take.
+
+```
+engine  GET  /marketplace/skills?q=&category=   {skills: [Hit], sources, categories}; /marketplace/search?kind=skills|all
+        GET  /marketplace/skills/{name}         Hit + {versions, checks}
+        POST /marketplace/skills/{name}/fetch {version?}   {name, version, text, review, catalog, …}: sha256, the publisher's
+             signature, the front matter, keel's review = the catalog's (409 with differences), requires.keel (409)
+api     GET  /api/marketplace/skills?q=&category=&project=   + installed {version, edited, sid, agents} | null, update;
+             builtin: keel's own [{name, title, summary, source, kind, category, tokens, agents, when, enabled, refs}];
+             catalog_error when no catalog answers (keel's own still listed)
+        GET  /api/marketplace/skills/{name}?project=   + text (verified), review, catalog_review, fetch_error; a name only
+             keel has: builtin: true with its text and review
+        POST /api/projects/{pid}/skills/market/install {name, version?, agents?, replace?}   {skill, market, review};
+             409 the same version, or another without replace
+```
+
+The dashboard: **Control › Plugins › Marketplace › Skills** (`#/plugins?tab=market&kind=skills`; a skill's page
+`#/plugins/skills/<name>`): From keel (keel's own, Agents…), the catalogs' cards (Install with the agents to tick,
+Installed here, Update: keep an edited copy or replace it, Remove), the text and keel's review. **Publishing**:
+`keel-plugin skills lint <name>-<version>.md`, `keel-plugin skills add <skill dir…> --market <dir>` (keel's own are in
+`docs/plugins/marketplace-repo/skills/`, unsigned until keel's key signs them), `keel-plugin index` builds the `skills`
+list (files kept in the marketplace repo: `skills/<name>/<version>.md`, served by the sync).
+
+**The `plugin` workflow** (`content/workflows/plugin.yaml`, last in ORDER): preflight → the plugin's spec and its gate →
+the scaffold with `keel-plugin new` (one commit) → per criterion red, green, AC review, AC gate → `keel-plugin lint` on the
+built package (`scripts/plugin-check.sh lint`: `scripts/build-plugin.sh`, then lint) → the plugin's tests
+(`scripts/plugin-check.sh test`: `scripts/test-plugins.sh <name>`), each with 2 fix rounds before keel asks → the review
+and its gate → close. `scripts/plugin-check.sh` finds the plugin from the branch's changes under `plugins/`.
 
 ## v0.16.0: full MCP (read, --write, --admin)
 

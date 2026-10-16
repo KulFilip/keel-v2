@@ -1,0 +1,8 @@
+# keel's own skill security (content/skills in keel-v2), kept in this repo: skills/security/<version>.md
+name: security
+title: "Security review patterns"
+publisher: keel
+category: review
+summary: "Security review patterns for a Kotlin/Spring backend and TypeScript frontend: endpoint authorization, input validation, data exposure, logic flaws that need intent to see, and dependency CVE triage."
+tags: [security, keel]
+keel: ">=0.18.6"

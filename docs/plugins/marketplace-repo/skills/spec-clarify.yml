@@ -1,0 +1,8 @@
+# keel's own skill spec-clarify (content/skills in keel-v2), kept in this repo: skills/spec-clarify/<version>.md
+name: spec-clarify
+title: "Clarify first, in keel v2"
+publisher: keel
+category: authoring
+summary: "Ask the user the few questions that change the spec, as buttons, before any criterion is written."
+tags: [spec, keel]
+keel: ">=0.18.6"

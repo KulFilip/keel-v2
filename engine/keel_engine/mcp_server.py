@@ -682,7 +682,8 @@ RANK = {"read": 0, "write": 1, "admin": 2}
 # A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
 CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
            "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
-           "keel_workflow_create", "keel_rule_create", "keel_agent_create"}
+           "keel_workflow_create", "keel_rule_create", "keel_agent_create",
+           "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -753,14 +754,18 @@ TOOLS: dict[str, tuple[str, ...]] = {
              # 0.18.5 what keel TUI shows: the workflows, the agents, one agent, KeelBot's chats and changes, diagrams
              "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram",
              # 0.18.5 a new workflow, rule pack or agent: the format, a check that saves nothing, the agents there are
-             "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions"),
+             "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",
+             # 0.18.6 skills: the project's (and which agents use each), one skill's text
+             "keel_skills", "keel_skill"),
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
               # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
               # agent, ask KeelBot, keep or undo its changes (asks first)
               "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start",
               "keel_keelbot_ask", "keel_keelbot_keep", "keel_keelbot_undo",
               # 0.18.5 save a new one (each asks the person first)
-              "keel_workflow_create", "keel_rule_create", "keel_agent_create"),
+              "keel_workflow_create", "keel_rule_create", "keel_agent_create",
+              # 0.18.6 a new skill (written here, from a link, from the marketplace) and which agents load it (each asks first)
+              "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
@@ -778,6 +783,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_more as more
     from . import mcp_tui as tui
     from . import mcp_create as create
+    from . import mcp_skills as sk
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -1089,9 +1095,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     # ---------------------------------------------------------------- 0.18.5 new workflows, rule packs and agents
 
     @reg(ro)
-    def keel_format(kind: Literal["workflow", "rule", "agent"]) -> str:
-        """How a new workflow (YAML), rule pack (YAML) or agent (JSON) is written, with an example. Read it before
-        keel_workflow_create, keel_rule_create or keel_agent_create."""
+    def keel_format(kind: Literal["workflow", "rule", "agent", "skill"]) -> str:
+        """How a new workflow (YAML), rule pack (YAML), agent (JSON) or skill (SKILL.md) is written, with an example.
+        Read it before keel_workflow_create, keel_rule_create, keel_agent_create or keel_skill_create."""
         return guard(create.fmt, kind)
 
     @reg(ro)
@@ -1130,6 +1136,52 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_agent_create", f"save the new agent {name}", create.create_agent, api, name, prompt, about,
                          tools, phases, project)
 
+    # ---------------------------------------------------------------- 0.18.6 skills
+
+    @reg(ro)
+    def keel_skills(project: str | None = None) -> str:
+        """The project's skills (keel's, its stack packs', the person's own and the marketplace's): id, kind, where it
+        comes from, its size in tokens, the agents that load it and when, and whether it is off."""
+        return guard(sk.skills, api, project)
+
+    @reg(ro)
+    def keel_skill(skill: str, project: str | None = None) -> str:
+        """One skill: its SKILL.md text, the agents that load it, its size, and its references (read only when asked)."""
+        return guard(sk.skill, api, skill, project)
+
+    @reg(rw)
+    async def keel_skill_create(text: str, agents: list[str] | None = None, project: str | None = None,
+                                ctx: Context | None = None) -> str:
+        """Save a new skill: its whole SKILL.md (front matter name and description, then the text; keel_format
+        kind=skill shows how), and put it on these agents if given. Asks the person first."""
+        return await act(ctx, "keel_skill_create", "save this new skill" + (f" for {', '.join(agents)}" if agents else ""),
+                         sk.create, api, text, agents, project)
+
+    @reg(rw)
+    async def keel_skill_import(url: str, agents: list[str] | None = None, project: str | None = None,
+                                ctx: Context | None = None) -> str:
+        """Save a skill from a link to its SKILL.md (https, the raw file, at most 256 KB), and put it on these agents if
+        given. Asks the person first."""
+        return await act(ctx, "keel_skill_import", f"save the skill at {url}", sk.import_url, api, url, agents, project)
+
+    @reg(rw)
+    async def keel_skill_attach(skill: str, agents: list[str], detach: bool = False, project: str | None = None,
+                                ctx: Context | None = None) -> str:
+        """Put a skill on these agents (their prompt gets its text from the next run), or take it off them with
+        detach=true. keel_agent_definitions lists the agents. Asks the person first."""
+        what = f"{'take' if detach else 'put'} the skill {skill} {'off' if detach else 'on'} {', '.join(agents)}"
+        return await act(ctx, "keel_skill_attach", what, sk.attach, api, skill, agents, detach, project)
+
+    @reg(rw)
+    async def keel_skill_market_install(name: str, version: str | None = None, agents: list[str] | None = None,
+                                        replace: bool = False, project: str | None = None,
+                                        ctx: Context | None = None) -> str:
+        """Install a skill from the marketplace's catalogs (keel_marketplace_search finds them) into the project, its
+        signed SKILL.md checked first, and put it on these agents if given. replace=true updates an installed one.
+        Asks the person first."""
+        return await act(ctx, "keel_skill_market_install", f"install the skill {name} from the marketplace",
+                         sk.market_install, api, name, version, agents, replace, project)
+
     @reg(ro)
     def keel_diagram(kind: Literal["flow", "workflow", "map-er", "map-system", "map-modules", "graph"], arg: str | None = None,
                      project: str | None = None, width: int = 120) -> str:
@@ -1165,8 +1217,14 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(ro)
     def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
         """Search the plugin catalogs keel reads: each plugin's name, title, trust level (content, web or code),
-        summary, and whether this keel has it. category: code, knowledge, tickets, review, product or other."""
-        return guard(marketplace_search, api, q, category)
+        summary, and whether this keel has it. category: code, knowledge, tickets, review, product or other. The skills
+        that match come after (the catalogs' and keel's own)."""
+        def both() -> str:
+            from . import mcp_skills
+            text = marketplace_search(api, q, category)
+            more = [] if category else mcp_skills.market_lines(api, q)
+            return text + ("\n" + "\n".join(more) if more else "")
+        return guard(both)
 
     @reg(ro)
     def keel_plugin_info(name: str) -> str:

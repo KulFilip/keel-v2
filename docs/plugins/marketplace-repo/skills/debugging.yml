@@ -1,0 +1,8 @@
+# keel's own skill debugging (content/skills in keel-v2), kept in this repo: skills/debugging/<version>.md
+name: debugging
+title: "Making a bug fail on demand"
+publisher: keel
+category: debugging
+summary: "How to make a bug fail on demand, by bug class - races, flakes, data bugs, performance regressions - plus bisecting, reading logs and read-only data forensics."
+tags: [debugging, keel]
+keel: ">=0.18.6"

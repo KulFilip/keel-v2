@@ -1,0 +1,8 @@
+# keel's own skill symfony-testing (content/skills in keel-v2), kept in this repo: skills/symfony-testing/<version>.md
+name: symfony-testing
+title: "Symfony test patterns"
+publisher: keel
+category: testing
+summary: "Test patterns for a Symfony backend: choosing the layer, KernelTestCase and WebTestCase, body tests validated against the OpenAPI contract, Doctrine fixtures, tagging tests with acceptance-criteria IDs, and keeping runs fast."
+tags: [symfony, keel]
+keel: ">=0.18.6"

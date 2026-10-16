@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
 import { db } from "../../../../web/src/test/setup";
-import { splitActions } from "../Actions";
+import { skillHead, splitActions } from "../Actions";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 
@@ -93,6 +93,32 @@ describe("KeelBot's new rule pack and agent (0.18.5)", () => {
 
   it("a rule pack and an agent split out of the answer as their own cards", () => {
     expect(splitActions("a\n```keel-rule\nname: x\n```\n```keel-agent\n{}\n```").map((s) => s.kind)).toEqual(["text", "rule", "agent"]);
+  });
+});
+
+describe("KeelBot's new skill (0.18.6)", () => {
+  it("a skill: its text and agents from its front matter, saved and attached only when pressed", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith("A skill for the explorer:\n\n```keel-skill\n---\nname: changelog-entries\ndescription: How to write a changelog entry.\n"
+      + "agents: [explorer]\n---\n# Changelog\nOne line per change.\n```");
+    const card = await within(p).findByRole("region", { name: "New skill: changelog-entries" });
+    expect(card).toHaveTextContent("How to write a changelog entry.");
+    await waitFor(() => expect(within(card).getByRole("checkbox", { name: "explorer" })).toBeChecked());
+    expect(within(card).getByRole("checkbox", { name: "implementer" })).not.toBeChecked();
+    expect(db.calls.some((c) => c.path === "/api/projects/ludus-engine/skills/import")).toBe(false);
+    await user.click(within(card).getByRole("checkbox", { name: "implementer" }));
+    await user.click(within(card).getByRole("button", { name: "Save the skill" }));
+    await waitFor(() => expect(db.calls.find((c) => c.method === "PUT" && c.path === "/api/projects/ludus-engine/skills/imported-skill")?.body)
+      .toEqual({ agents: ["explorer", "implementer"] }));
+    expect(db.calls.find((c) => c.path === "/api/projects/ludus-engine/skills/import")?.body).toMatchObject({ body: expect.stringContaining("name: changelog-entries") });
+    expect(await within(card).findByRole("status")).toHaveTextContent("Saved imported-skill: loaded by explorer, implementer");
+  });
+
+  it("reads the front matter, and splits a skill out of the answer", () => {
+    expect(skillHead("---\nname: x\ndescription: d\nagents: reviewer, 'implementer'\n---\nbody")).toEqual(
+      { name: "x", description: "d", agents: ["reviewer", "implementer"] });
+    expect(skillHead("no front matter").name).toBe("");
+    expect(splitActions("a\n```keel-skill\n---\nname: x\n---\n```").map((s) => s.kind)).toEqual(["text", "skill"]);
   });
 });
 

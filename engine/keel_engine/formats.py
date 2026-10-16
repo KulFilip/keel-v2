@@ -1,5 +1,5 @@
-"""How a person (or KeelBot, or an MCP client for them) writes a new keel workflow, rule pack or agent: the formats in
-short, with an example each. KeelBot's prompt (the KeelBot plugin), keel's MCP tool keel_format and keel TUI's /create
+"""How a person (or KeelBot, or an MCP client for them) writes a new keel workflow, rule pack, agent or skill: the formats
+in short, with an example each. KeelBot's prompt (the KeelBot plugin), keel's MCP tool keel_format and keel TUI's /create
 use the same words. The full references: docs/GUIDE.md (workflows), docs/rules/pack-format.md (rules, rules/packs.py).
 """
 
@@ -86,4 +86,29 @@ Example:
  "tools": ["Read", "Grep", "Glob", "Edit", "Write"], "phases": ["any"]}
 ```"""
 
-FORMATS = {"workflow": WORKFLOW, "rule": RULE, "agent": AGENT}
+SKILL = """How a skill is written (a SKILL.md: front matter, then the text an agent reads before it works):
+---
+name: <id>                  # lower-case words with dashes: the skill's id
+description: <one sentence: what it teaches, and when an agent needs it>
+---
+# <title>
+<the know-how, short and concrete: what to do, in which order, what to avoid; an example>
+## <a section per topic>
+A skill adds words to an agent's prompt (every word costs tokens on each run of that agent), so keep it short. It never gives an agent more power: keel's rules and the phase still decide what the agent may change or run. After it is saved, attach it to the agents that need it (keel_skill_attach, /skill attach, or the Skills page).
+Example:
+```keel-skill
+---
+name: changelog-entries
+description: How to write the CHANGELOG entry of a finished feature, in this project's style.
+---
+# Changelog entries
+
+Add one line under "Unreleased" in CHANGELOG.md, in the past tense, for each change a user can see.
+
+## How
+- Name what changed for the user, not the files: "Players see their rank on the scores page."
+- Link the pull request at the end: (#123).
+- Never edit the entries of a released version.
+```"""
+
+FORMATS = {"workflow": WORKFLOW, "rule": RULE, "agent": AGENT, "skill": SKILL}

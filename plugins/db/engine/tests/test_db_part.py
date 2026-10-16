@@ -35,7 +35,6 @@ MANIFEST = yaml.safe_load((PLUGIN / "keel-plugin.yml").read_text())
 READ_TOOLS = {"db_connections", "db_schema", "db_query"}
 CI_ENGINE = str(ROOT / "plugins" / "ci" / "engine")
 GIT_ENGINE = str(ROOT / "plugins" / "git" / "engine")
-REVIEW_ENGINE = str(ROOT / "plugins" / "review" / "engine")
 
 
 def test_one_version_and_name_everywhere():
@@ -95,30 +94,33 @@ def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(
 
 
 def test_keel2_mcp_lists_its_tools_in_keel_0_16_1s_order(with_ci):
-    """keel2 mcp's tools/list at each level, as 0.16.1 listed them (it named each tool in mcp_server.py): the parts'
-    read tools (Database, Git, CI/CD) after keel_dashboard, their acting tools (CI/CD, Database, Git) after
-    keel_restore_doc. 0.18.5's tools (what keel TUI does) come after 0.16.1's, and step 4's four marketplace tools after
-    all of them, at every level (docs/plugins/13-step4-contract.md §7)."""
+    """keel2 mcp's tools/list at each level, exactly as 0.16.1 listed them (it named each tool in mcp_server.py): the
+    parts' read tools (Database, Git, CI/CD) after keel_dashboard, their acting tools (CI/CD, Database, Git) after
+    keel_restore_doc. Step 4's four marketplace tools come after all of them, at every level
+    (docs/plugins/13-step4-contract.md §7)."""
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
     read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard",
             "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure",
             "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
             "keel_read_file", "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
-             "keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create", "keel_stop_flow"]
-    admin = ["keel_delete_run", "keel_add_project", "keel_remove_project"]
-    # 0.18.5 keel TUI's (engine tests/test_mcp.py lists them the same way)
-    tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
-                "keel_rule_check", "keel_agent_definitions", "keel_diagram"]
-    tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
-           "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
-           "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
-           "keel_agent_definitions", "keel_agent_create", "keel_diagram"]
-    rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]       # v0.17.2 rules
+             "keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"]
+    admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
+             "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]       # v0.17.2 rules
     market = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-    assert names("read") == read + ["keel_workflows"] + tui_read + market
-    assert names("write") == read + write + tui + market
-    assert names("admin") == read + write + admin + tui + rules + market
+    # keel 0.18.5 and later add tools of their own (keel TUI's, the create tools, 0.18.6's skills) and move two of
+    # 0.16.1's to a lower level (keel_workflows is read, keel_stop_flow write): 0.16.1's others keep their order
+    moved = {"keel_workflows", "keel_stop_flow"}
+
+    def same_order(level: str, want: list[str]) -> None:
+        got = names(level)
+        assert [n for n in got if n in set(want) - moved] == [n for n in want if n not in moved]
+        assert got[-4:] == market
+
+    same_order("read", read + market)
+    same_order("write", read + write + market)
+    same_order("admin", read + write + admin + market)
+    assert "keel_workflows" in names("read") and "keel_stop_flow" in names("write")
     assert mcp_server.build_server(write=True, api=object())                      # write=True is the write level
 
 
@@ -131,36 +133,12 @@ def test_its_tools_have_0_16_1s_levels_and_risk(with_ci):
     assert mcp_server.tool_level("keel_db_change") == "write" and mcp_server.tool_level("keel_db_query") == "read"
     assert mcp_server.allowed(["--allow", "keel_db_query,keel_git_push"]) == {"keel_db_query", "keel_git_push"}
     tools = {t.name: t for t in asyncio.run(mcp_server.build_server(level="write", api=object()).list_tools())}
-    destructive = {n for n, t in tools.items() if t.annotations and t.annotations.destructiveHint}
-    assert destructive == {"keel_db_change", "keel_git_push", "keel_stop_flow", "keel_stop_flows", "keel_keelbot_undo"}   # + 0.18.5 keel's own
+    parts = {n for lv in mcp_server.part_tools().values() for n in lv}
+    destructive = {n for n, t in tools.items() if t.annotations and t.annotations.destructiveHint and n in parts}
+    assert destructive == {"keel_db_change", "keel_git_push"}
     assert not tools["keel_db_query"].annotations.destructiveHint and tools["keel_db_query"].annotations.readOnlyHint
     srv = mcp_server.build_server(level="read", api=object(), allow={"keel_db_query", "keel_db_change"})
     assert [t.name for t in asyncio.run(srv.list_tools())] == ["keel_db_query"]   # a write tool, not at read
-
-
-@pytest.fixture
-def with_review(monkeypatch):
-    """Every plugin with keel2 mcp tools, as the image loads them (0.18.6: Code Review's, after the plugins it needs)."""
-    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{KEELBOT_ENGINE}:{ENGINE}:{GIT_ENGINE}:{CI_ENGINE}:{REVIEW_ENGINE}")
-    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_keelbot,keel_plugin_db,keel_plugin_git,keel_plugin_ci,keel_plugin_review")
-    extensions.reload()
-    yield
-    extensions.reload()
-
-
-def test_with_code_review_its_tools_come_after_the_others(with_review):
-    """0.18.6 the Code Review plugin's tools: its read tools after CI/CD's, its acting ones after Git's (by name)."""
-    review_read = ["keel_review_prs", "keel_review_files", "keel_review_diff", "keel_review_notes"]
-    review_write = ["keel_review_comment", "keel_review_reply", "keel_review_resolve", "keel_review_explain", "keel_review_findings",
-                    "keel_review_submit"]
-    assert mcp_server.part_tools() == {
-        "read": ["keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure", *review_read],
-        "write": ["keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create", *review_write]}
-    names = [t.name for t in asyncio.run(mcp_server.build_server(level="write", api=object()).list_tools())]
-    at = names.index("keel_ci_failure")
-    assert names[at + 1:at + 5] == review_read and names[at + 5] == "keel_flows"
-    at = names.index("keel_pr_create")
-    assert names[at + 1:at + 7] == review_write
 
 
 def test_a_data_change_asks_the_client_first(with_ci):

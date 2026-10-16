@@ -7,8 +7,8 @@ import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
 import { Drawer, ErrorBox, Loading, PageHead, Panel, Tabs } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
-type Src = "all" | "keel" | "keel pack" | "claude" | "yours";
-const SRC_LABEL: Record<Src, string> = { all: "All", keel: "keel", "keel pack": "keel pack", claude: "Claude skills", yours: "yours" };
+type Src = "all" | "keel" | "keel pack" | "claude" | "yours" | "marketplace";
+const SRC_LABEL: Record<Src, string> = { all: "All", keel: "keel", "keel pack": "keel pack", claude: "Claude skills", yours: "yours", marketplace: "marketplace" };
 const k1 = (n: number) => `${(n / 1000).toFixed(1)}k`;
 
 function SkillDrawer({ pid, id, agents, onClose, onSaved }: { pid: string; id: string; agents: Agent[]; onClose: () => void; onSaved: () => void }) {
@@ -185,6 +185,7 @@ export function SkillsPage({ pid }: { pid: string }) {
     <>
       <PageHead title="Skill hub" sub={`Skills the agents of ${project?.name ?? pid} load: keel's skills for its stacks, packs, Claude skills, and skills only this project has.`}
         actions={<>
+          <a className="btn" href="#/plugins?tab=market&kind=skills" style={{ textDecoration: "none" }}>Find in the marketplace</a>
           <button className="btn" type="button" onClick={() => setImporting(true)}>Import</button>
           <button className="btn primary" type="button" id="newSkill" onClick={() => setCreating(true)}>New skill</button>
         </>} />

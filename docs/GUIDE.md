@@ -189,7 +189,14 @@ the budget and connections. Each other part is a plugin with its own version:
   CI/CD and Code Review also have a **This project** switch: they are on only for the projects you choose.
 - **Marketplace:** plugins you can add, with who made them, what they may do ("Runs code in keel"), and what they
   need. keel checks each package's signature before it installs. The public marketplace opens soon; until then it
-  shows the plugins of the catalogs you add.
+  shows the plugins of the catalogs you add. The switch at the top finds **Plugins · Workflows · Rules · Skills**.
+- **Skills** (0.18.6): know-how an agent reads before it works. **From keel** lists keel's own skills (in every
+  project already): **Agents…** picks which agents load each. A catalog's skill opens with its whole text and keel's
+  review (its size in tokens, its sections); **Install** asks which agents should load it; **Update** asks before it
+  replaces a copy you changed; **Remove** takes it away. A skill only adds words to a prompt: keel's rules still decide
+  what an agent may do. The same from keel TUI (`/skills`, `/skill attach <id> <agent…>`, `/skill install <name>`,
+  `/create skill <what it should teach>`) and from MCP (`keel_skills`, `keel_skill_attach`, `keel_skill_market_install`,
+  `keel_skill_create`); KeelBot gives a **Save the skill** card.
 - **Sources and rules:** the catalogs keel reads (add one with its URL and public key), and, for plugin authors, a
   `.kplug` file from a path in `/data` (keel marks it **unsigned**).
 
@@ -206,7 +213,9 @@ Start keel with fewer plugins:
 | `keel2 start --core` | keel's core only (the `:core` image); add plugins in Control › Plugins |
 | `keel2 start --safe` | only the plugins that came with keel, none you installed (when a plugin breaks keel) |
 
-Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publish-your-plugin.md). How it all works:
+Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publish-your-plugin.md), or let keel build it:
+the **plugin** workflow writes its spec (you approve), scaffolds it with `keel-plugin new`, builds each criterion test
+first, then runs `keel-plugin lint` and the plugin's tests (`scripts/plugin-check.sh`) and ends at a review gate. How it all works:
 [docs/plugins/README.md](plugins/README.md).
 
 ## Plugins: Database, Git and CI/CD

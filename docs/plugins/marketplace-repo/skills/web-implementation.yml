@@ -1,0 +1,8 @@
+# keel's own skill web-implementation (content/skills in keel-v2), kept in this repo: skills/web-implementation/<version>.md
+name: web-implementation
+title: "Writing the frontend code"
+publisher: keel
+category: implementation
+summary: "How to write React + TypeScript frontend code: component shape, state, consuming the generated API client, forms, accessibility and style."
+tags: [web, keel]
+keel: ">=0.18.6"

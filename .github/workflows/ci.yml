@@ -15,7 +15,7 @@ jobs:
       - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start && bash -n docker/keel-native-start && bash -n scripts/build-native.sh && bash -n scripts/test-keel2-native.sh
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
-      - run: shellcheck -S error keel2 install.sh docker/keel-start docker/keel-native-start scripts/build-native.sh scripts/test-keel2-native.sh product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh
+      - run: shellcheck -S error keel2 install.sh docker/keel-start docker/keel-native-start scripts/build-native.sh scripts/test-keel2-native.sh product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh scripts/plugin-check.sh
       # v0.17.2 keel2's data volume: its own per KEEL_NAME, never one another running keel uses (fake docker)
       - run: shellcheck -S error scripts/test-keel2-volume.sh && bash scripts/test-keel2-volume.sh
       - run: shellcheck -S error scripts/test-keel2-auth.sh && bash scripts/test-keel2-auth.sh

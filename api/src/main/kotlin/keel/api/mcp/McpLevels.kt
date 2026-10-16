@@ -163,6 +163,9 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             "PUT" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
             "DELETE" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
             "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall|market/install)$"),
+            // 0.18.6 skills: a new one, an import, the agents it is on and a marketplace install are write (each MCP tool
+            // asks the person first); removing one is admin
+            "DELETE" to Regex("^/api/projects/[^/]+/skills/[^/]+$"),
         )
         /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
         private val READ_POSTS = listOf(
