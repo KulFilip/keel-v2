@@ -10,8 +10,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, StepView, useApp,
-  useLoad, usePages, useWide,
+  ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
+  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus,
   type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
@@ -152,7 +152,27 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const hasCode = pages.some((p) => p.id === "repo");
   const hasGraph = pages.some((p) => p.id === "graph");
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
-  const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
+  /** keep: this tab's choice only (following keel TUI or another tab); set: the person's, so keel TUI follows it (0.18.6) */
+  const keepSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
+  const setSid = useCallback((v: string | null) => {
+    keepSid(v);
+    shareFocus(v ? { chat: v, chat_project: pid } : { close: true, chat_project: pid });
+  }, [keepSid, pid]);
+  // 0.18.6 the chat keel TUI (or another tab) has open on this project: at the start, and when it opens another
+  useEffect(() => {
+    let alive = true;
+    kb.focus().then((f) => { const s = f?.chats?.[pid]; if (alive && s && s !== read(sidKey(pid))) keepSid(s); }, () => undefined);
+    const on = (e: Event) => {
+      const f = (e as CustomEvent<UiFocus>).detail;
+      const s = f?.chats?.[pid];
+      if (s) keepSid(s);
+    };
+    window.addEventListener(UI_FOCUS_EVENT, on);
+    return () => {
+      alive = false;
+      window.removeEventListener(UI_FOCUS_EVENT, on);
+    };
+  }, [pid, keepSid]);
   const list = useLoad(`helper:${pid}:list`, () => kb.sessions(pid), { live: false });
   // v0.15.2 a chat is forgotten only when the server says it is gone (404), never because the server did not answer
   const gone = useRef<string | null>(null);

@@ -34,7 +34,9 @@ import org.springframework.web.filter.OncePerRequestFilter
 class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
-        request.method == "GET" || request.getHeader("X-Keel-Via") !in VIAS || !request.requestURI.startsWith("/api/")
+        request.method == "GET" || request.getHeader("X-Keel-Via") !in VIAS || !request.requestURI.startsWith("/api/") ||
+            // 0.18.6 which project and chat a front end shows (ui/UiFocus.kt) is not a change to record
+            request.requestURI == "/api/ui/focus"
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         try {

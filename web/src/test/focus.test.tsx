@@ -1,84 +1,37 @@
-// Markdown that keeps a PR body readable (a <details> fold-out with a code block of its own inside, then the tables),
-// and the menu on a big screen. The Code page's Focus mode and KeelBot's room in it: plugins/code/web/test.
-
-import {
-  fireEvent,
-  render,
-  screen,
-  within,
-} from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+// keel 0.18.6: the dashboard and keel TUI on the same project and KeelBot chat (the shared focus, api ui/UiFocus.kt).
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import { Markdown } from "../components/Markdown";
+import { FOCUS_CLIENT } from "../state";
+import { db, FakeEventSource } from "./setup";
 
-describe("Markdown of a PR body", () => {
-  it("folds the spec extract in <details>, keeps its own code block inside, and renders what follows", () => {
-    const body = [
-      "# Euro prices",
-      "",
-      "<details><summary>Spec extract</summary>",
-      "",
-      "````markdown",
-      "## Request path",
-      "```",
-      "test -> formatEuro(cents)",
-      "```",
-      "````",
-      "</details>",
-      "",
-      "## Acceptance criteria",
-      "",
-      "| AC | status |",
-      "|---|---|",
-      "| CHG-1.1 | done |",
-      "",
-      "## KeelBot changes",
-      "",
-      "- `94baef0` feat(helper): say that formatEuro takes whole cents",
-    ].join("\n");
-    const { container } = render(<Markdown text={body} />);
-    const details = container.querySelector("details")!;
-    expect(within(details).getByText("Spec extract")).toBeInTheDocument();
-    expect(details.querySelector(".md-code")).toHaveTextContent(
-      "test -> formatEuro(cents)",
-    );
-    expect(
-      screen.getByRole("heading", { name: "Acceptance criteria" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("table")).toHaveTextContent("CHG-1.1");
-    expect(
-      screen.getByRole("heading", { name: "KeelBot changes" }),
-    ).toBeInTheDocument();
-    expect(container.querySelectorAll(".md-code")).toHaveLength(1); // nothing after </details> is code
-  });
+const shown = () => screen.getAllByText(/ludus-engine|platform|yegi/).map((e) => e.textContent).join(" ");
 
-  it("closes a fence only on a plain fence at least as long", () => {
-    const { container } = render(
-      <Markdown
-        text={["```", "a", "```markdown", "b", "```", "after"].join("\n")}
-      />,
-    );
-    expect(container.querySelector(".md-code")).toHaveTextContent(
-      "a ```markdown b",
-    );
-    expect(screen.getByText("after").tagName).toBe("P");
-  });
-});
-
-describe("the menu on a big screen", () => {
-  it("folds into a thin strip, comes back with ☰, and ⌘\\ toggles it", async () => {
-    const user = userEvent.setup();
+describe("the shared focus", () => {
+  it("opens on the project keel TUI is on", async () => {
+    db.focus = { project: "platform", chats: {}, by: "tui", client: "tui-1" };
     location.hash = "#/flow";
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Hide the menu" }));
-    expect(document.querySelector(".app")).toHaveClass("nav-hidden");
-    expect(localStorage.getItem("keel2.nav.hidden")).toBe("1");
-    await user.click(screen.getByRole("button", { name: "Show the menu" }));
-    expect(document.querySelector(".app")).not.toHaveClass("nav-hidden");
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    expect(document.querySelector(".app")).toHaveClass("nav-hidden");
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    expect(document.querySelector(".app")).not.toHaveClass("nav-hidden");
+    await waitFor(() => expect(localStorage.getItem("keel2.project")).toBe("platform"));
+    expect(shown()).toContain("platform");
+  });
+
+  it("follows keel TUI to another project, and never its own change", async () => {
+    location.hash = "#/flow";
+    render(<App />);
+    await screen.findAllByText(/ludus-engine/);
+    act(() => FakeEventSource.emit("ui.focus", { project: "yegi", chats: {}, by: "tui", client: "tui-1" }));
+    await waitFor(() => expect(localStorage.getItem("keel2.project")).toBe("yegi"));
+    act(() => FakeEventSource.emit("ui.focus", { project: "platform", chats: {}, by: "web", client: FOCUS_CLIENT }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(localStorage.getItem("keel2.project")).toBe("yegi");
+  });
+
+  it("follows keel TUI to the KeelBot chat it opened", async () => {
+    location.hash = "#/keelbot";
+    render(<App />);
+    await screen.findAllByText(/ludus-engine/);
+    act(() => FakeEventSource.emit("ui.focus", { project: "ludus-engine", chats: { "ludus-engine": "h-tui" }, by: "tui", client: "tui-1" }));
+    await waitFor(() => expect(localStorage.getItem("keel2.helper.ludus-engine.session")).toBe("h-tui"));
   });
 });

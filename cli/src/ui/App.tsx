@@ -136,6 +136,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const offs = [
       core.on("change", (s) => setSnap(s)),
       core.on("notice", (t) => push({ kind: "notice", text: t })),
+      // 0.18.6 the chat the dashboard has open (at the start, or when it opens another): its last messages
+      core.on("chat", (s, why) => {
+        const blocks: Block[] = [{ kind: "dim", text: `  ${why}: KeelBot chat "${s.title || s.id}" · ${s.mode}` }];
+        (s.messages ?? []).slice(-4).forEach((m) => blocks.push(m.role === "user" ? { kind: "user", text: m.text }
+          : { kind: m.role === "note" ? "dim" : "markdown", text: m.text }));
+        push(...blocks);
+      }),
+      // 0.18.6 a question asked in this chat from the dashboard: shown as the person's own, then KeelBot answers here too
+      core.on("remote", (text, by) => push({ kind: "user", text }, { kind: "dim", text: `  asked in ${by}` })),
       // KeelBot asks the person's OK for a command: an amber yes/no, one after the other
       core.on("question", (q) => {
         if (questions.current.some((x) => x.id === q.id)) return;

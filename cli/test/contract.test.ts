@@ -61,7 +61,9 @@ describe("api contract", () => {
     expect(act.method).toBe("POST");
     expect(act.headers["x-keel-tool"]).toBe("/reject");
     expect(act.body).toEqual({ decision: "reject", why: "the error case is missing", id: "q1" });
-    expect(calls.filter((c) => c.method !== "GET").map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/projects/demo/flows", "POST /api/inbox/t1/act"]);
+    // (0.18.6 the shared focus, PUT /api/ui/focus, is which project the screen shows: not a change)
+    expect(calls.filter((c) => c.method !== "GET" && c.path !== "/api/ui/focus").map((c) => `${c.method} ${c.path}`))
+      .toEqual(["POST /api/projects/demo/flows", "POST /api/inbox/t1/act"]);
   });
 
   it("a KeelBot turn: a session, the turn, the streamed steps and the stored answer", async () => {

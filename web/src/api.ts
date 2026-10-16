@@ -923,6 +923,10 @@ export const api = {
   health: () => get<Health>("/health"),
   features: () => get<Features>("/features"),
   /** `pid` "*" = every project (notifications + project.changed only). */
+  /** keel 0.18.6 the project and KeelBot chat every keel front end shows (api ui/UiFocus.kt) */
+  focus: () => get<{ project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null }>("/ui/focus"),
+  setFocus: (body: { project?: string; chat?: string; chat_project?: string; close?: boolean; by: string; client: string }) =>
+    put<{ project: string | null; chats: Record<string, string> }>("/ui/focus", body),
   eventsUrl: (pid: string | null, notifyAll = false) => apiUrl("/events") + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
   /** The raw answer; `normalizeCatalog` (ModelPicker) also accepts the pre-v0.3 `{provider: [{id,label}]}` shape. */
   providerModels: () => get<unknown>("/providers/models"),

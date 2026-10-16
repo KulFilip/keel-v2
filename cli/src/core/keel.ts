@@ -11,7 +11,7 @@ import { subscribe, type LiveState, type SseMessage, type Subscription } from ".
 import { notice } from "./notices";
 import { Mentions } from "./mentions";
 import { loadPlugins, type TuiPlugins } from "./plugins";
-import { post } from "./sdk";
+import { get, post, put } from "./sdk";
 import type { HelperChange, HelperDone, HelperMention } from "./sdk";
 import type { Profiler } from "./profile";
 
@@ -59,7 +59,14 @@ export type CoreEvents = {
   answer: (m: { text: string; ok: boolean; message?: HelperMessage }) => void;
   /** KeelBot asks the person's OK for a command (helper.permission): once, always (this chat) or deny */
   question: (q: { id: string; command: string; title: string; path?: string | null }) => void;
+  /** 0.18.6 a KeelBot chat came on screen because another keel front end (the dashboard) opened it, or at the start */
+  chat: (s: HelperSession, why: string) => void;
+  /** 0.18.6 the person asked KeelBot in this chat from another front end (the dashboard): their words */
+  remote: (text: string, by: string) => void;
 };
+
+/** keel 0.18.6 what the person looks at, shared by every keel front end (api ui/UiFocus.kt): the project and its chat. */
+type Focus = { project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null };
 
 export type CoreOptions = {
   url: string;
@@ -78,13 +85,17 @@ const STEP_KEEP = 200;
 
 export class KeelCore {
   snapshot: Snapshot;
-  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set() };
+  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set(), chat: new Set(), remote: new Set() };
   /** @mentions: the project's files, the code graph's symbols, the flow's criteria */
   readonly mentions = new Mentions(() => this.pid, () => (this.snapshot.flow?.thread?.acs ?? []).map((a) => ({ id: a.id, title: a.title })));
   private sub: Subscription | null = null;
   private subPid: string | null | undefined = undefined;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  /** 0.18.6 the shared focus, and this app's own id in it (so it never follows its own change) */
+  private focus: Focus | null = null;
+  readonly client = `tui-${Math.random().toString(36).slice(2, 10)}`;
+  private sending = false;
   /** the agents the person started (/agent new): KeelBot chats that work on their own, until each one finishes */
   private spawned = new Map<string, { pid: string; title: string }>();
   private spawnTimer: ReturnType<typeof setInterval> | null = null;
@@ -133,8 +144,50 @@ export class KeelCore {
     }
     await this.loadProjects();
     await Promise.all([this.refresh(), this.loadPlugins()]);
+    if (this.pid) this.shareFocus({ project: this.pid });
+    await this.openFocusChat("the chat open in keel");
     this.follow();
     return this.snapshot;
+  }
+
+  // ---- 0.18.6 the shared focus: the dashboard and keel TUI on the same project and KeelBot chat ----
+
+  private async readFocus(): Promise<Focus | null> {
+    try {
+      this.focus = await get<Focus>("/ui/focus");
+    } catch {
+      this.focus = null;          // an older keel has none: each front end on its own, as before
+    }
+    return this.focus;
+  }
+
+  private shareFocus(patch: { project?: string; chat?: string; chat_project?: string; close?: boolean }) {
+    void put("/ui/focus", { ...patch, by: "tui", client: this.client }).catch(() => undefined);
+  }
+
+  /** The chat the shared focus has open on this project, on screen (its last messages come with the chat event). */
+  private async openFocusChat(why: string) {
+    const pid = this.pid;
+    const sid = pid ? this.focus?.chats?.[pid] : undefined;
+    if (!pid || !sid || this.snapshot.chat.session?.id === sid) return;
+    try {
+      const s = await this.openChat(sid, true);
+      this.emit("chat", s, why);
+    } catch {
+      /* a chat that is gone: a new one starts with the next question */
+    }
+  }
+
+  /** Another front end changed the focus: follow it (another project, or another chat on this one). */
+  private async followFocus(f: Focus) {
+    this.focus = f;
+    const who = f.by === "web" ? "the dashboard" : f.by || "another keel window";
+    if (f.project && f.project !== this.pid) {
+      if (await this.useProject(f.project, true)) this.emit("notice", `following ${who}: project ${f.project}`);
+      return;
+    }
+    if (this.snapshot.chat.busy) return;
+    await this.openFocusChat(`following ${who}`);
   }
 
   /** What keel's plugins add to keel TUI for this project. */
@@ -157,22 +210,27 @@ export class KeelCore {
     let project: Project | null = null;
     if (cur) project = projects.find((p) => p.id === cur.id) ?? null;
     if (!project && want) project = projects.find((p) => p.id === want || p.name === want) ?? null;
+    // 0.18.6 the folder keel TUI starts in picks the project; else the one the dashboard (or another window) is on
     if (!project && this.opts.cwd) {
       const cwd = this.opts.cwd.replace(/\/+$/, "");
       const inside = projects.filter((p) => p.root && (cwd === p.root || cwd.startsWith(p.root.replace(/\/+$/, "") + "/")));
       project = inside.sort((a, b) => b.root.length - a.root.length)[0] ?? null;
     }
+    if (!project && (await this.readFocus())?.project) project = projects.find((p) => p.id === this.focus!.project) ?? null;
+    else if (!this.focus) await this.readFocus();
     this.set({ projects, project: project ?? projects[0] ?? null });
   }
 
   /** Switch to another project (id or name); false when keel has none by that name. */
-  async useProject(name: string): Promise<boolean> {
+  async useProject(name: string, remote = false): Promise<boolean> {
     const projects = this.snapshot.projects.length ? this.snapshot.projects : await api.projects();
     const p = projects.find((x) => x.id === name || x.name === name);
     if (!p) return false;
     this.set({ project: p, flow: null, visited: [], chat: { ...this.snapshot.chat, session: null, callId: null, steps: [], busy: false } });
     this.mentions.reset();
     await Promise.all([this.refresh(), this.loadPlugins()]);
+    if (!remote) this.shareFocus({ project: p.id });
+    await this.openFocusChat(remote ? "the chat open there" : "the chat open in keel");
     this.follow();
     return true;
   }
@@ -225,6 +283,15 @@ export class KeelCore {
 
   /** One message of the stream (public for tests and other front ends that bring their own stream). */
   onMessage(m: SseMessage) {
+    if (m.event === "ui.focus") {
+      try {
+        const f = JSON.parse(m.data) as Focus;
+        if (f && f.client !== this.client) void this.followFocus(f);
+      } catch {
+        /* not ours to read */
+      }
+      return;
+    }
     if (m.event === "notification" || m.event === "notification.done" || m.event === "project.changed") {
       if (m.event === "project.changed") void this.loadProjects().catch(() => undefined);
       this.bump();
@@ -270,6 +337,18 @@ export class KeelCore {
       }
       return;
     }
+    // 0.18.6 the person asked in this chat from the dashboard: their words, then KeelBot's answer as it is written
+    if (ev.type === "helper.started" && chat.session && ev.thread_id === chat.session.id && !chat.busy && !this.sending && ev.call_id) {
+      this.setChat({ busy: true, callId: ev.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
+      const pid = this.pid;
+      void (pid ? kb.session(pid, chat.session.id) : Promise.reject(new Error("no project"))).then((s) => {
+        const last = [...(s.messages ?? [])].reverse().find((x) => x.role === "user");
+        if (last) this.emit("remote", last.text, "the dashboard");
+      }).catch(() => undefined);
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.pollTimer = setInterval(() => void this.pollTurn(), 3000);
+      return;
+    }
     if (ev.type === "helper.finished" && chat.session && ev.thread_id === chat.session.id && chat.busy) {
       void this.finishTurn();
       return;
@@ -310,7 +389,7 @@ export class KeelCore {
   }
 
   /** Open an earlier chat: its messages come back with it. */
-  async openChat(sid: string): Promise<HelperSession> {
+  async openChat(sid: string, remote = false): Promise<HelperSession> {
     if (!this.pid) throw new Error("no project");
     const s = await kb.session(this.pid, sid);
     const busy = !!s.busy || s.status === "running";
@@ -318,6 +397,7 @@ export class KeelCore {
     // a chat at work (an agent from /agent new): follow it from here; its answer comes as for the person's own turn
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = busy ? setInterval(() => void this.pollTurn(), 3000) : null;
+    if (!remote) this.shareFocus({ chat: s.id, chat_project: this.pid! });
     return s;
   }
 
@@ -364,6 +444,7 @@ export class KeelCore {
 
   newChat() {
     this.setChat({ session: null, callId: null, steps: [], busy: false });
+    if (this.pid) this.shareFocus({ close: true, chat_project: this.pid });
   }
 
   /** Ask KeelBot: the answer streams as `chat.steps`, and arrives with the "answer" event. `mentions`: what the person
@@ -411,8 +492,16 @@ export class KeelCore {
       const { mode, model } = this.snapshot.chat;
       s = await kb.create(pid, { mode, ...(model ? { model } : {}), title: text.slice(0, 60) });
       this.setChat({ session: s });
+      this.shareFocus({ chat: s.id, chat_project: pid });
     }
-    const t = await kb.turn(pid, s.id, { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}) });
+    // its helper.started may arrive before the turn's answer: it is this app's own, not one from the dashboard
+    this.sending = true;
+    let t;
+    try {
+      t = await kb.turn(pid, s.id, { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}) });
+    } finally {
+      this.sending = false;
+    }
     this.setChat({ busy: true, callId: t.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
     // a missed helper.finished never leaves the chat "working": look every 3 s
     if (this.pollTimer) clearInterval(this.pollTimer);

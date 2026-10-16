@@ -40,6 +40,8 @@ type PullRequest = {
 export function createDb() {
   return {
     projects: clone(fx.projects),
+    /** keel 0.18.6 the shared focus (api ui/UiFocus.kt): the project and KeelBot chat every front end shows */
+    focus: { project: null as string | null, chats: {} as Record<string, string>, by: null as string | null, client: null as string | null },
     flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
     /** v0.7.x: each project's board (GET /flows) and the flows in worktrees by id (GET /flows/:tid) */
     boards: {} as Record<string, FlowBoard>,
@@ -156,6 +158,16 @@ export function handlers(db: Db) {
     http.get("/api/health", () => HttpResponse.json(fx.health)),
     http.get("/api/features", () => HttpResponse.json(db.features)),
     http.get("/api/projects", () => HttpResponse.json(db.projects)),
+    http.get("/api/ui/focus", () => HttpResponse.json(db.focus)),
+    http.put("/api/ui/focus", async ({ request }) => {
+      const b = await log(request);
+      const pid = (b.chat_project ?? b.project ?? db.focus.project) as string | null;
+      const chats = { ...db.focus.chats };
+      if (b.close && pid) delete chats[pid];
+      else if (b.chat && pid) chats[pid] = String(b.chat);
+      db.focus = { project: (b.project as string | undefined) ?? db.focus.project, chats, by: String(b.by ?? ""), client: String(b.client ?? "") };
+      return HttpResponse.json(db.focus);
+    }),
     http.post("/api/projects", async ({ request }) => {
       const b = await log(request);
       const p = { ...db.projects[2], id: "new", name: String(b.name ?? "new"), root: String(b.root) };

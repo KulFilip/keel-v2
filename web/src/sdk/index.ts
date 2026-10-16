@@ -49,6 +49,8 @@ export type { Loaded } from "../state";
 // is { page: "wiki", arg: "kb:domain" }), go(screen, arg) to open another, useRoute() to read the link
 export { hashForScreen } from "../routes";
 export { go, useRoute } from "../state";
+// keel 0.18.6 the shared focus: the project and KeelBot chat every keel front end shows (api ui/UiFocus.kt)
+export { shareFocus, UI_FOCUS_EVENT, FOCUS_CLIENT, type UiFocus } from "../state";
 export type { Route } from "../routes";
 
 // keel's small ui pieces

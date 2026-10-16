@@ -181,6 +181,9 @@ export const kb = {
     },
   ) => post<ThreadState>(`/projects/${e(pid)}/flows`, body),
 
+  // 0.18.6 the chat keel TUI or another tab has open (the shared focus, api ui/UiFocus.kt)
+  focus: () => get<{ project: string | null; chats: Record<string, string> }>("/ui/focus"),
+
   // 0.18.5 a new rule pack or agent KeelBot wrote
   checkRule: (pid: string, yaml: string) =>
     post<{ ok: boolean; errors?: string[]; dry_run?: { checked?: number; blocked?: { kind?: string; target?: string }[] } }>(

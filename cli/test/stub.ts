@@ -32,6 +32,8 @@ export function stubKeel() {
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
     messages: [] as Record<string, unknown>[],
+    // 0.18.6 the shared focus (api ui/UiFocus.kt)
+    focus: { project: null as string | null, chats: {} as Record<string, string>, by: null as string | null, client: null as string | null },
     // 0.18.6 the Code Review plugin's routes for its mode in keel TUI: pull request 7, two files, one thread
     review: {
       drafts: [] as { id: string; path: string | null; line: number | null; side: string; body: string }[],
@@ -124,6 +126,15 @@ export function stubKeel() {
       case "POST /api/projects/demo/skills/market/install":
         state.installed = { version: "1.0.0", agents: body.agents ?? [] };
         return [200, { skill: { id: body.name, agents: body.agents ?? [], tokens: 1200 }, market: { version: "1.0.0", catalog: "keel" } }];
+      case "GET /api/ui/focus": return [200, state.focus];
+      case "PUT /api/ui/focus": {
+        const pid = body.chat_project ?? body.project ?? state.focus.project;
+        const chats = { ...state.focus.chats };
+        if (body.close && pid) delete chats[pid];
+        else if (body.chat && pid) chats[pid] = body.chat;
+        state.focus = { project: body.project ?? state.focus.project, chats, by: body.by, client: body.client };
+        return [200, state.focus];
+      }
       case "POST /api/threads/t1/mode": state.thread = { ...state.thread, run_mode: body.mode }; return [200, state.thread];
       case "POST /api/threads/t1/stop": state.thread = { ...state.thread, status: "stopped", waiting: undefined }; return [200, state.thread];
       // round 3: @mentions, Fix mode's changes, Keep and Undo, questions, plugins

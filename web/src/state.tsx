@@ -99,6 +99,17 @@ function storedMascot(): boolean {
     return false;
   }
 }
+/** keel 0.18.6 this tab's id in the shared focus (api ui/UiFocus.kt): the project and KeelBot chat every keel front end
+ *  (the dashboard's tabs, keel TUI) shows; a tab never follows its own change. */
+export const FOCUS_CLIENT = `web-${Math.random().toString(36).slice(2, 10)}`;
+export type UiFocus = { project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null };
+/** Tell keel what this tab shows now (the project, or the KeelBot chat on a project); an older keel without it: nothing. */
+export function shareFocus(patch: { project?: string; chat?: string; chat_project?: string; close?: boolean }) {
+  void api.setFocus({ ...patch, by: "web", client: FOCUS_CLIENT }).catch(() => undefined);
+}
+/** The window event a focus change from another front end comes as, for the parts that follow it (KeelBot's chat). */
+export const UI_FOCUS_EVENT = "keel:ui-focus";
+
 function storedProject(): string | null {
   try {
     return localStorage.getItem(PROJECT_KEY);
@@ -158,7 +169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const project = projects.find((p) => p.id === pidState) ?? projects[0] ?? null;
   const pid = project?.id ?? null;
 
-  const setProjectId = useCallback((id: string) => {
+  const keepProject = useCallback((id: string) => {
     setPidState(id);
     try {
       localStorage.setItem(PROJECT_KEY, id);
@@ -166,6 +177,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       /* private window */
     }
   }, []);
+  // the person picks a project: this tab shows it, and keel TUI and the other tabs follow (0.18.6)
+  const setProjectId = useCallback((id: string) => {
+    keepProject(id);
+    shareFocus({ project: id });
+  }, [keepProject]);
+
+  // 0.18.6 at the start: the project keel TUI or another tab is on, when keel knows one
+  useEffect(() => {
+    if (!projectsLoaded) return;
+    api.focus().then((f) => {
+      if (f?.project && f.project !== pidState && projects.some((p) => p.id === f.project)) keepProject(f.project);
+    }, () => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectsLoaded]);
 
   // v0.15.8 #/projects/<id>/<page> (a keel_dashboard link) picks that project, then shows the plain #/<page> link
   useEffect(() => {
@@ -352,6 +377,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       es.addEventListener("notification", onNote as EventListener);
       es.addEventListener("project.changed", onChanged);
       es.addEventListener("notification.done", onDone as EventListener);
+      // 0.18.6 another front end (keel TUI, another tab) moved to a project or a KeelBot chat: follow it
+      es.addEventListener("ui.focus", ((e: MessageEvent) => {
+        try {
+          const f = JSON.parse(e.data) as UiFocus;
+          if (!f || f.client === FOCUS_CLIENT) return;
+          if (f.project) keepProject(f.project);
+          window.dispatchEvent(new CustomEvent(UI_FOCUS_EVENT, { detail: f }));
+        } catch {
+          /* not ours to read */
+        }
+      }) as EventListener);
       es.onmessage = onEngine;
       es.onopen = () => {
         attempt = 0;
