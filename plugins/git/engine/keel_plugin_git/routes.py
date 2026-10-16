@@ -29,6 +29,7 @@ class PluginGit(BaseModel):
     title: str = ""
     body: str = ""
     draft: bool = False
+    stash: bool = False          # keel 0.18.9 switch: stash the folder's changes first
     path: str = ""
     sha: str = ""
 
@@ -44,7 +45,7 @@ async def post_plugin_git(op: str, body: PluginGit):
         "log": lambda: g.log(body.root, 30),
         # keel 0.18.3 the uncommitted diff (keel TUI's /git diff): one file with path, else all of it
         "diff": lambda: {"diff": g.diff(body.root, body.path or None)},
-        "switch": lambda: g.switch(body.root, body.branch, body.create),
+        "switch": lambda: g.switch(body.root, body.branch, body.create, body.stash),
         "commit": lambda: g.commit(body.root, body.message, body.settings),
         "sync": lambda: g.sync(body.root, token),
         "push": lambda: g.push(body.root, token),

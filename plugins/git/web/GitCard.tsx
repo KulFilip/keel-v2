@@ -49,7 +49,9 @@ export function GitCard({ pid, block }: KeelbotCardProps) {
         KeelBot's git button could not be read. Ask it to give it again.
       </p>
     );
-  const go = async () => {
+  // keel 0.18.9 a switch git refused because of the folder's changes: offer to stash them and switch
+  const blockedByChanges = op === "switch" && !!err && /would be overwritten|local changes/i.test(err.message);
+  const go = async (stash = false) => {
     setBusy(true);
     setErr(null);
     try {
@@ -71,8 +73,9 @@ export function GitCard({ pid, block }: KeelbotCardProps) {
           `${r.updated ? "Updated" : "Opened"} the pull request${r.url ? `: ${r.url}` : "."}`,
         );
       } else if (op === "switch") {
-        const r = await gitApi.switch(pid, spec.branch ?? "", !!spec.create);
-        setDone(`On ${r.branch} now.`);
+        const r = await gitApi.switch(pid, spec.branch ?? "", !!spec.create, stash);
+        setDone(r.stashed ? `On ${r.branch} now. Your changes from ${r.stashed.from} are in git's stash: switch back to ${r.stashed.from} and run git stash pop to get them back.`
+          : `On ${r.branch} now.`);
       } else {
         const r = await gitApi.sync(pid);
         setDone(
@@ -148,6 +151,12 @@ export function GitCard({ pid, block }: KeelbotCardProps) {
           >
             {busy ? "Working…" : label[op]}
           </button>
+          {blockedByChanges && (
+            <button type="button" className="btn sm" disabled={busy} onClick={() => void go(true)}
+              title="keel puts your uncommitted changes in git's stash, then switches; git stash pop on your branch brings them back">
+              Stash my changes and switch
+            </button>
+          )}
           <span className="sub">
             keel never force-pushes or pushes to main.
           </span>

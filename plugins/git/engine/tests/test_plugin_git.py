@@ -223,3 +223,35 @@ def test_diff_shows_the_uncommitted_changes_whole_or_one_file(client, remote):
     assert "+one more line" in whole and "src/scores/__init__.py" in whole
     one = gitcall(client, remote, "diff", path="README.md").json()["diff"]
     assert "+one more line" in one and "src/scores/__init__.py" not in one
+
+
+# ------------------------------------------------------------------ keel 0.18.9 stash and switch
+
+def test_a_switch_git_refuses_for_local_changes_can_stash_them_and_go_on(tmp_path):
+    import subprocess as sp
+
+    from keel_plugin_git import core as g
+
+    repo = tmp_path / "r"
+    repo.mkdir()
+    run = lambda *a: sp.run(["git", *a], cwd=repo, capture_output=True, text=True, check=True)  # noqa: E731
+    run("init", "-q", "-b", "main")
+    (repo / "spec.md").write_text("one\n")
+    run("add", "-A")
+    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+    run("switch", "-q", "-c", "feat/x")
+    (repo / "spec.md").write_text("two\n")
+    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "two")
+    (repo / "spec.md").write_text("my unsaved work\n")                 # main has another spec.md: git refuses
+    try:
+        g.switch(str(repo), "main")
+        raise AssertionError("git should refuse")
+    except g.GitError as exc:
+        assert exc.status == 409 and "would be overwritten" in str(exc) and "Stash them and switch" in exc.hint
+    r = g.switch(str(repo), "main", stash=True)
+    assert r["branch"] == "main" and r["stashed"]["from"] == "feat/x"
+    assert (repo / "spec.md").read_text() == "one\n"
+    assert "keel: changes on feat/x before switching to main" in run("stash", "list").stdout
+    run("switch", "-q", "feat/x")
+    run("stash", "pop")
+    assert (repo / "spec.md").read_text() == "my unsaved work\n"           # nothing lost

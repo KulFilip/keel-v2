@@ -54,8 +54,8 @@ export const gitApi = {
   status: (pid: string) => get<GitStatus>(`${base(pid)}/status`),
   branches: (pid: string) => get<GitBranch[]>(`${base(pid)}/branches`),
   pr: (pid: string) => get<{ pr: PullRequest | null }>(`${base(pid)}/pr`),
-  switch: (pid: string, branch: string, create = false) =>
-    post<{ branch: string }>(`${base(pid)}/switch`, { branch, create }),
+  switch: (pid: string, branch: string, create = false, stash = false) =>
+    post<{ branch: string; stashed?: { from: string; message: string } | null }>(`${base(pid)}/switch`, { branch, create, ...(stash ? { stash } : {}) }),
   commit: (pid: string, message: string) =>
     post<{ sha: string; subject: string; files: string[] }>(
       `${base(pid)}/commit`,

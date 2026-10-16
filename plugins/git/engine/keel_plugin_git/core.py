@@ -210,7 +210,10 @@ def pr_status(root: str, token: str | None) -> dict | None:
 
 # ------------------------------------------------------------------ acting
 
-def switch(root: str, branch: str, create: bool = False) -> dict:
+def switch(root: str, branch: str, create: bool = False, stash: bool = False) -> dict:
+    """Switch (or create and switch). keel 0.18.9 `stash`: the folder's uncommitted changes go into git's stash first
+    (with a message that names the branch they were on), so a switch git refuses because of them can go on; `git stash
+    pop` on that branch brings them back."""
     _need_repo(root)
     name = (branch or "").strip()
     if not name or git.git(root, "check-ref-format", "--branch", name).returncode != 0 or name.startswith("-"):
@@ -220,11 +223,23 @@ def switch(root: str, branch: str, create: bool = False) -> dict:
         raise GitError(409, f"The branch {name} exists already.", "Switch to it instead.")
     if not create and not exists:
         raise GitError(404, f"There is no branch {name}.", "Create it instead.")
+    stashed = None
+    if stash and git.git(root, "status", "--porcelain").stdout.strip():
+        was = git.git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "?"
+        msg = f"keel: changes on {was} before switching to {name}"
+        s = git.git(root, "stash", "push", "--include-untracked", "-m", msg)
+        if s.returncode != 0:
+            raise GitError(409, f"git could not stash the changes: {_tail(s.stderr, 400)}", "Commit them instead.")
+        stashed = {"from": was, "message": msg}
     r = git.git(root, "switch", *(["-c"] if create else []), name)
     if r.returncode != 0:
+        if stashed:                                     # put them back where they were: nothing is lost
+            git.git(root, "stash", "pop")
+        local = "would be overwritten" in r.stderr or "local changes" in r.stderr
         raise GitError(409, f"git could not switch to {name}: {_tail(r.stderr, 400)}",
-                       "Commit or stash the changes git names first.")
-    return {"branch": name, "created": create}
+                       "Stash them and switch (keel keeps them in git's stash; `git stash pop` on your branch brings them "
+                       "back), or commit them first." if local else "Commit or stash the changes git names first.")
+    return {"branch": name, "created": create, **({"stashed": stashed} if stashed else {})}
 
 
 def commit(root: str, message: str, settings: dict | None = None) -> dict:
