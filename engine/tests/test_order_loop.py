@@ -166,7 +166,7 @@ def test_the_red_prompt_names_the_test_the_filter_finds(tmp_path):
 def test_mcp_status_shows_the_order_and_the_real_choices_without_cutting_words():
     from keel_engine import mcp_server
 
-    detail = "AC-1 came back.\n\nChoose one:\n- first: build AC-2 (ranks) first, then AC-1\n- skip: move AC-1 to the end\n" + "word " * 400
+    detail = "AC-1 came back.\n\nChoose one:\n- first: build AC-2 (ranks) first, then AC-1\n- skip: move AC-1 to the end\n- stop: stop the flow\n" + "word " * 400
     thread = {"thread_id": "t", "status": "waiting", "current": "amend_loop", "phase": "spec", "ac": "AC-1",
               "acs": [{"id": "AC-2", "status": "done"}, {"id": "AC-1", "status": "todo"}], "ac_order": {"from": "keel"},
               "waiting": {"step": "amend_loop", "kind": "gate", "title": "the amendment changed nothing", "options": ["approve"],

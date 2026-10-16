@@ -442,6 +442,7 @@ def amend_with_note(a):
 
 
 def amend_stop(a):
+    """The amendment loop gate's stop: the flow stops here with the person's note; the commits so far stay."""
     from .actions import ActionResult
 
     ac = (a.data.get("amend") or {}).get("ac") or a.state.get("ac")
