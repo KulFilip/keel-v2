@@ -4,7 +4,7 @@
 //   @snap <name>             save what the terminal shows now (ANSI removed), from where the capture before ends,
 //                            as <out>/<name>.txt (or print it); with --ansi also <out>/<name>.ansi, colours kept
 //   @wait started|idle|waiting|answer|pick|ask|running|streaming [seconds]   wait for the app or the flow (default 120 s)
-//   @key tab|enter|esc|up|down|ctrl+f|ctrl+a|ctrl+b|ctrl+g  press a key
+//   @key tab|enter|esc|up|down|pgup|pgdn|home|end|wheelup|wheeldown|ctrl+f|ctrl+a|ctrl+b|ctrl+g  press a key
 //   @type <text>             type without Enter;  @paste <n>   paste n lines at once
 //   @sleep <ms>              wait
 //   # …                      a comment
@@ -23,6 +23,8 @@ import type { Profiler } from "./core/profile";
 
 export const KEYS: Record<string, string> = {
   tab: "\t", enter: "\r", esc: "\x1b", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", backspace: "\x7f",
+  pgup: "\x1b[5~", pgdn: "\x1b[6~", home: "\x1b[H", end: "\x1b[F", "shift+up": "\x1b[1;2A", "shift+down": "\x1b[1;2B",
+  wheelup: "\x1b[<64;10;10M", wheeldown: "\x1b[<65;10;10M",
   "ctrl+f": "\x06", "ctrl+a": "\x01", "ctrl+b": "\x02", "ctrl+g": "\x07", "ctrl+u": "\x15", "ctrl+c": "\x03",
 };
 
@@ -77,12 +79,12 @@ async function until(cond: () => boolean, seconds: number, what: string, tick?: 
 }
 
 export async function runScript(core: KeelCore, file: string, opts: { out?: string; width: number; log?: (s: string) => void; ansi?: boolean;
-  theme?: Theme; profiler?: Profiler }): Promise<number> {
+  theme?: Theme; profiler?: Profiler; rows?: number }): Promise<number> {
   const stdin = new FakeStdin();
-  const stdout = new FakeStdout(opts.width);
+  const stdout = new FakeStdout(opts.width, opts.rows ? opts.rows : 1000);
   const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
   const log = opts.log ?? ((s: string) => process.stderr.write(s + "\n"));
-  const app = render(React.createElement(App, { core, probe, width: opts.width, theme: opts.theme, profiler: opts.profiler }), {
+  const app = render(React.createElement(App, { core, probe, width: opts.width, theme: opts.theme, profiler: opts.profiler, rows: opts.rows, mouse: !!opts.rows }), {
     stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, stderr: stdout as unknown as NodeJS.WriteStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
@@ -93,6 +95,8 @@ export async function runScript(core: KeelCore, file: string, opts: { out?: stri
     const lines = stripAnsi(stdout.last).split("\n").map((l) => l.replace(/\s+$/, ""));
     while (lines.length && !lines[lines.length - 1]) lines.pop();
     let same = 0;
+    // the full screen (--rows): each capture is the whole screen
+    if (opts.rows) before = [];
     while (same < lines.length && same < before.length && lines[same] === before[same]) same++;
     before = lines;
     const text = (same > 0 ? `… (${same} lines above: the capture before)\n` : "") + lines.slice(same).join("\n") + "\n";

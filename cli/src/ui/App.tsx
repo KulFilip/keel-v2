@@ -1,9 +1,13 @@
 // keel TUI, the Ink app: the start screen, then the transcript (KeelBot's answers, commands' answers, keel's live
 // notices) above a live area: KeelBot's streaming answer, a panel, the picker or the prompt, and the status line.
 // The state is here; what commands do is in ../core (UI-free).
+//
+// Two ways to show it: the full screen (`rows`: keel's name stays at the top, the prompt at the bottom, the transcript
+// between them scrolls with PgUp / PgDn, Shift+↑↓ and the wheel) and inline (no `rows`: the transcript goes into the
+// terminal's own scrollback, for tests, --script and `keel2 tui --inline`).
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
 import { complete, follow, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
@@ -18,6 +22,7 @@ import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
+import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
 
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block };
 
@@ -32,13 +37,14 @@ type PanelId = PanelName | `plugin:${string}`;
 type Question = { id: string; command: string; title: string; path?: string | null };
 
 /** keel TUI in keel's colours (the theme: the dashboard's palette, NO_COLOR, KEEL_TUI_THEME). */
-export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler }) {
+export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean }) {
   const th = useMemo(() => theme ?? makeTheme(), [theme]);
   applyLevel(th);
   return <ThemeProvider theme={th}><Main {...props} /></ThemeProvider>;
 }
 
-function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; probe?: Probe; width?: number; profiler?: Profiler }) {
+function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse: mouseAtStart = false }: { core: KeelCore; probe?: Probe; width?: number;
+  profiler?: Profiler; rows?: number; mouse?: boolean }) {
   const t = useTheme();
   // --profile: this frame's render and commit time (from here to the layout effect below)
   const frameStart = useRef(0);
@@ -51,14 +57,21 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
   // a terminal may say 0 columns at first (docker exec -it sets the size a moment after the start): count it as 100
   const cols = () => Math.max(40, stdout?.columns || 100);
   const [termWidth, setTermWidth] = useState(cols);
+  const [termRows, setTermRows] = useState(fixedRows ?? 0);
   useEffect(() => {
     if (!stdout || fixedWidth) return;
-    const on = () => setTermWidth(cols());
+    const on = () => {
+      setTermWidth(cols());
+      if (fixedRows) setTermRows(Math.max(12, stdout.rows || fixedRows));
+    };
     stdout.on("resize", on);
     return () => void stdout.off("resize", on);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stdout, fixedWidth]);
   const width = fixedWidth ?? termWidth;
+  // the full screen: its height (one row less than the terminal's, so Ink never scrolls it), else inline
+  const screen = termRows > 0;
+  const height = Math.max(11, termRows - 1);
   const [snap, setSnap] = useState<Snapshot>(core.snapshot);
   const [items, setItems] = useState<Item[]>([]);
   const [epoch, setEpoch] = useState(0);
@@ -80,6 +93,11 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
   const [botCmds, setBotCmds] = useState<{ name: string; description: string }[]>([]);
   const [answers, setAnswers] = useState(0);
   const ctrlC = useRef(0);
+  // the full screen's scroll: lines up from the newest, the transcript area's height, and the wheel on or off
+  const [offset, setOffset] = useState(0);
+  const [viewH, setViewH] = useState(Math.max(3, height - 8));
+  const viewRef = useRef<DOMElement>(null);
+  const [mouse, setMouse] = useState(mouseAtStart);
   const nextId = useRef(1);
 
   const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint }), [core, width, t.paint]);
@@ -192,9 +210,20 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
     push(...reply.blocks);
     if (reply.panel) setPanels((ps) => (reply.panel === "off" ? [] : ps.includes(reply.panel as PanelId) ? ps : [...ps, reply.panel as PanelId]));
     if (reply.clear) {
-      stdout?.write("\x1b[2J\x1b[3J\x1b[H");
-      setItems([]);
+      // a clean screen that still starts with keel's name, the project and what waits
+      if (!screen) stdout?.write("\x1b[2J\x1b[3J\x1b[H");
+      setItems([{ id: nextId.current++, kind: "start", s: core.snapshot }]);
+      setOffset(0);
       setEpoch((e) => e + 1);
+    }
+    if (reply.mouse !== undefined) {
+      const on = reply.mouse === "toggle" ? !mouse : reply.mouse;
+      if (!screen) push({ kind: "dim", text: "  The wheel scrolls in the full screen only (keel2 tui without --inline)." });
+      else {
+        stdout?.write(on ? MOUSE.on : MOUSE.off);
+        setMouse(on);
+        push({ kind: "ok", text: on ? "the wheel scrolls keel TUI (hold Option or Fn to select text, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
+      }
     }
     if (reply.pick) {
       setPending({ cmd, pick: reply.pick });
@@ -216,7 +245,7 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
       }
     }
     if (reply.quit) exit();
-  }, [core, exit, push, stdout]);
+  }, [core, exit, push, stdout, screen, mouse]);
 
   const submit = useCallback(async (raw: string) => {
     const text = raw.replace(/\s+$/, "");
@@ -234,6 +263,7 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
       return;
     }
     if (!text.trim()) return;
+    setOffset(0);
     push({ kind: "user", text });
     setHistory((h) => (h[h.length - 1] === text ? h : [...h, text].slice(-200)));
     setHIdx(-1);
@@ -266,7 +296,58 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
     setCompIdx(0);
   };
 
+  // the full screen's transcript as lines (each block's lines kept until the width changes)
+  const cache = useRef(new Map<number, { w: number; lines: string[] }>());
+  const lines = useMemo(() => {
+    if (!screen) return [];
+    const out: string[] = [];
+    for (const it of items) {
+      let c = cache.current.get(it.id);
+      if (!c || c.w !== width) {
+        c = { w: width, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : blockLines(it.b, width, t.paint, t.tint, t.level) };
+        cache.current.set(it.id, c);
+      }
+      out.push(...c.lines);
+    }
+    return out;
+  }, [items, width, screen, t.paint, t.tint, t.level]);
+  // scrolled up while new lines come: the view stays where the person is reading
+  const seen = useRef(0);
+  useEffect(() => {
+    const grew = lines.length - seen.current;
+    seen.current = lines.length;
+    if (grew > 0) setOffset((o) => (o > 0 ? o + grew : 0));
+  }, [lines.length]);
+  const scroll = useCallback((by: number) => setOffset((o) => Math.max(0, Math.min(o + by, Math.max(0, lines.length - viewH)))), [lines.length, viewH]);
+  // the transcript area's height, after Ink laid the screen out
+  useEffect(() => {
+    if (!screen || !viewRef.current) return;
+    const h = measureElement(viewRef.current).height;
+    if (h > 0 && h !== viewH) setViewH(h);
+  });
+  // the wheel, Home and End: read from the raw input (Ink gives no key for them)
+  const { internal_eventEmitter: rawInput } = useStdin() as unknown as { internal_eventEmitter?: NodeJS.EventEmitter };
+  useEffect(() => {
+    if (!screen || !rawInput) return;
+    const on = (chunk: string | Buffer) => {
+      const s = String(chunk);
+      const n = wheel(s);
+      if (n) return scroll(n * 3);
+      if (/^\x1b(\[(F|4~|8~)|OF)$/.test(s)) setOffset(0);
+      else if (/^\x1b(\[(H|1~|7~)|OH)$/.test(s)) setOffset(Number.MAX_SAFE_INTEGER);
+    };
+    rawInput.on("input", on);
+    return () => void rawInput.off("input", on);
+  }, [rawInput, screen, scroll]);
+
   useInput((input, key) => {
+    // the mouse's reports are read below, from the raw input; never typed into the prompt
+    if (isMouse(input) || isMouse("\x1b" + input)) return;
+    if (screen && (key.pageUp || key.pageDown || (key.shift && (key.upArrow || key.downArrow)))) {
+      const step = key.pageUp || key.pageDown ? Math.max(1, viewH - 2) : 3;
+      scroll(key.pageUp || key.upArrow ? step : -step);
+      return;
+    }
     if (key.ctrl && input === "c") {
       const now = Date.now();
       if (now - ctrlC.current < 1500) exit();
@@ -383,6 +464,29 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
   const border = pending?.ask || line ? t.color("accent") : flowWaits ? t.color("gate") : t.color("border");
   const agentsHere = panels.includes("agents") ? [] : snap.running.slice(0, 3);
 
+  // the full screen: keel's name, the transcript that scrolls, the live area, the prompt and the status line
+  if (screen) {
+    const v = view(lines, viewH, offset);
+    const liveRows = Math.max(3, Math.floor(height / 3));
+    const writingLines = writing ? wrap(renderMarkdown(writing.slice(-3000), t.paint, width - 2), width - 2).slice(-liveRows) : [];
+    return (
+      <Box flexDirection="column" height={height} width={width}>
+        <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
+        <Text color={t.color("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
+        <Box ref={viewRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden" justifyContent="flex-end">
+          {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
+          {v.shown.map((l, i) => <Text key={v.above + i} wrap="truncate-end">{l || " "}</Text>)}
+        </Box>
+        {v.below > 0 && (
+          <Text color={t.color("accent")} wrap="truncate-end">
+            {`── ↓ ${v.below} newer line${v.below === 1 ? "" : "s"} · PgDn, End${mouse ? " or the wheel" : ""} ` + "─".repeat(Math.max(0, width - 40))}
+          </Text>
+        )}
+        {live(writingLines)}
+      </Box>
+    );
+  }
+
   return (
     <>
       <Static key={epoch} items={items}>
@@ -390,6 +494,16 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
       </Static>
       <Box flexDirection="column">
         {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
+        {live()}
+      </Box>
+    </>
+  );
+
+  /** What is happening now, the panels, the picker or the prompt, and the status line; in the full screen KeelBot's
+   *  answer as it is written comes as its last lines (`writingLines`), so the prompt never leaves the screen. */
+  function live(writingLines?: string[]) {
+    return (
+      <>
         {chat.busy && (
           <Box flexDirection="column" marginTop={1}>
             {tools.length > 0 && <Text>{fmt.toolLines(steps, width, t.paint, 4).join("\n")}</Text>}
@@ -398,7 +512,8 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
                 {diffLines(e.diff ?? "").map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
               </Box>
             ))}
-            {writing && <Box marginLeft={2}><Text>{renderMarkdown(writing.slice(-3000), t.paint)}</Text></Box>}
+            {writingLines ? writingLines.map((l, i) => <Text key={i} wrap="truncate-end">{"  " + l}</Text>)
+              : writing && <Box marginLeft={2}><Text>{renderMarkdown(writing.slice(-3000), t.paint)}</Text></Box>}
             <Thinking verb={verb} since={chat.startedAt} tokens={Math.round(chat.wrote / 4) || undefined} hint="esc to interrupt" />
           </Box>
         )}
@@ -429,9 +544,9 @@ function Main({ core, probe, width: fixedWidth, profiler }: { core: KeelCore; pr
           </Box>
         )}
         <StatusLine s={snap} />
-      </Box>
-    </>
-  );
+      </>
+    );
+  }
 
   /** The prompt's text: a command's name in the accent colour while it is typed. */
   function inputText(x: string) {

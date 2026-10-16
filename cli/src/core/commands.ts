@@ -22,7 +22,7 @@ export type Pick = { title: string; choices: Choice[]; then: (value: string) => 
 /** The next line the person types answers this; `then` runs with it. */
 export type Ask = { prompt: string; then: (text: string) => Promise<Reply> | Reply };
 export type PanelName = "flow" | "agents" | "inbox";
-export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; panel?: PanelName | "off"; chat?: string };
+export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; mouse?: boolean | "toggle"; panel?: PanelName | "off"; chat?: string };
 
 export const text = (t: string): Reply => ({ blocks: [{ kind: "text", text: t }] });
 export const ok = (t: string): Reply => ({ blocks: [{ kind: "ok", text: t }] });
@@ -488,6 +488,11 @@ const IMPLS: Impl[] = [
     },
   },
   { name: "clear", run: () => ({ blocks: [], clear: true }) },
+  { name: "mouse", run: (_ctx, a) => {
+    const w = a.trim().toLowerCase();
+    if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");
+    return { blocks: [], mouse: w ? w === "on" : "toggle" };
+  } },
   { name: "quit", run: () => ({ blocks: [], quit: true }) },
 ];
 

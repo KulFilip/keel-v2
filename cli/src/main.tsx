@@ -18,6 +18,7 @@ import { VERSION } from "./core/version";
 import { runScript } from "./script";
 import { Profiler } from "./core/profile";
 import { HELP, parseArgs } from "./main.args";
+import { MOUSE, SCREEN } from "./core/lines";
 
 // keel's colours: the dashboard's palette (NO_COLOR, KEEL_TUI_THEME, FORCE_COLOR); -c writes them only into a terminal
 const theme = makeTheme();
@@ -51,7 +52,7 @@ async function main(): Promise<number> {
     return code;
   };
   const core = new KeelCore({ url: args.url, publicUrl: args.publicUrl, project: args.project, cwd: args.cwd, noLive: oneShot, profiler });
-  if (args.script) return done(await runScript(core, args.script, { out: args.out, width: args.width, ansi: args.ansi, theme, profiler }));
+  if (args.script) return done(await runScript(core, args.script, { out: args.out, width: args.width, ansi: args.ansi, theme, profiler, rows: args.rows }));
   if (oneShot) {
     const s = await core.start();
     profiler?.ready();
@@ -80,8 +81,29 @@ async function main(): Promise<number> {
     process.stderr.write("keel-tui needs a terminal. Without one: keel-tui -c \"/status\" or keel-tui --script <file>.\n");
     return 2;
   }
-  const app = render(<App core={core} theme={theme} profiler={profiler} />, { exitOnCtrlC: false });
-  await app.waitUntilExit();
+  if (args.inline) {
+    const app = render(<App core={core} theme={theme} profiler={profiler} />, { exitOnCtrlC: false });
+    await app.waitUntilExit();
+    return done(0);
+  }
+  // the full screen: the terminal's own screen for the app (its scrollback stays as it was), the wheel on; both are
+  // given back however keel TUI ends
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    process.stdout.write(MOUSE.off + SCREEN.off);
+  };
+  process.on("exit", restore);
+  process.stdout.write(SCREEN.on + (args.mouse ? MOUSE.on : ""));
+  const app = render(<App core={core} theme={theme} profiler={profiler} rows={process.stdout.rows || 40} mouse={args.mouse} />, { exitOnCtrlC: false });
+  try {
+    await app.waitUntilExit();
+  } finally {
+    app.clear();
+    restore();
+  }
+  process.stdout.write(`keel TUI closed · keel keeps running at ${core.snapshot.publicUrl}\n`);
   return done(0);
 }
 

@@ -12,6 +12,9 @@ import { renderMarkdown } from "../core/markdown";
 import { colorDiagram } from "../core/colorize";
 import * as fmt from "../core/format";
 import { VERSION } from "../core/version";
+import { noticeRole } from "../core/lines";
+
+export { noticeRole };
 import { useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 
@@ -43,15 +46,6 @@ export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
       </Text>
     </Box>
   );
-}
-
-/** A notice's colour: what waits for you amber, a failure red, a finished flow green, the rest the accent. */
-export function noticeRole(text: string): "gate" | "bad" | "ok" | "accent" | "dim" {
-  if (/^(waiting for you|budget)/.test(text)) return "gate";
-  if (/^(flow failed|keel refused|agent .* (failed|guard))/.test(text)) return "bad";
-  if (/^flow done| approved/.test(text)) return "ok";
-  if (/^via /.test(text)) return "dim";
-  return "accent";
 }
 
 export function BlockView({ b, width = 100 }: { b: Block; width?: number }) {
@@ -286,6 +280,7 @@ export function StatusLine({ s }: { s: Snapshot }) {
   const segs = statusSegments(s);
   return (
     <Text wrap="truncate-end">
+      {" "}
       {segs.map((x, i) => (
         <Text key={i}>
           {i ? <Text color={color("faint")}>{" · "}</Text> : null}

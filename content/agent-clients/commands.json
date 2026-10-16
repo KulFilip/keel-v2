@@ -214,7 +214,15 @@
     },
     {
       "name": "clear",
-      "summary": "clear the screen",
+      "summary": "clear the screen (keel's name and the start stay)",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
+      "name": "mouse",
+      "args": "[on|off]",
+      "summary": "the wheel scrolls keel TUI, or selects text as usual",
       "writes": false,
       "local": true,
       "group": "Screen"
@@ -251,6 +259,10 @@
     {
       "key": "Ctrl+B",
       "does": "toggle the inbox"
+    },
+    {
+      "key": "PgUp / PgDn",
+      "does": "scroll (also Shift+Up / Down, the wheel, Home and End)"
     },
     {
       "key": "Esc",
