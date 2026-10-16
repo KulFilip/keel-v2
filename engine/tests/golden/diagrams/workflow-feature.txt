@@ -1,4 +1,4 @@
-workflow feature "feature (keel)" - 101 steps, 15 gates
+workflow feature "feature (keel)" - 105 steps, 15 gates
 
 == Preflight: check the repo and move to the flow's own branch ==  id=preflight
    #  preflight + own branch  (code preflight)
@@ -57,4 +57,4 @@ workflow feature "feature (keel)" - 101 steps, 15 gates
       \       yes -> spec amendment
       \       no -> an order question?
       \ [?] spec amendment  (gate, you decide)
-... 89 more (zoom with id=contract)
+... 99 more (zoom with id=contract)

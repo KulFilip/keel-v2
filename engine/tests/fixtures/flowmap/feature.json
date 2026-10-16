@@ -62,12 +62,13 @@
    "model": "default",
    "phase": "spec",
    "markers": [
-    "ORDER"
+    "ORDER",
+    "CONTRACT-DELTA"
    ],
    "when": {
     "state": "acs"
    },
-   "instructions": "Append a \"## Plan\" section to the spec (replace the one that is there): the AC order (dependencies first: the criterion that creates a row before the one that reads it), the files per criterion from the maps below, the contract delta (or \"none\"), and the test layer per criterion (the lowest that can express it). An exposure the maps found that no criterion covers becomes a new criterion now, numbered after the last one. Do not change the other criteria. ORDER lists the criteria ids in build order. The explorers' maps:\n{{data.report}}"
+   "instructions": "Append a \"## Plan\" section to the spec (replace the one that is there): the AC order (dependencies first: the criterion that creates a row before the one that reads it), the files per criterion from the maps below, the contract delta (or \"none\"), and the test layer per criterion (the lowest that can express it). An exposure the maps found that no criterion covers becomes a new criterion now, numbered after the last one. Do not change the other criteria. Under the plan, one line per criterion that needs another one built first: \"- AC-n depends on: AC-x, AC-y\". ORDER lists the criteria ids in build order. End with CONTRACT-DELTA: yes, or CONTRACT-DELTA: none when the plan's contract delta is none. The explorers' maps:\n{{data.report}}"
   },
   {
    "id": "spec_sync",
@@ -83,6 +84,7 @@
    "phase": "spec",
    "back": "spec",
    "lock": true,
+   "menus": true,
    "choices": {
     "approve": "freeze",
     "edit": "spec_edit",
@@ -114,14 +116,22 @@
    "name": "contract",
    "agent": "contract-author",
    "model": "default",
-   "phase": "contract"
+   "phase": "contract",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   }
   },
   {
    "id": "contract_diff",
    "kind": "code",
    "name": "the contract delta",
    "phase": "contract",
-   "action": "show_diff"
+   "action": "show_diff",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   }
   },
   {
    "id": "contract_gate",
@@ -129,6 +139,10 @@
    "name": "contract delta",
    "phase": "contract",
    "lock": true,
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   },
    "choices": {
     "approve": "contract_commit",
     "change": "contract",
@@ -140,7 +154,11 @@
    "kind": "code",
    "name": "commit contract",
    "phase": "contract",
-   "action": "commit"
+   "action": "commit",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   }
   },
   {
    "id": "red",
@@ -154,9 +172,10 @@
     "mcp:keel:*"
    ],
    "markers": [
-    "AMEND"
+    "AMEND",
+    "BLOCKED"
    ],
-   "instructions": "If the frozen spec is wrong for this criterion (it cannot be true, it contradicts what the code shows, or a criterion is missing), do not work around it: stop and end your answer with one line AMEND: <what the spec says, what the code shows, what should change>. Otherwise do not write that line."
+   "instructions": "If the frozen spec is wrong for this criterion (it cannot be true, it contradicts what the code shows, or a criterion is missing), do not work around it: stop and end your answer with one line AMEND: <what the spec says, what the code shows, what should change>. If you cannot go on for another reason (the test command or the build does not work, or another criterion must be built first), end with one line BLOCKED: <tooling, or needs AC-x>: <what>. Otherwise do not write those lines."
   },
   {
    "id": "red_amend",
@@ -164,7 +183,7 @@
    "name": "the spec needs an amendment",
    "phase": "red",
    "per_ac": true,
-   "no": "verify_red",
+   "no": "red_blocked",
    "when": {
     "marker": "AMEND",
     "step": "red"
@@ -178,6 +197,27 @@
    "action": "amend_start",
    "per_ac": true,
    "then": "amend_entry"
+  },
+  {
+   "id": "red_blocked",
+   "kind": "branch",
+   "name": "is the agent blocked?",
+   "phase": "red",
+   "per_ac": true,
+   "no": "verify_red",
+   "when": {
+    "marker": "BLOCKED",
+    "step": "red"
+   }
+  },
+  {
+   "id": "red_stuck",
+   "kind": "code",
+   "name": "blocked",
+   "phase": "red",
+   "action": "stuck",
+   "per_ac": true,
+   "then": "red"
   },
   {
    "id": "verify_red",
@@ -200,9 +240,10 @@
     "mcp:keel:*"
    ],
    "markers": [
-    "AMEND"
+    "AMEND",
+    "BLOCKED"
    ],
-   "instructions": "If the frozen spec turns out to be wrong for this criterion, do not build around it: stop and end your answer with one line AMEND: <what the spec says, what the code shows, what should change>. Otherwise do not write that line."
+   "instructions": "If the frozen spec turns out to be wrong for this criterion, do not build around it: stop and end your answer with one line AMEND: <what the spec says, what the code shows, what should change>. If you cannot go on for another reason (the test command or the build does not work, or another criterion must be built first), end with one line BLOCKED: <tooling, or needs AC-x>: <what>. Otherwise do not write those lines."
   },
   {
    "id": "green_amend",
@@ -210,7 +251,7 @@
    "name": "the spec needs an amendment",
    "phase": "green",
    "per_ac": true,
-   "no": "verify_green",
+   "no": "green_blocked",
    "when": {
     "marker": "AMEND",
     "step": "green"
@@ -224,6 +265,27 @@
    "action": "amend_start",
    "per_ac": true,
    "then": "amend_entry"
+  },
+  {
+   "id": "green_blocked",
+   "kind": "branch",
+   "name": "is the agent blocked?",
+   "phase": "green",
+   "per_ac": true,
+   "no": "verify_green",
+   "when": {
+    "marker": "BLOCKED",
+    "step": "green"
+   }
+  },
+  {
+   "id": "green_stuck",
+   "kind": "code",
+   "name": "blocked",
+   "phase": "green",
+   "action": "stuck",
+   "per_ac": true,
+   "then": "red"
   },
   {
    "id": "verify_green",
@@ -1065,9 +1127,11 @@
    "contract_commit",
    "red",
    "red_amend",
+   "red_blocked",
    "verify_red",
    "green",
    "green_amend",
+   "green_blocked",
    "verify_green",
    "ac_review",
    "ac_gate",
@@ -1255,6 +1319,21 @@
         "no": "go"
        },
        {
+        "if": "red_blocked",
+        "cond": "red says BLOCKED",
+        "side": [],
+        "yes": {
+         "nodes": [
+          {
+           "step": "red_stuck",
+           "side": []
+          }
+         ],
+         "side": true
+        },
+        "no": "go"
+       },
+       {
         "step": "verify_red",
         "side": []
        },
@@ -1270,6 +1349,21 @@
          "nodes": [
           {
            "step": "green_to_amend",
+           "side": []
+          }
+         ],
+         "side": true
+        },
+        "no": "go"
+       },
+       {
+        "if": "green_blocked",
+        "cond": "green says BLOCKED",
+        "side": [],
+        "yes": {
+         "nodes": [
+          {
+           "step": "green_stuck",
            "side": []
           }
          ],
@@ -1678,8 +1772,10 @@
    "amend_to_contract": "contract_gate",
    "contract_undo": "contract_gate",
    "e2e_unrun": "e2e_tool",
+   "green_stuck": "green_blocked",
    "green_to_amend": "green_amend",
    "rebuild": "contract_gate",
+   "red_stuck": "red_blocked",
    "red_to_amend": "red_amend",
    "spec_edit": "spec_gate",
    "spec_edit_sync": "spec_gate",

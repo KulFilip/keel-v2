@@ -57,4 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \ [ ] spec amendment  (agent explorer)
       \ [ ] the amendment for the gate  (code spec_amendment)
       \       fails -> spec amendment  (loops back)
-... 93 more (zoom with id=contract)
+... 103 more (zoom with id=contract)

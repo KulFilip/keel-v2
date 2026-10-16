@@ -1,4 +1,4 @@
-workflow feature "feature (keel)" - 101 steps, 15 gates
+workflow feature "feature (keel)" - 105 steps, 15 gates
 
 loop: For each criterion (each criterion)  id=ac
   :  o  red  (agent test-author)
@@ -10,12 +10,22 @@ loop: For each criterion (each criterion)  id=ac
   :     |        yes -> the amendment changed nothing
   :     |        no -> spec amendment
   :     no: go on
+  :  <  is the agent blocked?  (branch) if red says BLOCKED?
+  :     yes: side path
+  :     |   #  blocked  (code stuck)
+  :     |        then -> red  (loops back)
+  :     no: go on
   :  #  verify_red  (code verify_red+commit)
   :  o  green  (agent implementer)
   :  <  the spec needs an amendment  (branch) if green says AMEND?
   :     yes: side path
   :     |   #  to the amendment  (code amend_start)
   :     |        then -> the same question again?
+  :     no: go on
+  :  <  is the agent blocked?  (branch) if green says BLOCKED?
+  :     yes: side path
+  :     |   #  blocked  (code stuck)
+  :     |        then -> red  (loops back)
   :     no: go on
   :  #  verify_green + commit  (code verify_green+commit)
   :  o  AC review  (agent ac-reviewer)
