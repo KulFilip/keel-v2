@@ -208,3 +208,58 @@ def test_a_criterion_waits_for_what_it_depends_on(client, repo, monkeypatch):
     assert [ac for kind, ac in calls] == ["AC-2", "AC-3", "AC-1"]   # AC-1 only after AC-3; never an AMEND
     assert amends == [] and next(a for a in s["acs"] if a["id"] == "AC-1").get("depends_on") in (None, ["AC-3"])
     assert values(client, tid)["acs"][0]["depends_on"] == ["AC-3"]
+
+
+# ------------------------------------------------------------------ the review's other findings, in the same run
+
+def test_a_stuck_criterion_is_bounded_ends_at_real_choices_and_every_token_is_counted(client, repo, monkeypatch):
+    """ludus-engine again, run mode important: AC-1's green never passes and one red call runs out of turns. Bounded
+    agent calls, the ladder (same agent, investigator, stronger model), then retry / skip / edit / stop; skip goes on
+    with the other criteria; the flow's usage equals the sum of every agent call, the failed one too."""
+    from keel_engine.models.base import ModelError
+    from keel_engine.runtime import actions as actions_mod
+
+    spec_with(monkeypatch, "**ORDER**: AC-1, AC-2, AC-3")
+    three_criteria(monkeypatch)
+    cut = {"n": 1}
+
+    def red(req, real):
+        if req.ac["id"] == "AC-2" and cut["n"]:
+            cut["n"] -= 1
+            raise ModelError("The agent used all its turns (30) before it finished.",
+                             usage={"tokens_in": 70_000, "tokens_out": 4_000, "cost_usd": 1.25})
+        return real(req)
+    seen = by_step(monkeypatch, {"red": red})
+    real_green = actions_mod.verify_green
+
+    async def green(a):
+        if (a.ac or {}).get("id") == "AC-1":
+            return actions_mod.ActionResult(False, "AC-1 does not pass yet.", "AssertionError: expected <1> but was <2>")
+        return await real_green(a)
+    monkeypatch.setattr(actions_mod, "verify_green", green)
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "run_mode": "important"})
+    s, pauses = wait(client, tid), []
+    for _ in range(20):
+        w = s["waiting"]
+        pauses.append(w["step"])
+        if w.get("choices") == ["retry", "skip", "edit", "stop"]:
+            break
+        s = decide(client, tid)
+    assert pauses == ["spec_gate", "contract_gate", "verify_green"], pauses       # no options menu, no approve-only loop
+    on_ac1 = [r.agent for r in seen if (r.ac or {}).get("id") == "AC-1"]
+    assert on_ac1 == ["test-author", "implementer", "implementer", "investigator", "implementer", "implementer"]
+    s = decide(client, tid, payload={"choice": "skip"}, why="AC-1 later")
+    for _ in range(10):
+        if s["waiting"]["step"] == "verify_green" and s["ac"] == "AC-1":
+            break
+        pauses.append(s["waiting"]["step"])
+        s = decide(client, tid)
+    assert {a["id"]: a["status"] for a in s["acs"]}["AC-2"] == "done" and {a["id"]: a["status"] for a in s["acs"]}["AC-3"] == "done"
+    s = decide(client, tid, payload={"choice": "stop"}, why="needs a design talk")
+    assert s["status"] == "stopped"
+    assert len(seen) < MAX_STEPS
+    usage = values(client, tid)["usage"]
+    calls = client.bus.of(tid, "agent.finished")
+    assert any(e["data"]["status"] == "failed" for e in calls)
+    assert usage["tokens_in"] == sum(e["data"]["tokens_in"] for e in calls)
+    assert abs(usage["cost_usd"] - sum(e["data"]["cost_usd"] for e in calls)) < 1e-6 and usage["cost_usd"] >= 1.25
