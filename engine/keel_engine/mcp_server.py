@@ -233,6 +233,8 @@ def _choice_lines(w: dict) -> list[str]:
         m = re.match(r"^\s*-\s*([a-z][\w-]*)\s*:\s*(.+)$", line)
         if m and m.group(1) in names:
             said[m.group(1)] = m.group(2).strip()
+    if said:
+        names = [c for c in names if c in said]      # the gate's text names the choices that apply now
     return [f"            {c}: {said.get(c, '')}".rstrip() for c in names]
 
 

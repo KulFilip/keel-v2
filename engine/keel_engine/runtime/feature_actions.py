@@ -420,7 +420,7 @@ def amend_reorder(a):
     if choice == "skip" or not amend.get("next"):
         acs = [x for x in a.acs if x["id"] != ac] + [x for x in a.acs if x["id"] == ac]
         nxt = next((i for i in [x["id"] for x in acs] if i in _unfinished(a) and i != ac), ac)
-        note = f"you moved {ac} to the end; next: {nxt}"
+        note = f"you moved {ac} to the end; next: {nxt}" if nxt != ac else f"{ac} is the only criterion left: it runs again"
     else:
         nxt = amend["next"]
         acs = move_before(a.acs, [nxt], ac)
