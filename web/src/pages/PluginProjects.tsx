@@ -18,6 +18,10 @@
 //   All projects   keel-wide on, enabled by the "*" row             {enabled:true, scope:"all"} (drops the own row)
 //
 // This project and All projects also turn the plugin on keel-wide when it is off (it loads after the restart).
+//
+// v0.17.1 for a plugin keel has loaded, a project's choice applies at once: the api reads the project's plugins on every
+// call (the plugin's pages and routes, each KeelBot turn, each flow it starts; a flow that runs already keeps the list it
+// started with). Installed's row then says "applied" (docs/plugins/22-one-plugins-page.md §5).
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, errorParts, type Plugin } from "../api";
@@ -224,6 +228,8 @@ export function ProjectPlace({
   loaded,
   keelOn,
   onKeelOn,
+  loadedNow = false,
+  onApplied,
 }: {
   pid: string;
   plugin: Plugin;
@@ -231,6 +237,10 @@ export function ProjectPlace({
   /** the plugin is on keel-wide (it loads at all) */
   keelOn: boolean;
   onKeelOn: () => void;
+  /** v0.17.1 keel has it loaded now: a project's choice applies at once (the api reads it on every call) */
+  loadedNow?: boolean;
+  /** after a choice: true when it applied at once, false when it waits for the restart (or failed) */
+  onApplied?: (now: boolean) => void;
 }) {
   const others = useOtherProjects(pid);
   const { busy, err, choose } = usePlace(keelOn, onKeelOn);
@@ -245,6 +255,7 @@ export function ProjectPlace({
     setWant(to);
     const list = await choose(pid, plugin, to);
     if (list) loaded.setData(list);
+    onApplied?.(!!list && loadedNow);
     setWant(null);
     void others.reload();
   };

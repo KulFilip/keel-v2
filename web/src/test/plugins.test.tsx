@@ -98,6 +98,19 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     expect(calls("PUT", "/api/plugins/db")).toHaveLength(0); // on keel-wide already: not touched
   });
 
+  it("Installed: a project's choice for a plugin keel has loaded says applied (no restart)", async () => {
+    const user = userEvent.setup();
+    installDbGit();
+    location.hash = "#/plugins";
+    render(<App />);
+    const row = await screen.findByTestId("plugin-db");
+    const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
+    await user.click(within(group).getByRole("radio", { name: "This project" }));
+    expect(await within(row).findByText("applied")).toBeInTheDocument();
+    expect(within(row).queryByText("applies after restart")).toBeNull();
+    expect(screen.queryByText("Changes wait for a restart")).toBeNull();
+  });
+
   it("Installed: a plugin that is off keel-wide shows Off; This project turns it on keel-wide too", async () => {
     const user = userEvent.setup();
     installDbGit();
@@ -111,6 +124,11 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     await waitFor(() => expect(calls("PUT", "/api/plugins/db")[0]?.body).toEqual({ on: true }));
     await waitFor(() => expect(putsOf("ludus-engine", "db")).toEqual([{ enabled: true, scope: "project" }]));
     await waitFor(() => expect(choices(group)).toEqual(["Off", "This project*", "All projects"]));
+    // turning it on keel-wide waits for the restart: the row says so, not "applied"
+    const row = screen.getByTestId("plugin-db");
+    expect(await within(row).findByText("applies after restart")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Restart now" })).toBeInTheDocument();
+    expect(within(row).queryByText("applied")).toBeNull();
   });
 
   it("Installed: on in other projects but not this one: a hint that links to the plugin page's Projects", async () => {

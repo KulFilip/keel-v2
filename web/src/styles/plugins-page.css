@@ -656,3 +656,38 @@ input.mk-sw:disabled {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+/* v0.17.1 the page intro's second line: everything is on by default; keel2 start --core starts with fewer */
+.mk-intro {
+  display: block;
+  margin-top: 2px;
+}
+/* v0.17.1 a row's change: "applies after restart" with Restart now, or "applied" (docs/plugins/22-one-plugins-page.md
+   §5). In the row's last cell, under its buttons, at the right; it wraps inside its cell */
+.mk-rownote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  font-size: 12px;
+}
+.mk-rowact:not(:empty) + .mk-rownote {
+  margin-top: 6px;
+}
+.mk-rownote.wait > span:first-child {
+  color: var(--warn);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mk-rownote.ok {
+  color: var(--ok);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mk-rownote .linkbtn {
+  color: var(--accent);
+  font-size: inherit;
+}
+.mk-rownote .confirm {
+  flex: 1 1 100%;
+}

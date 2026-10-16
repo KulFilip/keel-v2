@@ -1,10 +1,13 @@
 // Control › Plugins (v0.16.0, docs/plugins/13-step4-contract.md §9; v0.16.1 the look of docs/plugins/mockup.html):
 // what this keel has installed, the marketplace, and where plugins come from. Three tabs, and a page per plugin:
 //
-//   Installed           keel core first, then each plugin with its icon; the plugins that live inside another one's page
-//                       (Git, Code Review, CI/CD and Database in Code) under it; version (and the update that is
-//                       ready), parts, from, a status pill, on/off, Update, Roll back, Remove; "Check for updates"
-//                       reads the catalogs again; a banner when changes wait for a restart. v0.17.1: a plugin each
+//   Installed           keel core first (always on: no switch), then each plugin with its icon; the plugins that live
+//                       inside another one's page (Git, Code Review, CI/CD and Database in Code) under it; version (and
+//                       the update that is ready), parts, from, a status pill, on/off, Update, Roll back, Remove; "Check
+//                       for updates" reads the catalogs again; a banner when changes wait for a restart, and (v0.17.1)
+//                       the row of each change that waits says "applies after restart" with Restart now; a web or
+//                       content-only plugin's change applies at once ("applied", or "applied — reload the page" when
+//                       a web part left or changed: docs/plugins/22-one-plugins-page.md §5). v0.17.1: a plugin each
 //                       project turns on (db, git, ci, review) has one control [ Off | This project | All projects ]
 //                       in place of the switch, with "on in 2 other projects" under it (PluginProjects.tsx); any
 //                       other plugin a switch with "On"/"Off" beside it
@@ -22,6 +25,7 @@
 // Install. #/plugins?tab=market|installed|sources opens that tab.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { refreshFeatures } from "../addons";
 import { errorParts } from "../api";
 import {
   Confirm,
@@ -40,6 +44,8 @@ import {
   TRUST,
   hitsOf,
   installedVersion,
+  liveNotes,
+  loadsWeb,
   marketApi,
   needsOf,
   newestVersion,
@@ -53,7 +59,9 @@ import {
   sourceStatusOf,
   sourcesOf,
   updateOf,
+  type ChangeAnswer,
   type InstalledPlugin,
+  type LiveNote,
   type MarketHit,
   type MarketPlugin,
   type Permissions,
@@ -195,7 +203,15 @@ export function PluginsPage(_props: PageProps) {
     <>
       <PageHead
         title="Plugins"
-        sub={SUB[tab]}
+        sub={
+          <>
+            {SUB[tab]}
+            <span className="mk-intro">
+              Everything is on by default, like 0.16.1. Start with fewer
+              plugins: <code>keel2 start --core</code>.
+            </span>
+          </>
+        }
         actions={
           tab === "installed" ? (
             <>
@@ -296,7 +312,108 @@ function CatalogLine({ onSources }: { onSources: () => void }) {
   );
 }
 
-// ---------- the restart banner ----------
+// ---------- the restart banner, and each waiting row's Restart now ----------
+
+/** Restart keel now (POST /api/plugins/restart {now: true}); `restarting` once keel goes. */
+function useRestartNow(onDone: () => void) {
+  const { toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<Err>(null);
+  const [restarting, setRestarting] = useState(false);
+  const restart = async (now: boolean) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const a = await marketApi.restart(now);
+      if (a.restarting) {
+        setRestarting(true);
+        toast("keel restarts now. This page comes back in about 30 seconds.");
+      } else toast("keel restarts by itself when no agent step runs.");
+      onDone();
+      return true;
+    } catch (e) {
+      setErr(errorParts(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, err, restarting, restart };
+}
+
+/** A row whose change waits: "applies after restart" and Restart now (the banner above says the same for all). */
+function RowRestart({
+  title,
+  view,
+  onDone,
+}: {
+  title: string;
+  view: PluginsView;
+  onDone: () => void;
+}) {
+  const r = view.restart;
+  const { busy, err, restarting, restart } = useRestartNow(onDone);
+  const [ask, setAsk] = useState(false);
+  return (
+    <div className="mk-rownote wait" aria-label={`${title}: applies after restart`}>
+      <span>{restarting ? "keel is restarting…" : "applies after restart"}</span>
+      {restarting ? null : r?.supervised === false ? (
+        <span className="sub">
+          restart by hand: <code>keel2 restart</code>
+        </span>
+      ) : ask ? (
+        <Confirm
+          text={`${r.running} agent step${r.running === 1 ? "" : "s"} run now. They stop, and go on after the restart.`}
+          yes="Restart anyway"
+          busy={busy}
+          onYes={() => void restart(true).then(() => setAsk(false))}
+          onNo={() => setAsk(false)}
+        />
+      ) : (
+        <button
+          className="btn sm warn"
+          type="button"
+          disabled={busy}
+          onClick={() => (r?.running > 0 ? setAsk(true) : void restart(true))}
+        >
+          Restart now
+        </button>
+      )}
+      {err && (
+        <span className="badc sub">
+          {err.message}
+          {err.hint ? ` ${err.hint}` : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** What a row says after its change applied without a restart. */
+function AppliedNote({ note }: { note: LiveNote }) {
+  if (note === "applied")
+    return (
+      <div className="mk-rownote ok" role="status">
+        applied
+      </div>
+    );
+  if (note === "reload")
+    return (
+      <div className="mk-rownote ok" role="status">
+        <span>
+          applied —{" "}
+          <button
+            className="linkbtn"
+            type="button"
+            onClick={() => location.reload()}
+          >
+            reload the page
+          </button>
+        </span>
+      </div>
+    );
+  return null;
+}
 
 function RestartBanner({
   view,
@@ -305,12 +422,9 @@ function RestartBanner({
   view: PluginsView;
   onDone: () => void;
 }) {
-  const { toast } = useApp();
   const r = view.restart;
-  const [busy, setBusy] = useState(false);
+  const { busy, err, restarting: gone, restart: go } = useRestartNow(onDone);
   const [ask, setAsk] = useState(false);
-  const [gone, setGone] = useState(false);
-  const [err, setErr] = useState<Err>(null);
   if (!r || (!r.pending && !r.scheduled)) return null;
   // keel-start does not run this keel (a dev run): it cannot restart itself
   const manual = r.supervised === false;
@@ -323,21 +437,8 @@ function RestartBanner({
         : `${c.name} (goes)`,
   );
   const restart = async (now: boolean) => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const a = await marketApi.restart(now);
-      if (a.restarting) {
-        setGone(true);
-        toast("keel restarts now. This page comes back in about 30 seconds.");
-      } else toast("keel restarts by itself when no agent step runs.");
-      onDone();
-    } catch (e) {
-      setErr(errorParts(e));
-    } finally {
-      setBusy(false);
-      setAsk(false);
-    }
+    await go(now);
+    setAsk(false);
   };
   return (
     <div className="mk-banner" role="status">
@@ -537,8 +638,10 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
   const { health, pid } = useApp();
   // v0.17.1 the plugins a project turns on (db, git, ci, review): their "This project" switch (Tools › Plugins is gone)
   const perProject = useProjectPlugins(pid);
-  const { busy, err, actions } = usePluginAct(view.reload);
+  const { busy, err, actions, notes } = usePluginAct(view.reload);
   const [removing, setRemoving] = useState<string | null>(null);
+  // v0.17.1 the per-project control's own notes ("applied" for a plugin keel has loaded)
+  const [placeNotes, setPlaceNotes] = useState<Record<string, LiveNote>>({});
   const inside = useInside(view.data?.plugins ?? []);
   if (view.error && !view.data)
     return <ErrorBox error={view.error} onRetry={() => void view.reload()} />;
@@ -546,6 +649,11 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
   const v = view.data;
   const titles = new Map(v.plugins.map((p) => [p.name, titleOf(p)]));
   const rows = nested(v.plugins, inside);
+  // the plugins whose change waits for the restart (the engine compares the next start with what is loaded)
+  const pend = pendingOf(v);
+  const waiting = new Set(
+    pend?.pending ? (pend.changes ?? []).map((c) => c.name) : [],
+  );
   return (
     <div className="grid">
       {v.engine === false && (
@@ -598,7 +706,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                   <Pill tone="ok">On</Pill>
                 </td>
                 <td className="mk-oncell">
-                  <OnSwitch label="keel core on" on disabled />
+                  <Pill tone="ok">always on</Pill>
                 </td>
                 <td className="sub mk-right rt-end">Update the image</td>
               </tr>
@@ -685,6 +793,16 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                           loaded={perProject}
                           keelOn={p.on !== false}
                           onKeelOn={() => void view.reload()}
+                          loadedNow={
+                            p.on !== false &&
+                            p.status === "loaded" &&
+                            !waiting.has(p.name)
+                          }
+                          onApplied={(now) =>
+                            setPlaceNotes(({ [p.name]: _gone, ...rest }) =>
+                              now ? { ...rest, [p.name]: "applied" } : rest,
+                            )
+                          }
                         />
                       ) : (
                         <OnSwitch
@@ -734,6 +852,17 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                           </button>
                         )}
                       </div>
+                      {waiting.has(p.name) ? (
+                        <RowRestart
+                          title={titleOf(p)}
+                          view={v}
+                          onDone={() => void view.reload()}
+                        />
+                      ) : (
+                        <AppliedNote
+                          note={notes[p.name] ?? placeNotes[p.name]}
+                        />
+                      )}
                     </td>
                   </tr>,
                   removing === p.name && (
@@ -861,8 +990,16 @@ function MarketTab({
     setBusy(h.name);
     setErr(null);
     try {
-      await marketApi.update(h.name, to || undefined);
-      toast(`${h.title ?? h.name} is updated. Restart keel to use it.`);
+      const a = await marketApi.update(h.name, to || undefined);
+      const note = liveNotes(a)[h.name];
+      toast(
+        note === "applied"
+          ? `${h.title ?? h.name} is updated. It works now.`
+          : note === "reload"
+            ? `${h.title ?? h.name} is updated. Reload the page to use it.`
+            : `${h.title ?? h.name} is updated. Restart keel to use it.`,
+      );
+      if (loadsWeb(a)) void refreshFeatures();
       onChanged();
       await r.reload();
     } catch (e) {
@@ -1227,6 +1364,14 @@ function InstallDialog({
     setBusy(true);
     setErr(null);
     let done = 0;
+    // v0.17.1 a web or content-only plugin works at once; anything else after the restart
+    let waits = false;
+    let web = false;
+    const note = (a: ChangeAnswer) => {
+      const got = Object.values(liveNotes(a));
+      waits ||= !a.live || got.includes("restart");
+      web ||= loadsWeb(a);
+    };
     try {
       for (const name of plan.install) {
         if (unlisted.has(name)) continue;
@@ -1236,9 +1381,11 @@ function InstallDialog({
         setState((s) => ({ ...s, [name]: "installing" }));
         const it = items?.find((x) => x.name === name);
         try {
-          await marketApi.install(
-            name,
-            plan.install.length === 1 ? it?.version : undefined,
+          note(
+            await marketApi.install(
+              name,
+              plan.install.length === 1 ? it?.version : undefined,
+            ),
           );
         } catch (e) {
           setState((s) => ({ ...s, [name]: "failed" }));
@@ -1247,7 +1394,8 @@ function InstallDialog({
         setState((s) => ({ ...s, [name]: "done" }));
         done++;
       }
-      for (const name of turnOn) await marketApi.setOn(name, true);
+      for (const name of turnOn) note(await marketApi.setOn(name, true));
+      if (web) void refreshFeatures();
       const names = [
         ...(items ?? [])
           .filter((x) => x.target && !x.problem)
@@ -1256,8 +1404,8 @@ function InstallDialog({
       ];
       toast(
         names.length === 1 && done === 1
-          ? `${names[0]} is installed. Restart keel to use it.`
-          : "The plugins are ready. Restart keel to use them.",
+          ? `${names[0]} is installed. ${waits ? "Restart keel to use it." : "It works now."}`
+          : `The plugins are ready. ${waits ? "Restart keel to use them." : "They work now."}`,
       );
       onDone();
       onClose();
@@ -1426,13 +1574,13 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
   const run = async (
     what: string,
     fn: () => Promise<unknown>,
-    done: string,
+    done: string | ((answer: unknown) => string),
   ) => {
     setBusy(what);
     setErr(null);
     try {
-      await fn();
-      toast(done);
+      const answer = await fn();
+      toast(typeof done === "string" ? done : done(answer));
       return true;
     } catch (e) {
       setErr(errorParts(e));
@@ -1498,7 +1646,17 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
       await run(
         "file",
         () => marketApi.installFile(file.trim()),
-        "The file is installed, as unsigned. Restart keel to use it.",
+        (answer) => {
+          const a = answer as ChangeAnswer | null;
+          const applied =
+            !!a?.live &&
+            !Object.values(liveNotes(a)).includes("restart") &&
+            !!a.live.applied?.length;
+          if (loadsWeb(a)) void refreshFeatures();
+          return applied
+            ? "The file is installed, as unsigned. It works now."
+            : "The file is installed, as unsigned. Restart keel to use it.";
+        },
       )
     ) {
       setFile("");

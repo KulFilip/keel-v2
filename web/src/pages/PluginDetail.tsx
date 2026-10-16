@@ -8,11 +8,14 @@
 // Also the pieces the Installed table shares with it: a plugin's status pill, the Remove question, and the actions.
 
 import { useState, type ReactNode } from "react";
+import { refreshFeatures } from "../addons";
 import { errorParts } from "../api";
 import { PermissionList, TrustTag } from "../components/Permissions";
 import { Confirm, ErrorBox, Loading, Pill } from "../components/ui";
 import {
   installedVersion,
+  liveNotes,
+  loadsWeb,
   marketApi,
   needsOf,
   newestVersion,
@@ -23,7 +26,9 @@ import {
   revokedText,
   TRUST,
   updateOf,
+  type ChangeAnswer,
   type InstalledPlugin,
+  type LiveNote,
   type MarketPlugin,
   type PluginsView,
 } from "../marketplaceApi";
@@ -75,21 +80,35 @@ export const problemsOf = (p: InstalledPlugin) =>
 export const canRemove = (p: InstalledPlugin) =>
   p.can_remove ?? (p.from ?? p.source ?? "") !== "image";
 
-/** Run one change (update, roll back, on/off, remove), then say so and read the installed plugins again. */
+/** The toast after a change: what it does now (applied), once the page loads again (reload), or after the restart. */
+type Words = { now: string; reload?: string; later: string };
+const say = (w: Words, note: LiveNote | undefined) =>
+  note === "applied" ? w.now : note === "reload" ? (w.reload ?? w.now) : w.later;
+
+/**
+ * Run one change (update, roll back, on/off, remove), then say so and read the installed plugins again. v0.17.1 the
+ * answer says what applied without a restart (a web/content-only plugin): `notes` keeps it per plugin for its row
+ * ("applied", "applied — reload the page"), and a new web part loads at once (/api/features is read again).
+ */
 export function usePluginAct(reload: () => Promise<void> | void) {
   const { toast } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<Err>(null);
+  const [notes, setNotes] = useState<Record<string, LiveNote>>({});
   const act = async (
     name: string,
     run: () => Promise<unknown>,
-    done: string,
+    done: string | Words,
   ): Promise<boolean> => {
     setBusy(name);
     setErr(null);
+    setNotes(({ [name]: _gone, ...rest }) => rest);
     try {
-      await run();
-      toast(done);
+      const answer = (await run()) as ChangeAnswer | null;
+      const got = liveNotes(answer);
+      setNotes((n) => ({ ...n, ...got }));
+      toast(typeof done === "string" ? done : say(done, got[name]));
+      if (loadsWeb(answer)) void refreshFeatures();
       await reload();
       return true;
     } catch (e) {
@@ -103,32 +122,32 @@ export function usePluginAct(reload: () => Promise<void> | void) {
     const t = titleOf(p);
     return {
       setOn: (on: boolean) =>
-        act(
-          p.name,
-          () => marketApi.setOn(p.name, on),
-          `${t} is ${on ? "on" : "off"} after the next restart.`,
-        ),
+        act(p.name, () => marketApi.setOn(p.name, on), {
+          now: `${t} is ${on ? "on" : "off"} now.`,
+          reload: `${t} is ${on ? "on" : "off"} now. Reload the page to see it.`,
+          later: `${t} is ${on ? "on" : "off"} after the next restart.`,
+        }),
       update: (to?: string) =>
-        act(
-          p.name,
-          () => marketApi.update(p.name, to),
-          `${t} is updated. Restart keel to use it.`,
-        ),
+        act(p.name, () => marketApi.update(p.name, to), {
+          now: `${t} is updated. It works now.`,
+          reload: `${t} is updated. Reload the page to use it.`,
+          later: `${t} is updated. Restart keel to use it.`,
+        }),
       rollback: () =>
-        act(
-          p.name,
-          () => marketApi.rollback(p.name),
-          `${t} goes back to ${p.previous} after the restart.`,
-        ),
+        act(p.name, () => marketApi.rollback(p.name), {
+          now: `${t} is back on ${p.previous}.`,
+          reload: `${t} is back on ${p.previous}. Reload the page to use it.`,
+          later: `${t} goes back to ${p.previous} after the restart.`,
+        }),
       remove: (data: "keep" | "delete") =>
-        act(
-          p.name,
-          () => marketApi.remove(p.name, data),
-          `${t} is removed after the restart.`,
-        ),
+        act(p.name, () => marketApi.remove(p.name, data), {
+          now: `${t} is removed.`,
+          reload: `${t} is removed. Reload the page to drop its pages.`,
+          later: `${t} is removed after the restart.`,
+        }),
     };
   };
-  return { busy, err, setErr, act, actions };
+  return { busy, err, setErr, act, actions, notes };
 }
 
 /** "Remove X?": its tables stay; its files in /data may go too. */
