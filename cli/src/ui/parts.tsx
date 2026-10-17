@@ -91,7 +91,9 @@ function BlockBody({ b, width }: { b: Block; width: number }) {
   }
 }
 
-export function Picker({ title, choices, index, filter }: { title: string; choices: Choice[]; index: number; filter: string }) {
+export function Picker({ title, choices, index, filter, ticked }: { title: string; choices: Choice[]; index: number; filter: string;
+  /** keel 0.18.9 a pick of several: the values ticked so far (Space ticks) */
+  ticked?: Set<string> }) {
   const { color } = useTheme();
   // a question (a yes or no, a gate's question) in amber with a "?", like xal's permission prompt; a list in the accent
   const ask = title.trim().endsWith("?");
@@ -108,11 +110,11 @@ export function Picker({ title, choices, index, filter }: { title: string; choic
         const on = start + k === index;
         return (
           <Text key={c.value} color={on ? color("accent") : undefined} bold={on}>
-            {on ? "❯ " : "  "}{c.label}{c.hint ? <Text color={color("dim")} bold={false}>{"  " + c.hint}</Text> : null}
+            {on ? "❯ " : "  "}{ticked ? (ticked.has(c.value) ? "[x] " : "[ ] ") : ""}{c.label}{c.hint ? <Text color={color("dim")} bold={false}>{"  " + c.hint}</Text> : null}
           </Text>
         );
       })}
-      <Text color={color("faint")}>↑↓ · Enter · type to filter · Esc</Text>
+      <Text color={color("faint")}>{ticked ? "↑↓ · Space ticks · Enter sends the ticked (or this one) · Esc" : "↑↓ · Enter · type to filter · Esc"}</Text>
     </Box>
   );
 }

@@ -49,6 +49,9 @@ Rules for the block:
 - 2 to 4 `options` per question; the **recommended one first**, with `"recommended": true`. The user can always type another answer.
 - Each option is a **work choice** with what it costs: "Filter on the server: one more round trip per keystroke". Not "yes / no".
 - `id` is a short word. `why` is one sentence on what the answer changes.
+- When **several options can be true together** (which platforms, which roles may see it), add `"multiple": true` to the
+  question: the person ticks each that applies, and the answer comes back as a list. Use it only then; one answer is
+  the usual case.
 - Before the block, say in two or three sentences what you looked at. No long text.
 
 ## The answers come back

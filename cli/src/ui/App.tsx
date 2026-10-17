@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
-import { complete, follow, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
+import { complete, follow, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
 import { applyLevel, makeTheme, type Theme } from "../core/theme";
@@ -24,7 +24,7 @@ import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
 import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
-import { blockedByChanges, buttonWords, elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
+import { answersMessage, blockedByChanges, buttonWords, elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { fixRequest } from "../../../web/src/askFix";
 import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
@@ -96,6 +96,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [pending, setPending] = useState<Pending | null>(null);
   const [pickIdx, setPickIdx] = useState(0);
   const [pickFilter, setPickFilter] = useState("");
+  // keel 0.18.9 a pick of several: what is ticked (Space), sent with Enter
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set());
   const [panels, setPanels] = useState<PanelId[]>([]);
   const pastes = useRef(new Pastes());
   const questions = useRef<Question[]>([]);
@@ -238,6 +240,13 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       return r ? `"${r.title}"` : `flow ${tid.slice(0, 8)}`;
     };
     for (const b of buttons) {
+      // keel 0.18.9 KeelBot asks the person to choose: the questions one after the other, the answers back to it
+      if (b.kind === "questions") {
+        const first = await questionChain(b.questions, (a) => ({ blocks: [], chat: answersMessage(b.questions, a) }));
+        if (first.blocks.length) push(...first.blocks);
+        if (first.pick) buttonAsks.current.push(first.pick);
+        continue;
+      }
       // a new workflow or rule pack: keel's check first (it saves nothing), so the question says what it would be
       const prep = await prepare(b, pid, name).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
       if (!prep) {
@@ -401,8 +410,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const choose = useCallback(async (value: string) => {
     if (!pending?.pick) return;
     const p = pending;
-    const c = p.pick!.choices.find((x) => x.value === value);
-    push({ kind: "dim", text: `  ${p.pick!.title} → ${c?.label ?? value}` });
+    const label = (v: string) => p.pick!.choices.find((x) => x.value === v)?.label ?? v;
+    const said = p.pick!.multi ? (JSON.parse(value) as string[]).map(label).join(", ") : label(value);
+    push({ kind: "dim", text: `  ${p.pick!.title} → ${said}` });
+    setTicked(new Set());
     setPending(null);
     setRunning(p.cmd);
     const r = await follow(p.cmd, () => p.pick!.then(value));
@@ -561,14 +572,27 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         setPending(null);
       } else if (key.upArrow) setPickIdx((i) => Math.max(0, i - 1));
       else if (key.downArrow) setPickIdx((i) => Math.min(filtered.length - 1, i + 1));
-      else if (key.return) {
+      else if (pending.pick.multi && input === " ") {
+        // a pick of several: Space ticks or unticks the one under the cursor
         const c = filtered[pickIdx];
-        if (c) void choose(c.value);
+        if (c) setTicked((s) => {
+          const n = new Set(s);
+          if (n.has(c.value)) n.delete(c.value);
+          else n.add(c.value);
+          return n;
+        });
+      } else if (key.return) {
+        const c = filtered[pickIdx];
+        if (pending.pick.multi) {
+          const list = ticked.size ? [...ticked] : c ? [c.value] : [];
+          if (list.length) void choose(JSON.stringify(list));
+        } else if (c) void choose(c.value);
       } else if (key.backspace || key.delete) {
         setPickFilter((f) => f.slice(0, -1));
         setPickIdx(0);
       } else if (input && !key.ctrl && !key.meta && /^\d$/.test(input) && !pickFilter && Number(input) >= 1 && Number(input) <= Math.min(9, filtered.length)) {
-        void choose(filtered[Number(input) - 1].value);
+        if (pending.pick.multi) setPickIdx(Number(input) - 1);
+        else void choose(filtered[Number(input) - 1].value);
       } else if (input && !key.ctrl && !key.meta) {
         setPickFilter((f) => f + input);
         setPickIdx(0);
@@ -777,7 +801,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
           return v?.panel && snap.project ? <PluginPanel key={p} plugin={v.title} panel={v.panel} pid={snap.project.id} width={width} /> : null;
         })}
         {pending?.pick ? (
-          <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} />
+          <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} ticked={pending.pick.multi ? ticked : undefined} />
         ) : (
           <Box flexDirection="column">
             {pending?.ask && <Text color={t.color("accent")} bold>{pending.ask.prompt}<Text color={t.color("dim")} bold={false}> (Esc cancels)</Text></Text>}

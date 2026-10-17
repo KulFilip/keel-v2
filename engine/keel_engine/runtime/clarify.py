@@ -7,6 +7,9 @@ The explorer cannot talk to the user during its run. It ends its answer with one
       "options": [{"label": "A · Named entity", "description": "...", "recommended": true}, ...]}]
     ```
 
+keel 0.18.9: a question with "multiple": true takes several options (the person ticks each that applies); its answer
+comes back as a list.
+
 keel shows the questions on the spec gate, the user clicks, and the answers go back to the same explorer session.
 """
 from __future__ import annotations
@@ -47,7 +50,7 @@ def parse_questions(text: str) -> list[dict]:
             opts[0]["recommended"] = True
         qid = re.sub(r"[^a-z0-9_-]+", "-", str(q.get("id") or f"q{i + 1}").lower()).strip("-") or f"q{i + 1}"
         out.append({"id": qid, "question": str(q["question"]).strip()[:300], "why": str(q.get("why") or "").strip()[:300],
-                    "options": opts})
+                    "options": opts, **({"multiple": True} if q.get("multiple") is True else {})})
         if len(out) == MAX_QUESTIONS:
             break
     ids = [q["id"] for q in out]
@@ -65,7 +68,7 @@ def describe(questions: list[dict]) -> str:
         if q.get("why"):
             lines.append(f"   why it matters: {q['why']}")
         for o in q.get("options") or []:
-            lines.append(f"   - {o['label']}{' (recommended)' if o.get('recommended') else ''}"
+            lines.append(f"   - {o['label']}{' (recommended)' if o.get('recommended') else ''}{' [pick any]' if q.get('multiple') else ''}"
                          + (f": {o['description']}" if o.get("description") else ""))
     return "\n".join(lines)
 
@@ -75,7 +78,9 @@ def answers_text(questions: list[dict], answers: dict | None, note: str, round_n
     answers = answers or {}
     lines = [PREFIX]
     for n, q in enumerate(questions, 1):
-        given = str(answers.get(q["id"]) or "").strip()
+        raw = answers.get(q["id"])
+        # several options (a "multiple" question): one line with each
+        given = "; ".join(str(x).strip() for x in raw if str(x).strip()) if isinstance(raw, list) else str(raw or "").strip()
         if given:
             lines.append(f"{n}. {q['question']}\n   → {given}")
         else:

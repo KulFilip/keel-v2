@@ -22,8 +22,9 @@ export type BlockKind = "text" | "markdown" | "diagram" | "error" | "notice" | "
 export type Block = { kind: BlockKind; text: string };
 export type Choice = { label: string; value: string; hint?: string };
 /** Pick one of these; `then` runs with the chosen value. */
-/** `index`: the choice the cursor starts on (the current one), else the first */
-export type Pick = { title: string; choices: Choice[]; then: (value: string) => Promise<Reply> | Reply; index?: number };
+/** `index`: the choice the cursor starts on (the current one), else the first. keel 0.18.9 `multi`: Space ticks
+ *  choices, Enter sends them; `then` gets the ticked values as a JSON list. */
+export type Pick = { title: string; choices: Choice[]; then: (value: string) => Promise<Reply> | Reply; index?: number; multi?: boolean };
 /** The next line the person types answers this; `then` runs with it. */
 export type Ask = { prompt: string; then: (text: string) => Promise<Reply> | Reply };
 export type PanelName = "flow" | "agents" | "inbox";
@@ -173,23 +174,66 @@ async function decideItem(ctx: Ctx, item: InboxItem, decision: "approve" | "reje
   }
 }
 
-/** /answer for a clarify gate: one pick per question (recommended first; "Other…" asks for own words). */
-function askQuestions(ctx: Ctx, t: ThreadState, k: number, answers: Record<string, string>): Promise<Reply> | Reply {
-  const qs = t.waiting?.questions ?? [];
-  if (k >= qs.length) return actOnFlow(ctx, t, "approve", "", { answers });
+/** A question as keel shows it (a clarify gate's, or one KeelBot asks): options (the recommended first), and
+ *  `multiple` when several may be picked (keel 0.18.9). */
+export type Question = { id: string; question: string; why?: string; multiple?: boolean;
+  options: { label: string; description?: string; recommended?: boolean }[] };
+export type Answers = Record<string, string | string[]>;
+
+const OTHER = "\u0000other";
+const BACK = "\u0000back";
+
+/** keel 0.18.9 questions one after the other: pick one (or tick several), Other… for your own words, ← Back; then a
+ *  check of every answer ("Send these answers?", change one) before `send` gets them. */
+export function questionChain(qs: Question[], send: (answers: Answers) => Promise<Reply> | Reply, k = 0, answers: Answers = {},
+  onlyOne = false): Promise<Reply> | Reply {
+  if (k >= qs.length) return reviewAnswers(qs, send, answers);
   const q = qs[k];
   const opts = [...q.options].sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended));
+  // one answer changed from the check: straight back to it; else the next question
+  const next = (v: string | string[]) => onlyOne ? reviewAnswers(qs, send, { ...answers, [q.id]: v })
+    : questionChain(qs, send, k + 1, { ...answers, [q.id]: v });
+  const own = (picked: string[]) => ({ blocks: [], ask: { prompt: q.question, then: (words: string) =>
+    next(q.multiple ? [...picked, words.trim()].filter(Boolean) : words.trim()) } }) as Reply;
+  const choices: Choice[] = [
+    ...opts.map((o) => ({ label: o.label + (o.recommended ? " (recommended)" : ""), value: o.label, hint: o.description })),
+    { label: "Other… (my own words)", value: OTHER },
+    ...(k > 0 && !onlyOne ? [{ label: "← Back", value: BACK, hint: "the question before" }] : []),
+  ];
   return {
-    blocks: [{ kind: "text", text: `${k + 1}/${qs.length} ${q.question}` + (q.why ? `\n   ${q.why}` : "") }],
+    blocks: [{ kind: "text", text: `${k + 1}/${qs.length} ${q.question}${q.multiple ? " (pick any)" : ""}` + (q.why ? `\n   ${q.why}` : "") }],
     pick: {
-      title: q.question,
-      choices: [...opts.map((o) => ({ label: o.label + (o.recommended ? " (recommended)" : ""), value: o.label, hint: o.description })),
-        { label: "Other… (my own words)", value: "\u0000other" }],
-      then: (v) => v === "\u0000other"
-        ? { blocks: [], ask: { prompt: q.question, then: (own) => askQuestions(ctx, t, k + 1, { ...answers, [q.id]: own }) } }
-        : askQuestions(ctx, t, k + 1, { ...answers, [q.id]: v }),
+      title: q.question, multi: !!q.multiple, choices,
+      then: (v) => {
+        const picked: string[] = q.multiple ? (JSON.parse(v) as string[]) : [v];
+        if (picked.includes(BACK)) return questionChain(qs, send, k - 1, answers);
+        const real = picked.filter((x) => x !== OTHER);
+        if (picked.includes(OTHER)) return own(real);
+        if (!real.length) return questionChain(qs, send, k, answers, onlyOne);  // nothing ticked: ask again
+        return next(q.multiple ? real : real[0]);
+      },
     },
   };
+}
+
+/** Every answer at once, then send them or change one. */
+function reviewAnswers(qs: Question[], send: (answers: Answers) => Promise<Reply> | Reply, answers: Answers): Reply {
+  const shown = (v: string | string[] | undefined) => (Array.isArray(v) ? v.join("; ") : v) || "(not answered: keel uses the recommended one)";
+  return {
+    blocks: [{ kind: "text", text: ["Your answers:", ...qs.map((q, i) => `  ${i + 1}. ${q.question}\n     → ${shown(answers[q.id])}`)].join("\n") }],
+    pick: {
+      title: "Send these answers?",
+      choices: [{ label: "Send them", value: "send" }, ...qs.map((q, i) => ({ label: `Change ${i + 1}: ${q.question.slice(0, 60)}`, value: `c${i}` })),
+        { label: "Cancel", value: "cancel", hint: "nothing is sent" }],
+      then: (v) => v === "send" ? send(answers) : v === "cancel" ? text("Not sent.")
+        : questionChain(qs, send, Number(v.slice(1)), answers, true),
+    },
+  };
+}
+
+/** /answer for a clarify gate: the questions one after the other, checked before keel gets them. */
+function askQuestions(ctx: Ctx, t: ThreadState, k: number, answers: Answers): Promise<Reply> | Reply {
+  return questionChain((t.waiting?.questions ?? []) as Question[], (a) => actOnFlow(ctx, t, "approve", "", { answers: a }), k, answers);
 }
 
 function pickWorkflowThen(ctx: Ctx, rows: Workflow[], then: (w: Workflow) => Promise<Reply> | Reply, title: string): Reply {

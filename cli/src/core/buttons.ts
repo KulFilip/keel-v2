@@ -15,11 +15,13 @@
 //   ```keel-git {"op": "switch" | "commit" | "push" | "pr" | "sync", …}```  the Git plugin's (0.18.9)
 //   ```keel-ci {"op": "fix" | "rerun", "run"?}```                           the CI/CD plugin's (0.18.9)
 //   ```keel-query {"sql", "connection"?}```                                  the Database plugin's (0.18.9)
+//   ```keel-questions [{"id", "question", "why"?, "multiple"?, "options"}]``` KeelBot asks the person to choose (0.18.9)
 //
 // Another plugin's kind is the dashboard's: the answer says where to press it.
 // No UI here: App.tsx shows the text and asks; `pressButton` does what a pressed button does.
 
 import { api, get, post, type RunMode } from "../../../web/src/api";
+import type { Answers, Question } from "./commands";
 import { inboxApi } from "../../../web/src/inboxApi";
 
 export const RUN_MODES: RunMode[] = ["manual", "important", "auto", "readonly"];
@@ -48,6 +50,7 @@ export type Button =
       body?: string; draft?: boolean; stash?: boolean }
   | { kind: "ci"; op: "fix" | "rerun"; run?: number }
   | { kind: "query"; sql: string; connection?: string }
+  | { kind: "questions"; questions: Question[] }
   | { kind: "other"; name: string };
 
 const OPEN = /^\s*(`{3,}|~{3,})\s*keel-([a-z]+)\s*$/;
@@ -101,6 +104,10 @@ export function toButton(kind: string, body: string): Button | null {
     if (!v || !name || !prompt) return null;
     const list = (x: unknown) => (Array.isArray(x) ? x.map(String).filter(Boolean) : undefined);
     return { kind: "agent", agent: { name, prompt, about: str(v.about) || undefined, tools: list(v.tools), phases: list(v.phases) } };
+  }
+  if (kind === "questions") {
+    const qs = parseQuestions(body);
+    return qs.length ? { kind, questions: qs } : null;
   }
   if (kind === "git" || kind === "ci" || kind === "query") {
     const v = json(body);
@@ -171,6 +178,40 @@ export function question(b: Button, name: Names): string | null {
     case "query": return `KeelBot suggests: run this on ${b.connection || "the local database"}: ${b.sql.replace(/\s+/g, " ").slice(0, 90)}?`;
     default: return null;
   }
+}
+
+/** KeelBot's questions (the explorer's format, engine runtime/clarify.py): at most 4, 2 to 4 options each, the
+ *  recommended one marked (else the first), "multiple" when several may be picked. */
+export function parseQuestions(body: string): Question[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray((raw as { questions?: unknown }).questions)
+    ? (raw as { questions: unknown[] }).questions : [];
+  const out: Question[] = [];
+  list.forEach((q, i) => {
+    if (out.length >= 4 || !q || typeof q !== "object") return;
+    const v = q as Record<string, unknown>;
+    const question = str(v.question);
+    const options = (Array.isArray(v.options) ? v.options : []).slice(0, 4).map((o) => (typeof o === "string" ? { label: o } : o as Record<string, unknown>))
+      .filter((o) => str(o?.label)).map((o) => ({ label: str(o.label), description: str(o.description) || undefined, recommended: o.recommended === true }));
+    if (!question || !options.length) return;
+    if (!options.some((o) => o.recommended)) options[0].recommended = true;
+    out.push({ id: str(v.id) || `q${i + 1}`, question, why: str(v.why) || undefined, multiple: v.multiple === true, options });
+  });
+  return out;
+}
+
+/** The answers as KeelBot's next message. */
+export function answersMessage(qs: Question[], answers: Answers): string {
+  return ["Answers to your questions:", ...qs.map((q, i) => {
+    const a = answers[q.id];
+    const said = Array.isArray(a) ? a.join("; ") : a;
+    return `${i + 1}. ${q.question}\n   → ${said || "(not answered: use the recommended one)"}`;
+  })].join("\n");
 }
 
 /** A git button in words: "switch to main", "commit \"fix: …\"", "push", "open the pull request \"…\"". */

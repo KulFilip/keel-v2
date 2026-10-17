@@ -71,3 +71,15 @@ def test_the_third_round_is_never_asked(client, repo, monkeypatch):
         assert s["waiting"]["kind"] == "clarify"
         s = decide(client, tid, "approve", payload={"answers": {}})
     assert s["waiting"].get("kind") != "clarify" and s["acs"], s["waiting"]
+
+
+def test_a_question_can_take_several_answers_and_they_reach_the_explorer_as_one_line():
+    from keel_engine.runtime import clarify
+
+    qs = clarify.parse_questions('```keel-questions\n[{"id": "platforms", "question": "Where does it run?", "multiple": true,'
+                                 ' "options": [{"label": "Web", "recommended": true}, {"label": "iOS"}, {"label": "Android"}]},'
+                                 ' {"id": "size", "question": "How big?", "options": ["Small", "Large"]}]\n```')
+    assert qs[0]["multiple"] is True and "multiple" not in qs[1]          # only when the explorer says so
+    assert "[pick any]" in clarify.describe(qs)
+    text = clarify.answers_text(qs, {"platforms": ["Web", "iOS"], "size": "Small"}, "", 1)
+    assert "Where does it run?\n   → Web; iOS" in text and "How big?\n   → Small" in text
