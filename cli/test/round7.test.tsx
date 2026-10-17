@@ -44,7 +44,9 @@ describe("0.18.7", () => {
     const t = setup();
     await waitFor(() => t.probe.started);
     await t.run("/mode");
-    expect(t.stub.calls.some((c) => c.path === "/api/providers/models")).toBe(false);
+    // /mode ran (its list of the four modes), not /model's catalog pick (0.18.9 reads the catalog early anyway)
+    expect(t.frame()).toContain("/mode ask | edit | fix | side");
+    expect(t.probe.pick).toBe(false);
     t.r.unmount();
   });
 

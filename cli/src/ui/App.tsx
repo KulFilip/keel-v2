@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
-import { complete, follow, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
+import { complete, follow, modelCatalog, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
 import { applyLevel, makeTheme, type Theme } from "../core/theme";
@@ -104,7 +104,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   // KeelBot's buttons (start a flow, decide a gate, stop flows, a run mode): a yes / no each, after its answer
   const buttonAsks = useRef<Pick[]>([]);
   const [qTick, setQTick] = useState(0);
-  const [running, setRunning] = useState<string | null>(null);
+  const [running, setRunningState] = useState<string | null>(null);
+  const runningSince = useRef<number | null>(null);
+  const setRunning = (v: string | null) => {
+    runningSince.current = v ? Date.now() : null;
+    setRunningState(v);
+  };
   const [comps, setComps] = useState<Completion[]>([]);
   const [compIdx, setCompIdx] = useState(0);
   const [botCmds, setBotCmds] = useState<{ name: string; description: string }[]>([]);
@@ -197,6 +202,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       setStarted(true);
       profiler?.ready();
       void core.keelbotCommands().then((c) => alive && setBotCmds(c));
+      void modelCatalog().catch(() => undefined);          // read early: /model opens at once (0.18.9)
     });
     return () => {
       alive = false;
@@ -611,6 +617,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       else push({ kind: "dim", text: "  No agent at work. /agent lists yours." });
       return;
     }
+    // keel 0.18.9 Ctrl+A: the agents, as /agent shows them: pick one to follow it, or start your own
+    if (key.ctrl && input === "a") {
+      void submit("/agent");
+      return;
+    }
     if (key.ctrl && CTRL_PANEL[input]) {
       const p = CTRL_PANEL[input];
       setPanels((ps) => (ps.includes(p) ? ps.filter((x) => x !== p) : [...ps, p]));
@@ -792,7 +803,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             </Clickable>
           );
         })}
-        {running && <Text color={t.color("dim")}>{`… ${running}`}</Text>}
+        {/* keel 0.18.9 a command at work (/model reads keel's catalog): a turning spinner and the seconds, not a still line */}
+        {running && <Thinking verb={running === "KeelBot" || running === "gate" ? "Working" : `Running ${running}`} since={runningSince.current} />}
         {panels.map((p) => {
           if (p.startsWith("job:")) return <JobPanel key={p} id={p.slice(4)} s={snap} width={width} />;
           if (!p.startsWith("plugin:")) return <Panel key={p} name={p as PanelName} s={snap} width={width}

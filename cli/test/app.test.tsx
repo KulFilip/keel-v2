@@ -128,9 +128,13 @@ describe("keel TUI", () => {
     expect(f).toContain('Flow · feature "Add a health endpoint" · ◆ waiting');
     expect(f).toContain("✔ preflight  ◆ spec  · red  · green  · gate");
     expect(f).toContain("◆ waiting for you: spec approval · /approve or /reject <why>");
+    // 0.18.9 Ctrl+A: the agents as /agent lists them, to pick one; the panel stays on /panel agents
     t.r.stdin.write("\x01");                      // Ctrl+A
-    await waitFor(() => t.frame().includes("Agents · 1 at work"));
-    expect(t.frame()).toMatch(new RegExp(`explorer · (${VERBS.join("|")})… \\(\\d+s · ~1\\.0k tokens · "Add a health endpoint" · spec\\)`));
+    await waitFor(() => t.frame().includes("Go to which agent?"));
+    expect(t.frame()).toContain("▶ explorer (flow)");
+    t.r.stdin.write("\x1b");
+    await tick(60);
+    void VERBS;
     t.r.stdin.write("\x02");                      // Ctrl+B
     await tick(50);
     f = t.frame();

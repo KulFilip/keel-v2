@@ -308,7 +308,7 @@
     },
     {
       "key": "Ctrl+A",
-      "does": "toggle the agents at work"
+      "does": "the agents (as /agent): follow one, or start your own"
     },
     {
       "key": "Ctrl+B",

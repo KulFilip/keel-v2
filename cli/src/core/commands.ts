@@ -370,6 +370,19 @@ function agentQuestions(ctx: Ctx): Reply {
   } } };
 }
 
+let catalog: { at: number; data: Promise<unknown> } | null = null;
+/** keel's model catalog, read once and kept for 5 minutes (keel TUI starts reading it at once: /model opens fast). */
+export function modelCatalog(): Promise<unknown> {
+  if (!catalog || Date.now() - catalog.at > 300_000) {
+    const data = api.providerModels().catch((e) => {
+      catalog = null;
+      throw e;
+    });
+    catalog = { at: Date.now(), data };
+  }
+  return catalog.data;
+}
+
 /** /agent new: an agent of its own (a KeelBot chat in its own worktree, or one that only reads) works on the task. */
 async function spawn(ctx: Ctx, task: string, mode: HelperMode): Promise<Reply> {
   if (!task.trim()) return text("No task: nothing started.");
@@ -701,7 +714,8 @@ const IMPLS: Impl[] = [
   {
     name: "model",
     run: async (ctx) => {
-      const raw = (await api.providerModels()) as Record<string, { label?: string; modes?: Record<string, { id: string; label: string }[]>; default?: Model }>;
+      // keel 0.18.9 the catalog read once (it asks every provider: slow), then kept for 5 minutes
+      const raw = (await modelCatalog()) as Record<string, { label?: string; modes?: Record<string, { id: string; label: string }[]>; default?: Model }>;
       const choices: Choice[] = [];
       for (const [prov, c] of Object.entries(raw ?? {})) {
         for (const [mode, models] of Object.entries(c?.modes ?? {})) {
