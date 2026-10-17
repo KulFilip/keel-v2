@@ -10,7 +10,7 @@ from test_pluginhost import data, image  # noqa: F401 - fixtures
 
 def test_the_skills_row_and_the_review():
     assert (kinds.SKILLS.list, kinds.SKILLS.suffix, kinds.SKILLS.max_size) == ("skills", ".md", 256 << 10)
-    assert catalog.KINDS == ("plugin", "workflow", "rules", "skills") and catalog.MAX_SKILL == 256 << 10
+    assert catalog.KINDS == ("plugin", "workflow", "rules", "skills", "stacks") and catalog.MAX_SKILL == 256 << 10
     assert "skills" in catalog.RESERVED
     text = SKILL.format(name="changelog", version="1.0.0")
     assert kinds.skill_review(text) == {"tokens": len(text.encode()) // 4, "sections": ["When", "How"],

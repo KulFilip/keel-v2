@@ -1,0 +1,8 @@
+# keel's own stack react-js (content/stacks or content/packs in keel-v2): stacks/react-js/<version>.yaml
+name: react-js
+title: "react-js"
+publisher: keel
+category: javascript
+summary: "How a frontend built with react-js is tested: its layers, commands and tools."
+tags: [react, stack, keel]
+keel: ">=0.18.9"

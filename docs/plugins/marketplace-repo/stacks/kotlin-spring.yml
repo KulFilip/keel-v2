@@ -1,0 +1,8 @@
+# keel's own stack kotlin-spring (content/stacks or content/packs in keel-v2): stacks/kotlin-spring/<version>.yaml
+name: kotlin-spring
+title: "kotlin-spring"
+publisher: keel
+category: jvm
+summary: "How a backend built with kotlin-spring is tested: its layers, commands and tools."
+tags: [kotlin, stack, keel]
+keel: ">=0.18.9"

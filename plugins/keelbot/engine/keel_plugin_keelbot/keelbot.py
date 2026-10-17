@@ -50,6 +50,7 @@ ABOUT_WORKFLOW = re.compile(r"\bwork ?flows?\b", re.I)
 ABOUT_RULE = re.compile(r"\brules?\b|\brule ?packs?\b|\bguard\b|\bforbid|\bblock\b", re.I)
 ABOUT_AGENT = re.compile(r"\bagents?\b|\bsub-?agents?\b", re.I)
 ABOUT_SKILL = re.compile(r"\bskills?\b|\bskill\.md\b", re.I)
+ABOUT_STACK = re.compile(r"\bstacks?\b|\bhow (this|the) project (builds|tests)\b", re.I)
 
 ACTIONS = """Buttons (actions). You never start or save anything yourself: you give the person a button, and nothing \
 happens until they press it. Put each one as its own fenced block at the end of your answer:
@@ -64,6 +65,8 @@ keel-workflow.
 - A new agent (Save adds it to the project; workflows use it with `agent: <id>`): its JSON in a keel-agent block.
 - A new skill (know-how an agent reads before it works; Save adds it to the project): its whole SKILL.md in a \
 keel-skill block; its front matter may name the agents that should load it, as `agents: [<id>, <id>]`.
+- A new stack (how this project builds and tests: its lane, the files that detect it, test layers, the project's own \
+commands and tools; keel checks it, then Save writes .keel/stacks/<name>.yml): its whole YAML in a keel-stack block.
 - Decide a gate, stop flows, or change a flow's run mode (the flow ids are in the flows list above; the person sees \
 the button and presses it, so offer it whenever they ask for one of these, never say you cannot):
 ```keel-flow
@@ -186,6 +189,8 @@ def keel_block(keel: dict | None, question: str) -> str:
         parts.append(format_block(on))
     if ABOUT_RULE.search(q) and WRITE_WORDS.search(q):
         parts.append(formats.RULE)
+    if ABOUT_STACK.search(q) and WRITE_WORDS.search(q):
+        parts.append(formats.STACK)
     if ABOUT_SKILL.search(q) and WRITE_WORDS.search(q):
         parts.append(formats.SKILL)
     elif ABOUT_AGENT.search(q) and WRITE_WORDS.search(q):

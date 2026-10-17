@@ -13,6 +13,7 @@ import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
 import { fixRequest } from "../../../web/src/askFix";
 import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
+import { guidedStack, stackComplete, stackRequest, stackRun, stacksRun } from "./stacks";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -251,9 +252,9 @@ async function flowDiagram(ctx: Ctx, zoom?: string): Promise<Reply> {
 
 type MapView = { missing?: string; schema?: unknown; levels?: Record<string, unknown> };
 
-const CREATE_KINDS = ["workflow", "rule", "agent", "skill"] as const;
+const CREATE_KINDS = ["workflow", "rule", "agent", "skill", "stack"] as const;
 type CreateKind = (typeof CREATE_KINDS)[number];
-const CREATE_WORDS: Record<CreateKind, string> = { workflow: "workflow", rule: "rule pack", agent: "agent", skill: "skill" };
+const CREATE_WORDS: Record<CreateKind, string> = { workflow: "workflow", rule: "rule pack", agent: "agent", skill: "skill", stack: "stack" };
 
 // ------------------------------------------------------------------ 0.18.6 skills
 
@@ -696,6 +697,9 @@ const IMPLS: Impl[] = [
       return { blocks: [{ kind: "text", text: head.join("\n") }, { kind: "markdown", text: s.body.trim() }] };
     },
   },
+  // 0.18.9 how each project builds and tests (core/stacks.ts): the list (market: the marketplace's), one, remove, off
+  { name: "stacks", run: (ctx, a) => stacksRun(ctx, a) },
+  { name: "stack", complete: stackComplete, run: (ctx, a) => stackRun(ctx, a) },
   {
     name: "plugins",
     run: async (ctx) => {
@@ -788,7 +792,8 @@ const IMPLS: Impl[] = [
           { label: "workflow", value: "workflow", hint: "the steps a flow runs: agents, checks, gates" },
           { label: "rule", value: "rule", hint: "a rule pack: what agents may not do" },
           { label: "agent", value: "agent", hint: "a new agent workflows can use" },
-          { label: "skill", value: "skill", hint: "know-how an agent reads before it works" }],
+          { label: "skill", value: "skill", hint: "know-how an agent reads before it works" },
+          { label: "stack", value: "stack", hint: "how this project builds and tests" }],
           then: (v) => COMMANDS_BY_NAME.create.run(ctx, v) } };
       }
       const rest = (m?.[2] ?? "").trim();
@@ -813,6 +818,10 @@ const IMPLS: Impl[] = [
             + " End your answer with the whole SKILL.md in one keel-skill block." };
       }
       if (!rest && kind === "agent") return agentQuestions(ctx);
+      if (kind === "stack") {
+        if (!rest) return guidedStack(ctx);
+        return { blocks: [{ kind: "dim", text: "  KeelBot writes the stack; keel checks it, then you save it." }], chat: stackRequest(rest) };
+      }
       const ask = (idea: string): Reply => ({ blocks: [{ kind: "dim", text: `  KeelBot writes the ${CREATE_WORDS[kind]}; keel checks it, then you save it.` }],
         chat: `Write a new keel ${CREATE_WORDS[kind]} for this project: ${idea}\nUse this project's own commands, paths and agents. `
           + `End your answer with the whole ${CREATE_WORDS[kind]} in one keel-${kind} block.` });

@@ -2034,6 +2034,90 @@ built package (`scripts/plugin-check.sh lint`: `scripts/build-plugin.sh`, then l
 (`scripts/plugin-check.sh test`: `scripts/test-plugins.sh <name>`), each with 2 fix rounds before keel asks → the review
 and its gate → close. `scripts/plugin-check.sh` finds the plugin from the branch's changes under `plugins/`.
 
+## 0.18.9: stacks: remove, turn off, a guided New stack, the stacks marketplace
+
+A **stack** is how one project builds and tests: one YAML file (`content/stacks/<name>.yml`'s format: `name`, `lane`,
+`detect`, `layers`, `commands`, `tools`, `skills`). The api's `StackService` lists them; the engine owns the files
+(`runtime/stack_edit.py`, routes in `runtime/stack_routes.py`) and gets the project's folder from the api.
+
+**Where each comes from** (`GET /api/projects/{pid}/stacks`, each item adds `origin`, `off`, `removable`, `why`,
+`market`, `file`): `keel` (content/stacks: not removable, `why` says to turn it off), `keel pack` (content/packs, not
+installed: `installable`), `pack` (a keel pack installed here: `.keel/stacks/<pack>/stack.yml`), `marketplace`
+(`.keel/stacks/.installed.json` `{name: {source, version, catalog, sha256, at}}`; `market: {catalog, version, edited}`,
+edited = the file's sha256 is not the one installed), `project` (any other file under `.keel/stacks`).
+
+**Turned off**: `.keel/config.yml` `stacks: {ignore: [name…]}` (not `off`: YAML 1.1 reads that key as false). A stack
+turned off is never matched (`runtime/stacks.matched`), so its tools never run; the list still shows it with
+`off: true`. Needs `.keel/config.yml` (409 without one).
+
+```
+api   GET    /api/projects/{pid}/stacks/{name}            the stack + yaml (its file's text)
+      GET    /api/projects/{pid}/stacks/suggest?lane=     what keel reads in the project's files: {lane, lanes: {api, web:
+             [why]}, name, detect: {files, extensions, package_deps}, layers, skills, closest (keel's stack it is most like),
+             commands: {key: [{cmd, from}]}, keys: [{key, what, placeholder}], tools: [{name, run, on, fail, match?, from}],
+             read: [files]} from package.json scripts, Gradle, Maven, pyproject, composer.json, go.mod, Cargo.toml, a
+             Makefile (last), .pre-commit-config.yaml, and keel's closest stack
+      POST   /api/projects/{pid}/stacks/check {yaml? | form?, replace?}   saves nothing: {ok, errors, warnings, name,
+             lane, review, detects_here, replaces (keel | project | null), yaml (the form rendered), skills_missing}
+      POST   /api/projects/{pid}/stacks/save {yaml, replace?}   .keel/stacks/<name>.yml after the check: {stack, path,
+             replaced, warnings}; 422 {errors} (a name the project has already, without replace, is an error)
+      DELETE /api/projects/{pid}/stacks/{name}            the project's own file, or an installed pack's folder (with its
+             skills): {name, removed, back: "keel" when keel's stack of that name is used again}; keel's own 409
+      PUT    /api/projects/{pid}/stacks/{name}/off {off}  {name, off, all}
+      POST   /api/projects/{pid}/stacks {name, from} and …/stacks/{name}/install   as before (copy a stack, install a pack)
+```
+
+The form (`check {form}`): `{name, lane, detect: {files, package_deps, extensions, exclude_files}, layers: [{id, what,
+where}], commands: {key: cmd}, tools: {name: {run, on, fail, match?, description?} | false}, skills: {kind: id}}`;
+empty answers are left out. Commands per lane — api: `api_test_ac` ({AC}, {AC_ID} or {AC_KEY}), `api_test_module`,
+`api_test_pkg` ({PKG}), `coverage_api`, `static_checks`, `migrate`, `api_compile`; web: `web_test_ac`, `web_test_module`,
+`web_test_paths` ({PATHS}), `coverage_web`, `static_checks`, `web_typecheck`. The check's errors: not YAML, no name/id,
+lane not api|web, detect names nothing, no layers or a layer without id or twice, an empty command, a tool keel would
+not run (`runtime/tools.problem`), a name the project has already; its warnings: a command keel does not read or of the
+other lane, no `*_test_ac` / `*_test_module`, a test command without its placeholder, a detect block that does not match.
+
+**MCP** (`keel_engine/mcp_stacks.py`): read `keel_stacks`, `keel_stack {stack}`, `keel_stack_suggest {lane?}`,
+`keel_stack_check {yaml, replace?}`; write `keel_stack_create {yaml, replace?}`, `keel_stack_remove {stack}`,
+`keel_stack_market_install {name, version?, replace?}` (each asks the person first) and `keel_stack_off {stack, off}`
+(easy to undo: no question); `keel_format kind=stack`; `keel_marketplace_search` lists stacks too. McpLevels:
+`POST …/stacks/check` is a read; save, remove, off and installs are write.
+
+**keel TUI**: `/stacks`, `/stacks market [words]`, `/stack <name>` (with its YAML), `/stack remove <name>` (a yes
+first; keel's own: why not, and `/stack off`), `/stack off|on <name>`, `/stack install <name>` (every command first,
+then a yes), `/stack install-pack <name>`, `/create stack` (keel's guided questions: lane, name, keel's check, a yes),
+`/create stack <what it is>` (KeelBot writes it) and `--file <path>`. KeelBot's `keel-stack` block (the whole YAML): a
+**Save the stack** card in the dashboard (checked first), a yes/no in keel TUI.
+
+**The marketplace's fifth kind, `stacks`** (engine `marketplace/kinds.py` STACKS, `marketplace/stacks.py`; tools
+`keel_plugin/stack.py`): an entry `{name, kind: stacks, title, publisher, summary, category (jvm, javascript, python,
+php, go, rust, dotnet, other), tags, versions: [{version, released, requires: {keel?}, url, sha256, size ≤ 64 KB,
+review: {lane, detect, layers, commands, tools: [{name, run, on, fail}], skills}}]}`; the file is the stack YAML, shipped
+unchanged (its name is the catalog name; its `version`, when it has one, the catalog version; keel's check finds no
+error). Trust `content` (its commands run through keel's flow and shell guard, as a workflow's do; the review lists
+every one). `stacks` joins the names a plugin may not take.
+
+```
+engine  GET  /marketplace/stacks?q=&category=   {stacks: [Hit], sources, categories}; /marketplace/search?kind=stacks|all
+        GET  /marketplace/stacks/{name}         Hit + {versions, checks}
+        POST /marketplace/stacks/{name}/fetch {version?}   {name, version, yaml, review, catalog, sha256, warnings, …}:
+             sha256, signature, name/version, keel's check (502), keel's review = the catalog's (409), requires.keel (409)
+api     GET  /api/marketplace/stacks?q=&category=&project=   + installed {version, edited, origin} | null, update,
+             conflict (the project's own stack has that name); builtin: keel's own [{name, lane, source, detect,
+             installable, used, off, installed}]; catalog_error when no catalog answers
+        GET  /api/marketplace/stacks/{name}?project=   + yaml (verified), review, catalog_review, check (keel's check
+             against the project), fetch_error; keel's own: builtin: true with its yaml and review
+        POST /api/projects/{pid}/stacks/market/install {name, version?, replace?}   {stack, path, market, review,
+             warnings}; 409 the same version, or a stack of that name here without replace
+```
+
+The dashboard: **Build › Stacks** (From, turned off, Turn off / on, Show YAML, Remove after a yes, **Find stacks**,
+**New stack**: Lane → Detect → Test layers → Commands → Tools → Check, each step filled from keel's suggestions, the YAML
+editable and checked again before Save) and **Control › Plugins › Marketplace › Stacks** (`#/plugins?tab=market&kind=stacks`;
+a stack's page `#/plugins/stacks/<name>`: From keel (Install pack), the catalogs' cards, the YAML, keel's review and
+check, Install, Update, Remove). **Publishing**: `keel-plugin stacks lint <name>-<version>.yaml`, `keel-plugin stacks
+add <stack.yml | pack dir…> --market <dir>` (keel's own are in `docs/plugins/marketplace-repo/stacks/`, unsigned until
+keel's key signs them); `keel-plugin index` builds the `stacks` list.
+
 ## v0.16.0: full MCP (read, --write, --admin)
 
 - `keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]` → `python -m keel_engine.mcp` with the same flags. Each level includes the one below; a tool above the level, or not in `--allow`, is not registered. `--read-only` (what agents get: engine `tools/mcp.py`, api `McpService`) always wins over `--write`, `--admin`, `KEEL_MCP_WRITE` and `KEEL_MCP_LEVEL`. `--allow` (or `KEEL_MCP_ALLOW`) with an unknown tool name stops the server with the list of tools.

@@ -185,6 +185,11 @@ export const kb = {
   focus: () => get<{ project: string | null; chats: Record<string, string> }>("/ui/focus"),
 
   // 0.18.5 a new rule pack or agent KeelBot wrote
+  // 0.18.9 a stack KeelBot wrote: keel's check (saves nothing), then save (.keel/stacks/<name>.yml)
+  checkStack: (pid: string, yaml: string) =>
+    post<{ ok: boolean; errors: string[]; warnings: string[]; replaces?: string | null; review?: { lane?: string } | null }>(
+      `/projects/${e(pid)}/stacks/check`, { yaml }),
+  saveStack: (pid: string, yaml: string) => post<{ path: string; replaced: boolean }>(`/projects/${e(pid)}/stacks/save`, { yaml }),
   checkRule: (pid: string, yaml: string) =>
     post<{ ok: boolean; errors?: string[]; dry_run?: { checked?: number; blocked?: { kind?: string; target?: string }[] } }>(
       `/projects/${e(pid)}/rules/check`, { yaml }),

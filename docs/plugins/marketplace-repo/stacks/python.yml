@@ -1,0 +1,8 @@
+# keel's own stack python (content/stacks or content/packs in keel-v2): stacks/python/<version>.yaml
+name: python
+title: "python"
+publisher: keel
+category: python
+summary: "How a backend built with python is tested: its layers, commands and tools."
+tags: [python, stack, keel]
+keel: ">=0.18.9"

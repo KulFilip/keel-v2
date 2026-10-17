@@ -108,7 +108,7 @@ def test_keel2_mcp_lists_its_tools_in_keel_0_16_1s_order(with_ci):
     admin = ["keel_stop_flow", "keel_delete_run", "keel_add_project", "keel_remove_project", "keel_workflows",
              "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]       # v0.17.2 rules
     market = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-    # keel 0.18.5 and later add tools of their own (keel TUI's, the create tools, 0.18.6's skills) and move two of
+    # keel 0.18.5 and later add tools of their own (keel TUI's, the create tools, 0.18.6's skills, 0.18.9's stacks) and move two of
     # 0.16.1's to a lower level (keel_workflows is read, keel_stop_flow write): 0.16.1's others keep their order
     moved = {"keel_workflows", "keel_stop_flow"}
 

@@ -264,19 +264,11 @@ describe("Build v0.2", () => {
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/agents/implementer")[0]?.body).toEqual({ lane: "api" }));
   });
 
-  it("New stack copies a stack; Install pack installs an installable one", async () => {
+  it("Install pack installs an installable one", async () => {
     const user = userEvent.setup();
     at("#/stacks");
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "New stack" }));
-    const dlg = await screen.findByRole("dialog", { name: "New stack" });
-    await user.type(within(dlg).getByLabelText("Name"), "ts-react-custom");
-    await user.selectOptions(within(dlg).getByLabelText("Start from"), "ts-react");
-    await user.click(within(dlg).getByRole("button", { name: "Create stack" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/stacks")[0]?.body).toEqual({ name: "ts-react-custom", from: "ts-react" }));
-    expect(await screen.findByRole("heading", { name: "ts-react-custom" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Install pack kotlin-spring" }));
+    await user.click(await screen.findByRole("button", { name: "Install pack kotlin-spring" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/stacks/kotlin-spring/install")).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Install pack kotlin-spring" })).not.toBeInTheDocument());
   });

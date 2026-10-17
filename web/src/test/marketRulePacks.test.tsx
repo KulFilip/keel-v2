@@ -31,7 +31,7 @@ describe("Control › Plugins › Marketplace: Plugins · Workflows · Rules", (
     const user = userEvent.setup();
     open("#/plugins?tab=market");
     const kinds = await screen.findByRole("group", { name: "What to find" });
-    expect(within(kinds).getAllByRole("button").map((b) => b.textContent)).toEqual(["Plugins", "Workflows", "Rules", "Skills"]);
+    expect(within(kinds).getAllByRole("button").map((b) => b.textContent)).toEqual(["Plugins", "Workflows", "Rules", "Skills", "Stacks"]);
     await user.click(within(kinds).getByRole("button", { name: "Rules" }));
     await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market&kind=rules"));
     expect(await card("No new dependencies")).toBeInTheDocument();

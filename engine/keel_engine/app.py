@@ -25,6 +25,7 @@ from .runtime import evals, hunt, rules_view, scan
 from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
+from .runtime.stack_edit import StackError
 from .tools import mcp, worktrees
 from .workflows import editor as wf_editor
 from .workflows.estimate import estimate
@@ -345,6 +346,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def rules_error(_req, exc: rules_view.RulesError):
         return _err(exc.status, exc.error, "; ".join(exc.errors) or None, exc.errors or None)
 
+    @app.exception_handler(StackError)
+    async def stack_error(_req, exc: StackError):
+        return _err(exc.status, exc.error, exc.hint, exc.errors or None)
+
     @app.exception_handler(RequestValidationError)
     async def bad_request(_req, exc: RequestValidationError):
         parts = [f"{'.'.join(str(x) for x in e.get('loc', []) if x != 'body')}: {e.get('msg')}" for e in exc.errors()]
@@ -607,6 +612,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     app.include_router(approvals_router)
     from .marketplace.routes import router as marketplace_router   # core: find, install and update plugins (step 4)
     app.include_router(marketplace_router)
+    from .runtime.stack_routes import router as stack_router   # keel 0.18.9 a project's own stacks (runtime/stack_edit.py)
+    app.include_router(stack_router)
 
     # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
     @app.get("/evals")

@@ -7,6 +7,8 @@
                                                  rule blocks
     skills     skills       .md       256 KB     its size in tokens, its sections, what it    the api's skills (per project)
                                                  is for (its description)
+    stacks     stacks       .yaml      64 KB     its lane, what detects it, its test layers,  the project's .keel/stacks
+                                                 every command and tool it runs, its skills   (keel 0.18.9)
 
 Each row gives its list name, its file suffix, its size limit, its categories, the check of a version's catalog
 `review`, and its own checks of an entry and a version (the hooks below). catalog.py reads every list through this
@@ -44,7 +46,7 @@ from ..addons import NAME
 
 AGENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 TRUST = ("content", "web", "code")
-RESERVED = ("workflows", "rules", "rule-packs", "skills", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
+RESERVED = ("workflows", "rules", "rule-packs", "skills", "stacks", "refresh")     # /api/marketplace/<these> are keel's routes, never a plugin's page
 RULE_KINDS = ("bash", "edit", "read", "mcp")
 PACK_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")      # a rule pack's name (docs/rules/pack-format.md)
 DEFAULT_HOW = {"bash": "contains", "edit": "glob", "read": "glob", "mcp": "name"}
@@ -216,6 +218,28 @@ class SkillEntry:
     kind: str = "skills"
 
     def version(self, v: str) -> SkillVersion | None:
+        return next((x for x in self.versions if x.version == v), None)
+
+
+@dataclass
+class StackVersion(SkillVersion):
+    """A stack's version (keel 0.18.9): the same fields as a skill's."""
+
+
+@dataclass
+class StackEntry:
+    name: str
+    title: str
+    publisher: str
+    category: str
+    summary: str
+    tags: list[str]
+    repo: str
+    versions: list[StackVersion]        # newest first
+    source: str
+    kind: str = "stacks"
+
+    def version(self, v: str) -> StackVersion | None:
         return next((x for x in self.versions if x.version == v), None)
 
 
@@ -485,6 +509,71 @@ def _skills_version(raw: dict, _req: dict, where: str) -> dict:
     return {"review": skills_review(raw.get("review"), where)}
 
 
+# -- stacks (keel 0.18.9): one stack YAML each (content/stacks/*.yml's format), its name the marketplace name
+
+def _strs(v) -> list[str]:
+    return [str(x) for x in v if isinstance(x, (str, int, float)) and not isinstance(x, bool)] if isinstance(v, list) else []
+
+
+def _tool_on(block: dict):
+    """`on:` is a word; YAML 1.1 (PyYAML) reads the key as the boolean true."""
+    return block.get("on", block.get(True))
+
+
+def stack_review(doc) -> dict:
+    """What a stack does in a project, in short (the catalog's review and keel's own reading of the file): {lane, detect
+    (files, package_deps, extensions, exclude_files: the ones it names), layers (ids, lowest first), commands ({name:
+    command}, every one keel may run), tools ([{name, run, on, fail}], a tool turned off has run ""), skills (the ids it
+    names)}. Read-only and tolerant: a part that is not the right shape reads as empty."""
+    d = doc if isinstance(doc, dict) else {}
+    det = d.get("detect") if isinstance(d.get("detect"), dict) else {}
+    detect = {k: _strs(det.get(k)) for k in ("files", "package_deps", "extensions", "exclude_files") if _strs(det.get(k))}
+    layers = [str(x.get("id")) for x in d.get("layers") or [] if isinstance(x, dict) and x.get("id") is not None] \
+        if isinstance(d.get("layers"), list) else []
+    cmds = d.get("commands") if isinstance(d.get("commands"), dict) else {}
+    commands = {str(k): str(v) for k, v in cmds.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)}
+    tools = []
+    for k, v in (d.get("tools") or {}).items() if isinstance(d.get("tools"), dict) else []:
+        if isinstance(v, dict):
+            tools.append({"name": str(k), "run": str(v.get("run") or ""), "on": str(_tool_on(v) or "manual"),
+                          "fail": str(v.get("fail") or "warn")})
+        else:
+            tools.append({"name": str(k), "run": "", "on": "off", "fail": ""})
+    sk = d.get("skills")
+    skills = _strs(list(sk.values())) if isinstance(sk, dict) else _strs(sk)
+    return {"lane": str(d.get("lane") or ""), "detect": detect, "layers": layers, "commands": commands, "tools": tools,
+            "skills": skills}
+
+
+def stacks_review(raw, where: str) -> dict:
+    """A stack version's review as the catalog's sync computed it: {lane, detect, layers, commands, tools, skills}."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: review is missing (lane, detect, layers, commands, tools, skills)")
+    if not isinstance(raw.get("lane"), str):
+        raise ValueError(f"{where}: review.lane is not text")
+    det = raw.get("detect") if raw.get("detect") is not None else {}
+    if not isinstance(det, dict) or not all(isinstance(v, list) and all(isinstance(x, str) for x in v) for v in det.values()):
+        raise ValueError(f"{where}: review.detect is not lists of text")
+    for key in ("layers", "skills"):
+        v = raw.get(key) if raw.get(key) is not None else []
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            raise ValueError(f"{where}: review.{key} is not a list of text")
+    cmds = raw.get("commands") if raw.get("commands") is not None else {}
+    if not isinstance(cmds, dict) or not all(isinstance(v, str) for v in cmds.values()):
+        raise ValueError(f"{where}: review.commands is not a command per name")
+    tools = raw.get("tools") if raw.get("tools") is not None else []
+    if not isinstance(tools, list) or not all(isinstance(t, dict) and all(isinstance(t.get(k), str) for k in ("name", "run", "on", "fail"))
+                                              for t in tools):
+        raise ValueError(f"{where}: review.tools has an item that is not {{name, run, on, fail}}")
+    return {"lane": raw["lane"], "detect": {k: list(v) for k, v in det.items()}, "layers": list(raw.get("layers") or []),
+            "commands": dict(cmds), "tools": [{k: t[k] for k in ("name", "run", "on", "fail")} for t in tools],
+            "skills": list(raw.get("skills") or [])}
+
+
+def _stacks_version(raw: dict, _req: dict, where: str) -> dict:
+    return {"review": stacks_review(raw.get("review"), where)}
+
+
 # -- the rows
 
 PLUGIN = Kind("plugin", "plugins", "plugin", "", ".kplug", 200 << 20,
@@ -503,6 +592,11 @@ SKILLS = Kind("skills", "skills", "skill", "skill ", ".md", 256 << 10,
               SkillVersion, lambda _raw: None, _kind_named("skills", "skills", "skill "), _none, _none, _skills_version,
               summarise=skill_review, name_rule=PACK_NAME)
 
-TABLE: tuple[Kind, ...] = (PLUGIN, WORKFLOW, RULES, SKILLS)
+STACKS = Kind("stacks", "stacks", "stack", "stack ", ".yaml", 64 << 10,
+              ("jvm", "javascript", "python", "php", "go", "rust", "dotnet", "other"), StackEntry, StackVersion,
+              lambda _raw: None, _kind_named("stacks", "stacks", "stack "), _none, _none, _stacks_version,
+              summarise=stack_review, name_rule=PACK_NAME)
+
+TABLE: tuple[Kind, ...] = (PLUGIN, WORKFLOW, RULES, SKILLS, STACKS)
 BY_NAME: dict[str, Kind] = {k.name: k for k in TABLE}
 NAMES: tuple[str, ...] = tuple(BY_NAME)

@@ -1,0 +1,8 @@
+# keel's own stack symfony (content/stacks or content/packs in keel-v2): stacks/symfony/<version>.yaml
+name: symfony
+title: "symfony"
+publisher: keel
+category: php
+summary: "How a backend built with symfony is tested: its layers, commands and tools."
+tags: [symfony, stack, keel]
+keel: ">=0.18.9"

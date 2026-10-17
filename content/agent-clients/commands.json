@@ -141,8 +141,8 @@
     },
     {
       "name": "create",
-      "args": "<workflow|rule|agent|skill> [what it should do | --file <path>]",
-      "summary": "a new workflow, rule pack, agent or skill: KeelBot writes it (or from a file), keel checks it, you save it",
+      "args": "<workflow|rule|agent|skill|stack> [what it should do | --file <path>]",
+      "summary": "a new workflow, rule pack, agent, skill or stack: KeelBot writes it (or from a file; a stack also from keel's guided questions), keel checks it, you save it",
       "writes": true,
       "local": false,
       "group": "Flows"
@@ -175,6 +175,23 @@
       "summary": "one skill's text; attach or detach puts it on agents or takes it off; install brings one from the marketplace",
       "writes": true,
       "complete": "skills",
+      "local": false,
+      "group": "Look"
+    },
+    {
+      "name": "stacks",
+      "args": "[market [words…]]",
+      "summary": "how this project builds and tests: every stack keel knows, which ones it uses or turned off; market: the marketplace's stacks",
+      "writes": false,
+      "local": false,
+      "group": "Look"
+    },
+    {
+      "name": "stack",
+      "args": "<name> | remove <name> | off <name> | on <name> | install <name> | install-pack <name>",
+      "summary": "one stack and its YAML; remove one the project added; turn one off or on for the project; install one from the marketplace or a keel pack",
+      "writes": true,
+      "complete": "stacks",
       "local": false,
       "group": "Look"
     },

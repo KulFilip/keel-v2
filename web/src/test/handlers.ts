@@ -10,6 +10,7 @@ import { createMarket, marketHandlers } from "./marketHandlers";
 import { createMarketWorkflows, marketWorkflowHandlers } from "./marketWorkflowHandlers";
 import { createMarketRulePacks, marketRulePackHandlers } from "./marketRulePackHandlers";
 import { createMarketSkills, marketSkillHandlers } from "./marketSkillHandlers";
+import { createStackDb, stackHandlers } from "./stackHandlers";
 
 /** v0.15.2 one of KeelBot's chat folders (its type is the KeelBot plugin's, plugins/keelbot/web/keelbotApi.ts) */
 type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
@@ -112,6 +113,8 @@ export function createDb() {
     mr: createMarketRulePacks(),
     /** 0.18.6 skills in the marketplace: the catalogs', keel's own, what the project installed */
     ms: createMarketSkills(),
+    /** 0.18.9 stacks: the marketplace's, and the project's own YAML */
+    st: createStackDb(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -496,6 +499,8 @@ export function handlers(db: Db) {
     http.post("/api/agents/:aid/test", () => HttpResponse.json({ ok: true, text: "OK", ms: 1400 })),
     http.get("/api/projects/:pid/skills", () => HttpResponse.json(fx.skills)),
     http.get("/api/skills/:sid", () => HttpResponse.json(fx.skillDetail)),
+    // 0.18.9 suggest, check, save, off, remove, one stack, the marketplace's (before .../stacks/:name/install takes "market")
+    ...stackHandlers(db.st, db, log),
     http.get("/api/projects/:pid/stacks", () => HttpResponse.json(db.stacks)),
     http.post("/api/projects/:pid/stacks", async ({ request }) => {
       const b = await log(request);

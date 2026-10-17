@@ -107,6 +107,29 @@ At the end of a feature, before the pull request.
 """
 
 
+# a stack (keel 0.18.9): one stack YAML, its name the marketplace name
+STACK = """name: {name}
+lane: api
+detect:
+  files: [build.zig]
+  extensions: ['.zig']
+layers:
+  - id: unit
+    what: pure functions ({version})
+    where: src
+commands:
+  api_test_ac: 'zig build test -Dfilter={{AC_ID}}'
+  api_test_module: 'zig build test'
+  api_compile: 'zig build'
+tools:
+  zig-fmt:
+    run: 'zig fmt {{FILES}}'
+    on: edit
+    fail: fix
+    match: '\\.zig$'
+"""
+
+
 class Market:
     """One test catalog: its key, the publisher keel (verified) with its key, the plugins and versions published."""
 
@@ -120,6 +143,7 @@ class Market:
         self.workflows: dict[str, dict] = {}     # 21-workflow-marketplace.md: an index without them reads as before
         self.rules: dict[str, dict] = {}         # 23-rules-in-marketplace.md: rule packs, the third kind
         self.skills: dict[str, dict] = {}        # keel 0.18.6: skills, the fourth kind
+        self.stacks: dict[str, dict] = {}        # keel 0.18.9: stacks, the fifth kind
         self.revoked: list[dict] = []
         self.built = "2026-10-09T06:00:00Z"
         self.expires = "2099-01-01T00:00:00Z"
@@ -260,6 +284,25 @@ class Market:
         entry["versions"].append(v)
         return v
 
+    def publish_stack(self, name: str, version: str, *, text: str | None = None, publisher: str = "keel",
+                      category: str = "other", keel: str | None = None, review: dict | None = None, sign_with=None,
+                      size: int | None = None, sha256: str | None = None, title: str | None = None) -> dict:
+        """Serve a signed stack YAML and add its version to the index's stacks (call serve() after)."""
+        text = text if text is not None else STACK.format(name=name, version=version)
+        data = text.encode()
+        path = f"/stacks/{name}/{version}/stack.yaml"
+        self.server.files[path] = data
+        self.server.files[path + ".minisig"] = signing.sign(data, sign_with or self.publisher_key, "stack.yaml").encode()
+        v = {"version": version, "released": "2026-10-17", "requires": {"keel": keel} if keel else {},
+             "url": self.url + path, "sha256": sha256 or hashlib.sha256(data).hexdigest(), "size": size or len(data),
+             "review": review or kinds.stack_review(yaml.safe_load(text))}
+        entry = self.stacks.setdefault(name, {
+            "name": name, "kind": "stacks", "title": title or name.replace("-", " ").capitalize(),
+            "publisher": publisher, "summary": f"The {name} stack for tests.", "category": category,
+            "tags": [name, "test"], "repo": "https://github.com/keel-studio/keel-stacks", "versions": []})
+        entry["versions"].append(v)
+        return v
+
     def index(self) -> dict:
         doc = {"format": 1, "built": self.built, "expires": self.expires, "publishers": self.publishers,
                "plugins": list(self.plugins.values()), "revoked": list(self.revoked)}
@@ -268,6 +311,8 @@ class Market:
             doc["rules"] = list(self.rules.values())
         if self.skills:
             doc["skills"] = list(self.skills.values())
+        if self.stacks:
+            doc["stacks"] = list(self.stacks.values())
         return doc
 
     def serve(self, doc: dict | None = None, *, sign_with=None, raw: bytes | None = None) -> None:

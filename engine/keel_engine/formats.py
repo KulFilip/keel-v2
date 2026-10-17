@@ -1,4 +1,4 @@
-"""How a person (or KeelBot, or an MCP client for them) writes a new keel workflow, rule pack, agent or skill: the formats
+"""How a person (or KeelBot, or an MCP client for them) writes a new keel workflow, rule pack, agent, skill or stack: the formats
 in short, with an example each. KeelBot's prompt (the KeelBot plugin), keel's MCP tool keel_format and keel TUI's /create
 use the same words. The full references: docs/GUIDE.md (workflows), docs/rules/pack-format.md (rules, rules/packs.py).
 """
@@ -111,4 +111,44 @@ Add one line under "Unreleased" in CHANGELOG.md, in the past tense, for each cha
 - Never edit the entries of a released version.
 ```"""
 
-FORMATS = {"workflow": WORKFLOW, "rule": RULE, "agent": AGENT, "skill": SKILL}
+STACK = """How a stack is written (YAML: how one project builds and tests; keel 0.18.9). Saved as .keel/stacks/<name>.yml:
+name: <id>                  # lower-case words with dashes
+lane: api | web             # api: a backend (the API criteria); web: a frontend
+detect:                     # what shows a project uses it (any one is enough; exclude_files first)
+  files: [build.gradle.kts] # files in the root or one folder down
+  package_deps: [react]     # package.json dependencies
+  extensions: ['.kt']       # file endings
+layers:                     # test layers, lowest first: the AC loop picks the lowest that can show a criterion
+  - {id: unit, what: <what it tests>, where: <where those tests live>}
+commands:                   # the project's own commands; {AC} (AC-6), {AC_ID} (AC6), {AC_KEY} (ac_6), {PKG}, {PATHS}
+  api_test_ac: <runs the tests of one criterion>        # web: web_test_ac
+  api_test_module: <runs every test>                    # web: web_test_module
+  api_test_pkg: <tests one package {PKG}>               # web: web_test_paths <the files {PATHS}>
+  coverage_api: <writes the coverage report>            # web: coverage_web
+  static_checks: <lint and type checks>
+  migrate: <migrates the database>                      # api only
+  api_compile: <the cheapest build check>               # web: web_typecheck
+tools:                      # programs keel runs itself: on edit | batch | pre-commit | pre-push | manual
+  <name>: {run: <command, {FILES} for the changed files>, on: pre-commit, fail: fix | block | warn, match: <regex of files>}
+skills: {testing: <skill id>}   # optional: the skills agents read for this stack
+Read the project first (package.json scripts, the Gradle or Maven build, pyproject.toml, composer.json, a Makefile, \
+.pre-commit-config.yaml): every command must be one this project really has; never copy the example's. keel's \
+check (keel_stack_check) saves nothing and says what is wrong; keel_stack_suggest lists what keel reads in the files.
+Example:
+```keel-stack
+name: zig-api
+lane: api
+detect:
+  files: [build.zig]
+  extensions: ['.zig']
+layers:
+  - {id: unit, what: pure functions, where: src}
+commands:
+  api_test_ac: 'zig build test -Dfilter={AC_ID}'
+  api_test_module: 'zig build test'
+  api_compile: 'zig build'
+tools:
+  zig-fmt: {run: 'zig fmt {FILES}', on: edit, fail: fix, match: '\\.zig$'}
+```"""
+
+FORMATS = {"workflow": WORKFLOW, "rule": RULE, "agent": AGENT, "skill": SKILL, "stack": STACK}

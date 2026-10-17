@@ -22,7 +22,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import PluginToolError, __version__, catalog, dev, minisign, rules, skill, template, workflow
+from . import PluginToolError, __version__, catalog, dev, minisign, rules, skill, stack, template, workflow
 from .lint import lint
 from .package import pack
 
@@ -126,7 +126,7 @@ def cmd_index(args) -> int:
             _out(f"  error    {e}")
         _out(f"marketplace: {len(cat.publishers)} publishers, {len(cat.plugins)} plugins, "
              f"{len(cat.revoked)} revoked, {len(cat.errors)} errors; {len(cat.workflows)} workflows, "
-             f"{len(cat.rules)} rule packs, {len(cat.skills)} skills")
+             f"{len(cat.rules)} rule packs, {len(cat.skills)} skills, {len(cat.stacks)} stacks")
         return 1 if cat.errors else 0
     if not args.releases:
         raise PluginToolError("give the releases with --releases <folder or url map> (or use --check)")
@@ -168,11 +168,13 @@ def cmd_index(args) -> int:
     flows = built.index["workflows"]
     packs = built.index["rules"]
     skills = built.index["skills"]
+    stacks = built.index["stacks"]
     _out(f"index: {len(plugins)} plugins, {versions} versions, {len(built.problems)} left out: {out / 'index.json'}"
          f"{signed}, expires {built.index['expires']}; {len(flows)} workflows, "
          f"{sum(len(w['versions']) for w in flows)} workflow versions; {len(packs)} rule packs, "
          f"{sum(len(r['versions']) for r in packs)} rule pack versions; {len(skills)} skills, "
-         f"{sum(len(k['versions']) for k in skills)} skill versions")
+         f"{sum(len(k['versions']) for k in skills)} skill versions; {len(stacks)} stacks, "
+         f"{sum(len(k['versions']) for k in stacks)} stack versions")
     return 1 if args.strict and built.problems else 0
 
 
@@ -226,6 +228,32 @@ def cmd_skills_add(args) -> int:
     for w in wrote:
         _out(f"  wrote    {w}")
     _out(f"{len(wrote) // 2} skills in {args.market}/skills: sign each <version>.md with 'keel-plugin sign' and the "
+         f"publisher's key, then open the pull request")
+    return 0
+
+
+def cmd_stacks_lint(args) -> int:
+    if (args.name or args.version) and len(args.files) > 1:
+        raise PluginToolError("--name and --version are for one file")
+    failed = False
+    for f in args.files:
+        path = Path(f)
+        if not path.is_file():
+            raise PluginToolError(f"there is no file {path}")
+        report = stack.lint(path, args.name, args.version)
+        _out(report.text())
+        failed = failed or not report.ok
+    return 1 if failed else 0
+
+
+def cmd_stacks_add(args) -> int:
+    try:
+        wrote = stack.add([Path(x) for x in args.stacks], Path(args.market), args.version, args.publisher, args.keel)
+    except ValueError as exc:
+        raise PluginToolError(str(exc)) from None
+    for w in wrote:
+        _out(f"  wrote    {w}")
+    _out(f"{len(wrote) // 2} stacks in {args.market}/stacks: sign each <version>.yaml with 'keel-plugin sign' and the "
          f"publisher's key, then open the pull request")
     return 0
 
@@ -329,6 +357,21 @@ def parser() -> argparse.ArgumentParser:
     k.add_argument("--publisher", default="keel", help="the publisher (default keel)")
     k.add_argument("--keel", help="the keel versions it is for, a range like '>=0.18.6'")
     k.set_defaults(fn=cmd_skills_add)
+
+    p = sub.add_parser("stacks", help="marketplace stacks (keel 0.18.9): lint, add")
+    tsub = p.add_subparsers(dest="stacks_command", required=True, metavar="command")
+    t = tsub.add_parser("lint", help="check a stack YAML for the marketplace and print its review")
+    t.add_argument("files", nargs="+", metavar="file.yaml", help="<name>-<version>.yaml (or stacks/<name>/<version>.yaml)")
+    t.add_argument("--name", help="the marketplace name, when the file name does not say it")
+    t.add_argument("--version", help="the marketplace version, when the file name does not say it")
+    t.set_defaults(fn=cmd_stacks_lint)
+    t = tsub.add_parser("add", help="put stack files into a marketplace folder (stacks/<name>/<version>.yaml and its entry)")
+    t.add_argument("stacks", nargs="+", metavar="dir|stack.yml", help="a pack folder (with stack.yml) or the stack file")
+    t.add_argument("--market", required=True, help="the marketplace folder (publishers/, plugins/, …)")
+    t.add_argument("--version", default="1.0.0", help="the marketplace version (default 1.0.0)")
+    t.add_argument("--publisher", default="keel", help="the publisher (default keel)")
+    t.add_argument("--keel", help="the keel versions it is for, a range like '>=0.18.9'")
+    t.set_defaults(fn=cmd_stacks_add)
 
     p = sub.add_parser("new", help="a new plugin folder from the template")
     p.add_argument("name")

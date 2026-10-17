@@ -193,7 +193,7 @@ the budget and connections. Each other part is a plugin with its own version:
   CI/CD and Code Review also have a **This project** switch: they are on only for the projects you choose.
 - **Marketplace:** plugins you can add, with who made them, what they may do ("Runs code in keel"), and what they
   need. keel checks each package's signature before it installs. The public marketplace opens soon; until then it
-  shows the plugins of the catalogs you add. The switch at the top finds **Plugins · Workflows · Rules · Skills**.
+  shows the plugins of the catalogs you add. The switch at the top finds **Plugins · Workflows · Rules · Skills · Stacks**.
 - **Skills** (0.18.6): know-how an agent reads before it works. **From keel** lists keel's own skills (in every
   project already): **Agents…** picks which agents load each. A catalog's skill opens with its whole text and keel's
   review (its size in tokens, its sections); **Install** asks which agents should load it; **Update** asks before it
@@ -201,6 +201,10 @@ the budget and connections. Each other part is a plugin with its own version:
   what an agent may do. The same from keel TUI (`/skills`, `/skill attach <id> <agent…>`, `/skill install <name>`,
   `/create skill <what it should teach>`) and from MCP (`keel_skills`, `keel_skill_attach`, `keel_skill_market_install`,
   `keel_skill_create`); KeelBot gives a **Save the skill** card.
+- **Stacks** (0.18.9): how a project builds and tests (its test layers, commands and tools). **From keel** lists
+  keel's own stacks: they are used wherever they are detected, and a keel pack has **Install pack**. A catalog's stack
+  opens with its YAML, every command it runs and keel's check against your project; **Install** saves it as
+  `.keel/stacks/<name>.yml`; **Update** and **Remove** as for skills.
 - **Sources and rules:** the catalogs keel reads (add one with its URL and public key), and, for plugin authors, a
   `.kplug` file from a path in `/data` (keel marks it **unsigned**).
 
@@ -221,6 +225,26 @@ Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publis
 the **plugin** workflow writes its spec (you approve), scaffolds it with `keel-plugin new`, builds each criterion test
 first, then runs `keel-plugin lint` and the plugin's tests (`scripts/plugin-check.sh`) and ends at a review gate. How it all works:
 [docs/plugins/README.md](plugins/README.md).
+
+## Stacks
+
+**Build › Stacks** shows how each project builds and tests. A stack is one YAML file: its lane (api or web), the
+files that show a project uses it, its test layers, its commands (test one criterion, every test, coverage, static
+checks, migrate, compile) and its tools (formatters, linters, pre-commit).
+
+- **New stack** asks step by step: lane, the files that detect it, test layers, commands, tools. keel reads your
+  project first (package.json scripts, Gradle, Maven, pyproject, composer.json, go.mod, a Makefile, pre-commit) and
+  fills each step; you change what you like. Then keel checks it (nothing is saved yet) and **Save the stack** writes
+  `.keel/stacks/<name>.yml`.
+- **Remove** takes away a stack the project added (its own, an installed pack, one from the marketplace), after a yes.
+  keel's own stacks cannot be removed (other projects use them): **Turn off for this project** stops keel using one
+  here (`stacks: {ignore: [...]}` in `.keel/config.yml`); **Turn on** brings it back.
+- **Find stacks** opens Marketplace › Stacks.
+
+The same from keel TUI (`/stacks`, `/stack <name>`, `/stack remove <name>`, `/stack off <name>`, `/stack install
+<name>`, `/create stack`) and MCP (`keel_stacks`, `keel_stack`, `keel_stack_suggest`, `keel_stack_check`,
+`keel_stack_create`, `keel_stack_remove`, `keel_stack_off`, `keel_stack_market_install`). Ask KeelBot "write a stack
+for this project": it gives a **Save the stack** card, checked by keel first.
 
 ## Plugins: Database, Git and CI/CD
 

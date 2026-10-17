@@ -1,7 +1,7 @@
 """The marketplace's engine routes (docs/plugins/13-step4-contract.md §5). Only the api calls them, with keel's internal
 token, like every other engine route. A refusal answers 4xx {"error", "hint", ...} in plain words.
 
-    GET    /marketplace/search?q=&category=&kind=     hits + the sources' state (kind: plugin, workflow, rules or all)
+    GET    /marketplace/search?q=&category=&kind=     hits + the sources' state (kind: plugin, workflow, rules, skills, stacks or all)
     GET    /marketplace/workflows?q=&category=        workflows (21-workflow-marketplace.md §9)
     GET    /marketplace/workflows/{name}              one workflow: versions, review, needs, checks
     POST   /marketplace/workflows/{name}/fetch {version?}   its verified YAML (the api installs it)
@@ -11,6 +11,9 @@ token, like every other engine route. A refusal answers 4xx {"error", "hint", ..
     GET    /marketplace/skills?q=&category=           skills (keel 0.18.6)
     GET    /marketplace/skills/{name}                 one skill: versions, review, checks
     POST   /marketplace/skills/{name}/fetch {version?}      its verified SKILL.md (the api saves it as a project skill)
+    GET    /marketplace/stacks?q=&category=           stacks (keel 0.18.9)
+    GET    /marketplace/stacks/{name}                 one stack: versions, review, checks
+    POST   /marketplace/stacks/{name}/fetch {version?}      its verified YAML (the api saves it in .keel/stacks)
     GET    /marketplace/plugins/{name}                one plugin: versions, permissions, needs, checks, plan
     POST   /marketplace/refresh?source=               read every source now (or one)
     GET    /marketplace/installed                     installed + image plugins, and what waits for a restart
@@ -41,7 +44,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import config
-from . import MarketError, catalog, install, live, local, rulepacks, skills, sources, workflows
+from . import MarketError, catalog, install, live, local, rulepacks, skills, sources, stacks, workflows
 
 log = logging.getLogger("keel.marketplace")
 router = APIRouter()
@@ -103,6 +106,8 @@ def _search(q: str, category: str | None, kind: str) -> dict:
         return rulepacks.search(q, category)
     if kind == "skills":
         return skills.search(q, category)
+    if kind == "stacks":
+        return stacks.search(q, category)
     out = catalog.search(q, category)
     if kind == "all":
         found = workflows.search(q, category)
@@ -114,12 +119,15 @@ def _search(q: str, category: str | None, kind: str) -> dict:
         found = skills.search(q, category)
         out["skills"] = found["skills"]
         out["skills_categories"] = found["categories"]
+        found = stacks.search(q, category)
+        out["stacks"] = found["stacks"]
+        out["stacks_categories"] = found["categories"]
     return out
 
 
 @router.get("/marketplace/search")
 async def get_search(q: str = "", category: str | None = None,
-                     kind: Literal["plugin", "workflow", "rules", "skills", "all"] = "plugin"):
+                     kind: Literal["plugin", "workflow", "rules", "skills", "stacks", "all"] = "plugin"):
     return await asyncio.to_thread(_search, q, category or None, kind)
 
 
@@ -181,6 +189,25 @@ async def get_skill(name: str):
 @router.post("/marketplace/skills/{name}/fetch")
 async def post_skill_fetch(name: str, body: FetchBody | None = None):
     return await asyncio.to_thread(skills.fetch, name, (body.version if body else None) or None)
+
+
+# ------------------------------------------------------------------ stacks (keel 0.18.9)
+# No install route: a stack goes into a project through the api (/projects/{pid}/stacks/market/install), which saves
+# the YAML fetch gives back with the engine's stack save (runtime/stack_edit.py).
+
+@router.get("/marketplace/stacks")
+async def get_stacks(q: str = "", category: str | None = None):
+    return await asyncio.to_thread(stacks.search, q, category or None)
+
+
+@router.get("/marketplace/stacks/{name}")
+async def get_stack(name: str):
+    return await asyncio.to_thread(stacks.detail, name)
+
+
+@router.post("/marketplace/stacks/{name}/fetch")
+async def post_stack_fetch(name: str, body: FetchBody | None = None):
+    return await asyncio.to_thread(stacks.fetch, name, (body.version if body else None) or None)
 
 
 def _detail(name: str) -> dict:
