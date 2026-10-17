@@ -45,13 +45,14 @@ export const Pill = ({ tone, children, title }: { tone: PillTone; children: Reac
   <span className={`pill p-${tone}`} title={title}>{children}</span>
 );
 
-export function Prov({ p, m }: { p?: Provider | string; m?: string }) {
+/** Provider dot + name, then the model and its thinking effort (when set). */
+export function Prov({ p, m, e }: { p?: Provider | string; m?: string; e?: string | null }) {
   if (!p) return <span className="sub">—</span>;
   return (
     <span className="prov">
       <i className={`c-${p}`} style={p === "fake" ? { background: "var(--faint)" } : undefined} />
       {PROV[p] ?? p}
-      {m ? <> <span className="sub mono">{m}</span></> : null}
+      {m ? <> <span className="sub mono">{m}{e ? ` · ${e}` : ""}</span></> : null}
     </span>
   );
 }

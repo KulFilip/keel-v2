@@ -2,7 +2,7 @@
 // a command returns a Reply (blocks of text, and maybe a choice to pick or a question to answer next), so keel TUI's
 // Ink app, an xal plugin or an OpenTUI front end run the very same commands.
 
-import { api, ApiError, errorParts, get, post, type HelperSession, type Job, type JobStep, type Model, type Project,
+import { api, ApiError, errorParts, get, post, type HelperSession, type Job, type JobStep, type Project,
   type HelperMode, type RunMode, type ThreadState, type Workflow } from "./sdk";
 import { inboxApi, type InboxItem } from "../../../web/src/inboxApi";
 import { rulesApi } from "../../../web/src/rulesApi";
@@ -13,6 +13,7 @@ import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
 import { fixRequest } from "../../../web/src/askFix";
 import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
+import { effortComplete, effortRun, modelRun } from "./effort";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -370,19 +371,6 @@ function agentQuestions(ctx: Ctx): Reply {
   } } };
 }
 
-let catalog: { at: number; data: Promise<unknown> } | null = null;
-/** keel's model catalog, read once and kept for 5 minutes (keel TUI starts reading it at once: /model opens fast). */
-export function modelCatalog(): Promise<unknown> {
-  if (!catalog || Date.now() - catalog.at > 300_000) {
-    const data = api.providerModels().catch((e) => {
-      catalog = null;
-      throw e;
-    });
-    catalog = { at: Date.now(), data };
-  }
-  return catalog.data;
-}
-
 /** /agent new: an agent of its own (a KeelBot chat in its own worktree, or one that only reads) works on the task. */
 async function spawn(ctx: Ctx, task: string, mode: HelperMode): Promise<Reply> {
   if (!task.trim()) return text("No task: nothing started.");
@@ -711,25 +699,8 @@ const IMPLS: Impl[] = [
     complete: (_c, a) => ["flow", "map", "er", "keelbot", "inbox"].filter((x) => x.startsWith(a)),
     run: (ctx, a) => text(dashboardUrl(ctx, a.trim() || "flow") + "\nOpen it in your browser: the same keel, the same flows and chats."),
   },
-  {
-    name: "model",
-    run: async (ctx) => {
-      // keel 0.18.9 the catalog read once (it asks every provider: slow), then kept for 5 minutes
-      const raw = (await modelCatalog()) as Record<string, { label?: string; modes?: Record<string, { id: string; label: string }[]>; default?: Model }>;
-      const choices: Choice[] = [];
-      for (const [prov, c] of Object.entries(raw ?? {})) {
-        for (const [mode, models] of Object.entries(c?.modes ?? {})) {
-          for (const m of models ?? []) choices.push({ label: `${prov}/${m.id}`, value: JSON.stringify({ provider: prov, mode, model: m.id }), hint: `${c.label ?? prov} · ${mode} · ${m.label}` });
-        }
-      }
-      if (!choices.length) return fail("keel's model catalog is empty.");
-      return { blocks: [], pick: { title: "KeelBot's model", choices, then: async (v) => {
-        const m = JSON.parse(v) as Model;
-        await ctx.core.setChatModel(m);
-        return ok(`KeelBot answers with ${m.provider}/${m.model} (${m.mode}).`);
-      } } };
-    },
-  },
+  { name: "model", run: (ctx) => modelRun(ctx) },
+  { name: "effort", run: (ctx, a) => effortRun(ctx, a), complete: (ctx, a) => effortComplete(ctx, a) },
   {
     name: "chats",
     run: async (ctx) => {

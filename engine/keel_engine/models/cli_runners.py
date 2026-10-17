@@ -24,6 +24,7 @@ from ..tools.agent_tools import failed as failed_command, unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
 from .. import hook
 from ..runtime import guard_ctx, permissions, prompts
+from . import catalog
 from . import usage as provider_usage
 from .cli import result_usage, claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
@@ -381,8 +382,8 @@ class ClaudeCLIRunner:
         # The session is kept (on /data, see claude_home) so this step can continue it after a restart or send-back.
         if req.session:
             argv += ["--resume", req.session] if req.resume else ["--session-id", req.session]
-        if req.model.get("effort"):
-            argv += ["--effort", req.model["effort"]]
+        if catalog.effort_for(req.model):
+            argv += ["--effort", catalog.effort_for(req.model)]
         turns = prompts.max_turns(req.agent, req.phase)
         if turns:
             argv += ["--max-turns", str(turns)]
@@ -525,8 +526,8 @@ class CodexCLIRunner:
                          "the step (this codex has no hooks: update it for full checks).")
         if req.model.get("model"):
             argv += ["-m", req.model["model"]]
-        if req.model.get("effort"):
-            argv += ["-c", f"model_reasoning_effort={req.model['effort']}"]
+        if catalog.effort_for(req.model):
+            argv += ["-c", f"model_reasoning_effort={catalog.effort_for(req.model)}"]
         for s in mcp.servers_for(req.mcp_specs, req.tools_allow):
             argv += ["-c", f"mcp_servers.{s['name']}.command={json.dumps(s['command'])}",
                      "-c", f"mcp_servers.{s['name']}.args={json.dumps(list(s.get('args') or []))}"]
@@ -628,7 +629,10 @@ class OpenCodeRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         model = req.model.get("model") or "gpt-5"
-        argv = [find("opencode"), "run", "--format", "json", "-m", f"github-copilot/{model}", prompt]
+        argv = [find("opencode"), "run", "--format", "json", "-m", f"github-copilot/{model}"]
+        if catalog.effort_for(req.model):
+            argv += ["--variant", catalog.effort_for(req.model)]      # opencode's reasoning effort for the model
+        argv.append(prompt)
         note = await asyncio.to_thread(retire_v1_adapter, req.root)
         if note:
             emit("text", note)

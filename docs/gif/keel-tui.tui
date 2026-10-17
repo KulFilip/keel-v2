@@ -1,0 +1,39 @@
+# keel's terminal app for the README's GIF (docs/gif/record-tui.sh): typed into the real app on a throw-away keel with
+# keel's test model, on a full screen. Each @snap is one frame of the GIF; docs/gif/render-tui.py holds each frame.
+@sleep 1500
+@snap 01-start
+@key shift+tab
+@snap 02-mode-edit
+@key shift+tab
+@snap 03-mode-side
+@key shift+tab
+@snap 04-mode-ask
+@type /flow feature Add a /health
+@snap 05-type
+@type  endpoint that answers {"ok": true}
+@snap 06-typed
+@key enter
+@wait pick 60
+@snap 07-pick
+@key enter
+@sleep 2500
+@snap 08-running
+@sleep 2500
+@snap 09-running
+@wait waiting 300
+@key ctrl+f
+@snap 10-gate-rail
+@key ctrl+f
+/status
+@snap 11-status
+@type What does the spec ask for?
+@snap 12-ask
+@key enter
+@wait streaming 90
+@snap 13-streaming
+@sleep 900
+@snap 14-streaming
+@wait answer 240
+@snap 15-answer
+/diagram flow
+@snap 16-diagram

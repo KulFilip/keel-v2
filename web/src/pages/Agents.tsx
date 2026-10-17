@@ -2,8 +2,8 @@
 // for this project only (PUT /api/projects/{pid}/agents/{aid}).
 
 import { useState } from "react";
-import { api, errorParts, KNOWLEDGE_SECTIONS, type Agent, type AgentKnowledge, type AgentLane, type CustomAgent, type McpServer, type Model } from "../api";
-import { MODES_FOR, ModelPicker, modeLabel } from "../components/ModelPicker";
+import { api, errorParts, KNOWLEDGE_SECTIONS, type Agent, type AgentKnowledge, type AgentLane, type Catalog, type CustomAgent, type McpServer, type Model } from "../api";
+import { effortsOf, MODES_FOR, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
 import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
 import { Drawer, ErrorBox, GoButton, PageHead, Tabs } from "../components/ui";
 import { kfmt, PROV, slug } from "../format";
@@ -32,7 +32,7 @@ export function toolChips(tools: string[]): ToolChip[] {
   return out;
 }
 
-function AgentRow({ a, onOpen }: { a: Agent; onOpen: () => void }) {
+function AgentRow({ a, onOpen, catalog }: { a: Agent; onOpen: () => void; catalog: Catalog | null }) {
   const chips = toolChips(a.tools);
   const m = a.model;
   return (
@@ -52,7 +52,8 @@ function AgentRow({ a, onOpen }: { a: Agent; onOpen: () => void }) {
       <td className="ag-c-model">
         {m ? (
           <span className="ag-model">
-            <span className="prov"><i className={`c-${m.provider}`} style={m.provider === "fake" ? { background: "var(--faint)" } : undefined} /><b className="mono">{m.model}</b>{m.effort && <span className="sub"> · {m.effort}</span>}</span>
+            <span className="prov"><i className={`c-${m.provider}`} style={m.provider === "fake" ? { background: "var(--faint)" } : undefined} /><b className="mono">{m.model}</b>{m.effort ? <span className="sub"> · {m.effort}</span>
+              : catalog && effortsOf(catalog, m.provider, m.mode, m.model).length > 0 && <span className="sub" style={{ color: "var(--faint)" }}> · effort: default</span>}</span>
             <span className="sub">{PROV[m.provider] ?? m.provider} · {modeLabel(m.provider, m.mode)}</span>
           </span>
         ) : <span className="sub">default</span>}
@@ -278,6 +279,7 @@ export function AgentsPage({ pid }: { pid: string }) {
   const { project, toast } = useApp();
   const agents = useLoad(`agents:${pid}`, () => api.agents(pid), { live: false });
   const servers = useLoad("mcp", () => api.mcpServers(), { live: false });
+  const catalog = useCatalog();
   const [tab, setTab] = useState<"keel" | "custom">("keel");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Agent | null>(null);
@@ -317,7 +319,7 @@ export function AgentsPage({ pid }: { pid: string }) {
               <div className="table-wrap rt-wrap"><table className="rt ag-table" aria-label={tab === "keel" ? "keel agents" : "Custom agents"}>
                 <colgroup><col className="ag-col-agent" /><col className="ag-col-phase" /><col className="ag-col-model" /><col className="ag-col-tools" /></colgroup>
                 <thead><tr><th>Agent</th><th>Runs in</th><th>Model</th><th>Tools</th></tr></thead>
-                <tbody>{list.map((a) => <AgentRow key={a.id} a={a} onOpen={() => setOpen(a)} />)}</tbody>
+                <tbody>{list.map((a) => <AgentRow key={a.id} a={a} onOpen={() => setOpen(a)} catalog={catalog} />)}</tbody>
               </table></div>
             )}
       </div>

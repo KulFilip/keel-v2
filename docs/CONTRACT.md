@@ -403,7 +403,8 @@ type Catalog = Record<Provider, {
 }>;
 ```
 Lists come from the CLIs where possible (codex models cache / `codex`, `copilot` help or config, `opencode models
-github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--effort`, codex `-c model_reasoning_effort=…`.
+github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--effort`, codex `-c model_reasoning_effort=…`
+(0.18.9: also opencode `--variant` and the API keys; see "v0.18.9: thinking effort").
 
 ### Agent step quality (engine → `agent.step` data, shown in Live agents / Jobs)
 - `kind: "read"` — `path`, `text` = file content (first 400 lines, newlines kept).
@@ -2169,3 +2170,35 @@ Plan: `docs/plans/0.17.5.md`.
 - **Fewer approve-only stops**: the plan ends with `CONTRACT-DELTA: yes | none` (or says "Contract delta: none"); `spec_sync` sets `data.contract = yes | no`; `contract`, `contract_diff`, `contract_gate` and `contract_commit` have `when: {data: contract, equals: "yes"}`. `show_diff` in phase contract with nothing written sets `data.contract = "no"`. An amendment that moves the API shape sets it to `yes` again. Step field `menus: true` (gates; feature's `spec_gate`): the gate's text lists the skip menus after it and its approval's `payload.skip` (and `lenses`) decides them; the menus then log `gate <id> approve: chosen at spec_gate` and do not stop. An unknown name or a skip without a reason still asks at the menu. Feature flow, run mode important, 3 criteria on the fake model: 7 stops → 5 (4 without a contract delta).
 - **A gate's exits for this time**: `data["<gate id>_without"]` lists dict-choice exits a step before the gate ruled out; the question leaves them out and an answer that names one is asked again (gate log `unknown choice`). `amend_loop` has no `first` when no other criterion is unfinished (`data.amend_loop_without = ["first"]`).
 - **MCP `keel_start_flow(allow_fake)`**: a write-level argument, sent as the start request's `allow_fake` (the web's "Run with the fake model anyway"). Without it, the fake-model refusal (409) says to call again with `allow_fake=true`; keel does not start a fake run on its own.
+
+## v0.18.9: thinking effort
+
+- **Model.effort** (`low | medium | high | xhigh | max`, or a provider's own word such as Codex's `minimal` / `ultra`):
+  optional on every model (agents, KeelBot, settings). None = the engine's own default. The api keeps it lower case and
+  treats `"default"` or `""` as none (`Model.checked()`: agent override and custom agent, KeelBot's create / patch /
+  turn); anything that is not one short word is a 400 (`effort cannot be "…"`).
+- **Which models take one** (engine `models/catalog.py efforts_for(provider, mode, model)`; `[]` = no effort setting,
+  `None` = keel cannot tell and passes it on): claude every model but Haiku 4.x (`CLAUDE_EFFORTS`); codex `None` (the
+  CLI / API checks it; the catalog lists each model's own from Codex's cache); copilot `opencode` mode
+  `opencode_efforts(model)` (Gemini none, Claude low..high, GPT low..high plus xhigh from GPT-5.1 on); copilot
+  `subscription` and `api` none; fake `low, medium, high` (recorded only). The catalog shows the same: a model's
+  `efforts` ([] for Haiku), else the provider's.
+- **`effort_for(model)`**: the effort a runner passes on, or None when the model does not take it (dropped, not an
+  error). Runners: Claude Code `--effort <e>`; Codex `-c model_reasoning_effort=<e>`; OpenCode `--variant <e>` (before
+  the prompt); API key Claude `ChatAnthropic(output_config={"effort": e})`, Codex `ChatOpenAI(reasoning_effort=e)`;
+  Copilot CLI and GitHub Models none; the fake model emits a `thinking` step `Thinking effort: <e>.`.
+  `POST /providers/test` takes `effort` too.
+- **Events**: `agent.started` and KeelBot's `helper.started` carry `data.effort` (what was passed on, else null);
+  KeelBot's answer message `data.effort` (only when set).
+- **History**: Flyway `V19__agent_call_effort.sql` adds `agent_calls.effort` (from the started event); `Job.effort`
+  (`GET /api/jobs`, `/api/jobs/{id}`) is null for the engine's default.
+- **MCP**: `keel_agents` and `keel_agent` show `provider/model · effort e`; `keel_agent_definitions` shows each agent's
+  `model provider/model (mode) · effort e|default`. `keel_agent_create` takes optional `provider`, `mode`, `model`,
+  `effort` (from the project's default model). New write tool `keel_agent_model(agent, provider?, mode?, model?, effort?,
+  chat?)` (asks first, `CONFIRM`): agent id or `keelbot` (the `helper` agent; with `chat`, PATCHes that KeelBot chat's
+  model). Another provider starts on its catalog default; a new model keeps the effort when it has it; `default`
+  clears it; an effort the model lacks is refused with its choices.
+- **keel TUI**: `/model` picks the effort after the model when the model has choices; `/effort [level]` (commands.json,
+  group KeelBot) sets or clears it. Job lines, notices and KeelBot's turn footer show `provider/model · effort`.
+- **Web**: `Prov` takes `e` (Jobs, Live, Flow, run search); `ModelPicker` says "no effort setting" for a model without
+  choices; Agents rows, StartFlow, Budget's cheaper model, the step drawer and KeelBot's answer footer show the effort.

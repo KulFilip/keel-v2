@@ -92,7 +92,7 @@ async def test_a_rule_pack_says_what_it_would_have_refused_then_saves(stub):
 
 
 async def test_an_agent_is_saved_with_known_tools_only(stub):
-    assert "- explorer  Explorer · keel · tools Read" in await call(stub, "keel_agent_definitions", {}, level="read")
+    assert "- explorer  Explorer · keel · model the default model · tools Read" in await call(stub, "keel_agent_definitions", {}, level="read")
     saved = await call(stub, "keel_agent_create", {"name": "doc writer", "prompt": "Write the docs.", "tools": ["Read", "Write"]})
     assert ("POST", "/api/projects/shop/agents", {"name": "doc writer", "about": "", "prompt": "Write the docs.",
                                                  "tools": ["Read", "Write"], "phases": ["any"]}) in stub.calls

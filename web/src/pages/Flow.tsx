@@ -466,7 +466,7 @@ function JobFeed({ job }: { job: Job }) {
       big={() => (
         <>
           <div className="row fl-big-head">
-            <span className="sub">{job.agent} · <Prov p={job.provider} m={job.model} />{job.ac ? ` · ${job.ac}` : ""} · {steps.length} steps so far</span>
+            <span className="sub">{job.agent} · <Prov p={job.provider} m={job.model} e={job.effort} />{job.ac ? ` · ${job.ac}` : ""} · {steps.length} steps so far</span>
             {watch}
             <GoButton to="jobs" arg={job.id} className="btn sm ghost">Open job</GoButton>
           </div>
@@ -593,7 +593,7 @@ function RunningCard({ step, name, ac, job }: { step?: Step; name: string; ac?: 
     <div className="running-card">
       <b><Pill tone="run">running</Pill> node <span className="mono">{name}</span>{ac ? ` — ${ac}` : ""}</b>
       <span className="sub">
-        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
+        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} e={job.effort} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
           : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
             : step?.kind === "code" ? "plain code, no LLM" : "working"}
       </span>

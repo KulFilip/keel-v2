@@ -122,7 +122,7 @@ def runner(request: Request) -> helper.HelperRunner:
 @router.post("/helper/sessions")
 async def post_helper_session(body: HelperCreate):
     return await asyncio.to_thread(helper_call, helper.create, body.project_id, project_root(body.root), body.mode,
-                                   body.model.model_dump() if body.model else None, body.title, body.thread_id, body.flow)
+                                   body.model.model_dump(exclude_none=True) if body.model else None, body.title, body.thread_id, body.flow)
 
 
 @router.get("/helper/sessions")
@@ -141,7 +141,7 @@ async def get_helper_session(sid: str, request: Request):
 async def patch_helper_session(sid: str, body: HelperPatch):
     await asyncio.to_thread(helper_call, helper.get, sid, False)
     if body.model:
-        await asyncio.to_thread(helper.set_model, sid, body.model.model_dump())
+        await asyncio.to_thread(helper.set_model, sid, body.model.model_dump(exclude_none=True))
     if body.title is not None and body.title.strip():
         await asyncio.to_thread(helper.update, sid, title=body.title.strip()[:120])
     if body.folder is not None:

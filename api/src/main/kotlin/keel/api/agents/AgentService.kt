@@ -152,7 +152,7 @@ class AgentService(
         for ((k, v) in patch) if (v == null) next.remove(k) else next[k] = v
         val parsed = try { Json.mapper.convertValue(next, AgentOverride::class.java) } catch (e: IllegalArgumentException) {
             throw BadRequest("A field has the wrong type", e.message?.take(200))
-        }
+        }.let { it.copy(model = it.model?.checked()) }
         jdbc.update(
             "INSERT INTO agent_overrides(project_id, agent_id, json) VALUES (?, ?, ?) ON CONFLICT(project_id, agent_id) DO UPDATE SET json = excluded.json",
             pid, aid, Json.write(parsed),
@@ -165,7 +165,7 @@ class AgentService(
         val label = body.label ?: body.name ?: body.id ?: throw BadRequest("Give the agent a name")
         val id = Slug.of(body.id ?: label)
         if (catalog.find(id) != null || customs(pid).any { it.id == id }) throw Conflict("An agent called \"$id\" already exists")
-        val saved = body.copy(id = id, label = label)
+        val saved = body.copy(id = id, label = label, model = body.model?.checked())
         jdbc.update("INSERT INTO custom_agents(id, project_id, json) VALUES (?, ?, ?)", id, pid, Json.write(saved))
         return get(pid, id)
     }
@@ -182,7 +182,7 @@ class AgentService(
     fun test(aid: String, pid: String): JsonNode {
         val agent = get(pid, aid)
         val m = agent.model
-        val body = mutableMapOf<String, Any?>("provider" to m.provider, "mode" to m.mode, "model" to m.model)
+        val body = mutableMapOf<String, Any?>("provider" to m.provider, "mode" to m.mode, "model" to m.model, "effort" to m.effort)
         (if (m.mode == "api") secrets.keyForProvider(m.provider) else secrets.loginFor(m.provider))?.let { body["key"] = it }
         return engine.providerTest(body)
     }

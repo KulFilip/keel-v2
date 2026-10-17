@@ -379,7 +379,7 @@ function FromSettings({ pid }: { pid: string }) {
         <dl className="bd-rules">
           <div><dt>Cap per flow</dt><dd><b className="pg-num">{kfmt(e.cap_tokens)} tokens</b>, then {CAP_ACTION[e.on_cap] ?? e.on_cap}</dd></div>
           <div><dt>Plan window</dt><dd>warn at <b>{pct(e.usage_warn, 0.8)}</b> used, pause before the next agent at <b>{pct(e.usage_pause, 0.95)}</b></dd></div>
-          <div><dt>Cheaper model</dt><dd>{!cheap || cheap.provider === "fake" ? <span className="amber">not set: a real flow pauses and asks instead</span> : <><b>{PROV[cheap.provider] ?? cheap.provider} {cheap.model}</b>, when a cap says to switch</>}</dd></div>
+          <div><dt>Cheaper model</dt><dd>{!cheap || cheap.provider === "fake" ? <span className="amber">not set: a real flow pauses and asks instead</span> : <><b>{PROV[cheap.provider] ?? cheap.provider} {cheap.model}{cheap.effort ? ` · ${cheap.effort}` : ""}</b>, when a cap says to switch</>}</dd></div>
         </dl>
       )}
     </Panel>

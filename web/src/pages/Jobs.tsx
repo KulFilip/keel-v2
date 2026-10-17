@@ -52,7 +52,7 @@ function RunningCard({ j }: { j: Job }) {
     <div className="panel run-card"><div className="panel-body grid" style={{ gap: 6 }}>
       <div className="row" style={{ justifyContent: "space-between" }}><b>{j.agent}</b><span className="pill p-run num"><Since from={j.started_at} /></span></div>
       <span className="sub">{projects.find((p) => p.id === j.project_id)?.name ?? j.project_id} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""}</span>
-      <span><Prov p={j.provider} m={j.model} /></span>
+      <span><Prov p={j.provider} m={j.model} e={j.effort} /></span>
       <span className="sub num">{j.steps_count} steps · keel calls {j.mcp_calls}</span>
       <div className="row">
         <GoButton to="live" arg={j.id}>Watch live</GoButton>
@@ -85,7 +85,7 @@ function JobRow({ j, sel, pname, showProject, showCost }: { j: Job; sel: boolean
       {showProject && <td className="j-proj">{pname}</td>}
       <td className="j-agent"><b>{j.agent}</b></td>
       <td className="j-where mono">{whereText(j)}</td>
-      <td className="j-model"><Prov p={j.provider} m={j.model} /></td>
+      <td className="j-model"><Prov p={j.provider} m={j.model} e={j.effort} /></td>
       <td className="j-tok num mono" title={`new input ${j.tokens_in} / output ${j.tokens_out}${cached}`}>
         {kfmt(j.tokens_in)} / {kfmt(j.tokens_out)}{j.tokens_cached ? <span className="sub"> +{kfmt(j.tokens_cached)}</span> : null}
       </td>

@@ -1,0 +1,117 @@
+"""keel 0.18.9: the thinking effort an agent runs with. Each runner passes it the way its engine takes it (Claude Code
+--effort, Codex -c model_reasoning_effort, OpenCode --variant, the Anthropic API's output_config.effort, OpenAI's
+reasoning_effort); a provider or model without an effort setting gets none; the fake model records it; every agent
+call says which effort it used (agent.started)."""
+
+from __future__ import annotations
+
+import pytest
+
+from keel_engine.models import api_runner, catalog
+from keel_engine.models.base import AgentRequest
+from keel_engine.models.cli_runners import ClaudeCLIRunner, CodexCLIRunner, OpenCodeRunner
+from keel_engine.models.fake import FakeRunner
+from keel_engine.tools.agent_tools import ToolBox
+
+from test_v03 import collect, script
+
+
+def req(tmp_path, model: dict) -> AgentRequest:
+    return AgentRequest(agent="implementer", system="", prompt="go", root=str(tmp_path), phase="green", model=model,
+                        toolbox=ToolBox(str(tmp_path), "green"), workdir=str(tmp_path))
+
+
+async def argv_of(tmp_path, monkeypatch, tool: str, runner, model: dict) -> list[str]:
+    """Run a runner against a stand-in CLI that only writes down its arguments."""
+    monkeypatch.setenv(f"KEEL_{tool.upper()}_BIN", script(tmp_path, tool, f'cat >/dev/null\nfor a in "$@"; do echo "$a"; done > {tmp_path}/argv\n'))
+    try:
+        await runner.run(req(tmp_path, model), lambda *a, **k: None)
+    except Exception:  # noqa: BLE001 - the stand-in answers nothing; only its arguments matter here
+        pass
+    return (tmp_path / "argv").read_text().splitlines()
+
+
+def test_effort_for_keeps_only_what_the_model_takes():
+    eff = catalog.effort_for
+    assert eff({"provider": "claude", "mode": "subscription", "model": "sonnet", "effort": "xhigh"}) == "xhigh"
+    assert eff({"provider": "claude", "mode": "api", "model": "claude-opus-5-5", "effort": "MAX"}) == "max"
+    assert eff({"provider": "claude", "mode": "subscription", "model": "haiku", "effort": "high"}) is None
+    assert eff({"provider": "claude", "mode": "subscription", "model": "sonnet", "effort": "ultra"}) is None
+    assert eff({"provider": "claude", "mode": "subscription", "model": "sonnet"}) is None
+    assert eff({"provider": "codex", "mode": "subscription", "model": "gpt-6-sol", "effort": "ultra"}) == "ultra"
+    assert eff({"provider": "copilot", "mode": "subscription", "model": "gpt-5", "effort": "high"}) is None
+    assert eff({"provider": "copilot", "mode": "api", "model": "openai/gpt-5", "effort": "high"}) is None
+    assert eff({"provider": "copilot", "mode": "opencode", "model": "claude-sonnet-4.5", "effort": "high"}) == "high"
+    assert eff({"provider": "copilot", "mode": "opencode", "model": "gemini-2.5-pro", "effort": "high"}) is None
+    assert eff({"provider": "copilot", "mode": "opencode", "model": "gpt-5", "effort": "xhigh"}) is None
+    assert eff({"provider": "copilot", "mode": "opencode", "model": "gpt-5.2", "effort": "xhigh"}) == "xhigh"
+    assert eff({"provider": "fake", "mode": "api", "model": "fake", "effort": "low"}) == "low"
+    assert eff(None) is None
+
+
+def test_the_catalog_says_which_models_take_an_effort():
+    cat = catalog.build_catalog()
+    claude = {m["id"]: m.get("efforts") for m in cat["claude"]["modes"]["subscription"]}
+    assert claude["sonnet"] == ["low", "medium", "high", "xhigh", "max"] and claude["haiku"] == []
+    assert cat["fake"]["efforts"] == ["low", "medium", "high"]
+    for m in cat["copilot"]["modes"]["opencode"]:
+        assert m.get("efforts", []) == catalog.opencode_efforts(m["id"])
+    assert all("efforts" not in m for m in cat["copilot"]["modes"]["subscription"]) and cat["copilot"]["efforts"] == []
+
+
+async def test_claude_code_gets_the_effort_flag(tmp_path, monkeypatch):
+    argv = await argv_of(tmp_path, monkeypatch, "claude", ClaudeCLIRunner(),
+                         {"provider": "claude", "mode": "subscription", "model": "opus", "effort": "max"})
+    assert argv[argv.index("--effort") + 1] == "max" and argv[argv.index("--model") + 1] == "opus"
+
+
+async def test_claude_code_without_an_effort_or_on_haiku_gets_no_flag(tmp_path, monkeypatch):
+    for model in ({"provider": "claude", "mode": "subscription", "model": "sonnet"},
+                  {"provider": "claude", "mode": "subscription", "model": "haiku", "effort": "high"}):
+        assert "--effort" not in await argv_of(tmp_path, monkeypatch, "claude", ClaudeCLIRunner(), model)
+
+
+async def test_codex_drops_nothing_it_cannot_check(tmp_path, monkeypatch):
+    argv = await argv_of(tmp_path, monkeypatch, "codex", CodexCLIRunner(),
+                         {"provider": "codex", "mode": "subscription", "model": "gpt-6-sol", "effort": "xhigh"})
+    assert argv[argv.index("model_reasoning_effort=xhigh") - 1] == "-c"
+    plain = await argv_of(tmp_path, monkeypatch, "codex", CodexCLIRunner(), {"provider": "codex", "mode": "subscription", "model": "gpt-5.5"})
+    assert not any(a.startswith("model_reasoning_effort") for a in plain)
+
+
+async def test_opencode_gets_the_variant_before_the_prompt(tmp_path, monkeypatch):
+    argv = await argv_of(tmp_path, monkeypatch, "opencode", OpenCodeRunner(),
+                         {"provider": "copilot", "mode": "opencode", "model": "claude-sonnet-4.5", "effort": "high"})
+    assert argv[argv.index("--variant") + 1] == "high" and argv[-1] == "go"
+    gemini = await argv_of(tmp_path, monkeypatch, "opencode", OpenCodeRunner(),
+                           {"provider": "copilot", "mode": "opencode", "model": "gemini-2.5-pro", "effort": "high"})
+    assert "--variant" not in gemini
+
+
+def test_the_api_runners_pass_the_effort_as_their_api_takes_it():
+    claude = api_runner.chat_model("claude", "opus", "sk-test", "xhigh")
+    assert claude.output_config == {"effort": "xhigh"} and claude.model == "claude-opus-5-5"
+    assert not api_runner.chat_model("claude", "opus", "sk-test", None).output_config
+    codex = api_runner.chat_model("codex", "gpt-5.5", "sk-test", "high")
+    assert codex.reasoning_effort == "high"
+    assert api_runner.chat_model("codex", "gpt-5.5", "sk-test").reasoning_effort is None
+
+
+async def test_the_fake_model_records_the_effort(tmp_path):
+    steps, emit = collect()
+    await FakeRunner().run(req(tmp_path, {"provider": "fake", "mode": "api", "model": "fake", "effort": "high"}), emit)
+    assert {"kind": "thinking", "text": "Thinking effort: high."} in steps
+    steps, emit = collect()
+    await FakeRunner().run(req(tmp_path, {"provider": "fake", "mode": "api", "model": "fake"}), emit)
+    assert not any("Thinking effort" in s["text"] for s in steps)
+
+
+@pytest.mark.parametrize("effort, said", [("medium", "medium"), (None, None)])
+def test_each_agent_call_says_its_effort(client, repo, effort, said):
+    from conftest import start, wait
+
+    model = {"provider": "fake", "mode": "api", "model": "fake", **({"effort": effort} if effort else {})}
+    tid = start(client, repo, models={"default": model})
+    wait(client, tid)
+    started = [e["data"] for e in client.bus.of(tid, "agent.started")]
+    assert started and all(d["effort"] == said for d in started)

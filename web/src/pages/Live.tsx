@@ -71,7 +71,7 @@ function AgentCard({ j, sel, steps }: { j: Job; sel: boolean; steps?: JobStep[] 
   return (
     <button type="button" className={`agent-card ${sel ? "sel" : ""}`} onClick={() => go("live", j.id)} aria-pressed={sel}>
       <div className="row" style={{ justifyContent: "space-between" }}><b>{j.agent}</b><span className="sub num"><Since from={j.started_at} /></span></div>
-      <span className="sub">{pname} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""} · <Prov p={j.provider} m={j.model} /></span>
+      <span className="sub">{pname} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""} · <Prov p={j.provider} m={j.model} e={j.effort} /></span>
       {sel && steps && (
         <div className="grid agent-mini" style={{ gap: 3 }}>
           {steps.slice(-4).map((s) => (

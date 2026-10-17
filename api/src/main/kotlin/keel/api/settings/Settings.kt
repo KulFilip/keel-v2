@@ -1,14 +1,29 @@
 package keel.api.settings
 
 import com.fasterxml.jackson.annotation.JsonInclude
+import keel.api.common.BadRequest
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class Model(
     val provider: String = "fake",
     val mode: String = "api",
     val model: String = "fake",
+    /** How hard the model thinks (low | medium | high | xhigh | max, or the provider's own words); null: the engine's
+     *  own default. The engine passes it on only when the provider and model take it (models/catalog.py effort_for). */
     val effort: String? = null,
-)
+) {
+    /** The effort as keel keeps it: "default" or blank is none, the rest lower case; a word only (it ends up in a CLI flag). */
+    fun checked(): Model {
+        val e = effort?.trim()?.lowercase()
+        if (e.isNullOrEmpty() || e == "default") return copy(effort = null)
+        if (!EFFORT.matches(e)) throw BadRequest("effort cannot be \"$effort\"", "Pick one the model offers, for example low, medium, high, xhigh or max, or default.")
+        return copy(effort = e)
+    }
+
+    companion object {
+        private val EFFORT = Regex("^[a-z][a-z0-9-]{0,15}$")
+    }
+}
 
 /** Settings, general or effective. A project stores only the keys it overrides. */
 data class Settings(

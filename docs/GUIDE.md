@@ -172,6 +172,30 @@ starts or is saved until you press one.
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.
 
+## Thinking effort
+
+Each agent, and KeelBot, has a **thinking effort** next to its model: how hard the model thinks before it acts. More
+effort is slower and uses more tokens; less is quicker and cheaper. **default** leaves it to the engine.
+
+- **Where to set it**: the Agents page (per agent, per project), KeelBot's model picker (for one chat), keel TUI
+  (`/model` asks for the effort after the model; `/effort high`, `/effort default`), and MCP (`keel_agent_model`, or
+  `keel_agent_create` with `effort`; both ask you first).
+- **Where you see it**: next to the model everywhere: Agents, Jobs, Live agents, the Flow page, KeelBot's header and
+  each answer ("sonnet · high"), keel TUI's job lines and "✓ Finished … · claude/sonnet · high", and `keel_agents`.
+  Each agent call keeps the effort it ran with, so the history shows it too.
+- **Which models have it**:
+
+| Engine | Efforts | How keel passes it |
+|---|---|---|
+| Claude Code (subscription) | low, medium, high, xhigh, max (not Haiku) | `claude --effort` |
+| Claude API key | low, medium, high, xhigh, max (not Haiku) | `output_config.effort` |
+| Codex CLI and OpenAI key | what each model offers (from Codex's model list) | `-c model_reasoning_effort=…` / `reasoning_effort` |
+| Copilot through OpenCode | low, medium, high (newer GPT also xhigh; Gemini none) | `opencode run --variant` |
+| Copilot CLI, GitHub Models key | none | — |
+| Fake model | low, medium, high (only noted, for tests) | — |
+
+A model without an effort setting shows "no effort setting", and keel ignores an effort it cannot pass on.
+
 ## Plugins and the Marketplace
 
 From 0.17.0 keel is a small **core** with **plugins**. The core runs flows, workflows, agents, gates, the Inbox,

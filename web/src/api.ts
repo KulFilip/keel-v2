@@ -301,6 +301,8 @@ export type Job = {
   agent: string;
   provider: Provider;
   model: string;
+  /** Thinking effort the agent ran with; null = the engine's default or a model without effort. */
+  effort?: string | null;
   step: string;
   phase: string;
   ac: string | null;
@@ -675,7 +677,7 @@ export type HelperMessage = {
   text: string;
   /** the turn's agent call: its steps come from /jobs/{call_id}/steps and live agent steps */
   call_id?: string | null;
-  data: { status?: string; provider?: string; model?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
+  data: { status?: string; provider?: string; model?: string; effort?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
     cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection; sha?: string; files?: string[] };
   at: string;
 };

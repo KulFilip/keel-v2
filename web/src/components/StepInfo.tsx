@@ -41,7 +41,7 @@ function Task({ x }: { x: StepExplanation }) {
         <div className="kv">
           <span>Agent</span><b>{a.id}{a.custom ? " (custom)" : ""}</b>
           <span>Model</span>
-          <b>{now ? `${now.provider} ${now.model ?? ""}` : a.model.step === "default" ? `the agent's model${a.model.agent_file ? ` (file: ${a.model.agent_file}${a.model.effort ? `, ${a.model.effort}` : ""})` : ""}` : a.model.step}</b>
+          <b>{now ? `${now.provider} ${now.model ?? ""}${now.effort ? ` · ${now.effort}` : ""}` : a.model.step === "default" ? `the agent's model${a.model.agent_file ? ` (file: ${a.model.agent_file}${a.model.effort ? `, ${a.model.effort}` : ""})` : ""}` : a.model.step}</b>
           {a.max_turns ? <><span>Turns at most</span><b>{a.max_turns}</b></> : null}
           {a.knowledge ? <><span>Knowledge</span><b>{a.knowledge.sections.join(", ") || "none"}{a.knowledge.code_graph ? " · code graph" : ""}{a.knowledge.memory ? " · memory" : ""}</b></> : null}
         </div>

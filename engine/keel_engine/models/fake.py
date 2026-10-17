@@ -182,6 +182,8 @@ class FakeRunner:
 
         target = (req.ac or {}).get("id") or req.title or req.phase
         emit("text", f"{req.agent}: working on {target} in phase {req.phase}.")
+        if catalog.effort_for(req.model):        # recorded, so tests (and a try in the dashboard) see the effort arrive
+            emit("thinking", f"Thinking effort: {catalog.effort_for(req.model)}.")
         await pause()
         if req.feedback:
             emit("thinking", f"Taking the feedback into account: {req.feedback[:200]}")

@@ -98,19 +98,23 @@ DEADLINE = 5.0
 
 CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 CODEX_EFFORTS = ["minimal", "low", "medium", "high"]
+# opencode run --variant: github-copilot's Claude and GPT models take these, newer GPT-5 ones also xhigh, Gemini none
+OPENCODE_EFFORTS = ["low", "medium", "high"]
+# the fake model takes an effort only to record it (tests, trying the pickers without a real model)
+FAKE_EFFORTS = ["low", "medium", "high"]
 
 CLAUDE_SUBSCRIPTION = [{"id": "opus", "label": "Claude Opus", "efforts": CLAUDE_EFFORTS},
                        {"id": "sonnet", "label": "Claude Sonnet", "efforts": CLAUDE_EFFORTS},
-                       {"id": "haiku", "label": "Claude Haiku"}]
+                       {"id": "haiku", "label": "Claude Haiku", "efforts": []}]
 CLAUDE_API = [{"id": "opus", "label": "Claude Opus (claude-opus-5-5)", "efforts": CLAUDE_EFFORTS},
               {"id": "sonnet", "label": "Claude Sonnet (claude-sonnet-5-5)", "efforts": CLAUDE_EFFORTS},
-              {"id": "haiku", "label": "Claude Haiku (claude-haiku-4-5)"},
+              {"id": "haiku", "label": "Claude Haiku (claude-haiku-4-5)", "efforts": []},
               {"id": "claude-fable-5-1", "label": "Claude Fable 5.1", "efforts": CLAUDE_EFFORTS},
               {"id": "claude-opus-5-5", "label": "Claude Opus 5.5", "efforts": CLAUDE_EFFORTS},
               {"id": "claude-opus-5", "label": "Claude Opus 5", "efforts": CLAUDE_EFFORTS},
               {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5", "efforts": CLAUDE_EFFORTS},
               {"id": "claude-sonnet-5", "label": "Claude Sonnet 5", "efforts": CLAUDE_EFFORTS},
-              {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5"}]
+              {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5", "efforts": []}]
 
 CODEX_BUILTIN = [{"id": "gpt-5.5", "label": "GPT-5.5", "efforts": CODEX_EFFORTS},
                  {"id": "gpt-5.5-mini", "label": "GPT-5.5 mini", "efforts": CODEX_EFFORTS},
@@ -308,6 +312,42 @@ def _efforts_union(models: list[dict]) -> list[str]:
     return out
 
 
+def opencode_efforts(model_id: str) -> list[str]:
+    """`opencode run --variant` for a github-copilot model (opencode's own table): Gemini none, Claude low..high,
+    GPT low..high and xhigh from GPT-5.1 on."""
+    m = (model_id or "").lower()
+    if "gemini" in m or not m:
+        return []
+    if "claude" in m:
+        return list(OPENCODE_EFFORTS)
+    return OPENCODE_EFFORTS + (["xhigh"] if re.search(r"gpt-(5\.[1-9]|[6-9])", m) else [])
+
+
+def efforts_for(provider: str, mode: str, model_id: str) -> list[str] | None:
+    """The efforts this provider takes for this model in this mode. [] = it has no effort setting (keel ignores one);
+    None = keel cannot tell (Codex: its CLI or API checks the value itself)."""
+    m = (model_id or "").lower()
+    if provider == "fake":
+        return list(FAKE_EFFORTS)
+    if provider == "claude":
+        return [] if "haiku" in m and not re.search(r"haiku-[5-9]", m) else list(CLAUDE_EFFORTS)
+    if provider == "codex":
+        return None
+    if provider == "copilot":
+        return opencode_efforts(model_id) if mode == "opencode" else []
+    return []
+
+
+def effort_for(model: dict | None) -> str | None:
+    """The effort a runner passes on: the chosen one when this provider and model take it, else None (the engine's
+    own default). Never raises: an effort a model does not have is dropped, not an error."""
+    effort = str((model or {}).get("effort") or "").strip().lower()
+    if not effort:
+        return None
+    allowed = efforts_for(str(model.get("provider") or ""), str(model.get("mode") or "api"), str(model.get("model") or ""))
+    return effort if allowed is None or effort in allowed else None
+
+
 def build_catalog() -> dict:
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {"codex": pool.submit(probe_codex), "copilot": pool.submit(probe_copilot), "opencode": pool.submit(probe_opencode)}
@@ -336,11 +376,12 @@ def build_catalog() -> dict:
                  "default": {"mode": "subscription", "model": "gpt-5.5", "effort": "medium"}, "source": "builtin"}
 
     sub, oc = found["copilot"], found["opencode"]
+    opencode = [{**m, "efforts": opencode_efforts(m["id"])} if opencode_efforts(m["id"]) else dict(m) for m in (oc or COPILOT_BUILTIN)]
     copilot = {"label": "GitHub Copilot",
-               "modes": {"subscription": sub or COPILOT_BUILTIN, "opencode": oc or COPILOT_BUILTIN, "api": GITHUB_MODELS},
+               "modes": {"subscription": sub or COPILOT_BUILTIN, "opencode": opencode, "api": GITHUB_MODELS},
                "efforts": [], "default": {"mode": "subscription", "model": (sub or COPILOT_BUILTIN)[0]["id"]},
                "source": "cli" if (sub or oc) else "builtin"}
 
-    fake = {"label": "Fake", "modes": {"api": MODELS["fake"]}, "efforts": [], "default": {"mode": "api", "model": "fake"},
+    fake = {"label": "Fake", "modes": {"api": MODELS["fake"]}, "efforts": list(FAKE_EFFORTS), "default": {"mode": "api", "model": "fake"},
             "source": "builtin"}
     return {"claude": claude, "codex": codex, "copilot": copilot, "fake": fake}

@@ -60,7 +60,7 @@ export const searchWords = (q: string) => q.trim().toLowerCase().split(/\s+/).fi
  */
 export function jobMatches(j: Job, words: string[], projectName?: string): boolean {
   if (!words.length) return true;
-  const text = [j.id, j.project_id, projectName, j.agent, j.provider, PROV[j.provider], j.model, j.step, j.phase, j.ac, j.status]
+  const text = [j.id, j.project_id, projectName, j.agent, j.provider, PROV[j.provider], j.model, j.effort, j.step, j.phase, j.ac, j.status]
     .filter(Boolean).join(" ").toLowerCase();
   return words.every((w) => text.includes(w));
 }
