@@ -37,7 +37,8 @@ if [ -n "$app" ]; then
   docker exec -u 0 "$KEEL_NAME" sh -c 'cp /tmp/keel-tui.mjs /opt/keel-v2/cli/keel-tui.mjs && chmod 755 /opt/keel-v2/cli/keel-tui.mjs'
 fi
 docker cp "$src/docs/gif/keel-tui.tui" "$KEEL_NAME:/tmp/keel-tui.tui"
-FORCE_COLOR=3 COLORTERM=truecolor "$src/keel2" tui --script /tmp/keel-tui.tui --out /tmp/keel-gif-out --width 110 --rows 30 --ansi
-mkdir -p "$work/frames"
-docker cp "$KEEL_NAME:/tmp/keel-gif-out/." "$work/frames/"
-uv run -q --with pillow --with pyte python "$src/docs/gif/render-tui.py" "$work/frames" "$src/docs/keel-tui.gif"
+FORCE_COLOR=3 COLORTERM=truecolor "$src/keel2" tui --script /tmp/keel-tui.tui --out /tmp/keel-gif-out --width 110 --rows 30 --ansi || echo "(a step of the script did not finish: the GIF is drawn from the frames there are)"
+# the frames stay (in the temp folder) so the GIF can be drawn again without recording: render-tui.py <frames> <out.gif>
+frames="${TMPDIR:-/tmp}/keel-gif-frames"; rm -rf "$frames"; mkdir -p "$frames"
+docker cp "$KEEL_NAME:/tmp/keel-gif-out/." "$frames/"
+uv run -q --with pillow --with pyte --with fonttools python "$src/docs/gif/render-tui.py" "$frames" "$src/docs/keel-tui.gif"

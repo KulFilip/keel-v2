@@ -8,14 +8,14 @@
 @snap 03-mode-side
 @key shift+tab
 @snap 04-mode-ask
-@type /flow feature Add a /health
+@type /flow feature --fake Add a /health
 @snap 05-type
 @type  endpoint that answers {"ok": true}
 @snap 06-typed
 @key enter
-@wait pick 60
-@snap 07-pick
-@key enter
+@wait started 60
+@sleep 800
+@snap 07-started
 @sleep 2500
 @snap 08-running
 @sleep 2500
@@ -29,10 +29,6 @@
 @type What does the spec ask for?
 @snap 12-ask
 @key enter
-@wait streaming 90
-@snap 13-streaming
-@sleep 900
-@snap 14-streaming
 @wait answer 240
 @snap 15-answer
 /diagram flow

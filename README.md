@@ -1,11 +1,36 @@
-# keel v2
+<p align="center">
+  <img src="docs/brand/keel-logo.svg" width="300" alt="keel v2">
+</p>
 
-AI agents write **tested** code for your project. You approve the important steps.
-Everything runs in one Docker container.
+<p align="center">
+  <b>AI agents write <i>tested</i> code for your project. You approve the important steps.</b><br>
+  Everything runs in one Docker container: a dashboard, a terminal app and an MCP server for your own AI tools.
+</p>
 
-![keel v2: the budget bar, a flow waiting at a gate, the inbox, Control › Plugins (keel core and a plugin on for this project or all projects), the database diagram, the code graph, the Wiki with a spec and its build status, the repo, and a person approving the spec](docs/keel-v2.gif)
+<p align="center">
+  <a href="https://github.com/MiladNalbandi/keel-v2/actions/workflows/ci.yml"><img src="https://github.com/MiladNalbandi/keel-v2/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/MiladNalbandi/keel-v2/releases/latest"><img src="https://img.shields.io/github/v/release/MiladNalbandi/keel-v2?color=8b6dff&label=release" alt="Latest release"></a>
+  <a href="https://github.com/MiladNalbandi/keel-v2/pkgs/container/keel-v2"><img src="https://img.shields.io/badge/docker-ghcr.io-8b6dff?logo=docker&logoColor=white" alt="Docker image"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/MiladNalbandi/keel-v2?color=8b6dff" alt="License"></a>
+</p>
 
-<sub>Recorded from a real keel v2 run (Claude Haiku on a small shop project), not drawn.</sub>
+<p align="center">
+  <a href="#start">Install</a> ·
+  <a href="docs/GUIDE.md">Guide</a> ·
+  <a href="https://github.com/MiladNalbandi/keel-v2/wiki">Wiki</a> ·
+  <a href="#plugins">Plugins</a> ·
+  <a href="https://github.com/MiladNalbandi/keel-v2/releases">Releases</a>
+</p>
+
+<p align="center">
+  <img src="docs/keel-tui.gif" alt="keel's terminal app: keel's name and logins on top, a flow started from the prompt, its agents at work, the flow rail at a gate, KeelBot answering as it writes, and a diagram of the flow" width="900">
+  <br><sub><code>keel2</code>, keel's terminal app — recorded from a real run on keel's test model, not drawn.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/keel-v2.gif" alt="keel v2: the budget bar, a flow waiting at a gate, the inbox, Control › Plugins (keel core and a plugin on for this project or all projects), the database diagram, the code graph, the Wiki with a spec and its build status, the repo, and a person approving the spec" width="900">
+  <br><sub>The dashboard — recorded from a real keel v2 run (Claude Haiku on a small shop project), not drawn.</sub>
+</p>
 
 ## Start
 

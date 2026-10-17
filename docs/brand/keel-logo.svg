@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 120" width="360" height="120" role="img" aria-label="keel">
+  <title>keel</title>
+  <!-- keel's mark (the dashboard's logo: a hull with its keel) and its name, in keel's purple; reads on light and dark -->
+  <g transform="translate(8 22) scale(0.95)">
+    <path fill="#8b6dff" d="M4 0H116Q120 0 119.4 4C118 22 92 38 66.6 50Q64 51.5 64 54L62.2 64.5Q61.8 67 60 67Q58.2 67 57.8 64.5L56 54Q56 51.5 53.4 50C28 38 2 22 .6 4Q0 0 4 0Z"/>
+  </g>
+  <text x="140" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="64" font-weight="700" fill="#8b6dff">keel</text>
+  <text x="302" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700" fill="#8b6dff">v2</text>
+</svg>
