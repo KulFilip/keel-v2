@@ -14,7 +14,8 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 class StepRunsApiTest : ApiTest() {
 
     private fun ev(pid: String, tid: String, type: String, call: String, step: String, at: String, data: Map<String, Any?>) =
-        mapOf("type" to type, "thread_id" to tid, "project_id" to pid, "step" to step, "call_id" to call, "at" to at, "data" to data)
+        // call ids are unique in the whole test database (other tests use c1 too)
+        mapOf("type" to type, "thread_id" to tid, "project_id" to pid, "step" to step, "call_id" to "$pid-$call", "at" to at, "data" to data)
 
     private fun started(agent: String, model: String, effort: String?) =
         mapOf("agent" to agent, "provider" to "claude", "model" to model, "mode" to "subscription", "effort" to effort)
@@ -64,7 +65,7 @@ class StepRunsApiTest : ApiTest() {
         assertThat(green["ms"].asLong()).isEqualTo(240_000)                      // 1 min + 3 min, not the 13 min between
         assertThat(green["tokens_in"].asLong()).isEqualTo(3_000)
         assertThat(green["result"].asText()).isEqualTo("app/main.py: POST /health returns 405")
-        assertThat(green["call_id"].asText()).isEqualTo("g2")
+        assertThat(green["call_id"].asText()).isEqualTo("$pid-g2")
 
         assertThat(runs[2]["tries"].asInt()).isEqualTo(1)                       // parallel lanes
         assertThat(get("/api/projects/$pid/flows/t2/step-runs").json().single()["status"].asText()).isEqualTo("running")
