@@ -192,6 +192,14 @@ export type BlockerGate = "release" | "coverage" | "deps" | "knowledge" | "secre
 export type Blocker = { gate: BlockerGate | string; why: string; fix: string };
 export type LadderRung = { n: number; name: string; cmd: string; status: "pass" | "fail" | "fixing" | "waiting" | "skipped"; detail?: string };
 export type Checkpoint = { id: string; n: number; step: string; at: string; note: string };
+/** keel 0.18.11 what one step of a flow really did (GET .../flows/{tid}/step-runs): its agent calls added up per step and
+ *  criterion. `tries` counts rounds (parallel lanes are one); `ms` is working time, not a gate's wait; `result` is the
+ *  first line of the last answer. */
+export type StepRunFacts = {
+  step: string; ac: string | null; tries: number; status: JobStatus; agent: string | null; provider: Provider | null; model: string | null;
+  effort?: string | null; started_at: string; ended_at: string | null; ms: number; tokens_in: number; tokens_out: number; tokens_cached: number;
+  cost_usd: number; result: string | null; call_id: string;
+};
 export type Estimate = {
   tokens: number;
   low: number;
@@ -1024,6 +1032,7 @@ export const api = {
     post<ThreadState>(`/threads/${e(tid)}/resume`, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}) }),
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
   history: (tid: string) => get<Checkpoint[]>(`/threads/${e(tid)}/history`),
+  stepRuns: (pid: string, tid: string) => get<StepRunFacts[]>(`/projects/${e(pid)}/flows/${e(tid)}/step-runs`),
   rewind: (tid: string, checkpoint_id: string) => post<ThreadState>(`/threads/${e(tid)}/rewind`, { checkpoint_id }),
   estimate: (pid: string, workflow_id: string, acs: number) =>
     get<Estimate>(`/projects/${e(pid)}/estimate${q({ workflow_id, acs })}`),

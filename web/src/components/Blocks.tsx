@@ -16,6 +16,7 @@ import {
   type Arm, type Exit, type FlowMap, type Node, type Row, type Section, type StepState,
 } from "./flowmap";
 import type { LoopCtx } from "./builderOps";
+import { workTime, type StepFacts } from "./stepFacts";
 
 export type BlocksHandle = {
   /** Open the folds that hold a step, scroll it into view and (optionally) focus it. */
@@ -45,6 +46,8 @@ export type BlocksProps = {
   tokens?: Record<string, number>;
   /** Tokens a step really used in this thread (the Flow page). */
   actual?: Record<string, number>;
+  /** keel 0.18.11 what each step really did in this thread: the model and effort that ran, time, cost, result, tries. */
+  facts?: Record<string, StepFacts>;
   /** How many criteria the per-AC loop runs for (the estimate's input, or the thread's criteria). */
   acCount?: number;
   customAgents?: Set<string>;
@@ -157,8 +160,12 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
     const st = stepStates(steps, map, p.current, p.status);
     const { skipped } = armsTaken(map, st, p.visited);
     skipped.forEach((id) => { st[id] = "skip"; });
+    // A flow that is over: every step that ran is done, side paths too (not only the main path).
+    if (p.status === "done" || p.status === "stopped" || p.status === "failed") {
+      steps.forEach((s) => { if (st[s.id] === "todo" && (p.visited?.has(s.id) || p.facts?.[s.id])) st[s.id] = "done"; });
+    }
     return st;
-  }, [steps, map, p.current, p.status, p.visited]);
+  }, [steps, map, p.current, p.status, p.visited, p.facts]);
   const taken = useMemo(() => (states ? armsTaken(map, states, p.visited).taken : {}), [map, states, p.visited]);
   const root = useRef<HTMLDivElement>(null);
   const pending = useRef<{ id: string; focus: boolean; block: ScrollLogicalPosition } | null>(null);
@@ -398,14 +405,22 @@ function ExitChip({ ctx, e }: { ctx: Ctx; e: Exit }) {
 function Tokens({ ctx, s }: { ctx: Ctx; s: Step }) {
   const { p } = ctx;
   const est = ctx.per(s, p.tokens);
-  const used = p.actual?.[s.id] ?? 0;
-  if (!est && !used) return null;
   const inLoop = s.per_ac || s.per_item;
+  // a block in a loop shows one round: this round's tokens against one round's estimate (the loop shows the totals)
+  const used = inLoop && p.facts?.[s.id] ? p.facts[s.id].tokens : p.actual?.[s.id] ?? 0;
+  if (!est && !used) return null;
+  const round = inLoop && p.facts?.[s.id] ? ` this round${p.facts[s.id].ac ? ` (${p.facts[s.id].ac})` : ""}` : " so far";
   return (
-    <span className="sb-tok" title={`${used ? `${kfmt(used)} tokens used so far, ` : ""}about ${kfmt(est)} tokens estimated${inLoop ? " per round" : ""}`}>
-      {used ? <><b>{kfmt(used)}</b><span className="sb-tok-e"> / ≈{kfmt(est)}</span></> : <>≈ {kfmt(est)}</>}
+    <span className="sb-tok" title={`${used ? `${kfmt(used)} tokens used${round}` : ""}${used && est ? ", " : ""}${est ? `about ${kfmt(est)} tokens estimated${inLoop ? " per round" : ""}` : ""}`}>
+      {used ? <><b>{kfmt(used)}</b>{est ? <span className="sb-tok-e"> / ≈{kfmt(est)}</span> : null}</> : <>≈ {kfmt(est)}</>}
     </span>
   );
+}
+
+/** "sonnet · high · 2m 10s · $0.18 · AC-2": what ran, how long, what it cost (tokens are on the right). */
+function factsLine(f: StepFacts, inLoop: boolean): string {
+  return [f.model ? `${f.model}${f.effort ? ` · ${f.effort}` : ""}` : null, f.ms ? workTime(f.ms) : null,
+    f.cost >= 0.005 ? `$${f.cost.toFixed(2)}` : null, inLoop && f.ac ? f.ac : null].filter(Boolean).join(" · ");
 }
 
 function Tools({ ctx, s, row }: { ctx: Ctx; s: Step; row: Row }) {
@@ -451,11 +466,14 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   s.lanes?.forEach((l) => tags.push(`lane: ${l.name}${l.sub ? ` (${l.sub})` : ""}`));
   const live = st === "run" || st === "wait" || st === "fail" || st === "stop";
   const est = ctx.per(s, p.tokens);
+  const f = p.facts?.[s.id];
+  const inLoop = !!(s.per_ac || s.per_item);
   const aria = [
     head ? String(head) : null, s.name, KIND_WORD[s.kind] ?? s.kind,
-    s.agent && `agent ${s.agent}${custom && !s.agent.startsWith("★") ? " (custom)" : ""}`, s.model && `model ${s.model}`,
+    s.agent && `agent ${s.agent}${custom && !s.agent.startsWith("★") ? " (custom)" : ""}`, !f && s.model && `model ${s.model}`,
     count, locked && "keel rule", st && st !== "todo" && STATE_LABEL[st],
-    p.actual?.[s.id] ? `${kfmt(p.actual[s.id])} tokens used` : "", est ? `about ${kfmt(est)} tokens${s.per_ac || s.per_item ? " per round" : ""}` : "",
+    f && `ran: ${factsLine(f, inLoop)}`, f && f.tries > 1 && `${f.tries} tries`, f?.result && `result: ${f.result}`,
+    p.actual?.[s.id] ? `${kfmt(p.actual[s.id])} tokens used` : "", est ? `about ${kfmt(est)} tokens${inLoop ? " per round" : ""}` : "",
   ].filter(Boolean).join(", ");
   const exits = row.exits;
   const draggable = !!edit;
@@ -479,12 +497,17 @@ function Face({ ctx, s, row, head, cls = "", children }: {
             if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenStep!(s.id); return; }
             ctx.onKey(e, s);
           }}>
-          <FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} />
+          <FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} facts={f} inLoop={inLoop} />
         </div>
       ) : (
-        <div className="sb-main" aria-label={aria} role="group"><FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} /></div>
+        <div className="sb-main" aria-label={aria} role="group"><FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} facts={f} inLoop={inLoop} /></div>
       )}
       <span className="sb-side">
+        {f && f.tries > 1 && (
+          <span className="sb-tries" title={`${f.tries} tries${inLoop && f.ac ? ` for ${f.ac}` : ""}: it was sent back or ran again ${f.tries - 1} ${f.tries === 2 ? "time" : "times"}`}>
+            ×{f.tries}
+          </span>
+        )}
         {st && <StateBadge state={st} />}
         <Tokens ctx={ctx} s={s} />
       </span>
@@ -499,17 +522,24 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   );
 }
 
-function FaceText({ s, head, custom, count, locked, tags }: { s: Step; head?: ReactNode; custom: boolean; count: string; locked: boolean; tags: string[] }) {
+function FaceText({ s, head, custom, count, locked, tags, facts, inLoop }: {
+  s: Step; head?: ReactNode; custom: boolean; count: string; locked: boolean; tags: string[]; facts?: StepFacts; inLoop?: boolean;
+}) {
+  // once it ran, the agent pill names the model that really ran, not the workflow's "default"
+  const line = facts ? factsLine(s.agent ? { ...facts, model: null, effort: null } : facts, !!inLoop) : "";
+  const model = facts?.model ? `${facts.model}${facts.effort ? ` · ${facts.effort}` : ""}` : s.model;
   return (
     <>
       <span className="sb-ico" aria-hidden="true"><KindIcon kind={s.kind} /></span>
       <span className="sb-text">
         <span className="sb-name">{head && <span className="sb-head">{head}</span>}{s.name}{locked && <span className="sb-lock" title="keel rule: cannot be removed while keel rules are on"><span aria-hidden="true"> 🔒</span><span className="sr-only">keel rule</span></span>}</span>
         <span className="sb-meta">
-          {s.agent && <span className={`sb-agent ${custom ? "is-custom" : ""}`}>{custom && !s.agent.startsWith("★") ? "★ " : ""}{s.agent}{s.model && <span className="sb-model">{s.model}</span>}</span>}
+          {s.agent && <span className={`sb-agent ${custom ? "is-custom" : ""}`}>{custom && !s.agent.startsWith("★") ? "★ " : ""}{s.agent}{model && <span className="sb-model">{model}</span>}</span>}
+          {line && <span className="sb-facts">{line}</span>}
           {count && <span className="sb-count">{count}</span>}
           {tags.map((t) => <span key={t} className="sb-tag">{t}</span>)}
         </span>
+        {facts?.result && <span className="sb-result" title={facts.result}>“{facts.result}”</span>}
       </span>
     </>
   );
@@ -816,6 +846,10 @@ export function BlocksLegend({ live }: { live?: boolean }) {
         <span><span className="sb-st st-done">✓</span>done</span>
         <span><span className="sb-st st-run">running</span></span>
         <span><span className="sb-st st-wait">waiting for you</span></span>
+        <span><span className="sb-st st-fail">failed</span></span>
+        <span><span className="sb-st st-stop">stopped here</span></span>
+        <span><span className="sb-st st-skip">skipped</span></span>
+        <span><span className="sb-tries">×2</span>tries (sent back once)</span>
       </>}
     </div>
   );
