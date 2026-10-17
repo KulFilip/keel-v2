@@ -103,8 +103,11 @@ async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: bo
     const t = await api.startFlow(p.id, { workflow_id: wid, title, request: idea, options: { started_via: "tui" },
       ...(flags.fake ? { allow_fake: true } : {}), ...(flags.dirty ? { allow_dirty: true } : {}) });
     await ctx.core.refresh();
+    // the reply can come back before the graph reaches its first step: no step and no phase yet, so say it is starting
+    const at = t.current || t.phase ? ` at ${t.current || "-"} (phase ${t.phase || "none"})` : "";
+    const now = at || (t.status && t.status !== "running") ? `It is ${t.status}${at}` : "It is starting";
     const lines = [`started ${wid} "${title}" on ${p.id} (thread ${t.thread_id}), recorded as started via keel TUI.`,
-      `It is ${t.status} at ${t.current || "-"} (phase ${t.phase || "none"}); it runs until its first gate for you.`];
+      `${now}; it runs until its first gate for you.`];
     if (t.cap_note) lines.push(t.cap_note);
     lines.push("Follow it: Ctrl+F (flow rail), /live (agents), /next.");
     return ok(lines.join("\n"));
