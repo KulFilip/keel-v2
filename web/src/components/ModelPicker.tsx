@@ -430,6 +430,8 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
           {efforts.map((x) => <option key={x} value={x}>{x}</option>)}
         </select>
       )}
+      {/* the engine ignores an effort for a model without one (claude haiku, copilot subscription) */}
+      {effort && catalog && value.model && efforts.length === 0 && <span className="hint" data-testid={`${id}-noeffort`}>no effort setting</span>}
       {source && <span className="hint" data-testid={`${id}-source`}>{SOURCE_HINT[source] ?? source}</span>}
       {GUARD_NOTE[p] && value.mode !== "api" && <span className="hint amber" data-testid={`${id}-guard`}>{GUARD_NOTE[p]}</span>}
     </div>

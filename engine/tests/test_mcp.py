@@ -30,7 +30,9 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start", "keel_keelbot_ask",
                "keel_keelbot_keep", "keel_keelbot_undo", "keel_workflow_create", "keel_rule_create", "keel_agent_create",
                # 0.18.6 skills
-               "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
+               "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
+               # 0.18.9 an agent's or KeelBot's model and thinking effort
+               "keel_agent_model"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project",
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
@@ -138,7 +140,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
            "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
-           "keel_agent_definitions", "keel_agent_create",
+           "keel_agent_definitions", "keel_agent_create", "keel_agent_model",      # 0.18.9 right after keel_agent_create
            # 0.18.6 skills, before keel_diagram
            "keel_skills", "keel_skill", "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
            "keel_diagram"]

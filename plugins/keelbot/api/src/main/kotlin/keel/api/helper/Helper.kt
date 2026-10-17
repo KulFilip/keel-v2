@@ -98,7 +98,7 @@ class HelperService(
         val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(
             "project_id" to pid, "root" to project.root, "mode" to body.mode,
-            "model" to (body.model ?: defaultModel(pid)), "title" to body.title.take(120),
+            "model" to (body.model?.checked() ?: defaultModel(pid)), "title" to body.title.take(120),
             "thread_id" to threadId, "flow" to threadId?.let { fixContext(pid, it) },
         ).filterValues { it != null })
     }
@@ -132,7 +132,7 @@ class HelperService(
         get(pid, sid)
         val folder = body.folder?.trim()
         if (!folder.isNullOrEmpty()) requireFolder(pid, folder)
-        return engine.patch("/helper/sessions/$sid", mapOf("title" to body.title, "model" to body.model, "folder" to folder)
+        return engine.patch("/helper/sessions/$sid", mapOf("title" to body.title, "model" to body.model?.checked(), "folder" to folder)
             .filterValues { it != null })
     }
 
@@ -184,12 +184,12 @@ class HelperService(
         if (text.length > 20_000) throw BadRequest("The message is too long", "Keep it under 20,000 characters; point at files with @ instead.")
         val s = get(pid, sid)
         val fix = s.path("mode").asText() == "fix"
-        val model = body.model ?: mapper.treeToValue(s.path("model"), Model::class.java)
+        val model = body.model?.checked() ?: mapper.treeToValue(s.path("model"), Model::class.java)
         val eff = settings.effective(pid)
         val helper = helperAgent(pid)
         val payload = linkedMapOf<String, Any?>(
             "text" to text,
-            "model" to body.model,
+            "model" to body.model?.checked(),
             "keys" to (secrets.engineKeys(model.provider, model.mode) + flows.contributedKeys(pid)).takeIf { it.isNotEmpty() },
             "plugins" to plugins.enabled(pid),
             "mcp" to mcp.specsFor(eff.mcp),

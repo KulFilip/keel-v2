@@ -36,6 +36,8 @@ data class Job(
     val premiumRequests: Long,
     val stepsCount: Int,
     val mcpCalls: Int,
+    /** The thinking effort it ran with; null: the engine's own default (or a model without one). */
+    val effort: String? = null,
 )
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -59,7 +61,7 @@ data class JobSteps(val steps: List<JobStep>, val running: Boolean)
 @Service
 class JobService(private val jdbc: JdbcTemplate) {
     private val cols = "id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, ended_at, " +
-        "tokens_in, tokens_out, tokens_cached, cost_usd, premium_requests, steps_count, mcp_calls"
+        "tokens_in, tokens_out, tokens_cached, cost_usd, premium_requests, steps_count, mcp_calls, effort"
 
     private val jobMapper = RowMapper { rs, _ ->
         Job(
@@ -67,7 +69,7 @@ class JobService(private val jdbc: JdbcTemplate) {
             rs.getString("provider"), rs.getString("model"), rs.getString("step"), rs.getString("phase"), rs.getString("ac"),
             rs.getString("status"), rs.getString("started_at"), rs.getString("ended_at"), rs.getLong("tokens_in"),
             rs.getLong("tokens_out"), rs.getLong("tokens_cached"), rs.getDouble("cost_usd"), rs.getLong("premium_requests"), rs.getInt("steps_count"),
-            rs.getInt("mcp_calls"),
+            rs.getInt("mcp_calls"), rs.getString("effort"),
         )
     }
 

@@ -13,6 +13,7 @@ import re
 import time
 from typing import Any
 
+from .mcp_models import model_text
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project, cut
 
 RUN_MODES = {
@@ -133,6 +134,13 @@ def _step_line(s: dict, width: int = 140) -> str:
     return cut(f"{what}{mark} {text}".strip(), width)
 
 
+def _job_model(j: dict) -> str:
+    """An agent call's model as the tools show it: claude/sonnet · effort high (the effort it ran with, when one was set)."""
+    if not j.get("provider"):
+        return ""
+    return f"{j.get('provider')}/{j.get('model')}" + (f" · effort {j['effort']}" if j.get("effort") else "")
+
+
 def agents(api: KeelApi, project: str | None = None) -> str:
     """The agents at work on the project's flows, and the person's own (KeelBot chats in their own worktree)."""
     p = _project(api, project)
@@ -142,10 +150,11 @@ def agents(api: KeelApi, project: str | None = None) -> str:
     out = []
     for j in jobs:
         out.append(f"- {j.get('id')}  ▶ {j.get('agent')} (flow) · {' '.join(x for x in (j.get('step'), j.get('ac')) if x)} · "
-                   f"{_n((j.get('tokens_in') or 0) + (j.get('tokens_out') or 0))} tokens")
+                   + "".join(f"{x} · " for x in [_job_model(j)] if x) + f"{_n((j.get('tokens_in') or 0) + (j.get('tokens_out') or 0))} tokens")
     for s in mine:
         busy = s.get("busy") or s.get("status") == "running"
         out.append(f"- {s.get('id')}  {'▶ at work' if busy else s.get('status')} · \"{s.get('title') or s.get('id')}\" · {s.get('mode')}"
+                   + (f" · {model_text(s['model'], effort_default=False)}" if s.get("model") else "")
                    + (f" · branch {s['branch']}" if s.get("branch") else "") + f" · ${float(s.get('cost_usd') or 0):.2f}")
     if not out:
         return "no agent at work, and none of yours yet (keel_agent_start starts one)."
@@ -158,6 +167,11 @@ def agent(api: KeelApi, agent_id: str, project: str | None = None, steps: int = 
         r = api.get(f"/jobs/{_q(agent_id)}/steps") or {}
         rows = [s for s in r.get("steps") or [] if s.get("kind") != "thinking"][-max(1, steps):]
         head = "at work" if r.get("running") else "finished"
+        try:
+            job = api.get(f"/jobs/{_q(agent_id)}") or {}
+            head += "".join(f" · {x}" for x in (job.get("agent"), _job_model(job)) if x)
+        except ApiError:
+            pass
         return f"agent call {agent_id} · {head}\n" + ("\n".join(f"{s.get('n'):>4} {_step_line(s)}" for s in rows) or "no steps yet.")
     except ApiError:
         pass
@@ -165,6 +179,7 @@ def agent(api: KeelApi, agent_id: str, project: str | None = None, steps: int = 
     s = api.get(f"/projects/{p['id']}/helper/sessions/{_q(agent_id)}") or {}
     busy = s.get("busy") or s.get("status") == "running"
     out = [f"agent \"{s.get('title')}\" · {s.get('mode')}" + (f" · branch {s['branch']}" if s.get("branch") else "")
+           + (f" · {model_text(s['model'], effort_default=False)}" if s.get("model") else "")
            + f" · {'at work' if busy else s.get('status')}"]
     for m in (s.get("messages") or [])[-4:]:
         who = {"user": "you", "helper": "agent"}.get(m.get("role"), m.get("role"))

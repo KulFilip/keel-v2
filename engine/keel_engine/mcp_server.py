@@ -159,6 +159,9 @@ class KeelApi:
     def put(self, path: str, body: dict) -> Any:
         return self._send("PUT", path, json=body)
 
+    def patch(self, path: str, body: dict) -> Any:
+        return self._send("PATCH", path, json=body)
+
     def delete(self, path: str) -> Any:
         return self._send("DELETE", path)
 
@@ -682,7 +685,7 @@ RANK = {"read": 0, "write": 1, "admin": 2}
 # A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
 CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
            "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
-           "keel_workflow_create", "keel_rule_create", "keel_agent_create",
+           "keel_workflow_create", "keel_rule_create", "keel_agent_create", "keel_agent_model",
            "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
@@ -765,7 +768,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.5 save a new one (each asks the person first)
               "keel_workflow_create", "keel_rule_create", "keel_agent_create",
               # 0.18.6 a new skill (written here, from a link, from the marketplace) and which agents load it (each asks first)
-              "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"),
+              "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
+              # 0.18.9 an agent's or KeelBot's model and thinking effort (asks first)
+              "keel_agent_model"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
@@ -783,6 +788,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_more as more
     from . import mcp_tui as tui
     from . import mcp_create as create
+    from . import mcp_models as mm
     from . import mcp_skills as sk
 
     api = api or KeelApi()
@@ -1130,12 +1136,28 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_agent_create(name: str, prompt: str, about: str = "", tools: list[str] | None = None,
-                                phases: list[str] | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+                                phases: list[str] | None = None, provider: str | None = None, mode: str | None = None,
+                                model: str | None = None, effort: str | None = None, project: str | None = None,
+                                ctx: Context | None = None) -> str:
         """Save a new agent for the project: its name, instructions (prompt), what it is for, its tools (Read, Grep, Glob
-        read only; Edit, Write change files; Bash runs commands) and phases (any, or keel phases). keel's rules and the
-        phase still decide what it may change. Asks the person first."""
+        read only; Edit, Write change files; Bash runs commands) and phases (any, or keel phases); optionally its model
+        (provider claude | codex | copilot | fake, mode, model) and thinking effort (low, medium, high, xhigh, max: what
+        the model offers; none = the engine's default). keel's rules and the phase still decide what it may change.
+        Asks the person first."""
         return await act(ctx, "keel_agent_create", f"save the new agent {name}", create.create_agent, api, name, prompt, about,
-                         tools, phases, project)
+                         tools, phases, project, provider=provider, mode=mode, model=model, effort=effort)
+
+    @reg(rw)
+    async def keel_agent_model(agent: str, provider: str | None = None, mode: str | None = None, model: str | None = None,
+                               effort: str | None = None, chat: str | None = None, project: str | None = None,
+                               ctx: Context | None = None) -> str:
+        """Change the model and thinking effort an agent uses on the project (agent: its id from keel_agent_definitions,
+        or keelbot for KeelBot). Give only what changes: provider (claude | codex | copilot | fake), mode
+        (subscription | api | opencode), model, effort (what the model offers, e.g. low, medium, high, xhigh, max;
+        "default" = the engine's own). With `chat`, only that KeelBot chat changes. Asks the person first."""
+        what = f"use {'/'.join(x for x in (provider, model) if x) or 'its model'}" + (f" with effort {effort}" if effort else "")
+        return await act(ctx, "keel_agent_model", f"{what} for {chat and f'KeelBot chat {chat}' or agent}", mm.agent_model, api,
+                         agent, provider, mode, model, effort, chat, project)
 
     # ---------------------------------------------------------------- 0.18.6 skills
 

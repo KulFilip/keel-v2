@@ -762,7 +762,9 @@ class HelperRunner:
         before = None
         plugin_key = None
         t0 = time.monotonic()
+        effort = catalog.effort_for(model)       # what the runner passes on (None: the engine's own default)
         ev("helper.started", {"agent": AGENT, "provider": provider, "model": model.get("model"), "mode": model.get("mode"),
+                              "effort": effort,
                               "phase": f"helper-{mode}", "session": sid, "n": n})
         docs_before = doc_history.before_step(doc_emit, root, None, "helper")
 
@@ -833,7 +835,8 @@ class HelperRunner:
         if status == "done" and not answer.strip():
             answer = "(KeelBot gave no answer.)"
         add_message(sid, "helper" if status == "done" else "note", answer, call_id=call_id,
-                    data={"status": status, "provider": provider, "model": model.get("model"), "tokens_in": tin, "tokens_out": tout,
+                    data={"status": status, "provider": provider, "model": model.get("model"),
+                          **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000)})
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,

@@ -20,11 +20,12 @@ class AgentCalls(private val jdbc: JdbcTemplate) {
         val d = e.data
         val id = idOf(e, at)
         jdbc.update(
-            """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, mode)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
-               ON CONFLICT(id) DO UPDATE SET status = 'running', mode = COALESCE(excluded.mode, agent_calls.mode)""",
+            """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, mode, effort)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET status = 'running', mode = COALESCE(excluded.mode, agent_calls.mode),
+                 effort = COALESCE(excluded.effort, agent_calls.effort)""",
             id, e.projectId, e.threadId, agent, d.str("provider"), d.str("model"), e.step,
-            d.str("phase"), ac, at, modeOf(d.str("provider"), d.str("mode")),
+            d.str("phase"), ac, at, modeOf(d.str("provider"), d.str("mode")), d.str("effort"),
         )
         return id
     }

@@ -39,7 +39,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [modeDefault, setModeDefault] = useState<RunMode>("manual");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
-  const [model, setModel] = useState<{ provider: string; model: string } | null>(null);
+  const [model, setModel] = useState<{ provider: string; model: string; effort?: string } | null>(null);
   const [allowFake, setAllowFake] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
   const [doctor, setDoctor] = useState(false);
@@ -60,7 +60,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       setWid((w) => (w && list.some((x) => x.id === w) ? w : list.find((x) => x.id === "feature")?.id ?? list[0]?.id ?? ""));
     }, (e) => setErr(errorParts(e)));
     api.projectSettings(p).then((s) => {
-      setModel({ provider: s.effective.default_model.provider, model: s.effective.default_model.model });
+      setModel({ provider: s.effective.default_model.provider, model: s.effective.default_model.model, effort: s.effective.default_model.effort });
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
       setCapDefault(c);
@@ -205,7 +205,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       </div>
       {model && (
         <div className={model.provider === "fake" && !isDemo ? "wbar warn" : "wbar"} role="note">
-          <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}`}</b>
+          <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}${model.effort ? ` · ${model.effort}` : ""}`}</b>
             {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Connections › Use for all agents.") : "."}
             {!isDemo && " The flow works on its own branch (Settings › Branch name)."}</span>
           {model.provider === "fake" && !isDemo && <button className="btn sm" type="button" onClick={() => { onClose(); go("connections"); }}>Open Connections</button>}

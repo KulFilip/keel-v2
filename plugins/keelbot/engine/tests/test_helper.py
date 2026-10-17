@@ -433,3 +433,19 @@ def test_edit_undo_puts_the_file_back_and_the_turn_is_checked_after_it_too(clien
     assert (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
     assert (Path(repo) / "tests" / "test_rogue_helper.py").exists()
     assert "Mode: Edit" in helper.MODE_TEXT["edit"] and "edit" in helper.MODES
+
+
+def test_the_effort_goes_with_each_turn_and_its_answer(client, repo):
+    """keel 0.18.9: KeelBot's model may carry a thinking effort: the runner gets it, helper.started and the answer say it;
+    a model change (PATCH) can set or clear it."""
+    s = new_session(client, repo, model={**FAKE, "effort": "high"})
+    assert s["model"]["effort"] == "high"
+    _, s = ask(client, s["id"], "What is here?")
+    evs = [e for e in client.bus.recent if e["thread_id"] == s["id"]]
+    assert evs[0]["type"] == "helper.started" and evs[0]["data"]["effort"] == "high"
+    assert any(e["type"] == "helper.step" and e["data"]["text"] == "Thinking effort: high." for e in evs)
+    assert s["messages"][-1]["data"]["effort"] == "high"
+    r = client.patch(f"/helper/sessions/{s['id']}", json={"model": FAKE})
+    assert r.status_code == 200 and "effort" not in r.json()["model"]
+    _, s = ask(client, s["id"], "And now?")
+    assert "effort" not in s["messages"][-1]["data"]

@@ -282,6 +282,7 @@ class ProviderTest(BaseModel):
     mode: Literal["subscription", "api", "opencode"] = "api"
     model: str = ""
     key: str | None = None
+    effort: str | None = None    # the agent's thinking effort: the test runs with it, as its flows do
 
 
 def _err(status: int, error: str, hint: str | None = None, errors: list[str] | None = None) -> JSONResponse:
@@ -680,7 +681,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.post("/providers/test")
     async def post_provider_test(body: ProviderTest):
-        return await models.test_provider(body.provider, body.mode, body.model, body.key)
+        return await models.test_provider(body.provider, body.mode, body.model, body.key, body.effort)
 
     @app.post("/providers/usage")
     async def post_provider_usage(body: ProviderUsage):

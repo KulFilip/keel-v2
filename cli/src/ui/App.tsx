@@ -15,6 +15,7 @@ import { applyLevel, makeTheme, type Theme } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
+import { modelText } from "../core/effort";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
@@ -164,7 +165,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       core.on("answer", (a) => {
         const d = a.message?.data;
         const { paint, width: w } = look.current;
-        const used = d ? [d.provider && d.model ? `${d.provider}/${d.model}` : "", d.tokens_in || d.tokens_out ? `${fmt.short((d.tokens_in ?? 0) + (d.tokens_out ?? 0))} tokens` : "",
+        const used = d ? [d.provider && d.model ? modelText(d) : "", d.tokens_in || d.tokens_out ? `${fmt.short((d.tokens_in ?? 0) + (d.tokens_out ?? 0))} tokens` : "",
           d.cost_usd ? `$${d.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
         // what it did (its tools, settled: xal's way), the answer, then how the turn ended and what it used
         const tools = fmt.toolLines(core.snapshot.chat.steps, w, paint);

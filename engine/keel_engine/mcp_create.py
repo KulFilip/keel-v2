@@ -82,14 +82,17 @@ def agent_definitions(api: KeelApi, project: str | None = None) -> str:
     rows = api.get(f"/projects/{p['id']}/agents") or []
     if not rows:
         return "no agent."
+    from .mcp_models import model_text
     return "\n".join(f"- {a.get('id')}  {a.get('label')} · {'yours' if a.get('custom') else 'keel'}"
                      + ("" if a.get("enabled", True) else " · off")
+                     + f" · model {model_text(a.get('model'))}"
                      + f" · tools {', '.join(a.get('tools') or [])} · phases {', '.join(a.get('phases') or [])}"
                      + (f"\n    {a['about']}" if a.get("about") else "") for a in rows)
 
 
 def create_agent(api: KeelApi, name: str, prompt: str, about: str = "", tools: list[str] | None = None,
-                 phases: list[str] | None = None, project: str | None = None) -> str:
+                 phases: list[str] | None = None, project: str | None = None, provider: str | None = None,
+                 mode: str | None = None, model: str | None = None, effort: str | None = None) -> str:
     if not name.strip() or not prompt.strip():
         raise ApiError("an agent needs a name and its instructions (prompt).")
     tools = tools or ["Read", "Grep", "Glob"]
@@ -99,8 +102,16 @@ def create_agent(api: KeelApi, name: str, prompt: str, about: str = "", tools: l
     p = _project(api, project)
     body: dict[str, Any] = {"name": name.strip(), "about": about.strip(), "prompt": prompt.strip(), "tools": tools,
                             "phases": phases or ["any"]}
+    if any((provider, mode, model, effort)):
+        # its model and thinking effort: from the project's default model, the given parts changed (keel_agent_model's rules)
+        from .mcp_models import _next_model
+        settings = api.get(f"/projects/{p['id']}/settings") or {}
+        base = (settings.get("effective") or {}).get("default_model") or {}
+        body["model"] = _next_model(api.get("/providers/models") or {}, base, provider, mode, model, effort)
     a = api.post(f"/projects/{p['id']}/agents", body) or {}
-    return (f"saved the agent {a.get('id')} on {p['id']} (tools {', '.join(a.get('tools') or tools)}). "
+    from .mcp_models import model_text
+    return (f"saved the agent {a.get('id')} on {p['id']} (tools {', '.join(a.get('tools') or tools)}; "
+            f"model {model_text(a.get('model'))}). "
             f"A workflow uses it in an agent step: agent: {a.get('id')}.")
 
 

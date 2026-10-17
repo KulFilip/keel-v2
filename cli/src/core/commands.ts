@@ -2,7 +2,7 @@
 // a command returns a Reply (blocks of text, and maybe a choice to pick or a question to answer next), so keel TUI's
 // Ink app, an xal plugin or an OpenTUI front end run the very same commands.
 
-import { api, ApiError, errorParts, get, post, type HelperSession, type Job, type JobStep, type Model, type Project,
+import { api, ApiError, errorParts, get, post, type HelperSession, type Job, type JobStep, type Project,
   type HelperMode, type RunMode, type ThreadState, type Workflow } from "./sdk";
 import { inboxApi, type InboxItem } from "../../../web/src/inboxApi";
 import { rulesApi } from "../../../web/src/rulesApi";
@@ -13,6 +13,7 @@ import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
 import { fixRequest } from "../../../web/src/askFix";
 import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
+import { effortComplete, effortRun, modelRun } from "./effort";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -698,24 +699,8 @@ const IMPLS: Impl[] = [
     complete: (_c, a) => ["flow", "map", "er", "keelbot", "inbox"].filter((x) => x.startsWith(a)),
     run: (ctx, a) => text(dashboardUrl(ctx, a.trim() || "flow") + "\nOpen it in your browser: the same keel, the same flows and chats."),
   },
-  {
-    name: "model",
-    run: async (ctx) => {
-      const raw = (await api.providerModels()) as Record<string, { label?: string; modes?: Record<string, { id: string; label: string }[]>; default?: Model }>;
-      const choices: Choice[] = [];
-      for (const [prov, c] of Object.entries(raw ?? {})) {
-        for (const [mode, models] of Object.entries(c?.modes ?? {})) {
-          for (const m of models ?? []) choices.push({ label: `${prov}/${m.id}`, value: JSON.stringify({ provider: prov, mode, model: m.id }), hint: `${c.label ?? prov} · ${mode} · ${m.label}` });
-        }
-      }
-      if (!choices.length) return fail("keel's model catalog is empty.");
-      return { blocks: [], pick: { title: "KeelBot's model", choices, then: async (v) => {
-        const m = JSON.parse(v) as Model;
-        await ctx.core.setChatModel(m);
-        return ok(`KeelBot answers with ${m.provider}/${m.model} (${m.mode}).`);
-      } } };
-    },
-  },
+  { name: "model", run: (ctx) => modelRun(ctx) },
+  { name: "effort", run: (ctx, a) => effortRun(ctx, a), complete: (ctx, a) => effortComplete(ctx, a) },
   {
     name: "chats",
     run: async (ctx) => {

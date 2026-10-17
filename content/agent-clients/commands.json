@@ -206,6 +206,13 @@
       "group": "KeelBot"
     },
     {
+      "name": "effort",
+      "args": "[level]",
+      "summary": "KeelBot's thinking effort on its model (default clears it)",
+      "writes": false,
+      "group": "KeelBot"
+    },
+    {
       "name": "chats",
       "summary": "earlier KeelBot chats of this project: open one",
       "writes": false,

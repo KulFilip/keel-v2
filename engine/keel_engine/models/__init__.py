@@ -9,6 +9,7 @@ import time
 from .. import config
 from ..tools.agent_tools import ToolBox
 from .base import AgentRequest, AgentResult, ModelError, Runner
+from .catalog import effort_for as catalog_effort
 
 FAKE = {"provider": "fake", "mode": "api", "model": "fake"}
 ENV_KEYS = {"claude": "ANTHROPIC_API_KEY", "codex": "OPENAI_API_KEY", "copilot": "GITHUB_TOKEN"}
@@ -78,7 +79,7 @@ async def ask(model: dict, system: str, prompt: str, keys: dict | None = None, t
                                timeout=timeout, keys=keys)
             if m.get("mode") == "api":
                 from .api_runner import _text, chat_model
-                reply = await chat_model(m["provider"], m.get("model", ""), req.key).ainvoke([("system", system), ("human", prompt)])
+                reply = await chat_model(m["provider"], m.get("model", ""), req.key, catalog_effort(m)).ainvoke([("system", system), ("human", prompt)])
                 usage = getattr(reply, "usage_metadata", None) or {}
                 return {"ok": True, "fake": False, "text": _text(reply.content), "tokens_in": int(usage.get("input_tokens", 0)),
                         "tokens_out": int(usage.get("output_tokens", 0)), "ms": ms()}
@@ -90,9 +91,9 @@ async def ask(model: dict, system: str, prompt: str, keys: dict | None = None, t
         return {"ok": False, "fake": False, "text": "", "ms": ms(), "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
 
 
-async def test_provider(provider: str, mode: str, model: str, key: str | None = None) -> dict:
+async def test_provider(provider: str, mode: str, model: str, key: str | None = None, effort: str | None = None) -> dict:
     """Send "Reply with exactly: OK" and report how it went (POST /providers/test)."""
-    m = effective({"provider": provider, "mode": mode, "model": model})
+    m = effective({"provider": provider, "mode": mode, "model": model, **({"effort": effort} if effort else {})})
     t0 = time.monotonic()
     ms = lambda: int((time.monotonic() - t0) * 1000)  # noqa: E731
     try:
@@ -102,7 +103,7 @@ async def test_provider(provider: str, mode: str, model: str, key: str | None = 
                                keys=login_keys(m["provider"], m.get("mode", "api"), key))
             if m["provider"] != "fake" and m.get("mode") == "api":
                 from .api_runner import _text, chat_model
-                reply = await chat_model(m["provider"], m.get("model", ""), req.key).ainvoke(req.prompt)
+                reply = await chat_model(m["provider"], m.get("model", ""), req.key, catalog_effort(m)).ainvoke(req.prompt)
                 text = _text(reply.content)
             else:
                 res: AgentResult = await runner_for(m).run(req, lambda *a, **k: None)

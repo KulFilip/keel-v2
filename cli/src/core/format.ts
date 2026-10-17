@@ -6,6 +6,7 @@ import type { BudgetNow, Checkpoint, FlowView, Health, Job, JobStep, Project, Ru
 import type { InboxItem } from "../../../web/src/inboxApi";
 import { PLAIN, type Paint } from "./theme";
 import { renderDiff } from "./diff";
+import { modelText } from "./effort";
 
 export const n = (x: unknown) => {
   const v = Number(x ?? 0);
@@ -191,7 +192,7 @@ export function timeline(history: Checkpoint[], jobs: Job[], limit = 20, thread?
   jobs.forEach((j) => {
     const where = [j.step, j.ac].filter(Boolean).join(" ");
     ev.push([at(j.started_at), `${c.faint(clock(j.started_at))}  ${c.accent("agent")}  ${c.bold(j.agent)} ${badge(j.status, c)} · ${where} · `
-      + c.dim(`${n(tokensOf(j))} tokens · ${j.provider}/${j.model}`) + " " + c.faint(`job ${j.id}`)]);
+      + c.dim(`${n(tokensOf(j))} tokens · ${modelText(j)}`) + " " + c.faint(`job ${j.id}`)]);
   });
   if (thread?.error) ev.push([at(thread.updated_at), `${c.faint(clock(thread.updated_at))}  ${c.bad("flow ")}  ${badge(thread.status, c)} · ${c.bad(thread.error)}`]);
   if (!ev.length) return thread ? "no events yet." : "nothing yet: no flow has run on this project.";
@@ -224,7 +225,7 @@ export function inbox(items: InboxItem[], c: Paint = PLAIN): string {
 export function jobs(rows: Job[], c: Paint = PLAIN): string {
   if (!rows.length) return "no agent calls yet.";
   return rows.map((j) => `${badge(j.status, c)} ${c.bold(j.agent)} · ${[j.step, j.ac].filter(Boolean).join(" ") || "-"} · `
-    + c.dim(`${j.provider}/${j.model} · ${n(tokensOf(j))} tokens · ${usd(j.cost_usd)} · ${clock(j.started_at)}`) + " " + c.faint(`job ${j.id}`)).join("\n");
+    + c.dim(`${modelText(j)} · ${n(tokensOf(j))} tokens · ${usd(j.cost_usd)} · ${clock(j.started_at)}`) + " " + c.faint(`job ${j.id}`)).join("\n");
 }
 
 export function stepLine(s: JobStep, width = 160, c: Paint = PLAIN): string {
@@ -243,7 +244,7 @@ export function live(running: Job[], last: Record<string, JobStep | undefined>, 
   const out: string[] = [];
   running.forEach((j) => {
     out.push(`${badge("running", c)} ${c.bold(j.agent)} on ${j.project_id} · ${[j.step, j.ac].filter(Boolean).join(" ")} · `
-      + c.dim(`${j.provider}/${j.model} · ${n(tokensOf(j))} tokens · since ${clock(j.started_at)}`) + " " + c.faint(`job ${j.id}`));
+      + c.dim(`${modelText(j)} · ${n(tokensOf(j))} tokens · since ${clock(j.started_at)}`) + " " + c.faint(`job ${j.id}`));
     const s = last[j.id];
     if (s) out.push(`    ${c.faint("last:")} ${stepLine(s, 160, c)}`);
   });

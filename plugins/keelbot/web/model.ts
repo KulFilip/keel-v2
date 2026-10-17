@@ -28,6 +28,9 @@ export function replaceTyping(text: string, typing: NonNullable<Typing>, caret: 
   return { text: next, caret: typing.start + lead.length + word.length + 1 };
 }
 
+/** An answer's model for its footer: "sonnet · high" (the effort only when the call had one). */
+export const answerModel = (d: HelperMessage["data"]) => `${d.model ?? ""}${d.effort ? ` · ${d.effort}` : ""}`;
+
 /** "1.2k tokens · $0.04" for a session or one answer. */
 export function usageText(tokens: number, cost: number): string {
   const t = tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(1)}M` : tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);

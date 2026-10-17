@@ -15,7 +15,7 @@ export function notice(ev: EngineEvent): string | null {
     case "gate.decided": return `${ev.step ?? "gate"} ${s(d.decision) === "reject" ? "sent back" : "approved"}${d.why ? ` — "${s(d.why)}"` : ""}${d.by ? ` (${s(d.by)})` : ""}`;
     case "thread.done": return "flow done · /next";
     case "thread.failed": return `flow failed${d.error ? ": " + s(d.error) : ""} · /resume or /timeline`;
-    case "agent.started": return `agent ${s(d.agent)} started${ev.step ? ` · ${ev.step}` : ""}${d.ac ? ` · ${s(d.ac)}` : ""}${d.model ? ` · ${s(d.provider)}/${s(d.model)}` : ""}`;
+    case "agent.started": return `agent ${s(d.agent)} started${ev.step ? ` · ${ev.step}` : ""}${d.ac ? ` · ${s(d.ac)}` : ""}${d.model ? ` · ${s(d.provider)}/${s(d.model)}` : ""}${d.model && d.effort ? ` · ${s(d.effort)}` : ""}`;
     case "agent.finished": return s(d.status) && s(d.status) !== "done" ? `agent ${s(d.agent) || "agent"} ${s(d.status)}${ev.step ? ` · ${ev.step}` : ""}` : null;
     case "budget.warn": return `budget: ${s(d.text) || "the flow is near its cap"}`;
     case "budget.stop": return `budget: ${s(d.text) || "cap reached, the flow is paused"} · /approve to go on`;

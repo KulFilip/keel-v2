@@ -19,7 +19,9 @@ def chat_model(provider: str, model: str, key: str | None, effort: str | None = 
     if provider == "claude":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=catalog.CLAUDE_API_IDS.get(model, model), api_key=key, max_tokens=16000, timeout=600)
+        # effort: the Messages API's output_config.effort (low | medium | high | xhigh | max)
+        kw = {"output_config": {"effort": effort}} if effort else {}
+        return ChatAnthropic(model=catalog.CLAUDE_API_IDS.get(model, model), api_key=key, max_tokens=16000, timeout=600, **kw)
     from langchain_openai import ChatOpenAI
 
     if provider == "codex":
@@ -59,7 +61,7 @@ class APIRunner:
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
         provider, model = req.model["provider"], req.model.get("model", "")
-        llm = chat_model(provider, model, req.key, req.model.get("effort"))
+        llm = chat_model(provider, model, req.key, catalog.effort_for(req.model))
         tools = req.toolbox.langchain_tools()
         mcp_tools, _client = await mcp.langchain_tools(req.mcp_specs, req.tools_allow)
         tools += mcp_tools

@@ -511,7 +511,7 @@ class Compiler:
         toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
-            "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
+            "effort": catalog.effort_for(model), "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
         counter = {"n": 0}
 
         # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.

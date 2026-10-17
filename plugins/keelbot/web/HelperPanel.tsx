@@ -18,7 +18,7 @@ import {
 import { AgentCard, CiCard, FlowCard, RuleCard, SkillCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
-import { fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
+import { answerModel, fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
 import { ChatList, ConfirmRow } from "./ChatList";
 import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
 import { markSeen, useKeelBotUnread, useSeen } from "./unread";
@@ -752,7 +752,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
-              <p className="hp-meta">{m.data.model ? `${provLabel(m.data.provider)} ${m.data.model} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
+              <p className="hp-meta">{m.data.model ? `${provLabel(m.data.provider)} ${answerModel(m.data)} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
                 {m.data.ms ? ` · ${(m.data.ms / 1000).toFixed(1)} s` : ""}</p>
             )}
           </div>

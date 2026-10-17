@@ -76,6 +76,23 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `KeelBot's effort comes from the helper agent, a chat can change it, and default clears it`() {
+        val (pid, _) = newProject("helper-effort")
+        put("/api/projects/$pid/agents/helper", mapOf("model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "sonnet", "effort" to "high")))
+            .andExpect(status().isOk)
+        val sid = post("/api/projects/$pid/helper/sessions").andExpect(status().isOk).json()["id"].asText()
+        assertThat(engine.lastBody("/helper/sessions")!!["model"]["effort"].asText()).isEqualTo("high")
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "opus", "effort" to "MAX")))
+            .andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid")!!["model"]["effort"].asText()).isEqualTo("max")
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "opus", "effort" to "default")))
+            .andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid")!!["model"].has("effort")).isFalse()
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "opus", "effort" to "very high")))
+            .andExpect(status().isBadRequest)
+    }
+
+    @Test
     fun `its events are agent calls with their steps, counted in the budget, and never a flow`() {
         val (pid, _) = newProject("helper-events")
         fun ev(type: String, data: Map<String, Any?>) = mapOf("type" to type, "thread_id" to "h_abc", "project_id" to pid, "step" to "helper",
