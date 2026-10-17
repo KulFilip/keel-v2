@@ -89,6 +89,56 @@ export function CommitRow({ pid, c, onOpen }: { pid: string; c: { sha: string; m
   );
 }
 
+/** "1 commit ahead, 2 behind" — the words for ↑1 ↓2 */
+export function aheadBehind(ahead: number, behind: number): string {
+  if (!ahead && !behind) return "no new commits yet";
+  const a = ahead ? `${ahead} commit${ahead === 1 ? "" : "s"} ahead` : "";
+  const b = behind ? `${behind} behind` : "";
+  return [a, b].filter(Boolean).join(", ");
+}
+
+/** The branches: the current one first and marked, a filter once there are many, each with its last commit. */
+function BranchList({ repo, gitOn, onOpenBranch, onOpenLog }: { repo: RepoInfo; gitOn: boolean; onOpenBranch?: Props["onOpenBranch"]; onOpenLog?: Props["onOpenLog"] }) {
+  const [q, setQ] = useState("");
+  const all = [...repo.branches].sort((x, y) => Number(y.name === repo.branch) - Number(x.name === repo.branch));
+  const shown = q.trim() ? all.filter((b) => b.name.toLowerCase().includes(q.trim().toLowerCase())) : all;
+  const body = (b: { name: string; note: string }) => (
+    <>
+      <Icon name="branch" size={14} />
+      <span className="scm-cm">
+        <span className="scm-bname"><b className="mono scm-msg">{b.name}</b>{b.name === repo.branch && <span className="scm-cur">current</span>}</span>
+        {b.note && <span className="scm-meta">{b.note}</span>}
+      </span>
+    </>
+  );
+  return (
+    <>
+      {all.length > 8 && (
+        <div className="sv-filter scm-bf">
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${all.length} branches`} aria-label="Filter the branches" />
+        </div>
+      )}
+      {shown.map((b) => gitOn && onOpenBranch
+        ? (
+          <button key={b.name} type="button" className={`scm-row scm-br${b.name === repo.branch ? " on" : ""}`} onClick={() => onOpenBranch(b.name, false)}
+            onDoubleClick={() => onOpenBranch(b.name, true)} title={`${b.name}: its commits and changes against ${repo.base ?? "the base"}, and Switch`}
+            aria-label={`Open the branch ${b.name}`}>
+            {body(b)}
+          </button>
+        )
+        : onOpenLog
+          ? (
+            <button key={b.name} type="button" className={`scm-row scm-br${b.name === repo.branch ? " on" : ""}`} onClick={() => onOpenLog(b.name)}
+              title={`${b.name}: its commits in the Git log`} aria-label={`Show the log of ${b.name}`}>
+              {body(b)}
+            </button>
+          )
+          : <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
+      {!shown.length && <p className="sub scm-none">No branch has “{q.trim()}” in its name.</p>}
+    </>
+  );
+}
+
 export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpenCommitFile, onDoctor, onOpenBranch, onOpenLog }: Props) {
   const branch = repo?.branch;
   const onBase = !!repo && repo.base === repo.branch;
@@ -116,21 +166,29 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
           </button>
         )}
       </div>
-      <div className="scm-branch">
-        <Icon name="branch" size={16} />
-        <b className="mono">{branch ?? "—"}</b>
-        {repo && !onBase && <span className="sub">from <span className="mono">{repo.base}</span> · ↑{repo.ahead} ↓{repo.behind}</span>}
-      </div>
-      {panel ? <panel.component pid={pid} dirty={list.length} onChanged={() => void commits.reload()} />
-        : <p className="scm-ro">Read-only: keel never stages, commits or changes files from this page. The Git plugin (Tools) adds commit, push and pull requests.</p>}
-      {changesError && <div className="sv-pad"><ErrorBox error={changesError} /></div>}
-      {dirty > 0 && (
-        <div className="scm-dirty">
-          <span>{dirty} uncommitted file{dirty === 1 ? "" : "s"}. A flow starts only on a clean tree.</span>
-          <button className="btn sm" type="button" onClick={onDoctor}>Clean up with the Doctor</button>
+      {/* one scroll for everything under the title: the Git panel and the Doctor's note can be taller than the view */}
+      <div className="scm-scroll" data-testid="scm-scroll">
+        <div className="scm-branch">
+          <Icon name="branch" size={16} />
+          <div className="scm-bn">
+            <span className="scm-on">On branch</span>
+            <b className="mono">{branch ?? "—"}</b>
+            {repo && !onBase && (
+              <span className="sub" title={`↑${repo.ahead} ↓${repo.behind} against ${repo.base}`}>
+                from <span className="mono">{repo.base}</span> · {aheadBehind(repo.ahead, repo.behind)}
+              </span>
+            )}
+          </div>
         </div>
-      )}
-      <div className="scm-scroll">
+        {panel ? <panel.component pid={pid} dirty={list.length} onChanged={() => void commits.reload()} />
+          : <p className="scm-ro">Read-only: keel never stages, commits or changes files from this page. The Git plugin (Tools) adds commit, push and pull requests.</p>}
+        {changesError && <div className="sv-pad"><ErrorBox error={changesError} /></div>}
+        {dirty > 0 && (
+          <div className="scm-dirty">
+            <span>{dirty} uncommitted file{dirty === 1 ? "" : "s"}. A flow starts only on a clean tree.</span>
+            <button className="btn sm" type="button" onClick={onDoctor}>Clean up with the Doctor</button>
+          </div>
+        )}
         {changes && !dirty && <p className="sv-pad sub">No uncommitted changes. The working tree is clean.</p>}
         {conflicts.length > 0 && <Group title="Conflicts" count={conflicts.length}>{conflicts.map((c) => <ChangeRow key={c.path} c={c} as="conflict" onOpen={onOpenChange} />)}</Group>}
         {staged.length > 0 && <Group title="Staged changes" count={staged.length}>{staged.map((c) => <ChangeRow key={c.path} c={c} as="staged" onOpen={onOpenChange} />)}</Group>}
@@ -148,23 +206,7 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
         )}
         {repo && repo.branches.length > 0 && (
           <Group key={gitOn ? "git" : "ro"} title="Branches" count={repo.branches.length} start={gitOn}>
-            {repo.branches.map((b) => gitOn && onOpenBranch
-              ? (
-                <button key={b.name} type="button" className="scm-row scm-br" onClick={() => onOpenBranch(b.name, false)} onDoubleClick={() => onOpenBranch(b.name, true)}
-                  title={`${b.name}: its commits and changes against ${repo.base ?? "the base"}, and Switch`} aria-label={`Open the branch ${b.name}`}>
-                  <Icon name="branch" size={14} />
-                  <span className="scm-cm"><b className="mono scm-msg">{b.name}</b><span className="scm-meta">{b.note}</span></span>
-                </button>
-              )
-              : onOpenLog
-                ? (
-                  <button key={b.name} type="button" className="scm-row scm-br" onClick={() => onOpenLog(b.name)}
-                    title={`${b.name}: its commits in the Git log`} aria-label={`Show the log of ${b.name}`}>
-                    <Icon name="branch" size={14} />
-                    <span className="scm-cm"><b className="mono scm-msg">{b.name}</b><span className="scm-meta">{b.note}</span></span>
-                  </button>
-                )
-                : <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
+            <BranchList repo={repo} gitOn={gitOn} onOpenBranch={onOpenBranch} onOpenLog={onOpenLog} />
           </Group>
         )}
       </div>

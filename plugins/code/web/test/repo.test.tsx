@@ -5,16 +5,18 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { DiffRow } from "@keel/web-sdk";
 // keel's own app and test harness: this test runs the Code page inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
-import { db } from "../../../../web/src/test/setup";
+import { db, server } from "../../../../web/src/test/setup";
 import {
   closeTab, findAll, findRegExp, fuzzy, markHtml, openTab, parseDeepLink, parseGoto, pinTab, rankFiles, repoHash, retargetTab,
   splitHtmlLines, splitRows, visibleRows, indexTree, webUrl, type Tabs,
 } from "../model";
+import { aheadBehind } from "../Scm";
 
 const at = (hash: string) => {
   location.hash = hash;
@@ -336,6 +338,52 @@ describe("Repo IDE", () => {
     // a changed file opens in its diff
     await user.click(within(view).getByRole("button", { name: "Open the changes of api/ScoreController.kt" }));
     expect(await screen.findByRole("region", { name: "Changes in api/ScoreController.kt" })).toBeInTheDocument();
+  });
+
+  it("source control scrolls as one: the branch, the Doctor's note and every section are in the same scroll", async () => {
+    // the Git panel and the Doctor's note used to stay put above a scroll one line high
+    const user = userEvent.setup();
+    at("#/repo");
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Source control" }));
+    const view = screen.getByRole("complementary", { name: "Source control" });
+    const scroll = within(view).getByTestId("scm-scroll");
+    expect(within(scroll).getByText("On branch")).toBeInTheDocument();
+    expect(within(scroll).getByText("feat/scores")).toBeInTheDocument();
+    expect(within(scroll).getByText("6 commits ahead", { exact: false })).toBeInTheDocument();
+    expect(await within(scroll).findByRole("button", { name: "Clean up with the Doctor" })).toBeInTheDocument();
+    expect(within(scroll).getByRole("button", { name: /^Branches/ })).toBeInTheDocument();
+    expect(within(view).getByRole("heading", { name: "Source control" }).closest("[data-testid=scm-scroll]")).toBeNull();   // the title stays
+  });
+
+  it("source control's branches: the current one first and marked, and a filter once there are many", async () => {
+    const names = ["chore/deps", "docs/guide", "feat/billing", "feat/export", "feat/import", "feat/search", "fix/audio", "fix/login", "main", "feat/scores"];
+    server.use(http.get("/api/projects/:pid/repo", () => HttpResponse.json({ ...fx.repo, branches: names.map((name) => ({ name, note: `${name}: its last commit` })) })));
+    const user = userEvent.setup();
+    at("#/repo");
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Source control" }));
+    const view = screen.getByRole("complementary", { name: "Source control" });
+    const head = await within(view).findByRole("button", { name: /^Branches/ });
+    if (head.getAttribute("aria-expanded") !== "true") await user.click(head);
+    const filter = await within(view).findByRole("searchbox", { name: "Filter the branches" });
+    expect(filter).toHaveAttribute("placeholder", "Filter 10 branches");
+    const rows = () => [...view.querySelectorAll(".scm-br")].map((r) => r.querySelector(".scm-msg")?.textContent);
+    expect(rows()[0]).toBe("feat/scores");
+    expect(view.querySelector(".scm-br.on")).toHaveTextContent("current");
+    await user.type(filter, "FIX");
+    expect(rows()).toEqual(["fix/audio", "fix/login"]);
+    await user.clear(filter);
+    await user.type(filter, "nothing-like-this");
+    expect(rows()).toEqual([]);
+    expect(within(view).getByText("No branch has “nothing-like-this” in its name.")).toBeInTheDocument();
+  });
+
+  it("says ahead and behind in words", () => {
+    expect(aheadBehind(1, 0)).toBe("1 commit ahead");
+    expect(aheadBehind(6, 2)).toBe("6 commits ahead, 2 behind");
+    expect(aheadBehind(0, 3)).toBe("3 behind");
+    expect(aheadBehind(0, 0)).toBe("no new commits yet");
   });
 
   it("keel docs and Memory open as tabs from the keel view", async () => {
