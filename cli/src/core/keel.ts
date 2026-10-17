@@ -373,6 +373,12 @@ export class KeelCore {
       }
       return;
     }
+    // KeelBot's calls are among keel's running agents too: a finished one leaves the list at once, and the list is read
+    // again (helper events never reach the refresh at the end)
+    if (ev.type === "helper.started" || ev.type === "helper.finished") {
+      if (ev.type === "helper.finished" && ev.call_id) this.dropRunning(ev.call_id);
+      this.bump();
+    }
     // 0.18.6 the person asked in this chat from the dashboard: their words, then KeelBot's answer as it is written
     if (ev.type === "helper.started" && chat.session && ev.thread_id === chat.session.id && !chat.busy && !this.sending && ev.call_id) {
       this.setChat({ busy: true, callId: ev.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
@@ -574,12 +580,21 @@ export class KeelCore {
       }
       const msgs = s.messages ?? [];
       const last = msgs[msgs.length - 1];
+      // the turn's call is done: no running agent any more, also when its helper.finished never came
+      const callId = this.snapshot.chat.callId ?? last?.call_id;
+      if (callId) this.dropRunning(callId);
+      this.bump();
       this.setChat({ session: s, busy: false, callId: null, stream: "", startedAt: null });
       if (last && last.role !== "user") this.emit("answer", { text: last.text, ok: last.role === "helper", message: last });
       else this.emit("answer", { text: s.error || "KeelBot did not answer.", ok: false });
     } finally {
       this.finishing = false;
     }
+  }
+
+  private dropRunning(callId: string) {
+    const running = this.snapshot.running;
+    if (running.some((j) => j.id === callId)) this.set({ running: running.filter((j) => j.id !== callId) });
   }
 
   async stopChat() {

@@ -9,9 +9,16 @@ import { stripAnsi } from "../src/script";
 import { stubKeel, tick, waitFor } from "./stub";
 import { VERBS } from "../src/ui/thinking";
 
-function setup() {
+function setup(extraRunning: () => unknown[] = () => []) {
   const stub = stubKeel();
-  const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true, publicUrl: "http://localhost:8080" });
+  // more running agents than the stub's one (a test adds KeelBot's calls)
+  const f: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (!(url.includes("/api/jobs?") && url.includes("status=running")) || !extraRunning().length) return stub.fetch(input, init);
+    const base = (await (await stub.fetch(input, init)).json()) as unknown[];
+    return new Response(JSON.stringify([...base, ...extraRunning()]), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const core = new KeelCore({ url: "http://keel.test", fetch: f, noLive: true, publicUrl: "http://localhost:8080" });
   const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
   const r = render(<App core={core} probe={probe} width={100} />);
   const frame = () => stripAnsi(r.lastFrame() ?? "");
@@ -27,6 +34,10 @@ function setup() {
   };
   return { stub, core, probe, r, frame, type, enter };
 }
+
+const helperJob = (id: string, thread: string) => ({ id, project_id: "demo", thread_id: thread, agent: "helper", provider: "fake", model: "fake",
+  step: null, phase: null, ac: null, status: "running", started_at: new Date().toISOString(), ended_at: null, tokens_in: 0, tokens_out: 0, cost_usd: 0,
+  premium_requests: 0, steps_count: 1, mcp_calls: 0 });
 
 describe("keel TUI", () => {
   it("opens with keel's logo, the version, which keel, the project, what waits and what is next", async () => {
@@ -104,6 +115,44 @@ describe("keel TUI", () => {
     expect(f).toMatch(/  > grep createApp +✓\n/);                        // what it did, kept above the answer
     expect(f).not.toContain("esc to interrupt");
     expect(t.stub.calls.find((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn")?.body).toEqual({ text: "where does the app start?" });
+    t.r.unmount();
+  });
+
+  it("drops KeelBot's own call from the running agents once its turn is done", async () => {
+    // keel lists KeelBot's call among the running agents while it works: a refresh in the turn sees it as "helper"
+    let helperRuns = true;
+    const t = setup(() => (helperRuns ? [helperJob("call-9", "s1")] : []));
+    await waitFor(() => t.probe.started);
+    await t.type("hello");
+    await t.enter();
+    await waitFor(() => t.probe.chatBusy);
+    t.core.onMessage({ event: "helper.step", data: JSON.stringify({ type: "helper.step", thread_id: "s1", project_id: "demo", at: "x", call_id: "call-9",
+      data: { n: 1, kind: "text", text: "Hello!" } }) });
+    await t.core.refresh();
+    expect(t.core.snapshot.running.map((j) => j.agent)).toContain("helper");
+    helperRuns = false;                                                 // keel marks the call done with the answer
+    t.stub.answer("Hello! How can I help?");
+    t.core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "s1", project_id: "demo", at: "x", data: { status: "done" } }) });
+    await waitFor(() => t.probe.answers === 1);
+    await tick(50);
+    expect(t.core.snapshot.running.map((j) => j.agent)).not.toContain("helper");
+    expect(t.frame()).toContain("Hello! How can I help?");
+    expect(t.frame()).not.toMatch(/helper · .*(click to follow|Ctrl\+O follows)/);
+    t.r.unmount();
+  });
+
+  it("drops a KeelBot call of another chat (the dashboard's) from the running agents when it finishes", async () => {
+    let dashboard = true;
+    const t = setup(() => (dashboard ? [helperJob("call-dash", "h_other")] : []));
+    await waitFor(() => t.probe.started);
+    await t.core.refresh();
+    expect(t.core.snapshot.running.map((j) => j.id)).toContain("call-dash");
+    dashboard = false;
+    t.core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "h_other", project_id: "demo", at: "x",
+      call_id: "call-dash", data: { status: "done" } }) });
+    expect(t.core.snapshot.running.map((j) => j.id)).not.toContain("call-dash");    // at once, before keel is asked again
+    await tick(400);
+    expect(t.core.snapshot.running.map((j) => j.id)).not.toContain("call-dash");
     t.r.unmount();
   });
 
