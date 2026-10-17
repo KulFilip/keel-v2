@@ -53,7 +53,7 @@ All JSON. Errors: `{ "error": string, "hint"?: string }` with 4xx/5xx.
 
 ```
 GET  /health                                  → { ok: true, version, fake: bool }
-GET  /templates                               → Workflow[]        built-in keel flows: feature, change, fix, init
+GET  /templates                               → Workflow[]        built-in keel flows: feature, change, quick, small, implement, fix, …
 POST /workflows/validate   { yaml }           → { ok, errors: string[], workflow?: Workflow }
 POST /workflows/estimate   { yaml, acs, history?: StepHistory[] } → Estimate
 POST /threads              StartThread        → { thread_id }
@@ -674,7 +674,7 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
 
 ## v0.4.0 additions: review, diagnose, fix and change
 
-Workflows in `content/workflows/` (ORDER: feature, change, fix, diagnose, review, init, knowledge-refresh, cover, ship, hunt, hunt-next; then lint and, from 0.18.6, plugin).
+Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, small, implement, then fix, diagnose, review, init, knowledge-refresh, cover, ship, hunt, hunt-next; then lint and, from 0.18.6, plugin).
 
 - **review** (read-only, phase `review`): `review_scope` reads `data.lens` (code | all | correctness | security | performance |
   architecture | assertions | ac <ID>) and `data.base` (default base_branch, main, master) and builds `data.review_lenses`

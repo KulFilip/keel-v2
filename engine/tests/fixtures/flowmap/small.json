@@ -1,0 +1,230 @@
+{
+ "workflow": "small",
+ "name": "small (keel)",
+ "steps": [
+  {
+   "id": "preflight",
+   "kind": "code",
+   "name": "preflight + own branch",
+   "phase": "preflight",
+   "action": "preflight"
+  },
+  {
+   "id": "plan",
+   "kind": "agent",
+   "name": "a short plan",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "triage",
+   "instructions": "Read the request and the code it touches. Write a short plan: 3 to 5 lines on what changes and where, then 1 to 3 numbered acceptance criteria, each one a test can prove. Ask a question only when the request leaves the result open. When it needs more than 3 criteria, a migration, the API contract or auth, say so: it needs the feature flow."
+  },
+  {
+   "id": "plan_gate",
+   "kind": "gate",
+   "name": "plan approval",
+   "phase": "triage",
+   "back": "plan",
+   "lock": true
+  },
+  {
+   "id": "red",
+   "kind": "agent",
+   "name": "red",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "red",
+   "per_ac": true
+  },
+  {
+   "id": "verify_red",
+   "kind": "code",
+   "name": "verify_red",
+   "phase": "red",
+   "action": "verify_red+commit",
+   "per_ac": true,
+   "lock": true
+  },
+  {
+   "id": "green",
+   "kind": "agent",
+   "name": "green",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "green",
+   "per_ac": true
+  },
+  {
+   "id": "verify_green",
+   "kind": "code",
+   "name": "verify_green + commit",
+   "phase": "green",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "lock": true
+  },
+  {
+   "id": "review_fix",
+   "kind": "agent",
+   "name": "fix the review's findings",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "review-fix",
+   "retry_only": true
+  },
+  {
+   "id": "review_fix_commit",
+   "kind": "code",
+   "name": "verify the suite + commit the fix",
+   "phase": "review-fix",
+   "action": "verify_green+commit"
+  },
+  {
+   "id": "review",
+   "kind": "agent",
+   "name": "review the change",
+   "agent": "code-reviewer",
+   "model": "default",
+   "phase": "gate",
+   "back": "review_fix",
+   "instructions": "Read the plan and its criteria, then the whole branch diff. Check that every criterion has a test that proves it and that the code does only what the plan says. Report only real problems.",
+   "rounds": 2
+  },
+  {
+   "id": "diff",
+   "kind": "code",
+   "name": "the diff for your look",
+   "phase": "gate",
+   "action": "show_diff"
+  },
+  {
+   "id": "look",
+   "kind": "gate",
+   "name": "look at the change",
+   "phase": "gate",
+   "back": "review_fix",
+   "lock": true
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "action": "close_flow",
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "preflight",
+   "plan",
+   "plan_gate",
+   "red",
+   "verify_red",
+   "green",
+   "verify_green",
+   "review_fix",
+   "review_fix_commit",
+   "review",
+   "diff",
+   "look",
+   "close"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "preflight",
+    "nodes": [
+     {
+      "step": "preflight",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "triage",
+    "nodes": [
+     {
+      "step": "plan",
+      "side": []
+     },
+     {
+      "step": "plan_gate",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "loop",
+    "phase": "ac",
+    "nodes": [
+     {
+      "loop": "ac",
+      "body": [
+       {
+        "step": "red",
+        "side": []
+       },
+       {
+        "step": "verify_red",
+        "side": []
+       },
+       {
+        "step": "green",
+        "side": []
+       },
+       {
+        "step": "verify_green",
+        "side": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "review-fix",
+    "nodes": [
+     {
+      "step": "review_fix",
+      "side": []
+     },
+     {
+      "step": "review_fix_commit",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "review",
+      "side": []
+     },
+     {
+      "step": "diff",
+      "side": []
+     },
+     {
+      "step": "look",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "close",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

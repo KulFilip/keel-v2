@@ -53,6 +53,11 @@ The [README](../README.md) is the short version. This page has the details.
 |---|---|
 | **feature** | spec (with questions) → plan → contract → per criterion: failing test, code, review ◆ → security, full review, e2e, smoke → ship |
 | **change** | small change without a spec: trivial (one commit) or 1–3 criteria; too big → hands over to feature |
+| **quick** | one agent makes the change and a test → keel runs the tests (2 fix rounds) → your one look ◆ → one commit; no spec, no ship |
+| **implement** | the usual order, not test-first: the code → its tests → keel runs them; pass → one commit, done; fail → a fix and the tests again (2 rounds); no gate |
+| **small** | a short plan with 1–3 criteria ◆ → per criterion a failing test and the code → one review (its blocking findings fixed, 2 rounds) → your one look ◆; no ship |
+
+Start a flow suggests a size from your words (quick, implement, small, change, feature, or fix for a bug) and shows each size's steps and estimate; you pick.
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
 | **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note |
 | **review** | read-only review of the branch, one reviewer per lens; the report word for word |

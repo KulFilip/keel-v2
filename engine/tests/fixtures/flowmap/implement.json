@@ -1,0 +1,140 @@
+{
+ "workflow": "implement",
+ "name": "implement (keel)",
+ "steps": [
+  {
+   "id": "preflight",
+   "kind": "code",
+   "name": "preflight + own branch",
+   "phase": "preflight",
+   "action": "preflight"
+  },
+  {
+   "id": "implement",
+   "kind": "agent",
+   "name": "write the code",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "green",
+   "instructions": "Write the code for the request, in the files it needs and no more, following how this project already does things. Write no tests: the test author writes them next, for what you built. Say in a few lines what you changed and how it can be tested."
+  },
+  {
+   "id": "tests",
+   "kind": "agent",
+   "name": "write the tests",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "red",
+   "instructions": "The implementer just wrote the code for the request (the uncommitted changes). Write tests that prove it works: the main case, a wrong input and an edge case, in the project's own test style. They should pass now. If a test fails because the code is wrong, keep the test and say what is wrong; never weaken a test to make it pass."
+  },
+  {
+   "id": "fix",
+   "kind": "agent",
+   "name": "fix what fails",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "ac",
+   "instructions": "The tests fail. Fix the code so they pass. Change a test only when it is wrong against the request, and say why in one line.",
+   "retry_only": true
+  },
+  {
+   "id": "verify",
+   "kind": "code",
+   "name": "run the tests",
+   "phase": "ac",
+   "action": "verify_green",
+   "back": "fix",
+   "lock": true,
+   "rounds": 2
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit the code and its tests",
+   "phase": "ac",
+   "action": "commit",
+   "lock": true
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "action": "close_flow",
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "preflight",
+   "implement",
+   "tests",
+   "fix",
+   "verify",
+   "commit",
+   "close"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "preflight",
+    "nodes": [
+     {
+      "step": "preflight",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "green",
+    "nodes": [
+     {
+      "step": "implement",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "red",
+    "nodes": [
+     {
+      "step": "tests",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "fix",
+      "side": []
+     },
+     {
+      "step": "verify",
+      "side": []
+     },
+     {
+      "step": "commit",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "close",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

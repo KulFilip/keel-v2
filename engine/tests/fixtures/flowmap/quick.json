@@ -1,0 +1,136 @@
+{
+ "workflow": "quick",
+ "name": "quick (keel)",
+ "steps": [
+  {
+   "id": "preflight",
+   "kind": "code",
+   "name": "preflight + own branch",
+   "phase": "preflight",
+   "action": "preflight"
+  },
+  {
+   "id": "implement",
+   "kind": "agent",
+   "name": "make the change + a test",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "ac",
+   "instructions": "Make the requested change with the least code, and only in the files it needs. Add a test that proves it, or change the test that covers it; if the change cannot be tested (a text, a doc, a comment), say so in one line and add none. Run the tests you touched. Do not refactor, rename or tidy anything else. When it is bigger than a small change (a new page, a migration, the API contract, several parts), stop and say so: it needs the small or the feature flow."
+  },
+  {
+   "id": "verify",
+   "kind": "code",
+   "name": "run the tests",
+   "phase": "ac",
+   "action": "verify_green",
+   "back": "implement",
+   "lock": true,
+   "rounds": 2
+  },
+  {
+   "id": "diff",
+   "kind": "code",
+   "name": "the diff for your look",
+   "phase": "ac",
+   "action": "show_diff"
+  },
+  {
+   "id": "look",
+   "kind": "gate",
+   "name": "look at the change",
+   "phase": "gate",
+   "back": "implement",
+   "lock": true
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit",
+   "phase": "ac",
+   "action": "commit",
+   "lock": true
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "action": "close_flow",
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "preflight",
+   "implement",
+   "verify",
+   "diff",
+   "look",
+   "commit",
+   "close"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "preflight",
+    "nodes": [
+     {
+      "step": "preflight",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "implement",
+      "side": []
+     },
+     {
+      "step": "verify",
+      "side": []
+     },
+     {
+      "step": "diff",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "look",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "commit",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "close",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

@@ -30,6 +30,12 @@ ABOUT = {
                "and a review (you approve each) → security, full review, e2e, smoke → ship",
     "change": "a small change without a spec: trivial (one commit) or 1–3 criteria with tests; too big → hands over to "
               "feature",
+    "quick": "the smallest code change (a typo, a small bug, a config value): one agent makes it and a test → keel runs "
+             "the tests → you look at the diff once → one commit; a few steps, no spec, no ship",
+    "small": "a small feature, test-first, without ship: a short plan with 1–3 criteria you approve → per criterion a "
+             "failing test and the code → one review → your one look",
+    "implement": "the usual order, not test-first: the code → its tests → keel runs them; pass → one commit and done, "
+                 "fail → a fix and the tests again; no gate",
     "fix": "a bug you can describe: reproduce it as a failing test → find the cause → fix → regression test → ship",
     "diagnose": "a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hands over to fix or feature",
     "review": "read-only review of the branch, one reviewer per lens (code, security, performance, ...); a report",

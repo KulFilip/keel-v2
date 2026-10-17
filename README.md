@@ -99,6 +99,9 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 | Flow | Use it to |
 |---|---|
+| **quick** | make a tiny change (one agent, the tests, one look) |
+| **implement** | write the code, then its tests; done when they pass |
+| **small** | build a small feature, test-first, without the long ship part |
 | **feature** | build something new |
 | **change** | make a small change |
 | **fix** | fix a bug (first a test that shows it) |

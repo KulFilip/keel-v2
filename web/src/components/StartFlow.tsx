@@ -7,6 +7,7 @@ import { go, useApp } from "../state";
 import { RunModePicker } from "./RunMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
+import { SIZE_FLOWS, suggestFlow } from "../flowSize";
 
 const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to cheaper models"], ["stop", "stop"]];
 
@@ -100,6 +101,28 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     if (follow && cap === capDefault) setCap(follow.cap);
   }, [follow?.cap]); // eslint-disable-line react-hooks/exhaustive-deps
   const low = est && parseTokens(cap) > 0 && parseTokens(cap) < est.high;
+
+  // keel 0.18.12 the sizes: the flows from quick to feature that this project has, each with its estimate, and the one
+  // that fits the words (the person still picks; a flow that is not a size, a review say, hides the row)
+  const sizes = SIZE_FLOWS.filter((s) => wfs?.some((w) => w.id === s.id));
+  const suggested = suggestFlow(`${title}\n${request}`, [...sizes.map((s) => s.id), ...(wfs?.some((w) => w.id === "fix") ? ["fix"] : [])]);
+  const [sizeEst, setSizeEst] = useState<Record<string, number>>({});
+  const sizeIds = sizes.map((s) => s.id).join(",");
+  useEffect(() => {
+    if (!p || !sizeIds) return;
+    let gone = false;
+    setSizeEst({});
+    const t = window.setTimeout(() => {
+      sizeIds.split(",").forEach((id) => {
+        api.estimate(p, id, acs).then((e) => !gone && setSizeEst((m) => ({ ...m, [id]: e.tokens })), () => undefined);
+      });
+    }, 250);
+    return () => {
+      gone = true;
+      window.clearTimeout(t);
+    };
+  }, [p, acs, sizeIds]);
+  const showSizes = sizes.length > 1 && (sizes.some((s) => s.id === wid) || wid === "fix");
 
   const premium = limits.find((l) => /premium/i.test(l.name));
   const claude = limits.find((l) => /claude/i.test(l.name));
@@ -199,6 +222,33 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           placeholder="Who needs it, what should happen, what must not happen, where in the code if you know. The spec agent turns this into acceptance criteria." />
         {vague && title.trim() && <span className="hint amber">This is very short. The agents may not know what to build — a few sentences save a lot of tokens.</span>}
       </div>
+      {showSizes && (
+        <fieldset className="field sf-sizes">
+          <legend>How big is it?</legend>
+          <div className="sf-size-row" role="radiogroup" aria-label="Size of the flow">
+            {sizes.map((s) => {
+              const w = wfs!.find((x) => x.id === s.id)!;
+              const mine = suggested?.id === s.id;
+              return (
+                <button key={s.id} type="button" role="radio" aria-checked={wid === s.id} className={`sf-size ${wid === s.id ? "on" : ""} ${mine ? "is-suggested" : ""}`}
+                  onClick={() => setWid(s.id)} title={s.about}>
+                  <b>{s.id}</b>
+                  <span className="sub">{w.steps.length} steps{sizeEst[s.id] ? ` · ≈ ${kfmt(sizeEst[s.id])}` : ""}</span>
+                  {mine && <span className="sf-size-tag">keel suggests</span>}
+                </button>
+              );
+            })}
+          </div>
+          {suggested && (
+            <span className="hint" data-testid="sf-suggest">
+              keel suggests <b>{suggested.id}</b>: {suggested.why}.{suggested.id !== wid && (
+                <> <button type="button" className="linkbtn" onClick={() => setWid(suggested.id)}>Use {suggested.id}</button></>
+              )}
+            </span>
+          )}
+          {!suggested && <span className="hint">Say what to build, and keel suggests a size. {SIZE_FLOWS.find((s) => s.id === wid)?.about ?? ""}</span>}
+        </fieldset>
+      )}
       <div className="field">
         <label htmlFor="sf-acs">About how many acceptance criteria</label>
         <div className="row"><input type="range" id="sf-acs" min={1} max={10} value={acs} onChange={(e) => setAcs(Number(e.target.value))} style={{ flex: "1 1 140px" }} /><b className="num">{acs}</b></div>

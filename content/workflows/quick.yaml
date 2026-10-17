@@ -1,0 +1,27 @@
+id: quick
+name: quick (keel)
+keel_rules: true
+version: 1
+# A small, clear change in a few steps (keel 0.18.12): one agent makes the change and a test that proves it (phase ac:
+# code and tests), keel runs the tests (up to 2 fix rounds, then keel asks), you look at the diff once, keel commits.
+# No spec, no criteria loop, no ship: for a typo, a small bug, a config value. Bigger work: small, implement, change or
+# feature.
+steps:
+  - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  - id: implement
+    kind: agent
+    name: make the change + a test
+    agent: implementer
+    model: default
+    phase: ac
+    instructions: >-
+      Make the requested change with the least code, and only in the files it needs. Add a test that proves it, or
+      change the test that covers it; if the change cannot be tested (a text, a doc, a comment), say so in one line and
+      add none. Run the tests you touched. Do not refactor, rename or tidy anything else. When it is bigger than a small
+      change (a new page, a migration, the API contract, several parts), stop and say so: it needs the small or the
+      feature flow.
+  - { id: verify, kind: code, name: run the tests, action: verify_green, phase: ac, back: implement, rounds: 2, lock: true }
+  - { id: diff, kind: code, name: the diff for your look, action: show_diff, phase: ac }
+  - { id: look, kind: gate, name: look at the change, back: implement, lock: true, phase: gate }
+  - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: ac }
+  - { id: close, kind: code, name: done, action: close_flow, then: end, phase: close }

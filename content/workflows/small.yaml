@@ -1,0 +1,42 @@
+id: small
+name: small (keel)
+keel_rules: true
+version: 1
+# A small feature, test-first, without the long ship flow (keel 0.18.12): a short plan with 1 to 3 criteria that you
+# approve, then for each criterion the failing test (RED) and the code that makes it pass (GREEN), one review of the
+# whole diff (its blocking findings fixed up to 2 rounds), and your one look before it is done. Bigger work (a
+# migration, the API contract, auth, more criteria): change or feature.
+steps:
+  - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  - id: plan
+    kind: agent
+    name: a short plan
+    agent: explorer
+    model: default
+    phase: triage
+    instructions: >-
+      Read the request and the code it touches. Write a short plan: 3 to 5 lines on what changes and where, then 1 to 3
+      numbered acceptance criteria, each one a test can prove. Ask a question only when the request leaves the result
+      open. When it needs more than 3 criteria, a migration, the API contract or auth, say so: it needs the feature flow.
+  - { id: plan_gate, kind: gate, name: plan approval, back: plan, lock: true, phase: triage }
+  - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true }
+  - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
+  - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true }
+  - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
+  # the whole-diff review and your one look
+  - { id: review_fix, kind: agent, name: fix the review's findings, agent: implementer, model: default, phase: review-fix, retry_only: true }
+  - { id: review_fix_commit, kind: code, name: verify the suite + commit the fix, action: verify_green+commit, phase: review-fix }
+  - id: review
+    kind: agent
+    name: review the change
+    agent: code-reviewer
+    model: default
+    phase: gate
+    back: review_fix
+    rounds: 2
+    instructions: >-
+      Read the plan and its criteria, then the whole branch diff. Check that every criterion has a test that proves it
+      and that the code does only what the plan says. Report only real problems.
+  - { id: diff, kind: code, name: the diff for your look, action: show_diff, phase: gate }
+  - { id: look, kind: gate, name: look at the change, back: review_fix, lock: true, phase: gate }
+  - { id: close, kind: code, name: done, action: close_flow, then: end, phase: close }
