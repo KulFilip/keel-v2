@@ -263,6 +263,8 @@ export const AREAS: KeyArea[] = [
       { label: "Next or previous step", raw: ["↓ ↑"] },
       { label: "First or last step", keys: ["home", "end"] },
       { label: "Open the step", raw: [keyLabel("enter"), "Space"] },
+      { label: "Approve the gate (in its card)", raw: ["A"] },
+      { label: "Write why, to send back (in the gate's card)", raw: ["R"] },
       { label: "Close the big view or the Stop dialog", keys: ["escape"] },
     ],
   },

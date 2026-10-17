@@ -4,6 +4,7 @@
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Node, Section } from "../components/flowmap";
 import { App } from "../App";
@@ -13,6 +14,7 @@ import { moveStepTo } from "../components/builderOps";
 import { armsTaken, buildFlowMap, exitsOf, stepStates } from "../components/flowmap";
 import { linkSteps } from "../pages/Workflows";
 import { fixWorkflow } from "./fixtures";
+import { server } from "./setup";
 import featureJson from "./workflows/feature.json";
 import fixJson from "./workflows/fix.json";
 import shipJson from "./workflows/ship.json";
@@ -202,8 +204,11 @@ describe("Blocks (read only and live)", () => {
     expect(state("ac_gate")).toBe("wait");
     expect(state("integration")).toBe("todo");
     expect(within(document.querySelector('[data-block="ac_gate"]') as HTMLElement).getByText("waiting for you")).toBeInTheDocument();
-    const chips = screen.getByLabelText("Criteria in this loop");
-    expect(chips.querySelector('[data-ac="AC-002"]')).toHaveClass("cur");
+    // keel 0.18.11 one row per criterion: the current one waits for you, AC-001 is done, AC-003 still to do
+    const rows = screen.getByLabelText("Each criterion");
+    expect(rows.querySelector('[data-ac-row="AC-002"]')).toHaveClass("is-cur", "s-wait");
+    expect(rows.querySelector('[data-ac-row="AC-001"]')).toHaveClass("s-done");
+    expect(rows.querySelector('[data-ac-row="AC-003"]')).toHaveTextContent("AC-003to do");
     expect(screen.getByText("round 2 of 3")).toBeInTheDocument();
     expect(within(document.querySelector('[data-block="green"]') as HTMLElement).getByTitle(/111k tokens used so far/)).toHaveTextContent("111k / ≈52k");
   });
@@ -339,6 +344,22 @@ describe("Workflows page (builder)", () => {
   });
 });
 
+describe("Blocks of a flow that is over (0.18.11)", () => {
+  it("a side-path step that ran is done, not to do, and real tokens show without an estimate of 0", async () => {
+    const user = userEvent.setup();
+    const steps = (featureJson as unknown as Workflow).steps;
+    const map = buildFlowMap(steps);
+    const [sideId, parent] = [...map.parentOf.entries()].find(([id]) => !steps.find((s) => s.id === id)?.per_ac)!;
+    const mainId = map.main[1];
+    render(<Blocks steps={steps} status="done" current={null} visited={new Set([sideId, mainId])} actual={{ [mainId]: 31000 }} onOpenStep={() => {}} />);
+    await user.click(document.querySelector(`[aria-controls="sx-side-${parent}"]`) as HTMLElement);
+    expect(document.querySelector(`[data-block="${sideId}"]`)).toHaveAttribute("data-state", "done");
+    const tok = (document.querySelector(`[data-block="${mainId}"]`) as HTMLElement).querySelector(".sb-tok")!;
+    expect(tok).toHaveTextContent("31k");
+    expect(tok.textContent).not.toContain("≈");
+  });
+});
+
 describe("Flow page (live blocks)", () => {
   it("the waiting gate's card sits under its block; the bar shows tokens, cost and Jump to current", async () => {
     render(<App />);
@@ -351,8 +372,33 @@ describe("Flow page (live blocks)", () => {
     expect(bar).toHaveTextContent("182k");
     expect(bar).toHaveTextContent("$2.86");
     expect(within(bar).getByRole("button", { name: "Jump to current" })).toBeInTheDocument();
-    // real tokens per step from the thread's jobs: green used 37k
-    await waitFor(() => expect(within(document.querySelector('[data-block="s5"]') as HTMLElement).getByTitle(/37k tokens used so far/)).toBeInTheDocument());
+    // keel 0.18.11 what each step really did, from the flow's step-runs: green (one round of the criterion loop) used
+    // 37k for AC-002 with copilot's gpt-5 in 4m 10s
+    const green = () => document.querySelector('[data-block="s5"]') as HTMLElement;
+    await waitFor(() => expect(within(green()).getByTitle(/37k tokens used this round \(AC-002\)/)).toBeInTheDocument());
+    expect(green().querySelector(".sb-model")).toHaveTextContent("gpt-5");
+    expect(green().querySelector(".sb-facts")).toHaveTextContent("4m 10s · AC-002");
+  });
+
+  it("each block says what really ran: the model and effort, time, cost, its answer's first line, and its tries", async () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 9, 17, 10, min)).toISOString();
+    server.use(http.get("/api/projects/:pid/flows/:tid/step-runs", () => HttpResponse.json([
+      { step: "s5", ac: "AC-001", tries: 1, status: "done", agent: "implementer", provider: "claude", model: "haiku", effort: null, started_at: at(1),
+        ended_at: at(2), ms: 60_000, tokens_in: 9000, tokens_out: 1000, tokens_cached: 0, cost_usd: 0.02, result: "AC-001 green", call_id: "a" },
+      { step: "s5", ac: "AC-002", tries: 2, status: "done", agent: "implementer", provider: "claude", model: "sonnet", effort: "high", started_at: at(10),
+        ended_at: at(14), ms: 130_000, tokens_in: 30000, tokens_out: 1000, tokens_cached: 0, cost_usd: 0.18, result: "app/main.py: POST /health returns 405",
+        call_id: "b" },
+    ])));
+    render(<App />);
+    const green = () => document.querySelector('[data-block="s5"]') as HTMLElement;
+    await waitFor(() => expect(green().querySelector(".sb-model")).toHaveTextContent("sonnet · high"));   // the current criterion's round
+    expect(green().querySelector(".sb-facts")).toHaveTextContent("2m 10s · $0.18 · AC-002");
+    expect(green().querySelector(".sb-result")).toHaveTextContent("“app/main.py: POST /health returns 405”");
+    expect(within(green()).getByTitle(/2 tries for AC-002: it was sent back or ran again 1 time/)).toHaveTextContent("×2");
+    expect(within(green()).getByTitle(/31k tokens used this round \(AC-002\)/)).toBeInTheDocument();
+    expect(within(green()).getByRole("button", { name: /ran: sonnet · high · 2m 10s · \$0\.18 · AC-002, 2 tries, result: app\/main\.py/ })).toBeInTheDocument();
+    // the loop keeps the total of every round: 10k + 31k
+    expect((document.querySelector('[data-loop]') as HTMLElement).querySelector(".sc-cost-t")).toHaveTextContent("41k");
   });
 
   it("Go to it shows the answer card under the waiting block and focuses its first button", async () => {
@@ -365,10 +411,19 @@ describe("Flow page (live blocks)", () => {
     try {
       render(<App />);
       await screen.findByRole("region", { name: "Gate waits for you" });
-      await user.click(await screen.findByRole("button", { name: "Go to it" }));
+      // the side panel's "Go to it" (keel 0.18.11: the steps have their own, pinned on top of them)
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "Go to it" }).length).toBe(2));
+      const side = screen.getAllByRole("button", { name: "Go to it" }).find((b) => !b.closest(".fl-needs"))!;
+      await user.click(side);
       const card = screen.getByRole("region", { name: "Gate waits for you" });
       await waitFor(() => expect(seen).toContain(card));
       expect(document.activeElement && card.contains(document.activeElement)).toBe(true);
+      // the pinned one does the same
+      (document.activeElement as HTMLElement).blur();
+      const pinned = document.querySelector(".fl-needs") as HTMLElement;
+      expect(pinned).toHaveTextContent("Needs you: AC gate for AC-002 waits for your answer.");
+      await user.click(within(pinned).getByRole("button", { name: "Go to it" }));
+      await waitFor(() => expect(document.activeElement && card.contains(document.activeElement)).toBe(true));
     } finally {
       Element.prototype.scrollIntoView = had;
     }

@@ -3,7 +3,7 @@
 import type {
   Agent, Budget, BudgetNow, Cap, Catalog, Commit, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
   McpServer, Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, Settings, Skill, SkillDetail,
-  Stack, StepExplanation, ThreadState, WikiPage, WikiTree, Workflow,
+  Stack, StepExplanation, StepRunFacts, ThreadState, WikiPage, WikiTree, Workflow,
 } from "../api";
 
 // ---- the JSON the Code plugin's api sends, as these fixtures build it ----
@@ -132,6 +132,24 @@ export const jobs: Job[] = [
   { id: "j-480", project_id: "ludus-engine", thread_id: "th_7f3a", agent: "implementer", provider: "copilot", model: "gpt-5", step: "s5", phase: "green", ac: "AC-002",
     status: "done", started_at: ago(900), ended_at: ago(650), tokens_in: 31000, tokens_out: 6000, cost_usd: 0, premium_requests: 6, steps_count: 9, mcp_calls: 2 },
 ];
+
+/** keel 0.18.11 the jobs of one flow as GET .../step-runs returns them: added up per step and criterion. */
+export function stepRunsOf(js: Job[]): StepRunFacts[] {
+  const groups = new Map<string, Job[]>();
+  js.forEach((j) => groups.set(`${j.step}\u0000${j.ac ?? ""}`, [...(groups.get(`${j.step}\u0000${j.ac ?? ""}`) ?? []), j]));
+  return [...groups.values()].map((g) => {
+    const cs = [...g].sort((a, b) => a.started_at.localeCompare(b.started_at));
+    const last = cs[cs.length - 1];
+    const ms = (j: Job) => Math.max(0, (j.ended_at ? Date.parse(j.ended_at) : Date.now()) - Date.parse(j.started_at));
+    return {
+      step: last.step, ac: last.ac, tries: cs.length, status: last.status, agent: last.agent, provider: last.provider, model: last.model,
+      effort: last.effort ?? null, started_at: cs[0].started_at, ended_at: last.ended_at, ms: cs.reduce((a, j) => a + ms(j), 0),
+      tokens_in: cs.reduce((a, j) => a + j.tokens_in, 0), tokens_out: cs.reduce((a, j) => a + j.tokens_out, 0),
+      tokens_cached: cs.reduce((a, j) => a + (j.tokens_cached ?? 0), 0), cost_usd: cs.reduce((a, j) => a + j.cost_usd, 0),
+      result: null, call_id: last.id,
+    };
+  });
+}
 
 export const steps: JobStep[] = [
   { n: 1, at: ago(70), kind: "text", text: "Looking at what the gate needs: RED and GREEN commits for AC-002." },

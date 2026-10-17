@@ -217,6 +217,9 @@ export function handlers(db: Db) {
     }),
     http.post("/api/threads/:tid/stop", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),
     http.get("/api/threads/:tid/history", () => HttpResponse.json(fx.checkpoints)),
+    // keel 0.18.11 each step's calls added up, built from the jobs like the api does (StepRuns.kt)
+    http.get("/api/projects/:pid/flows/:tid/step-runs", ({ params }) =>
+      HttpResponse.json(fx.stepRunsOf(fx.jobs.filter((j) => j.project_id === params.pid && j.thread_id === params.tid)))),
     http.post("/api/threads/:tid/rewind", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),
     http.get("/api/projects/:pid/estimate", () => HttpResponse.json(fx.estimate)),
     http.post("/api/projects/:pid/estimate", async ({ request }) => {

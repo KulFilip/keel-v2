@@ -7,7 +7,7 @@
 import { AppliedPanel } from "../components/DocHistory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
+  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type JobStep, type LadderRung, type Memory, type Step, type StepExplanation,
   type RunRow, type ThreadState, type Workflow,
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
@@ -27,6 +27,7 @@ import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
 import { phaseTitle } from "../components/flowmap";
+import { sendBacksOf, stepFacts, type AcFacts, type StepFacts } from "../components/stepFacts";
 import { Graph, GraphLegend } from "../components/Graph";
 import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
 import { StepView } from "../components/StepView";
@@ -37,6 +38,9 @@ import { useWide } from "../components/useWide";
 import { Async, Confirm, Drawer, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
+import { useHasPage } from "../sdk/registry";
+import { askAssistant } from "../sdk/assistant";
+import { fixRequest } from "../askFix";
 
 const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle", "already-met": "met" };
 
@@ -163,16 +167,13 @@ function useThreadBits(pid: string, thread: ThreadState, workflow: Workflow) {
   const est = useLoad(`est:${pid}:${workflow.id}:${n}`, () => api.estimate(pid, workflow.id, n), { live: false });
   const jobs = useLoad(`jobs-run:${pid}`, () => api.jobs({ project: pid, status: "running" }));
   const job = jobs.data?.find((j) => j.thread_id === thread.thread_id) ?? null;
-  // Every job of this project (done ones too): the tokens each step really used.
-  const all = useLoad(`jobs-all:${pid}`, () => api.jobs({ project: pid }));
-  const actual = useMemo(() => {
-    const m: Record<string, number> = {};
-    (all.data ?? []).filter((j) => j.thread_id === thread.thread_id).forEach((j) => {
-      const s = workflow.steps.find((x) => x.id === j.step.replace(/__fix$/, "") || x.name === j.step);
-      if (s) m[s.id] = (m[s.id] ?? 0) + j.tokens_in + j.tokens_out + Math.floor((j.tokens_cached ?? 0) / 10);
-    });
-    return Object.keys(m).length ? m : undefined;
-  }, [all.data, thread.thread_id, workflow]);
+  // keel 0.18.11 what each step of this flow really did (every call of the flow, not the project's newest 50): the
+  // tokens each step used, and the facts its block shows (model, effort, time, cost, result, tries).
+  const runs = useLoad(`stepruns:${pid}:${thread.thread_id}`, () => api.stepRuns(pid, thread.thread_id));
+  const { facts, actual, totals, perAc } = useMemo(() => {
+    const r = stepFacts(runs.data ?? [], workflow.steps, thread.ac);
+    return { ...r, facts: Object.keys(r.facts).length ? r.facts : undefined, actual: Object.keys(r.actual).length ? r.actual : undefined };
+  }, [runs.data, workflow, thread.ac]);
   const visited = useMemo(() => {
     const ids = new Set<string>();
     (history.data ?? []).forEach((c) => {
@@ -182,11 +183,11 @@ function useThreadBits(pid: string, thread: ThreadState, workflow: Workflow) {
     return ids;
   }, [history.data, workflow]);
   const started = useMemo(() => {
-    const times = [...(history.data ?? []).map((c) => c.at), ...(all.data ?? []).filter((j) => j.thread_id === thread.thread_id).map((j) => j.started_at)]
+    const times = [...(history.data ?? []).map((c) => c.at), ...(runs.data ?? []).map((r) => r.started_at)]
       .map((t) => Date.parse(t)).filter((t) => !Number.isNaN(t));
     return times.length ? Math.min(...times) : null;
-  }, [history.data, all.data, thread.thread_id]);
-  return { history, est, job, jobs, actual, visited, started };
+  }, [history.data, runs.data]);
+  return { history, est, job, jobs, actual, facts, totals, perAc, visited, started };
 }
 
 /** "1h 12m", "12m", "40s". */
@@ -201,6 +202,56 @@ const STATUS_PILL: Record<string, [PillTone, string]> = {
 };
 
 /** The flow on one line: title, workflow, phase, status; tokens used against the cap, cost, time; Stop. */
+/** keel 0.18.11 "4 of 9": the phase the flow is in, among the workflow's phases. */
+function phaseAt(workflow: Workflow, thread: ThreadState): string {
+  // the workflow's phases in step order (a step without a phase is in the one before it)
+  const phases: string[] = [];
+  let at = "";
+  workflow.steps.forEach((s) => {
+    at = s.phase ?? at;
+    if (at && !phases.includes(at)) phases.push(at);
+  });
+  const n = thread.phase ? phases.indexOf(thread.phase) : -1;
+  return n >= 0 && phases.length > 1 ? `${n + 1} of ${phases.length}` : "";
+}
+
+/** keel 0.18.11 what the running step does now, in one line: what its agent writes, else its newest step. */
+function nowWords(job: Job | null, text?: string, steps?: JobStep[]): string {
+  const line = (s?: string | null) => (s ?? "").split("\n").map((x) => x.trim()).filter(Boolean).at(-1) ?? "";
+  if (text?.trim()) return `✎ ${line(text)}`;
+  const last = steps?.at(-1);
+  if (last) {
+    if (last.kind === "tool") return `> ${last.tool ?? "tool"} ${line(last.text)}`.trim();
+    if (last.kind === "edit") return `✎ edits ${last.path ?? ""}`.trim();
+    if (last.kind === "thinking") return "thinking…";
+    if (line(last.text)) return line(last.text);
+  }
+  return job && job.steps_count ? "working…" : "starting…";
+}
+
+/** keel 0.18.11 the flow in one line, on top once the flow bar has scrolled away: state, phase, step, time, cost and
+ *  the one thing to do. */
+function NowLine({ thread, workflow, started, onJump }: { thread: ThreadState; workflow: Workflow; started: number | null; onJump: () => void }) {
+  const [tone, label] = STATUS_PILL[thread.status] ?? ["idle", thread.status];
+  const u = thread.usage;
+  const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
+  const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
+  const step = workflow.steps.find((s) => s.id === cur);
+  const live = thread.status === "running" || thread.status === "waiting";
+  const at = phaseAt(workflow, thread);
+  return (
+    <div className="fl-now" role="region" aria-label="The flow now">
+      <Pill tone={tone}>{label}</Pill>
+      <span className="fl-now-t" title={thread.title}>{thread.title || workflow.name}</span>
+      <span className="fl-now-m">
+        {[at ? `phase ${at} · ${phaseTitle(thread.phase)}` : phaseTitle(thread.phase), step ? `${step.name}${thread.ac ? ` (${thread.ac})` : ""}` : null,
+          started ? elapsed((live ? Date.now() : Date.parse(thread.updated_at)) - started) : null, `${kfmt(used)} tokens · ${usd(u.cost_usd)}`].filter(Boolean).join(" · ")}
+      </span>
+      {live && <button type="button" className={thread.status === "waiting" ? "btn sm warn" : "btn sm"} onClick={onJump}>{thread.status === "waiting" ? "Go to it" : "Jump to current"}</button>}
+    </div>
+  );
+}
+
 function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, readOnly, branch }: {
   thread: ThreadState; workflow: Workflow; estimate: number | null; started: number | null; onStart: () => void; onJump?: () => void; extra?: React.ReactNode;
   /** v0.15.4 an earlier run: no Stop, Start or run mode here, and its own branch */
@@ -223,10 +274,10 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, 
         <h1>{thread.title || workflow.name}</h1>
         <div className="fl-facts">
           <span><b>{workflow.name}</b> v{workflow.version}</span>
-          <span>phase <b>{phaseTitle(thread.phase)}</b></span>
+          <span>phase <b>{phaseTitle(thread.phase)}</b>{phaseAt(workflow, thread) ? <span className="sub"> ({phaseAt(workflow, thread)})</span> : null}</span>
           <Pill tone={tone}>{label}</Pill>
           <span>branch <span className="mono">{readOnly ? branch ?? "—" : project?.branch ?? "—"}</span></span>
-          <span className="sub fl-tid">thread <span className="mono">{thread.thread_id}</span></span>
+          <CopyId id={thread.thread_id} />
         </div>
       </div>
       <div className="fl-stats">
@@ -274,8 +325,17 @@ type FlowSide = "now" | "step" | "checkpoints";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */
-function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas, onOpen, selected, still }: {
+function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, visited, waiting, canvas, onOpen, selected, still, onJump, job }: {
   thread: ThreadState; workflow: Workflow; tokens?: Record<string, number>; actual?: Record<string, number>; visited: Set<string>;
+  /** keel 0.18.11 what each step really did (its block's facts line, result and tries), each step over every round,
+   *  and each criterion over the loop */
+  facts?: Record<string, StepFacts>;
+  totals?: Record<string, { ms: number; cost: number }>;
+  perAc?: Record<string, AcFacts>;
+  /** "Go to it": the same as the side panel's (the answer card, its first button focused) */
+  onJump?: () => void;
+  /** the agent call at work in this flow (its block shows what it does now) */
+  job?: Job | null;
   waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle>; onOpen: (id: string) => void; selected: string | null;
   /** v0.15.4 an earlier run: the page does not scroll to its last block (its banner stays in view) */
   still?: boolean;
@@ -283,17 +343,50 @@ function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas
   const [view, setView] = useMapView("flow");
   const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
   const onCanvas = !!waitAt && workflow.steps.some((s) => s.id === waitAt);
+  const sendBacks = useMemo(() => sendBacksOf(thread.gate_log), [thread.gate_log]);
+  const { liveText, liveSteps } = useApp();
+  const liveLine = useMemo(() => {
+    if (thread.status !== "running") return null;
+    const id = job ? stepIdOf(workflow, job.step) : thread.current?.replace(/__fix$/, "") ?? null;
+    if (!id) return null;
+    return { id, text: nowWords(job ?? null, job ? liveText[job.id] : undefined, job ? liveSteps[job.id] : undefined) };
+  }, [thread.status, thread.current, job, liveText, liveSteps, workflow.steps]);
+  // keel 0.18.11 follow the live step until the person scrolls or moves around the steps; then "Jump to live"
+  const cur = thread.current?.replace(/__fix$/, "") ?? null;
+  const live = thread.status === "running" && !still;
+  const [follow, setFollow] = useState(true);
+  useEffect(() => {
+    if (follow && live && cur && view === "blocks") canvas.current?.reveal(cur);
+  }, [cur]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const away = () => { if (live) setFollow(false); };
+  const failedAt = thread.status === "failed" && cur && workflow.steps.some((s) => s.id === cur) ? cur : null;
+  const needs = waitAt && onCanvas ? waitAt : failedAt;
+  const nameOf = (id: string) => workflow.steps.find((s) => s.id === id)?.name ?? id;
   return (
-    <section className="panel fl-canvas" aria-label={`${workflow.name}: the steps`}>
+    <section className="panel fl-canvas" aria-label={`${workflow.name}: the steps`} onWheel={away} onTouchMove={away}
+      onKeyDown={(e) => { if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) away(); }}>
       <div className="panel-head">
         <h2>Steps</h2>
         <ViewToggle value={view} onChange={setView} />
       </div>
       {waiting && !onCanvas && <div className="panel-body" style={{ paddingBottom: 0 }}>{waiting}</div>}
       <div className="panel-body sx-scroll fl-scroll">
+        {needs && view === "blocks" && (
+          <div className={`fl-needs ${failedAt ? "is-bad" : ""}`} role="status">
+            <span>{failedAt ? <><b>{nameOf(needs)}</b> failed. See why and what to do.</>
+              : <>Needs you: <b>{nameOf(needs)}</b>{thread.ac ? ` for ${thread.ac}` : ""} waits for your answer.</>}</span>
+            <button type="button" className="btn sm" onClick={() => (onJump ? onJump() : canvas.current?.reveal(needs, true))}>Go to it</button>
+          </div>
+        )}
+        {live && !follow && view === "blocks" && (
+          <div className="fl-live">
+            <button type="button" onClick={() => { setFollow(true); if (cur) canvas.current?.reveal(cur); }}>Jump to live</button>
+          </div>
+        )}
         {view === "blocks" ? (
           <>
-            <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} acCount={thread.acs.length || 3}
+            <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} facts={facts} totals={totals} acFacts={perAc} sendBacks={sendBacks}
+              foldKey={thread.thread_id} liveLine={liveLine} acCount={thread.acs.length || 3}
               current={thread.current} status={thread.status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
               onOpenStep={onOpen} autoScroll={!still} inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
               label={`Steps of ${workflow.name}: ${workflow.steps.length} steps`} />
@@ -485,7 +578,7 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   /** v0.15.4 an earlier run, read only */
   readOnly?: ReadOnly;
 }) {
-  const { history, est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, facts, totals, perAc, visited, started } = useThreadBits(pid, thread, workflow);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
   // v0.15.2 the agents of this flow that work now: a click on the step one of them works in shows that step "now"
   const running = useMemo(() => (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running"), [jobs.data, thread.thread_id]);
@@ -493,6 +586,16 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   const [side, setSide] = useState<FlowSide>("now");
   const wide = useWide();
   const canvas = useRef<BlocksHandle>(null);
+  // keel 0.18.11 once the flow bar has scrolled out of view, the flow's one line stays on top
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barGone, setBarGone] = useState(false);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setBarGone(!e.isIntersecting), { rootMargin: "-48px 0px 0px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
   // "Go to it" / "Jump to current": open the folds around the block, then show the answer card under it (when the flow
   // waits) and put the focus on its first button, so you can answer right away.
@@ -512,13 +615,16 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   const done = readOnly ? readOnly.onResumed : reload;
   return (
     <>
-      <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump}
-        readOnly={!!readOnly} branch={readOnly?.branch} />
+      <div ref={barRef}>
+        <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump}
+          readOnly={!!readOnly} branch={readOnly?.branch} />
+      </div>
+      {barGone && !readOnly && <NowLine thread={thread} workflow={workflow} started={started} onJump={jump} />}
       {!wide && sel && <StepPanel drawer key={sel} pid={pid} thread={thread} workflow={workflow} stepId={sel} running={running} onClose={() => setSel(null)}
         onJump={() => { setSel(null); jump(); }} />}
       <div className="fl">
-        <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
-          still={!!readOnly} />
+        <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
+          still={!!readOnly} onJump={jump} job={job} />
         <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} running={running} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
           selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={done} history={history} onJump={jump} readOnly={readOnly} />
       </div>
@@ -550,14 +656,23 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
   noResume?: string;
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
+  const keelbot = useHasPage("helper");
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
-  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? thread.phase} ac={thread.ac} job={job} />;
+  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? ""} ac={thread.ac} job={job} />;
   void pid;
   const tone: PillTone = thread.status === "done" ? "ok" : thread.status === "failed" ? "bad" : "idle";
   return (
     <div className={thread.status === "failed" ? "errbox" : "running-card"} style={thread.status === "done" ? { borderColor: "var(--ok)", background: "var(--ok-soft)" } : undefined}>
       <b><Pill tone={tone}>{thread.status}</Pill> {thread.status === "done" ? "The flow is done." : thread.status === "failed" ? "The flow failed." : "The flow was stopped."}</b>
       {thread.error && <span className="sub">{thread.error}</span>}
+      {thread.status === "failed" && keelbot && (
+        <div className="row">
+          <button type="button" className="btn sm" title="KeelBot reads the error and the project, says why it failed and proposes a fix you press"
+            onClick={() => { askAssistant(fixRequest(`the flow “${thread.title}” at ${step?.name ?? thread.current ?? "its step"}`, { message: thread.error || "The flow failed." })); go("helper"); }}>
+            Ask KeelBot why it failed
+          </button>
+        </div>
+      )}
       {thread.status !== "done" && (noResume ? <span className="hint">{noResume}</span> : <ResumeRow thread={thread} onDone={onDone} onCheckpoints={onCheckpoints} />)}
     </div>
   );
@@ -591,9 +706,10 @@ function ConfirmStop({ title, busy, onCancel, onStop }: { title: string; busy: b
 function RunningCard({ step, name, ac, job }: { step?: Step; name: string; ac?: string | null; job: Job | null }) {
   return (
     <div className="running-card">
-      <b><Pill tone="run">running</Pill> node <span className="mono">{name}</span>{ac ? ` — ${ac}` : ""}</b>
+      <b><Pill tone="run">running</Pill> {step ? step.name : name ? name : "starting…"}{ac ? ` — ${ac}` : ""}</b>
       <span className="sub">
-        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} e={job.effort} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
+        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} e={job.effort} /> · {job.steps_count} {job.steps_count === 1 ? "step" : "steps"}
+          {job.mcp_calls ? ` · ${job.mcp_calls} keel ${job.mcp_calls === 1 ? "tool" : "tools"} used` : ""}</>
           : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
             : step?.kind === "code" ? "plain code, no LLM" : "working"}
       </span>
@@ -687,8 +803,8 @@ const GATE_LABEL: Record<string, string> = { release: "release", coverage: "cove
 
 export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
   return (
-    <Panel title="Before ship" extra={<span className="hint">checked at push_check and after every commit</span>}>
-      {!blockers ? <span className="sub">Not checked yet. It runs at push_check.</span> : !blockers.length ? (
+    <Panel title="Before ship" extra={<span className="hint">checked before the push and after every commit</span>}>
+      {!blockers ? <span className="sub">Not checked yet. keel checks it before the push.</span> : !blockers.length ? (
         <div className="row"><Pill tone="ok">ready</Pill><span className="sub">Nothing blocks shipping.</span></div>
       ) : (
         <div className="blockers" aria-label="What blocks shipping">
@@ -704,6 +820,30 @@ export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
   );
 }
 
+/** keel 0.18.11 what an approve leads to, in plain words: the next criterion, the next step, or the end. */
+function afterApprove(workflow: Workflow, thread: ThreadState, step?: Step): string {
+  if (!step) return "the flow goes on";
+  if (step.per_ac) {
+    const next = thread.acs.find((a) => a.id !== thread.ac && !["done", "already-met"].includes(a.status));
+    if (next) return `keel starts the next criterion: ${next.id}${next.title ? ` “${next.title}”` : ""}`;
+  }
+  const at = workflow.steps.findIndex((s) => s.id === step.id);
+  const to = step.then && step.then !== "continue" ? workflow.steps.find((s) => s.id === step.then)
+    : workflow.steps.slice(at + 1).find((s) => !(step.per_ac && s.per_ac));
+  return to ? `the flow goes on with “${to.name}”` : "the flow is done";
+}
+
+/** The flow's id as a small copy button (it is for MCP and the terminal app, not for reading). */
+function CopyId({ id }: { id: string }) {
+  const { toast } = useApp();
+  return (
+    <button type="button" className="linkbtn sub fl-tid" title={`Flow id ${id}: copy it for keel2 or MCP`} aria-label={`Copy the flow id ${id}`}
+      onClick={() => { void navigator.clipboard?.writeText(id).then(() => toast("Flow id copied."), () => toast(id)); }}>
+      copy flow id
+    </button>
+  );
+}
+
 function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow: Workflow; onDone: () => Promise<void> }) {
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
@@ -716,8 +856,22 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const back = step?.back ? workflow.steps.find((s) => s.id === step.back) : undefined;
   const ac = thread.acs.find((a) => a.id === thread.ac);
   const labels = gateLabels(w, ac?.id, back?.name);
+  const keelbot = useHasPage("helper");
 
   const showAc = w.kind === "gate" && !labels.special;
+  // keel 0.18.11 a plain approve / send back gate says in plain words what you approve and what each button does
+  const plain = w.kind === "gate" && !labels.special && !w.choices?.length && w.options.includes("approve") && w.options.includes("reject");
+  const after = plain ? afterApprove(workflow, thread, step) : "";
+  const sentBack = back
+    ? `${back.agent ? `the ${back.agent} does “${back.name}” again` : `“${back.name}” runs again`}${ac && step?.per_ac ? ` for ${ac.id}` : ""}, with your reason`
+    : "the step before runs again, with your reason";
+  const used = thread.usage.tokens_in + thread.usage.tokens_out + Math.floor((thread.usage.tokens_cached ?? 0) / 10);
+  const onKey = (e: React.KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (busy || e.metaKey || e.ctrlKey || e.altKey || tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+    if (plain && e.key.toLowerCase() === "a") { e.preventDefault(); void decide("approve"); }
+    if (w.options.includes("reject") && labels.whyLabel && e.key.toLowerCase() === "r") { e.preventDefault(); document.getElementById("why")?.focus(); }
+  };
 
   const decide = async (decision: "approve" | "reject", extra?: Record<string, unknown>) => {
     if (decision === "reject" && labels.needWhy && !why.trim()) {
@@ -743,15 +897,23 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   };
 
   return (
-    <div className="interrupt" role="region" aria-label="Gate waits for you">
+    <div className="interrupt" role="region" aria-label="Gate waits for you" onKeyDown={onKey}>
       <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
       <RunModeNote mode={thread.run_mode} kind={w.kind === "fix" && /dependenc/i.test(w.title) ? "dependency" : w.kind} title={w.title}
         auto={{ count: autoLines(thread.gate_log).length, last: autoLines(thread.gate_log).at(-1) }} />
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
+      {plain && (
+        <dl className="gc-lines" aria-label="What you decide">
+          <div><dt>You approve</dt><dd>{showAc && ac ? <><b>{ac.id}</b> “{ac.title}”</> : <b>{step?.name ?? w.title}</b>}</dd></div>
+          <div><dt>So far</dt><dd>{kfmt(used)} tokens · {usd(thread.usage.cost_usd)} for this flow</dd></div>
+          <div><dt>After approve</dt><dd>{after}</dd></div>
+          <div><dt>After send back</dt><dd>{sentBack}</dd></div>
+        </dl>
+      )}
       {w.kind === "clarify" && w.questions
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
             onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
-        : w.detail && <GateDetail text={w.detail} />}
+        : w.detail && (plain ? <div className="gc-proof"><span className="gc-k">Proof</span><GateDetail text={w.detail} /></div> : <GateDetail text={w.detail} />)}
       {labels.whyLabel && (
         <div className="field">
           <label htmlFor="why">{labels.whyLabel}</label>
@@ -773,11 +935,25 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
           {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}
         </div>
       ) : <div className="row">
-        {w.options.includes("approve") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve")}>{labels.approve}</button>}
-        {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}
-        <span className="hint">Resumes the thread with <span className="mono">Command(resume={"{decision, why}"})</span>.</span>
+        {w.options.includes("approve") && (
+          <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve")} aria-keyshortcuts={plain ? "A" : undefined}>
+            {labels.approve}{plain && <kbd className="gc-kbd" aria-hidden="true">A</kbd>}
+          </button>
+        )}
+        {w.options.includes("reject") && (
+          <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}
+            title={labels.whyLabel ? "R puts you in the reason box" : undefined}>
+            {labels.reject}{plain && labels.whyLabel && <kbd className="gc-kbd" aria-hidden="true">R</kbd>}
+          </button>
+        )}
       </div>}
       {err && <ErrorBox error={err} />}
+      {err && keelbot && (
+        <div className="row">
+          <button type="button" className="btn sm" onClick={() => { askAssistant(fixRequest(`answering the gate “${w.title}” of the flow “${thread.title}”`, err)); go("helper"); }}
+            title="KeelBot reads the error and the project, says why it failed and proposes a fix you press">Ask KeelBot to fix it</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -991,7 +1167,7 @@ const KB_PILL: Record<string, [PillTone, string]> = { written: ["ok", "written"]
 
 function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: ThreadState; workflow: Workflow }; onStart: () => void; reload: () => Promise<void> }) {
   const { thread, workflow } = f;
-  const { history, est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, facts, totals, perAc, visited, started } = useThreadBits(pid, thread, workflow);
   const memory = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
   const rungs = rungsFrom(thread);
   const passed = rungs.filter((r) => r.status === "ok").length;
@@ -1008,7 +1184,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
         onJump={() => { setExplain(null); canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true); }} />}
       <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart}
         onJump={() => canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true)} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
-      <LiveCanvas thread={thread} workflow={workflow} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />
+      <LiveCanvas thread={thread} workflow={workflow} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />
       <div className="lanes" style={{ marginTop: 12 }}>
             <div className="lane">
               <div className="lane-h"><b>Ladder</b><span className="sub num">{rungs.length ? `${passed} / ${rungs.length} rungs` : "not started"}</span></div>

@@ -314,19 +314,16 @@ describe("model pickers follow the catalog", () => {
 // ---------- engine v0.3: "already met" ACs and the "already passes" gate ----------
 
 describe("already met", () => {
-  it("shows an already-met AC like done, with its own label, in the list, the AC strip and the loop", async () => {
+  it("shows an already-met AC like done, with its own label, in the list and the loop's rows", async () => {
     db.flows["ludus-engine"].thread!.acs[2].status = "already-met";
     render(<App />);
     const list = (await screen.findByText("Acceptance criteria")).closest(".panel") as HTMLElement;
     const pill = within(list).getByText("already met");
     expect(pill).toHaveClass("p-met");
-    const chip = document.querySelector('.acchip[data-status="already-met"]')!;
-    expect(chip).toHaveTextContent("AC-003 already met");
-    expect(document.querySelector('.acchip[data-status="done"]')).toHaveTextContent("AC-001 done");
-    // the loop's header on the blocks shows the criteria too
-    const inLoop = screen.getByLabelText("Criteria in this loop").querySelector('[data-ac="AC-003"]')!;
-    expect(inLoop).toHaveAttribute("data-status", "already-met");
-    expect(inLoop).toHaveTextContent("AC-003 already met");
+    // the loop on the blocks has a row per criterion (keel 0.18.11): already met counts as done, with its own words
+    const inLoop = screen.getByLabelText("Each criterion").querySelector('[data-ac-row="AC-003"]')!;
+    expect(inLoop).toHaveClass("s-done");
+    expect(inLoop).toHaveTextContent("already met");
   });
 
   it("an 'already passes' gate offers 'Mark as already met' / 'Send back for a stricter test' (with a why)", async () => {
