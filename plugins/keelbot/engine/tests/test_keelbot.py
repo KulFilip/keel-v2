@@ -29,6 +29,7 @@ def test_the_block_names_the_workflows_the_flows_and_the_buttons():
             "criteria 1/3 done; branch feat/euro-prices (own worktree); 120k tokens") in b
     assert "```keel-start" in b and "keel-workflow" in b
     # 0.18.4 the person's other buttons: decide a gate, stop flows, a run mode (KeelBot never says it cannot)
+    assert "```keel-questions" in b and '"multiple": true' in b          # 0.18.9 KeelBot asks the person to choose
     assert "```keel-flow" in b and '"do": "stop"' in b and '"do": "mode"' in b and '"do": "approve"' in b
     assert "How a workflow is written" not in b                 # the format only when the person wants a workflow
     # 0.18.5 a new rule pack or agent: its format only when the person wants one

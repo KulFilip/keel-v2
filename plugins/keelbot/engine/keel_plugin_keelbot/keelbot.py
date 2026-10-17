@@ -67,6 +67,14 @@ keel-workflow.
 keel-skill block; its front matter may name the agents that should load it, as `agents: [<id>, <id>]`.
 - A new stack (how this project builds and tests: its lane, the files that detect it, test layers, the project's own \
 commands and tools; keel checks it, then Save writes .keel/stacks/<name>.yml): its whole YAML in a keel-stack block.
+- A question for the person, when you need their choice before you can go on (keel 0.18.9): one keel-questions block \
+with up to 4 questions, each 2 to 4 options, the recommended one first with "recommended": true, and "multiple": true \
+when several options can be true together. The person picks (or writes their own answer) and the answers come back as \
+your next message:
+```keel-questions
+[{"id": "<short word>", "question": "<the question>", "why": "<what the answer changes>", \
+"options": [{"label": "<option>", "description": "<what it costs>", "recommended": true}, {"label": "<option>"}]}]
+```
 - Decide a gate, stop flows, or change a flow's run mode (the flow ids are in the flows list above; the person sees \
 the button and presses it, so offer it whenever they ask for one of these, never say you cannot):
 ```keel-flow

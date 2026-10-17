@@ -21,12 +21,13 @@ import {
   type WorkflowCheck,
 } from "@keel/web-sdk";
 import { kb } from "./keelbotApi";
-import { AskFixButton } from "@keel/web-sdk";
+import { AskFixButton, AskKeelBot, ClarifyForm, answersOf, type ClarifyAnswers } from "@keel/web-sdk";
+import { useContext } from "react";
 
 export type Segment =
-  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci" | "flow" | "rule" | "agent" | "skill" | "stack"; body: string };
+  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci" | "flow" | "rule" | "agent" | "skill" | "stack" | "questions"; body: string };
 
-const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git|ci|flow|rule|agent|skill|stack)\s*$/;
+const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git|ci|flow|rule|agent|skill|stack|questions)\s*$/;
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const closes = (line: string, open: string) => {
   const t = line.trim();
@@ -659,6 +660,61 @@ export function StackCard({ pid, body }: { pid: string; body: string }) {
       <AskFixButton what={`saving the stack ${name}`} error={err} />
       {done ? <p className="kb-done" role="status">{done}{" "}<button type="button" className="btn sm" onClick={() => go("stacks")}>Open Stacks ▸</button></p>
         : <div className="row"><button type="button" className="btn sm primary" disabled={busy || !c?.ok} onClick={() => void save()}>{busy ? "Saving…" : "Save the stack"}</button></div>}
+    </section>
+  );
+}
+
+type AskedQuestion = { id: string; question: string; why?: string; multiple?: boolean;
+  options: { label: string; description?: string; recommended?: boolean }[] };
+
+/** KeelBot's questions as keel's form reads them (at most 4, 2–4 options, the recommended one marked, else the first). */
+export function parseAsked(body: string): AskedQuestion[] {
+  const v = parseJson<unknown>(body);
+  const list = Array.isArray(v) ? v : v && typeof v === "object" && Array.isArray((v as { questions?: unknown }).questions)
+    ? (v as { questions: unknown[] }).questions : [];
+  const out: AskedQuestion[] = [];
+  list.forEach((q, i) => {
+    if (out.length >= 4 || !q || typeof q !== "object") return;
+    const x = q as Record<string, unknown>;
+    const options = (Array.isArray(x.options) ? x.options : []).slice(0, 4)
+      .map((o) => (typeof o === "string" ? { label: o } : (o as Record<string, unknown>)))
+      .filter((o) => typeof o?.label === "string" && (o.label as string).trim())
+      .map((o) => ({ label: String(o.label).trim(), description: o.description ? String(o.description) : undefined, recommended: o.recommended === true }));
+    if (!String(x.question ?? "").trim() || !options.length) return;
+    if (!options.some((o) => o.recommended)) options[0].recommended = true;
+    out.push({ id: String(x.id || `q${i + 1}`), question: String(x.question).trim(), why: x.why ? String(x.why) : undefined, multiple: x.multiple === true, options });
+  });
+  return out;
+}
+
+/** keel 0.18.9 KeelBot asks the person to choose (```keel-questions```): keel's question form (pick one, tick several,
+ *  your own words, how many are answered); Send gives the answers to KeelBot as the next message. */
+export function QuestionsCard({ body }: { body: string }) {
+  const qs = parseAsked(body);
+  const ask = useContext(AskKeelBot);
+  const [picked, setPicked] = useState<ClarifyAnswers>({});
+  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  const [sent, setSent] = useState(false);
+  if (!qs.length) return <p className="kb-card bad" role="note">KeelBot's questions could not be read. Ask it to ask again.</p>;
+  const send = () => {
+    const a = answersOf(qs, picked, typed);
+    const text = ["Answers to your questions:", ...qs.map((q, i) => {
+      const v = a[q.id];
+      return `${i + 1}. ${q.question}\n   → ${(Array.isArray(v) ? v.join("; ") : v) || "(not answered: use the recommended one)"}`;
+    })].join("\n");
+    ask?.(text);
+    setSent(true);
+  };
+  return (
+    <section className="kb-card" aria-label="KeelBot's questions">
+      <div className="kb-card-h"><span className="kb-tag">Questions</span><b>KeelBot asks</b></div>
+      {sent ? <p className="kb-done" role="status">Your answers went to KeelBot.</p> : (
+        <>
+          <ClarifyForm questions={qs} picked={picked} typed={typed}
+            onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
+          <div className="row"><button type="button" className="btn sm primary" disabled={!ask} onClick={send}>Send my answers</button></div>
+        </>
+      )}
     </section>
   );
 }

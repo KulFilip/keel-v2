@@ -15,7 +15,7 @@ import {
   type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
-import { AgentCard, CiCard, FlowCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
+import { AgentCard, CiCard, FlowCard, QuestionsCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
 import { answerModel, fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
@@ -103,6 +103,7 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
           : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "rule" ? <RuleCard key={i} pid={pid} body={seg.body} />
+          : seg.kind === "questions" ? <QuestionsCard key={i} body={seg.body} />
           : seg.kind === "agent" ? <AgentCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "skill" ? <SkillCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "stack" ? <StackCard key={i} pid={pid} body={seg.body} />

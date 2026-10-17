@@ -140,6 +140,24 @@ describe("KeelBot's new stack (0.18.9)", () => {
   });
 });
 
+describe("KeelBot asks the person to choose (0.18.9)", () => {
+  it("its questions are keel's form: tick several, send, and the answers go back to it", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith('Two things first:\n\n```keel-questions\n[{"id": "where", "question": "Where should it show?", "multiple": true,'
+      + ' "options": [{"label": "Web", "recommended": true}, {"label": "iOS"}, {"label": "Android"}]},'
+      + ' {"id": "size", "question": "How many players?", "options": ["Top 10", "Top 100"]}]\n```');
+    const card = await within(p).findByRole("region", { name: "KeelBot's questions" });
+    await user.click(within(card).getByRole("checkbox", { name: /Web/ }));
+    await user.click(within(card).getByRole("checkbox", { name: /iOS/ }));
+    await user.click(within(card).getByRole("radio", { name: /Top 100/ }));
+    expect(within(card).getByText(/2 of 2 answered/)).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Send my answers" }));
+    await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions/h1/turn"))?.body).toMatchObject({
+      text: "Answers to your questions:\n1. Where should it show?\n   → Web; iOS\n2. How many players?\n   → Top 100" }));
+    expect(within(card).getByRole("status")).toHaveTextContent("Your answers went to KeelBot.");
+  });
+});
+
 describe("KeelBot's flow buttons (0.18.4)", () => {
   it("stop: names the flow, stops it only when pressed, then offers to open it", async () => {
     const user = userEvent.setup();
