@@ -5,7 +5,7 @@
 // knowledge build.
 
 import { AppliedPanel } from "../components/DocHistory";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
   type RunRow, type ThreadState, type Workflow,
@@ -72,16 +72,13 @@ export function FlowPage({ pid }: { pid: string }) {
   return (
     <>
       <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} loading={!flow.data} history={!history} />
-      <OtherFlows
-        sideBySide={showBoard(board.data) ? board.data!.flows.length : 0}
-        board={showBoard(board.data) ? (
-          <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
-        ) : null}
-        runs={history ? (
-          <RunHistory pid={pid} current={cur?.thread_id ?? null} viewing={shown?.thread_id ?? null} onLoad={load} onChanged={flow.reload}
-            resume={(r, close) => <ResumeRow thread={r} autoAsk onCancel={close} onDone={() => resumed(r)} />} />
-        ) : null}
-        forceOpen={!!shown} />
+      {showBoard(board.data) && (
+        <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
+      )}
+      {history && (
+        <RunHistory pid={pid} current={cur?.thread_id ?? null} viewing={shown?.thread_id ?? null} onLoad={load} onChanged={flow.reload}
+          resume={(r, close) => <ResumeRow thread={r} autoAsk onCancel={close} onDone={() => resumed(r)} />} />
+      )}
       <div ref={top} className="rh-anchor" />
       {shown ? (
         <EarlierRun key={shown.thread_id} pid={pid} run={shown} onBack={() => setViewing(null)} onResumed={() => resumed(shown)} />
@@ -126,61 +123,6 @@ export function FlowPage({ pid }: { pid: string }) {
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}
     </>
   );
-}
-
-/** keel 0.18.8 the project's other flows (side by side, in worktrees) and its runs, in one bar with a tab each, closed
- *  by default so the flow itself stays at the top. Open or closed and the tab are kept per browser. An earlier run that
- *  is open keeps the bar open (its Back is there). */
-function OtherFlows({ board, runs, sideBySide, forceOpen }: { board: ReactNode; runs: ReactNode; sideBySide: number; forceOpen: boolean }) {
-  const [open, setOpen] = useStoredFlag("keel2.flow.others.open");
-  const [tab, setTab] = useState<"flows" | "runs">(() => {
-    try {
-      return localStorage.getItem("keel2.flow.others.tab") === "runs" ? "runs" : "flows";
-    } catch {
-      return "flows";
-    }
-  });
-  const pick = (v: "flows" | "runs") => {
-    setTab(v);
-    try { localStorage.setItem("keel2.flow.others.tab", v); } catch { /* private window */ }
-  };
-  if (!board && !runs) return null;
-  const shownTab = !board ? "runs" : !runs ? "flows" : tab;
-  const isOpen = open || forceOpen;
-  const options: ["flows" | "runs", ReactNode][] = [
-    ...(board ? [["flows", `Flows side by side (${sideBySide})`] as ["flows", ReactNode]] : []),
-    ...(runs ? [["runs", "Runs"] as ["runs", ReactNode]] : []),
-  ];
-  const summary = [board ? `${sideBySide} flow${sideBySide === 1 ? "" : "s"} side by side` : "", runs ? "earlier runs" : ""].filter(Boolean).join(" · ");
-  return (
-    <section className={`ot-flows${isOpen ? " open" : ""}`} aria-label="Other flows and runs">
-      <div className="ot-head">
-        <button type="button" className="ot-toggle" aria-expanded={isOpen} onClick={() => setOpen(!isOpen)}>
-          <span aria-hidden="true">{isOpen ? "▾" : "▸"}</span> Other flows and runs
-          {!isOpen && <span className="sub"> · {summary}</span>}
-        </button>
-        {isOpen && options.length > 1 && <Tabs value={shownTab} options={options} onChange={pick} label="Other flows and runs" />}
-      </div>
-      {isOpen && (shownTab === "flows" ? board : runs)}
-    </section>
-  );
-}
-
-function useStoredFlag(key: string): [boolean, (v: boolean) => void] {
-  const [v, setV] = useState(() => {
-    try {
-      return localStorage.getItem(key) === "1";
-    } catch {
-      return false;
-    }
-  });
-  return [v, (nv: boolean) => {
-    setV(nv);
-    try {
-      if (nv) localStorage.setItem(key, "1");
-      else localStorage.removeItem(key);
-    } catch { /* private window: not remembered */ }
-  }];
 }
 
 /** v0.15.4 How an earlier run opens: read only, and Resume only for the project's newest flow when it was stopped. */

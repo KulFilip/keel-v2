@@ -1102,11 +1102,5 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .signin { max-width: 560px; margin: 12vh auto 0; padding: 0 16px; }
 .signin-still { margin-top: 12px; color: var(--dim); text-align: center; }
 
-/* keel 0.18.8 the Flow page's other flows and runs: one bar, closed by default, a tab each */
-.ot-flows { margin-bottom: 12px; }
-.ot-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.ot-toggle { background: none; border: 0; padding: 6px 2px; color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; }
-.ot-toggle:hover { color: var(--accent); }
-.ot-toggle .sub { font-weight: 400; }
-.ot-flows.open .ot-head { margin-bottom: 8px; }
 .tl-all { display: block; margin: 4px auto 0; font-size: 11px; padding: 1px 8px; }
+
