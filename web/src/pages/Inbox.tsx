@@ -160,7 +160,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
       <RunModeNote mode={it.run_mode} kind={it.kind} title={it.title} auto={{ count: it.auto_approved ?? 0, last: it.last_auto }} />
       {it.kind === "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
-          onPick={(id, label) => setPicked((p) => ({ ...p, [id]: label }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
+          onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : it.detail ? (
         <Detail text={it.detail} id={`${hid}-detail`} />
       ) : null}

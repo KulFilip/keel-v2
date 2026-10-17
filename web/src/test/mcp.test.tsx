@@ -21,4 +21,21 @@ describe("Tools (MCP)", () => {
     await waitFor(() => expect(db.calls.find((c) => c.method === "PUT" && c.path === "/api/mcp-servers/keel-v1")?.body).toEqual({ enabled: true }));
     expect(await within(screen.getByText("keel v1 (optional)").closest("tr")!).findByRole("button", { name: "Turn off" })).toBeInTheDocument();
   });
+
+  it("Select all lets every agent shown use a server; Select none takes it back (0.18.9)", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/tools";
+    render(<App />);
+    const matrix = await screen.findByRole("table", { name: "Who may use what" });
+    await user.click(within(matrix).getByRole("button", { name: "Every agent may use keel" }));
+    await waitFor(() => {
+      const put = db.calls.filter((c) => c.method === "PUT" && c.path.endsWith("/mcp-allow")).at(-1)?.body as Record<string, string[]>;
+      expect(put && Object.values(put).every((l) => l.includes("keel"))).toBe(true);
+    });
+    await user.click(within(matrix).getByRole("button", { name: "No agent may use keel" }));
+    await waitFor(() => {
+      const put = db.calls.filter((c) => c.method === "PUT" && c.path.endsWith("/mcp-allow")).at(-1)?.body as Record<string, string[]>;
+      expect(Object.values(put).some((l) => l.includes("keel"))).toBe(false);
+    });
+  });
 });

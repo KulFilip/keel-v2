@@ -808,7 +808,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
       {w.kind === "clarify" && w.questions
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
-            onPick={(id, label) => setPicked((p) => ({ ...p, [id]: label }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
+            onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
         : w.detail && <GateDetail text={w.detail} />}
       {labels.whyLabel && (
         <div className="field">

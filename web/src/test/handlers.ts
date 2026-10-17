@@ -41,6 +41,8 @@ export function createDb() {
   return {
     projects: clone(fx.projects),
     /** keel 0.18.6 the shared focus (api ui/UiFocus.kt): the project and KeelBot chat every front end shows */
+    /** keel 0.18.9 the folder has changes main has too: a switch to main is refused unless keel stashes them */
+    gitDirty: false,
     focus: { project: null as string | null, chats: {} as Record<string, string>, by: null as string | null, client: null as string | null },
     flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
     /** v0.7.x: each project's board (GET /flows) and the flows in worktrees by id (GET /flows/:tid) */
@@ -457,7 +459,7 @@ export function handlers(db: Db) {
       if (op === "push") return HttpResponse.json({ branch: "feat/euro", sha: "abc1234def" });
       if (op === "sync") return HttpResponse.json({ merged: true, from: "origin/main", branch: "feat/euro" });
       // keel 0.18.9 a folder with changes main has too: git refuses, unless keel stashes them first
-      if (op === "switch" && b.branch === "main" && !b.stash) return HttpResponse.json({ error: "git could not switch to main: error: Your local changes to the following files would be overwritten by checkout: docs/spec.md",
+      if (op === "switch" && db.gitDirty && b.branch === "main" && !b.stash) return HttpResponse.json({ error: "git could not switch to main: error: Your local changes to the following files would be overwritten by checkout: docs/spec.md",
         hint: "Stash them and switch (keel keeps them in git's stash; `git stash pop` on your branch brings them back), or commit them first." }, { status: 409 });
       if (op === "switch") return HttpResponse.json({ branch: b.branch, ...(b.stash ? { stashed: { from: "feat/euro", message: "keel: changes on feat/euro before switching to main" } } : {}) });
       if (op === "pr") return HttpResponse.json({ url: "https://github.com/o/r/pull/7", updated: false });

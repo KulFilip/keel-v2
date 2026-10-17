@@ -303,7 +303,7 @@ export const productApi = {
     post<Detail>(`${I(id)}/start`, stage ? { stage } : {}),
   approve: (
     id: string,
-    b: { why?: string; answers?: Record<string, string> } = {},
+    b: { why?: string; answers?: Record<string, string | string[]> } = {},
   ) => post<Detail>(`${I(id)}/approve`, b),
   sendBack: (id: string, note: string) =>
     post<Detail>(`${I(id)}/send-back`, { note }),

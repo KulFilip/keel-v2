@@ -160,6 +160,7 @@ describe("Code › Git", () => {
 describe("KeelBot's git buttons", () => {
   it("a switch git refuses for local changes: stash them and switch, or ask KeelBot to fix it (0.18.9)", async () => {
     const user = userEvent.setup();
+    db.gitDirty = true;
     const p = await chatWith('Switch:\n```keel-git\n{"op": "switch", "branch": "main"}\n```');
     const g = await within(p).findByRole("region", { name: "Git: Switch" });
     await user.click(within(g).getByRole("button", { name: "Switch" }));

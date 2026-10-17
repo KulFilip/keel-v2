@@ -126,6 +126,23 @@ export function ToolsPage({ pid }: { pid: string }) {
       void allow.reload();
     }
   };
+  // keel 0.18.9 one server for every agent shown (the filter's), or for none
+  const setColumn = async (server: string, on: boolean, ids: string[]) => {
+    const cur: McpAllow = { ...(allow.data ?? {}) };
+    for (const id of ids) {
+      const list = new Set(cur[id] ?? []);
+      if (on) list.add(server); else list.delete(server);
+      cur[id] = [...list];
+    }
+    allow.setData(cur);
+    try {
+      await api.saveMcpAllow(pid, cur);
+      toast(on ? `${ids.length} agent(s) may now use ${server}` : `No agent shown can use ${server} now`);
+    } catch (e) {
+      toast(errorParts(e).message);
+      void allow.reload();
+    }
+  };
   const needle = q.trim().toLowerCase();
   const rows = (agents.data ?? []).filter((a) => !needle || `${a.id} ${a.label}`.toLowerCase().includes(needle));
 
@@ -207,6 +224,13 @@ export function ToolsPage({ pid }: { pid: string }) {
                             <th key={s.name} scope="col" className={usable(s) ? "" : "is-off"}>
                               <span className="tl-sname">{s.name}</span>
                               <span className="tl-sstate">{!s.enabled ? "turned off" : s.status === "ok" ? <>ok · {n} of {agents.data!.length}</> : s.status === "error" ? "error" : "off"}</span>
+                              {usable(s) && rows.length > 0 && (() => {
+                                const all = rows.every((a) => (allow.data![a.id] ?? []).includes(s.name));
+                                return (
+                                  <button type="button" className="btn sm ghost tl-all" onClick={() => void setColumn(s.name, !all, rows.map((a) => a.id))}
+                                    aria-label={`${all ? "No agent" : "Every agent"} may use ${s.name}`}>{all ? "Select none" : "Select all"}</button>
+                                );
+                              })()}
                             </th>
                           );
                         })}

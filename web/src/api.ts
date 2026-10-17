@@ -111,6 +111,8 @@ export type ClarifyQuestion = {
   question: string;
   why?: string;
   options: { label: string; description?: string; recommended?: boolean }[];
+  /** keel 0.18.9 several options may be picked (the answer is a list) */
+  multiple?: boolean;
 };
 
 /** v0.17.4 where the criteria's build order came from */

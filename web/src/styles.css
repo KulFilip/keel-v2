@@ -1109,4 +1109,4 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .ot-toggle:hover { color: var(--accent); }
 .ot-toggle .sub { font-weight: 400; }
 .ot-flows.open .ot-head { margin-bottom: 8px; }
-
+.tl-all { display: block; margin: 4px auto 0; font-size: 11px; padding: 1px 8px; }

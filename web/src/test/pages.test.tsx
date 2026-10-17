@@ -164,7 +164,7 @@ describe("Tools (MCP)", () => {
     expect(await within(keel).findByText("Test OK: 2 tools")).toBeInTheDocument();
     const matrix = await main().findByRole("table", { name: "Who may use what" });
     const heads = within(matrix).getAllByRole("columnheader").map((h) => h.textContent);
-    expect(heads).toEqual(["Agent", "keelok · 1 of 3", "keel-v1turned off", "serenaturned off"]);
+    expect(heads).toEqual(["Agent", "keelok · 1 of 3Select all", "keel-v1turned off", "serenaturned off"]);   // 0.18.9 a usable server has Select all
     expect(within(matrix).getByRole("checkbox", { name: "explorer may use keel" })).toBeChecked();
   });
 });
