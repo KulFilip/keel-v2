@@ -16,7 +16,7 @@ import {
   type Arm, type Exit, type FlowMap, type Node, type Row, type Section, type StepState,
 } from "./flowmap";
 import type { LoopCtx } from "./builderOps";
-import { workTime, type StepFacts } from "./stepFacts";
+import { workTime, type AcFacts, type StepFacts } from "./stepFacts";
 
 export type BlocksHandle = {
   /** Open the folds that hold a step, scroll it into view and (optionally) focus it. */
@@ -48,6 +48,14 @@ export type BlocksProps = {
   actual?: Record<string, number>;
   /** keel 0.18.11 what each step really did in this thread: the model and effort that ran, time, cost, result, tries. */
   facts?: Record<string, StepFacts>;
+  /** keel 0.18.11 each step over every round: working time and cost (a phase's summary) */
+  totals?: Record<string, { ms: number; cost: number }>;
+  /** keel 0.18.11 each criterion over the loop (its row), and why it was sent back, oldest first */
+  acFacts?: Record<string, AcFacts>;
+  sendBacks?: Record<string, string[]>;
+  /** keel 0.18.11 phases fold (the Flow page): a phase that is over or not started yet starts closed, the one at work
+   *  open; what the person opens or closes is remembered under this key (the flow's id). */
+  foldKey?: string;
   /** How many criteria the per-AC loop runs for (the estimate's input, or the thread's criteria). */
   acCount?: number;
   customAgents?: Set<string>;
@@ -145,6 +153,9 @@ type Ctx = {
   onKey: (e: KeyboardEvent<HTMLElement>, s: Step) => void;
   /** Per-AC tokens of one criterion (a block inside the loop shows one round). */
   per: (s: Step, m?: Record<string, number>) => number;
+  /** keel 0.18.11 is a phase open (it folds on the Flow page), and open or close it */
+  secOpen: (sec: Section) => boolean;
+  toggleSec: (key: string) => void;
   total: number;
   dragOver: string | null;
   setDragOver: (k: string | null) => void;
@@ -178,9 +189,45 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
   });
   const [, bump] = useState(0);
 
+  // keel 0.18.11 folding phases: the person's choices (remembered per flow), else open only where something happens
+  const foldStore = p.foldKey ? `keel2.flow.fold.${p.foldKey}` : null;
+  const [secChoice, setSecChoice] = useState<Record<string, boolean>>(() => {
+    try {
+      return foldStore ? JSON.parse(localStorage.getItem(foldStore) ?? "{}") : {};
+    } catch {
+      return {};
+    }
+  });
+  const secOf = useMemo(() => {
+    const m = new Map<string, Section>();
+    map.sections.forEach((sec) => sec.ids.forEach((id) => m.set(id, sec)));
+    return m;
+  }, [map]);
+  const secOpen = (sec: Section) => {
+    if (!p.foldKey || sec.kind !== "phase") return true;
+    if (sec.key in secChoice) return secChoice[sec.key];
+    if (!states) return true;
+    const cur = p.current?.replace(/__fix$/, "");
+    if ((cur && sec.ids.includes(cur)) || (p.selected && sec.ids.includes(p.selected))) return true;
+    return sec.ids.some((id) => ["run", "wait", "fail", "stop"].includes(states[id]));
+  };
+  const toggleSec = (key: string) => {
+    const sec = map.sections.find((x) => x.key === key);
+    if (!sec) return;
+    const next = { ...secChoice, [key]: !secOpen(sec) };
+    setSecChoice(next);
+    try {
+      if (foldStore) localStorage.setItem(foldStore, JSON.stringify(next));
+    } catch {
+      /* the fold still works, it is only not remembered */
+    }
+  };
+
   const reveal = (id: string, focus = false, block: ScrollLogicalPosition = "center") => {
     const keys = map.containers(id);
     pending.current = { id, focus, block };
+    const sec = secOf.get(id);
+    if (sec && !secOpen(sec)) setSecChoice((c) => ({ ...c, [sec.key]: true }));   // open its phase (not remembered)
     if (keys.some((k) => !open.has(k))) setOpen((o) => new Set([...o, ...keys]));
     else bump((n) => n + 1);   // render anyway, so the layout effect below scrolls
   };
@@ -194,7 +241,8 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
     if (!el) return;
     const main = el.querySelector<HTMLElement>(".sb-main") ?? el;
     const box = el.closest<HTMLElement>(".sx-scroll");
-    if (box) {
+    // a canvas that grows with the page (the Flow page on a wide screen) scrolls the page, not itself
+    if (box && box.scrollHeight > box.clientHeight + 1) {
       const r = main.getBoundingClientRect(), b = box.getBoundingClientRect();
       const top = box.scrollTop + r.top - b.top - (want.block === "center" ? (box.clientHeight - r.height) / 2 : 12);
       box.scrollTo?.({ top: Math.max(0, top), behavior: reducedMotion() ? "auto" : "smooth" });
@@ -268,7 +316,7 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
   const total = sumOf(steps.map((s) => s.id), p.tokens);
   const ctx: Ctx = {
     p: { ...p, acCount: n }, map, states, taken, open, toggle, flash, reveal, nameOf, onKey, per, total,
-    dragOver, setDragOver, isDragging, setDragging,
+    dragOver, setDragOver, isDragging, setDragging, secOpen, toggleSec,
   };
   const label = p.label ?? `Blocks of the workflow: ${steps.length} steps`;
   const used = p.actual ? sumOf(steps.map((s) => s.id), p.actual) : 0;
@@ -329,15 +377,45 @@ function SectionView({ ctx, sec, last }: { ctx: Ctx; sec: Section; last?: boolea
     );
   }
   const m = phaseMeaning(sec.phase);
+  const isOpen = ctx.secOpen(sec);
+  const title = phaseTitle(sec.phase);
   return (
-    <section className="sx-sec" data-phase={sec.phase} aria-label={`${phaseTitle(sec.phase)}${m ? `: ${m}` : ""}`}>
+    <section className={`sx-sec ${p.foldKey ? "is-foldable" : ""} ${isOpen ? "" : "is-folded"}`} data-phase={sec.phase} aria-label={`${title}${m ? `: ${m}` : ""}`}>
       <h3 className="sx-h">
-        <span className="sx-h-t">{phaseTitle(sec.phase)}</span>
-        {m && <span className="sx-h-m">{m}</span>}
+        {p.foldKey ? (
+          <button type="button" className="sx-h-btn" aria-expanded={isOpen} aria-controls={`sx-sec-${sec.key}`} onClick={() => ctx.toggleSec(sec.key)}>
+            <span className="sx-chev" aria-hidden="true">▸</span>
+            <span className="sx-h-t">{title}</span>
+            {ctx.states && <PhaseSummary ctx={ctx} sec={sec} />}
+          </button>
+        ) : <span className="sx-h-t">{title}</span>}
+        {m && isOpen && <span className="sx-h-m">{m}</span>}
         {p.tokens ? <TokenBar value={est} total={total} used={used} /> : null}
       </h3>
-      <Stack ctx={ctx} nodes={sec.nodes} loop={null} endGap={last} />
+      {isOpen && <div id={`sx-sec-${sec.key}`}><Stack ctx={ctx} nodes={sec.nodes} loop={null} endGap={last} /></div>}
     </section>
+  );
+}
+
+const WORST: StepState[] = ["fail", "wait", "run", "stop"];
+
+/** A phase in one line: "✓ 3 of 3 done · 4m 10s · 52k · $0.31", "running · 1 of 4 done", "not started · 5 steps". */
+function PhaseSummary({ ctx, sec }: { ctx: Ctx; sec: Section }) {
+  const { p } = ctx;
+  const st = ctx.states!;
+  const ids = sec.ids;
+  const done = ids.filter((id) => st[id] === "done" || st[id] === "skip").length;
+  const worst = WORST.find((w) => ids.some((id) => st[id] === w));
+  const ms = ids.reduce((a, id) => a + (p.totals?.[id]?.ms ?? 0), 0);
+  const cost = ids.reduce((a, id) => a + (p.totals?.[id]?.cost ?? 0), 0);
+  const tokens = p.actual ? sumOf(ids, p.actual) : 0;
+  const count = !done && !worst ? `not started · ${ids.length} ${ids.length === 1 ? "step" : "steps"}` : `${done} of ${ids.length} done`;
+  const words = [count, ms ? workTime(ms) : null, tokens ? kfmt(tokens) : null, cost >= 0.005 ? `$${cost.toFixed(2)}` : null].filter(Boolean).join(" · ");
+  return (
+    <span className="sx-h-sum">
+      {worst ? <StateBadge state={worst} /> : done === ids.length ? <StateBadge state="done" /> : null}
+      <span>{words}</span>
+    </span>
   );
 }
 
@@ -656,14 +734,53 @@ function LoopBlock({ ctx, nd }: { ctx: Ctx; nd: Extract<Node, { t: "loop" }> }) 
             <TokenBarMini value={est} total={total} />
           </span>
         )}
-        {nd.loop.kind === "ac" && p.acs?.length ? <AcChips acs={p.acs} current={p.currentAc} label="Criteria in this loop" /> : null}
+        {nd.loop.kind === "ac" && p.acs?.length && !states ? <AcChips acs={p.acs} current={p.currentAc} label="Criteria in this loop" /> : null}
       </div>
+      {nd.loop.kind === "ac" && p.acs?.length && states ? <AcRows ctx={ctx} /> : null}
       <div className="sc-mouth">
         {p.edit && <ol className="sx-stack"><Gap ctx={ctx} after={nd.body.length ? firstIndex(nd.body[0]) - 1 : -1} gk={`gap:in:${nd.key}`} loop={loopCtx} /></ol>}
         <Stack ctx={ctx} nodes={nd.body} loop={loopCtx} />
       </div>
       <div className="sc-foot"><span className="sc-word">↻ again for the next {what}</span></div>
     </li>
+  );
+}
+
+const AC_MARK: Record<StepState, string> = { done: "✓", run: "●", wait: "⏸", fail: "✕", stop: "■", skip: "–", todo: "○" };
+
+/** keel 0.18.11 one row per criterion: its state, tries, time, tokens and cost, and why it was sent back. */
+function AcRows({ ctx }: { ctx: Ctx }) {
+  const { p } = ctx;
+  return (
+    <ol className="sc-acs" aria-label="Each criterion">
+      {p.acs!.map((a) => {
+        const f = p.acFacts?.[a.id];
+        const backs = p.sendBacks?.[a.id] ?? [];
+        const cur = a.id === p.currentAc;
+        const st: StepState = a.status === "done" || a.status === "already-met" ? "done"
+          : cur ? (p.status === "waiting" ? "wait" : p.status === "failed" ? "fail" : p.status === "stopped" ? "stop" : p.status === "done" ? "done" : "run")
+            : "todo";
+        const nums = [f && f.tries > 1 ? `×${f.tries} tries` : null, f?.ms ? workTime(f.ms) : null, f?.tokens ? kfmt(f.tokens) : null,
+          f && f.cost >= 0.005 ? `$${f.cost.toFixed(2)}` : null, a.status === "already-met" ? "already met" : st === "todo" && !f ? "to do" : null].filter(Boolean);
+        const shown = backs.slice(-3);
+        return (
+          <li key={a.id} className={`sc-ac s-${st} ${cur ? "is-cur" : ""}`} data-ac-row={a.id}>
+            <span className="sc-ac-h">
+              <span className="sc-ac-m" aria-hidden="true">{AC_MARK[st]}</span>
+              <span className="sr-only">{STATE_LABEL[st]}: </span>
+              <b>{a.id}</b>
+              {a.title && <span className="sc-ac-t" title={a.title}>{a.title}</span>}
+              {nums.length > 0 && <span className="sc-ac-n">{nums.join(" · ")}</span>}
+            </span>
+            {shown.length > 0 && (
+              <ul className="sc-ac-backs" aria-label={`Why ${a.id} was sent back`}>
+                {shown.map((w, k) => <li key={k}><span aria-hidden="true">↩ </span>try {backs.length - shown.length + k + 1} sent back: “{w}”</li>)}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

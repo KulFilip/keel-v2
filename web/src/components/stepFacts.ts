@@ -19,6 +19,9 @@ export type StepFacts = {
   ac: string | null;
 };
 
+/** keel 0.18.11 one criterion over every step of the loop: its tries (the most of any step), time, tokens and cost. */
+export type AcFacts = { tries: number; ms: number; tokens: number; cost: number; running: boolean };
+
 /** Tokens as keel counts them everywhere: in + out + a tenth of the cache reads (they cost about a tenth). */
 export const tokensOf = (r: { tokens_in: number; tokens_out: number; tokens_cached?: number | null }) =>
   r.tokens_in + r.tokens_out + Math.floor((r.tokens_cached ?? 0) / 10);
@@ -33,6 +36,9 @@ export const stepIdOf = (steps: Step[], step: string) =>
  */
 export function stepFacts(runs: StepRunFacts[], steps: Step[], currentAc?: string | null): {
   facts: Record<string, StepFacts>; actual: Record<string, number>;
+  /** each step over every round: working time and cost (a phase's summary) */
+  totals: Record<string, { ms: number; cost: number }>;
+  perAc: Record<string, AcFacts>;
 } {
   const byStep = new Map<string, StepRunFacts[]>();
   runs.forEach((r) => {
@@ -41,8 +47,20 @@ export function stepFacts(runs: StepRunFacts[], steps: Step[], currentAc?: strin
   });
   const facts: Record<string, StepFacts> = {};
   const actual: Record<string, number> = {};
+  const totals: Record<string, { ms: number; cost: number }> = {};
+  const perAc: Record<string, AcFacts> = {};
+  runs.forEach((r) => {
+    if (!r.ac || !stepIdOf(steps, r.step)) return;
+    const a = (perAc[r.ac] ??= { tries: 0, ms: 0, tokens: 0, cost: 0, running: false });
+    if (!r.step.endsWith("__fix")) a.tries = Math.max(a.tries, r.tries);
+    a.ms += r.ms;
+    a.tokens += tokensOf(r);
+    a.cost += r.cost_usd;
+    a.running ||= r.status === "running";
+  });
   byStep.forEach((rs, id) => {
     actual[id] = rs.reduce((a, r) => a + tokensOf(r), 0);
+    totals[id] = { ms: rs.reduce((a, r) => a + r.ms, 0), cost: rs.reduce((a, r) => a + r.cost_usd, 0) };
     const step = steps.find((s) => s.id === id);
     let shown = rs;
     if ((step?.per_ac || step?.per_item) && rs.some((r) => r.ac)) {
@@ -66,7 +84,20 @@ export function stepFacts(runs: StepRunFacts[], steps: Step[], currentAc?: strin
       ac: last.ac,
     };
   });
-  return { facts, actual };
+  return { facts, actual, totals, perAc };
+}
+
+/**
+ * Why each criterion was sent back, oldest first, from the flow's gate log: the engine writes
+ * "ac AC-2 reject: the test checks nothing" (engine runtime/compiler.py) for a gate in the criterion loop.
+ */
+export function sendBacksOf(log?: string[] | null): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  (log ?? []).forEach((line) => {
+    const m = /^ac (\S+) reject(?: \([^)]*\))?(?: \[[^\]]*\])?(?::\s*(.*))?$/.exec(line.trim());
+    if (m) (out[m[1]] ??= []).push(m[2]?.trim() || "no reason given");
+  });
+  return out;
 }
 
 /** "40s", "2m 10s", "1h 05m": a step's working time. */

@@ -27,7 +27,7 @@ import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
 import { phaseTitle } from "../components/flowmap";
-import { stepFacts, type StepFacts } from "../components/stepFacts";
+import { sendBacksOf, stepFacts, type AcFacts, type StepFacts } from "../components/stepFacts";
 import { Graph, GraphLegend } from "../components/Graph";
 import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
 import { StepView } from "../components/StepView";
@@ -167,9 +167,9 @@ function useThreadBits(pid: string, thread: ThreadState, workflow: Workflow) {
   // keel 0.18.11 what each step of this flow really did (every call of the flow, not the project's newest 50): the
   // tokens each step used, and the facts its block shows (model, effort, time, cost, result, tries).
   const runs = useLoad(`stepruns:${pid}:${thread.thread_id}`, () => api.stepRuns(pid, thread.thread_id));
-  const { facts, actual } = useMemo(() => {
+  const { facts, actual, totals, perAc } = useMemo(() => {
     const r = stepFacts(runs.data ?? [], workflow.steps, thread.ac);
-    return { facts: Object.keys(r.facts).length ? r.facts : undefined, actual: Object.keys(r.actual).length ? r.actual : undefined };
+    return { ...r, facts: Object.keys(r.facts).length ? r.facts : undefined, actual: Object.keys(r.actual).length ? r.actual : undefined };
   }, [runs.data, workflow, thread.ac]);
   const visited = useMemo(() => {
     const ids = new Set<string>();
@@ -184,7 +184,7 @@ function useThreadBits(pid: string, thread: ThreadState, workflow: Workflow) {
       .map((t) => Date.parse(t)).filter((t) => !Number.isNaN(t));
     return times.length ? Math.min(...times) : null;
   }, [history.data, runs.data]);
-  return { history, est, job, jobs, actual, facts, visited, started };
+  return { history, est, job, jobs, actual, facts, totals, perAc, visited, started };
 }
 
 /** "1h 12m", "12m", "40s". */
@@ -272,10 +272,15 @@ type FlowSide = "now" | "step" | "checkpoints";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */
-function LiveCanvas({ thread, workflow, tokens, actual, facts, visited, waiting, canvas, onOpen, selected, still }: {
+function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, visited, waiting, canvas, onOpen, selected, still, onJump }: {
   thread: ThreadState; workflow: Workflow; tokens?: Record<string, number>; actual?: Record<string, number>; visited: Set<string>;
-  /** keel 0.18.11 what each step really did (its block's facts line, result and tries) */
+  /** keel 0.18.11 what each step really did (its block's facts line, result and tries), each step over every round,
+   *  and each criterion over the loop */
   facts?: Record<string, StepFacts>;
+  totals?: Record<string, { ms: number; cost: number }>;
+  perAc?: Record<string, AcFacts>;
+  /** "Go to it": the same as the side panel's (the answer card, its first button focused) */
+  onJump?: () => void;
   waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle>; onOpen: (id: string) => void; selected: string | null;
   /** v0.15.4 an earlier run: the page does not scroll to its last block (its banner stays in view) */
   still?: boolean;
@@ -283,17 +288,43 @@ function LiveCanvas({ thread, workflow, tokens, actual, facts, visited, waiting,
   const [view, setView] = useMapView("flow");
   const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
   const onCanvas = !!waitAt && workflow.steps.some((s) => s.id === waitAt);
+  const sendBacks = useMemo(() => sendBacksOf(thread.gate_log), [thread.gate_log]);
+  // keel 0.18.11 follow the live step until the person scrolls or moves around the steps; then "Jump to live"
+  const cur = thread.current?.replace(/__fix$/, "") ?? null;
+  const live = thread.status === "running" && !still;
+  const [follow, setFollow] = useState(true);
+  useEffect(() => {
+    if (follow && live && cur && view === "blocks") canvas.current?.reveal(cur);
+  }, [cur]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const away = () => { if (live) setFollow(false); };
+  const failedAt = thread.status === "failed" && cur && workflow.steps.some((s) => s.id === cur) ? cur : null;
+  const needs = waitAt && onCanvas ? waitAt : failedAt;
+  const nameOf = (id: string) => workflow.steps.find((s) => s.id === id)?.name ?? id;
   return (
-    <section className="panel fl-canvas" aria-label={`${workflow.name}: the steps`}>
+    <section className="panel fl-canvas" aria-label={`${workflow.name}: the steps`} onWheel={away} onTouchMove={away}
+      onKeyDown={(e) => { if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) away(); }}>
       <div className="panel-head">
         <h2>Steps</h2>
         <ViewToggle value={view} onChange={setView} />
       </div>
       {waiting && !onCanvas && <div className="panel-body" style={{ paddingBottom: 0 }}>{waiting}</div>}
       <div className="panel-body sx-scroll fl-scroll">
+        {needs && view === "blocks" && (
+          <div className={`fl-needs ${failedAt ? "is-bad" : ""}`} role="status">
+            <span>{failedAt ? <><b>{nameOf(needs)}</b> failed. See why and what to do.</>
+              : <>Needs you: <b>{nameOf(needs)}</b>{thread.ac ? ` for ${thread.ac}` : ""} waits for your answer.</>}</span>
+            <button type="button" className="btn sm" onClick={() => (onJump ? onJump() : canvas.current?.reveal(needs, true))}>Go to it</button>
+          </div>
+        )}
+        {live && !follow && view === "blocks" && (
+          <div className="fl-live">
+            <button type="button" onClick={() => { setFollow(true); if (cur) canvas.current?.reveal(cur); }}>Jump to live</button>
+          </div>
+        )}
         {view === "blocks" ? (
           <>
-            <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} facts={facts} acCount={thread.acs.length || 3}
+            <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} facts={facts} totals={totals} acFacts={perAc} sendBacks={sendBacks}
+              foldKey={thread.thread_id} acCount={thread.acs.length || 3}
               current={thread.current} status={thread.status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
               onOpenStep={onOpen} autoScroll={!still} inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
               label={`Steps of ${workflow.name}: ${workflow.steps.length} steps`} />
@@ -485,7 +516,7 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   /** v0.15.4 an earlier run, read only */
   readOnly?: ReadOnly;
 }) {
-  const { history, est, job, jobs, actual, facts, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, facts, totals, perAc, visited, started } = useThreadBits(pid, thread, workflow);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
   // v0.15.2 the agents of this flow that work now: a click on the step one of them works in shows that step "now"
   const running = useMemo(() => (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running"), [jobs.data, thread.thread_id]);
@@ -517,8 +548,8 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
       {!wide && sel && <StepPanel drawer key={sel} pid={pid} thread={thread} workflow={workflow} stepId={sel} running={running} onClose={() => setSel(null)}
         onJump={() => { setSel(null); jump(); }} />}
       <div className="fl">
-        <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} facts={facts} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
-          still={!!readOnly} />
+        <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
+          still={!!readOnly} onJump={jump} />
         <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} running={running} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
           selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={done} history={history} onJump={jump} readOnly={readOnly} />
       </div>
@@ -991,7 +1022,7 @@ const KB_PILL: Record<string, [PillTone, string]> = { written: ["ok", "written"]
 
 function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: ThreadState; workflow: Workflow }; onStart: () => void; reload: () => Promise<void> }) {
   const { thread, workflow } = f;
-  const { history, est, job, jobs, actual, facts, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, facts, totals, perAc, visited, started } = useThreadBits(pid, thread, workflow);
   const memory = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
   const rungs = rungsFrom(thread);
   const passed = rungs.filter((r) => r.status === "ok").length;
@@ -1008,7 +1039,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
         onJump={() => { setExplain(null); canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true); }} />}
       <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart}
         onJump={() => canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true)} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
-      <LiveCanvas thread={thread} workflow={workflow} actual={actual} facts={facts} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />
+      <LiveCanvas thread={thread} workflow={workflow} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />
       <div className="lanes" style={{ marginTop: 12 }}>
             <div className="lane">
               <div className="lane-h"><b>Ladder</b><span className="sub num">{rungs.length ? `${passed} / ${rungs.length} rungs` : "not started"}</span></div>

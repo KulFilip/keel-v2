@@ -855,6 +855,36 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .sc-inc-s { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--ink2); min-width: 0; }
 .sc-inc-now { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 24ch; }
 [aria-expanded="true"] .sx-chev, [aria-expanded="true"] > .sx-chev { transform: rotate(90deg); }
+/* keel 0.18.11 a phase folds to one line: its name, state and summary */
+.sx-h-btn { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border: 0; background: none; padding: 3px 6px; margin-left: -6px;
+  font: inherit; color: inherit; cursor: pointer; border-radius: 6px; text-align: left; }
+.sx-h-btn:hover { background: var(--panel-2); }
+.sx-h-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sx-h-sum { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.sx-h-sum .sb-st { border: 1px solid var(--border); }
+.sx-sec.is-folded > .sx-h { margin: 6px 0 2px; }
+.sx-sec.is-foldable + .sx-sec.is-foldable { border-top: 1px solid var(--border); padding-top: 2px; }
+/* keel 0.18.11 one row per criterion inside the loop */
+.sc-acs { list-style: none; margin: 0; border-left: 18px solid var(--c); box-shadow: inset 1px 0 0 var(--e); padding: 6px 8px 4px 10px; display: grid; gap: 4px; }
+.sc-ac { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; min-width: 0; }
+.sc-ac.is-cur { border-color: var(--run); box-shadow: 0 0 0 1px var(--run); }
+.sc-ac.s-wait { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.sc-ac.s-fail { border-color: var(--bad); }
+.sc-ac.s-todo { color: var(--dim); }
+.sc-ac-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; min-width: 0; }
+.sc-ac-m { width: 14px; text-align: center; font-weight: 700; }
+.sc-ac.s-done .sc-ac-m { color: var(--ok); } .sc-ac.s-run .sc-ac-m { color: var(--run); } .sc-ac.s-wait .sc-ac-m { color: var(--warn); } .sc-ac.s-fail .sc-ac-m { color: var(--bad); }
+.sc-ac-t { min-width: 0; flex: 1 1 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-ac-n { margin-left: auto; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sc-ac-backs { list-style: none; margin: 3px 0 0 22px; padding: 0; display: grid; gap: 2px; font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+/* keel 0.18.11 what needs the person, pinned on top of the steps; and the way back to the live step */
+.fl-needs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--warn); background: var(--warn-soft);
+  border-radius: 8px; font-size: 13px; color: var(--fg); }
+.fl-needs.is-bad { border-color: var(--bad); background: var(--bad-soft); }
+.fl-needs .btn { margin-left: auto; }
+.fl-live { position: sticky; top: calc(var(--bar-h, 0px) + 8px); z-index: 3; display: flex; justify-content: center; height: 0; overflow: visible; }
+.fl-live button { margin-top: 4px; border: 1px solid var(--run); background: var(--panel); color: var(--run); border-radius: 999px; padding: 3px 12px; font: inherit;
+  font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .sx-chev { display: inline-block; transition: transform .15s; font-size: 11px; }
 .sc-inc .sc-mouth > .sx-sec > .sx-h { margin: 10px 0 6px 8px; }
 .sc-mouth > .sx-stack, .sc-mouth > .sx-sec { padding-left: 0; }
@@ -1015,7 +1045,8 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fl-canvas { --sx-bg: var(--panel); min-width: 0; }
 .fl-canvas > .panel-body { background: var(--panel) radial-gradient(var(--blk-dots) 1px, transparent 1.2px) 0 0 / 18px 18px; border-radius: 0 0 10px 10px; }
 /* v0.15.3 nested panels hand the wheel on to the parent at their end (no overscroll-behavior: contain) */
-.fl-scroll { max-height: max(460px, calc(100vh - 220px)); overflow-y: auto; scrollbar-width: thin; }
+/* keel 0.18.11 on a wide screen the canvas grows with the page (one scroll, the side panel stays in view) */
+.fl-scroll { min-width: 0; }
 .fl-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
 .fl-side > .tabs { justify-self: start; max-width: 100%; overflow-x: auto; }
 .fl-waits { gap: 8px; }
@@ -1026,7 +1057,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
   .fl-side { position: static; max-height: none; overflow: visible; }
   .fl-bar { grid-template-columns: minmax(0,1fr); align-items: start; }
   .fl-stats { flex-wrap: wrap; }
-  .fl-scroll { max-height: 70vh; }
+  .fl-scroll { max-height: 70vh; overflow-y: auto; scrollbar-width: thin; }
 }
 @media (max-width: 600px) {
   .sb-main { padding: 7px 2px 6px 8px; grid-template-columns: 20px minmax(0,1fr); gap: 0 6px; }

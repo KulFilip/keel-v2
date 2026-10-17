@@ -204,8 +204,11 @@ describe("Blocks (read only and live)", () => {
     expect(state("ac_gate")).toBe("wait");
     expect(state("integration")).toBe("todo");
     expect(within(document.querySelector('[data-block="ac_gate"]') as HTMLElement).getByText("waiting for you")).toBeInTheDocument();
-    const chips = screen.getByLabelText("Criteria in this loop");
-    expect(chips.querySelector('[data-ac="AC-002"]')).toHaveClass("cur");
+    // keel 0.18.11 one row per criterion: the current one waits for you, AC-001 is done, AC-003 still to do
+    const rows = screen.getByLabelText("Each criterion");
+    expect(rows.querySelector('[data-ac-row="AC-002"]')).toHaveClass("is-cur", "s-wait");
+    expect(rows.querySelector('[data-ac-row="AC-001"]')).toHaveClass("s-done");
+    expect(rows.querySelector('[data-ac-row="AC-003"]')).toHaveTextContent("AC-003to do");
     expect(screen.getByText("round 2 of 3")).toBeInTheDocument();
     expect(within(document.querySelector('[data-block="green"]') as HTMLElement).getByTitle(/111k tokens used so far/)).toHaveTextContent("111k / ≈52k");
   });
@@ -408,10 +411,19 @@ describe("Flow page (live blocks)", () => {
     try {
       render(<App />);
       await screen.findByRole("region", { name: "Gate waits for you" });
-      await user.click(await screen.findByRole("button", { name: "Go to it" }));
+      // the side panel's "Go to it" (keel 0.18.11: the steps have their own, pinned on top of them)
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "Go to it" }).length).toBe(2));
+      const side = screen.getAllByRole("button", { name: "Go to it" }).find((b) => !b.closest(".fl-needs"))!;
+      await user.click(side);
       const card = screen.getByRole("region", { name: "Gate waits for you" });
       await waitFor(() => expect(seen).toContain(card));
       expect(document.activeElement && card.contains(document.activeElement)).toBe(true);
+      // the pinned one does the same
+      (document.activeElement as HTMLElement).blur();
+      const pinned = document.querySelector(".fl-needs") as HTMLElement;
+      expect(pinned).toHaveTextContent("Needs you: AC gate for AC-002 waits for your answer.");
+      await user.click(within(pinned).getByRole("button", { name: "Go to it" }));
+      await waitFor(() => expect(document.activeElement && card.contains(document.activeElement)).toBe(true));
     } finally {
       Element.prototype.scrollIntoView = had;
     }
