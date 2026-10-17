@@ -814,6 +814,14 @@ table.xrules td { padding-top: 4px; padding-bottom: 4px; }
 .fl-now-t { font-weight: 650; min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fl-now-m { color: var(--dim); font-variant-numeric: tabular-nums; }
 .fl-now .btn { margin-left: auto; }
+.fl-now-m > span + span::before { content: " · "; }
+/* a phone: one line, the state, the step and the button */
+@media (max-width: 600px) {
+  .fl-now { flex-wrap: nowrap; padding: 5px 8px; gap: 8px; margin-bottom: 8px; }
+  .fl-now-t, .fl-now-p, .fl-now-n { display: none; }
+  .fl-now-m { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fl-now-m > span + span::before { content: none; }
+}
 .sb-st { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 0 8px; font-size: 11.5px; font-weight: 700; line-height: 1.6; background: #fff; }
 .sb-st.st-done { color: #fff; background: var(--ok); width: 20px; height: 20px; padding: 0; justify-content: center; font-size: 12px; }
 .sb-st.st-run { color: var(--run); }

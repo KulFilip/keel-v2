@@ -244,8 +244,10 @@ function NowLine({ thread, workflow, started, onJump }: { thread: ThreadState; w
       <Pill tone={tone}>{label}</Pill>
       <span className="fl-now-t" title={thread.title}>{thread.title || workflow.name}</span>
       <span className="fl-now-m">
-        {[at ? `phase ${at} · ${phaseTitle(thread.phase)}` : phaseTitle(thread.phase), step ? `${step.name}${thread.ac ? ` (${thread.ac})` : ""}` : null,
-          started ? elapsed((live ? Date.now() : Date.parse(thread.updated_at)) - started) : null, `${kfmt(used)} tokens · ${usd(u.cost_usd)}`].filter(Boolean).join(" · ")}
+        <span className="fl-now-p">{at ? `phase ${at} · ${phaseTitle(thread.phase)}` : phaseTitle(thread.phase)}</span>
+        {step && <span className="fl-now-s">{step.name}{thread.ac ? ` (${thread.ac})` : ""}</span>}
+        <span className="fl-now-n">{[started ? elapsed((live ? Date.now() : Date.parse(thread.updated_at)) - started) : null, `${kfmt(used)} tokens · ${usd(u.cost_usd)}`]
+          .filter(Boolean).join(" · ")}</span>
       </span>
       {live && <button type="button" className={thread.status === "waiting" ? "btn sm warn" : "btn sm"} onClick={onJump}>{thread.status === "waiting" ? "Go to it" : "Jump to current"}</button>}
     </div>
