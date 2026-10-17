@@ -411,11 +411,14 @@ function PhaseSummary({ ctx, sec }: { ctx: Ctx; sec: Section }) {
   const ms = ids.reduce((a, id) => a + (p.totals?.[id]?.ms ?? 0), 0);
   const cost = ids.reduce((a, id) => a + (p.totals?.[id]?.cost ?? 0), 0);
   const tokens = p.actual ? sumOf(ids, p.actual) : 0;
-  const count = !done && !worst ? `not started · ${ids.length} ${ids.length === 1 ? "step" : "steps"}` : `${done} of ${ids.length} done`;
+  // a phase the flow is past: what ran (steps on a side path that never ran do not make it look unfinished)
+  const over = !worst && done > 0 && !ids.some((id) => st[id] === "todo" && ctx.map.main.includes(id));
+  const count = over ? `done · ${done} ${done === 1 ? "step" : "steps"} ran`
+    : !done && !worst ? `not started · ${ids.length} ${ids.length === 1 ? "step" : "steps"}` : `${done} of ${ids.length} done`;
   const words = [count, ms ? workTime(ms) : null, tokens ? kfmt(tokens) : null, cost >= 0.005 ? `$${cost.toFixed(2)}` : null].filter(Boolean).join(" · ");
   return (
     <span className="sx-h-sum">
-      {worst ? <StateBadge state={worst} /> : done === ids.length ? <StateBadge state="done" /> : null}
+      {worst ? <StateBadge state={worst} /> : done === ids.length || over ? <StateBadge state="done" /> : null}
       <span>{words}</span>
     </span>
   );

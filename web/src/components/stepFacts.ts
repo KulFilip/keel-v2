@@ -102,6 +102,7 @@ export function sendBacksOf(log?: string[] | null): Record<string, string[]> {
 
 /** "40s", "2m 10s", "1h 05m": a step's working time. */
 export function workTime(ms: number): string {
+  if (ms > 0 && ms < 1000) return "<1s";
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ""}`;

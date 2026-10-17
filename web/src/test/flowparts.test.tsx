@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import { sendBacksOf } from "../components/stepFacts";
+import { sendBacksOf, workTime } from "../components/stepFacts";
 import { db, FakeEventSource, server } from "./setup";
 
 const block = (id: string) => document.querySelector<HTMLElement>(`[data-block="${id}"]`);
@@ -21,7 +21,7 @@ describe("Flow page: long flows (0.18.11)", () => {
     const head = spec.querySelector<HTMLElement>(".sx-h-btn")!;
     expect(spec).toHaveClass("is-folded");
     expect(head).toHaveAttribute("aria-expanded", "false");
-    expect(head).toHaveTextContent("1 of 1 done");
+    expect(head).toHaveTextContent("done · 1 step ran");
     expect(block("s1")).toBeNull();
     expect(block("s8")).not.toBeNull();                                   // the gate that waits: its phase is open
 
@@ -44,6 +44,15 @@ describe("Flow page: long flows (0.18.11)", () => {
     await waitFor(() => expect(ac2.querySelector(".sc-ac-n")).toHaveTextContent("57k"));   // green 37k + the review at work 20k
     expect(rows.querySelector('[data-ac-row="AC-001"]')).toHaveClass("s-done");
     expect(rows.querySelector('[data-ac-row="AC-003"]')).toHaveTextContent("to do");
+  });
+
+  it("says a step's working time in short words", () => {
+    expect(workTime(300)).toBe("<1s");
+    expect(workTime(0)).toBe("0s");
+    expect(workTime(40_000)).toBe("40s");
+    expect(workTime(130_000)).toBe("2m 10s");
+    expect(workTime(120_000)).toBe("2m");
+    expect(workTime(3_900_000)).toBe("1h 05m");
   });
 
   it("reads why a criterion was sent back from the gate log, oldest first", () => {
