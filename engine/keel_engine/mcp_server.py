@@ -470,8 +470,11 @@ def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, s
         thread, _ = _flow(api, p["id"])
         if thread and thread.get("thread_id") == tid:
             state = thread
-    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}), recorded as started via MCP.',
-           f"The flow is {state.get('status')} at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})."]
+    # still no step and no phase after the wait: the graph has not reached its first step, so say it is starting
+    at = f" at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})" if state.get("current") or state.get("phase") else ""
+    now = (f"The flow is {state.get('status')}{at}." if at or state.get("status") not in (None, "", "running")
+           else "The flow is starting: it has not reached its first step yet.")
+    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}), recorded as started via MCP.', now]
     if state.get("waiting"):
         out.append(f"It waits for a human: {state['waiting'].get('title')}. Decide it in the dashboard or with keel_approve_gate.")
     elif state.get("status") == "running":

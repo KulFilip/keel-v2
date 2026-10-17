@@ -413,6 +413,18 @@ def test_start_flow_posts_to_the_dashboards_endpoint(stub):
     assert "recorded as started via MCP" in text and "It waits for a human: Approve the spec" in text
 
 
+def test_start_flow_says_it_is_starting_when_the_flow_has_no_step_yet(stub):
+    """The start reply can come back before the graph reaches its first step: no step and no phase. It said
+    "running at - (phase none)"; it says the flow is starting now, and where it is once it has a step."""
+    stub.thread = {**THREAD, "status": "running", "current": None, "phase": None, "waiting": None}
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0)
+    assert "The flow is starting: it has not reached its first step yet." in text
+    assert "phase none" not in text and " at -" not in text
+    stub.thread = {**THREAD, "status": "running", "current": "explore", "phase": "spec", "waiting": None}
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0)
+    assert "The flow is running at explore (phase spec)." in text
+
+
 async def test_start_flow_on_a_fake_model_keel_needs_allow_fake(stub):
     """v0.17.5 (the xal client test): a keel on the fake model refused keel_start_flow with 409, the tool could not
     send allow_fake. It says how now, and allow_fake=true starts the flow."""

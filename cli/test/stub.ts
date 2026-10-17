@@ -53,6 +53,8 @@ export function stubKeel() {
       { name: "zig-api", lane: "api", source: "project", origin: "project", detected: true, off: false, removable: true, why: null,
         file: ".keel/stacks/zig-api.yml", commands: [], tools: [], layers: [] },
     ] as Record<string, unknown>[],
+    // where POST /flows says the new flow is; null for both is a reply sent before the graph reached its first step
+    startAt: { current: "preflight", phase: "preflight" } as { current: string | null; phase: string | null },
   };
   const reviewView = (key: string) => ({ key, kind: key.startsWith("pr:") ? "pr" : "branch", number: key.startsWith("pr:") ? Number(key.slice(3)) : null,
     title: key === "pr:8" ? "Mine" : "Save the page size", author: "ana", base: "main", branch: "feat/paging", base_sha: "b", head_sha: "h", url: null, state: "open",
@@ -87,7 +89,7 @@ export function stubKeel() {
       case "GET /api/projects/demo/budget/now": return [200, { today: { tokens: 15400, cost_usd: 0.42 }, month: { tokens: 99000, cost_usd: 3.1 }, flows: [], caps: [] }];
       case "POST /api/diagrams/ascii": return [200, { kind: body.kind, text: `DIAGRAM ${body.kind} ${body.data?.workflow?.id ?? ""} w=${body.width}\n`, lines: 1 }];
       case "POST /api/projects/demo/flows":
-        state.thread = { ...state.thread, thread_id: "t2", title: body.title, status: "running", current: "preflight", phase: "preflight", waiting: undefined };
+        state.thread = { ...state.thread, thread_id: "t2", title: body.title, status: "running", ...state.startAt, waiting: undefined };
         return [200, state.thread];
       case "POST /api/inbox/t1/act":
         if (body.decision === "reject" && !body.why) return [400, { error: "why is missing" }];

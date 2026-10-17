@@ -73,6 +73,17 @@ describe("commands", () => {
     expect(call.headers["x-keel-tool"]).toBe("/flow");
   });
 
+  it("says where a started flow is, or that it is starting when the reply has no step and no phase yet", async () => {
+    const { core: c, stub } = core();
+    await c.start();
+    const r = await run({ core: c, width: 100 }, "/flow feature Add a /health endpoint");
+    expect(r.blocks[0].text).toContain("It is running at preflight (phase preflight); it runs until its first gate for you.");
+    stub.state.startAt = { current: null, phase: null };
+    const r2 = await run({ core: c, width: 100 }, "/flow feature Add a logger");
+    expect(r2.blocks[0].text).toContain("It is starting; it runs until its first gate for you.");
+    expect(r2.blocks[0].text).not.toMatch(/phase none| at -/);
+  });
+
   it("asks for the workflow, then the idea, when /flow has none", async () => {
     const { core: c } = core();
     await c.start();
