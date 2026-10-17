@@ -311,6 +311,7 @@ describe("/create (0.18.5)", () => {
     t.stub.answer("Here it is.\n\n```keel-workflow\n" + WF + "\n```");
     finished(t.core);
     await waitFor(() => t.probe.pick);
+    await tick(80);                                                     // the picker's keys are live after its render
     expect(t.frame()).toContain("docs check: 2 steps, 1 gates, runs npm test, changes no file");
     expect(t.frame()).toContain("KeelBot wrote a workflow: save docs check?");
     await t.enter();

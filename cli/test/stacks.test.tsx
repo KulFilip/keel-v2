@@ -132,6 +132,7 @@ describe("keel TUI's stacks (0.18.9)", () => {
     t.stub.answer("Here.\n\n```keel-stack\nname: zig-api3\nlane: api\n```");
     finished(t.core);
     await waitFor(() => t.probe.pick);
+    await tick(80);                                                     // the picker's keys are live after its render
     expect(t.frame()).toContain("KeelBot wrote a stack: save zig-api3?");
     expect(t.frame()).toContain("api · layers unit · 1 commands");
     await t.enter();

@@ -110,6 +110,7 @@ describe("keel TUI's skills (0.18.6)", () => {
     t.stub.answer("Here it is.\n\n```keel-skill\n" + SKILL + "\n```");
     finished(t.core);
     await waitFor(() => t.probe.pick);
+    await tick(80);                                                     // the picker's keys are live after its render
     expect(t.frame()).toContain("KeelBot wrote a skill: save changelog-entries?");
     expect(t.frame()).toContain("loaded by investigator");
     await t.enter();
