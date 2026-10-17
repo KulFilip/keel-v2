@@ -29,6 +29,7 @@ import {
   type SkillVersion,
 } from "../skillMarketApi";
 import { useApp, useLoad } from "../state";
+import { Markdown } from "../components/Markdown";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
 type Err = { message: string; hint?: string; details?: string[] } | null;
@@ -555,6 +556,7 @@ function Section({ id, title, extra, children }: { id: string; title: string; ex
 }
 
 export function MarketSkillPage({ name }: { name: string }) {
+  const [raw, setRaw] = useState(false);          // 0.18.9 SKILL.md rendered, or as the file is
   const { pid, project, projectsLoaded, toast } = useApp();
   const r = useLoad(projectsLoaded ? `market-skill:${name}:${pid ?? ""}` : null, () => skillMarketApi.skill(name, pid), { live: false });
   const [installing, setInstalling] = useState(false);
@@ -698,13 +700,20 @@ export function MarketSkillPage({ name }: { name: string }) {
       )}
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="skm-text" title="SKILL.md" extra={<span className="sub">{w.builtin ? "keel's own" : "as published, verified"}</span>}>
+          <Section id="skm-text" title="SKILL.md" extra={<span className="sub">{w.builtin ? "keel's own" : "as published, verified"}
+            {w.text && <button type="button" className="btn sm ghost" style={{ marginLeft: 8 }} onClick={() => setRaw((r) => !r)}>{raw ? "Rendered" : "Raw"}</button>}</span>}>
             {w.summary && <p className="mk-about">{w.summary}</p>}
-            {w.text ? (
+            {w.text ? (raw ? (
               <pre className="mono wfm-yaml" aria-label={`Text of ${title}`} style={{ whiteSpace: "pre-wrap", maxHeight: 520, overflow: "auto" }}>
                 {w.text}
               </pre>
             ) : (
+              // keel 0.18.9 the skill as it reads (headings, tables, code), without its front matter and its title (the page's
+              // own); Raw shows the file
+              <div className="md-view" aria-label={`Text of ${title}`} style={{ maxHeight: 620, overflow: "auto" }}>
+                <Markdown text={w.text.replace(/^---\n[\s\S]*?\n---\n/, "").replace(/^\s*# [^\n]*\n/, "")} />
+              </div>
+            )) : (
               <p className="sub" style={{ margin: 0 }}>
                 keel did not read the file, so it shows no text: {w.fetch_error || w.refused ? "see above." : "the catalog sends none."}
               </p>
