@@ -7,7 +7,7 @@
 import { AppliedPanel } from "../components/DocHistory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
+  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type JobStep, type LadderRung, type Memory, type Step, type StepExplanation,
   type RunRow, type ThreadState, type Workflow,
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
@@ -202,6 +202,56 @@ const STATUS_PILL: Record<string, [PillTone, string]> = {
 };
 
 /** The flow on one line: title, workflow, phase, status; tokens used against the cap, cost, time; Stop. */
+/** keel 0.18.11 "4 of 9": the phase the flow is in, among the workflow's phases. */
+function phaseAt(workflow: Workflow, thread: ThreadState): string {
+  // the workflow's phases in step order (a step without a phase is in the one before it)
+  const phases: string[] = [];
+  let at = "";
+  workflow.steps.forEach((s) => {
+    at = s.phase ?? at;
+    if (at && !phases.includes(at)) phases.push(at);
+  });
+  const n = thread.phase ? phases.indexOf(thread.phase) : -1;
+  return n >= 0 && phases.length > 1 ? `${n + 1} of ${phases.length}` : "";
+}
+
+/** keel 0.18.11 what the running step does now, in one line: what its agent writes, else its newest step. */
+function nowWords(job: Job | null, text?: string, steps?: JobStep[]): string {
+  const line = (s?: string | null) => (s ?? "").split("\n").map((x) => x.trim()).filter(Boolean).at(-1) ?? "";
+  if (text?.trim()) return `✎ ${line(text)}`;
+  const last = steps?.at(-1);
+  if (last) {
+    if (last.kind === "tool") return `> ${last.tool ?? "tool"} ${line(last.text)}`.trim();
+    if (last.kind === "edit") return `✎ edits ${last.path ?? ""}`.trim();
+    if (last.kind === "thinking") return "thinking…";
+    if (line(last.text)) return line(last.text);
+  }
+  return job && job.steps_count ? "working…" : "starting…";
+}
+
+/** keel 0.18.11 the flow in one line, on top once the flow bar has scrolled away: state, phase, step, time, cost and
+ *  the one thing to do. */
+function NowLine({ thread, workflow, started, onJump }: { thread: ThreadState; workflow: Workflow; started: number | null; onJump: () => void }) {
+  const [tone, label] = STATUS_PILL[thread.status] ?? ["idle", thread.status];
+  const u = thread.usage;
+  const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
+  const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
+  const step = workflow.steps.find((s) => s.id === cur);
+  const live = thread.status === "running" || thread.status === "waiting";
+  const at = phaseAt(workflow, thread);
+  return (
+    <div className="fl-now" role="region" aria-label="The flow now">
+      <Pill tone={tone}>{label}</Pill>
+      <span className="fl-now-t" title={thread.title}>{thread.title || workflow.name}</span>
+      <span className="fl-now-m">
+        {[at ? `phase ${at} · ${phaseTitle(thread.phase)}` : phaseTitle(thread.phase), step ? `${step.name}${thread.ac ? ` (${thread.ac})` : ""}` : null,
+          started ? elapsed((live ? Date.now() : Date.parse(thread.updated_at)) - started) : null, `${kfmt(used)} tokens · ${usd(u.cost_usd)}`].filter(Boolean).join(" · ")}
+      </span>
+      {live && <button type="button" className={thread.status === "waiting" ? "btn sm warn" : "btn sm"} onClick={onJump}>{thread.status === "waiting" ? "Go to it" : "Jump to current"}</button>}
+    </div>
+  );
+}
+
 function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, readOnly, branch }: {
   thread: ThreadState; workflow: Workflow; estimate: number | null; started: number | null; onStart: () => void; onJump?: () => void; extra?: React.ReactNode;
   /** v0.15.4 an earlier run: no Stop, Start or run mode here, and its own branch */
@@ -224,7 +274,7 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, 
         <h1>{thread.title || workflow.name}</h1>
         <div className="fl-facts">
           <span><b>{workflow.name}</b> v{workflow.version}</span>
-          <span>phase <b>{phaseTitle(thread.phase)}</b></span>
+          <span>phase <b>{phaseTitle(thread.phase)}</b>{phaseAt(workflow, thread) ? <span className="sub"> ({phaseAt(workflow, thread)})</span> : null}</span>
           <Pill tone={tone}>{label}</Pill>
           <span>branch <span className="mono">{readOnly ? branch ?? "—" : project?.branch ?? "—"}</span></span>
           <CopyId id={thread.thread_id} />
@@ -275,7 +325,7 @@ type FlowSide = "now" | "step" | "checkpoints";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */
-function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, visited, waiting, canvas, onOpen, selected, still, onJump }: {
+function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, visited, waiting, canvas, onOpen, selected, still, onJump, job }: {
   thread: ThreadState; workflow: Workflow; tokens?: Record<string, number>; actual?: Record<string, number>; visited: Set<string>;
   /** keel 0.18.11 what each step really did (its block's facts line, result and tries), each step over every round,
    *  and each criterion over the loop */
@@ -284,6 +334,8 @@ function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, vi
   perAc?: Record<string, AcFacts>;
   /** "Go to it": the same as the side panel's (the answer card, its first button focused) */
   onJump?: () => void;
+  /** the agent call at work in this flow (its block shows what it does now) */
+  job?: Job | null;
   waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle>; onOpen: (id: string) => void; selected: string | null;
   /** v0.15.4 an earlier run: the page does not scroll to its last block (its banner stays in view) */
   still?: boolean;
@@ -292,6 +344,13 @@ function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, vi
   const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
   const onCanvas = !!waitAt && workflow.steps.some((s) => s.id === waitAt);
   const sendBacks = useMemo(() => sendBacksOf(thread.gate_log), [thread.gate_log]);
+  const { liveText, liveSteps } = useApp();
+  const liveLine = useMemo(() => {
+    if (thread.status !== "running") return null;
+    const id = job ? stepIdOf(workflow, job.step) : thread.current?.replace(/__fix$/, "") ?? null;
+    if (!id) return null;
+    return { id, text: nowWords(job ?? null, job ? liveText[job.id] : undefined, job ? liveSteps[job.id] : undefined) };
+  }, [thread.status, thread.current, job, liveText, liveSteps, workflow.steps]);
   // keel 0.18.11 follow the live step until the person scrolls or moves around the steps; then "Jump to live"
   const cur = thread.current?.replace(/__fix$/, "") ?? null;
   const live = thread.status === "running" && !still;
@@ -327,7 +386,7 @@ function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, vi
         {view === "blocks" ? (
           <>
             <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} facts={facts} totals={totals} acFacts={perAc} sendBacks={sendBacks}
-              foldKey={thread.thread_id} acCount={thread.acs.length || 3}
+              foldKey={thread.thread_id} liveLine={liveLine} acCount={thread.acs.length || 3}
               current={thread.current} status={thread.status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
               onOpenStep={onOpen} autoScroll={!still} inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
               label={`Steps of ${workflow.name}: ${workflow.steps.length} steps`} />
@@ -527,6 +586,16 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   const [side, setSide] = useState<FlowSide>("now");
   const wide = useWide();
   const canvas = useRef<BlocksHandle>(null);
+  // keel 0.18.11 once the flow bar has scrolled out of view, the flow's one line stays on top
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barGone, setBarGone] = useState(false);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setBarGone(!e.isIntersecting), { rootMargin: "-48px 0px 0px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
   // "Go to it" / "Jump to current": open the folds around the block, then show the answer card under it (when the flow
   // waits) and put the focus on its first button, so you can answer right away.
@@ -546,13 +615,16 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   const done = readOnly ? readOnly.onResumed : reload;
   return (
     <>
-      <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump}
-        readOnly={!!readOnly} branch={readOnly?.branch} />
+      <div ref={barRef}>
+        <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump}
+          readOnly={!!readOnly} branch={readOnly?.branch} />
+      </div>
+      {barGone && !readOnly && <NowLine thread={thread} workflow={workflow} started={started} onJump={jump} />}
       {!wide && sel && <StepPanel drawer key={sel} pid={pid} thread={thread} workflow={workflow} stepId={sel} running={running} onClose={() => setSel(null)}
         onJump={() => { setSel(null); jump(); }} />}
       <div className="fl">
         <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
-          still={!!readOnly} onJump={jump} />
+          still={!!readOnly} onJump={jump} job={job} />
         <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} running={running} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
           selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={done} history={history} onJump={jump} readOnly={readOnly} />
       </div>

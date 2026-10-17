@@ -148,3 +148,46 @@ describe("Flow page: the gate card (0.18.11)", () => {
     }
   });
 });
+
+describe("Flow page: the top and the live line (0.18.11)", () => {
+  it("the running block shows what its agent writes now, else that it works", async () => {
+    const f = db.flows["ludus-engine"];
+    f.thread = { ...f.thread!, status: "running", waiting: undefined, current: "s7" };   // j-482, the AC review, runs
+    render(<App />);
+    await waitFor(() => expect(block("s7")?.querySelector(".sb-live")).toHaveTextContent("working…"));
+    act(() => FakeEventSource.emit("agent.delta", { type: "agent.delta", thread_id: "th_7f3a", project_id: "ludus-engine", call_id: "j-482", step: "s7",
+      at: new Date().toISOString(), data: { text: "Looking at the gate.\nThe test checks the 400 body now" } }));
+    await waitFor(() => expect(block("s7")!.querySelector(".sb-live")).toHaveTextContent("✎ The test checks the 400 body now"));
+    expect(block("s5")!.querySelector(".sb-live")).toBeNull();               // only the running block
+    expect(document.querySelector(".sx-total")).toBeNull();                  // the flow bar has the flow's tokens
+  });
+
+  it("once the flow bar scrolls away, the flow's one line stays on top with the phase, the step and Go to it", async () => {
+    const user = userEvent.setup();
+    const seen: ((e: { isIntersecting: boolean }[]) => void)[] = [];
+    const had = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = class {
+      constructor(cb: (e: { isIntersecting: boolean }[]) => void) { seen.push(cb); }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      render(<App />);
+      const bar = await screen.findByRole("region", { name: "This flow" });
+      expect(bar).toHaveTextContent(/phase ac-gate \(5 of 5\)/);
+      expect(screen.queryByRole("region", { name: "The flow now" })).toBeNull();
+      act(() => seen.forEach((cb) => cb([{ isIntersecting: false }])));
+      const now = await screen.findByRole("region", { name: "The flow now" });
+      expect(now).toHaveTextContent("waiting for you");
+      expect(now).toHaveTextContent("phase 5 of 5 · ac-gate · AC gate (AC-002)");
+      expect(now).toHaveTextContent("182k tokens · $2.86");
+      await user.click(within(now).getByRole("button", { name: "Go to it" }));
+      const card = screen.getByRole("region", { name: "Gate waits for you" });
+      await waitFor(() => expect(document.activeElement && card.contains(document.activeElement)).toBe(true));
+      act(() => seen.forEach((cb) => cb([{ isIntersecting: true }])));
+      await waitFor(() => expect(screen.queryByRole("region", { name: "The flow now" })).toBeNull());
+    } finally {
+      (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = had;
+    }
+  });
+});

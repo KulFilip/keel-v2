@@ -806,6 +806,14 @@ table.xrules td { padding-top: 4px; padding-bottom: 4px; }
 .sb-result { font-size: 12.5px; line-height: 1.4; color: var(--ink); opacity: .94; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .sb-tries { background: var(--tint, rgba(0,0,0,.09)); border-radius: 999px; padding: 0 7px; font-size: 12px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
 .sx-legend .sb-tries { margin-right: 4px; }
+/* keel 0.18.11 what the running step does now, one dim line in its block */
+.sb-live { font: 12px var(--f-mono); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* keel 0.18.11 the flow in one line, on top once the flow bar is out of view */
+.fl-now { position: sticky; top: var(--bar-h, 0px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 12px;
+  padding: 7px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.08); font-size: 13px; }
+.fl-now-t { font-weight: 650; min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-now-m { color: var(--dim); font-variant-numeric: tabular-nums; }
+.fl-now .btn { margin-left: auto; }
 .sb-st { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 0 8px; font-size: 11.5px; font-weight: 700; line-height: 1.6; background: #fff; }
 .sb-st.st-done { color: #fff; background: var(--ok); width: 20px; height: 20px; padding: 0; justify-content: center; font-size: 12px; }
 .sb-st.st-run { color: var(--run); }

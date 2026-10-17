@@ -56,6 +56,8 @@ export type BlocksProps = {
   /** keel 0.18.11 phases fold (the Flow page): a phase that is over or not started yet starts closed, the one at work
    *  open; what the person opens or closes is remembered under this key (the flow's id). */
   foldKey?: string;
+  /** keel 0.18.11 what the running step does now, one line (what its agent writes, else its newest step) */
+  liveLine?: { id: string; text: string } | null;
   /** How many criteria the per-AC loop runs for (the estimate's input, or the thread's criteria). */
   acCount?: number;
   customAgents?: Set<string>;
@@ -323,7 +325,7 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
   return (
     <div className={`sx ${edit ? "sx-edit" : ""} ${states ? "sx-live" : ""} ${isDragging ? "is-dragging" : ""}`} ref={root} aria-label={label} role="region"
       onDragEnter={edit ? () => { if (!isDragging) setDragging(true); } : undefined}>
-      {p.tokens && total > 0 && (
+      {p.tokens && total > 0 && !states && (
         <div className="sx-total" aria-label="Tokens for the whole workflow">
           <span className="sx-total-n">{used ? <><b>{kfmt(used)}</b> used of </> : null}≈ <b>{kfmt(total)}</b> tokens</span>
           <span className="sx-total-s">for the whole workflow{steps.some((s) => s.per_ac) ? ` with ${n} ${n === 1 ? "criterion" : "criteria"}` : ""}</span>
@@ -546,6 +548,7 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   const est = ctx.per(s, p.tokens);
   const f = p.facts?.[s.id];
   const inLoop = !!(s.per_ac || s.per_item);
+  const liveNow = st === "run" && p.liveLine?.id === s.id ? p.liveLine.text : null;
   const aria = [
     head ? String(head) : null, s.name, KIND_WORD[s.kind] ?? s.kind,
     s.agent && `agent ${s.agent}${custom && !s.agent.startsWith("★") ? " (custom)" : ""}`, !f && s.model && `model ${s.model}`,
@@ -575,10 +578,10 @@ function Face({ ctx, s, row, head, cls = "", children }: {
             if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenStep!(s.id); return; }
             ctx.onKey(e, s);
           }}>
-          <FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} facts={f} inLoop={inLoop} />
+          <FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} facts={f} inLoop={inLoop} live={liveNow} />
         </div>
       ) : (
-        <div className="sb-main" aria-label={aria} role="group"><FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} facts={f} inLoop={inLoop} /></div>
+        <div className="sb-main" aria-label={aria} role="group"><FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} facts={f} inLoop={inLoop} live={liveNow} /></div>
       )}
       <span className="sb-side">
         {f && f.tries > 1 && (
@@ -600,8 +603,10 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   );
 }
 
-function FaceText({ s, head, custom, count, locked, tags, facts, inLoop }: {
+function FaceText({ s, head, custom, count, locked, tags, facts, inLoop, live }: {
   s: Step; head?: ReactNode; custom: boolean; count: string; locked: boolean; tags: string[]; facts?: StepFacts; inLoop?: boolean;
+  /** the running step's line now */
+  live?: string | null;
 }) {
   // once it ran, the agent pill names the model that really ran, not the workflow's "default"
   const line = facts ? factsLine(s.agent ? { ...facts, model: null, effort: null } : facts, !!inLoop) : "";
@@ -617,7 +622,8 @@ function FaceText({ s, head, custom, count, locked, tags, facts, inLoop }: {
           {count && <span className="sb-count">{count}</span>}
           {tags.map((t) => <span key={t} className="sb-tag">{t}</span>)}
         </span>
-        {facts?.result && <span className="sb-result" title={facts.result}>“{facts.result}”</span>}
+        {facts?.result && !live && <span className="sb-result" title={facts.result}>“{facts.result}”</span>}
+        {live && <span className="sb-live" aria-live="off" title={live}>{live}</span>}
       </span>
     </>
   );
