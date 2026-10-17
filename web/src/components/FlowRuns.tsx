@@ -2,11 +2,11 @@
 // that run at the same time, and the project's history (newest first, one workflow's or all), where any old flow opens
 // with all its details (GET /api/projects/{pid}/runs).
 
-import { useState } from "react";
-import { api, type RunRow } from "../api";
+import { Fragment, useState } from "react";
+import { api, errorParts, type RunRow } from "../api";
 import { clock, kfmt } from "../format";
-import { go, useLoad } from "../state";
-import { StatusPill } from "./ui";
+import { go, useApp, useLoad } from "../state";
+import { Confirm, StatusPill } from "./ui";
 
 const OPEN_KEY = "keel2.flow.history";
 const active = (r: RunRow) => r.status === "running" || r.status === "waiting";
@@ -33,6 +33,25 @@ export function FlowRuns({
   history?: boolean;
 }) {
   const runs = useLoad(`runs:${pid}`, () => api.runs(pid, undefined, 50));
+  // keel 0.18.9 Delete here too (as in the Runs list): a flow that is over and cannot be resumed, after a yes
+  const { toast } = useApp();
+  const [asking, setAsking] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const deletable = (r: RunRow) => r.status !== "running" && r.status !== "waiting" && !(r.latest && r.status === "stopped");
+  const remove = async (r: RunRow) => {
+    setBusy(true);
+    try {
+      await api.deleteRun(pid, r.thread_id);
+      toast(`“${r.title}” is gone from the history. Its branch and commits stay.`);
+      setAsking(null);
+      await runs.reload();
+    } catch (e) {
+      const x = errorParts(e);
+      toast(x.hint ? `${x.message} ${x.hint}` : x.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const [open, setOpen] = useState(readOpen);
   const [wf, setWf] = useState("");
   const all = runs.data ?? [];
@@ -122,8 +141,8 @@ export function FlowRuns({
               </thead>
               <tbody>
                 {shown.map((r) => (
+                  <Fragment key={r.thread_id}>
                   <tr
-                    key={r.thread_id}
                     className={r.thread_id === selected ? "on" : undefined}
                   >
                     <td>
@@ -154,8 +173,23 @@ export function FlowRuns({
                           Open
                         </button>
                       )}
+                      {deletable(r) && r.thread_id !== selected && (
+                        <button type="button" className="btn sm ghost" disabled={busy} onClick={() => setAsking(r.thread_id)}
+                          aria-label={`Delete the flow ${r.title}`}>
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
+                  {asking === r.thread_id && (
+                    <tr key={`${r.thread_id}-ask`}>
+                      <td colSpan={7}>
+                        <Confirm text={<>Delete “{r.title}” from the history? Only the record goes: its branch, commits and checkpoints stay.</>}
+                          yes="Yes, delete it" busy={busy} onYes={() => void remove(r)} onNo={() => setAsking(null)} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

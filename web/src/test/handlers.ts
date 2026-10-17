@@ -180,6 +180,12 @@ export function handlers(db: Db) {
       HttpResponse.json(db.flows[params.pid as string] ?? { thread: null, workflow: null })),
     http.get("/api/projects/:pid/flows", ({ params }) =>
       HttpResponse.json(db.boards[params.pid as string] ?? { flows: [], overlaps: [], conflicts: [], order: [] })),
+    // keel 0.18.9 a flow's record off the history (tests that need a refusal override it)
+    http.delete("/api/projects/:pid/flows/:tid", async ({ request, params }) => {
+      await log(request);
+      db.runs[params.pid as string] = (db.runs[params.pid as string] ?? []).filter((r) => r.thread_id !== params.tid);
+      return HttpResponse.json({ ok: true });
+    }),
     http.get("/api/projects/:pid/flows/:tid", ({ params }) => {
       const here = db.flows[params.pid as string];
       if (here?.thread?.thread_id === params.tid) return HttpResponse.json(here);

@@ -120,6 +120,22 @@ describe("Flow page (Run): flows side by side and the history", () => {
   });
 });
 
+describe("the Flow page's History (0.18.9)", () => {
+  it("deletes a flow that is over, after a yes; one that runs or waits has no Delete", async () => {
+    const user = userEvent.setup();
+    const open = db.flows["ludus-engine"].thread!.thread_id;
+    db.runs["ludus-engine"] = [run(open, "Score ranks", "waiting"), run("t-b", "Euro prices", "running"), run("t-c", "Old fix", "done", "fix")];
+    location.hash = "#/flow";
+    render(<App />);
+    await screen.findByRole("tablist", { name: "Flows that run now" });
+    await user.click(screen.getByRole("button", { name: /History/ }));
+    expect(screen.queryByRole("button", { name: "Delete the flow Euro prices" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Delete the flow Old fix" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete it" }));
+    await waitFor(() => expect(db.calls.some((c) => c.method === "DELETE" && c.path === "/api/projects/ludus-engine/flows/t-c")).toBe(true));
+  });
+});
+
 describe("the pages' names", () => {
   it("the Code page and KeelBot have their own names in the menu and in the address", () => {
     expect(parseHash("#/code/api/A.kt:3")).toEqual({
