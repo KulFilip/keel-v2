@@ -188,7 +188,8 @@ describe("Flow page: the top and the live line (0.18.11)", () => {
       act(() => seen.forEach((cb) => cb([{ isIntersecting: false }])));
       const now = await screen.findByRole("region", { name: "The flow now" });
       expect(now).toHaveTextContent("waiting for you");
-      expect(now).toHaveTextContent("phase 5 of 5 · ac-gate · AC gate (AC-002)");
+      expect(now.querySelector(".fl-now-p")).toHaveTextContent("phase 5 of 5 · ac-gate");
+      expect(now.querySelector(".fl-now-s")).toHaveTextContent("AC gate (AC-002)");
       expect(now).toHaveTextContent("182k tokens · $2.86");
       await user.click(within(now).getByRole("button", { name: "Go to it" }));
       const card = screen.getByRole("region", { name: "Gate waits for you" });
