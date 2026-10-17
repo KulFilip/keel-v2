@@ -174,15 +174,16 @@ export function LivePage({ pid }: { pid: string }) {
   // the feed opens on the last agent that ran, not on the first match of a search
   const lastRan = useRef<Job | null>(null);
   if (fin.q === "" && fin.rows) lastRan.current = finished[0] ?? null;
-  // what the feed shows: the agent in the link, else the one that works now, else the last one that ran
-  const selId = arg ?? runningList[0]?.id ?? (running.data ? lastRan.current?.id : undefined) ?? null;
+  // what the feed shows: the agent in the link, else the one that works now; on the Finished tab the last one that ran.
+  // keel 0.18.9: "Working now" with nobody working shows that, not the last finished agent
+  const [tab, setTab] = useRunTab("keel2.live.tab", !!running.data || !!running.error, runningList.length);
+  const selId = arg ?? runningList[0]?.id ?? (running.data && tab === "finished" ? lastRan.current?.id : undefined) ?? null;
   const selJob = runningList.find((j) => j.id === selId) ?? finished.find((j) => j.id === selId) ?? (lastRan.current?.id === selId ? lastRan.current : null);
   const detail = useLoad(selId && !selJob ? `job:${selId}` : null, () => api.job(selId!), { live: false });
   const job = selJob ?? detail.data;
   const { steps } = useJobSteps(selJob?.status === "running" ? selJob.id : null);
   const loaded = !!running.data && !!fin.rows;
   const never = loaded && fin.q === "" && !runningList.length && !finished.length;
-  const [tab, setTab] = useRunTab("keel2.live.tab", !!running.data || !!running.error, runningList.length);
   const fresh = fin.q === search.trim();
   const finCount = fin.rows === null ? null : fresh && fin.total !== null ? fin.total : finShown.length;
 
@@ -244,7 +245,14 @@ export function LivePage({ pid }: { pid: string }) {
               </section>
             )}
           </div>
-          {job ? <Feed key={job.id} job={job} note={note} /> : detail.error ? <ErrorBox error={detail.error} /> : (
+          {job ? <Feed key={job.id} job={job} note={note} /> : detail.error ? <ErrorBox error={detail.error} />
+            : running.data && !selId ? (
+              <div className="panel live-wait" role="status">
+                <EmptyState title="No agent is working right now">
+                  When a flow reaches an agent step, it shows up here live. Earlier agents are on the <b>Finished</b> tab.
+                </EmptyState>
+              </div>
+            ) : (
             <div className="panel live-wait"><Loading what={selId ? "Loading the feed" : "Loading agents"} /></div>
           )}
         </div>
