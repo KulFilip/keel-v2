@@ -86,7 +86,8 @@ describe("Flow steps: a click shows the step", () => {
     const s = await side();
     expect(await within(s).findByRole("region", { name: "AC review now" })).toBeInTheDocument();
     const card = s.querySelector<HTMLElement>(".running-card")!;
-    expect(card).toHaveTextContent("running node AC review — AC-002");
+    expect(card).toHaveTextContent("running AC review — AC-002");
+    expect(card).not.toHaveTextContent("node");
     expect(within(card).getByRole("link", { name: "Watch live" })).toHaveAttribute("href", "#/live/j-482");
     const works = within(s).getByRole("region", { name: "ac-reviewer works" });
     expect(await within(works).findByText(/Looking at what the gate needs/)).toBeInTheDocument();

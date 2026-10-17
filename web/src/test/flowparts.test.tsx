@@ -4,10 +4,11 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import { sendBacksOf } from "../components/stepFacts";
-import { db, FakeEventSource } from "./setup";
+import { db, FakeEventSource, server } from "./setup";
 
 const block = (id: string) => document.querySelector<HTMLElement>(`[data-block="${id}"]`);
 
@@ -101,5 +102,49 @@ describe("Flow page: long flows (0.18.11)", () => {
     expect(pin).toHaveClass("is-bad");
     await user.click(within(pin).getByRole("button", { name: "Go to it" }));
     await waitFor(() => expect(document.activeElement?.closest("[data-block]")?.getAttribute("data-block")).toBe("s5"));
+  });
+});
+
+describe("Flow page: the gate card (0.18.11)", () => {
+  it("says what you approve, what it cost so far, and what each button does; A approves, R goes to the reason", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const card = await screen.findByRole("region", { name: "Gate waits for you" });
+    const lines = card.querySelector<HTMLElement>("dl.gc-lines")!;
+    expect(lines).toHaveTextContent("You approveAC-002 “Refuse a negative score with 400”");
+    expect(lines).toHaveTextContent("So far182k tokens · $2.86 for this flow");
+    expect(lines).toHaveTextContent("After approvekeel starts the next criterion: AC-003 “Show the top 10 scores”");
+    expect(lines).toHaveTextContent("After send backthe test-author does “red” again for AC-002, with your reason");
+    expect(card).toHaveTextContent("Proof");
+    expect(card).not.toHaveTextContent("Command(resume");
+
+    within(card).getByRole("button", { name: /^Approve AC-002/ }).focus();
+    await user.keyboard("r");
+    expect(document.activeElement).toBe(within(card).getByLabelText("Why (needed to send back)"));
+    await user.keyboard("r");                                              // typing in the box is only typing
+    expect(within(card).getByLabelText("Why (needed to send back)")).toHaveValue("r");
+
+    within(card).getByRole("button", { name: /^Approve AC-002/ }).focus();
+    await user.keyboard("a");
+    await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path === "/api/threads/th_7f3a/resume")?.body).toMatchObject({ decision: "approve" }));
+  });
+
+  it("an answer that fails offers Ask KeelBot to fix it, with keel's error", async () => {
+    const user = userEvent.setup();
+    server.use(http.post("/api/threads/:tid/resume", () => HttpResponse.json({ error: "The engine is busy", hint: "Try again in a minute." }, { status: 409 })));
+    const asked: string[] = [];
+    const on = (e: Event) => asked.push((e as CustomEvent<{ text: string }>).detail.text);
+    window.addEventListener("keel:ask-assistant", on);
+    try {
+      render(<App />);
+      const card = await screen.findByRole("region", { name: "Gate waits for you" });
+      await user.click(within(card).getByRole("button", { name: /^Approve AC-002/ }));
+      await user.click(await within(card).findByRole("button", { name: "Ask KeelBot to fix it" }));
+      expect(asked[0]).toContain("This failed: answering the gate “AC gate” of the flow “Scores for players”");
+      expect(asked[0]).toContain("keel said: The engine is busy");
+      await waitFor(() => expect(location.hash).toBe("#/helper"));
+    } finally {
+      window.removeEventListener("keel:ask-assistant", on);
+    }
   });
 });

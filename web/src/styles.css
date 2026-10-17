@@ -128,6 +128,15 @@ tr.click:hover td { background: var(--panel-2); }
 .legend i { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
 
 .interrupt { border: 1.5px solid var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; }
+/* keel 0.18.11 a gate says in plain words what you approve, what it cost so far, and what each button does */
+.gc-lines { margin: 0; display: grid; gap: 3px; font-size: 13px; }
+.gc-lines > div { display: grid; grid-template-columns: 9.5em minmax(0,1fr); gap: 8px; }
+.gc-lines dt, .gc-k { color: var(--dim); }
+.gc-lines dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.gc-proof { display: grid; grid-template-columns: 9.5em minmax(0,1fr); gap: 8px; font-size: 13px; }
+.gc-proof > :last-child { min-width: 0; }
+.gc-kbd { margin-left: 8px; font: 600 11px var(--f-mono); padding: 0 5px; border: 1px solid currentColor; border-radius: 4px; opacity: .7; }
+@media (max-width: 600px) { .gc-lines > div, .gc-proof { grid-template-columns: minmax(0,1fr); gap: 0; } }
 .interrupt h3 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .interrupt .facts { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
 .interrupt textarea { width: 100%; min-height: 54px; border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 8px; resize: vertical; }

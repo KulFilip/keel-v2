@@ -38,6 +38,9 @@ import { useWide } from "../components/useWide";
 import { Async, Confirm, Drawer, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
+import { useHasPage } from "../sdk/registry";
+import { askAssistant } from "../sdk/assistant";
+import { fixRequest } from "../askFix";
 
 const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle", "already-met": "met" };
 
@@ -224,7 +227,7 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, 
           <span>phase <b>{phaseTitle(thread.phase)}</b></span>
           <Pill tone={tone}>{label}</Pill>
           <span>branch <span className="mono">{readOnly ? branch ?? "—" : project?.branch ?? "—"}</span></span>
-          <span className="sub fl-tid">thread <span className="mono">{thread.thread_id}</span></span>
+          <CopyId id={thread.thread_id} />
         </div>
       </div>
       <div className="fl-stats">
@@ -581,14 +584,23 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
   noResume?: string;
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
+  const keelbot = useHasPage("helper");
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
-  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? thread.phase} ac={thread.ac} job={job} />;
+  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? ""} ac={thread.ac} job={job} />;
   void pid;
   const tone: PillTone = thread.status === "done" ? "ok" : thread.status === "failed" ? "bad" : "idle";
   return (
     <div className={thread.status === "failed" ? "errbox" : "running-card"} style={thread.status === "done" ? { borderColor: "var(--ok)", background: "var(--ok-soft)" } : undefined}>
       <b><Pill tone={tone}>{thread.status}</Pill> {thread.status === "done" ? "The flow is done." : thread.status === "failed" ? "The flow failed." : "The flow was stopped."}</b>
       {thread.error && <span className="sub">{thread.error}</span>}
+      {thread.status === "failed" && keelbot && (
+        <div className="row">
+          <button type="button" className="btn sm" title="KeelBot reads the error and the project, says why it failed and proposes a fix you press"
+            onClick={() => { askAssistant(fixRequest(`the flow “${thread.title}” at ${step?.name ?? thread.current ?? "its step"}`, { message: thread.error || "The flow failed." })); go("helper"); }}>
+            Ask KeelBot why it failed
+          </button>
+        </div>
+      )}
       {thread.status !== "done" && (noResume ? <span className="hint">{noResume}</span> : <ResumeRow thread={thread} onDone={onDone} onCheckpoints={onCheckpoints} />)}
     </div>
   );
@@ -622,9 +634,10 @@ function ConfirmStop({ title, busy, onCancel, onStop }: { title: string; busy: b
 function RunningCard({ step, name, ac, job }: { step?: Step; name: string; ac?: string | null; job: Job | null }) {
   return (
     <div className="running-card">
-      <b><Pill tone="run">running</Pill> node <span className="mono">{name}</span>{ac ? ` — ${ac}` : ""}</b>
+      <b><Pill tone="run">running</Pill> {step ? step.name : name ? name : "starting…"}{ac ? ` — ${ac}` : ""}</b>
       <span className="sub">
-        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} e={job.effort} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
+        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} e={job.effort} /> · {job.steps_count} {job.steps_count === 1 ? "step" : "steps"}
+          {job.mcp_calls ? ` · ${job.mcp_calls} keel ${job.mcp_calls === 1 ? "tool" : "tools"} used` : ""}</>
           : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
             : step?.kind === "code" ? "plain code, no LLM" : "working"}
       </span>
@@ -718,8 +731,8 @@ const GATE_LABEL: Record<string, string> = { release: "release", coverage: "cove
 
 export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
   return (
-    <Panel title="Before ship" extra={<span className="hint">checked at push_check and after every commit</span>}>
-      {!blockers ? <span className="sub">Not checked yet. It runs at push_check.</span> : !blockers.length ? (
+    <Panel title="Before ship" extra={<span className="hint">checked before the push and after every commit</span>}>
+      {!blockers ? <span className="sub">Not checked yet. keel checks it before the push.</span> : !blockers.length ? (
         <div className="row"><Pill tone="ok">ready</Pill><span className="sub">Nothing blocks shipping.</span></div>
       ) : (
         <div className="blockers" aria-label="What blocks shipping">
@@ -735,6 +748,30 @@ export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
   );
 }
 
+/** keel 0.18.11 what an approve leads to, in plain words: the next criterion, the next step, or the end. */
+function afterApprove(workflow: Workflow, thread: ThreadState, step?: Step): string {
+  if (!step) return "the flow goes on";
+  if (step.per_ac) {
+    const next = thread.acs.find((a) => a.id !== thread.ac && !["done", "already-met"].includes(a.status));
+    if (next) return `keel starts the next criterion: ${next.id}${next.title ? ` “${next.title}”` : ""}`;
+  }
+  const at = workflow.steps.findIndex((s) => s.id === step.id);
+  const to = step.then && step.then !== "continue" ? workflow.steps.find((s) => s.id === step.then)
+    : workflow.steps.slice(at + 1).find((s) => !(step.per_ac && s.per_ac));
+  return to ? `the flow goes on with “${to.name}”` : "the flow is done";
+}
+
+/** The flow's id as a small copy button (it is for MCP and the terminal app, not for reading). */
+function CopyId({ id }: { id: string }) {
+  const { toast } = useApp();
+  return (
+    <button type="button" className="linkbtn sub fl-tid" title={`Flow id ${id}: copy it for keel2 or MCP`} aria-label={`Copy the flow id ${id}`}
+      onClick={() => { void navigator.clipboard?.writeText(id).then(() => toast("Flow id copied."), () => toast(id)); }}>
+      copy flow id
+    </button>
+  );
+}
+
 function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow: Workflow; onDone: () => Promise<void> }) {
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
@@ -747,8 +784,22 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const back = step?.back ? workflow.steps.find((s) => s.id === step.back) : undefined;
   const ac = thread.acs.find((a) => a.id === thread.ac);
   const labels = gateLabels(w, ac?.id, back?.name);
+  const keelbot = useHasPage("helper");
 
   const showAc = w.kind === "gate" && !labels.special;
+  // keel 0.18.11 a plain approve / send back gate says in plain words what you approve and what each button does
+  const plain = w.kind === "gate" && !labels.special && !w.choices?.length && w.options.includes("approve") && w.options.includes("reject");
+  const after = plain ? afterApprove(workflow, thread, step) : "";
+  const sentBack = back
+    ? `${back.agent ? `the ${back.agent} does “${back.name}” again` : `“${back.name}” runs again`}${ac && step?.per_ac ? ` for ${ac.id}` : ""}, with your reason`
+    : "the step before runs again, with your reason";
+  const used = thread.usage.tokens_in + thread.usage.tokens_out + Math.floor((thread.usage.tokens_cached ?? 0) / 10);
+  const onKey = (e: React.KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (busy || e.metaKey || e.ctrlKey || e.altKey || tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+    if (plain && e.key.toLowerCase() === "a") { e.preventDefault(); void decide("approve"); }
+    if (w.options.includes("reject") && labels.whyLabel && e.key.toLowerCase() === "r") { e.preventDefault(); document.getElementById("why")?.focus(); }
+  };
 
   const decide = async (decision: "approve" | "reject", extra?: Record<string, unknown>) => {
     if (decision === "reject" && labels.needWhy && !why.trim()) {
@@ -774,15 +825,23 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   };
 
   return (
-    <div className="interrupt" role="region" aria-label="Gate waits for you">
+    <div className="interrupt" role="region" aria-label="Gate waits for you" onKeyDown={onKey}>
       <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
       <RunModeNote mode={thread.run_mode} kind={w.kind === "fix" && /dependenc/i.test(w.title) ? "dependency" : w.kind} title={w.title}
         auto={{ count: autoLines(thread.gate_log).length, last: autoLines(thread.gate_log).at(-1) }} />
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
+      {plain && (
+        <dl className="gc-lines" aria-label="What you decide">
+          <div><dt>You approve</dt><dd>{showAc && ac ? <><b>{ac.id}</b> “{ac.title}”</> : <b>{step?.name ?? w.title}</b>}</dd></div>
+          <div><dt>So far</dt><dd>{kfmt(used)} tokens · {usd(thread.usage.cost_usd)} for this flow</dd></div>
+          <div><dt>After approve</dt><dd>{after}</dd></div>
+          <div><dt>After send back</dt><dd>{sentBack}</dd></div>
+        </dl>
+      )}
       {w.kind === "clarify" && w.questions
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
             onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
-        : w.detail && <GateDetail text={w.detail} />}
+        : w.detail && (plain ? <div className="gc-proof"><span className="gc-k">Proof</span><GateDetail text={w.detail} /></div> : <GateDetail text={w.detail} />)}
       {labels.whyLabel && (
         <div className="field">
           <label htmlFor="why">{labels.whyLabel}</label>
@@ -804,11 +863,25 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
           {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}
         </div>
       ) : <div className="row">
-        {w.options.includes("approve") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve")}>{labels.approve}</button>}
-        {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}
-        <span className="hint">Resumes the thread with <span className="mono">Command(resume={"{decision, why}"})</span>.</span>
+        {w.options.includes("approve") && (
+          <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve")} aria-keyshortcuts={plain ? "A" : undefined}>
+            {labels.approve}{plain && <kbd className="gc-kbd" aria-hidden="true">A</kbd>}
+          </button>
+        )}
+        {w.options.includes("reject") && (
+          <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}
+            title={labels.whyLabel ? "R puts you in the reason box" : undefined}>
+            {labels.reject}{plain && labels.whyLabel && <kbd className="gc-kbd" aria-hidden="true">R</kbd>}
+          </button>
+        )}
       </div>}
       {err && <ErrorBox error={err} />}
+      {err && keelbot && (
+        <div className="row">
+          <button type="button" className="btn sm" onClick={() => { askAssistant(fixRequest(`answering the gate “${w.title}” of the flow “${thread.title}”`, err)); go("helper"); }}
+            title="KeelBot reads the error and the project, says why it failed and proposes a fix you press">Ask KeelBot to fix it</button>
+        </div>
+      )}
     </div>
   );
 }
