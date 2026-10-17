@@ -105,12 +105,20 @@ body.ide-dragging { cursor: col-resize; user-select: none; }
 mark.sr-m { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; border-radius: 2px; }
 
 /* source control */
-.scm-branch { display: flex; align-items: center; gap: 6px; padding: 0 14px 2px; flex-wrap: wrap; color: var(--fg); }
+.scm-branch { display: flex; align-items: flex-start; gap: 8px; padding: 2px 14px 8px; color: var(--fg); }
+.scm-branch > svg { flex: none; margin-top: 15px; color: var(--dim); }
+.scm-bn { display: grid; gap: 2px; min-width: 0; }
+.scm-bn > b { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.scm-bn > .sub { font-size: 12px; }
+.scm-on { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
 .scm-ro { margin: 2px 14px 8px; font-size: 11.5px; color: var(--faint); }
 .scm-dirty { margin: 0 10px 8px; padding: 8px 10px; display: grid; gap: 6px; border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 7px; font-size: 12.5px; }
 .scm-dirty .btn { justify-self: start; }
-.scm-scroll { flex: 1; overflow: auto; min-height: 0; padding-bottom: 12px; scrollbar-width: thin; }
-.scm-gh { font-size: 11.5px; font-weight: 700; letter-spacing: .03em; color: var(--dim); min-height: 24px; }
+.scm-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; padding-bottom: 16px; scrollbar-width: thin; overscroll-behavior: contain; }
+/* a section's title stays on top while its rows scroll under it */
+.scm-gh { font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--fg); min-height: 28px; position: sticky; top: 0; z-index: 1;
+  background: var(--ide-side); border-top: 1px solid var(--ide-line); }
+.scm-g:first-of-type .scm-gh { border-top-color: transparent; }
 .scm-gt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scm-gb { padding-bottom: 6px; }
 .scm-row { padding-left: 24px; }
@@ -120,7 +128,7 @@ mark.sr-m { background: color-mix(in srgb, var(--warn) 30%, transparent); color:
 .scm-ch .ex-tw { margin-top: 3px; }
 .scm-cm { display: grid; gap: 1px; min-width: 0; }
 .scm-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.scm-meta { color: var(--faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scm-meta { color: var(--dim); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .scm-keel, .scm-ac { display: inline-block; font: 600 10px/14px var(--f-mono); padding: 0 4px; border-radius: 4px; margin-right: 5px; vertical-align: 1px; }
 .scm-keel { background: var(--accent); color: var(--on-accent); }
 .scm-ac { border: 1px solid var(--accent); color: var(--accent); }
@@ -130,7 +138,13 @@ mark.sr-m { background: color-mix(in srgb, var(--warn) 30%, transparent); color:
 .scm-none { margin: 4px 14px 8px 26px; }
 .scm-wt { display: grid; gap: 0; padding: 3px 14px 3px 26px; min-width: 0; }
 .scm-wt .sub { overflow-wrap: anywhere; font-size: 11px; }
-.scm-br { padding-block: 3px; align-items: flex-start; }
+.scm-br { padding-block: 6px; align-items: flex-start; gap: 8px; }
+.scm-br.on { background: var(--accent-soft, var(--ide-hover)); }
+.scm-bname { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+/* a branch's whole name, on two lines when the panel is narrow */
+.scm-bname .scm-msg { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.scm-cur { flex: none; font: 600 10px/16px var(--f-mono); padding: 0 6px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); }
+.scm-bf { padding: 2px 10px 6px 24px; }
 .scm-br > svg { margin-top: 3px; flex: none; }
 
 /* a branch's tab (Git plugin): its changed files and commits beside the diff of the chosen file */
