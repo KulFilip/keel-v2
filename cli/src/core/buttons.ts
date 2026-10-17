@@ -11,6 +11,7 @@
 //   ```keel-agent {"name", "about", "prompt", "tools", "phases"}```         a new agent
 //   ```keel-skill <SKILL.md>```                                             a new skill (checked, saved, put on the
 //                                                                           agents its front matter names)
+//   ```keel-stack <yaml>```                                                 a new stack (checked, then saved: 0.18.9)
 //
 //   ```keel-git {"op": "switch" | "commit" | "push" | "pr" | "sync", …}```  the Git plugin's (0.18.9)
 //   ```keel-ci {"op": "fix" | "rerun", "run"?}```                           the CI/CD plugin's (0.18.9)
@@ -46,6 +47,7 @@ export type Button =
   | { kind: "rule"; yaml: string }
   | { kind: "agent"; agent: NewAgent }
   | { kind: "skill"; text: string }
+  | { kind: "stack"; yaml: string }
   | { kind: "git"; op: "switch" | "commit" | "push" | "pr" | "sync"; branch?: string; create?: boolean; message?: string; title?: string;
       body?: string; draft?: boolean; stash?: boolean }
   | { kind: "ci"; op: "fix" | "rerun"; run?: number }
@@ -95,7 +97,7 @@ export function skillProblems(text: string): string[] {
 
 /** One block as a button, or null when its body is not what its kind needs (it then stays text). */
 export function toButton(kind: string, body: string): Button | null {
-  if (kind === "workflow" || kind === "rule") return body.trim() ? { kind, yaml: body } : null;
+  if (kind === "workflow" || kind === "rule" || kind === "stack") return body.trim() ? { kind, yaml: body } : null;
   if (kind === "skill") return body.trim() ? { kind, text: body.endsWith("\n") ? body : body + "\n" } : null;
   if (kind === "agent") {
     const v = json(body);
@@ -287,6 +289,16 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
       detail: `${h.description ? h.description + "\n" : ""}~${Math.round(b.text.length / 4)} tokens · `
         + (h.agents.length ? `loaded by ${h.agents.join(", ")}` : "no agent loads it yet (/skill attach)") };
   }
+  if (b.kind === "stack") {
+    const r = await post<{ ok: boolean; errors: string[]; warnings: string[]; name: string | null; replaces?: string | null;
+      review?: { lane: string; layers: string[]; commands: Record<string, string> } | null }>(`${pathOf(pid)}/stacks/check`, { yaml: b.yaml });
+    if (!r.ok) return { error: "KeelBot's stack cannot be saved yet:\n" + r.errors.map((e) => `  ${e}`).join("\n") + "\nAsk KeelBot to fix it." };
+    const rv = r.review;
+    return { title: `KeelBot wrote a stack: save ${r.name ?? "it"}?`,
+      detail: `${rv?.lane ?? "?"} · layers ${(rv?.layers ?? []).join(", ") || "none"} · ${Object.keys(rv?.commands ?? {}).length} commands`
+        + (r.replaces === "keel" ? `\nkeel has a stack called ${r.name}: here this one is used in its place` : "")
+        + (r.warnings.length ? `\n${r.warnings.map((w) => `warning: ${w}`).join("\n")}` : "") };
+  }
   const q = question(b, name);
   return q ? { title: q } : null;
 }
@@ -334,6 +346,10 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
       const r = await post<{ id: string; tools?: string[] }>(`${pathOf(pid)}/agents`, { name: a.name, about: a.about ?? "", prompt: a.prompt,
         tools: a.tools ?? ["Read", "Grep", "Glob"], phases: a.phases ?? ["any"] });
       return `saved the agent ${r.id} (tools ${(r.tools ?? a.tools ?? []).join(", ")}). A workflow uses it with agent: ${r.id}.`;
+    }
+    case "stack": {
+      const r = await post<{ path: string; stack: { name: string } }>(`${pathOf(pid)}/stacks/save`, { yaml: b.yaml });
+      return `saved the stack ${r.stack?.name ?? ""} as ${r.path}: keel uses it from the next step on. /stack ${r.stack?.name ?? ""} shows it.`;
     }
     case "skill": {
       const h = skillHead(b.text);

@@ -19,9 +19,10 @@ REVIEW = {"rules": 2, "kinds": {"bash": 1, "edit": 1}, "phases": ["all", "green"
 def test_the_kinds_table():
     assert [(k.name, k.list, k.suffix, k.max_size) for k in kinds.TABLE] == [
         ("plugin", "plugins", ".kplug", 200 << 20), ("workflow", "workflows", ".yaml", 256 << 10),
-        ("rules", "rules", ".yaml", 64 << 10), ("skills", "skills", ".md", 256 << 10)]
-    assert catalog.KINDS == ("plugin", "workflow", "rules", "skills") and catalog.MAX_RULES == 64 << 10
-    assert catalog.RESERVED == ("workflows", "rules", "rule-packs", "skills", "refresh")
+        ("rules", "rules", ".yaml", 64 << 10), ("skills", "skills", ".md", 256 << 10),
+        ("stacks", "stacks", ".yaml", 64 << 10)]
+    assert catalog.KINDS == ("plugin", "workflow", "rules", "skills", "stacks") and catalog.MAX_RULES == 64 << 10
+    assert catalog.RESERVED == ("workflows", "rules", "rule-packs", "skills", "stacks", "refresh")
 
 
 def test_an_index_with_all_three_kinds(market):

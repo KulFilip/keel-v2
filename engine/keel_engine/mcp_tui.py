@@ -206,6 +206,7 @@ def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None
 
 FLOW_BLOCK = re.compile(r"```keel-(flow|start)\s*\n(.*?)\n```", re.S)
 SKILL_BLOCK = re.compile(r"```keel-skill\s*\n(.*?)\n```", re.S)
+STACK_BLOCK = re.compile(r"```keel-stack\s*\n(.*?)\n```", re.S)
 
 
 def _buttons_hint(text: str) -> str:
@@ -229,6 +230,10 @@ def _buttons_hint(text: str) -> str:
     for body in SKILL_BLOCK.findall(text or ""):
         name = re.search(r"^name:\s*(\S+)", body, re.M)
         hints.append(f"save the skill {name[1] if name else ''}: keel_skill_create(text=<the keel-skill block, whole>)")
+    # 0.18.9 a new stack: its whole YAML is the tool's text
+    for body in STACK_BLOCK.findall(text or ""):
+        name = re.search(r"^name:\s*(\S+)", body, re.M)
+        hints.append(f"save the stack {name[1] if name else ''}: keel_stack_create(yaml=<the keel-stack block, whole>)")
     return ("\n\nKeelBot's buttons (each happens only when called, after the person agrees):\n" + "\n".join(f"- {h}" for h in hints)) if hints else ""
 
 

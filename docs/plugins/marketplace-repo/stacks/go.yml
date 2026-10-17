@@ -1,0 +1,8 @@
+# keel's own stack go (content/stacks or content/packs in keel-v2): stacks/go/<version>.yaml
+name: go
+title: "go"
+publisher: keel
+category: go
+summary: "How a backend built with go is tested: its layers, commands and tools."
+tags: [go, stack, keel]
+keel: ">=0.18.9"

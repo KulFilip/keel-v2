@@ -36,6 +36,7 @@ import {
 } from "../workflowMarketApi";
 import { MARKET_RULES } from "../rulePackMarketApi";
 import { MARKET_SKILLS } from "../skillMarketApi";
+import { MARKET_STACKS } from "../stackMarketApi";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
 type Err = { message: string; hint?: string; details?: string[] } | null;
@@ -86,12 +87,13 @@ export function ReviewShort({ h }: { h: Pick<WorkflowHit, "review"> }) {
   );
 }
 
-export type MarketKind = "plugins" | "workflows" | "rules" | "skills";
+export type MarketKind = "plugins" | "workflows" | "rules" | "skills" | "stacks";
 
 /** The kind switch of the Marketplace tab: Plugins · Workflows · Rules. The link keeps ?tab=market. */
 export function KindSwitch({ kind }: { kind: MarketKind }) {
   const to = (k: MarketKind) => {
-    const h = k === "workflows" ? MARKET_WORKFLOWS : k === "rules" ? MARKET_RULES : k === "skills" ? MARKET_SKILLS : "#/plugins?tab=market";
+    const h = k === "workflows" ? MARKET_WORKFLOWS : k === "rules" ? MARKET_RULES : k === "skills" ? MARKET_SKILLS
+      : k === "stacks" ? MARKET_STACKS : "#/plugins?tab=market";
     if (location.hash !== h) location.hash = h;
   };
   return (
@@ -107,6 +109,9 @@ export function KindSwitch({ kind }: { kind: MarketKind }) {
       </button>
       <button type="button" aria-pressed={kind === "skills"} onClick={() => to("skills")}>
         Skills
+      </button>
+      <button type="button" aria-pressed={kind === "stacks"} onClick={() => to("stacks")}>
+        Stacks
       </button>
     </div>
   );

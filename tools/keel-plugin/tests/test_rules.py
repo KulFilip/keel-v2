@@ -259,7 +259,7 @@ def test_the_rule_pack_entries_are_checked(tmp_path, run):
     for words in ("rules/broken.yml: the publisher 'nobody'", "rules/broken.yml: category must be one of safety, code",
                   "rules/rules.yml: name must be the file's name (rules)",
                   "revoked[0] must have a plugin name, a version (x.y.z, in quotes) and why (and kind: plugin, "
-                  "workflow, rules or skills"):
+                  "workflow, rules, skills or stacks"):
         assert words in text, words
     assert "rules/broken.yml: 'owner' is not a rule pack field" in "\n".join(cat.warnings)
     code, _, _ = run("index", root, "--check")

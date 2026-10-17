@@ -174,6 +174,9 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             Regex("^/api/diagrams/ascii$"),
             // 0.18.5 a workflow's check (keel_workflow_check): it saves nothing
             Regex("^/api/projects/[^/]+/workflows/check$"),
+            // 0.18.9 a stack's check (keel_stack_check): it saves nothing. Saving, removing, turning off and a marketplace
+            // install are write (keel_stack_create, _remove and _market_install ask the person first)
+            Regex("^/api/projects/[^/]+/stacks/check$"),
         )
     }
 }

@@ -11,6 +11,8 @@ folder and the plugins' releases, signed with the catalog key.
     <marketplace>/rules/<name>/<version>.yaml (+ .minisig)       a rule pack kept in the marketplace repo itself
     <marketplace>/skills/<name>.yml     name, title, publisher, repo?, category, summary, tags, keel?   (a skill)
     <marketplace>/skills/<name>/<version>.md (+ .minisig)        a skill (its SKILL.md) kept in the marketplace repo
+    <marketplace>/stacks/<name>.yml     name, title, publisher, repo?, category, summary, tags, keel?   (a stack)
+    <marketplace>/stacks/<name>/<version>.yaml (+ .minisig)      a stack (keel 0.18.9) kept in the marketplace repo
 
 Workflows and rule packs (21-workflow-marketplace.md §5, 23-rules-in-marketplace.md §2) are the file kinds of one
 table (FILE_KINDS): a release asset <name>-<version>.yaml (+ .minisig, + <file>.json) in the releases folder (a rule
@@ -41,6 +43,7 @@ from typing import Callable
 from . import PluginToolError, miniyaml
 from . import rules as rulelint
 from . import skill as skilllint
+from . import stack as stacklint
 from . import workflow as wflint
 from .lint import lint
 from .manifest import NAME, VERSION, file_sha256
@@ -57,8 +60,10 @@ RULES_KEYS = WORKFLOW_KEYS
 RULES_CATEGORIES = ("safety", "code", "git", "files", "secrets", "other")      # keel's engine: kinds.RULES
 SKILLS_KEYS = WORKFLOW_KEYS
 SKILLS_CATEGORIES = ("testing", "implementation", "review", "debugging", "knowledge", "authoring", "other")  # kinds.SKILLS
-RESERVED = ("workflows", "rules", "rule-packs", "skills", "refresh")     # keel's /api/marketplace/<these> routes: never a plugin's name
-KINDS = ("plugin", "workflow", "rules", "skills")
+STACKS_KEYS = WORKFLOW_KEYS
+STACKS_CATEGORIES = stacklint.CATEGORIES                                                        # kinds.STACKS
+RESERVED = ("workflows", "rules", "rule-packs", "skills", "stacks", "refresh")  # keel's /api/marketplace/<these> routes: never a plugin's name
+KINDS = ("plugin", "workflow", "rules", "skills", "stacks")
 RANGE = re.compile(r"^\s*(?:(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)(?:,\s*(?:>=|<=|==|>|<)\s*[0-9][0-9.]*\s*)*$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -79,6 +84,7 @@ class Catalog:
     warnings: list[str] = field(default_factory=list)
     rules: dict[str, dict] = field(default_factory=dict)
     skills: dict[str, dict] = field(default_factory=dict)
+    stacks: dict[str, dict] = field(default_factory=dict)
 
 
 def url_problem(url: str, allow_http: bool = False) -> str | None:
@@ -250,14 +256,14 @@ def _revoked(path: Path, cat: Catalog) -> None:
         cat.errors.append("revoked.yml: revoked must be a list ('revoked: []' when nothing is revoked)")
         return
     for i, item in enumerate(items):
-        rule = rulelint.PACK if isinstance(item, dict) and item.get("kind") in ("rules", "skills") else NAME
+        rule = rulelint.PACK if isinstance(item, dict) and item.get("kind") in ("rules", "skills", "stacks") else NAME
         ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and rule.match(item["name"])
               and isinstance(item.get("version"), str) and VERSION.match(item["version"])
               and isinstance(item.get("why"), str) and item["why"].strip()
               and item.get("kind", "plugin") in KINDS)
         if not ok:
             cat.errors.append(f"revoked.yml: revoked[{i}] must have a plugin name, a version (x.y.z, in quotes) "
-                              "and why (and kind: plugin, workflow, rules or skills, when it is not a plugin)")
+                              "and why (and kind: plugin, workflow, rules, skills or stacks, when it is not a plugin)")
             continue
         out = {"name": item["name"], "version": item["version"], "why": item["why"].strip()}
         if "kind" in item:
@@ -431,7 +437,9 @@ RULES = FileKind("rules", "rules", "rule pack", frozenset(RULES_KEYS), RULES_CAT
                  rulelint.name_version, _rules_requires, _rules_agree, rulelint.PACK)
 SKILLS = FileKind("skills", "skills", "skill", frozenset(SKILLS_KEYS), SKILLS_CATEGORIES, skilllint.lint,
                   skilllint.name_version, _skill_requires, None, skilllint.NAME, ".md")
-FILE_KINDS = (WORKFLOWS, RULES, SKILLS)
+STACKS = FileKind("stacks", "stacks", "stack", frozenset(STACKS_KEYS), STACKS_CATEGORIES, stacklint.lint,
+                  stacklint.name_version, _skill_requires, None, stacklint.NAME)
+FILE_KINDS = (WORKFLOWS, RULES, SKILLS, STACKS)
 
 
 def yaml_releases_in(folder: Path) -> dict[str, list[ItemFile]]:
@@ -453,7 +461,7 @@ def yaml_releases_in(folder: Path) -> dict[str, list[ItemFile]]:
             except (ValueError, UnicodeDecodeError):
                 meta = {}
         meta = meta if isinstance(meta, dict) else {}
-        kind = RULES if rulelint.is_pack(f) else WORKFLOWS
+        kind = STACKS if stacklint.is_stack(f) else RULES if rulelint.is_pack(f) else WORKFLOWS
         out[kind.name].append(ItemFile(f, meta.get("url"), meta.get("released")))
     return out
 

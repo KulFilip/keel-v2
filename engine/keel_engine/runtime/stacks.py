@@ -3,7 +3,9 @@
     defs(root)       every stack keel knows: content/stacks/*.yml, content/packs/<name>/stack.yml, then the project's
                      own <root>/.keel/stacks (a project stack with the same name wins)
     matched(root)    the ones this project uses: a project stack always, a shipped one when its `detect` block matches
-                     (exclude_files first, then files / package_deps / extensions, in the root and one folder down)
+                     (exclude_files first, then files / package_deps / extensions, in the root and one folder down);
+                     never one the project turned off (keel 0.18.9: `stacks: {ignore: [name]}` in .keel/config.yml)
+    turned_off(root) those names
 
 Detection walks the tree for `extensions`, so the answer is kept for a minute per root.
 """
@@ -128,13 +130,27 @@ def detects(detect: dict, root: str) -> bool:
     return False
 
 
+def turned_off(root: str) -> set[str]:
+    """The stacks this project turned off (keel 0.18.9): `stacks: {ignore: [name, ...]}` in .keel/config.yml (not `off`:
+    YAML 1.1 reads that key as false). keel's own stack that detection matched wrongly is turned off here; it stays in
+    keel, only this project does not use it."""
+    f = Path(root) / ".keel" / "config.yml"
+    try:
+        doc = yaml.safe_load(f.read_text()) if f.is_file() else None
+    except (OSError, yaml.YAMLError):
+        return set()
+    block = doc.get("stacks") if isinstance(doc, dict) else None
+    return set(_strings(block.get("ignore"))) if isinstance(block, dict) else set()
+
+
 def matched(root: str) -> list[dict]:
-    """The stacks this project uses, keel's first, then the project's own."""
+    """The stacks this project uses, keel's first, then the project's own; none it turned off."""
     key = str(Path(root).resolve())
     hit = _CACHE.get(key)
     if hit and time.monotonic() - hit[0] < TTL:
         return hit[1]
-    out = [d for d in defs(root) if d["_source"] == "project" or detects(d.get("detect") or {}, root)]
+    off = turned_off(root)
+    out = [d for d in defs(root) if d["name"] not in off and (d["_source"] == "project" or detects(d.get("detect") or {}, root))]
     _CACHE[key] = (time.monotonic(), out)
     return out
 

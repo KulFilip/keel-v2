@@ -1,21 +1,31 @@
 package keel.api.stacks
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
+import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Yaml
+import keel.api.engine.EngineClient
+import keel.api.engine.EngineError
 import keel.api.projects.ProjectService
+import keel.api.skills.SkillService
 import org.springframework.stereotype.Service
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.security.MessageDigest
 
 data class StackCommand(val name: String, val cmd: String)
 /** One `tools:` entry of a stack (v0.4.1: the engine runs them; see docs/CONTRACT.md "lint and static checks"). */
@@ -42,9 +52,27 @@ data class Stack(
     val skills: Map<String, Any?>,
     /** A keel pack that is not installed in this project yet (POST .../stacks/{name}/install). */
     val installable: Boolean = false,
+    /**
+     * keel 0.18.9 where it comes from: keel (content/stacks), keel pack (not installed), pack (a keel pack installed
+     * here), marketplace, project (the project's own file).
+     */
+    val origin: String = source,
+    /** Turned off for this project (`stacks: {ignore: [...]}` in .keel/config.yml): not used, whatever detection says. */
+    val off: Boolean = false,
+    /** The project added it, so DELETE removes it; keel's own are turned off instead ([why] says so). */
+    val removable: Boolean = false,
+    val why: String? = null,
+    /** A marketplace install: {catalog, version, edited}. */
+    val market: Map<String, Any?>? = null,
+    /** The project's file, relative to its root (null for keel's own). */
+    val file: String? = null,
 )
 
 data class NewStack(val name: String = "", val from: String? = null)
+
+/** keel 0.18.9 a stack written here (the guided form gives `form`, KeelBot and MCP the YAML). */
+data class StackText(val yaml: String? = null, val form: Map<String, Any?>? = null, val replace: Boolean = false)
+data class StackOff(val off: Boolean = true)
 
 private data class StackDef(val doc: Map<String, Any?>, val source: String, val file: Path) {
     val name: String get() = doc["name"].toString()
@@ -56,6 +84,8 @@ class StackService(
     private val props: KeelProperties,
     private val projects: ProjectService,
     private val mapper: ObjectMapper,
+    private val engine: EngineClient,
+    private val skills: SkillService,
 ) {
 
     private fun read(f: Path, source: String): StackDef? =
@@ -95,9 +125,54 @@ class StackService(
         return shipped().filter { it.name !in names } + project
     }
 
+    /** `stacks: {ignore: [...]}` in the project's .keel/config.yml (the engine writes it: runtime/stack_edit.py). */
+    private fun turnedOff(root: Path): Set<String> {
+        val f = root.resolve(".keel/config.yml")
+        if (!Files.isRegularFile(f)) return emptySet()
+        val block = runCatching { Yaml.readMap(Files.readString(f)) }.getOrNull()?.get("stacks") as? Map<*, *> ?: return emptySet()
+        return strings(block["ignore"]).toSet()
+    }
+
+    /** .keel/stacks/.installed.json: the stacks a marketplace install saved. */
+    private fun installed(root: Path): Map<String, Map<String, Any?>> {
+        val f = root.resolve(".keel/stacks/.installed.json")
+        if (!Files.isRegularFile(f)) return emptyMap()
+        @Suppress("UNCHECKED_CAST")
+        return runCatching { mapper.readValue(f.toFile(), Map::class.java) as Map<String, Any?> }.getOrDefault(emptyMap())
+            .mapNotNull { (k, v) -> (v as? Map<*, *>)?.let { m -> k to m.entries.associate { it.key.toString() to it.value } } }.toMap()
+    }
+
+    private fun sha256(text: String): String =
+        MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    private data class Origin(val origin: String, val removable: Boolean, val why: String?, val market: Map<String, Any?>?)
+
+    /** Twin of the engine's stack_edit.origin. */
+    private fun originOf(root: Path, d: StackDef, have: Map<String, Map<String, Any?>>, packNames: Set<String>): Origin = when (d.source) {
+        "keel" -> Origin("keel", false, "It ships with keel and other projects may use it. Turn it off for this project instead.", null)
+        "keel pack" -> Origin("keel pack", false, "It is not installed in this project: nothing to remove.", null)
+        else -> {
+            val mine = have[d.name]?.takeIf { it["source"] == "marketplace" }
+            val base = root.resolve(".keel/stacks")
+            when {
+                mine != null -> {
+                    val sha = mine["sha256"]?.toString()
+                    val edited = sha != null && runCatching { sha256(Files.readString(d.file)) }.getOrNull() != sha
+                    Origin("marketplace", true, null, mapOf("catalog" to mine["catalog"], "version" to mine["version"], "edited" to edited))
+                }
+                d.file.fileName.toString() == "stack.yml" && d.file.parent.parent == base && d.file.parent.fileName.toString() in packNames ->
+                    Origin("pack", true, null, null)
+                else -> Origin("project", true, null, null)
+            }
+        }
+    }
+
     fun list(pid: String): List<Stack> {
         val root = projects.root(pid)
         val files = ProjectFiles(root)
+        val off = turnedOff(root)
+        val have = installed(root)
+        val packNames = packs().map { it.name }.toSet()
         return defs(root).map { d ->
             val doc = d.doc
             @Suppress("UNCHECKED_CAST")
@@ -114,6 +189,7 @@ class StackService(
                     m["kind"]?.toString() ?: if (v is Map<*, *>) "check" else null, m["match"]?.toString(), off = v == false,
                 )
             }
+            val o = originOf(root, d, have, packNames)
             @Suppress("UNCHECKED_CAST")
             Stack(
                 name = doc["name"].toString(), lane = doc["lane"]?.toString(), source = d.source,
@@ -122,11 +198,94 @@ class StackService(
                 layers = (doc["layers"] as? List<Map<String, Any?>>).orEmpty(), commands = commands, tools = tools,
                 skills = (doc["skills"] as? Map<String, Any?>).orEmpty(),
                 installable = d.source == "keel pack",
+                origin = o.origin, off = doc["name"].toString() in off, removable = o.removable, why = o.why, market = o.market,
+                file = if (d.source == "project") root.relativize(d.file).toString() else null,
             )
         }
     }
 
     fun get(pid: String, name: String): Stack = list(pid).firstOrNull { it.name == name } ?: throw NotFound("No stack called \"$name\"")
+
+    /** One stack with the text of its YAML file (keel's own: as keel ships it). */
+    fun detail(pid: String, name: String): JsonNode {
+        val st = get(pid, name)
+        val root = projects.root(pid)
+        val file = defs(root).first { it.name == name }.file
+        val out = mapper.valueToTree<ObjectNode>(st)
+        out.put("yaml", runCatching { Files.readString(file) }.getOrDefault(""))
+        return out
+    }
+
+    // ---- keel 0.18.9 the engine owns the stack files (runtime/stack_edit.py); the api gives it the project's folder
+
+    /** The engine's refusal as the api's answer, with its `errors` next to error and hint. */
+    private fun pass(call: () -> JsonNode): JsonNode = try {
+        call()
+    } catch (e: EngineError) {
+        val errors = e.body?.path("errors")?.takeIf { it.isArray }
+        throw ApiException(e.status, e.message, e.hint, errors?.let { mapOf("errors" to mapper.convertValue(it, List::class.java)) })
+    }
+
+    private fun stackName(name: String): String {
+        if (!Regex("^[a-z0-9][a-z0-9-]{0,63}$").matches(name)) throw BadRequest("$name is not a stack name", "Lower-case letters, digits and dashes.")
+        return name
+    }
+
+    /** What keel reads in the project's files for a new stack (lane: api or web; empty: keel's guess). */
+    fun suggest(pid: String, lane: String?): JsonNode {
+        val l = lane?.trim()?.ifBlank { null }
+        if (l != null && l !in setOf("api", "web")) throw BadRequest("lane is api or web")
+        return pass { engine.get("/stacks/suggest?root={root}&lane={lane}", mapOf("root" to projects.root(pid).toString(), "lane" to l.orEmpty())) }
+    }
+
+    /** Check a stack (its YAML, or the guided form's answers): errors, warnings, the review, the YAML; saves nothing. The
+     *  skills it names that this project does not have are `skills_missing`. */
+    fun check(pid: String, body: StackText): JsonNode {
+        if ((body.yaml?.length ?: 0) > MAX_BYTES) throw BadRequest("A stack is at most ${MAX_BYTES / 1024} KB.")
+        val out = pass {
+            engine.post("/stacks/check", mapOf("root" to projects.root(pid).toString(), "yaml" to body.yaml, "form" to body.form,
+                "replace" to body.replace))
+        } as ObjectNode
+        val have = skills.list(pid).map { it.id }.toSet()
+        val named = out.path("review").path("skills").mapNotNull { it.asText(null) }
+        out.set<JsonNode>("skills_missing", mapper.valueToTree(named.filter { it !in have }))
+        return out
+    }
+
+    /** keel's check of a stack without a project (the marketplace's preview of keel's own): {ok, errors, warnings, review}. */
+    fun checkAlone(yaml: String): JsonNode = pass { engine.post("/stacks/check", mapOf("yaml" to yaml)) }
+
+    /** Save a stack (after the engine's check) as .keel/stacks/<name>.yml: {stack, path, replaced, warnings}. */
+    fun save(pid: String, body: StackText, source: String = "project", market: Map<String, Any?>? = null): JsonNode {
+        val yaml = body.yaml ?: throw BadRequest("Send the stack's YAML", "POST .../stacks/check turns the form into YAML.")
+        if (yaml.length > MAX_BYTES) throw BadRequest("A stack is at most ${MAX_BYTES / 1024} KB.")
+        val r = pass {
+            engine.post("/stacks/save", mapOf("root" to projects.root(pid).toString(), "yaml" to yaml, "replace" to body.replace,
+                "source" to source, "market" to market))
+        }
+        val out = mapper.createObjectNode()
+        out.set<JsonNode>("stack", mapper.valueToTree(get(pid, r.path("name").asText())))
+        out.put("path", r.path("path").asText())
+        out.put("replaced", r.path("replaced").asBoolean(false))
+        out.set<JsonNode>("warnings", r.path("check").path("warnings"))
+        return out
+    }
+
+    /** Remove the project's own stack (its file, or the folder an installed pack left); keel's own: 409, turn it off. */
+    fun remove(pid: String, name: String): JsonNode =
+        pass { engine.post("/stacks/remove", mapOf("root" to projects.root(pid).toString(), "name" to stackName(name))) }
+
+    /** Turn a stack off (or on) for the project: {name, off, all (every stack turned off there)}. */
+    fun setOff(pid: String, name: String, off: Boolean): JsonNode =
+        pass { engine.post("/stacks/off", mapOf("root" to projects.root(pid).toString(), "name" to stackName(name), "off" to off)) }
+
+    /** keel's own stacks as keel ships them (the marketplace's "From keel"): content/stacks and content/packs. */
+    fun library(): List<Map<String, Any?>> = shipped().map { d ->
+        @Suppress("UNCHECKED_CAST")
+        val detect = d.doc["detect"] as? Map<String, Any?> ?: emptyMap()
+        mapOf("name" to d.name, "lane" to d.doc["lane"]?.toString(), "source" to d.source, "detect" to detect,
+            "installable" to (d.source == "keel pack"), "yaml" to runCatching { Files.readString(d.file) }.getOrDefault(""))
+    }
 
     /**
      * Copies the closest keel stack YAML to `<root>/.keel/stacks/<name>.yml` and renames it.
@@ -232,13 +391,35 @@ class StackService(
 
     companion object {
         val SKIP = setOf("node_modules", "build", ".git", ".venv", "dist", "target", ".gradle")
+        /** A stack file is at most 64 KB (the marketplace's limit too). */
+        const val MAX_BYTES = 64 * 1024
     }
 }
 
+/** Stacks (Build › Stacks). keel 0.18.9: check and suggest are reads; save, remove and off are write for MCP (McpLevels). */
 @RestController
 class StackController(private val stacks: StackService) {
     @GetMapping("/api/projects/{pid}/stacks")
     fun list(@PathVariable pid: String): List<Stack> = stacks.list(pid)
+
+    @GetMapping("/api/projects/{pid}/stacks/suggest")
+    fun suggest(@PathVariable pid: String, @RequestParam(required = false) lane: String?): JsonNode = stacks.suggest(pid, lane)
+
+    @GetMapping("/api/projects/{pid}/stacks/{name}")
+    fun one(@PathVariable pid: String, @PathVariable name: String): JsonNode = stacks.detail(pid, name)
+
+    /** Check a stack (its YAML or the form's answers); saves nothing. */
+    @PostMapping("/api/projects/{pid}/stacks/check")
+    fun check(@PathVariable pid: String, @RequestBody body: StackText): JsonNode = stacks.check(pid, body)
+
+    @PostMapping("/api/projects/{pid}/stacks/save")
+    fun save(@PathVariable pid: String, @RequestBody body: StackText): JsonNode = stacks.save(pid, body)
+
+    @DeleteMapping("/api/projects/{pid}/stacks/{name}")
+    fun remove(@PathVariable pid: String, @PathVariable name: String): JsonNode = stacks.remove(pid, name)
+
+    @PutMapping("/api/projects/{pid}/stacks/{name}/off")
+    fun off(@PathVariable pid: String, @PathVariable name: String, @RequestBody body: StackOff): JsonNode = stacks.setOff(pid, name, body.off)
 
     @PostMapping("/api/projects/{pid}/stacks")
     fun create(@PathVariable pid: String, @RequestBody body: NewStack): Stack = stacks.create(pid, body.name.trim(), body.from)

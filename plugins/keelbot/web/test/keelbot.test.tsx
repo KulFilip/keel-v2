@@ -122,6 +122,24 @@ describe("KeelBot's new skill (0.18.6)", () => {
   });
 });
 
+describe("KeelBot's new stack (0.18.9)", () => {
+  it("a stack: keel checks it first, then Save writes it", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith("A stack for this project:\n\n```keel-stack\nname: zig-api\nlane: api\ndetect: {files: [build.zig]}\n"
+      + "layers: [{id: unit, what: x}]\n```");
+    const card = await within(p).findByRole("region", { name: "New stack: zig-api" });
+    await waitFor(() => expect(db.calls.find((c) => c.path === "/api/projects/ludus-engine/stacks/check")?.body)
+      .toMatchObject({ yaml: expect.stringContaining("name: zig-api") }));
+    expect(await within(card).findByText(/warning: there is no api_test_ac/)).toBeInTheDocument();
+    expect(db.calls.some((c) => c.path === "/api/projects/ludus-engine/stacks/save")).toBe(false);
+    await user.click(within(card).getByRole("button", { name: "Save the stack" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path === "/api/projects/ludus-engine/stacks/save")?.body)
+      .toMatchObject({ yaml: expect.stringContaining("lane: api") }));
+    expect(await within(card).findByRole("status")).toHaveTextContent("Saved zig-api as .keel/stacks/zig-api.yml");
+    expect(splitActions("a\n```keel-stack\nname: x\n```").map((s) => s.kind)).toEqual(["text", "stack"]);
+  });
+});
+
 describe("KeelBot's flow buttons (0.18.4)", () => {
   it("stop: names the flow, stops it only when pressed, then offers to open it", async () => {
     const user = userEvent.setup();

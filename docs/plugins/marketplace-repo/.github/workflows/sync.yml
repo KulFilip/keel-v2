@@ -1,6 +1,6 @@
 # Every hour, after a change to main, and by hand: reads the releases of every plugin in plugins/ and every workflow in
 # workflows/ (and the workflow files kept here, workflows/<name>/<version>.yaml; the rule packs kept here,
-# rules/<name>/<version>.yaml; and the skills kept here, skills/<name>/<version>.md), lints each file and
+# rules/<name>/<version>.yaml; the skills kept here, skills/<name>/<version>.md; and the stacks, stacks/<name>/<version>.yaml), lints each file and
 # checks its signature with its publisher's keys, builds the catalog index v1/index.json, signs it with the catalog
 # key (the secret KEEL_CATALOG_KEY) and puts it on GitHub Pages:
 #   https://keel-studio.github.io/keel-marketplace/v1/index.json   (+ index.json.minisig)
@@ -50,8 +50,8 @@ jobs:
       - name: The workflow, rule pack and skill files kept in this repo go on Pages too
         run: |
           set -euo pipefail
-          mkdir -p site/workflows site/rules site/skills
-          for f in workflows/*/*.yaml workflows/*/*.yaml.minisig rules/*/*.yaml rules/*/*.yaml.minisig skills/*/*.md skills/*/*.md.minisig; do
+          mkdir -p site/workflows site/rules site/skills site/stacks
+          for f in workflows/*/*.yaml workflows/*/*.yaml.minisig rules/*/*.yaml rules/*/*.yaml.minisig skills/*/*.md skills/*/*.md.minisig stacks/*/*.yaml stacks/*/*.yaml.minisig; do
             [ -f "$f" ] || continue
             mkdir -p "site/$(dirname "$f")"
             cp "$f" "site/$f"

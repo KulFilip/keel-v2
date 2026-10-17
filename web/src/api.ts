@@ -545,6 +545,54 @@ export type Stack = {
   skills: string[];
   /** v0.2: a keel pack that `keel packs add` can install into this project. */
   installable?: boolean;
+  /** keel 0.18.9 where it comes from: keel, keel pack (not installed), pack (installed here), marketplace, project */
+  origin?: string;
+  /** turned off for this project (.keel/config.yml stacks.ignore): not used, whatever detection says */
+  off?: boolean;
+  /** the project added it, so it can be removed; else `why` says why not (keel's own: turn it off instead) */
+  removable?: boolean;
+  why?: string | null;
+  market?: { catalog?: string; version?: string; edited?: boolean } | null;
+  /** the project's file, relative to its root */
+  file?: string | null;
+};
+/** keel 0.18.9 what keel reads in the project's files for a new stack (GET .../stacks/suggest). */
+export type StackSuggestion = {
+  lane: "api" | "web";
+  lanes: Record<string, string[]>;
+  name: string;
+  detect: { files: string[]; extensions: string[]; package_deps: string[] };
+  layers: { id: string; what?: string; where?: string }[];
+  skills: Record<string, string>;
+  closest: string | null;
+  commands: Record<string, { cmd: string; from: string }[]>;
+  keys: { key: string; what: string; placeholder: string }[];
+  tools: { name: string; run: string; on: string; fail: string; match?: string; description?: string; from?: string }[];
+  read: string[];
+};
+/** keel 0.18.9 the New stack form's answers (the engine writes the YAML: runtime/stack_edit.render). */
+export type StackForm = {
+  name: string;
+  lane: string;
+  detect: { files: string[]; package_deps: string[]; extensions: string[]; exclude_files?: string[] };
+  layers: { id: string; what?: string; where?: string }[];
+  commands: Record<string, string>;
+  tools: Record<string, { run: string; on: string; fail: string; match?: string; description?: string } | false>;
+  skills?: Record<string, string>;
+};
+/** keel's check of a stack (POST .../stacks/check): it saves nothing. */
+export type StackCheck = {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  name: string | null;
+  lane: string | null;
+  review: { lane: string; detect: Record<string, string[]>; layers: string[]; commands: Record<string, string>;
+    tools: { name: string; run: string; on: string; fail: string }[]; skills: string[] } | null;
+  detects_here: boolean | null;
+  replaces: "keel" | "project" | null;
+  yaml: string;
+  skills_missing?: string[];
 };
 export type StackTool = { name: string; on: string; fail: string; description?: string; kind?: string; match?: string; off?: boolean };
 /** keel v1's stack files describe `detect` and `layers` as objects and `skills` as a map; older data is plain text/lists.
@@ -581,6 +629,9 @@ export function normalizeStack(raw: unknown): Stack {
       return tool;
     }),
     skills, installable: !!r.installable,
+    origin: r.origin == null ? text(r.source) : text(r.origin), off: !!r.off, removable: !!r.removable,
+    why: r.why == null ? null : text(r.why), market: (r.market && typeof r.market === "object" ? r.market : null) as Stack["market"],
+    file: r.file == null ? null : text(r.file),
   };
 }
 
@@ -1050,6 +1101,15 @@ export const api = {
   stacks: (pid: string) => get<unknown[]>(`/projects/${e(pid)}/stacks`).then((l) => l.map(normalizeStack)),
   newStack: (pid: string, name: string, from: string) => post<unknown>(`/projects/${e(pid)}/stacks`, { name, from }).then(normalizeStack),
   installStack: (pid: string, name: string) => post<unknown>(`/projects/${e(pid)}/stacks/${e(name)}/install`).then(normalizeStack),
+  // keel 0.18.9 a stack written with keel's help, checked, saved, turned off for the project, removed
+  stackYaml: (pid: string, name: string) => get<{ yaml: string }>(`/projects/${e(pid)}/stacks/${e(name)}`),
+  stackSuggest: (pid: string, lane?: string) => get<StackSuggestion>(`/projects/${e(pid)}/stacks/suggest${lane ? `?lane=${e(lane)}` : ""}`),
+  checkStack: (pid: string, body: { yaml?: string; form?: StackForm; replace?: boolean }) => post<StackCheck>(`/projects/${e(pid)}/stacks/check`, body),
+  saveStack: (pid: string, yaml: string, replace = false) =>
+    post<{ stack: unknown; path: string; replaced: boolean; warnings: string[] }>(`/projects/${e(pid)}/stacks/save`, { yaml, replace })
+      .then((r) => ({ ...r, stack: normalizeStack(r.stack) })),
+  removeStack: (pid: string, name: string) => del<{ name: string; removed: string; back: string | null }>(`/projects/${e(pid)}/stacks/${e(name)}`),
+  stackOff: (pid: string, name: string, off: boolean) => put<{ name: string; off: boolean; all: string[] }>(`/projects/${e(pid)}/stacks/${e(name)}/off`, { off }),
   mcpServers: () => get<McpServer[]>("/mcp-servers"),
   addMcpServer: (s: McpServerSpec) => post<McpServer>("/mcp-servers", s),
   saveMcpServer: (name: string, s: Partial<McpServer>) => put<McpServer>(`/mcp-servers/${e(name)}`, s),

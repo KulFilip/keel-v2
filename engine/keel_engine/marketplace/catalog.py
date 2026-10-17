@@ -16,7 +16,8 @@ install and update wait until a refresh works.
 
 Kinds (docs/plugins/23-rules-in-marketplace.md §2): every list is read through one table, kinds.TABLE: `plugins`
 (.kplug, 200 MB), `workflows` (one signed workflow YAML each, at most 256 KB) and `rules` (one signed rule pack YAML
-each, at most 64 KB) and `skills` (one signed SKILL.md each, at most 256 KB). Every entry may say its `kind` (`plugin` when it does not); a `revoked` entry too. An index
+each, at most 64 KB), `skills` (one signed SKILL.md each, at most 256 KB) and `stacks` (one signed stack YAML each, at
+most 64 KB: keel 0.18.9). Every entry may say its `kind` (`plugin` when it does not); a `revoked` entry too. An index
 without these lists reads as before.
 """
 
@@ -37,7 +38,7 @@ from ..addons import NAME, satisfies
 from ..pluginhost import SDK, manifest, state
 from . import MarketError, kinds, local, sources
 from .kinds import (Entry, Kind, RulesEntry, RulesVersion, SkillEntry, SkillVersion,  # noqa: F401 - their home was here
-                    Version, WorkflowEntry, WorkflowVersion)
+                    StackEntry, StackVersion, Version, WorkflowEntry, WorkflowVersion)
 from .signing import PublicKey, SignatureError, verify
 
 log = logging.getLogger("keel.marketplace")
@@ -53,10 +54,12 @@ CATEGORIES = kinds.PLUGIN.categories
 WORKFLOW_CATEGORIES = kinds.WORKFLOW.categories
 RULES_CATEGORIES = kinds.RULES.categories
 SKILLS_CATEGORIES = kinds.SKILLS.categories
+STACKS_CATEGORIES = kinds.STACKS.categories
 KINDS = kinds.NAMES
 MAX_WORKFLOW = kinds.WORKFLOW.max_size
 MAX_RULES = kinds.RULES.max_size
 MAX_SKILL = kinds.SKILLS.max_size
+MAX_STACK = kinds.STACKS.max_size
 RESERVED = kinds.RESERVED     # /api/marketplace/<these> are keel's routes, never a plugin's page
 AGENT = kinds.AGENT
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -130,6 +133,7 @@ class Index:
     workflows: dict[str, WorkflowEntry] = field(default_factory=dict)
     rules: dict[str, RulesEntry] = field(default_factory=dict)
     skills: dict[str, SkillEntry] = field(default_factory=dict)
+    stacks: dict[str, StackEntry] = field(default_factory=dict)
 
     def expired(self) -> bool:
         return _when(self.expires) <= datetime.now(timezone.utc)
@@ -138,7 +142,7 @@ class Index:
         return self.revoked.get((kind, name, version))
 
     def entries(self, kind: str) -> dict:
-        """One kind's entries by name (kinds.TABLE: plugin, workflow, rules, skills)."""
+        """One kind's entries by name (kinds.TABLE: plugin, workflow, rules, skills, stacks)."""
         return getattr(self, kinds.BY_NAME[kind].list)
 
 

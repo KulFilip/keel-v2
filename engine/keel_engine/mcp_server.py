@@ -687,6 +687,8 @@ CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_
            "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_workflow_create", "keel_rule_create", "keel_agent_create", "keel_agent_model",
            "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
+# 0.18.9 a new stack, a removed one and one from the marketplace (turning one off is easy to undo: no question)
+CONFIRM |= {"keel_stack_create", "keel_stack_remove", "keel_stack_market_install"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -759,7 +761,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
              # 0.18.5 a new workflow, rule pack or agent: the format, a check that saves nothing, the agents there are
              "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",
              # 0.18.6 skills: the project's (and which agents use each), one skill's text
-             "keel_skills", "keel_skill"),
+             "keel_skills", "keel_skill",
+             # 0.18.9 stacks: the project's, one with its YAML, what keel reads for a new one, a check that saves nothing
+             "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check"),
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
               # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
               # agent, ask KeelBot, keep or undo its changes (asks first)
@@ -770,7 +774,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.6 a new skill (written here, from a link, from the marketplace) and which agents load it (each asks first)
               "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
               # 0.18.9 an agent's or KeelBot's model and thinking effort (asks first)
-              "keel_agent_model"),
+              "keel_agent_model",
+              # 0.18.9 a new stack, one removed, one turned off or on, one from the marketplace
+              "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
@@ -790,6 +796,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_create as create
     from . import mcp_models as mm
     from . import mcp_skills as sk
+    from . import mcp_stacks as stk
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -1102,9 +1109,10 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     # ---------------------------------------------------------------- 0.18.5 new workflows, rule packs and agents
 
     @reg(ro)
-    def keel_format(kind: Literal["workflow", "rule", "agent", "skill"]) -> str:
-        """How a new workflow (YAML), rule pack (YAML), agent (JSON) or skill (SKILL.md) is written, with an example.
-        Read it before keel_workflow_create, keel_rule_create, keel_agent_create or keel_skill_create."""
+    def keel_format(kind: Literal["workflow", "rule", "agent", "skill", "stack"]) -> str:
+        """How a new workflow (YAML), rule pack (YAML), agent (JSON), skill (SKILL.md) or stack (YAML) is written, with an
+        example. Read it before keel_workflow_create, keel_rule_create, keel_agent_create, keel_skill_create or
+        keel_stack_create."""
         return guard(create.fmt, kind)
 
     @reg(ro)
@@ -1205,6 +1213,59 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_skill_market_install", f"install the skill {name} from the marketplace",
                          sk.market_install, api, name, version, agents, replace, project)
 
+    # ---------------------------------------------------------------- 0.18.9 stacks
+
+    @reg(ro)
+    def keel_stacks(project: str | None = None) -> str:
+        """How the project builds and tests: every stack keel knows for it (keel's, its packs, the project's own, the
+        marketplace's), its lane, where it comes from, and whether the project uses it, turned it off, or may remove it."""
+        return guard(stk.stacks, api, project)
+
+    @reg(ro)
+    def keel_stack(stack: str, project: str | None = None) -> str:
+        """One stack: its test layers, commands and tools, where it comes from, whether it can be removed, and its YAML."""
+        return guard(stk.stack, api, stack, project)
+
+    @reg(ro)
+    def keel_stack_suggest(lane: Literal["api", "web"] | None = None, project: str | None = None) -> str:
+        """What keel reads in the project's files for a new stack: the lane, the files that detect it, test layers, and per
+        command (test one criterion, every test, a package, coverage, static checks, migrate, compile) the project's own
+        commands with where each was found (package.json, Gradle, Maven, pyproject, composer.json, a Makefile); tools."""
+        return guard(stk.suggest, api, lane, project)
+
+    @reg(ro)
+    def keel_stack_check(yaml: str, replace: bool = False, project: str | None = None) -> str:
+        """Check a stack's YAML (keel_format kind=stack shows how): its errors and warnings, and whether its detect block
+        matches the project. Saves nothing."""
+        return guard(stk.check, api, yaml, project, replace)
+
+    @reg(rw)
+    async def keel_stack_create(yaml: str, replace: bool = False, project: str | None = None, ctx: Context | None = None) -> str:
+        """Save a new stack for the project (.keel/stacks/<name>.yml): its whole YAML. keel checks it first and saves
+        nothing when it has errors; replace=true writes over the project's stack with that name. Asks the person first."""
+        return await act(ctx, "keel_stack_create", "save this stack", stk.create, api, yaml, replace, project)
+
+    @reg(rx)
+    async def keel_stack_remove(stack: str, project: str | None = None, ctx: Context | None = None) -> str:
+        """Remove a stack the project added (its own, an installed pack, one from the marketplace). keel's own stacks
+        cannot be removed: turn them off with keel_stack_off. Asks the person first."""
+        return await act(ctx, "keel_stack_remove", f"remove the stack {stack}", stk.remove, api, stack, project)
+
+    @reg(rw)
+    async def keel_stack_off(stack: str, off: bool = True, project: str | None = None, ctx: Context | None = None) -> str:
+        """Turn a stack off for the project (keel does not use it there: no detection, its tools never run), or on again
+        with off=false. Needs .keel/config.yml."""
+        return await act(ctx, "keel_stack_off", f"turn the stack {stack} {'off' if off else 'on'}", stk.switch, api, stack, off,
+                         project)
+
+    @reg(rw)
+    async def keel_stack_market_install(name: str, version: str | None = None, replace: bool = False,
+                                        project: str | None = None, ctx: Context | None = None) -> str:
+        """Install a stack from the marketplace's catalogs (keel_marketplace_search finds them) into the project, its
+        signed YAML checked first. replace=true updates an installed one. Asks the person first."""
+        return await act(ctx, "keel_stack_market_install", f"install the stack {name} from the marketplace",
+                         stk.market_install, api, name, version, replace, project)
+
     @reg(ro)
     def keel_diagram(kind: Literal["flow", "workflow", "map-er", "map-system", "map-modules", "graph"], arg: str | None = None,
                      project: str | None = None, width: int = 120) -> str:
@@ -1241,11 +1302,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
         """Search the plugin catalogs keel reads: each plugin's name, title, trust level (content, web or code),
         summary, and whether this keel has it. category: code, knowledge, tickets, review, product or other. The skills
-        that match come after (the catalogs' and keel's own)."""
+        and stacks that match come after (the catalogs' and keel's own)."""
         def both() -> str:
-            from . import mcp_skills
+            from . import mcp_skills, mcp_stacks
             text = marketplace_search(api, q, category)
-            more = [] if category else mcp_skills.market_lines(api, q)
+            more = [] if category else mcp_skills.market_lines(api, q) + mcp_stacks.market_lines(api, q)
             return text + ("\n" + "\n".join(more) if more else "")
         return guard(both)
 

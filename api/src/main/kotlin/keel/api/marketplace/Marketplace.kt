@@ -68,6 +68,18 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
     fun fetchSkill(name: String, version: String?): JsonNode =
         pass { engine.post("/marketplace/skills/${checkPackName(name, "skill")}/fetch", versionBody(version), long = true) }
 
+    // ---- stacks (keel 0.18.9): the engine reads the catalogs; the api's stacks save it in the project
+
+    fun stacks(q: String?, category: String?): JsonNode = pass {
+        engine.get("/marketplace/stacks?q={q}&category={category}", mapOf("q" to q?.trim().orEmpty(), "category" to category?.trim().orEmpty()))
+    }
+
+    fun stack(name: String): JsonNode = pass { engine.get("/marketplace/stacks/${checkPackName(name, "stack")}") }
+
+    /** The verified stack YAML of one version (the newest that fits without [version]), exactly as published. */
+    fun fetchStack(name: String, version: String?): JsonNode =
+        pass { engine.post("/marketplace/stacks/${checkPackName(name, "stack")}/fetch", versionBody(version), long = true) }
+
     /** keel's own reading of a pack (the rules work's parser): each rule with who enforces it. */
     fun readRulePack(yaml: String): JsonNode = pass { engine.post("/rules/read", mapOf("yaml" to yaml)) }
 

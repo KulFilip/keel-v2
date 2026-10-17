@@ -46,6 +46,13 @@ export function stubKeel() {
     skillAgents: { debugging: ["reproducer"], "changelog-entries": [] } as Record<string, string[]>,
     reviewerSkills: ["review"],
     installed: null as null | { version: string; agents: string[] },
+    // 0.18.9 stacks: keel's go (turned off or not) and the project's own zig-api
+    stacks: [
+      { name: "go", lane: "api", source: "keel", origin: "keel", detected: true, off: false, removable: false,
+        why: "It ships with keel and other projects may use it. Turn it off for this project instead.", commands: [], tools: [], layers: [] },
+      { name: "zig-api", lane: "api", source: "project", origin: "project", detected: true, off: false, removable: true, why: null,
+        file: ".keel/stacks/zig-api.yml", commands: [], tools: [], layers: [] },
+    ] as Record<string, unknown>[],
   };
   const reviewView = (key: string) => ({ key, kind: key.startsWith("pr:") ? "pr" : "branch", number: key.startsWith("pr:") ? Number(key.slice(3)) : null,
     title: key === "pr:8" ? "Mine" : "Save the page size", author: "ana", base: "main", branch: "feat/paging", base_sha: "b", head_sha: "h", url: null, state: "open",
@@ -127,6 +134,39 @@ export function stubKeel() {
       case "POST /api/projects/demo/skills/market/install":
         state.installed = { version: "1.0.0", agents: body.agents ?? [] };
         return [200, { skill: { id: body.name, agents: body.agents ?? [], tokens: 1200 }, market: { version: "1.0.0", catalog: "keel" } }];
+      // 0.18.9 stacks
+      case "GET /api/projects/demo/stacks": return [200, state.stacks];
+      case "GET /api/projects/demo/stacks/zig-api": return [200, { ...state.stacks[1], yaml: "name: zig-api\nlane: api\n" }];
+      case "DELETE /api/projects/demo/stacks/zig-api":
+        state.stacks = state.stacks.filter((x) => x.name !== "zig-api");
+        return [200, { name: "zig-api", removed: ".keel/stacks/zig-api.yml", back: null }];
+      case "PUT /api/projects/demo/stacks/go/off":
+        state.stacks = state.stacks.map((x) => (x.name === "go" ? { ...x, off: body.off } : x));
+        return [200, { name: "go", off: body.off, all: body.off ? ["go"] : [] }];
+      case "GET /api/projects/demo/stacks/suggest": return [200, { lane: query.get("lane") ?? "api", name: "demo-api", closest: null,
+        read: ["build.zig"], detect: { files: ["build.zig"], extensions: [".zig"], package_deps: [] }, layers: [{ id: "unit", what: "pure" }], skills: {},
+        keys: [{ key: "api_test_ac", what: "test one acceptance criterion" }, { key: "api_test_module", what: "run every test of the module" }],
+        commands: { api_test_module: [{ cmd: "zig build test", from: "build.zig" }] }, tools: [] }];
+      case "POST /api/projects/demo/stacks/check": {
+        const yaml = body.yaml ?? `name: ${body.form?.name}\nlane: ${body.form?.lane}\ncommands: ${JSON.stringify(body.form?.commands ?? {})}\n`;
+        const name = /name: (\S+)/.exec(yaml)?.[1] ?? null;
+        const good = /lane: (api|web)/.test(yaml);
+        return [200, { ok: good, errors: good ? [] : ["its lane is None"], warnings: ["there is no api_test_ac"], name, yaml, replaces: null,
+          review: { lane: "api", layers: ["unit"], commands: { api_test_module: "zig build test" }, tools: [], skills: [], detect: {} } }];
+      }
+      case "POST /api/projects/demo/stacks/save": {
+        const name = /name: (\S+)/.exec(String(body.yaml))![1];
+        return [200, { stack: { name }, path: `.keel/stacks/${name}.yml`, replaced: false, warnings: [] }];
+      }
+      case "GET /api/marketplace/stacks": return [200, { catalog_error: null,
+        stacks: [{ name: "zig", title: "Zig", publisher: "keel", publisher_title: "keel", version: "1.1.0", summary: "Zig with zig build.",
+          review: { lane: "api", layers: ["unit"], commands: { api_test_module: "zig build test" }, tools: [] }, installed: null, update: null }],
+        builtin: [{ name: "go", lane: "api", source: "keel", installable: false, used: true }] }];
+      case "GET /api/marketplace/stacks/zig": return [200, { name: "zig", title: "Zig", publisher: "keel", publisher_title: "keel", version: "1.1.0",
+        review: { lane: "api", layers: ["unit"], commands: { api_test_module: "zig build test" }, tools: [{ name: "zig-fmt", on: "edit" }] },
+        installed: null, update: null, conflict: null, builtin: false, fetch_error: null, refused: null, check: { ok: true, errors: [], warnings: ["there is no api_test_ac"] } }];
+      case "POST /api/projects/demo/stacks/market/install":
+        return [200, { path: ".keel/stacks/zig.yml", market: { version: "1.1.0", catalog: "keel" }, stack: { name: "zig" } }];
       case "GET /api/connections": return [200, { providers: [
         { id: "fake", label: "Fake (demo)", modes: [{ id: "api", label: "Fake", ready: true, detail: "" }], selected: "api", key_set: false },
         { id: "claude", label: "Claude", modes: [{ id: "subscription", label: "Claude subscription", ready: true, detail: "" }], selected: "subscription", key_set: false },
