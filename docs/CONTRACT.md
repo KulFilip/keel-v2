@@ -448,8 +448,8 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   again (memory only; cleared when the step finishes or on rewind).
 - **Turns.** The explorer gets 40 turns in the spec and triage steps (its keel v1 file says 20, for mapping only).
 - **fix workflow:** `repro → verify_repro (verify red + commit test(BUG)) → gate R → …`.
-- **init:** the `questions` pause shows keel v1's three questions with the detected defaults (labels "Use the
-  defaults" / "Use my answers"; both go on). The answers are written to `.keel/config.yml` under `init:`
+- **init:** the `questions` pause shows keel v1's three questions with the detected defaults (since v0.19.0 a
+  `clarify` form, see "v0.19.0: one way to ask"; both answers go on). The answers are written to `.keel/config.yml` under `init:`
   (`runs_on`, `services`, `knowledge_sections`). The `setup plan` pause shows the config, the commands and the steps.
   Init writes the same test command keel detects (node:test: `--test-name-pattern`).
 - **knowledge-refresh** without a section list: the sections from `init.knowledge_sections`, else the existing
@@ -933,7 +933,7 @@ POST /api/inbox/{tid}/act  { decision, why?, payload?, id? }  → ThreadState
      (FlowService.resume — the Flow page's path; 409 when the thread no longer waits or now asks another question than `id`)
 InboxItem = { project_id, project_name, thread_id, flow (the flow's title), workflow_id, step,
               kind: gate | clarify | fix | budget | usage | dependency, title, detail (≤ 700 chars), more, options, choices?,
-              questions?, labels?, id?, phase?, ac?, run_mode?, auto_approved, last_auto?, since }
+              choice_info? (v0.19.0), questions?, labels?, id?, phase?, ac?, run_mode?, auto_approved, last_auto?, since }
 ```
 Built from `threads` rows with status `waiting` in listed projects, each asked of the engine (`GET /threads/{id}`, cached 3 s;
 the saved `state_json` when the engine is down); a thread the engine says moved on is saved and left out. `since` = the
@@ -2291,3 +2291,47 @@ Plan: `docs/plans/0.17.5.md`.
   group KeelBot) sets or clears it. Job lines, notices and KeelBot's turn footer show `provider/model · effort`.
 - **Web**: `Prov` takes `e` (Jobs, Live, Flow, run search); `ModelPicker` says "no effort setting" for a model without
   choices; Agents rows, StartFlow, Budget's cheaper model, the step drawer and KeelBot's answer footer show the effort.
+
+## v0.19.0: one way to ask (questions and choice_info)
+
+- **A question** keeps runtime/clarify.py's shape: `{id, question, why, options: [{label, description, recommended}],
+  multiple?: true}`. Answers go back as `payload.answers = {<id>: <label> | [<labels>] | <own words>}`. A "multiple"
+  question takes a list; a form ticks every `recommended` option of it by default.
+- **`waiting.choice_info`** (engine `runtime/choices.py`) on every pause that has named `choices`, in the same order:
+  `[{name, label, description, why: "required" | "optional" | "none", default}]`. `name` is what the resume sends as
+  `payload.choice`; `label` the button text; `description` the one line of meaning (the gate's own "- name: …" prose
+  when it has some); `why` whether a note is required (the resume is refused without one: 400 `Say why when you choose
+  "<label>".`; `why`, `payload.reason` or `payload.note` count), read by the handler (`optional`) or not read (`none`);
+  `default` marks the one choice a plain approve takes (`_default_choice` / the first / the `recommend` marker).
+  `choices` and the prose stay for old clients. `GET /api/inbox` items carry `choice_info` and `questions` as they are.
+- **Labels, reasons, defaults** (`runtime/choices.py CATALOGUE`, keyed by `<flow>:<step>` or the kind of a check):
+  required = a send-back exit `reject` (spec gate: "Start the interview again"), cover `decide`'s `accept` ("Accept as
+  uncovered"), the hunt triage's `close` ("Close a finding"), a for_each item's `skip` ("Skip this item"). Stuck,
+  blocked and cannot-run checks: retry "Try again" (optional), skip "Skip this criterion" (none), edit "Amend the spec
+  first" (optional), recheck "Check again" (none), stop "Stop the flow" (optional); a plain approve takes the first.
+  Plan windows (`usage`): continue "Continue anyway" (default), wait "Wait for the reset", cheaper "Use the cheaper
+  model", stop "Stop the flow".
+- **init's `questions` pause** is `kind: "clarify"` with three questions (ids fixed): `run` "Where does the app run while
+  you develop?" (this machine / dev container / decide later), `services` (a compose file: `use <file>` / `I run them
+  myself`; none: `none` / `I run them myself` / `generate a compose file`), `knowledge` (`multiple: true`: architecture,
+  domain, conventions, data, integrations). The recommended options are keel's defaults (a fast init recommends no
+  section). `init_gates.from_answers(root, answers)` maps the answers to `init:`; approving without answers takes the
+  defaults; options `approve` ("Use these answers") and `reject` ("Use my answers": an old client's typed words, read
+  by the keyword parser `init_gates.answers`). Run mode auto answers it with the recommended options (every
+  recommended label of a multiple question).
+- **Gates with questions beside their choices** (`waiting.questions` on a `kind: "gate"`): the hunt's `confirm_lenses`
+  (`lenses`, multiple, the proposed set recommended; `payload.answers.lenses` = `payload.lenses`), the hunt's `triage`
+  (`finding` = an open finding or group, `as` = fixed | accepted | wontfix; with choice `close` and a note, same as
+  `payload {id, as}`), and the skip menus (`skip`, multiple, nothing recommended; options are the skippable steps with
+  their band as description) on the menu gate and on a gate with `menus: true`. Skips: `payload.answers.skip` plus
+  `payload.reasons {<step>: <why>}`, or `payload.skip {<step>: <why>}` as before.
+- **for_each item gate** (no `choices` of its own): `choices: ["approve", "skip"]`; skip needs a reason (`why` or
+  `payload.reason`); `payload.skip: true` still works.
+- **MCP**: `keel_status`, `keel_next` and `keel_inbox` show questions (why, options with descriptions, recommended,
+  pick one / pick any) and choices from `choice_info` (label, description, plain approve, needs a reason).
+  `keel_approve_gate` and `keel_answer` take `answers: {id: label | [labels] | words}`, `choice` and `why` (a choice
+  that needs a reason is refused before it is sent). `keel_answer(ask_person: true)` asks the person through the
+  client's elicitation form (an enum per single question, a list of an enum per multiple one, an own-words field each,
+  the choices as an enum of their labels, a why field) and sends the answer; a client without forms gets the question
+  as text. KeelBot's ```keel-questions``` come back from `keel_keelbot_ask` as a hint to send the answers with
+  `keel_keelbot_ask(chat, text="Answers to your questions: …")` (`clarify.answers_message`, the web card's format).
