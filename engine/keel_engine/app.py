@@ -81,6 +81,7 @@ class Settings(BaseModel):
     cheaper_model: ModelSpec | None = None
     stronger_model: ModelSpec | None = None   # escalate_model: the investigator's model after "unconfirmed" (default: one up)
     fix_attempts: int = 3
+    sendback_limit: int | None = Field(default=None, ge=1, le=100)   # send-backs of one gate in a row before keel asks (5)
     simulate_checks: bool | None = None   # default: simulate test runs when every model is fake
     unlocks: list[Unlock] | None = None   # unlocks: that path bypasses the guard matrix in that phase
     sections: list[str] | None = None     # knowledge-refresh: one librarian per section

@@ -21,6 +21,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 import tempfile
 import time
 import uuid
@@ -55,6 +56,16 @@ AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
+# How often one gate (step and criterion or item) may be sent back in a row before keel asks: go on anyway or stop
+# (settings.sendback_limit). A loop of send-backs that changes nothing never runs by itself.
+SENDBACK_LIMIT = 5
+# What the next agent reads when a send-back came without a reason (an old client, a driver script).
+NO_REASON = ("The person sent this back but gave no reason. Do not do the same work again: if you cannot tell what to "
+             "change, say so in one line and ask them once what they want.")
+# A spec path an agent's answer names: `.keel/specs/x.md`, docs/specs/x.md
+SPEC_PATH = re.compile(r"(?<![\w./-])((?:\.{0,2}/)?[\w@.-]+(?:/[\w@.-]+)*\.md)\b")
+# The knowledge check's actions: a failure goes to the librarian, never fails the flow (Compiler._knowledge_failed).
+KNOWLEDGE_CHECKS = ("knowledge_check", "memory_check")
 RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
@@ -113,6 +124,25 @@ async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, mem
 def budget_tokens(usage: dict) -> int:
     """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
     return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
+
+
+def answer_problem(question: dict, decision: str, why: str | None, payload: dict | None) -> tuple[str, str] | None:
+    """(error, hint) when an answer does not fit the question that waits, else None. A gate takes only the decisions it
+    offers (a spec gate without criteria offers only "reject": an "approve" there acted as a send-back without a reason,
+    hundreds of times), and only one of its choices. A send-back from a gate needs a reason: it goes into the next
+    agent's prompt. A gate with named exits takes a plain reject as its exit "reject" when it has one (Compiler._choice)."""
+    title = question.get("title") or "This question"
+    options = list(question.get("options") or OPTIONS)
+    choices = [str(c) for c in question.get("choices") or []]
+    if decision not in options and not (decision == "reject" and "reject" in choices):
+        return (f'"{title}" does not take {decision}.', "Answer with one of: " + ", ".join(options) + ".")
+    choice = (payload or {}).get("choice")
+    if choice is not None and choices and str(choice) not in choices:
+        return (f'"{choice}" is not a choice of "{title}".', "Choose one of: " + ", ".join(choices) + ".")
+    back = decision == "reject" or choice == "reject"         # "reject" as a named exit sends back too (feature's spec gate)
+    if back and question.get("kind", "gate") == "gate" and not (why or "").strip():
+        return ("Say why when you send it back.", "The reason goes into the next agent's prompt.")
+    return None
 
 
 def question_id(question: dict) -> str:
@@ -203,6 +233,12 @@ class Nav:
 
 def fix_id(review_id: str) -> str:
     return f"{review_id}__fix"
+
+
+def close_note(state: FlowState) -> str:
+    """The flow's last note: "done", plus the warnings it went on with (a knowledge check that kept failing)."""
+    warned = [w.get("text") or "" for w in (state.get("data") or {}).get("warnings") or []]
+    return "done" + (f" with {len(warned)} warning(s): " + "; ".join(warned) if warned else "")
 
 
 def _ac(state: FlowState) -> dict | None:
@@ -385,7 +421,7 @@ class Compiler:
         return next((x for x in get_list(state, lp.key) if x["id"] == state.get("item")), None)
 
     async def finish(self, state: FlowState):
-        return Command(update={"status": "done", "ac": None, "note": "done", **self._booked(state)}, goto=END)
+        return Command(update={"status": "done", "ac": None, "note": close_note(state), **self._booked(state)}, goto=END)
 
     def _booked(self, state: FlowState) -> dict:
         """{"usage": ...} with the failed calls' tokens booked in, or {} when there are none."""
@@ -787,6 +823,7 @@ class Compiler:
             item_of = {n: loop_item for n in range(len(calls))}
 
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
+        started = time.time()       # a spec a CLI agent wrote with its own tools is found by its time (_acs_from)
         ac = _ac(state) if step.per_ac else None
 
         async def lane(action: str) -> ActionResult:
@@ -912,7 +949,7 @@ class Compiler:
         if said:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
-            acs, spec = self._acs_from(agent_results)
+            acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
@@ -1192,30 +1229,73 @@ class Compiler:
             secs = list(chosen) if isinstance(chosen, list) and chosen else (have or list(init_gates.SECTIONS))
         return secs
 
-    def _acs_from(self, results) -> tuple[list[dict], str | None]:
+    def _acs_from(self, results, started: float | None = None, known: str | None = None) -> tuple[list[dict], str | None]:
         from pathlib import Path
 
         for res, _m, tb in results:
             if res.data.get("acs"):
                 return [dict(a, status="todo") for a in res.data["acs"]], res.data.get("spec")
+        root = Path(self.ctx.root)
         seen = None
         for res, _m, tb in results:
-            spec = next((w["path"] for w in tb.writes if w["path"].endswith(".md")), None)
             # The spec file the agent wrote comes first; its chat answer only when no file has criteria.
-            texts = [(Path(self.ctx.root) / w["path"]).read_text(errors="replace") for w in tb.writes
-                     if (Path(self.ctx.root) / w["path"]).is_file()]
+            files = [w["path"] for w in tb.writes if w["path"].endswith(".md")]
             if git.is_repo(self.ctx.root):
-                for rel in git.dirty(self.ctx.root):
-                    if "spec" in rel and rel.endswith(".md") and (Path(self.ctx.root) / rel).is_file():
-                        texts.append((Path(self.ctx.root) / rel).read_text(errors="replace"))
-                        spec = spec or rel
+                files += [rel for rel in git.dirty(self.ctx.root) if "spec" in rel and rel.endswith(".md")]
+            # A CLI agent writes with its own tools (keel's ToolBox sees nothing), and a git-ignored .keel/specs/ is
+            # never dirty: the spec its answer names, the one the flow already knows, and the spec folder's files
+            # changed since the step started.
+            files += self._specs_named(res.text) + ([known] if known else []) + self._specs_since(started)
+            files = [f for f in dict.fromkeys(files) if (root / f).is_file()]
+            spec = files[0] if files else None
             seen = seen or spec
-            for t in texts + [res.text]:
-                acs = prompts.parse_acs(t)
+            for rel in files:
+                acs = prompts.parse_acs((root / rel).read_text(errors="replace"))
                 if acs:
-                    return acs, spec
+                    return acs, rel
+            acs = prompts.parse_acs(res.text)
+            if acs:
+                return acs, spec
         # No criteria yet, but the spec file is known: a send-back changes that file instead of starting over.
         return [], seen
+
+    def _spec_dirs(self) -> tuple[str, ...]:
+        from .. import layout
+
+        return layout.resolve(self.ctx.root).spec_dirs
+
+    def _specs_named(self, text: str | None) -> list[str]:
+        """Spec files an answer names ("I wrote the spec to `.keel/specs/x.md`"): .md paths inside the project, in a
+        spec folder or with "spec" in the path."""
+        root = Path(self.ctx.root).resolve()
+        out = []
+        for raw in SPEC_PATH.findall(text or ""):
+            p = (root / raw).resolve()          # an absolute path stays itself
+            if not p.is_relative_to(root) or not p.is_file():
+                continue
+            rel = p.relative_to(root).as_posix()
+            if "spec" in rel or any(rel.startswith(d.rstrip("/") + "/") for d in self._spec_dirs()):
+                out.append(rel)
+        return out
+
+    def _specs_since(self, started: float | None) -> list[str]:
+        """The spec folders' .md files changed since the step started (git-ignored ones too), newest first."""
+        if started is None:
+            return []
+        root = Path(self.ctx.root)
+        found = []
+        for d in self._spec_dirs():
+            folder = root / d
+            if not folder.is_dir():
+                continue
+            for p in folder.rglob("*.md"):
+                try:
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime >= started - 1:        # file systems keep mtimes to the second
+                    found.append((mtime, p.relative_to(root).as_posix()))
+        return [rel for _t, rel in sorted(found, reverse=True)]
 
     def _action_input(self, state: FlowState, ac: dict | None, item: dict | None = None) -> ActionInput:
         return ActionInput(root=self.ctx.root, project=self.ctx.project_id, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
@@ -1270,6 +1350,8 @@ class Compiler:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
                         upd[k] = r.update[k]
+                if action in KNOWLEDGE_CHECKS:
+                    return await self._knowledge_failed(i, step, st, r, upd)
                 return await self._check_failed(i, step, st, ac or item, r, upd)
             st.update(r.update)
             upd.update(r.update)
@@ -1579,6 +1661,71 @@ class Compiler:
             return feedback + extra, upd, r.note
         return feedback + extra, {}, "tried again"
 
+    async def _knowledge_failed(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
+        """The knowledge check found problems (a citation of a file that is not there, a section without any). The pages
+        are the librarian's work, so the librarian gets the list and fixes them: one round per run of this step, at most
+        the step's rounds (else settings.fix_attempts), then the check runs again. Running the same check again without a
+        fix would change nothing. After the rounds the person chooses: go on with a warning, or stop. Neither fails the
+        flow: its code, tests and reviews are done, only its notes are off. The warning stays in data.warnings, the gate
+        log and the flow's last note."""
+        key = f"{step.id}:knowledge"
+        retries = dict(state.get("retries") or {})
+        count = retries.get(key, 0) + 1
+        rounds = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
+        problems = (r.detail or "").strip()
+        gates = copy.deepcopy(upd.get("gates") or state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        base = {**upd, "last_failure": r.note[:300]}
+        if count <= rounds:
+            fixer = step.model_copy(update={"id": f"{step.id}_fix", "kind": "agent", "name": f"{step.name}: fix the pages",
+                                            "agent": "librarian", "action": None, "markers": None, "instructions": None})
+            ask = (f"keel's knowledge check found these problems in the knowledge pages (round {count} of {rounds}). Fix "
+                   "each one in the page it names and change nothing else. A citation needs the file's full path from "
+                   "the repo root (as `git ls-files` shows it) and a line that exists; when you cannot find the source "
+                   f"of a claim, remove the claim.\n\n{problems[-4000:]}")
+            try:
+                res, _m, _tb = await self._run_agent({**state, "feedback": ask}, fixer, "librarian", 0)
+            except (asyncio.CancelledError, GraphBubbleUp):
+                raise
+            except Exception as exc:          # the check runs again; the rounds still end
+                did = f"the librarian failed ({str(exc)[:120]})"
+            else:
+                base["usage"] = add_usage(dict(state.get("usage") or {}), {k: getattr(res, k, 0) for k in (
+                    "tokens_in", "tokens_out", "tokens_cached", "premium_requests", "cost_usd")})
+                tokens = dict(state.get("step_tokens") or {})
+                tokens[step.id] = tokens.get(step.id, 0) + res.tokens_in + res.tokens_out + res.tokens_cached // 10
+                base["step_tokens"] = tokens
+                did = "the librarian fixed the pages it names"
+            retries[key] = count
+            gates["log"].append(f"knowledge {step.id} round {count} of {rounds}: {r.note} {did}"[:300])
+            return {**base, "gates": gates, "retries": retries,
+                    "note": f"{r.note} · round {count} of {rounds}: {did}; the check runs again"[:300]}, step.id
+        answer, extra = self._ask(state, {
+            "step": step.id, "kind": "fix", "title": f"{step.name}: problems remain after {rounds} round(s)",
+            "detail": f"{r.note}\n\n{problems[-1500:]}\n\nThe librarian had {rounds} round(s) to fix them. Go on with a "
+                      "warning: the flow goes on, and the warning is kept in the flow and its last note. Stop: the flow ends "
+                      "here as done, with the warning (the work before this step stays).",
+            "options": OPTIONS, "labels": {"approve": "Go on with a warning", "reject": "Stop"}}, gate="failure")
+        why = (answer.get("why") or "").strip()
+        go_on = answer.get("decision") == "approve"
+        warning = f"{step.name}: {r.note.rstrip('.')} (not fixed after {rounds} round(s))"
+        data = dict(state.get("data") or {})
+        data["warnings"] = [w for w in data.get("warnings") or [] if w.get("step") != step.id] + \
+            [{"step": step.id, "text": warning, "problems": problems.splitlines()[:50]}]
+        gates["log"].append(f"knowledge {step.id} {'go on with a warning' if go_on else 'stop'}: {warning}"
+                            + (f" ({why})" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": answer.get("decision"),
+                                                          "why": why, "warning": warning})
+        retries[key] = 0
+        out = {**base, **extra, "gates": gates, "data": data, "retries": retries, "feedback": None, "last_failure": None}
+        if not go_on:
+            return {**out, "status": "done", "ac": None, "item": None, "note": f"stopped with a warning: {warning}"[:300]}, END
+        out["note"] = f"warning: {warning}"[:300]
+        if step.then == "end":
+            return {**out, "status": "done", "ac": None, "item": None}, END
+        if step.then and step.then != "continue":
+            return out, self.nav.jump(step.then, i)
+        return out, self.nav.after(i)
+
     async def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
         key = f"{step.id}:{(ac or {}).get('id')}"
         retries = dict(state.get("retries") or {})
@@ -1736,6 +1883,17 @@ class Compiler:
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
         if routes:
+            names = self._open_choices(step, state)
+            plain = "reject" if decision == "reject" and "reject" in names else names[0]
+            back = str(payload.get("choice") or plain) == "reject"
+        else:
+            back = decision != "approve"
+        stop, counted = self._sendbacks(step, {**state, **extra}, f"{step.id}:{(ac or item or {}).get('id', '')}", back)
+        extra = {**extra, **counted}
+        if stop:
+            gates["log"].append(f"gate {step.id} stop: {stop['note']}")
+            return {"gates": gates, **extra, **stop}, END
+        if routes:
             return self._choice(i, step, state, gates, extra, answer, item)
         choice = None
         if step.choices and decision == "approve":
@@ -1768,10 +1926,36 @@ class Compiler:
             return upd, self.nav.after(i)
         if ac:
             upd["acs"] = _set_ac(acs, ac["id"], "todo")
-        upd["feedback"] = why or f"Sent back at {step.name}."
+        upd["feedback"] = why or f"Sent back at {step.name}. {NO_REASON}"
         upd["note"] = f"{step.name} sent back" + (f": {why}" if why else "")
         target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
+
+    def _sendbacks(self, step: Step, state: FlowState, key: str, back: bool) -> tuple[dict | None, dict]:
+        """Counts the send-backs of one gate in a row (key: step and criterion or item; an approval starts again) and
+        returns (an update that stops the flow, or None; the state update). With a reason or without, after
+        settings.sendback_limit send-backs (default SENDBACK_LIMIT) the next one asks the person first: go on anyway
+        (the count starts again) or stop. Never a run mode's answer: it is a loop keel cannot see the end of."""
+        counts = dict(state.get("sendbacks") or {})
+        if not back:
+            return None, ({"sendbacks": {k: v for k, v in counts.items() if k != key}} if key in counts else {})
+        limit = int(self.ctx.settings.get("sendback_limit") or SENDBACK_LIMIT)
+        n = int(counts.get(key, 0))
+        extra: dict = {}
+        if n >= limit:
+            answer, extra = self._ask(state, {
+                "step": step.id, "kind": "fix", "title": f"{step.name}: sent back {n} time(s) in a row",
+                "detail": f"{step.name} was sent back {n} time(s) in a row (the limit is {limit}, settings.sendback_limit). "
+                          "Another round may change nothing. Go on anyway: this send-back goes ahead and the count starts "
+                          "again. Stop: the flow stops here (the work so far stays; rewind to go on later).",
+                "options": OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}}, gate="rounds")
+            self.ctx.emit("gate.decided", step=step.id, data={"gate": f"{step.name} send-back limit",
+                                                              "decision": answer.get("decision"), "why": answer.get("why") or ""})
+            if answer.get("decision") != "approve":
+                return {**extra, "status": "stopped", "sendbacks": {**counts, key: 0},
+                        "note": f"stopped: {step.name} was sent back {n} time(s) in a row"}, {}
+            n = 0
+        return None, {**extra, "sendbacks": {**counts, key: n + 1}}
 
     @staticmethod
     def _choice_markers(state: FlowState, step: Step, choice: str, why: str) -> dict:
@@ -1824,7 +2008,8 @@ class Compiler:
         gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "choice": choice, "why": why})
         data = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": choice, "why": why, "payload": payload}}
-        upd = {"gates": gates, **extra, "data": data, "feedback": (None if answer.get("auto") else why) or None,
+        said = None if answer.get("auto") else why
+        upd = {"gates": gates, **extra, "data": data, "feedback": said or (NO_REASON if choice == "reject" else None),
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
 

@@ -1,7 +1,9 @@
 """The knowledge check (keel v1 lib/memory.js `check`, ported): is docs/knowledge/ still checkable evidence?
 
 Nothing here can tell whether a claim is true. It refuses the claims that cannot even be checked:
-  - a `path:line` citation (backticked, with a line number) whose file is gone or shorter than the line,
+  - a `path:line` citation (backticked, with a line number) whose file is gone or shorter than the line. A shorthand
+    path (`.../owner/OwnerRepository.java:36`) or a bare file name (`MySqlIntegrationTests.java:50`) counts when exactly
+    one tracked file ends with it (its line is checked in that file); more than one match is a problem,
   - a template placeholder ({{LIKE_THIS}}) nobody filled in,
   - a section with no citation at all (written from memory),
   - a chosen section that does not exist,
@@ -18,6 +20,7 @@ import re
 from pathlib import Path
 
 from .. import layout, rules
+from ..tools import git
 
 SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
 
@@ -55,6 +58,23 @@ def _lines(p: Path) -> int | None:
         return None
 
 
+def resolve(root: str, rel: str, files: list[str] | None) -> tuple[str | None, str | None]:
+    """(the file a citation names, the problem). A path that exists is itself. A shorthand (`.../a/B.java`, `B.java`)
+    is the one tracked file that ends with it: agents shorten long paths, and one match names the file as well as the
+    full path does. None of them, or two, is a problem the librarian can fix."""
+    if (Path(root) / rel).is_file():
+        return rel, None
+    tail = re.sub(r"^(\.\.\./|…/)+", "", rel).lstrip("/")
+    if files is None or not tail:
+        return None, "does not exist"
+    hits = [f for f in files if f == tail or f.endswith("/" + tail)]
+    if len(hits) == 1:
+        return hits[0], None
+    if hits:
+        return None, f"matches {len(hits)} files ({', '.join(hits[:3])}{', …' if len(hits) > 3 else ''}); give the full path"
+    return None, "does not exist"
+
+
 def built(root: str) -> list[str]:
     return [n for n in SECTIONS if section_file(root, n).is_file()]
 
@@ -68,7 +88,7 @@ def selection(root: str, cfg: dict | None = None) -> list[str] | None:
     return built(root) or None
 
 
-def check_section(root: str, name: str, cfg: dict) -> dict:
+def check_section(root: str, name: str, cfg: dict, files: list[str] | None = None) -> dict:
     rel = layout.resolve(root).knowledge_file(root, name)
     f = Path(root) / rel
     if not f.is_file():
@@ -80,13 +100,15 @@ def check_section(root: str, name: str, cfg: dict) -> dict:
         problems.append(f"{rel}: {len(left)} template placeholder(s) never filled in: {', '.join(list(dict.fromkeys(left))[:4])}")
     cites = citations(text)
     for c in cites:
-        n = _lines(Path(root) / c["rel"])
+        path, why = resolve(root, c["rel"], files)
+        n = _lines(Path(root) / path) if path else None
         if n is None:
-            problems.append(f"{rel}: cites `{c['rel']}:{c['line']}`, which does not exist")
+            problems.append(f"{rel}: cites `{c['rel']}:{c['line']}`, which {why or 'does not exist'}")
             continue
         last = c["end"] or c["line"]
         if last > n:
-            problems.append(f"{rel}: cites `{c['rel']}:{last}` but that file has {n} line(s)")
+            problems.append(f"{rel}: cites `{c['rel']}:{last}` but that file has {n} line(s)"
+                            + (f" ({path})" if path != c["rel"] else ""))
     if not cites:
         problems.append(f"{rel}: no citations at all; every claim here is unsourced")
     terms = (cfg.get("memory") or {}).get("proof_required_terms") or []
@@ -111,9 +133,10 @@ def check(root: str, only: list[str] | None = None) -> dict:
     unanswered = sel is None
     chosen = sel or []
     sections = []
+    files = git.tracked(root) if git.is_repo(root) else None   # for shorthand citations (resolve)
     for n in SECTIONS:
         if n in chosen or section_file(root, n).is_file():
-            sections.append({**check_section(root, n, cfg), "selected": n in chosen})
+            sections.append({**check_section(root, n, cfg, files), "selected": n in chosen})
         else:
             sections.append({"name": n, "selected": False, "not_selected": True, "missing": True, "problems": [],
                              "citations": 0, "proofs": 0, "unverified": 0})

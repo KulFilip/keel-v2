@@ -27,7 +27,7 @@ from ..workflows.templates import get_template
 from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import db, migrate, prompts, run_mode, spec_check
-from .compiler import compile_workflow
+from .compiler import answer_problem, compile_workflow
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
 log = logging.getLogger(__name__)
@@ -216,7 +216,12 @@ class Engine:
             if status == "failed":
                 ctx.emit("thread.failed", data={"error": snap.values.get("error"), "status": status})
             else:
-                ctx.emit("thread.done", data={"status": status, "usage": snap.values.get("usage")})
+                done = {"status": status, "usage": snap.values.get("usage")}
+                warned = (snap.values.get("data") or {}).get("warnings") or []
+                if warned:
+                    # the close note says what the flow went on with (the api's "flow is done" notification shows title)
+                    done.update(warnings=[w.get("text") for w in warned], title=snap.values.get("note") or "")
+                ctx.emit("thread.done", data=done)
         except asyncio.CancelledError:
             await self._set_status(tid, "stopped")
             raise
@@ -424,6 +429,9 @@ class Engine:
         if pr_url:
             # The PR the open_pr step opened (v0.5.0: a task moves to review with it).
             out["pr_url"] = pr_url
+        warned = (v.get("data") or {}).get("warnings") or []
+        if warned:
+            out["warnings"] = [w.get("text") for w in warned]
         err = row["error"] or v.get("error")
         if err and status in ("failed", "stopped"):
             out["error"] = err
@@ -474,8 +482,9 @@ class Engine:
             raise EngineError(409, "The flow is not waiting for a decision.")
         if decision not in ("approve", "reject"):
             raise EngineError(400, "decision must be approve or reject.")
-        if decision == "reject" and self._waiting(snap).get("kind") == "gate" and not (why or "").strip():
-            raise EngineError(400, "Say why when you send it back.", "The reason goes into the next agent's prompt.")
+        problem = answer_problem(self._waiting(snap), decision, why, payload)
+        if problem:
+            raise EngineError(400, *problem)
         await self._set_status(tid, "running")
         await self._import_legacy_unlocks(tid)
         asked = self._waiting(snap).get("id")

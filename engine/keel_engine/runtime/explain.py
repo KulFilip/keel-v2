@@ -338,7 +338,13 @@ def routes(wf: Workflow, i: int) -> list[dict]:
             out.append({**nxt, "label": "passes"})
         fail = s.back or retry_target(wf, i)
         tries = s.rounds if s.rounds is not None else "fix_attempts (default 3)"
-        if s.soft:
+        if set(s.actions()) & {"knowledge_check", "memory_check"}:
+            # Compiler._knowledge_failed: the librarian fixes the pages; a knowledge problem never fails the flow
+            out.append({"label": "fails", "to": s.id, "to_name": s.name,
+                        "text": f"the librarian gets the problems and fixes the pages, then the check runs again, at most "
+                                f"{tries} time(s); then keel asks you (approve = go on with a warning, reject = stop; "
+                                "either way the flow ends done, with the warning)"})
+        elif s.soft:
             out.append({"label": "fails", **({"to": nxt["to"], "to_name": nxt["to_name"]}),
                         "text": f"goes on anyway (soft): markers[{s.id}].RESULT = fail, what it said is kept in "
                                 f"data.{s.id}_output"})

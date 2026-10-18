@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 
 from .. import config, layout
+from ..tools import git
 from . import catalog
 from .base import AgentRequest, AgentResult, Emit
 
@@ -37,6 +38,17 @@ def key_of(text: str) -> str:
 
 def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:48] or "work"
+
+
+SOURCE = re.compile(r"\.(py|java|kt|kts|groovy|scala|ts|tsx|js|jsx|mjs|go|rs|rb|cs|php|swift|c|cc|cpp|h|hpp)$")
+CITABLE = re.compile(r"[A-Za-z0-9_@./-]+")     # the characters a knowledge citation may use (runtime/knowledge.py)
+
+
+def first_source(root: str | None) -> str:
+    """The file the fake librarian cites: the first source file the project tracks (`git ls-files`). keel's own demo
+    path would not exist in another project (a Java one), and the knowledge check refuses a citation to a missing file."""
+    files = [f for f in (git.tracked(root) if root else []) if CITABLE.fullmatch(f)]
+    return next((f for f in files if SOURCE.search(f)), files[0] if files else "src/scores/__init__.py")
 
 
 def default_acs(title: str) -> list[dict]:
@@ -127,7 +139,8 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     if agent == "librarian":
         section = req.section or (SECTIONS[req.index % len(SECTIONS)] if phase in ("setup", "memory") else "architecture")
         kdir = layout.resolve(req.root).knowledge if req.root else "docs/knowledge"
-        return f"{kdir}/{section}.md", f"# {section.title()}\n\nThe package lives in src/scores (`src/scores/__init__.py:1`).\n", \
+        cite = first_source(req.root)
+        return f"{kdir}/{section}.md", f"# {section.title()}\n\nThe code starts in `{cite}:1`.\n", \
             f"Knowledge section {section} written with citations.", {}
     if agent == "ac-reviewer":
         return None, "", f"AC-REVIEW: PASS — the test proves {ac_id}.", {"verdict": "pass"}

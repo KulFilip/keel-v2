@@ -1,6 +1,8 @@
 """The spec gate must never offer a template placeholder as a criterion."""
+from pathlib import Path
+
 from keel_engine.runtime import prompts
-from conftest import start, wait
+from conftest import decide, start, wait
 
 
 def test_placeholders_and_examples_are_not_criteria():
@@ -48,10 +50,11 @@ def test_a_spec_gate_without_criteria_only_allows_send_back(client, repo, monkey
     assert "no acceptance criteria" in w["title"]
     assert "No feature topic was named" in w["detail"]
     assert st["acs"] == []
-    # approving anyway still sends it back
-    client.post(f"/threads/{tid}/resume", json={"decision": "approve", "why": "x"})
+    # approving anyway is refused (it used to act as a send-back without a reason, again and again)
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "why": "x"})
+    assert r.status_code == 400 and "does not take approve" in r.text and "reject" in r.text, r.text
     st = wait(client, tid)
-    assert st["acs"] == [] and st["status"] == "waiting"
+    assert st["acs"] == [] and st["status"] == "waiting" and st["waiting"]["id"] == w["id"]
 
 
 def test_a_criterion_wrapped_over_lines_is_read_whole():
@@ -116,3 +119,65 @@ def test_a_sent_back_spec_is_changed_not_rewritten_from_scratch():
     p = task_prompt(agent="explorer", phase="spec", step_name="spec", title="t", root="/r", ac=None, acs=[],
                     feedback="1 entity types first", spec="docs/specs/x.md")
     assert "The spec docs/specs/x.md exists from the last try" in p and "do not explore the project again" in p
+
+
+VISITS_SPEC = """# Visit count per pet
+
+## Acceptance criteria
+- **AC-1** [WEB] Given an owner whose pet has n >= 2 visits (e.g. 2, 3,
+  12), when /owners/{id} is rendered, then the pet row shows "n visits".
+- **AC-2** [WEB] Given a pet with exactly 1 visit, when /owners/{id} is rendered,
+  then the pet row shows "1 visit".
+- **AC-3** [WEB] Given a pet with no visits, when /owners/{id} is rendered, then the pet row shows "no visits".
+"""
+
+
+def hidden_layout(repo):
+    """layout keel: the specs live in .keel/specs, which git ignores (a CLI agent's spec there is never dirty)."""
+    from keel_engine import layout
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text("layout: keel\n")
+    assert layout.hide(repo)
+
+
+def cli_explorer(monkeypatch, where: str, answer: str):
+    """The spec explorer writes its spec with its own tools (straight to disk, keel's ToolBox sees no write) and its
+    answer has no criteria lines, like the Claude Code CLI in the e2e."""
+    from keel_engine.models import fake as fake_mod
+    real = fake_mod._plan
+
+    def plan(req):
+        if req.agent == "explorer" and req.phase == "spec" and req.step_name == "spec":
+            p = Path(req.root) / where
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(VISITS_SPEC)
+            return None, "", answer, {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+
+
+def test_a_spec_written_outside_keels_tools_into_a_git_ignored_folder_reaches_the_gate(client, repo, monkeypatch):
+    import subprocess
+    hidden_layout(repo)
+    cli_explorer(monkeypatch, ".keel/specs/visit-count-per-pet.md", "The spec is ready for review.")
+    # the title is not the file's name: spec_sync's look-up by the title's slug does not find it either
+    tid = start(client, repo, acs=None, title="Show how many visits each pet had")
+    st = wait(client, tid)
+    assert "visit-count-per-pet" not in subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True,
+                                                       text=True).stdout, "the spec folder is git-ignored"
+    w = st["waiting"]
+    assert w["step"] == "spec_gate" and "no acceptance criteria" not in w["title"], w
+    assert "approve" in w["options"]
+    assert [a["id"] for a in st["acs"]] == ["AC-1", "AC-2", "AC-3"]
+    assert st["acs"][0]["title"].startswith("Given an owner whose pet has n >= 2 visits (e.g. 2, 3, 12)")
+    assert st["spec"] == ".keel/specs/visit-count-per-pet.md"
+    st = decide(client, tid, "approve", payload={"choice": "approve"})
+    assert st["status"] in ("waiting", "done") and st["waiting"]["step"] != "spec_gate", st
+
+
+def test_a_spec_the_answer_names_is_read(client, repo, monkeypatch):
+    hidden_layout(repo)        # git-ignored and outside the spec folder: only the answer says where it is
+    cli_explorer(monkeypatch, ".keel/drafts/spec-visits.md", "I wrote the spec to `.keel/drafts/spec-visits.md`.")
+    tid = start(client, repo, acs=None, title="Show how many visits each pet had")
+    st = wait(client, tid)
+    assert len(st["acs"]) == 3 and st["spec"] == ".keel/drafts/spec-visits.md", st
