@@ -13,6 +13,8 @@ import { PLAIN, type Paint } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
 import { fixRequest } from "../../../web/src/askFix";
 import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
+import { choiceProblem, choiceRows } from "../../../web/src/questions";
+import type { ChoiceInfo } from "../../../web/src/api";
 import { effortComplete, effortRun, modelRun } from "./effort";
 import { guidedStack, stackComplete, stackRequest, stackRun, stacksRun } from "./stacks";
 import { readFileSync } from "node:fs";
@@ -234,6 +236,24 @@ function reviewAnswers(qs: Question[], send: (answers: Answers) => Promise<Reply
         : questionChain(qs, send, Number(v.slice(1)), answers, true),
     },
   };
+}
+
+/** `/answer id=a,b other="own words"`: a question that takes several (`multiple`) gets the comma-separated labels as a
+ *  list; any other keeps its value as it is (own words may have commas). */
+export function pairAnswers(qs: Question[], pairs: [string, string][]): Answers {
+  return Object.fromEntries(pairs.map(([id, raw]) => {
+    const v = raw.replace(/^"|"$/g, "");
+    return [id, qs.find((q) => q.id === id)?.multiple ? v.split(",").map((x) => x.trim()).filter(Boolean) : v];
+  }));
+}
+
+/** A picked choice: sent at once, or first its reason when it needs one (asked again while empty) or may have one. */
+function answerChoice(ctx: Ctx, t: ThreadState, c: ChoiceInfo): Promise<Reply> | Reply {
+  if (c.why === "none") return actOnFlow(ctx, t, "approve", "", { choice: c.name });
+  const ask = (again: boolean): Reply => ({ blocks: again ? [{ kind: "error", text: `${c.label || c.name} needs a reason.` }] : [], ask: {
+    prompt: c.why === "required" ? `Why ${c.label || c.name}? (needed)` : `Why ${c.label || c.name}? (optional: Enter sends without)`,
+    then: (why: string) => (c.why === "required" && !why.trim() ? ask(true) : actOnFlow(ctx, t, "approve", why.trim(), { choice: c.name })) } });
+  return ask(false);
 }
 
 /** /answer for a clarify gate: the questions one after the other, checked before keel gets them. */
@@ -549,13 +569,23 @@ const IMPLS: Impl[] = [
       const arg = a.trim();
       if (w.kind === "clarify") {
         const pairs = [...arg.matchAll(/(\w[\w-]*)=("[^"]*"|\S+)/g)];
-        if (pairs.length) return actOnFlow(ctx, t, "approve", "", { answers: Object.fromEntries(pairs.map((m) => [m[1], m[2].replace(/^"|"$/g, "")])) });
+        if (pairs.length) return actOnFlow(ctx, t, "approve", "", { answers: pairAnswers((w.questions ?? []) as Question[], pairs.map((m) => [m[1], m[2]])) });
         return askQuestions(ctx, t, 0, {});
       }
       if (w.choices?.length) {
-        if (arg) return w.choices.includes(arg) ? actOnFlow(ctx, t, "approve", "", { choice: arg }) : fail(`Choose one of: ${w.choices.join(", ")}`);
-        return { blocks: [], pick: { title: w.title, choices: w.choices.map((c) => ({ label: c, value: c })),
-          then: (v) => actOnFlow(ctx, t, "approve", "", { choice: v }) } };
+        const rows = choiceRows(w.choices, w.choice_info);
+        if (arg) {
+          // /answer <choice> <why>: the first word is the choice, the rest its reason
+          const [, name, why] = /^(\S+)\s*([\s\S]*)$/.exec(arg)!;
+          const c = rows.find((x) => x.name === name);
+          if (!c) return fail(`Choose one of: ${rows.map((x) => x.name).join(", ")}`);
+          if (choiceProblem(c, why)) return fail(`${c.label || c.name} needs a reason: /answer ${c.name} <why>.`);
+          return actOnFlow(ctx, t, "approve", why.trim(), { choice: c.name });
+        }
+        return { blocks: [], pick: { title: w.title, index: Math.max(0, rows.findIndex((x) => x.default)),
+          choices: rows.map((x) => ({ label: (x.label || x.name) + (x.default ? " (default)" : "") + (x.why === "required" ? " · needs a reason" : ""),
+            value: x.name, hint: x.description || (x.label && x.label !== x.name ? x.name : undefined) })),
+          then: (v) => answerChoice(ctx, t, rows.find((x) => x.name === v)!) } };
       }
       return text(`${w.title}: /approve or /reject <why>.`);
     },

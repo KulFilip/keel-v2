@@ -6,6 +6,7 @@
 //   ```keel-flow  {"do": "approve" | "reject", "flow", "why"?}```           decide the gate a flow waits at
 //   ```keel-flow  {"do": "stop", "flows": [ids]}```                         stop flows (finished steps stay saved)
 //   ```keel-flow  {"do": "mode", "flow", "mode": manual|important|auto|readonly}```   a flow's run mode
+//   ```keel-flow  {"do": "answer", "flow", "answers" | "choice", "why"?}```  answer the question a flow waits at (0.18.13)
 //   ```keel-workflow <yaml>```                                              a new workflow (checked, then saved)
 //   ```keel-rule <yaml>```                                                  a new rule pack (checked, then saved)
 //   ```keel-agent {"name", "about", "prompt", "tools", "phases"}```         a new agent
@@ -24,6 +25,10 @@
 import { api, get, post, type RunMode } from "../../../web/src/api";
 import type { Answers, Question } from "./commands";
 import { inboxApi } from "../../../web/src/inboxApi";
+import { answersMessage, parseQuestions } from "../../../web/src/questions";
+
+// keel 0.18.13 one copy of the questions' parser and the answers' message, shared with the dashboard (web/src/questions.ts)
+export { answersMessage, parseQuestions };
 
 export const RUN_MODES: RunMode[] = ["manual", "important", "auto", "readonly"];
 
@@ -41,6 +46,7 @@ export const AGENT_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
 export type Button =
   | { kind: "start"; workflow: string; title: string; request?: string }
   | { kind: "decide"; decision: "approve" | "reject"; flow: string; why?: string }
+  | { kind: "answer"; flow: string; answers?: Answers; choice?: string; why?: string }
   | { kind: "stop"; flows: string[] }
   | { kind: "mode"; flow: string; mode: RunMode }
   | { kind: "workflow"; yaml: string }
@@ -127,12 +133,37 @@ export function toButton(kind: string, body: string): Button | null {
   if (kind === "start") return str(v.workflow) ? { kind: "start", workflow: str(v.workflow), title: str(v.title), request: str(v.request) || undefined } : null;
   const what = str(v.do);
   if (what === "approve" || what === "reject") return str(v.flow) ? { kind: "decide", decision: what, flow: str(v.flow), why: str(v.why) || undefined } : null;
+  if (what === "answer") {
+    const flow = str(v.flow) || str(v.thread);
+    const answers = answersFrom(v.answers);
+    const choice = str(v.choice);
+    return flow && (answers || choice) ? { kind: "answer", flow, ...(answers ? { answers } : { choice }), why: str(v.why) || undefined } : null;
+  }
   if (what === "stop") {
     const flows = (Array.isArray(v.flows) ? v.flows : [v.flow]).map(str).filter(Boolean);
     return flows.length ? { kind: "stop", flows: [...new Set(flows)] } : null;
   }
   if (what === "mode") return str(v.flow) && RUN_MODES.includes(str(v.mode) as RunMode) ? { kind: "mode", flow: str(v.flow), mode: str(v.mode) as RunMode } : null;
   return null;
+}
+
+/** KeelBot's proposed answers: question id → a label, a list of labels, or own words; null when there is none. */
+function answersFrom(raw: unknown): Answers | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Answers = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (Array.isArray(v)) {
+      const list = v.map((x) => String(x ?? "").trim()).filter(Boolean);
+      if (list.length) out[k] = list;
+    } else if ((typeof v === "string" || typeof v === "number") && String(v).trim()) out[k] = String(v).trim();
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** What an answer button sends, in words: "run → docker; knowledge → architecture, domain" or "the choice retry". */
+export function answerText(b: Extract<Button, { kind: "answer" }>): string {
+  if (b.answers) return Object.entries(b.answers).map(([k, v]) => `${k} → ${Array.isArray(v) ? v.join(", ") : v}`).join("; ");
+  return `the choice ${b.choice}`;
 }
 
 /** The answer without its button blocks (a block inside another code block stays), and the buttons in order. */
@@ -172,6 +203,7 @@ export function question(b: Button, name: Names): string | null {
   switch (b.kind) {
     case "start": return `KeelBot suggests: start ${b.workflow}${b.title ? ` "${b.title}"` : ""}?`;
     case "decide": return `KeelBot suggests: ${b.decision} the gate of ${name(b.flow)}${b.why ? ` (${b.why})` : ""}?`;
+    case "answer": return `KeelBot suggests: answer ${name(b.flow)} with ${answerText(b)}${b.why ? ` (${b.why})` : ""}?`;
     case "stop": return b.flows.length === 1 ? `KeelBot suggests: stop ${name(b.flows[0])}?` : `KeelBot suggests: stop ${b.flows.length} flows (${b.flows.map(name).join(", ")})?`;
     case "mode": return `KeelBot suggests: run ${name(b.flow)} in ${b.mode} mode (${RUN_MODE_ABOUT[b.mode]})?`;
     case "git": return `KeelBot suggests: ${gitWords(b)}?`;
@@ -180,40 +212,6 @@ export function question(b: Button, name: Names): string | null {
     case "query": return `KeelBot suggests: run this on ${b.connection || "the local database"}: ${b.sql.replace(/\s+/g, " ").slice(0, 90)}?`;
     default: return null;
   }
-}
-
-/** KeelBot's questions (the explorer's format, engine runtime/clarify.py): at most 4, 2 to 4 options each, the
- *  recommended one marked (else the first), "multiple" when several may be picked. */
-export function parseQuestions(body: string): Question[] {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(body);
-  } catch {
-    return [];
-  }
-  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray((raw as { questions?: unknown }).questions)
-    ? (raw as { questions: unknown[] }).questions : [];
-  const out: Question[] = [];
-  list.forEach((q, i) => {
-    if (out.length >= 4 || !q || typeof q !== "object") return;
-    const v = q as Record<string, unknown>;
-    const question = str(v.question);
-    const options = (Array.isArray(v.options) ? v.options : []).slice(0, 4).map((o) => (typeof o === "string" ? { label: o } : o as Record<string, unknown>))
-      .filter((o) => str(o?.label)).map((o) => ({ label: str(o.label), description: str(o.description) || undefined, recommended: o.recommended === true }));
-    if (!question || !options.length) return;
-    if (!options.some((o) => o.recommended)) options[0].recommended = true;
-    out.push({ id: str(v.id) || `q${i + 1}`, question, why: str(v.why) || undefined, multiple: v.multiple === true, options });
-  });
-  return out;
-}
-
-/** The answers as KeelBot's next message. */
-export function answersMessage(qs: Question[], answers: Answers): string {
-  return ["Answers to your questions:", ...qs.map((q, i) => {
-    const a = answers[q.id];
-    const said = Array.isArray(a) ? a.join("; ") : a;
-    return `${i + 1}. ${q.question}\n   → ${said || "(not answered: use the recommended one)"}`;
-  })].join("\n");
 }
 
 /** A git button in words: "switch to main", "commit \"fix: …\"", "push", "open the pull request \"…\"". */
@@ -233,7 +231,7 @@ export const blockedByChanges = (b: Button, message: string) => b.kind === "git"
 /** What a button tried, for KeelBot's fix request. */
 export function buttonWords(b: Button): string {
   return b.kind === "git" ? `git: ${gitWords(b)}` : b.kind === "ci" ? `CI: ${b.op}` : b.kind === "query" ? `the query ${b.sql.slice(0, 120)}`
-    : b.kind === "stop" ? "stopping flows" : b.kind === "decide" ? `${b.decision} a gate` : b.kind === "mode" ? `the run mode ${b.mode}`
+    : b.kind === "stop" ? "stopping flows" : b.kind === "decide" ? `${b.decision} a gate` : b.kind === "answer" ? `answering a flow (${answerText(b)})` : b.kind === "mode" ? `the run mode ${b.mode}`
     : b.kind === "start" ? `starting the ${b.workflow} flow` : `saving the ${b.kind}`;
 }
 
@@ -299,6 +297,16 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
         + (r.replaces === "keel" ? `\nkeel has a stack called ${r.name}: here this one is used in its place` : "")
         + (r.warnings.length ? `\n${r.warnings.map((w) => `warning: ${w}`).join("\n")}` : "") };
   }
+  if (b.kind === "answer") {
+    // the flow's question as it waits now: the questions' words, the choice's label, and whether it needs a reason
+    const w = (await api.flowOf(pid, b.flow).catch(() => null))?.thread?.waiting;
+    const info = b.choice ? w?.choice_info?.find((c) => c.name === b.choice) : undefined;
+    if (b.choice && !b.why && (info ? info.why === "required" : b.choice === "reject"))
+      return { error: `KeelBot's answer chooses ${info?.label || b.choice}, which needs a reason, and gives none: /answer ${b.choice} <why>, or ask KeelBot for one.` };
+    const lines = b.answers ? Object.entries(b.answers).map(([k, v]) => `${w?.questions?.find((q) => q.id === k)?.question ?? k} → ${Array.isArray(v) ? v.join("; ") : v}`)
+      : info ? [`${info.label}${info.description ? `: ${info.description}` : ""}`] : [];
+    return { title: question(b, name)!, detail: [...(w?.title ? [`it waits at: ${w.title}`] : []), ...lines].join("\n") || undefined };
+  }
   const q = question(b, name);
   return q ? { title: q } : null;
 }
@@ -314,6 +322,12 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
       if (b.decision === "reject" && !b.why) throw new Error("A send-back needs a reason: /reject <why>.");
       const s = await inboxApi.act(b.flow, { decision: b.decision, ...(b.why ? { why: b.why } : {}) });
       return `${b.decision === "approve" ? "approved" : "sent back"} the gate of ${name(b.flow)}. The flow is ${s.status} at ${s.current || "-"}.`;
+    }
+    case "answer": {
+      if (b.choice === "reject" && !b.why) throw new Error("A send-back needs a reason: ask KeelBot for one, or /answer reject <why>.");
+      const s = await inboxApi.act(b.flow, { decision: "approve", ...(b.why ? { why: b.why } : {}),
+        payload: b.answers ? { answers: b.answers } : { choice: b.choice } });
+      return `answered ${name(b.flow)} (${answerText(b)}). The flow is ${s.status} at ${s.current || "-"}.`;
     }
     case "stop": {
       const done: string[] = [];

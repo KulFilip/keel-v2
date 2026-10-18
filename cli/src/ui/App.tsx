@@ -456,14 +456,23 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const tid = item ? item.thread_id : thread!.thread_id;
     const flow = item ? `${item.project_name || item.project_id} · ${item.flow || item.thread_id.slice(0, 8)}` : `"${thread!.title}"`;
     const opts = w.options ?? ["approve", "reject"];
-    const choices = [
+    // keel 0.18.13 this flow's named choices with the engine's words: one row each, the default marked
+    const named = !n && thread?.waiting?.choice_info?.length ? thread.waiting.choice_info : null;
+    const choices = named ? [
+      ...named.map((x) => ({ label: `${x.label || x.name}${x.default ? " (default)" : ""}${x.why === "required" ? " · needs a reason" : ""}`,
+        value: `choice:${x.name}`, hint: x.description || `/answer ${x.name}` })),
+    ] : [
       ...(w.kind !== "clarify" && opts.includes("approve") ? [{ label: "Approve", value: "approve", hint: `/approve${at}` }] : []),
       ...(opts.includes("reject") ? [{ label: "Send back…", value: "reject", hint: "you say why; the agent gets your words" }] : []),
       ...(!n || w.kind === "clarify" ? [{ label: "Answer… (its questions or choices)", value: "answer", hint: "/answer" }] : []),
       { label: "Stop the flow", value: "stop", hint: "agents stop; every finished step stays saved" },
       { label: "Read it first", value: "status", hint: n ? "/inbox" : "/status" },
     ];
-    return { title: `${flow} · ${w.title}: what do you do?`, choices, then: (v) => {
+    return { title: `${flow} · ${w.title}: what do you do?`, choices, index: named ? Math.max(0, named.findIndex((x) => x.default)) : 0, then: (v) => {
+      const c = v.startsWith("choice:") ? named?.find((x) => `choice:${x.name}` === v) : undefined;
+      if (c) return c.why === "none" ? run(ctx, `/answer ${c.name}`, botCmds) : { blocks: [], ask: {
+        prompt: c.why === "required" ? `Why ${c.label || c.name}? (needed)` : `Why ${c.label || c.name}? (optional: Enter sends without)`,
+        then: (why) => run(ctx, `/answer ${c.name} ${why}`.trim(), botCmds) } };
       if (v === "approve") return run(ctx, `/approve${at}`, botCmds);
       if (v === "answer") return item && item.project_id !== snap.project?.id
         ? { blocks: [{ kind: "dim", text: `  It is on ${item.project_id}: /project ${item.project_id}, then /answer.` }] } : run(ctx, "/answer", botCmds);
@@ -481,7 +490,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const ask = (pick: Pick | null) => {
     if (!pick || pending || running) return;
     setPending({ cmd: "gate", pick });
-    setPickIdx(0);
+    setPickIdx(Math.min(pick.index ?? 0, Math.max(0, pick.choices.length - 1)));
     setPickFilter("");
   };
   const answerGate = (n?: number) => ask(gatePick(n));

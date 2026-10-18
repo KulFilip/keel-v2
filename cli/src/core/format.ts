@@ -67,6 +67,7 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
     }
   } else if (w.choices?.length) {
     out.push(`          answer: ${cmd(answerWords(w))}`);
+    out.push(...choiceLines(w, c).map((l) => "          " + l));
   } else {
     const opts = w.options ?? ["approve", "reject"];
     const parts = [];
@@ -77,6 +78,14 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
   const detail = (w.detail ?? "").trim();
   if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + c.dim(l)));
   return out;
+}
+
+/** keel 0.18.13 a waiting question's named choices with the engine's words (choice_info): one line each, its number,
+ *  label and name, the default marked, whether it needs a reason, what it does. [] for an older engine (no words). */
+export function choiceLines(w: Waiting, c: Paint = PLAIN): string[] {
+  return (w.choice_info ?? []).map((x, n) => `${c.dim(`${n + 1}.`)} ${c.bold(x.label || x.name)}${x.label && x.label !== x.name ? c.dim(` (${x.name})`) : ""}`
+    + (x.default ? c.ok(" · default") : "") + (x.why === "required" ? c.gate(" · needs a reason") : x.why === "optional" ? c.dim(" · reason optional") : "")
+    + (x.description ? c.dim(` — ${x.description}`) : ""));
 }
 
 /** A text cut at a word near `max`, with "…" when it was longer. */
@@ -120,9 +129,15 @@ No flow yet. Start one: ${c.accent("/flow")}`;
     else {
       const opts = w.options ?? ["approve", "reject"];
       const choices = (w.choices ?? []).filter((x) => x !== "approve" && x !== "reject");
-      if (opts.includes("approve") || (w.choices ?? []).includes("approve")) out.push(row("/approve", l.approve || "go on"));
-      if (choices.length) out.push(row(`/answer <${choices.join("|")}>`, "choose what happens"));
-      if (opts.includes("reject")) out.push(row("/reject <why>", l.reject || "send it back with your reason"));
+      if (w.choice_info?.length) {
+        // keel 0.18.13 each choice with its own words; the reason only where the choice needs one
+        for (const x of w.choice_info) out.push(row(`/answer ${x.name}${x.why === "required" ? " <why>" : x.why === "optional" ? " [why]" : ""}`,
+          `${x.label || x.name}${x.default ? " (default)" : ""}${x.description ? ` — ${x.description}` : ""}`));
+      } else {
+        if (opts.includes("approve") || (w.choices ?? []).includes("approve")) out.push(row("/approve", l.approve || "go on"));
+        if (choices.length) out.push(row(`/answer <${choices.join("|")}>`, "choose what happens"));
+        if (opts.includes("reject")) out.push(row("/reject <why>", l.reject || "send it back with your reason"));
+      }
     }
     out.push(row("or ask KeelBot", "it explains the gate and suggests an answer"));
     const detail = (w.detail ?? "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 2);
@@ -157,9 +172,10 @@ export function next(p: Project | null, view: FlowView | null, c: Paint = PLAIN)
   const at = (x: string) => c.gate(`waiting at ${x}`);
   if (t.status === "waiting" && w) {
     if (w.kind === "clarify") out = [`${at(w.title)}: answer the ${(w.questions ?? []).length} question(s) with ${cmd("/answer")}.`];
+    // a question with named choices first: a stuck criterion (kind fix) is answered with its choices, not approve
+    else if (w.choices?.length) out = [`${at(`${w.step} (${w.title})`)}${ac}: ${cmd(answerWords(w))}.`, ...choiceLines(w, c).map((l) => "  " + l)];
     else if (w.kind === "budget") out = [`${at(w.title)}: ${cmd("/approve")} to go past the token cap, or ${cmd("/reject <why>")} to stop.`];
     else if (w.kind === "fix") out = [`${at(w.title)}: ${cmd("/approve")} to try again, or ${cmd("/reject <why>")} to stop the flow.`];
-    else if (w.choices?.length) out = [`${at(`${w.step} (${w.title})`)}${ac}: ${cmd(answerWords(w))}.`];
     else {
       const l = w.labels ?? {};
       out = [`${at(`${w.step} (${w.title})`)}${ac}: ${cmd("/approve")}` + (l.approve ? c.dim(` ("${l.approve}")`) : "")
