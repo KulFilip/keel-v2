@@ -101,7 +101,8 @@ describe("Connections", () => {
 
   it("a saved login reads Ready and offers Log in again, not as the main button", async () => {
     server.use(http.get("/api/connections", () => HttpResponse.json({ ...fx.connections,
-      providers: [{ ...fx.connections.providers[0], login_set: true, login_hint: "…AAA" }] })));
+      providers: [{ ...fx.connections.providers[0], login_set: true, login_hint: "…AAA",
+        modes: fx.connections.providers[0].modes.map((m) => (m.id === "subscription" ? { ...m, ready: true, need: null, detail: "2.1.197 (Claude Code) found, login saved." } : m)) }] })));
     location.hash = "#/connections";
     render(<App />);
     const claude = await main().findByRole("article", { name: "Claude" });
@@ -112,10 +113,14 @@ describe("Connections", () => {
 
   it("connState names what is missing", () => {
     const p = fx.connections.providers[0];
-    expect(connState({ ...p, login_set: true })).toMatchObject({ tone: "ok" });
+    const modes = (m: Partial<(typeof p.modes)[number]>) => p.modes.map((x) => (x.id === "subscription" ? { ...x, ...m } : x));
+    expect(connState({ ...p, login_set: true, modes: modes({ ready: true, need: null }) })).toMatchObject({ tone: "ok", text: "Ready, logged in" });
+    // the CLI is installed but keel has no login for it: the api says not ready, need login (not "not installed")
     expect(connState(p)).toMatchObject({ need: "login", text: "No login saved" });
     expect(connState({ ...p, selected: "api" })).toMatchObject({ need: "key", text: "No API key" });
-    expect(connState({ ...p, modes: p.modes.map((m) => ({ ...m, ready: false })) })).toMatchObject({ need: "cli", text: "claude CLI not installed" });
+    expect(connState({ ...p, modes: modes({ ready: false, need: "cli" }) })).toMatchObject({ need: "cli", text: "claude CLI not installed" });
+    // an older api without need: not ready still means not installed
+    expect(connState({ ...p, modes: modes({ ready: false, need: undefined }) })).toMatchObject({ need: "cli", text: "claude CLI not installed" });
   });
 });
 

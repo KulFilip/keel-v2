@@ -37,7 +37,8 @@ function SecretField({ id, name, label, how, set, hint, multiline }: { id: strin
       setIsSet(true);
       toast("Saved and encrypted.");
     } catch (e) {
-      toast(errorParts(e).message);
+      const er = errorParts(e);    // a refused token says why and how to copy it again
+      toast(er.hint ? `${er.message} ${er.hint}` : er.message);
     }
   };
   const remove = async () => {
@@ -212,7 +213,7 @@ export function connState(p: Conn): State {
   if (p.id === "fake") return { tone: "ok", text: "Ready, no network" };
   const m = p.modes.find((x) => x.id === p.selected);
   if (p.selected === "api") return p.key_set ? { tone: "ok", text: "API key saved" } : { tone: "warn", text: "No API key", need: "key" };
-  if (m && !m.ready) return { tone: "bad", text: `${p.selected === "opencode" ? "OpenCode" : CLI[p.id] ?? "CLI"} not installed`, need: "cli" };
+  if (m && !m.ready && m.need !== "login") return { tone: "bad", text: `${p.selected === "opencode" ? "OpenCode" : CLI[p.id] ?? "CLI"} not installed`, need: "cli" };
   if (p.login_secret && !p.login_set) return { tone: "warn", text: "No login saved", need: "login" };
   return { tone: "ok", text: p.login_set ? "Ready, logged in" : "Ready" };
 }
