@@ -56,6 +56,12 @@ AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
+# How often one gate (step and criterion or item) may be sent back in a row before keel asks: go on anyway or stop
+# (settings.sendback_limit). A loop of send-backs that changes nothing never runs by itself.
+SENDBACK_LIMIT = 5
+# What the next agent reads when a send-back came without a reason (an old client, a driver script).
+NO_REASON = ("The person sent this back but gave no reason. Do not do the same work again: if you cannot tell what to "
+             "change, say so in one line and ask them once what they want.")
 # A spec path an agent's answer names: `.keel/specs/x.md`, docs/specs/x.md
 SPEC_PATH = re.compile(r"(?<![\w./-])((?:\.{0,2}/)?[\w@.-]+(?:/[\w@.-]+)*\.md)\b")
 # The knowledge check's actions: a failure goes to the librarian, never fails the flow (Compiler._knowledge_failed).
@@ -118,6 +124,25 @@ async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, mem
 def budget_tokens(usage: dict) -> int:
     """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
     return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
+
+
+def answer_problem(question: dict, decision: str, why: str | None, payload: dict | None) -> tuple[str, str] | None:
+    """(error, hint) when an answer does not fit the question that waits, else None. A gate takes only the decisions it
+    offers (a spec gate without criteria offers only "reject": an "approve" there acted as a send-back without a reason,
+    hundreds of times), and only one of its choices. A send-back from a gate needs a reason: it goes into the next
+    agent's prompt. A gate with named exits takes a plain reject as its exit "reject" when it has one (Compiler._choice)."""
+    title = question.get("title") or "This question"
+    options = list(question.get("options") or OPTIONS)
+    choices = [str(c) for c in question.get("choices") or []]
+    if decision not in options and not (decision == "reject" and "reject" in choices):
+        return (f'"{title}" does not take {decision}.', "Answer with one of: " + ", ".join(options) + ".")
+    choice = (payload or {}).get("choice")
+    if choice is not None and choices and str(choice) not in choices:
+        return (f'"{choice}" is not a choice of "{title}".', "Choose one of: " + ", ".join(choices) + ".")
+    back = decision == "reject" or choice == "reject"         # "reject" as a named exit sends back too (feature's spec gate)
+    if back and question.get("kind", "gate") == "gate" and not (why or "").strip():
+        return ("Say why when you send it back.", "The reason goes into the next agent's prompt.")
+    return None
 
 
 def question_id(question: dict) -> str:
@@ -1858,6 +1883,17 @@ class Compiler:
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
         if routes:
+            names = self._open_choices(step, state)
+            plain = "reject" if decision == "reject" and "reject" in names else names[0]
+            back = str(payload.get("choice") or plain) == "reject"
+        else:
+            back = decision != "approve"
+        stop, counted = self._sendbacks(step, {**state, **extra}, f"{step.id}:{(ac or item or {}).get('id', '')}", back)
+        extra = {**extra, **counted}
+        if stop:
+            gates["log"].append(f"gate {step.id} stop: {stop['note']}")
+            return {"gates": gates, **extra, **stop}, END
+        if routes:
             return self._choice(i, step, state, gates, extra, answer, item)
         choice = None
         if step.choices and decision == "approve":
@@ -1890,10 +1926,36 @@ class Compiler:
             return upd, self.nav.after(i)
         if ac:
             upd["acs"] = _set_ac(acs, ac["id"], "todo")
-        upd["feedback"] = why or f"Sent back at {step.name}."
+        upd["feedback"] = why or f"Sent back at {step.name}. {NO_REASON}"
         upd["note"] = f"{step.name} sent back" + (f": {why}" if why else "")
         target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
+
+    def _sendbacks(self, step: Step, state: FlowState, key: str, back: bool) -> tuple[dict | None, dict]:
+        """Counts the send-backs of one gate in a row (key: step and criterion or item; an approval starts again) and
+        returns (an update that stops the flow, or None; the state update). With a reason or without, after
+        settings.sendback_limit send-backs (default SENDBACK_LIMIT) the next one asks the person first: go on anyway
+        (the count starts again) or stop. Never a run mode's answer: it is a loop keel cannot see the end of."""
+        counts = dict(state.get("sendbacks") or {})
+        if not back:
+            return None, ({"sendbacks": {k: v for k, v in counts.items() if k != key}} if key in counts else {})
+        limit = int(self.ctx.settings.get("sendback_limit") or SENDBACK_LIMIT)
+        n = int(counts.get(key, 0))
+        extra: dict = {}
+        if n >= limit:
+            answer, extra = self._ask(state, {
+                "step": step.id, "kind": "fix", "title": f"{step.name}: sent back {n} time(s) in a row",
+                "detail": f"{step.name} was sent back {n} time(s) in a row (the limit is {limit}, settings.sendback_limit). "
+                          "Another round may change nothing. Go on anyway: this send-back goes ahead and the count starts "
+                          "again. Stop: the flow stops here (the work so far stays; rewind to go on later).",
+                "options": OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}}, gate="rounds")
+            self.ctx.emit("gate.decided", step=step.id, data={"gate": f"{step.name} send-back limit",
+                                                              "decision": answer.get("decision"), "why": answer.get("why") or ""})
+            if answer.get("decision") != "approve":
+                return {**extra, "status": "stopped", "sendbacks": {**counts, key: 0},
+                        "note": f"stopped: {step.name} was sent back {n} time(s) in a row"}, {}
+            n = 0
+        return None, {**extra, "sendbacks": {**counts, key: n + 1}}
 
     @staticmethod
     def _choice_markers(state: FlowState, step: Step, choice: str, why: str) -> dict:
@@ -1946,7 +2008,8 @@ class Compiler:
         gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "choice": choice, "why": why})
         data = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": choice, "why": why, "payload": payload}}
-        upd = {"gates": gates, **extra, "data": data, "feedback": (None if answer.get("auto") else why) or None,
+        said = None if answer.get("auto") else why
+        upd = {"gates": gates, **extra, "data": data, "feedback": said or (NO_REASON if choice == "reject" else None),
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
 

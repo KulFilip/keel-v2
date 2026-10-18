@@ -50,10 +50,11 @@ def test_a_spec_gate_without_criteria_only_allows_send_back(client, repo, monkey
     assert "no acceptance criteria" in w["title"]
     assert "No feature topic was named" in w["detail"]
     assert st["acs"] == []
-    # approving anyway still sends it back
-    client.post(f"/threads/{tid}/resume", json={"decision": "approve", "why": "x"})
+    # approving anyway is refused (it used to act as a send-back without a reason, again and again)
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "why": "x"})
+    assert r.status_code == 400 and "does not take approve" in r.text and "reject" in r.text, r.text
     st = wait(client, tid)
-    assert st["acs"] == [] and st["status"] == "waiting"
+    assert st["acs"] == [] and st["status"] == "waiting" and st["waiting"]["id"] == w["id"]
 
 
 def test_a_criterion_wrapped_over_lines_is_read_whole():

@@ -279,7 +279,8 @@ def test_first_is_offered_only_when_another_criterion_is_unfinished(client, repo
         s = decide(client, tid)
     w = s["waiting"]
     assert w["step"] == "amend_loop" and w["choices"] == ["skip", "edit", "stop"], w
-    s = decide(client, tid, payload={"choice": "first"})                     # not offered: asked again
-    assert s["waiting"]["step"] == "amend_loop" and "gate amend_loop unknown choice first" in s["gate_log"]
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"choice": "first"}})
+    assert r.status_code == 400 and "not a choice" in r.text, r.text     # not offered: refused, the gate still waits
+    assert wait(client, tid)["waiting"]["id"] == w["id"]
     s = decide(client, tid, payload={"choice": "stop"})
     assert s["status"] == "stopped"

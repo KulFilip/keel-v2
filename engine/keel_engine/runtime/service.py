@@ -27,7 +27,7 @@ from ..workflows.templates import get_template
 from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import db, migrate, prompts, run_mode, spec_check
-from .compiler import compile_workflow
+from .compiler import answer_problem, compile_workflow
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
 log = logging.getLogger(__name__)
@@ -482,8 +482,9 @@ class Engine:
             raise EngineError(409, "The flow is not waiting for a decision.")
         if decision not in ("approve", "reject"):
             raise EngineError(400, "decision must be approve or reject.")
-        if decision == "reject" and self._waiting(snap).get("kind") == "gate" and not (why or "").strip():
-            raise EngineError(400, "Say why when you send it back.", "The reason goes into the next agent's prompt.")
+        problem = answer_problem(self._waiting(snap), decision, why, payload)
+        if problem:
+            raise EngineError(400, *problem)
         await self._set_status(tid, "running")
         await self._import_legacy_unlocks(tid)
         asked = self._waiting(snap).get("id")
