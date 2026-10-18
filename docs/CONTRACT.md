@@ -298,10 +298,10 @@ GET    /api/projects/{pid}/settings                   → { general: Settings, o
 PUT    /api/projects/{pid}/settings  { [key]: value | null }    (null = use general)
 type Settings = { gates_mode, keel_rules, fix_attempts, coverage_min, default_model: Model, implementer_model: Model, reviewer_model: Model, cheaper_model: Model,
                   cap_tokens, on_cap, branch_pattern, web_lane_worktree, push_pr, notify: "all"|"needs_you"|"none", env_names: string[], mcp: string[] }
-GET    /api/connections                               → { providers: { id, label, modes: { id, label, ready: bool, detail }[], selected, key_set: bool, key_hint?: string }[], machine: { name, ok, version? }[] }
+GET    /api/connections                               → { providers: { id, label, modes: { id, label, ready: bool, detail, need?: "cli"|"login" }[], selected, key_set: bool, key_hint?: string }[], machine: { name, ok, version? }[] }
                                                         // v0.4.2: the 8 program checks (node git java docker claude codex copilot opencode) run in parallel, 5 s each, cached 1 min
 PUT    /api/connections/{provider}  { mode }
-PUT    /api/secrets/{name}   { value }   → { hint }   (stored AES-GCM in /data; never returned)
+PUT    /api/secrets/{name}   { value }   → { hint }   (stored AES-GCM in /data; never returned. 400 when a known login or key cannot be right: bad characters, a Claude token without sk-ant-, a Codex login that is not JSON)
 DELETE /api/secrets/{name}
 POST   /api/connections/{provider}/test               → { ok, text?, ms, error? }
 

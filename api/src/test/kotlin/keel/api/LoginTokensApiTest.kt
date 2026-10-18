@@ -59,16 +59,63 @@ class LoginTokensApiTest : ApiTest() {
         assertThat(keys.has("claude")).isFalse()   // no API key is sent for a subscription model
     }
 
+    @org.springframework.beans.factory.annotation.Autowired lateinit var secretStore: keel.api.connections.SecretService
+
     @Test
     fun `a failed test explains a badly copied token without showing it`() {
-        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "••••••abcdef-half")).andExpect(status().isOk)
+        // saved before keel checked the shape on save (PUT refuses these now)
+        secretStore.put("CLAUDE_CODE_OAUTH_TOKEN", "••••••abcdef-half")
         put("/api/connections/claude", mapOf("mode" to "subscription")).andExpect(status().isOk)
         engine.providerTestAnswer = mapOf("ok" to false, "ms" to 10, "error" to "`claude` is not logged in inside the container.")
         val res = post("/api/connections/claude/test").andExpect(status().isOk).json()
         assertThat(res["error"].asText()).contains("characters a token never has").doesNotContain("abcdef")
-        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "half-of-a-token-ABC")).andExpect(status().isOk)
+        secretStore.put("CLAUDE_CODE_OAUTH_TOKEN", "half-of-a-token-ABC")
         assertThat(post("/api/connections/claude/test").json()["error"].asText()).contains("does not start with sk-ant-oat01-").contains("19 characters")
         engine.providerTestAnswer = null
+    }
+
+    @Test
+    fun `saving refuses a Claude token that cannot be right and says why, without showing it`() {
+        val res = put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "sk-ant-oat01-test_ABC#\nmore-XYZ")).andExpect(status().isBadRequest).json()
+        assertThat(res["error"].asText()).isEqualTo("The Claude login token has characters a token never has (#).")
+        assertThat(res["hint"].asText()).contains("in one piece")
+        assertThat(res.toString()).doesNotContain("test_ABC").doesNotContain("XYZ")
+        val short = put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "oat01-test_ABC")).andExpect(status().isBadRequest).json()
+        assertThat(short["error"].asText()).isEqualTo("The Claude login token does not start with sk-ant- (it has 14 characters).")
+        assertThat(short["hint"].asText()).contains("claude setup-token")
+        put("/api/secrets/ANTHROPIC_API_KEY", mapOf("value" to "sk-ant-api03-te•st")).andExpect(status().isBadRequest)
+        put("/api/secrets/GH_TOKEN", mapOf("value" to "gho_te#st")).andExpect(status().isBadRequest)
+        put("/api/secrets/CODEX_AUTH_JSON", mapOf("value" to "tokens: abc")).andExpect(status().isBadRequest)
+        assertThat(get("/api/connections").json()["providers"].first { it["id"].asText() == "claude" }["login_set"].asBoolean()).isFalse()
+        // a token wrapped over two lines is still fine: line breaks and spaces are removed
+        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to " sk-ant-oat01-test_ABC\n  -more-XYZ ")).andExpect(status().isOk)
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired lateinit var connectionService: keel.api.connections.ConnectionService
+
+    @Test
+    fun `a subscription is ready only when keel has its login, not when the CLI is merely installed`() {
+        val old = connectionService.tools
+        connectionService.tools = keel.api.connections.MachineTools(which = { n -> "/bin/$n" },
+            run = { cmd, _ -> keel.api.common.ProcResult(0, "2.1.197 (${cmd[0].substringAfterLast('/')})", "") })
+        try {
+            fun mode(p: String, m: String) = get("/api/connections").json()["providers"].first { it["id"].asText() == p }["modes"].first { it["id"].asText() == m }
+            val claude = mode("claude", "subscription")
+            assertThat(claude["ready"].asBoolean()).isFalse()
+            assertThat(claude["need"].asText()).isEqualTo("login")
+            assertThat(claude["detail"].asText()).isEqualTo("Claude Code found — add your login: claude setup-token, then Set up login.")
+            assertThat(mode("codex", "subscription")["ready"].asBoolean()).isFalse()
+            assertThat(mode("copilot", "opencode")["ready"].asBoolean()).isTrue()     // OpenCode keeps its own login
+            put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to claudeToken)).andExpect(status().isOk)
+            val ready = mode("claude", "subscription")
+            assertThat(ready["ready"].asBoolean()).isTrue()
+            assertThat(ready["need"].isNull).isTrue()
+            assertThat(ready["detail"].asText()).isEqualTo("2.1.197 (claude) found, login saved.")
+            connectionService.tools = keel.api.connections.MachineTools(which = { null })
+            assertThat(mode("claude", "subscription")["need"].asText()).isEqualTo("cli")
+        } finally {
+            connectionService.tools = old
+        }
     }
 
     @Test

@@ -42,8 +42,10 @@ class ConnectionController(private val connections: ConnectionService, private v
     fun test(@PathVariable provider: String): JsonNode = connections.test(provider)
 
     @PutMapping("/secrets/{name}")
-    fun putSecret(@PathVariable name: String, @RequestBody body: SecretValue): Map<String, String> =
-        mapOf("hint" to secrets.put(name, body.value))
+    fun putSecret(@PathVariable name: String, @RequestBody body: SecretValue): Map<String, String> {
+        secrets.checkShape(name, body.value)
+        return mapOf("hint" to secrets.put(name, body.value))
+    }
 
     @DeleteMapping("/secrets/{name}")
     fun deleteSecret(@PathVariable name: String): Map<String, Boolean> {
