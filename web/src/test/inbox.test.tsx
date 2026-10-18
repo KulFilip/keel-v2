@@ -182,6 +182,68 @@ function decideServer(state: { list: InboxItem[] }) {
   }));
 }
 
+describe("0.18.13 named choices in the Inbox", () => {
+  const stuck = (x: Partial<InboxItem> = {}): InboxItem => ({ project_id: "ludus-engine", project_name: "ludus-engine", thread_id: "th_7f3a",
+    flow: "Scores for players", workflow_id: "feature", step: "verify_green", kind: "fix", title: "AC-002 is stuck at verify_green",
+    detail: "failed 3 times", more: false, options: ["approve", "reject"], choices: ["retry", "skip", "stop"], id: "q-stuck", ...x });
+
+  it("with choice_info: the choice cards, and the answer is the choice picked (not a plain approve = the first one)", async () => {
+    const user = userEvent.setup();
+    inboxServer([stuck({ choice_info: [
+      { name: "retry", label: "Try again", description: "one more round", why: "optional", default: true },
+      { name: "skip", label: "Skip it for now", description: "AC-002 goes to the end", why: "required", default: false },
+      { name: "stop", label: "Stop the flow", description: "the commits stay", why: "none", default: false }] })]);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "AC-002 is stuck at verify_green" });
+    expect(within(card).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();      // not the old approve / reject pair
+    expect(within(card).queryByRole("button", { name: "Stop the flow" })).not.toBeInTheDocument();
+    expect(within(card).getByRole("radio", { name: /Try again/ })).toHaveTextContent("default");
+    await user.click(within(card).getByRole("radio", { name: /Stop the flow/ }));
+    await user.click(within(card).getByRole("button", { name: "Send: Stop the flow" }));
+    await waitFor(() => expect(calls("POST", "/api/inbox/th_7f3a/act")[0]?.body).toEqual({ decision: "approve", id: "q-stuck", payload: { choice: "stop" } }));
+  });
+
+  it("with choice_info: a choice that needs a reason is refused until it has one", async () => {
+    const user = userEvent.setup();
+    inboxServer([stuck({ choice_info: [
+      { name: "retry", label: "Try again", description: "", why: "none", default: true },
+      { name: "skip", label: "Skip it for now", description: "", why: "required", default: false }] })]);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "AC-002 is stuck at verify_green" });
+    await user.click(within(card).getByRole("radio", { name: /Skip it for now/ }));
+    await user.click(within(card).getByRole("button", { name: "Send: Skip it for now" }));
+    expect(within(card).getByRole("alert")).toHaveTextContent("“Skip it for now” needs a reason");
+    expect(calls("POST", "/api/inbox/th_7f3a/act")).toHaveLength(0);
+    await user.type(within(card).getByLabelText("Why (needed for “Skip it for now”)"), "blocked by AC-003");
+    await user.click(within(card).getByRole("button", { name: "Send: Skip it for now" }));
+    await waitFor(() => expect(calls("POST", "/api/inbox/th_7f3a/act")[0]?.body).toEqual(
+      { decision: "approve", id: "q-stuck", why: "blocked by AC-003", payload: { choice: "skip" } }));
+  });
+
+  it("an older engine (no choice_info): a fix with choices shows its choice buttons, not Try again / Stop", async () => {
+    const user = userEvent.setup();
+    inboxServer([stuck()]);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "AC-002 is stuck at verify_green" });
+    expect(within(card).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "skip" }));
+    await waitFor(() => expect(calls("POST", "/api/inbox/th_7f3a/act")[0]?.body).toEqual({ decision: "approve", id: "q-stuck", payload: { choice: "skip" } }));
+  });
+
+  it("an escalation: keeping the change flow needs a reason (the engine refuses it without)", async () => {
+    const user = userEvent.setup();
+    inboxServer([stuck({ kind: "gate", title: "Escalate to a feature flow?", choices: null, step: "commit", id: "q-esc" })]);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "Escalate to a feature flow?" });
+    expect(within(card).getByRole("button", { name: "Yes, switch to a feature flow" })).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "No, keep the change flow" }));
+    expect(calls("POST", "/api/inbox/th_7f3a/act")).toHaveLength(0);
+    await user.type(await within(card).findByLabelText("Why (needed to keep the change flow)"), "a rename only");
+    await user.click(within(card).getByRole("button", { name: "No, keep the change flow" }));
+    await waitFor(() => expect(calls("POST", "/api/inbox/th_7f3a/act")[0]?.body).toEqual({ decision: "reject", id: "q-esc", why: "a rename only" }));
+  });
+});
+
 describe("KeelBot's commands in the Inbox", () => {
   it("a command that waits for an OK is a card: Deny with a reason answers KeelBot", async () => {
     const user = userEvent.setup();
