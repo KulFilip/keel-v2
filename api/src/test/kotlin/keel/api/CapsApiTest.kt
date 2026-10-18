@@ -200,4 +200,64 @@ class CapsApiTest : ApiTest() {
         assertThat(res["next_flow"]["tokens_from"].asText()).isEqualTo("settings")
         get("/api/projects/nope/caps/left").andExpect(status().isNotFound)
     }
+
+    /** The engine's estimate for the next calls: the e2e feature flow's 1.34M tokens at the high end (or an error). */
+    private fun <T> withEstimate(high: Long?, block: () -> T): T {
+        engine.extraRoutes["/workflows/estimate"] = { _ ->
+            if (high == null) 500 to mapOf("error" to "estimate failed")
+            else 200 to mapOf("tokens" to high * 10 / 16, "low" to high * 7 / 16, "high" to high, "cost_usd" to 0.0,
+                "premium_requests" to 0, "by_provider" to mapOf("claude" to high), "per_step" to emptyList<Any>())
+        }
+        return try { block() } finally { engine.extraRoutes.remove("/workflows/estimate") }
+    }
+
+    @Test
+    fun `a flow started without a cap gets the estimate's high end plus 30 percent when Settings is below it`() {
+        val pid = project("caps-estimate")
+        val state = withEstimate(1_340_000) { startBody(pid).andExpect(status().isOk).json() }
+        val s = engine.lastBody("/threads")!!["settings"]
+        assertThat(s["cap_tokens"].asInt()).isEqualTo(1_750_000)                // ceil(1.34M × 1.3 to 10k), not the 500k default
+        assertThat(s["on_cap"].asText()).isEqualTo("pause")
+        assertThat(state["cap_note"].asText()).isEqualTo("keel raised this flow's cap from 500k (Settings) to 1.8M: the estimate's high end plus 30%.")
+        assertThat(engine.lastBody("/workflows/estimate")!!["acs"].asInt()).isEqualTo(3)   // no criteria yet: 3, as the drawer
+        assertThat(engine.lastBody("/threads")!!.has("cap_note")).isFalse()
+
+        // criteria given: the estimate counts them
+        withEstimate(1_340_000) {
+            startBody(pid, mapOf("acs" to (1..5).map { mapOf("id" to "AC-$it", "layer" to "API", "title" to "t$it") })).andExpect(status().isOk)
+        }
+        assertThat(engine.lastBody("/workflows/estimate")!!["acs"].asInt()).isEqualTo(5)
+    }
+
+    @Test
+    fun `an explicit cap, a Settings cap above the estimate, no estimate or no Settings cap stay as they are`() {
+        val pid = project("caps-estimate-kept")
+        var state = withEstimate(1_340_000) { startBody(pid, mapOf("cap_tokens" to 600_000)).andExpect(status().isOk).json() }
+        assertThat(engine.lastBody("/threads")!!["settings"]["cap_tokens"].asInt()).isEqualTo(600_000)
+        assertThat(state.has("cap_note")).isFalse()
+
+        state = withEstimate(300_000) { startBody(pid).andExpect(status().isOk).json() }       // 390k with headroom < 500k
+        assertThat(engine.lastBody("/threads")!!["settings"]["cap_tokens"].asInt()).isEqualTo(500_000)
+        assertThat(state.has("cap_note")).isFalse()
+
+        state = withEstimate(null) { startBody(pid).andExpect(status().isOk).json() }          // the engine could not estimate
+        assertThat(engine.lastBody("/threads")!!["settings"]["cap_tokens"].asInt()).isEqualTo(500_000)
+        assertThat(state.has("cap_note")).isFalse()
+
+        put("/api/projects/$pid/settings", mapOf("cap_tokens" to 0)).andExpect(status().isOk)  // no Settings cap: none is made up
+        state = withEstimate(1_340_000) { startBody(pid).andExpect(status().isOk).json() }
+        assertThat(engine.lastBody("/threads")!!["settings"]["cap_tokens"].asInt()).isEqualTo(0)
+        assertThat(state.has("cap_note")).isFalse()
+    }
+
+    @Test
+    fun `a project cap below the raised cap still binds`() {
+        val pid = project("caps-estimate-bound")
+        cap(pid, "flow", 1_000_000, "tokens", "stop")
+        val state = withEstimate(1_340_000) { startBody(pid).andExpect(status().isOk).json() }
+        val s = engine.lastBody("/threads")!!["settings"]
+        assertThat(s["cap_tokens"].asInt()).isEqualTo(1_000_000)
+        assertThat(s["on_cap"].asText()).isEqualTo("stop")
+        assertThat(state["cap_note"].asText()).startsWith("This flow gets 1M tokens, then stop").doesNotContain("raised")
+    }
 }
