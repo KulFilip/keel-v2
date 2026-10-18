@@ -26,6 +26,7 @@ import keel.api.mcp.McpServerSpec
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
 import keel.api.budget.CapPlanner
+import keel.api.budget.CapText
 import keel.api.budget.ProviderUsageService
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
@@ -192,8 +193,16 @@ class FlowService(
         // Every cap of the project: the smallest one left binds. A used-up cap refuses the start (pause, stop) or starts
         // every agent on the cheaper model (cheaper) — never the fake model for a flow that runs real models.
         val cheaperOk = s.cheaperModel.provider != "fake" || models.values.all { it.provider == "fake" }
-        val limits = capPlanner.limits(pid, cap?.capTokens, cap?.onCap, cheaperOk)
+        // A start without a cap (the API, MCP keel_start_flow, keel2 /flow, a KeelBot button) gets what the Start-a-flow
+        // drawer gives: the Settings cap, raised to the estimate's high end + 30% when that is above it. The caps still bind.
+        val raised = if (cap?.capTokens == null) capForEstimate(pid, wf.yaml, acs?.size, s.capTokens) else null
+        val limits = capPlanner.limits(pid, cap?.capTokens ?: raised, cap?.onCap, cheaperOk)
         limits.refused?.let { throw Conflict(it.error, it.hint) }
+        val raisedNote = raised?.takeIf { limits.tokensFrom == "flow" }?.let {
+            "keel raised this flow's cap from ${CapText.tokens(s.capTokens.toDouble())} (Settings) to ${CapText.tokens(it.toDouble())}: " +
+                "the estimate's high end plus 30%."
+        }
+        val notes = listOfNotNull(raisedNote) + limits.notes
         if (limits.cheaper) models.keys.toList().forEach { models[it] = s.cheaperModel }
 
         val allow = mcp.allow(pid)
@@ -220,8 +229,22 @@ class FlowService(
                 contributed = contributedSettings(pid), pushPr = s.pushPr, branchPattern = s.branchPattern),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
-            capNote = limits.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
+            capNote = notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
         )
+    }
+
+    /**
+     * The cap a flow started without one should get (what web/src/components/StartFlow.tsx capForEstimate does): the
+     * estimate's high end plus 30%, rounded up to 10k, when that is above the Settings cap; null when the Settings cap is
+     * enough, is off (0) or there is no estimate. `acs` is the number of criteria given (none yet: 3, as the drawer).
+     */
+    private fun capForEstimate(pid: String, yaml: String, acs: Int?, settingsCap: Int): Int? {
+        if (settingsCap <= 0 || yaml.isBlank()) return null
+        val high = runCatching { estimateYaml(pid, yaml, acs?.takeIf { it > 0 } ?: 3).path("high").asLong() }
+            .onFailure { log.warn("no estimate for the flow's cap in {}: {}", pid, it.message) }.getOrNull() ?: return null
+        if (high <= 0) return null
+        val want = Math.ceil(high * 1.3 / 10_000).toLong() * 10_000
+        return if (want > settingsCap) want.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
     }
 
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,

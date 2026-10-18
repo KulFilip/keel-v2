@@ -997,6 +997,11 @@ For each cap the api computes what is **left now**, then the binding (smallest l
 - `POST /api/projects/{pid}/flows` answers the ThreadState **+ `cap_note?: string`** when a cap changed the flow
   ("This flow gets 150k tokens, then pause and ask: what is left today of …", "… is used up …: every agent starts on the
   cheaper model."). The cheaper model's login/key is sent with the start, resume and rewind keys.
+- A start **without `cap_tokens`** (the API, MCP `keel_start_flow`, keel2 `/flow`, a KeelBot button) gets what the
+  Start-a-flow drawer gives: max(Settings cap, the estimate's `high` × 1.3 rounded up to 10k), the estimate counting the
+  `acs` given (none: 3). A raise says so first in `cap_note` ("keel raised this flow's cap from 500k (Settings) to 1.8M:
+  the estimate's high end plus 30%."). An explicit `cap_tokens`, a Settings cap of 0 (no cap) or a failed estimate stay
+  as they are, and the project caps still bind (the smallest left wins; then the raise is not mentioned).
 - A flow gets what is left when it **starts**; two flows started together can each use it.
 
 ```
