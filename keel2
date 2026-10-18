@@ -28,7 +28,8 @@
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
 #   keel2 update                get the newest image and restart keel if it is running (native: the newest
 #                               release; keel2 update --rollback goes back one version)
-#   keel2 token <claude|codex|copilot|anthropic|openai|github>   save a login or key (encrypted, input hidden)
+#   keel2 token <claude|codex|copilot|anthropic|openai|github>   save a login or key (encrypted, input hidden);
+#                               from the clipboard in one piece: pbpaste | keel2 token claude
 #   keel2 tokens                which logins and keys are saved (hints only)
 #   keel2 backup [file]         save keel's data (database, logins, history) to a .tgz file
 #   keel2 restore <file>        put a backup back (keel is stopped first)
@@ -661,33 +662,86 @@ cmd_update() {
 }
 
 # keel2 token <claude|codex|copilot|anthropic|openai|github> [value]
-# Without a value it asks (hidden, not in shell history); `token codex` reads ~/.codex/auth.json when there is one.
+# Without a value it reads a pipe (pbpaste | keel2 token claude), or asks (hidden, not in shell history);
+# `token codex` reads ~/.codex/auth.json when there is one. The value is checked before it is saved.
+token_clean() {  # token_clean <which> <value>: without what a copy adds (spaces, line breaks, a terminal's paste marks)
+  local v="$2" a=$'\e[200~' b=$'\e[201~'
+  v="${v//"$a"/}"; v="${v//"$b"/}"
+  if [ "$1" = codex ]; then printf '%s' "$v"; else printf '%s' "$v" | tr -d '[:space:]'; fi
+}
+
+token_problem() {  # token_problem <which> <value>: why it cannot be a token of that kind (one line), or nothing
+  local which="$1" v="$2" bad seen="" c i
+  if [ "$which" = codex ]; then
+    case "$v" in \{*\}) ;; *) echo "a Codex login is the JSON file ~/.codex/auth.json (it starts with { and ends with })." ;; esac
+    return 0
+  fi
+  case "$which" in
+    claude|anthropic) bad="$(printf '%s' "$v" | LC_ALL=C tr -d 'A-Za-z0-9_-')" ;;
+    *) bad="$(printf '%s' "$v" | LC_ALL=C tr -d 'A-Za-z0-9_.=-')" ;;
+  esac
+  if [ -n "$bad" ]; then
+    for ((i = 0; i < ${#bad}; i++)); do c="${bad:i:1}"; case "$seen" in *"$c"*) ;; *) seen="$seen$c" ;; esac; done
+    echo "it has characters a token never has (${seen:0:12})."
+    return 0
+  fi
+  case "$which" in
+    claude) case "$v" in sk-ant-*) ;; *) echo "a Claude login token starts with sk-ant- (this one has ${#v} characters)." ;; esac ;;
+    anthropic) case "$v" in sk-ant-*) ;; *) echo "an Anthropic API key starts with sk-ant- (this one has ${#v} characters)." ;; esac ;;
+  esac
+}
+
 cmd_token() {
   local which="${1:-}" value="${2:-}" name
   case "$which" in
     claude) name=CLAUDE_CODE_OAUTH_TOKEN ;; codex) name=CODEX_AUTH_JSON ;; copilot) name=GH_TOKEN ;;
     anthropic) name=ANTHROPIC_API_KEY ;; openai) name=OPENAI_API_KEY ;; github) name=GITHUB_TOKEN ;;
-    *) die "usage: keel2 token <claude|codex|copilot|anthropic|openai|github> [value]" ;;
+    *) die "usage: keel2 token <claude|codex|copilot|anthropic|openai|github> [value]" "Or from the clipboard: pbpaste | keel2 token claude" ;;
   esac
   need_docker
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  # A pipe (pbpaste | keel2 token claude): the value comes in one piece, with no prompt.
+  if [ -z "$value" ] && [ ! -t 0 ]; then value="$(cat)"; fi
   if [ -z "$value" ] && [ "$which" = codex ] && [ -f "$HOME/.codex/auth.json" ]; then value="$(cat "$HOME/.codex/auth.json")"; fi
-  if [ -z "$value" ]; then
+  if [ -z "$value" ] && [ -t 0 ]; then
     [ "$which" = claude ] && info "Get it with: claude setup-token   (or use the dashboard: Connections › Set up login)"
     # A long token is often shown over two lines, so a paste holds line breaks: read every line of the paste.
-    local line more
-    IFS= read -rsp "Paste $name (input hidden), then press Enter: " line; echo
+    local line="" more
+    IFS= read -rsp "Paste $name (input hidden), then press Enter: " line || true; echo
     value="$line"
-    while IFS= read -rs -t 1 more; do value+="$more"; done
-    [ "$which" = codex ] || value="$(printf '%s' "$value" | tr -d '[:space:]')"
+    while IFS= read -rs -t 1 more; do value="$value$more"; done
   fi
-  [ -n "$value" ] || die "Nothing saved (empty)."
+  value="$(token_clean "$which" "$value")"
+  # how to send the clipboard in one piece
+  local mac="Copy the token and run: pbpaste | keel2 token $which"
+  local linux="(Linux: wl-paste | keel2 token $which, or xclip -o -selection clipboard | keel2 token $which)"
+  [ -n "$value" ] || die "Nothing arrived, so nothing was saved." "$mac" "$linux"
+  local problem; problem="$(token_problem "$which" "$value")"
+  if [ -n "$problem" ]; then
+    case "$which" in
+      codex) die "Not saved: $problem" "Run codex login, then: keel2 token codex (it reads ~/.codex/auth.json)." ;;
+      *) die "Not saved: $problem" "A token shown over two lines is often copied with extra characters. Copy it in one piece." "$mac" "$linux" ;;
+    esac
+  fi
   # JSON is built inside keel's container (it has python3), so this computer needs no python.
-  local body out
-  body="$(printf '%s' "$value" | kpy -c 'import json,sys; print(json.dumps({"value": sys.stdin.read()}))')"
-  out="$(printf '%s' "$body" | kcurl -fsS -X PUT "$(api)/secrets/$name" -H 'content-type: application/json' --data-binary @-)" \
-    || die "Could not save $name." "Is it complete? Try the dashboard: Control › Connections."
-  ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | kpy -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')"
+  local body out code why
+  body="$(printf '%s' "$value" | kpy -c 'import json,sys; print(json.dumps({"value": sys.stdin.read()}))')" \
+    || die "Could not prepare $name for saving (keel's python did not answer)." "Is keel running? keel2 status"
+  out="$(printf '%s' "$body" | kcurl -sS -w '\n%{http_code}' -X PUT "$(api)/secrets/$name" -H 'content-type: application/json' --data-binary @-)" \
+    || die "Could not save $name: keel did not answer." "Is keel running? keel2 status"
+  code="${out##*$'\n'}"; out="${out%$'\n'*}"
+  if [ "$code" != 200 ]; then
+    why="$(printf '%s' "$out" | kpy -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(d.get("error") or ""); print(d.get("hint") or "")
+except Exception:
+    pass' 2>/dev/null || true)"
+    die "Not saved: $(printf '%s\n' "$why" | sed -n 1p | grep . || echo "keel answered $code.")" \
+      "$(printf '%s\n' "$why" | sed -n 2p | grep . || echo "Try the dashboard: Control › Connections.")"
+  fi
+  ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | kpy -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))' 2>/dev/null || true)"
 }
 
 cmd_tokens() {
