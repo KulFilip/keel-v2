@@ -1,7 +1,7 @@
 // v0.4.1 api calls: the inbox (everything waiting, across projects), notification clean-up and run modes
 // (docs/CONTRACT.md, "v0.4.1: inbox, notifications, run modes").
 
-import { del, get, post, type ClarifyQuestion, type RunMode, type ThreadState } from "./api";
+import { del, get, post, type ChoiceInfo, type ClarifyQuestion, type RunMode, type ThreadState } from "./api";
 
 /** One thing that waits for a person (GET /api/inbox). */
 export type InboxItem = {
@@ -21,6 +21,8 @@ export type InboxItem = {
   /** a flow pause: approve / reject; a Helper command (kind permission): once / always / deny */
   options: ("approve" | "reject" | "once" | "always" | "deny")[];
   choices?: string[] | null;
+  /** keel 0.18.13 what each choice means (same order as `choices`); missing from an older engine */
+  choice_info?: ChoiceInfo[] | null;
   questions?: ClarifyQuestion[] | null;
   labels?: { approve?: string; reject?: string } | null;
   /** the question's id: sent back with the answer */

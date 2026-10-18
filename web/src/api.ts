@@ -114,6 +114,9 @@ export type ClarifyQuestion = {
   /** keel 0.18.9 several options may be picked (the answer is a list) */
   multiple?: boolean;
 };
+/** keel 0.18.13 what one named choice of a waiting question means (same order as `choices`): its words, whether it
+ *  needs a reason (`why`), and which one a plain approve takes (`default`). Answer: approve with payload {choice: name}. */
+export type ChoiceInfo = { name: string; label: string; description: string; why: "required" | "optional" | "none"; default: boolean };
 
 /** v0.17.4 where the criteria's build order came from */
 export type AcOrder = { ids: string[]; from: "spec" | "plan" | "keel" | "person" | "id" };
@@ -136,6 +139,8 @@ export type ThreadState = {
     labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];
     /** kind "usage": continue | wait | cheaper | stop; kind "gate": the gate's named exits. Resume with payload.choice */
     choices?: string[];
+    /** keel 0.18.13 the choices' labels, descriptions and reasons; missing from an older engine (raw `choices` then) */
+    choice_info?: ChoiceInfo[];
   };
   usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number; cap_usd?: number };
   checkpoints: number;

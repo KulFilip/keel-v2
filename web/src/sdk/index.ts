@@ -21,6 +21,7 @@ export {
   put,
 } from "../api";
 export type {
+  ChoiceInfo,
   ClarifyQuestion,
   Estimate,
   KeelMap,
@@ -82,6 +83,9 @@ export { CodeBlock } from "../components/Code";
 export { AskFixButton, AskKeelBot, fixRequest as askFixRequest } from "../components/AskFix";
 export { ClarifyForm, answersOf } from "../components/ClarifyForm";
 export type { ClarifyAnswers } from "../components/ClarifyForm";
+// keel 0.18.13 one way to ask: questions read, answered and written back the same way everywhere; a gate's named choices
+export { ANSWERS_PREFIX, answersMessage, byRecommended, choiceProblem, choiceRows, defaultPick, parseQuestions, readAnswersMessage } from "../questions";
+export { ChoiceForm } from "../components/ChoiceForm";
 export { clock, kfmt } from "../format";
 export { agoText } from "../components/UsageStrip";
 // starting a flow: the run mode picker, and the Doctor that cleans the project folder when a start is refused

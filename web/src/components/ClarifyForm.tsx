@@ -2,25 +2,13 @@
 // and a text field for "something else". Controlled by the gate card, which sends the answers with the resume.
 // keel 0.18.9: a question marked `multiple` takes several options (checkboxes; your own words are added to them), and
 // the form says how many are answered before it is sent. The same form answers KeelBot's own questions.
+// keel 0.18.13 the recommended options come first; a `multiple` question starts with its recommended options ticked
+// (until the person touches it); the number keys 1–4 pick an option of the question that has the focus.
 import type { ClarifyQuestion } from "../api";
+import { answersOf, byRecommended, defaultPick, type ClarifyAnswers } from "../questions";
 
-export type ClarifyAnswers = Record<string, string | string[]>;
-
-/** The answers to send: a typed answer wins over a clicked option (a `multiple` question: the typed words are added to
- *  the ticked ones); an unanswered question is left out (the engine then uses the recommended option and says so). */
-export function answersOf(questions: ClarifyQuestion[], picked: ClarifyAnswers, typed: ClarifyAnswers): ClarifyAnswers {
-  const out: ClarifyAnswers = {};
-  for (const q of questions) {
-    const t = String(typed[q.id] ?? "").trim();
-    const p = picked[q.id];
-    if (q.multiple) {
-      const list = [...(Array.isArray(p) ? p : p ? [p] : []), ...(t ? [t] : [])];
-      if (list.length) out[q.id] = list;
-    } else if (t) out[q.id] = t;
-    else if (p) out[q.id] = Array.isArray(p) ? p[0] : p;
-  }
-  return out;
-}
+// the answers moved to questions.ts (keel2 and KeelBot read them too); these stay for older imports and the SDK
+export { answersOf, type ClarifyAnswers };
 
 export function ClarifyForm({ questions, picked, typed, onPick, onType }: {
   questions: ClarifyQuestion[];
@@ -35,24 +23,36 @@ export function ClarifyForm({ questions, picked, typed, onPick, onType }: {
     <div className="clarify" data-testid="clarify-form">
       {questions.map((q, n) => {
         const usesText = !q.multiple && !!String(typed[q.id] ?? "").trim();
-        const ticked = Array.isArray(picked[q.id]) ? (picked[q.id] as string[]) : picked[q.id] ? [picked[q.id] as string] : [];
+        const p = q.id in picked ? picked[q.id] : undefined;
+        const ticked = p === undefined ? defaultPick(q) : Array.isArray(p) ? p : p ? [p] : [];
+        const options = byRecommended(q.options);
+        const press = (label: string) => {
+          if (q.multiple) onPick(q.id, ticked.includes(label) ? ticked.filter((x) => x !== label) : [...ticked, label]);
+          else {
+            onType(q.id, "");
+            onPick(q.id, label);
+          }
+        };
+        // 1–4 pick (or tick) that option while the focus is in this question, but not while typing
+        const onKey = (e: React.KeyboardEvent) => {
+          const tag = (e.target as HTMLElement).tagName;
+          if (e.metaKey || e.ctrlKey || e.altKey || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+          const k = Number(e.key);
+          if (!Number.isInteger(k) || k < 1 || k > Math.min(4, options.length)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          press(options[k - 1].label);
+        };
         return (
-          <fieldset key={q.id} className="clarify-q">
+          <fieldset key={q.id} className="clarify-q" onKeyDown={onKey}>
             <legend><span className="clarify-n">{n + 1}</span> {q.question}{q.multiple && <span className="sub"> · pick any</span>}</legend>
             {q.why && <p className="sub clarify-why">{q.why}</p>}
             <div className="clarify-opts" role={q.multiple ? "group" : "radiogroup"} aria-label={q.question}>
-              {q.options.map((o) => {
+              {options.map((o, k) => {
                 const on = !usesText && ticked.includes(o.label);
-                const press = () => {
-                  if (q.multiple) onPick(q.id, on ? ticked.filter((x) => x !== o.label) : [...ticked, o.label]);
-                  else {
-                    onType(q.id, "");
-                    onPick(q.id, o.label);
-                  }
-                };
                 return (
                   <button key={o.label} type="button" role={q.multiple ? "checkbox" : "radio"} aria-checked={on} className={`clarify-opt${on ? " on" : ""}`}
-                    onClick={press}>
+                    aria-keyshortcuts={k < 4 ? String(k + 1) : undefined} onClick={() => press(o.label)}>
                     <b>{q.multiple ? (on ? "☑ " : "☐ ") : ""}{o.label}</b>
                     {o.recommended && <span className="clarify-rec">recommended</span>}
                     {o.description && <span className="sub">{o.description}</span>}
