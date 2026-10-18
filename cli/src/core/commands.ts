@@ -425,7 +425,19 @@ const IMPLS: Impl[] = [
     complete: (ctx, a) => ctx.core.snapshot.projects.map((p) => p.id).filter((x) => x.startsWith(a)),
     run: async (ctx, a) => {
       const name = a.trim();
-      const switched = (id: string): Reply => ({ blocks: [{ kind: "ok", text: `now on project ${id}` }], start: true });
+      // 0.18.14 a short card of the project, not keel's whole start box again (the logo printed once per switch)
+      const switched = (id: string): Reply => {
+        const { project: p, flow, inbox } = ctx.core.snapshot;
+        const t = flow?.thread;
+        return { blocks: [
+          { kind: "ok", text: `now on project ${p?.name || id}${p?.branch ? ` · branch ${p.branch}` : ""}` },
+          { kind: "dim", text: [
+            ...(t ? [`  flow     ${t.workflow_id} "${t.title}" · ${t.status}${t.current ? ` at ${t.current}` : ""}`] : []),
+            `  waiting  ${fmt.waitingBrief(inbox, p)}`,
+            `  next     ${fmt.next(p, flow).split("\n")[0]}`,
+          ].join("\n") },
+        ] };
+      };
       if (name) return (await ctx.core.useProject(name)) ? switched(ctx.core.snapshot.project!.id)
         : fail(`No project "${name}". keel knows: ${ctx.core.snapshot.projects.map((p) => p.id).join(", ") || "none"}`);
       await ctx.core.loadProjects().catch(() => undefined);

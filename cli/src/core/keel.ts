@@ -76,6 +76,9 @@ export type CoreEvents = {
 };
 
 /** keel 0.18.6 what the person looks at, shared by every keel front end (api ui/UiFocus.kt): the project and its chat. */
+/** How long a project picked in this window wins over a focus from another front end that names another one. */
+const PICK_HOLD_MS = 3000;
+
 type Focus = { project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null };
 
 export type CoreOptions = {
@@ -173,6 +176,9 @@ export class KeelCore {
     return this.focus;
   }
 
+  /** The project the person picked here last, and when (followFocus holds it for a moment). */
+  private picked: { id: string; at: number } | null = null;
+
   private shareFocus(patch: { project?: string; chat?: string; chat_project?: string; close?: boolean }) {
     void put("/ui/focus", { ...patch, by: "tui", client: this.client }).catch(() => undefined);
   }
@@ -194,7 +200,10 @@ export class KeelCore {
   private async followFocus(f: Focus) {
     this.focus = f;
     const who = f.by === "web" ? "the dashboard" : f.by || "another keel window";
-    if (f.project && f.project !== this.pid) {
+    // 0.18.14 a focus that still names the project the person just left (the dashboard shared a chat before keel had
+    // this window's pick) does not pull the window back: the person had to pick twice
+    const justPicked = this.picked && this.picked.id === this.pid && Date.now() - this.picked.at < PICK_HOLD_MS;
+    if (f.project && f.project !== this.pid && !justPicked) {
       if (await this.useProject(f.project, true)) this.emit("notice", `following ${who}: project ${f.project}`);
       return;
     }
@@ -241,8 +250,13 @@ export class KeelCore {
     if (!p) return false;
     this.set({ project: p, flow: null, visited: [], chat: { ...this.snapshot.chat, session: null, callId: null, steps: [], busy: false } });
     this.mentions.reset();
+    // shared at once, not after the project's state is read: the other front ends follow sooner, and the window where a
+    // focus naming the old project can arrive is short (followFocus holds this pick meanwhile)
+    if (!remote) {
+      this.picked = { id: p.id, at: Date.now() };
+      this.shareFocus({ project: p.id });
+    }
     await Promise.all([this.refresh(), this.loadPlugins()]);
-    if (!remote) this.shareFocus({ project: p.id });
     await this.openFocusChat(remote ? "the chat open there" : "the chat open in keel");
     this.follow();
     return true;
