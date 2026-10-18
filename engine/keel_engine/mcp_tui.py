@@ -13,7 +13,9 @@ import re
 import time
 from typing import Any
 
+from . import mcp_ask as ask_mod
 from .mcp_models import model_text
+from .runtime import clarify
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project, cut
 
 RUN_MODES = {
@@ -209,9 +211,18 @@ SKILL_BLOCK = re.compile(r"```keel-skill\s*\n(.*?)\n```", re.S)
 STACK_BLOCK = re.compile(r"```keel-stack\s*\n(.*?)\n```", re.S)
 
 
-def _buttons_hint(text: str) -> str:
+def _buttons_hint(text: str, chat: str | None = None) -> str:
     """KeelBot's buttons, as the MCP tool that does each (the person's client presses them by calling it)."""
     hints = []
+    # 0.19.0 KeelBot's questions (```keel-questions```): the person picks, the answers go back as the next message
+    asked = clarify.parse_questions(text or "")
+    if asked:
+        recommended = {q["id"]: ([o["label"] for o in q["options"] if o.get("recommended")] if q.get("multiple")
+                                 else next((o["label"] for o in q["options"] if o.get("recommended")), ""))
+                       for q in asked}
+        hints.append("questions (ask the person, then send their answers as the next message; the recommended ones "
+                     f"are filled in here): keel_keelbot_ask(chat={chat!r}, text={clarify.answers_message(asked, recommended)!r})\n"
+                     + "\n".join(ask_mod.question_lines(asked, "    ")))
     for kind, body in FLOW_BLOCK.findall(text or ""):
         try:
             b = json.loads(body)
@@ -256,7 +267,7 @@ def keelbot_ask(api: KeelApi, text: str, project: str | None = None, chat: str |
         if not (s.get("busy") or s.get("status") == "running") and len(msgs) > before + 1:
             last = msgs[-1]
             if last.get("role") != "user":
-                return f"[KeelBot · chat {sid}]\n{last.get('text')}" + _buttons_hint(str(last.get("text") or ""))
+                return f"[KeelBot · chat {sid}]\n{last.get('text')}" + _buttons_hint(str(last.get("text") or ""), sid)
     return f"KeelBot is still at it (chat {sid}). keel_agent {sid} shows its answer when it is there."
 
 

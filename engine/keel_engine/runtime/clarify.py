@@ -96,3 +96,15 @@ def answers_text(questions: list[dict], answers: dict | None, note: str, round_n
         lines.append("Now write the spec. Put each answer into the spec as a sentence under Decisions. "
                      "Ask again only if an answer opens a new, bigger question.")
     return "\n".join(lines)
+
+
+def answers_message(questions: list[dict], answers: dict | None) -> str:
+    """The answers as one chat message, the way keel's question card sends them to KeelBot (the web's QuestionsCard,
+    keel2's buttons): "Answers to your questions:" then each question with its answer (a list joined with "; ")."""
+    answers = answers or {}
+    lines = [PREFIX]
+    for n, q in enumerate(questions, 1):
+        raw = answers.get(q["id"])
+        given = "; ".join(str(x).strip() for x in raw if str(x).strip()) if isinstance(raw, list) else str(raw or "").strip()
+        lines.append(f"{n}. {q['question']}\n   → {given or '(not answered: use the recommended one)'}")
+    return "\n".join(lines)

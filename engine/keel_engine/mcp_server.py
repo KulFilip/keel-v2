@@ -40,6 +40,7 @@ from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
 from . import extensions, rules
+from . import mcp_ask as ask_mod
 from .addons import NAME
 
 API_TIMEOUT = 15
@@ -237,16 +238,9 @@ ORDER_FROM = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "keel
 
 
 def _choice_lines(w: dict) -> list[str]:
-    """A gate with named choices: each name with what the gate's text says it does ("- first: build AC-2 first")."""
-    names = list(w.get("choices") or [])
-    said = {}
-    for line in str(w.get("detail") or "").splitlines():
-        m = re.match(r"^\s*-\s*([a-z][\w-]*)\s*:\s*(.+)$", line)
-        if m and m.group(1) in names:
-            said[m.group(1)] = m.group(2).strip()
-    if said:
-        names = [c for c in names if c in said]      # the gate's text names the choices that apply now
-    return [f"            {c}: {said.get(c, '')}".rstrip() for c in names]
+    """A gate with named choices: each name with its label, what it does, the plain approve's pick and whether it needs a
+    reason (choice_info; an older engine's prose otherwise)."""
+    return ask_mod.choice_lines(w)
 
 
 def _waiting_lines(w: dict) -> list[str]:
@@ -257,9 +251,9 @@ def _waiting_lines(w: dict) -> list[str]:
     else:
         opts = " | ".join(f"{o}" + (f' ("{labels[o]}")' if labels.get(o) else "") for o in w.get("options") or [])
         out = [f"waiting   {w.get('kind', 'gate')}: {w.get('title', '')}", f"          options: {opts or '-'}"]
-    for q in w.get("questions") or []:
-        choices = " / ".join(o.get("label", "") + (" (recommended)" if o.get("recommended") else "") for o in q.get("options") or [])
-        out.append(f"          {q.get('id')}: {q.get('question')}  [{choices}]")
+    if w.get("questions"):
+        out.append("          questions (answers: {<id>: <label> | [<labels>] | <your words>}):")
+        out += ask_mod.question_lines(w["questions"], "            ")
     detail = (w.get("detail") or "").strip()
     if detail:
         out.append("          " + cut(detail, 1500).replace("\n", "\n          "))
@@ -350,14 +344,18 @@ def next_action(api: KeelApi, project: str | None = None) -> str:
         kind = w.get("kind")
         if kind == "clarify":
             n = len(w.get("questions") or [])
-            line = f"waiting at {w.get('title')}: answer the {n} question(s), then send them (approve with answers)."
+            line = "\n".join([f"waiting at {w.get('title')}: answer the {n} question(s), then send them (approve with answers).",
+                              *ask_mod.question_lines(w.get("questions"), "  ")])
         elif kind == "budget":
             line = f"waiting at {w.get('title')}: approve to go past the token cap, or reject to stop."
+        elif w.get("choices"):
+            # before kind fix: a stuck criterion is a fix with real choices, not "approve to try again"
+            line = "\n".join([f"waiting at {w.get('step')} ({w.get('title')}){ac}: choose one "
+                               '(approve with payload {"choice": "<name>"} and a note):', *_choice_lines(w),
+                              *(["  questions (answers: {<id>: <label> | [<labels>]}):",
+                                 *ask_mod.question_lines(w.get("questions"), "    ")] if w.get("questions") else [])])
         elif kind == "fix":
             line = f"waiting at {w.get('title')}: approve to try again, or reject to stop the flow."
-        elif w.get("choices"):
-            line = "\n".join([f"waiting at {w.get('step')} ({w.get('title')}){ac}: choose one "
-                               '(approve with payload {"choice": "<name>"} and a note):', *_choice_lines(w)])
         else:
             labels = w.get("labels") or {}
             line = (f"waiting at {w.get('step')} ({w.get('title')}){ac}: approve"
@@ -486,7 +484,7 @@ def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, s
 
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
-                 answers: dict[str, str] | None = None) -> str:
+                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None) -> str:
     if decision not in ("approve", "reject"):
         raise ApiError("decision must be approve or reject")
     p = _project(api, project)
@@ -496,11 +494,18 @@ def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: s
     w = thread["waiting"]
     if decision not in (w.get("options") or ["approve", "reject"]):
         return f"{w.get('title')} takes only: {', '.join(w.get('options') or [])}"
-    payload = {"answers": answers} if answers else None
+    payload: dict[str, Any] = {"answers": answers} if answers else {}
     if w.get("kind") == "clarify" and not answers:
         ids = ", ".join(q.get("id", "") for q in w.get("questions") or [])
-        return f"{w.get('title')}: pass answers, a map of question id to the chosen label or your own words ({ids})."
-    return _resume(api, thread["thread_id"], decision, why, payload, before=w)
+        return f"{w.get('title')}: pass answers, a map of question id to the chosen label(s) or your own words ({ids})."
+    if choice:
+        if w.get("choices") and choice not in w["choices"]:
+            return f"{w.get('title')}: \"{choice}\" is not a choice here. Choose one of: {', '.join(w['choices'])}."
+        payload["choice"] = choice
+    missing = ask_mod.missing_reason(w, decision, choice, why)
+    if missing:
+        return f"{w.get('title')}: {missing}"
+    return _resume(api, thread["thread_id"], decision, why, payload or None, before=w)
 
 
 def resume(api: KeelApi, decision: str, thread_id: str | None = None, project: str | None = None, why: str | None = None,
@@ -830,6 +835,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         except ApiError as exc:
             return f"keel: {exc}"
 
+    def guard_pair(fn, *a, **kw) -> tuple:
+        """A (value, text) call: (None, the api's refusal) when it fails."""
+        try:
+            return fn(*a, **kw)
+        except ApiError as exc:
+            return None, str(exc)
+
     async def act(ctx: Context | None, name: str, what: str, fn, *a, confirm: bool | None = None, **kw) -> str:
         """A write or admin call: says who acts (audit headers), asks the person first when the tool needs it (CONFIRM,
         or a part's `confirm`)."""
@@ -963,10 +975,12 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
-                                answers: dict[str, str] | None = None, ctx: Context | None = None) -> str:
+                                answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
+                                ctx: Context | None = None) -> str:
         """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
-        For a clarify gate pass `answers`: question id -> the chosen option label or your own words."""
-        return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers)
+        For questions pass `answers`: question id -> the chosen option label, a list of labels for a "pick any" question,
+        or your own words. For a gate with named choices pass `choice` (its name) and `why` when the choice needs a reason."""
+        return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers, choice)
 
     @reg(rw)
     async def keel_resume(decision: Literal["approve", "reject"], thread_id: str | None = None, project: str | None = None,
@@ -987,10 +1001,23 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
-                          thread_id: str | None = None, why: str | None = None, answers: dict[str, str] | None = None,
-                          choice: str | None = None, item_id: str | None = None, ctx: Context | None = None) -> str:
-        """Answer what waits in keel's Inbox: a gate (approve or reject with why), a clarify question (answers: id ->
-        your words), a choice (choice), or a task item (item_id)."""
+                          thread_id: str | None = None, why: str | None = None,
+                          answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
+                          item_id: str | None = None, ask_person: bool = False, ctx: Context | None = None) -> str:
+        """Answer what waits in keel's Inbox: a gate (approve or reject with why), questions (answers: id -> a label, a
+        list of labels for a "pick any" question, or your own words), a named choice (choice, with why when it needs a
+        reason), or a task item (item_id). ask_person: keel asks the person the waiting question in a form through this
+        client (elicitation) and sends their answer; a client without forms gets the question as text."""
+        if ask_person and not item_id:
+            w, tid = await anyio.to_thread.run_sync(lambda: guard_pair(more.waiting_of, api, project, thread_id))
+            if not w:
+                return f"keel: {tid}"
+            got = await ask_mod.ask(ctx, w)
+            if isinstance(got, str):
+                return got
+            decision, why, payload = got
+            answers, choice = payload.get("answers"), payload.get("choice")
+            thread_id = tid
         return await act(ctx, "keel_answer", "answer the Inbox", more.answer, api, decision, project, thread_id, why,
                          answers, choice, item_id)
 

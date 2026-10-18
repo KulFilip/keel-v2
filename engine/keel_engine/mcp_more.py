@@ -12,6 +12,7 @@ import posixpath
 from typing import Any
 from urllib.parse import quote
 
+from . import mcp_ask as ask_mod
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project
 
 SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentials.json", "master.key", "secrets.yml", "secrets.yaml",
@@ -59,8 +60,10 @@ def inbox(api: KeelApi, project: str | None = None) -> str:
     for i in items:
         out.append(f"{i.get('project_id')} · thread {i.get('thread_id')} · {i.get('kind')}: {i.get('title')}"
                    + (f" ({i['ac']})" if i.get("ac") else "") + f" · options {', '.join(i.get('options') or []) or '-'}")
-        for q in i.get("questions") or []:
-            out.append(f"    {q.get('id')}: {q.get('question')}")
+        if i.get("choices"):
+            out.append('    choices (choice="<name>"):')
+            out += ask_mod.choice_lines(i, "      ")
+        out += ask_mod.question_lines(i.get("questions"), "    ")
         if i.get("detail"):
             out.append("    " + str(i["detail"])[:300].replace("\n", "\n    "))
     return "\n".join(out)
@@ -196,17 +199,34 @@ def run_action(api: KeelApi, action: str, level: str, args: dict | None = None, 
 
 # ---------------------------------------------------------------- write
 
+def waiting_of(api: KeelApi, project: str | None = None, thread_id: str | None = None) -> tuple[dict | None, str]:
+    """(what the thread waits for, its thread id), or (None, why there is nothing to answer)."""
+    if thread_id:
+        thread = api.get(f"/threads/{_q(thread_id)}") or {}
+    else:
+        thread, _ = _flow(api, _project(api, project)["id"])
+        thread = thread or {}
+    if thread.get("status") != "waiting" or not thread.get("waiting"):
+        return None, "nothing waits on this project." if not thread_id else f"thread {thread_id} waits for nothing."
+    return thread["waiting"], thread["thread_id"] if thread.get("thread_id") else str(thread_id)
+
+
 def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: str | None = None, why: str | None = None,
-           answers: dict[str, str] | None = None, choice: str | None = None, item_id: str | None = None) -> str:
-    """Answer what waits in keel's Inbox: a gate, a clarify question, a choice, or a task item (item_id)."""
+           answers: dict[str, str | list[str]] | None = None, choice: str | None = None, item_id: str | None = None) -> str:
+    """Answer what waits in keel's Inbox: a gate, questions (a label, a list of labels, or own words), a named choice
+    (with why when it needs a reason), or a task item (item_id)."""
     if item_id:
         api.post(f"/inbox/tasks/{_q(item_id)}/act", {"decision": decision, "why": why})
         return f"task item {item_id}: {decision}."
-    if not thread_id:
-        thread, _ = _flow(api, _project(api, project)["id"])
-        if not thread or not thread.get("waiting"):
-            return "nothing waits on this project."
-        thread_id = thread["thread_id"]
+    w, tid = waiting_of(api, project, thread_id)
+    if not w:
+        return tid
+    thread_id = tid
+    if choice and w.get("choices") and choice not in w["choices"]:
+        return f"{w.get('title')}: \"{choice}\" is not a choice here. Choose one of: {', '.join(w['choices'])}."
+    missing = ask_mod.missing_reason(w, decision, choice, why)
+    if missing:
+        return f"{w.get('title')}: {missing}"
     payload: dict[str, Any] = {}
     if answers:
         payload["answers"] = answers
