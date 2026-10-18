@@ -206,6 +206,9 @@ export const kb = {
   decideGate: (tid: string, body: { decision: "approve" | "reject"; why?: string }) =>
     post<ThreadState>(`/inbox/${e(tid)}/act`, body),
   stopFlow: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
+  // keel 0.18.13 its proposed answer to a flow's question (keel-flow answer): the same resume the Flow page sends
+  answerFlow: (tid: string, body: { decision: "approve"; why?: string; payload: Record<string, unknown> }) =>
+    post<ThreadState>(`/threads/${e(tid)}/resume`, body),
   setRunMode: (tid: string, mode: RunMode) => post<ThreadState>(`/threads/${e(tid)}/mode`, { mode }),
   flowOf: (pid: string, tid: string) => get<FlowView>(`/projects/${e(pid)}/flows/${e(tid)}`),
 

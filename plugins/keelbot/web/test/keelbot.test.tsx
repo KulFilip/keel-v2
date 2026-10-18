@@ -10,6 +10,7 @@ import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
 import { db } from "../../../../web/src/test/setup";
 import { skillHead, splitActions } from "../Actions";
+import { answeredBy } from "../HelperPanel";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 
@@ -29,7 +30,7 @@ const WORKFLOW = [
 ].join("\n");
 
 /** A KeelBot chat whose last answer is `text` (as the engine stores it), on KeelBot's own page. */
-async function chatWith(text: string) {
+async function chatWith(text: string, after: { role: "user" | "helper"; text: string }[] = []) {
   db.helper.sessions.push({
     id: "h1",
     project: "ludus-engine",
@@ -70,6 +71,9 @@ async function chatWith(text: string) {
         },
         at: new Date().toISOString(),
       },
+      // what the chat said after that answer (a reload reads the whole chat again)
+      ...after.map((m, k) => ({ n: 3 + k, role: m.role, text: m.text, data: m.role === "helper" ? { status: "done" } : {},
+        at: new Date().toISOString() })),
     ],
   } as never);
   localStorage.setItem("keel2.helper.ludus-engine.session", "h1");
@@ -147,14 +151,83 @@ describe("KeelBot asks the person to choose (0.18.9)", () => {
       + ' "options": [{"label": "Web", "recommended": true}, {"label": "iOS"}, {"label": "Android"}]},'
       + ' {"id": "size", "question": "How many players?", "options": ["Top 10", "Top 100"]}]\n```');
     const card = await within(p).findByRole("region", { name: "KeelBot's questions" });
-    await user.click(within(card).getByRole("checkbox", { name: /Web/ }));
+    // 0.18.13 the recommended option of a question that takes several starts ticked
+    expect(within(card).getByRole("checkbox", { name: /Web/ })).toHaveAttribute("aria-checked", "true");
     await user.click(within(card).getByRole("checkbox", { name: /iOS/ }));
     await user.click(within(card).getByRole("radio", { name: /Top 100/ }));
     expect(within(card).getByText(/2 of 2 answered/)).toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Send my answers" }));
     await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions/h1/turn"))?.body).toMatchObject({
       text: "Answers to your questions:\n1. Where should it show?\n   → Web; iOS\n2. How many players?\n   → Top 100" }));
-    expect(within(card).getByRole("status")).toHaveTextContent("Your answers went to KeelBot.");
+    expect(within(card).getByRole("status")).toHaveTextContent("Your answers went to KeelBot:");
+    expect(within(card).getByRole("list", { name: "Your answers" })).toHaveTextContent("Where should it show? → Web; iOS");
+  });
+
+  it("0.18.13 after a reload the card stays answered: it reads the answers from the chat's later message", async () => {
+    const asked = '```keel-questions\n[{"id": "size", "question": "How many players?", "options": ["Top 10", "Top 100"]}]\n```';
+    const p = await chatWith(`One thing first:\n\n${asked}`, [
+      { role: "user", text: "Answers to your questions:\n1. How many players?\n   → Top 100" },
+      { role: "helper", text: "Top 100 it is." },
+    ]);
+    const card = await within(p).findByRole("region", { name: "KeelBot's questions" });
+    expect(within(card).getByRole("status")).toHaveTextContent("Your answers went to KeelBot:");
+    expect(within(card).getByRole("list", { name: "Your answers" })).toHaveTextContent("How many players? → Top 100");
+    expect(within(card).queryByRole("radio")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Send my answers" })).not.toBeInTheDocument();
+  });
+
+  it("0.18.13 a later chat message that is not the answers leaves the questions open; answers to a newer question are its own", () => {
+    const q = '```keel-questions\n[{"question": "Q?", "options": ["a", "b"]}]\n```';
+    const msgs = [
+      { n: 1, role: "helper", text: q },
+      { n: 2, role: "user", text: "what do you mean?" },
+      { n: 3, role: "helper", text: `I mean:\n${q}` },
+      { n: 4, role: "user", text: "Answers to your questions:\n1. Q?\n   → a" },
+    ];
+    expect(answeredBy(msgs, 1)).toBeNull();
+    expect(answeredBy(msgs, 3)).toBe(msgs[3].text);
+  });
+});
+
+describe("0.18.13 KeelBot proposes the answer to a flow's question (keel-flow answer)", () => {
+  const STUCK = { step: "verify_green", kind: "fix" as const, title: "AC-002 is stuck at verify_green", detail: "failed 3 times",
+    options: ["approve" as const, "reject" as const], choices: ["retry", "skip"], choice_info: [
+      { name: "retry", label: "Try again", description: "one more round", why: "optional" as const, default: true },
+      { name: "skip", label: "Skip it for now", description: "AC-002 goes to the end of the list", why: "required" as const, default: false }] };
+
+  it("a choice: its label, what it does and the reason on a card; Send is the Flow page's resume, only when pressed", async () => {
+    const user = userEvent.setup();
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = STUCK;
+    const p = await chatWith(`Skip it, it waits for AC-003:\n\n\`\`\`keel-flow\n{"do": "answer", "flow": "${t.thread_id}", "choice": "skip", "why": "blocked by AC-003"}\n\`\`\``);
+    const card = await within(p).findByRole("region", { name: "Flow: Choose “Skip it for now”" });
+    expect(card).toHaveTextContent("AC-002 goes to the end of the list");
+    expect(card).toHaveTextContent("The reason: blocked by AC-003");
+    expect(card).toHaveTextContent("It waits at: AC-002 is stuck at verify_green");
+    expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
+    await user.click(within(card).getByRole("button", { name: "Choose “Skip it for now”" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path === `/api/threads/${t.thread_id}/resume`)?.body).toEqual(
+      { decision: "approve", why: "blocked by AC-003", payload: { choice: "skip" } }));
+    expect(await within(card).findByRole("status")).toHaveTextContent("Sent. The flow is running");
+  });
+
+  it("answers to questions: each with the question's words; a choice that needs a reason and has none cannot be sent", async () => {
+    const user = userEvent.setup();
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = { step: "questions", kind: "clarify", title: "Three questions", detail: "", options: ["approve"], questions: [
+      { id: "run", question: "How does the project run?", options: [{ label: "docker compose", recommended: true }, { label: "locally" }] },
+      { id: "knowledge", question: "Which knowledge pages?", multiple: true, options: [{ label: "architecture" }, { label: "data" }] }] };
+    const p = await chatWith(`\`\`\`keel-flow\n{"do": "answer", "flow": "${t.thread_id}", "answers": {"run": "locally", "knowledge": ["architecture", "data"]}}\n\`\`\``
+      + `\n\n\`\`\`keel-flow\n{"do": "answer", "flow": "${t.thread_id}", "choice": "reject"}\n\`\`\``);
+    const card = await within(p).findByRole("region", { name: "Flow: Send these answers" });
+    await waitFor(() => expect(within(card).getByRole("list", { name: "KeelBot's answers" })).toHaveTextContent(
+      "How does the project run? → locallyWhich knowledge pages? → architecture; data"));
+    const bad = within(p).getByRole("region", { name: "Flow: Choose “reject”" });
+    expect(within(bad).getByRole("alert")).toHaveTextContent("needs a reason");
+    expect(within(bad).getByRole("button", { name: "Choose “reject”" })).toBeDisabled();
+    await user.click(within(card).getByRole("button", { name: "Send these answers" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path === `/api/threads/${t.thread_id}/resume`)?.body).toEqual(
+      { decision: "approve", payload: { answers: { run: "locally", knowledge: ["architecture", "data"] } } }));
   });
 });
 

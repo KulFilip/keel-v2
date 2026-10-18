@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
-  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot,
+  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX,
   type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
@@ -78,7 +78,9 @@ function TurnSteps({ callId, live, running }: { callId: string; live: JobStep[];
 }
 
 /** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow). */
-function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void }) {
+function Answer({ text, onOpen, pid, onAsk, answered }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void;
+  /** keel 0.18.13 the chat's later message with the answers to this answer's questions (its QuestionsCard shows them) */
+  answered?: string | null }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.querySelectorAll<HTMLElement>(".cite").forEach((el) => {
@@ -103,7 +105,7 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
           : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "rule" ? <RuleCard key={i} pid={pid} body={seg.body} />
-          : seg.kind === "questions" ? <QuestionsCard key={i} body={seg.body} />
+          : seg.kind === "questions" ? <QuestionsCard key={i} body={seg.body} answered={answered} />
           : seg.kind === "agent" ? <AgentCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "skill" ? <SkillCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "stack" ? <StackCard key={i} pid={pid} body={seg.body} />
@@ -113,6 +115,17 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
     </div>
       </AskKeelBot.Provider>
   );
+}
+
+/** keel 0.18.13 the person's answers to the questions of KeelBot's message `n`: the first later message of theirs that
+ *  starts with "Answers to your questions", before KeelBot asks again. Read from the chat, so it holds after a reload. */
+export function answeredBy(messages: { n: number; role: string; text: string }[], n: number): string | null {
+  for (const m of messages) {
+    if (m.n <= n) continue;
+    if (m.role === "user" && m.text.trimStart().startsWith(ANSWERS_PREFIX)) return m.text;
+    if (m.role === "helper" && /^\s*(`{3,}|~{3,})\s*keel-questions\s*$/m.test(m.text)) return null;
+  }
+  return null;
 }
 
 /** v0.15.2 how to use KeelBot, in short and simple words: a new Ask chat shows it. */
@@ -751,7 +764,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
-            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} />}
+            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
               <p className="hp-meta">{m.data.model ? `${provLabel(m.data.provider)} ${answerModel(m.data)} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
