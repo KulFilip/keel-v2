@@ -32,6 +32,12 @@ def branch(root: str) -> str | None:
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def tracked(root: str) -> list[str]:
+    """Every file git tracks in the repo (`git ls-files`), in git's order; [] outside a repo."""
+    r = git(root, "ls-files", "-z")
+    return [p for p in r.stdout.split("\0") if p] if r.returncode == 0 else []
+
+
 def is_engine_file(rel: str) -> bool:
     return any(rel == p or (p.endswith("/") and rel.startswith(p)) for p in ENGINE_FILES)
 
