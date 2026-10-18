@@ -275,6 +275,8 @@ steps:
       Read it again first: is the behaviour already there in other words, covered by another criterion, or out of
       scope? Only if none holds, append a dated block under "## Amendments" (never edit the frozen criteria in place):
       "### <date> — <criteria>", then "Was:" (the old wording, kept visible), "Now:", "Why:" (measured, not assumed).
+      Under "Now:" write each changed criterion in full, one per line ("- **AC-n** [API] <new wording>"), or for a
+      layer change only "tagged [API]" (or [WEB]); when the amendment is approved keel changes the criteria lines.
       A new criterion goes in the block with the next free id. For a criterion already done under the old wording,
       say whether it is reopened or ships under the old wording and why. REOPEN lists the done criteria to build
       again (or none); CONTRACT is yes when the outside surface (routes, schemas) changes.

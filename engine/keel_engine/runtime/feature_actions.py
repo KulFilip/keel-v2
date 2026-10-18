@@ -517,16 +517,140 @@ def amend_stop(a):
     return ActionResult(False, f"Stopped at {ac}'s amendment loop" + (f": {why}" if why else "."), stop=True)
 
 
-def _last_amendment(text: str) -> str:
-    m = re.search(r"(?mi)^##\s+amendments\s*$", text or "")
+AMENDMENTS = re.compile(r"(?mi)^##\s+amendments\s*$")
+
+
+def _amendment_blocks(text: str) -> list[str]:
+    """The dated blocks under "## Amendments", oldest first."""
+    m = AMENDMENTS.search(text or "")
     if not m:
-        return ""
+        return []
     rest = text[m.end():]
     end = re.search(r"(?m)^##\s", rest)
     sec = rest[:end.start()] if end else rest
     blocks = re.split(r"(?m)^(?=###\s)", sec)
-    blocks = [b.strip() for b in blocks if b.strip().startswith("###")]
+    return [b.strip() for b in blocks if b.strip().startswith("###")]
+
+
+def _last_amendment(text: str) -> str:
+    blocks = _amendment_blocks(text)
     return blocks[-1] if blocks else ""
+
+
+# ------------------------------------------------------------------ an approved amendment changes the criteria (0.18.12)
+# The e2e on spring-petclinic: the amendment "re-tag AC-001 to AC-004 as [API]" was approved, but the criteria lines and
+# state.acs still said [WEB], so the guard refused the same test again and red asked the same AMEND, round after round.
+# Now the approved block is applied: its "Now:" part either restates a criterion in full ("- **AC-2** [API] <wording>")
+# or retags the criteria it names ("Now: tagged [API]"). The block stays as the record of what changed and why.
+
+NOW_PART = re.compile(r"(?ims)^[ \t>*+-]*\**now\**[ \t]*:\**(.*?)(?=^[ \t>*+-]*\**(?:was|why|reopen|contract)\**[ \t]*:|\Z)")
+FULL_LINE = re.compile(r"^[ \t>*+-]*\**(AC-\d+)\**[ \t]*\[(API|WEB)\][ \t]*(.*)$", re.I)
+LAYER_TAG = re.compile(r"\[(API|WEB)\]", re.I)
+# "(wording unchanged)", "same as approved": a restated line that keeps the old words
+SAME_WORDS = re.compile(r"^\W*(\(?\s*(wording|text|behaviou?r)?\s*(unchanged|the same|same|as (before|approved))\s*\)?)?\W*$", re.I)
+AC_RANGE = re.compile(r"\b(AC)-(\d+)\s*(?:\.\.\.?|–|—|-|\bto\b|\bthrough\b)\s*AC-(\d+)\b", re.I)
+
+
+def _ids_in(text: str) -> list[str]:
+    """Criteria ids a text names, ranges too: "AC-001 to AC-004" and "AC-001..AC-004" are four criteria."""
+    out = []
+    for m in AC_RANGE.finditer(text or ""):
+        lo, hi, width = int(m.group(2)), int(m.group(3)), len(m.group(2))
+        if lo <= hi and hi - lo < 50:
+            out += [f"AC-{n:0{width}d}" for n in range(lo, hi + 1)]
+    out += [i.upper() for i in re.findall(r"\bAC-\d+\b", text or "", re.I)]
+    return list(dict.fromkeys(out))
+
+
+def amended_criteria(block: str) -> dict[str, dict]:
+    """{criterion: {"layer": ..., "title": ...}} that one amendment block changes (only what its Now: part says)."""
+    m = NOW_PART.search(block or "")
+    if not m:
+        return {}
+    heading = (block.splitlines() or [""])[0]
+    lines = m.group(1).splitlines()
+    out: dict[str, dict] = {}
+    rest = []
+    n = 0
+    while n < len(lines):
+        full = FULL_LINE.match(lines[n])
+        if not full:
+            rest.append(lines[n])
+            n += 1
+            continue
+        words = [full.group(3).strip()]
+        n += 1
+        while n < len(lines) and lines[n].startswith((" ", "\t")) and lines[n].strip() and not FULL_LINE.match(lines[n]):
+            words.append(lines[n].strip())
+            n += 1
+        title = " ".join(words).strip().strip("*").strip()
+        change = {"layer": full.group(2).upper()}
+        if not (SAME_WORDS.match(title) or LAYER_TAG.search(title) or prompts.PLACEHOLDER.search(title) or len(title) < 3):
+            change["title"] = title
+        out[full.group(1).upper()] = change
+    # a retag: one layer tag in the rest of Now:, for the criteria it names (else the ones the heading names)
+    said = " ".join(rest)
+    tags = {t.upper() for t in LAYER_TAG.findall(said)}
+    if len(tags) == 1:
+        layer = tags.pop()
+        for i in _ids_in(LAYER_TAG.sub(" ", said)) or _ids_in(heading):
+            out.setdefault(i, {"layer": layer})
+    return out
+
+
+def _criterion_at(lines: list[str], ac: str) -> tuple[int, re.Match] | None:
+    """The line where criterion `ac` is written (outside code blocks), as prompts.parse_acs reads it."""
+    fence = False
+    for n, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fence = not fence
+            continue
+        m = None if fence else prompts.AC_LINE.search(line)
+        if m and m.group(1).upper() == ac.upper():
+            return n, m
+    return None
+
+
+def rewrite_criterion(text: str, ac: str, layer: str | None = None, title: str | None = None) -> str:
+    """The spec with criterion `ac`'s line changed: its layer tag, and its wording (the wrapped lines under it go)."""
+    lines = text.split("\n")
+    at = _criterion_at(lines, ac)
+    if not at:
+        return text
+    n, m = at
+    line = lines[n]
+    tag = f"[{(layer or m.group(2)).upper()}]"
+    if title is None:
+        lines[n] = line[:m.start(2) - 1] + tag + line[m.end(2) + 1:]
+        return "\n".join(lines)
+    lines[n] = line[:m.start(2) - 1] + tag + " " + title
+    end = n + 1
+    while end < len(lines) and lines[end].startswith((" ", "\t")) and lines[end].strip() \
+            and not re.match(r"\s*([-*+]|\d+\.)\s", lines[end]):
+        end += 1
+    return "\n".join(lines[:n + 1] + lines[end:])
+
+
+def apply_amendments(text: str) -> tuple[str, list[str]]:
+    """The spec with every amendment block applied to the criteria above "## Amendments", oldest first (so applying
+    them again changes nothing), and what changed ("AC-2 [WEB] → [API]")."""
+    m = AMENDMENTS.search(text or "")
+    if not m:
+        return text, []
+    head, tail = text[:m.start()], text[m.start():]
+    was = {x["id"]: x for x in prompts.parse_acs(head)}
+    for block in _amendment_blocks(text):
+        for ac, change in amended_criteria(block).items():
+            if ac in was:
+                head = rewrite_criterion(head, ac, change.get("layer"), change.get("title"))
+    changed = []
+    for x in prompts.parse_acs(head):
+        old = was.get(x["id"])
+        if old and old["layer"] != x["layer"]:
+            changed.append(f"{x['id']} [{old['layer']}] → [{x['layer']}]")
+        if old and old["title"] != x["title"]:
+            changed.append(f"{x['id']} reworded")
+    return head + tail, changed
 
 
 def _reopen(a) -> list[str]:
@@ -557,6 +681,9 @@ def spec_amendment(a):
     done = [x for x in a.acs if x.get("status") in DONE or x.get("status") == "green"]
     lines = ["The frozen spec needs an amendment.", f"Why: {amend.get('reason') or 'not recorded'}", "",
              f"The block in {spec}:", block[:4000], ""]
+    applies = apply_amendments(_read(a.root, spec))[1]
+    if applies:
+        lines += ["On approval keel changes the criteria lines too: " + ", ".join(applies), ""]
     if done:
         lines.append("Criteria already finished under the old wording: " + ", ".join(x["id"] for x in done))
         lines.append("Reopened by this amendment: " + (", ".join(reopen) if reopen else
@@ -580,6 +707,10 @@ def spec_amend_commit(a):
 
     spec = spec_path(a)
     text = _read(a.root, spec)
+    # the approved block changes the criteria lines it names (layer, wording): the guard and the agents read the new ones
+    text, applied = apply_amendments(text)
+    if applied and spec:
+        (Path(a.root) / spec).write_text(text)
     # the build order stays as it is (the plan's, or as the person or keel moved it); new criteria go after the rest
     acs = with_depends(order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs)), text)
     reopen = [i for i in _reopen(a) if any(x["id"].upper() == i for x in acs)]
@@ -591,6 +722,8 @@ def spec_amend_commit(a):
         return r
     gates = _gates(a)
     gates["log"].append(f"spec amended: {reason}"[:300] + (f" · reopened {', '.join(reopen)}" if reopen else ""))
+    if applied:
+        gates["log"].append(("criteria changed by the amendment: " + ", ".join(applied))[:300])
     said = str(((a.state.get("markers") or {}).get("*") or {}).get("CONTRACT") or "").lower()
     contract = amend.get("from") == "contract" or said.startswith("yes")
     data = {**a.data, "amendments": list(a.data.get("amendments") or []) + [{**amend, "reopen": reopen, "commit": r.update.get("git_head")}],
@@ -599,7 +732,8 @@ def spec_amend_commit(a):
         data["contract"] = "yes"          # v0.17.5 the contract steps run again even when the plan said none
     new = [x["id"] for x in acs if x["id"] not in {y["id"] for y in a.acs}]
     note = f"amendment committed: {r.note}" + (f"; new criteria {', '.join(new)}" if new else "") + \
-           (f"; reopened {', '.join(reopen)}" if reopen else "") + ("; the contract is next" if contract else "")
+           (f"; reopened {', '.join(reopen)}" if reopen else "") + (f"; applied {', '.join(applied)}" if applied else "") + \
+           ("; the contract is next" if contract else "")
     return _ok(note, update={**r.update, "acs": acs, "gates": gates, "data": data,
                              "markers": _markers(a, {"CONTRACT": "yes" if contract else "no"})})
 
