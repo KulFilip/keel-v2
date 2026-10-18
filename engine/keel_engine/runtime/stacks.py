@@ -161,3 +161,21 @@ def forget(root: str | None = None):
         _CACHE.clear()
     else:
         _CACHE.pop(str(Path(root).resolve()), None)
+
+
+WEB_TEST_KEYS = ("web_test_ac", "web_test_module", "web_test_paths")
+
+
+def has_web_layer(root: str) -> bool:
+    """Does the project test a web layer of its own (0.18.12)? Yes with a web test command (commands.web_test_* in
+    .keel/config.yml), a frontend folder that exists (frontend.dir), or a stack in the web lane. A server-rendered app
+    (Spring MVC with Thymeleaf, Django templates) has none: its pages are tested by backend tests in the api lane, so a
+    [WEB] criterion there could never get a test past the guard."""
+    from .. import rules
+    from ..tools import testcmd
+
+    cmds = rules.load_config(root).get("commands") or {}
+    if any(str(cmds.get(k) or "").strip() for k in WEB_TEST_KEYS) or testcmd.part_dir(root, "frontend"):
+        return True
+    return any(str(d.get("lane") or "") == "web" or any(k in (d.get("commands") or {}) for k in WEB_TEST_KEYS)
+               for d in matched(root))

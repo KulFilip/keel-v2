@@ -41,7 +41,7 @@ from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
-from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check
+from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check, stacks
 from . import blockers as push_gates
 from . import flow_actions
 from . import tools as tool_runner
@@ -961,6 +961,12 @@ class Compiler:
                     if spec:
                         upd["spec"] = spec
                     return upd, self.nav.jump(step.id, i)
+                web = [a["id"] for a in acs if str(a.get("layer") or "").upper() == "WEB"]
+                if web and not stacks.has_web_layer(ctx.root):
+                    # 0.18.12 no web layer: the pages are tested by backend tests in the api lane; spec_sync fixes the
+                    # spec's lines and the spec gate names these criteria (data.web_to_api)
+                    acs = [dict(a, layer="API") for a in acs]
+                    upd["data"] = {**(upd.get("data") or state.get("data") or {}), "web_to_api": web}
                 upd["acs"] = acs
                 upd["clarify"] = {}
             elif state.get("clarify_rounds", 0) < clarify.MAX_ROUNDS:

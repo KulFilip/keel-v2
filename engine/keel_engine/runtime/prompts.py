@@ -10,7 +10,7 @@ from ..tools import testcmd
 from functools import lru_cache
 
 from .. import addons, config, extensions, rules
-from . import agent_knowledge
+from . import agent_knowledge, stacks
 
 # Roles for agents that have no file in content/agents.
 BUILTIN_ROLES = {
@@ -160,6 +160,8 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
+    if phase in ("spec", "triage") and not stacks.has_web_layer(root):
+        lines.append(NO_WEB)
     test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
     if phase == "red":
         lines.append("Write the failing test for the current criterion only. "
@@ -186,6 +188,13 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
     return "\n".join(lines)
+
+
+# 0.18.12 a server-rendered app (Spring MVC + Thymeleaf) has no web tests of its own: its page tests are backend tests,
+# which keel's guard puts in the api lane, so a [WEB] criterion could never get its test written in red.
+NO_WEB = ("This project has no separate web tests (no web test command, frontend folder or web stack): its pages are "
+          "tested by backend tests, which keel runs in the api lane. Tag every criterion [API], pages too (still draw "
+          "the page's mockup); [WEB] is only for a project with web tests of its own.")
 
 
 def step_asks(step, value=None) -> str:

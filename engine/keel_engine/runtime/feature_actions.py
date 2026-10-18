@@ -31,7 +31,7 @@ from pathlib import Path
 from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
-from . import prompts, spec_check, verdict_actions
+from . import prompts, spec_check, stacks, verdict_actions
 from .flow_actions import _fail, _markers, _ok
 
 DONE = ("done", "already-met")
@@ -221,16 +221,37 @@ def explore_areas(a):
     return _ok("explorers for " + ", ".join(i["id"] for i in items), update={"data": {**a.data, "explore_areas": items}})
 
 
+NO_WEB_NOTE = "keel tagged these [API]: this project has no separate web tests"
+
+
+def api_only(a, spec: str | None, text: str) -> tuple[str, list[str]]:
+    """0.18.12 a project without a web layer (stacks.has_web_layer) tests its pages with backend tests, which the guard
+    puts in the api lane; a [WEB] criterion there can never get its test past red. Its [WEB] criteria lines become [API]
+    in the spec (written back, so the spec, state.acs and the guard agree) and the ids are returned."""
+    web = [x["id"] for x in prompts.parse_acs(text) if x["layer"] == "WEB"]
+    if not web or stacks.has_web_layer(a.root):
+        return text, []
+    for ac in web:
+        text = rewrite_criterion(text, ac, "API")
+    if spec:
+        (Path(a.root) / spec).write_text(text)
+    return text, web
+
+
 def spec_sync(a):
     """The criteria as the spec now lists them, in the plan's order, and what the spec gate shows."""
     spec = spec_path(a)
-    text = _read(a.root, spec)
+    text, retagged = api_only(a, spec, _read(a.root, spec))
+    retagged = list(dict.fromkeys([*(a.data.get("web_to_api") or []), *retagged]))      # the compiler's, then the spec's
     seeded = bool((a.data.get("seed") or {}).get("acs"))
     acs = merge_acs(a.acs, prompts.parse_acs(text), drop=not seeded)
     order, source = build_order(a, text)
     acs = with_depends(order_acs(acs, order), text)
     said = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "id": "criteria ids (no ORDER given)"}[source]
     lines = [f"Spec: {spec or '(no spec file found)'}", "", f"Criteria, in build order (from {said}):", *_criteria_lines(acs)]
+    retagged = [i for i in retagged if any(x["id"] == i and x.get("layer") == "API" for x in acs)]
+    if retagged:
+        lines += ["", f"{NO_WEB_NOTE} (its pages are tested by backend tests): {', '.join(retagged)}"]
     plan = _section(text, "plan")
     if plan:
         lines += ["", "Plan (files per criterion, contract delta, test layer):", plan[:2500]]
@@ -711,6 +732,8 @@ def spec_amend_commit(a):
     text, applied = apply_amendments(text)
     if applied and spec:
         (Path(a.root) / spec).write_text(text)
+    text, retagged = api_only(a, spec, text)
+    applied += [f"{ac} [WEB] → [API] (no separate web tests)" for ac in retagged]
     # the build order stays as it is (the plan's, or as the person or keel moved it); new criteria go after the rest
     acs = with_depends(order_acs(merge_acs(a.acs, prompts.parse_acs(text), drop=False), " ".join(x["id"] for x in a.acs)), text)
     reopen = [i for i in _reopen(a) if any(x["id"].upper() == i for x in acs)]
