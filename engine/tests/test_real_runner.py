@@ -160,3 +160,16 @@ def test_not_logged_in_inside_claudes_json_is_reported_as_such():
     out = ('{"type":"assistant","message":{"content":[{"type":"text","text":"Not logged in · Please run /login"}]}}\n'
            '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}\n')
     assert "not logged in" in str(classify_failure("claude", out, "", 1))
+
+
+def test_not_logged_in_names_the_container_only_when_there_is_one(monkeypatch):
+    from keel_engine.models.cli import classify_failure
+    out = '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}\n'
+    monkeypatch.delenv("KEEL_NATIVE", raising=False)
+    e = classify_failure("claude", out, "", 1)
+    assert "inside the container" in str(e) and "claude setup-token" in e.hint
+    monkeypatch.setenv("KEEL_NATIVE", "1")
+    n = classify_failure("claude", out, "", 1)
+    assert "container" not in str(n)
+    assert "is not logged in for keel" in str(n) and "your own Claude Code login is not used" in str(n)
+    assert "claude setup-token" in n.hint and "Native mode does not use your own Claude Code login." in n.hint
