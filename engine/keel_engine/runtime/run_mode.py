@@ -164,9 +164,16 @@ def decide(mode: str, kind: str, question: dict, state: dict | None = None, *, r
             return None
     payload: dict = {}
     if kind == "clarify":
-        payload["answers"] = {q["id"]: rec for q in question.get("questions") or []
-                              if (rec := next((o.get("label") for o in q.get("options") or [] if o.get("recommended")), None))}
+        payload["answers"] = {q["id"]: rec for q in question.get("questions") or [] if (rec := _recommended(q))}
     return {"decision": "approve", "why": line(mode), "payload": payload, "auto": True, "kind": kind}
+
+
+def _recommended(q: dict):
+    """A question's recommended answer: its recommended label, or every recommended label of a "multiple" question."""
+    recs = [o.get("label") for o in q.get("options") or [] if o.get("recommended") and o.get("label")]
+    if q.get("multiple"):
+        return recs or None
+    return recs[0] if recs else None
 
 
 # ------------------------------------------------------------------ readonly: the guard's shell rule

@@ -43,6 +43,7 @@ from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check, stacks
 from . import blockers as push_gates
+from . import choices as choices_mod
 from . import flow_actions
 from . import tools as tool_runner
 from . import memory as memory_mod
@@ -140,8 +141,13 @@ def answer_problem(question: dict, decision: str, why: str | None, payload: dict
     if choice is not None and choices and str(choice) not in choices:
         return (f'"{choice}" is not a choice of "{title}".', "Choose one of: " + ", ".join(choices) + ".")
     back = decision == "reject" or choice == "reject"         # "reject" as a named exit sends back too (feature's spec gate)
-    if back and question.get("kind", "gate") == "gate" and not (why or "").strip():
+    said = (why or "").strip() or str((payload or {}).get("reason") or (payload or {}).get("note") or "").strip()
+    if back and question.get("kind", "gate") == "gate" and not said:
         return ("Say why when you send it back.", "The reason goes into the next agent's prompt.")
+    # 0.19.0 a choice whose choice_info says a reason is required (skip an item, accept uncovered lines, close a finding)
+    took = choices_mod.picked(question, decision, payload)
+    if took and took.get("why") == choices_mod.REQUIRED and not said:
+        return (f'Say why when you choose "{took.get("label") or took.get("name")}".', "The reason is recorded.")
     return None
 
 
@@ -684,7 +690,8 @@ class Compiler:
         question = provider_usage.QUESTIONS.setdefault(qkey, {
             "step": step.id, "kind": "usage", "title": info["detail"], "options": OPTIONS, "choices": ["continue", "wait", "cheaper", "stop"],
             "detail": "Continue uses the plan anyway (the provider may refuse when it is full). Wait sleeps until the window resets, "
-                      "then goes on. Cheaper switches to the cheaper model in settings. Stop ends the flow here."})
+                      "then goes on. Cheaper switches to the cheaper model in settings. Stop ends the flow here.",
+            "choice_info": choices_mod.choice_info(["continue", "wait", "cheaper", "stop"], context="usage")})
         answer, extra = self._ask(state, question)
         provider_usage.QUESTIONS.pop(qkey, None)
         choice = ((answer or {}).get("payload") or {}).get("choice")
@@ -1514,8 +1521,9 @@ class Compiler:
         if edit:
             lines.append(f"- edit: amend the spec for {ac['id']} first (your note says what is wrong)")
         lines.append("- stop: stop the flow here (the commits so far stay)")
-        return {"type": "stuck", "kind": "fix", "title": f"{ac['id']} is stuck at {step.name}", "detail": "\n".join(lines),
-                "choices": choices, "retries_after": attempts}
+        return choices_mod.for_question({"type": "stuck", "kind": "fix", "title": f"{ac['id']} is stuck at {step.name}",
+                                         "detail": "\n".join(lines), "choices": choices, "retries_after": attempts},
+                                        context="stuck")
 
     def _choice_answer(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
         """v0.17.5 a check that asks with real choices (a command that cannot run, a stuck criterion), never decided by a
@@ -1534,6 +1542,10 @@ class Compiler:
             detail = flow_actions.limit_note(tries, limit, who) + "\n\n" + flow_actions.offered(detail, names)
         question = {"step": step.id, "kind": "fix", "title": q["title"], "detail": detail, "options": OPTIONS,
                     "choices": names}
+        # the check's own choice_info (its labels and reasons), only the choices still offered; else from the text
+        info = choices_mod.keep(q.get("choice_info"), names)
+        question = {**question, "choice_info": info} if len(info) == len(names) else \
+            choices_mod.for_question(question, context=q.get("type"))
         answer, extra = self._ask(state, question, gate="failure")
         upd = {**upd, **extra}
         why = (answer.get("why") or "").strip()
@@ -1883,7 +1895,8 @@ class Compiler:
         elif item:
             about = item.get("title") or item.get("summary") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")},
                                                                           ensure_ascii=False, default=str)[:600]
-            detail = f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\nApprove with payload skip: true to skip this item."
+            detail = (f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\n"
+                      'Approve to go on, or choose skip (payload {"choice": "skip"}) and say why to skip this item.')
         elif i and self._code_before(i) and state.get("show"):
             # What the code step before this gate prepared for it (a review report, a diagnosis, a size proposal);
             # branches in between change nothing (v0.17.4: the amendment's branches before amend_gate and amend_loop).
@@ -1904,12 +1917,23 @@ class Compiler:
             detail = f"{detail}\n\n{self._folded_menus(i)}"
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
         routes = isinstance(step.choices, dict) and not no_criteria
+        context = f"{self.wf.flow}:{step.id}"
         if routes:
             question.update(options=["approve"], choices=self._open_choices(step, state))
+            question = choices_mod.for_question(question, context)
         elif step.choices and not no_criteria:
             # A list outside a loop: named exits as markers CHOICE and WHY (branches route on them); reject sends back.
             question.update(choices=list(step.choices), detail=detail + "\n\nApprove with one of: " + ", ".join(step.choices)
                             + f" (default {_default_choice(state, step)}). Send back to {step.back or 'the step before'} with a note.")
+            question = choices_mod.for_question(question, context, default=_default_choice(state, step))
+        elif item:
+            # 0.19.0 a for_each item's gate: skip is a named choice that needs a reason (payload skip: true still works)
+            question.update(choices=["approve", "skip"])
+            question = choices_mod.for_question(question, "item")
+        extra_q = self._gate_questions(i, step, state) if not no_criteria else []
+        if extra_q:
+            # questions a form can show beside the choices (the hunt's lenses and triage, the folded skip menus)
+            question["questions"] = extra_q
         kind, review = self._gate_kind(i, step, state, question, ac)
         answer, extra = self._ask(state, question, gate=kind, review=review)
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
@@ -1954,8 +1978,9 @@ class Compiler:
             upd["note"] = f"{step.name} approved" + (f" [{choice}]" if choice else "") + (f": {why}" if why else "")
             if choice:
                 upd["markers"] = self._choice_markers(state, step, choice, why)
-            if item and payload.get("skip"):
+            if item and (payload.get("skip") or payload.get("choice") == "skip"):
                 lp = self.nav.loop_of(i)
+                why = why or str(payload.get("reason") or "").strip()
                 upd.update(self._end_item(state, lp, item, "skipped", None, why, (step.on_skip or {}).get("record")))
                 upd["note"] = f"{item['id']} skipped" + (f": {why}" if why else "")
                 return upd, self.nav.end(lp)
@@ -2057,6 +2082,16 @@ class Compiler:
         names = [c for c in step.choices or {} if c not in without]
         return names or list(step.choices or {})
 
+    def _gate_questions(self, i: int, step: Step, state: FlowState) -> list[dict]:
+        """Questions a gate shows beside its choices: what a step before it wrote (data["<gate id>_questions"]: the hunt's
+        lenses, its triage's finding) and, for a gate with menus: true, the skip menus it decides."""
+        out = [dict(q) for q in (state.get("data") or {}).get(f"{step.id}_questions") or [] if isinstance(q, dict)]
+        if step.menus:
+            units = [u for j in self._menu_steps(i) for u in ship_mod.skip_units(self.wf.steps, j)]
+            if units:
+                out.append(ship_mod.skip_question(units))
+        return out
+
     def _menu_steps(self, after: int) -> list[int]:
         return [j for j, s in enumerate(self.wf.steps) if j > after and s.skip_menu]
 
@@ -2089,6 +2124,7 @@ class Compiler:
             # v0.17.5 decided at an earlier gate (the spec gate): its skips for this menu, no second stop. A name no menu
             # knows, or a skip without a reason, still asks here.
             gid, payload = folded
+            payload = ship_mod.skip_payload(payload)
             mine = {u["name"] for u in units}
             known = {u["name"] for j in self._menu_steps(-1) for u in ship_mod.skip_units(self.wf.steps, j)}
             raw = payload.get("skip") or {}
@@ -2114,11 +2150,14 @@ class Compiler:
                 return {"gates": gates, "data": data, "note": f"{note} (chosen at {gid})"[:300]}, self.nav.after(i)
             title = f"{step.name}: {problem}"
         while True:
-            answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
-                                              "options": ["approve"], "labels": {"approve": "Run these steps"}}, gate="skip-menu")
+            ask = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": ["approve"],
+                   "labels": {"approve": "Run these steps"}}
+            if units:
+                ask["questions"] = [ship_mod.skip_question(units)]
+            answer, extra = self._ask(state, ask, gate="skip-menu")
             extra_all.update(extra)
             state = {**state, **extra}
-            skips, lenses, problem = ship_mod.parse_skips(answer.get("payload") or {}, units)
+            skips, lenses, problem = ship_mod.parse_skips(ship_mod.skip_payload(answer.get("payload") or {}), units)
             if not problem:
                 break
             title = f"{step.name}: {problem}"
@@ -2151,8 +2190,11 @@ class Compiler:
                      if skip_choice else ""))
         title, extra_all = f"{step.name} · {item['id']}", {}
         while True:
-            answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
-                                              "options": ["approve"], "choices": list(step.choices)}, gate="choice")
+            ask = choices_mod.for_question({"step": step.id, "kind": "gate", "title": title, "detail": detail,
+                                            "options": ["approve"], "choices": list(step.choices)},
+                                           f"{self.wf.flow}:{step.id}", default=step.choices[0],
+                                           needs_why={skip_choice: choices_mod.REQUIRED} if skip_choice else None)
+            answer, extra = self._ask(state, ask, gate="choice")
             extra_all.update(extra)
             state = {**state, **extra}
             payload = answer.get("payload") or {}
@@ -2226,15 +2268,27 @@ class Compiler:
         return upd, target
 
     def _init_questions(self, step: Step, state: FlowState, gates: dict) -> dict:
-        """keel init's three questions: approve = the defaults, "Use my answers" = the user's words. Both go on."""
+        """keel init's three questions as a clarify form (0.19.0): the answers ({run, services, knowledge}) set the init
+        config; approving without answers takes the recommended options (keel's defaults). An old client's "Use my
+        answers" (a send-back with typed words) still goes through the keyword parser."""
+        root, fast = self.ctx.root, bool(self.ctx.settings.get("fast"))
+        asked = init_gates.clarify_questions(root, fast=fast)
         answer, extra = self._ask(state, {
-            "step": step.id, "kind": "gate", "title": "three questions", "detail": init_gates.questions(self.ctx.root, fast=bool(self.ctx.settings.get("fast"))),
-            "options": OPTIONS, "labels": {"approve": "Use the defaults", "reject": "Use my answers"}}, gate="gate")
+            "step": step.id, "kind": "clarify", "title": "three questions", "detail": clarify.describe(asked),
+            "questions": asked, "options": OPTIONS, "labels": {"approve": "Use these answers", "reject": "Use my answers"}},
+            gate="clarify")
         why = (answer.get("why") or "").strip()
+        given = (answer.get("payload") or {}).get("answers")
         mine = answer.get("decision") == "reject" and why
-        init = init_gates.answers(self.ctx.root, why if mine else None, fast=bool(self.ctx.settings.get("fast")))
-        gates["log"].append(f"gate questions: {'answered: ' + why if mine else 'defaults'}" + (f" ({why})" if answer.get("auto") else ""))
-        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": why if mine else "defaults"})
+        if isinstance(given, dict) and given:
+            init = init_gates.from_answers(root, given, fast=fast)
+            said = "answered: " + "; ".join(f"{k} {v}" for k, v in given.items())
+        else:
+            init = init_gates.answers(root, why if mine else None, fast=fast)
+            said = "answered: " + why if mine else "defaults"
+        gates["log"].append(f"gate questions: {said}"[:300] + (f" ({why})" if answer.get("auto") else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve",
+                                                          "why": said if said != "defaults" else "defaults"})
         return {"gates": gates, **extra, "init": init,
                 "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k != "said")[:300]}
 

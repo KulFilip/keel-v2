@@ -162,8 +162,10 @@ def test_cover_every_decision_review_round_and_the_round_limit(client, repo, mon
 
     # g2: accept needs a reason; with one it is recorded and skipped
     assert s["waiting"]["title"].endswith("src/b.py:10-10")
-    s = decide(client, tid, "approve", payload={"choice": "accept"})
-    assert "accept needs a reason" in s["waiting"]["title"]
+    # 0.19.0 choice_info says accept needs a reason: the resume itself is refused without one
+    assert {c["name"]: c["why"] for c in s["waiting"]["choice_info"]}["accept"] == "required"
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"choice": "accept"}})
+    assert r.status_code == 400 and "Accept as uncovered" in r.text
     s = decide(client, tid, "approve", why="a shutdown hook", payload={"choice": "accept"})
 
     # g3: delete -> the writer is told to delete; the review passes; the coverage commit runs

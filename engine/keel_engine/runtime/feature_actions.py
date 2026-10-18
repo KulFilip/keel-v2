@@ -33,6 +33,7 @@ from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
+from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
 
 DONE = ("done", "already-met")
@@ -540,8 +541,9 @@ def stuck(a):
              "Trying the same thing again will not help.",
              f'Choose one (approve with payload {{"choice": "<name>"}} and a note; a plain approve is {choices[0]}):',
              *[says[c] for c in choices]]
-    return ActionResult(False, f"{ac} is blocked: {why[:200]}", why, ask={
-        "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines), "choices": choices})
+    return ActionResult(False, f"{ac} is blocked: {why[:200]}", why, ask=choices_mod.for_question({
+        "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines), "choices": choices},
+        context="blocked"))
 
 
 def amend_with_note(a):

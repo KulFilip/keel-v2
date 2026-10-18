@@ -27,6 +27,7 @@ from ..workflows.templates import get_template
 from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import db, migrate, prompts, run_mode, spec_check
+from . import choices as choices_mod
 from .compiler import answer_problem, compile_workflow
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -414,6 +415,9 @@ class Engine:
                 out["waiting"]["questions"] = list(waiting["questions"])
             if waiting.get("choices"):
                 out["waiting"]["choices"] = list(waiting["choices"])
+                # 0.19.0 each choice's label, meaning, whether it needs a reason, and the plain approve's pick
+                out["waiting"]["choice_info"] = list(
+                    waiting.get("choice_info") or choices_mod.for_question(waiting, waiting.get("step"))["choice_info"])
         out["gate_log"] = list(((v.get("gates") or {}).get("log") or [])[-50:])
         if v.get("parent"):
             out["parent"] = v["parent"]

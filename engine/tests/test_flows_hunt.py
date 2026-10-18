@@ -91,6 +91,12 @@ def test_a_semi_hunt_from_lenses_to_triage(client, repo, monkeypatch):
     s = wait(client, tid)
     assert s["waiting"]["step"] == "confirm_lenses" and s["waiting"]["choices"] == ["confirm", "stop"]
     assert "security [api, web]" in s["waiting"]["detail"] and "5 hunter(s)" in s["waiting"]["detail"]
+    # 0.19.0 the lens set as a question (the proposed ones recommended) and choice_info for the buttons
+    lq = s["waiting"]["questions"][0]
+    assert lq["id"] == "lenses" and lq["multiple"] is True
+    assert {o["label"] for o in lq["options"] if o["recommended"]} == {"security", "technical", "contract-drift"}
+    assert [(c["name"], c["label"], c["default"]) for c in s["waiting"]["choice_info"]] == [
+        ("confirm", "Run these lenses", True), ("stop", "Stop the hunt", False)]
 
     s = decide(client, tid, "approve", payload={"choice": "confirm"})
     # semi: the flow stops after the sweep with the candidates page
@@ -134,20 +140,30 @@ def test_a_semi_hunt_from_lenses_to_triage(client, repo, monkeypatch):
     assert git_log(repo).splitlines()[0] == f"docs(HUNT-{run_id}): bug hunt: 2 proven, 0 suspected"
     assert "G-01 · high · defect" in s["waiting"]["detail"]
 
-    # close one without a note: refused, back to the triage; with a note: closed, back to the triage
-    s = decide(client, tid, "approve", payload={"choice": "close", "id": "F-002", "as": "wontfix"})
-    assert s["waiting"]["step"] == "triage"
+    # the triage's close as questions: which finding (the open ones), how it closes
+    tq = {q["id"]: q for q in s["waiting"]["questions"]}
+    assert [o["label"] for o in tq["finding"]["options"]] == ["G-01"] and "high" in tq["finding"]["options"][0]["description"]
+    assert [o["label"] for o in tq["as"]["options"]] == ["fixed", "accepted", "wontfix"]
+    assert {c["name"]: c["why"] for c in s["waiting"]["choice_info"]}["close"] == "required"
+    # close one without a note: refused (choice_info says close needs a reason); with a note: closed, back to the triage
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"choice": "close", "id": "F-002", "as": "wontfix"}})
+    assert r.status_code == 400 and "Close a finding" in r.text
     assert not hunt.candidates("demo", run_id)[1]["close"]
     s = decide(client, tid, "approve", why="not a bug, the prover showed it", payload={"choice": "close", "id": "F-002", "as": "wontfix"})
     assert s["waiting"]["step"] == "triage" and "Closed F-002 as wontfix" in s["waiting"]["detail"]
     assert hunt.candidates("demo", run_id)[1]["close"]["note"] == "not a bug, the prover showed it"
+    # the same through the questions' answers
+    s = decide(client, tid, "approve", why="the owner accepts it for now",
+               payload={"choice": "close", "answers": {"finding": "G-01", "as": "accepted"}})
+    assert s["waiting"]["step"] == "triage" and "Closed G-01 as accepted" in s["waiting"]["detail"], s["waiting"]["detail"]
+    assert not s["waiting"].get("questions")              # nothing open is left to close
 
     s = decide(client, tid, "approve", payload={"choice": "stop"})
     assert s["status"] == "done"
     assert any(line.startswith("gate triage stop") for line in s["gate_log"])
 
     listed = client.get("/projects/demo/hunts").json()
-    assert listed[0]["run"] == run_id and listed[0]["counts"]["proven"] == 2 and listed[0]["open"] == 2
+    assert listed[0]["run"] == run_id and listed[0]["counts"]["proven"] == 2 and listed[0]["open"] == 0    # G-01 closed above
     one = client.get(f"/projects/demo/hunts/{run_id}").json()
     assert [g["id"] for g in one["groups"]] == ["G-01"] and one["report_markdown"].startswith("# Bug hunt")
     assert next(c for c in one["candidates"] if c["id"] == "F-001")["recipe"]["file"] == "F-001.sh"
@@ -191,6 +207,16 @@ def test_an_auto_hunt_stops_only_at_the_lenses_and_the_triage_then_hands_over(cl
     assert fv["data"]["needs_e2e"] is True and fv["data"]["symptoms"][0].startswith("F-001:")
     assert hunt.candidates("demo", run_id)[0]["dispatch"]["flow"] == "fix"
     assert not hunt.candidates("demo", run_id)[0].get("close")
+
+
+def test_the_lenses_ticked_in_the_question_are_the_ones_swept(client, repo, monkeypatch):
+    provers = {"F-001": lambda n: proof("F-001", "proven", "critical"), "F-002": lambda n: proof("F-002", "false"),
+               "F-003": lambda n: proof("F-003", "false")}
+    tid, seen, _ = start_hunt(client, repo, monkeypatch, mode="auto", provers=provers, groups=[])
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "confirm_lenses"
+    s = decide(client, tid, "approve", payload={"choice": "confirm", "answers": {"lenses": ["technical"]}})
+    assert sorted(r.item["id"] for r in seen if r.agent == "hunter") == ["technical:api", "technical:web"]
 
 
 def test_the_child_flows_end_closes_or_reopens_its_group(repo):

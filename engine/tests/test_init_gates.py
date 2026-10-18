@@ -14,7 +14,9 @@ def test_questions_plan_and_answers_reach_the_config(client, repo):
         s = decide(client, tid)
     w = s["waiting"]
     assert w["title"] == "three questions" and "1. Where does the app run" in w["detail"] and "3. Which knowledge sections" in w["detail"]
-    assert w["labels"] == {"approve": "Use the defaults", "reject": "Use my answers"}
+    # 0.19.0 a clarify form with fixed ids; an old client's typed answer (send back with words) still works
+    assert w["kind"] == "clarify" and [q["id"] for q in w["questions"]] == ["run", "services", "knowledge"]
+    assert w["labels"] == {"approve": "Use these answers", "reject": "Use my answers"}
     s = decide(client, tid, "reject", why="1 dev container, 3 conventions and data")
     w = s["waiting"]
     assert w["step"] == "plan_gate"
@@ -51,3 +53,42 @@ def test_init_starts_one_librarian_per_chosen_section(client, repo, monkeypatch)
         s = decide(client, tid, "reject", why="3 conventions, data") if s["waiting"]["step"] == "questions" else decide(client, tid)
     assert s["status"] == "done", s
     assert sorted(got) == ["conventions", "data"]
+
+
+def test_clarify_answers_reach_the_config(client, repo):
+    tid = start(client, repo, workflow="init", title="keel init")
+    s = wait(client, tid)
+    while s["status"] == "waiting" and s["waiting"]["step"] != "questions":
+        s = decide(client, tid)
+    s = decide(client, tid, payload={"answers": {"run": "dev container", "services": "I run them myself",
+                                                 "knowledge": ["conventions", "data"]}})
+    w = s["waiting"]
+    assert w["step"] == "plan_gate"
+    assert "knowledge sections conventions, data" in w["detail"] and "runs_on: dev container" in w["detail"]
+    assert "services: I run them myself" in w["detail"]
+
+
+def test_clarify_questions_recommend_the_defaults(tmp_path):
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    qs = {q["id"]: q for q in init_gates.clarify_questions(str(tmp_path))}
+    assert [o["label"] for o in qs["run"]["options"]] == ["this machine", "dev container", "decide later"]
+    assert [o["label"] for o in qs["run"]["options"] if o["recommended"]] == ["this machine"]
+    assert [o["label"] for o in qs["services"]["options"] if o["recommended"]] == ["use docker-compose.yml"]
+    assert qs["knowledge"]["multiple"] is True
+    assert [o["label"] for o in qs["knowledge"]["options"] if o["recommended"]] == init_gates.SECTIONS
+    fast = {q["id"]: q for q in init_gates.clarify_questions(str(tmp_path), fast=True)}
+    assert not any(o["recommended"] for o in fast["knowledge"]["options"])
+    bare = {q["id"]: q for q in init_gates.clarify_questions(str(tmp_path / "none"))}
+    assert [o["label"] for o in bare["services"]["options"]] == ["none", "I run them myself", "generate a compose file"]
+
+
+def test_from_answers_maps_labels_lists_and_own_words(tmp_path):
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    root = str(tmp_path)
+    assert init_gates.from_answers(root, {}) == init_gates.defaults(root)
+    a = init_gates.from_answers(root, {"run": "decide later", "services": "use docker-compose.yml", "knowledge": []})
+    assert a["runs_on"] == "decide later" and a["services"] == "use docker-compose.yml" and a["knowledge_sections"] == []
+    a = init_gates.from_answers(root, {"run": "in a devcontainer please", "knowledge": "only conventions and data"})
+    assert a["runs_on"] == "dev container" and a["knowledge_sections"] == ["conventions", "data"] and a["said"]
+    assert init_gates.from_answers(root, {"knowledge": ["DATA", "nope"]})["knowledge_sections"] == ["data"]
+    assert init_gates.from_answers(root, {"services": "generate one"}, fast=True)["services"] == "generate a compose file"

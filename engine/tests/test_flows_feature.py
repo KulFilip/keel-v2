@@ -435,6 +435,24 @@ def test_the_options_menu_skips_security_with_a_reason(client, repo, monkeypatch
     assert "security" in s["waiting"]["detail"] and "no new endpoint" in s["waiting"]["detail"]     # the final review
 
 
+def test_the_spec_gate_asks_the_skip_menus_as_a_question(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = wait(client, tid)
+    skip_q = next(q for q in s["waiting"]["questions"] if q["id"] == "skip")
+    labels = [o["label"] for o in skip_q["options"]]
+    assert skip_q["multiple"] is True and "security" in labels and "release" in labels
+    assert not any(o["recommended"] for o in skip_q["options"])                      # nothing ticked: every step runs
+    info = {c["name"]: c for c in s["waiting"]["choice_info"]}
+    assert info["approve"]["default"] and info["reject"]["why"] == "required"
+    s = decide(client, tid, payload={"choice": "approve", "answers": {"skip": ["security", *SKIPS]},
+                                     "reasons": {"security": "no new endpoint, no input", **SKIPS}})
+    s = to(client, tid, s, "ship_final_review")
+    assert not any(r.agent == "security-auditor" for r in seen)
+    skipped = values(client, tid)["data"]["ship_skipped"]
+    assert {"step": "security", "band": "optional", "reason": "no new endpoint, no input"} in skipped
+
+
 def test_a_wrong_skip_at_the_spec_gate_asks_at_the_menu(client, repo, monkeypatch):
     by_step(monkeypatch, {})
     tid = start(client, repo)

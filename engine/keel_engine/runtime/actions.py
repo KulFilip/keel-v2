@@ -27,6 +27,7 @@ from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
+from . import choices as choices_mod
 from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
 from . import tools as tool_runner
 from . import ladder as run_ladder
@@ -173,9 +174,9 @@ def cannot_run(a: ActionInput, cmd: str, out: str, what: str) -> ActionResult:
     if a.ac:
         lines.append(f"- skip: move {label} to the end of the list and go on with the next criterion")
     lines.append("- stop: stop the flow here (the commits so far stay)")
-    return ActionResult(False, f"The test command for {label} cannot run.", detail, ask={
+    return ActionResult(False, f"The test command for {label} cannot run.", detail, ask=choices_mod.for_question({
         "type": "cannot-run", "kind": "fix", "title": f"The test command for {label} cannot run", "detail": "\n".join(lines),
-        "choices": choices})
+        "choices": choices}, context="cannot-run"))
 
 
 async def verify_red(a: ActionInput) -> ActionResult:

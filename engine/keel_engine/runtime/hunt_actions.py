@@ -90,10 +90,42 @@ def _lens_detail(cfg: dict, run: dict, proposed: list[str]) -> str:
     if off:
         lines.append(f"Not looked through: {', '.join(off)}.")
     lines += ["", f"{len(pairs)} hunter(s). Confirm to sweep with these. To change the set, answer with the lenses you want "
-              "(payload.lenses), or name them in your note; \"drop x, y\" removes lenses."]
+              "(payload.lenses, or tick them: payload.answers.lenses), or name them in your note; \"drop x, y\" removes lenses."]
     if run["mode"] == "semi":
         lines.append("Semi mode: the flow also stops after the sweep (candidates page) and after the provers.")
     return "\n".join(lines)
+
+
+def _lens_question(cfg: dict, proposed: list[str]) -> dict:
+    """0.19.0 the lens set as a question a form can show: every configured lens, the proposed ones ticked. The answer
+    (payload.answers.lenses) is the set hunt_confirm sweeps with, like payload.lenses."""
+    names = list(dict.fromkeys([*proposed, *cfg["lenses"]]))
+    return {"id": "lenses", "question": "Which lenses should the hunters look through?",
+            "why": "One hunter runs per lens and lane: more lenses find more, and cost more tokens.",
+            "options": [{"label": x, "description": f"[{', '.join(hunt.lanes_for(cfg, x))}] {hunt.LENS_HELP.get(x, '')}".strip(),
+                         "recommended": x in proposed} for x in names],
+            "multiple": True}
+
+
+def _triage_questions(open_: list[dict], grps: dict) -> list[dict]:
+    """0.19.0 the triage's close as two questions: which finding (or group) and how it closes. A form sends
+    payload.answers {finding, as} with choice close and a note; the old payload {id, as} still works."""
+    opts, seen = [], set()
+    for c in open_:
+        key = c.get("group") or c["id"]
+        if key in seen:
+            continue
+        seen.add(key)
+        what = grps[key]["cause"] if key in grps else c["title"]
+        opts.append({"label": key, "description": f"{c.get('severity')} · {c['kind']} · {what}"[:300], "recommended": not opts})
+    if not opts:
+        return []
+    about = {"fixed": "the code is fixed (name the commit in the note)", "accepted": "the risk is known and accepted",
+             "wontfix": "it will not be fixed (say why)"}
+    return [{"id": "finding", "question": "Which finding (or group) do you close?", "why": "Only for close.", "options": opts},
+            {"id": "as", "question": "How does it close?", "why": "Only for close; the note says why.",
+             "options": [{"label": d, "description": about.get(d, ""), "recommended": False}
+                         for d in hunt.DISPOSITIONS]}]
 
 
 # ------------------------------------------------------------------ start + lenses
@@ -129,7 +161,8 @@ def _start(a: ActionInput) -> ActionResult:
                        proposed=proposed, stack=stack)
     info = {"run": run["run"], "mode": mode, "fast": fast, "scope": scope["mode"],
             "prove_concurrency": max(1, int(cfg["prove_concurrency"] or 4)), "report_dir": cfg["report_dir"]}
-    data = _data(a, hunt=info, proposed_lenses=proposed, confirm_lenses_detail=_lens_detail(cfg, run, proposed))
+    data = _data(a, hunt=info, proposed_lenses=proposed, confirm_lenses_detail=_lens_detail(cfg, run, proposed),
+                 confirm_lenses_questions=[_lens_question(cfg, proposed)])
     return ActionResult(True, f"hunt {run['run']} started ({mode}{', fast' if fast else ''}), scope {scope['mode']}: "
                               f"{len(proposed)} lens(es) proposed", update={"data": data})
 
@@ -160,7 +193,8 @@ def _confirm(a: ActionInput) -> ActionResult:
     proposed = list(a.data.get("proposed_lenses") or (run["lenses"] or {}).get("proposed") or [])
     answer = a.data.get("confirm_lenses_answer") or {}
     payload, why = answer.get("payload") or {}, str(answer.get("why") or "").lower()
-    chosen = _lens_list(payload.get("lenses")) if payload.get("lenses") else None
+    ticked = (payload.get("answers") or {}).get("lenses") if isinstance(payload.get("answers"), dict) else None
+    chosen = _lens_list(payload.get("lenses")) if payload.get("lenses") else _lens_list(ticked) if ticked else None
     if chosen is None and why:
         named = [x for x in {*cfg["lenses"], *cfg["lens_lanes"]} if x in why]
         if named and any(w in why for w in ("drop", "without", "skip", "remove", "no ")):
@@ -383,9 +417,16 @@ def _triage_detail(a: ActionInput, run_id: str, extra: str = "") -> str:
         what = grps[key]["cause"] if key in grps else c["title"]
         lines.append(f"- {key} · {c.get('severity')} · {c['kind']} · {what}")
     lines += ["", "take: start hunt-next for the top group (a fix flow for a defect, a feature flow for unspecified).",
-              "close: payload {id: F-001 or G-01, as: fixed | accepted | wontfix} and a note saying why.",
+              "close: payload {id: F-001 or G-01, as: fixed | accepted | wontfix} (or the answers finding and as) and a "
+              "note saying why.",
               "stop: end here; the backlog stays for hunt-next."]
     return "\n".join(lines)
+
+
+def _triage_now(a: ActionInput, run_id: str) -> list[dict]:
+    cands = hunt.candidates(a.key, run_id)
+    open_ = sorted(hunt.open_findings(cands), key=lambda c: (-hunt.rank(c.get("severity")), c["id"]))
+    return _triage_questions(open_, {g["id"]: g for g in hunt.groups(a.key, run_id)})
 
 
 async def hunt_report(a: ActionInput) -> ActionResult:
@@ -400,7 +441,8 @@ def _report(a: ActionInput) -> ActionResult:
     rel, note = hunt.write_report(a.key, a.root, run["run"])
     if not rel:
         return ActionResult(False, "The report refuses to render.", note)
-    return ActionResult(True, note, update={"data": _data(a, triage_detail=_triage_detail(a, run["run"]))})
+    return ActionResult(True, note, update={"data": _data(a, triage_detail=_triage_detail(a, run["run"]),
+                                                          triage_questions=_triage_now(a, run["run"]))})
 
 
 async def hunt_commit(a: ActionInput) -> ActionResult:
@@ -438,6 +480,11 @@ def _commit(a: ActionInput) -> ActionResult:
 
 # ------------------------------------------------------------------ close + take
 
+def _one(v):
+    """A single-pick answer: a label, or the first of a list."""
+    return (v[0] if v else None) if isinstance(v, list) else v
+
+
 async def hunt_close(a: ActionInput) -> ActionResult:
     return await asyncio.to_thread(_close, a)
 
@@ -453,9 +500,11 @@ def _close(a: ActionInput) -> ActionResult:
     else:
         return ActionResult(True, "nothing to close")
     payload = ans.get("payload") or {}
-    as_ = choice if choice in hunt.DISPOSITIONS else payload.get("as")
+    said = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    picked = str(_one(said.get("finding")) or "").split(" ")[0] or None        # the option label starts with its id
+    as_ = choice if choice in hunt.DISPOSITIONS else payload.get("as") or _one(said.get("as"))
     nxt = (a.data.get("next") or {}).get("hunt") or {}
-    target = payload.get("id") or nxt.get("group") or nxt.get("lead")
+    target = payload.get("id") or picked or nxt.get("group") or nxt.get("lead")
     seed = a.data.get("seed") if isinstance(a.data.get("seed"), dict) else {}
     run_id = payload.get("run") or nxt.get("run") or _hunt(a).get("run") or seed.get("run")
     note = str(ans.get("why") or payload.get("note") or "").strip()
@@ -466,6 +515,7 @@ def _close(a: ActionInput) -> ActionResult:
     run = hunt.get_run(a.key, run_id)
     if key == "triage_answer" and run:
         upd["triage_detail"] = _triage_detail(a, run["run"], msg)
+        upd["triage_questions"] = _triage_now(a, run["run"])
     return ActionResult(True, msg, update={"data": _data(a, **upd)})
 
 

@@ -111,11 +111,31 @@ def test_for_each_runs_per_item_with_a_gate_that_sends_back_and_skips(client, re
     assert s["waiting"]["title"] == "group gate · g1"
     s = decide(client, tid, "approve")
     assert s["waiting"]["title"] == "group gate · g2"
+    # 0.19.0 skip is a named choice that needs a reason (the old payload skip: true below still works)
+    assert s["waiting"]["choices"] == ["approve", "skip"]
+    info = {c["name"]: c for c in s["waiting"]["choice_info"]}
+    assert info["approve"]["default"] and (info["skip"]["label"], info["skip"]["why"]) == ("Skip this item", "required")
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"choice": "skip"}})
+    assert r.status_code == 400 and "Skip this item" in r.text
     s = decide(client, tid, "approve", payload={"skip": True})
     assert s["status"] == "done", s
     v = values(client, tid)
     assert {g["id"]: g["status"] for g in v["data"]["groups"]} == {"g1": "done", "g2": "skipped"}
     assert any(line.startswith("gate check reject (g1)") for line in s["gate_log"])
+
+
+def test_an_item_skipped_by_its_named_choice_keeps_the_reason(client, repo, monkeypatch):
+    answers(monkeypatch, {})
+    w = wf([{"id": "work", "kind": "agent", "name": "work on the group", "agent": "explorer", "for_each": "groups"},
+            {"id": "check", "kind": "gate", "name": "group gate", "per_item": True, "back": "work",
+             "on_skip": {"record": "skipped_groups"}}])
+    tid = start(client, repo, workflow=w, data={"groups": [{"id": "g1", "title": "a.py:10-12"}]})
+    s = wait(client, tid)
+    s = decide(client, tid, "approve", why="generated code", payload={"choice": "skip"})
+    assert s["status"] == "done", s
+    v = values(client, tid)
+    assert v["data"]["groups"][0]["status"] == "skipped" and v["data"]["groups"][0]["reason"] == "generated code"
+    assert v["data"]["skipped_groups"][0]["reason"] == "generated code"
 
 
 def test_a_failing_item_can_be_marked_failed_and_the_loop_goes_on(client, repo, monkeypatch):

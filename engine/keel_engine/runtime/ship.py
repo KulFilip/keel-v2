@@ -118,8 +118,34 @@ def skip_menu_detail(steps: list, after: int) -> str:
         if mine:
             lines += ["", BANDS[band] + ":"] + [f"  - {u['name']}" for u in mine]
     lines += ["", "Approve runs everything (the default). To skip, approve with payload "
-              "{\"skip\": {\"<name>\": \"<reason>\"}}; to pick the review lenses, add {\"lenses\": [\"correctness\", ...]}."]
+              "{\"skip\": {\"<name>\": \"<reason>\"}} (or answer the skip question: payload.answers.skip and "
+              "payload.reasons {\"<name>\": \"<reason>\"}); to pick the review lenses, add {\"lenses\": [\"correctness\", ...]}."]
     return "\n".join(lines)
+
+
+def skip_question(units: list[dict]) -> dict:
+    """The skip menu as a question a form can show (0.19.0): tick the steps to skip, each with its band; nothing is
+    ticked by default (every step runs). The answer comes back as payload.answers.skip with payload.reasons."""
+    return {"id": "skip", "question": "Which steps should keel skip this time?",
+            "why": "Every skip needs a reason: it is shown again at the final review and printed in the PR body.",
+            "options": [{"label": u["name"], "description": BANDS[u["band"]], "recommended": False} for u in units],
+            "multiple": True}
+
+
+def skip_payload(payload: dict) -> dict:
+    """payload.answers.skip (the steps ticked) with payload.reasons {step: why} as today's payload.skip map; a
+    payload.skip already there wins for the steps it names."""
+    answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    ticked = answers.get("skip")
+    if ticked in (None, "", []):
+        return payload
+    ticked = [ticked] if isinstance(ticked, str) else [str(x) for x in ticked if str(x).strip()]
+    reasons = payload.get("reasons") if isinstance(payload.get("reasons"), dict) else {}
+    have = payload.get("skip")
+    have = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in have if isinstance(x, dict)} \
+        if isinstance(have, list) else dict(have) if isinstance(have, dict) else {}
+    skip = {name: reasons.get(name) for name in ticked}
+    return {**payload, "skip": {**skip, **have}}
 
 
 def parse_skips(payload: dict, units: list[dict]) -> tuple[list[dict], list[str] | None, str | None]:
