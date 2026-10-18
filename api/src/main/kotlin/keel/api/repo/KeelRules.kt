@@ -23,6 +23,11 @@ data class ClassifyConfig(
     val specsDirs: List<String> = emptyList(),
     /** v0.15.8 the folders keel's own files live in, for the Code page's keel mark. */
     val keelDirs: List<String> = emptyList(),
+    /**
+     * 0.18.12 does the project test a web layer of its own (StackService.hasWebLayer)? Without one, server-rendered pages
+     * are the backend's (KeelRules.serverPage), as in the engine's rules.classify.
+     */
+    val webLayer: Boolean = true,
 ) {
     companion object {
         /** Reads `<root>/.keel/config.yml` over keel v1's defaults. */
@@ -95,6 +100,23 @@ class KeelRules(mapper: ObjectMapper) {
                 "webpack|rollup|tailwind|postcss|playwright|tsconfig)",
         )
 
+        /**
+         * 0.18.12 server-rendered pages (Thymeleaf, JSP, ERB, Blade, Jinja ...), the engine's rules.server_page: template-only
+         * extensions anywhere, plain .html and stylesheets in a server template folder. They count as the backend's only
+         * in a project without a web layer ([ClassifyConfig.webLayer]).
+         */
+        private val SERVER_TEMPLATE_EXT = setOf(
+            "jte", "kte", "ftl", "ftlh", "ftlx", "mustache", "peb", "pebble", "jsp", "jspx", "jspf", "gsp", "vm", "erb", "haml",
+            "slim", "jinja", "jinja2", "j2", "twig", "hbs", "handlebars", "liquid", "njk", "ejs", "eex", "heex", "leex", "cshtml",
+            "razor",
+        )
+        private val SERVER_TEMPLATE_DIR = Regex(
+            "(^|/)(src/main/resources/(templates|static|public)|src/main/webapp|app/views|resources/views|templates)/",
+        )
+
+        fun serverPage(rel: String, ext: String): Boolean =
+            ext in SERVER_TEMPLATE_EXT || (ext in WEB_EXT && SERVER_TEMPLATE_DIR.containsMatchIn(rel))
+
         fun classify(cfg: ClassifyConfig, path: String): String {
             val rel = path.removePrefix("./")
             fun inDir(dir: String) = dir.isNotEmpty() && (rel == dir || rel.startsWith(dir.trimEnd('/') + "/"))
@@ -118,6 +140,7 @@ class KeelRules(mapper: ObjectMapper) {
             val name = rel.substringAfterLast('/').lowercase()
             val ext = if ('.' in name) name.substringAfterLast('.') else ""
             if (TOOL_CONFIG.containsMatchIn(name)) return if (isTest) "api-test" else "other"
+            if (!cfg.webLayer && serverPage(rel, ext)) return if (isTest) "api-test" else "api-main"
             if (ext in WEB_EXT) return if (isTest) "web-test" else "web-src"
             if (isTest) return "api-test"
             if (ext in CODE_EXT) return "api-main"

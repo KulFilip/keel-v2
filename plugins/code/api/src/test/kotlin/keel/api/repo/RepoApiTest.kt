@@ -92,6 +92,24 @@ class RepoApiTest : ApiTest() {
     }
 
     @Test
+    fun `a server-rendered page is the backend's in a project without web tests, like the guard`() {
+        val page = "src/main/resources/templates/owners/ownerDetails.html"
+        val petclinic = mapOf("README.md" to "# petclinic\n", "gradlew" to "#!/bin/sh\n", "build.gradle" to "plugins { id 'java' }\n",
+            page to "<html></html>\n", "src/test/java/org/x/OwnerControllerTests.java" to "class OwnerControllerTests {}\n")
+        val (pid, _) = newProject("petclinic-page", petclinic)
+        activeFlow(pid, "green", """[{"id": "AC-001", "status": "red"}]""")
+        val green = get("/api/projects/$pid/repo/file?path=$page").andExpect(status().isOk).json()
+        assertThat(green["bucket"].asText()).isEqualTo("api-main")
+        assertThat(green["frozen"].asBoolean()).isFalse()
+        jdbc.update("UPDATE threads SET phase = 'red' WHERE id = ?", "t-$pid")
+        assertThat(get("/api/projects/$pid/repo/file?path=$page").json()["frozen"].asBoolean()).isTrue()
+
+        val (web, _) = newProject("petclinic-web", petclinic + (".keel/config.yml" to "commands:\n  web_test_ac: npx vitest run -t {AC}\n"))
+        activeFlow(web, "green", """[{"id": "AC-001", "status": "red"}]""")
+        assertThat(get("/api/projects/$web/repo/file?path=$page").json()["bucket"].asText()).isEqualTo("web-src")
+    }
+
+    @Test
     fun `paths outside the root and secret files are refused`() {
         val (pid, root) = newProject("repo-safe", files)
         val outside = root.parent.resolve("outside.txt")

@@ -8,6 +8,7 @@ import keel.api.common.NotFound
 import keel.api.common.ProcResult
 import keel.api.common.Yaml
 import keel.api.projects.ProjectService
+import keel.api.stacks.StackService
 import keel.api.workspace.Workspace
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
@@ -103,7 +104,13 @@ data class MergeResult(val ok: Boolean, val merged: Boolean, val conflicts: List
  * with a timeout).
  */
 @Service
-class RepoService(private val projects: ProjectService, private val rules: KeelRules, private val workspace: Workspace) {
+class RepoService(
+    private val projects: ProjectService,
+    private val rules: KeelRules,
+    private val workspace: Workspace,
+    /** 0.18.12 whether the project has a web layer (server-rendered pages count as the backend's without one). */
+    private val stacks: StackService? = null,
+) {
 
     fun git(root: Path, vararg args: String, timeout: Long = 10): ProcResult = workspace.git(root, *args, timeout = timeout)
 
@@ -188,6 +195,10 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
             (cfg.contractFile.isNotEmpty() && rel == cfg.contractFile) ||
             Regex("(^|/)openapi\\.(ya?ml|json)$").containsMatchIn(rel)
 
+    /** The project's classify config, with whether it has a web layer (the guard's verdict for server pages, 0.18.12). */
+    private fun classifyConfig(root: Path): ClassifyConfig =
+        ClassifyConfig.load(root).let { c -> stacks?.let { c.copy(webLayer = it.hasWebLayer(root)) } ?: c }
+
     /** The tree from the root, or (lazy loading) from `dir`, `depth` levels down. Depth 1 = the root's children. */
     fun tree(pid: String, depth: Int, dir: String? = null): List<TreeNode> {
         val root = projects.root(pid)
@@ -195,7 +206,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         if (!Files.isDirectory(start)) throw NotFound("No folder at $dir")
         val startDepth = if (start == root) 0 else root.relativize(start).nameCount
         val maxDepth = startDepth + depth.coerceIn(1, 8)
-        val cfg = ClassifyConfig.load(root)
+        val cfg = classifyConfig(root)
         val phase = projects.activePhase(pid)
         val marks = marks(root)
         val out = mutableListOf<TreeNode>()
@@ -250,7 +261,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val target = safePath(root, rel)
         if (!Files.isRegularFile(target)) throw NotFound("No file at $rel")
         val relNorm = root.relativize(target).toString().replace('\\', '/')
-        val cfg = ClassifyConfig.load(root)
+        val cfg = classifyConfig(root)
         val bytes = Files.newInputStream(target).use { it.readNBytes(256 * 1024) }
         val binary = isBinary(bytes)
         val head = if (binary) {

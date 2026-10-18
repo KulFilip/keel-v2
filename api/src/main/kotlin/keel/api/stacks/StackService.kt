@@ -348,6 +348,29 @@ class StackService(
 
     private fun strings(v: Any?): List<String> = (v as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
 
+    /**
+     * Does the project test a web layer of its own (0.18.12, the engine's runtime/stacks.py web_layer)? Yes with a web test
+     * command (commands.web_test_*), a frontend folder that exists (frontend.dir, default apps/web), or a stack in use
+     * whose lane is web. Without one the Code page counts server-rendered pages as the backend's, like the guard.
+     */
+    fun hasWebLayer(root: Path): Boolean {
+        val f = root.resolve(".keel/config.yml")
+        val cfg = if (Files.isRegularFile(f)) runCatching { Yaml.readMap(Files.readString(f)) }.getOrNull().orEmpty() else emptyMap()
+        val cmds = cfg["commands"] as? Map<*, *> ?: emptyMap<String, Any>()
+        if (WEB_TEST_KEYS.any { cmds[it]?.toString()?.isNotBlank() == true }) return true
+        val front = ((cfg["frontend"] as? Map<*, *>)?.get("dir")?.toString() ?: "apps/web").trim().trim('/').removePrefix("./")
+        if (front !in setOf("", ".") && ".." !in front.split('/') && Files.isDirectory(root.resolve(front))) return true
+        val off = turnedOff(root)
+        val files = ProjectFiles(root)
+        return defs(root).any { d ->
+            val name = d.doc["name"].toString()
+            @Suppress("UNCHECKED_CAST")
+            val detect = d.doc["detect"] as? Map<String, Any?> ?: emptyMap()
+            val web = d.doc["lane"]?.toString() == "web" || WEB_TEST_KEYS.any { (d.doc["commands"] as? Map<*, *>)?.containsKey(it) == true }
+            web && name !in off && (d.source == "project" || detects(detect, files))
+        }
+    }
+
     /** `exclude_files` first; then any of files / package_deps / extensions. */
     fun detects(detect: Map<String, Any?>, files: ProjectFiles): Boolean {
         val exclude = strings(detect["exclude_files"])
@@ -391,6 +414,7 @@ class StackService(
 
     companion object {
         val SKIP = setOf("node_modules", "build", ".git", ".venv", "dist", "target", ".gradle")
+        val WEB_TEST_KEYS = listOf("web_test_ac", "web_test_module", "web_test_paths")
         /** A stack file is at most 64 KB (the marketplace's limit too). */
         const val MAX_BYTES = 64 * 1024
     }

@@ -35,4 +35,19 @@ class KeelRulesTest {
         assertThat(rules.frozen("spec", cfg, ".env")).isTrue()
         assertThat(rules.matrix.keys).contains("hunt-triage", "bug-fix", "coverage-fix")
     }
+
+    @Test
+    fun `without a web layer a server-rendered page is the backend's, with one it stays the web's`() {
+        val page = "src/main/resources/templates/owners/ownerDetails.html"
+        val noWeb = ClassifyConfig(webLayer = false)
+        assertThat(KeelRules.classify(noWeb, page)).isEqualTo("api-main")
+        assertThat(KeelRules.classify(noWeb, "src/main/resources/static/resources/css/petclinic.css")).isEqualTo("api-main")
+        assertThat(KeelRules.classify(noWeb, "src/main/resources/templates/fragments/layout.jte")).isEqualTo("api-main")
+        assertThat(KeelRules.classify(noWeb, "src/test/resources/templates/sample.html")).isEqualTo("api-test")
+        assertThat(rules.frozen("green", noWeb, page)).isFalse()
+        assertThat(rules.frozen("red", noWeb, page)).isTrue()
+        val web = ClassifyConfig()
+        assertThat(KeelRules.classify(web, page)).isEqualTo("web-src")
+        assertThat(KeelRules.classify(web, "src/main/resources/templates/fragments/layout.jte")).isEqualTo("other")
+    }
 }
