@@ -730,6 +730,9 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     if unlocks:
         out += ["## Unlocks used", ""] + [f"- `{u.get('path')}` in {u.get('phase')}: {u.get('reason') or 'no reason given'}"
                                           for u in unlocks] + [""]
+    warned = [w for w in data.get("warnings") or [] if isinstance(w, dict)]
+    if warned:
+        out += ["## Warnings", ""] + [f"- {w.get('text')}" for w in warned] + [""]
     flaky = state.get("flaky") or []
     if flaky:
         out += ["## Flaky tests seen", ""] + [f"- {f.get('label')}: {', '.join(f.get('tests') or [])}" for f in flaky] + [""]

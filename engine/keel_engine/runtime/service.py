@@ -216,7 +216,12 @@ class Engine:
             if status == "failed":
                 ctx.emit("thread.failed", data={"error": snap.values.get("error"), "status": status})
             else:
-                ctx.emit("thread.done", data={"status": status, "usage": snap.values.get("usage")})
+                done = {"status": status, "usage": snap.values.get("usage")}
+                warned = (snap.values.get("data") or {}).get("warnings") or []
+                if warned:
+                    # the close note says what the flow went on with (the api's "flow is done" notification shows title)
+                    done.update(warnings=[w.get("text") for w in warned], title=snap.values.get("note") or "")
+                ctx.emit("thread.done", data=done)
         except asyncio.CancelledError:
             await self._set_status(tid, "stopped")
             raise
@@ -424,6 +429,9 @@ class Engine:
         if pr_url:
             # The PR the open_pr step opened (v0.5.0: a task moves to review with it).
             out["pr_url"] = pr_url
+        warned = (v.get("data") or {}).get("warnings") or []
+        if warned:
+            out["warnings"] = [w.get("text") for w in warned]
         err = row["error"] or v.get("error")
         if err and status in ("failed", "stopped"):
             out["error"] = err

@@ -55,6 +55,8 @@ AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
+# The knowledge check's actions: a failure goes to the librarian, never fails the flow (Compiler._knowledge_failed).
+KNOWLEDGE_CHECKS = ("knowledge_check", "memory_check")
 RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
@@ -203,6 +205,12 @@ class Nav:
 
 def fix_id(review_id: str) -> str:
     return f"{review_id}__fix"
+
+
+def close_note(state: FlowState) -> str:
+    """The flow's last note: "done", plus the warnings it went on with (a knowledge check that kept failing)."""
+    warned = [w.get("text") or "" for w in (state.get("data") or {}).get("warnings") or []]
+    return "done" + (f" with {len(warned)} warning(s): " + "; ".join(warned) if warned else "")
 
 
 def _ac(state: FlowState) -> dict | None:
@@ -385,7 +393,7 @@ class Compiler:
         return next((x for x in get_list(state, lp.key) if x["id"] == state.get("item")), None)
 
     async def finish(self, state: FlowState):
-        return Command(update={"status": "done", "ac": None, "note": "done", **self._booked(state)}, goto=END)
+        return Command(update={"status": "done", "ac": None, "note": close_note(state), **self._booked(state)}, goto=END)
 
     def _booked(self, state: FlowState) -> dict:
         """{"usage": ...} with the failed calls' tokens booked in, or {} when there are none."""
@@ -1270,6 +1278,8 @@ class Compiler:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
                         upd[k] = r.update[k]
+                if action in KNOWLEDGE_CHECKS:
+                    return await self._knowledge_failed(i, step, st, r, upd)
                 return await self._check_failed(i, step, st, ac or item, r, upd)
             st.update(r.update)
             upd.update(r.update)
@@ -1578,6 +1588,71 @@ class Compiler:
             upd["markers"] = mk
             return feedback + extra, upd, r.note
         return feedback + extra, {}, "tried again"
+
+    async def _knowledge_failed(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
+        """The knowledge check found problems (a citation of a file that is not there, a section without any). The pages
+        are the librarian's work, so the librarian gets the list and fixes them: one round per run of this step, at most
+        the step's rounds (else settings.fix_attempts), then the check runs again. Running the same check again without a
+        fix would change nothing. After the rounds the person chooses: go on with a warning, or stop. Neither fails the
+        flow: its code, tests and reviews are done, only its notes are off. The warning stays in data.warnings, the gate
+        log and the flow's last note."""
+        key = f"{step.id}:knowledge"
+        retries = dict(state.get("retries") or {})
+        count = retries.get(key, 0) + 1
+        rounds = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
+        problems = (r.detail or "").strip()
+        gates = copy.deepcopy(upd.get("gates") or state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        base = {**upd, "last_failure": r.note[:300]}
+        if count <= rounds:
+            fixer = step.model_copy(update={"id": f"{step.id}_fix", "kind": "agent", "name": f"{step.name}: fix the pages",
+                                            "agent": "librarian", "action": None, "markers": None, "instructions": None})
+            ask = (f"keel's knowledge check found these problems in the knowledge pages (round {count} of {rounds}). Fix "
+                   "each one in the page it names and change nothing else. A citation needs the file's full path from "
+                   "the repo root (as `git ls-files` shows it) and a line that exists; when you cannot find the source "
+                   f"of a claim, remove the claim.\n\n{problems[-4000:]}")
+            try:
+                res, _m, _tb = await self._run_agent({**state, "feedback": ask}, fixer, "librarian", 0)
+            except (asyncio.CancelledError, GraphBubbleUp):
+                raise
+            except Exception as exc:          # the check runs again; the rounds still end
+                did = f"the librarian failed ({str(exc)[:120]})"
+            else:
+                base["usage"] = add_usage(dict(state.get("usage") or {}), {k: getattr(res, k, 0) for k in (
+                    "tokens_in", "tokens_out", "tokens_cached", "premium_requests", "cost_usd")})
+                tokens = dict(state.get("step_tokens") or {})
+                tokens[step.id] = tokens.get(step.id, 0) + res.tokens_in + res.tokens_out + res.tokens_cached // 10
+                base["step_tokens"] = tokens
+                did = "the librarian fixed the pages it names"
+            retries[key] = count
+            gates["log"].append(f"knowledge {step.id} round {count} of {rounds}: {r.note} {did}"[:300])
+            return {**base, "gates": gates, "retries": retries,
+                    "note": f"{r.note} · round {count} of {rounds}: {did}; the check runs again"[:300]}, step.id
+        answer, extra = self._ask(state, {
+            "step": step.id, "kind": "fix", "title": f"{step.name}: problems remain after {rounds} round(s)",
+            "detail": f"{r.note}\n\n{problems[-1500:]}\n\nThe librarian had {rounds} round(s) to fix them. Go on with a "
+                      "warning: the flow goes on, and the warning is kept in the flow and its last note. Stop: the flow ends "
+                      "here as done, with the warning (the work before this step stays).",
+            "options": OPTIONS, "labels": {"approve": "Go on with a warning", "reject": "Stop"}}, gate="failure")
+        why = (answer.get("why") or "").strip()
+        go_on = answer.get("decision") == "approve"
+        warning = f"{step.name}: {r.note.rstrip('.')} (not fixed after {rounds} round(s))"
+        data = dict(state.get("data") or {})
+        data["warnings"] = [w for w in data.get("warnings") or [] if w.get("step") != step.id] + \
+            [{"step": step.id, "text": warning, "problems": problems.splitlines()[:50]}]
+        gates["log"].append(f"knowledge {step.id} {'go on with a warning' if go_on else 'stop'}: {warning}"
+                            + (f" ({why})" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": answer.get("decision"),
+                                                          "why": why, "warning": warning})
+        retries[key] = 0
+        out = {**base, **extra, "gates": gates, "data": data, "retries": retries, "feedback": None, "last_failure": None}
+        if not go_on:
+            return {**out, "status": "done", "ac": None, "item": None, "note": f"stopped with a warning: {warning}"[:300]}, END
+        out["note"] = f"warning: {warning}"[:300]
+        if step.then == "end":
+            return {**out, "status": "done", "ac": None, "item": None}, END
+        if step.then and step.then != "continue":
+            return out, self.nav.jump(step.then, i)
+        return out, self.nav.after(i)
 
     async def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
         key = f"{step.id}:{(ac or {}).get('id')}"
