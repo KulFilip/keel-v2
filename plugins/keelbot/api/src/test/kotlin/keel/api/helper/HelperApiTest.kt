@@ -76,6 +76,29 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `a turn carries the waiting question's ids and choices for KeelBot's answer button`() {
+        val (pid, _) = newProject("helper-asked")
+        val sid = post("/api/projects/$pid/helper/sessions").json()["id"].asText()
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Bug hunt", "allow_fake" to true)).andExpect(status().isOk)
+        engine.overrides["t-stub-1"] = mapOf("status" to "waiting", "title" to "Bug hunt",
+            "waiting" to mapOf("step" to "triage", "kind" to "gate", "title" to "triage", "detail" to "1 open", "options" to listOf("approve"),
+                "choices" to listOf("take", "close"),
+                "choice_info" to listOf(
+                    mapOf("name" to "take", "label" to "Take the top group", "description" to "d", "why" to "none", "default" to true),
+                    mapOf("name" to "close", "label" to "Close a finding", "description" to "d", "why" to "required", "default" to false)),
+                "questions" to listOf(mapOf("id" to "as", "question" to "How does it close?", "multiple" to false,
+                    "options" to listOf(mapOf("label" to "fixed", "recommended" to false), mapOf("label" to "wontfix", "recommended" to true))))))
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "close it")).andExpect(status().isOk)
+        val w = engine.lastBody("/helper/sessions/$sid/turn")!!["flow"]["waiting"]
+        assertThat(w["questions"][0]["id"].asText()).isEqualTo("as")
+        assertThat(w["questions"][0]["options"].map { it.asText() }).containsExactly("fixed", "wontfix")
+        assertThat(w["questions"][0]["recommended"].map { it.asText() }).containsExactly("wontfix")
+        assertThat(w["choices"].map { it["name"].asText() }).containsExactly("take", "close")
+        assertThat(w["choices"][1]["why"].asText()).isEqualTo("required")
+        assertThat(w["choices"][0]["default"].asBoolean()).isTrue()
+    }
+
+    @Test
     fun `KeelBot's effort comes from the helper agent, a chat can change it, and default clears it`() {
         val (pid, _) = newProject("helper-effort")
         put("/api/projects/$pid/agents/helper", mapOf("model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "sonnet", "effort" to "high")))

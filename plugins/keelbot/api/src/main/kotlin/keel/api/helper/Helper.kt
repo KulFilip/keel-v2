@@ -363,14 +363,39 @@ class HelperService(
             "spec" to t.path("spec").asText("").ifBlank { null },
             "acs" to t.path("acs").map { a -> mapOf("id" to a.path("id").asText(), "layer" to a.path("layer").asText(),
                 "title" to a.path("title").asText(), "status" to a.path("status").asText()) },
-            "waiting" to waiting?.let { mapOf("title" to it.path("title").asText(), "detail" to it.path("detail").asText("").take(3000)) },
+            "waiting" to waiting?.let { mapOf("title" to it.path("title").asText(), "detail" to it.path("detail").asText("").take(3000)) + askedOf(it) },
         )
+    }
+
+    /** keel 0.19.0: the waiting question's structure for KeelBot's answer button (keel-flow {"do": "answer"}): the
+     *  questions' ids and option labels, and the named choices with whether each needs a reason and the plain approve's. */
+    private fun askedOf(w: JsonNode): Map<String, Any?> {
+        val out = mutableMapOf<String, Any?>()
+        val qs = w.path("questions").takeIf { it.isArray && it.size() > 0 }
+        if (qs != null) out["questions"] = qs.map { q ->
+            mapOf("id" to q.path("id").asText(), "question" to q.path("question").asText(), "multiple" to q.path("multiple").asBoolean(false),
+                "options" to q.path("options").map { it.path("label").asText() },
+                "recommended" to q.path("options").filter { it.path("recommended").asBoolean(false) }.map { it.path("label").asText() })
+        }
+        val info = w.path("choice_info").takeIf { it.isArray && it.size() > 0 }
+        if (info != null) out["choices"] = info.map { c ->
+            mapOf("name" to c.path("name").asText(), "label" to c.path("label").asText(), "why" to c.path("why").asText("optional"),
+                "default" to c.path("default").asBoolean(false))
+        }
+        else w.path("choices").takeIf { it.isArray && it.size() > 0 }?.let { names ->
+            out["choices"] = names.mapIndexed { i, n -> mapOf("name" to n.asText(), "label" to n.asText(), "why" to "optional", "default" to (i == 0)) }
+        }
+        return out
     }
 
     /** v0.9.0, KeelBot's view of keel (engine runtime/keelbot.py): the workflows it can suggest, and the project's flows. */
     private fun keelContext(pid: String): Map<String, Any?> {
         val wfs = runCatching { workflows.list(pid) }.getOrDefault(emptyList())
         val runs = runCatching { flows.runs(pid, null, 8) }.getOrDefault(emptyList())
+        // the waiting flow's question structure (ids, choice names) for KeelBot's answer button; one engine read
+        val now = runCatching { flows.flow(pid).thread }.getOrNull()
+        val asked = now?.path("waiting")?.takeIf { it.isObject }?.let { askedOf(it) }.orEmpty()
+        val nowId = now?.path("thread_id")?.asText()
         return mapOf(
             "workflows" to wfs.map { w ->
                 mapOf("id" to w.id, "name" to w.name, "source" to w.source, "based_on" to w.basedOn, "folder" to w.folder,
@@ -379,7 +404,8 @@ class HelperService(
             },
             "flows" to runs.map { r ->
                 mapOf("thread_id" to r.threadId, "title" to r.title, "workflow" to r.workflowId, "status" to r.status,
-                    "phase" to r.phase, "step" to r.current, "waiting" to r.waiting?.let { mapOf("title" to it) },
+                    "phase" to r.phase, "step" to r.current,
+                    "waiting" to r.waiting?.let { mapOf("title" to it) + (if (r.threadId == nowId) asked else emptyMap()) },
                     "acs_done" to r.acsDone, "acs_total" to r.acsTotal, "tokens" to r.tokens, "where" to r.where,
                     "branch" to r.branch, "error" to r.error, "updated_at" to r.updatedAt)
             },
