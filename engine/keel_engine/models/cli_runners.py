@@ -366,6 +366,42 @@ def claude_home() -> str:
     return str(d)
 
 
+def session_cost(session: str | None) -> float | None:
+    """The cost total claude saved for a session: the last "cost-state" line of its transcript
+    (<claude_home>/projects/<folder>/<session>.jsonl), or None when there is none.
+
+    claude's total_cost_usd is the session's running total, not the run's: a resumed session starts from the total its
+    transcript saved, so the result of `--resume` also carries every earlier run of that session. Its `usage` tokens
+    are the run's own."""
+    if not session:
+        return None
+    for f in (Path(claude_home()) / "projects").glob(f"*/{session}.jsonl"):
+        try:
+            lines = f.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"cost-state"' not in line:
+                continue
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "cost-state" and isinstance(ev.get("totalCostUSD"), (int, float)):
+                return float(ev["totalCostUSD"])
+    return None
+
+
+def run_cost(total: float, before: float | None) -> float:
+    """One run's own cost from claude's running total and the total its session had saved before the run. A total
+    below the saved one means claude did not carry the saved one over (a /clear, a zeroed crash result): it is the
+    run's own."""
+    total = float(total or 0.0)
+    if before and total >= before:
+        return round(total - before, 6)
+    return round(total, 6)
+
+
 class ClaudeCLIRunner:
     async def _fresh(self, req: AgentRequest, emit: Emit) -> AgentResult:
         """The saved session is gone (cleaned up, or another machine): start a new one for this step."""
@@ -411,19 +447,27 @@ class ClaudeCLIRunner:
         # them in the background), so a tool keel's prompt names (db_query, git_status, ...) is there from the start.
         env = safe_env({**claude_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch), "CLAUDE_CONFIG_DIR": claude_home(),
                         "MCP_CONNECTION_NONBLOCKING": "0"})
+        # A resumed run's total_cost_usd includes the session's earlier runs (session_cost): keel books only this run's.
+        before = session_cost(req.session) if req.resume else None
         try:
             await run_cli("claude", argv, stdin=req.prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=stream.line)
         except ModelError as exc:
             if req.resume and NO_SESSION.search(str(exc) + json.dumps(stream.result or {})):
                 return await self._fresh(req, emit)
+            if exc.usage.get("cost_usd"):
+                exc.usage["cost_usd"] = run_cost(exc.usage["cost_usd"], before)
             raise
         res = stream.result
         if req.resume and res and res.get("is_error") and NO_SESSION.search(json.dumps(res)):
             return await self._fresh(req, emit)
         if not res:
             raise ModelError("claude printed no result.")
+        cost = run_cost(res.get("total_cost_usd") or 0.0, before)
         if res.get("is_error"):
-            raise ModelError(f"claude reported an error: {_short(res.get('result'), 500)}", usage=result_usage(res))
+            used = result_usage(res)
+            if used:
+                used["cost_usd"] = cost
+            raise ModelError(f"claude reported an error: {_short(res.get('result'), 500)}", usage=used)
         usage = res.get("usage") or {}
         tin = int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
         cached = int(usage.get("cache_read_input_tokens", 0))
@@ -435,8 +479,7 @@ class ClaudeCLIRunner:
             data["failed_command"] = stream.failed
         if stream.windows:
             data["usage_windows"] = stream.windows
-        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached, cost_usd=float(res.get("total_cost_usd") or 0.0),
-                           data=data)
+        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached, cost_usd=cost, data=data)
 
 
 def file_diff(root: str, rel: str, added: bool = False) -> str:
