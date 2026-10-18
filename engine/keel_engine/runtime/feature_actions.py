@@ -32,6 +32,7 @@ from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import prompts, spec_check, stacks, verdict_actions
+from . import flow_actions
 from .flow_actions import _fail, _markers, _ok
 
 DONE = ("done", "already-met")
@@ -359,9 +360,10 @@ def amend_start(a):
     rounds = [h for h in a.data.get("amend_history") or [] if ac and h.get("ac") == ac and "changed" in h]
     if rounds and rounds[-1]["changed"] is False:
         amend = {**amend, "route": "ask", "next": _next_for(a, ac, f"{reason} {rounds[-1].get('said', '')}")}
-        data = {**a.data, "amend": amend, "amend_loop_without": [] if amend["next"] else ["first"]}
+        without, note = _loop_choices(a, ac, amend["next"])
+        data = {**a.data, "amend": amend, "amend_loop_without": without}
         return _ok(f"{ac} came back with an AMEND after an amendment that changed nothing: asking you, not looping"[:300],
-                   update={"markers": mk, "data": data, "show": _loop_text(a, amend, rounds[-1])})
+                   update={"markers": mk, "data": data, "show": _loop_text(a, amend, rounds[-1], without, note)})
     return _ok(f"spec amendment needed: {reason}"[:300], update={"markers": mk, "data": {**a.data, "amend": amend}})
 
 
@@ -418,19 +420,35 @@ def _title(a, ac: str | None) -> str:
     return f"{ac} ({x.get('title', '')})" if x and x.get("title") else str(ac)
 
 
-def _loop_text(a, amend: dict, last: dict | None) -> str:
+LOOP_CHOICES = ("first", "skip", "edit", "stop")      # the amend_loop gate's, in content/workflows/feature.yaml
+
+
+def _loop_choices(a, ac: str | None, nxt: str | None) -> tuple[list[str], str]:
+    """The amend_loop choices left out this time (no `first` without a criterion to build first) and the limit note:
+    0.18.12 past settings.sendback_limit rounds for the same criterion (first and edit count) only skip or stop."""
+    without = [] if nxt else ["first"]
+    tries, limit = flow_actions.stuck_tries(a.state, ac), flow_actions.sendback_limit(a.settings)
+    if tries < limit:
+        return without, ""
+    keep = flow_actions.past_limit(list(LOOP_CHOICES), bool([i for i in _unfinished(a) if i != ac]))
+    return [c for c in LOOP_CHOICES if c not in keep], flow_actions.limit_note(tries, limit, str(ac))
+
+
+def _loop_text(a, amend: dict, last: dict | None, without=(), note: str = "") -> str:
     ac, nxt = amend.get("ac"), amend.get("next")
     lines = [f"{ac} came back with an AMEND, and the last amendment for it changed nothing in the spec.",
              "keel stops here instead of asking the same question again.", "", f"Why: {amend.get('reason') or 'not recorded'}"]
     if last and last.get("said"):
         lines += ["", "The amendment said:", str(last["said"])[:1500]]
+    if note:
+        lines += ["", note]
     lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"} and a note):"]
     if nxt:
         lines.append(f"- first: build {_title(a, nxt)} first, then {ac}")
     lines += [f"- skip: move {ac} to the end of the list and go on with the next criterion",
               "- edit: write the amendment again with your note (say what the spec should change)",
               "- stop: stop the flow here (the commits so far stay)"]
-    return "\n".join(lines)
+    return flow_actions.offered("\n".join(lines), [c for c in LOOP_CHOICES if c not in without])
 
 
 def _history(a, **entry) -> list[dict]:
@@ -465,9 +483,10 @@ def _no_change(a, spec: str | None, amend: dict):
                 "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
         return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "show": None})
     amend = {**amend, "route": "ask", "next": _next_for(a, ac, text)}
-    data = {**a.data, "amend": amend, "amend_history": hist, "amend_loop_without": [] if amend["next"] else ["first"]}
+    without, note = _loop_choices(a, ac, amend["next"])
+    data = {**a.data, "amend": amend, "amend_history": hist, "amend_loop_without": without}
     return _ok(f"the amendment for {ac} changed nothing in the spec: asking you", update={
-        "data": data, "show": _loop_text(a, amend, hist[-1])})
+        "data": data, "show": _loop_text(a, amend, hist[-1], without, note)})
 
 
 def amend_reorder(a):
@@ -487,7 +506,9 @@ def amend_reorder(a):
     gates["log"].append(note[:300])
     data = {**a.data, "amend": {**amend, "route": "moved"}, "amend_history": _history(a, ac=ac, choice=choice),
             "ac_order": {"ids": [x["id"] for x in acs], "from": "person"}}
-    return _ok(note, update={"acs": acs, "ac": nxt, "gates": gates, "data": data, "show": None})
+    # `first` comes back to the same criterion: one more round toward the send-back limit (skip does not count)
+    tries = {} if choice == "skip" else flow_actions.stuck_counted(a.state, ac, flow_actions.stuck_tries(a.state, ac) + 1)
+    return _ok(note, update={"acs": acs, "ac": nxt, "gates": gates, "data": data, "show": None, **tries})
 
 
 def stuck(a):
@@ -507,16 +528,20 @@ def stuck(a):
         gates["log"].append(note[:300])
         data = {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": "keel"}}
         return _ok(note, update={"acs": acs, "ac": first[0], "gates": gates, "data": data, "feedback": None})
+    # 0.18.12 the agent says trying again will not help, so a plain approve is not a retry: it skips the criterion when
+    # another one can go first, else it amends the spec (the e2e approved the default retry four times, same refusal)
+    others = [i for i in _unfinished(a) if i != ac]
+    choices = (["skip", "edit"] if others else ["edit"]) + ["retry", "stop"]
+    says = {"skip": f"- skip: move {ac} to the end of the list and go on with the next criterion",
+            "edit": f"- edit: amend the spec for {ac} first (your note says what is wrong)",
+            "retry": f"- retry: the {src} agent again, with your note (say what to change: the command, the setup, the approach)",
+            "stop": "- stop: stop the flow here (the commits so far stay)"}
     lines = [f"The {src} agent cannot go on with {ac}:", why or "(no reason given)", "",
              "Trying the same thing again will not help.",
-             'Choose one (approve with payload {"choice": "<name>"} and a note):',
-             f"- retry: the {src} agent again, with your note (say what to change: the command, the setup, the approach)",
-             f"- skip: move {ac} to the end of the list and go on with the next criterion",
-             f"- edit: amend the spec for {ac} first (your note says what is wrong)",
-             "- stop: stop the flow here (the commits so far stay)"]
+             f'Choose one (approve with payload {{"choice": "<name>"}} and a note; a plain approve is {choices[0]}):',
+             *[says[c] for c in choices]]
     return ActionResult(False, f"{ac} is blocked: {why[:200]}", why, ask={
-        "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines),
-        "choices": ["retry", "skip", "edit", "stop"]})
+        "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines), "choices": choices})
 
 
 def amend_with_note(a):
@@ -526,7 +551,9 @@ def amend_with_note(a):
     if why:
         amend["reason"] = (f"{amend.get('reason', '')}\nThe person says: {why}")[:3000]
     amend["route"] = "amend"
-    return _ok("the amendment is written again with your note", update={"data": {**a.data, "amend": amend}})
+    ac = amend.get("ac") or a.state.get("ac")
+    return _ok("the amendment is written again with your note", update={
+        "data": {**a.data, "amend": amend}, **flow_actions.stuck_counted(a.state, ac, flow_actions.stuck_tries(a.state, ac) + 1)})
 
 
 def amend_stop(a):

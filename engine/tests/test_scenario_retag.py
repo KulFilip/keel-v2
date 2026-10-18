@@ -149,3 +149,116 @@ def test_without_a_web_layer_keel_tags_web_criteria_api_and_says_so(client, repo
     assert "This project has no separate web tests" in spec.prompt
     s = to_loop(client, tid, s)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-1"
+
+
+# ------------------------------------------------------------------ C: a fix question that keeps coming back
+
+THREE = [{"id": "AC-1", "layer": "API", "title": "Player ranks: the main case works"},
+         {"id": "AC-2", "layer": "API", "title": "Player ranks: bad input is refused"},
+         {"id": "AC-3", "layer": "API", "title": "Player ranks: the ranking table exists"}]
+REFUSED = ("The guard refuses the test.\nBLOCKED: tooling: the red guard refuses the Java MockMvc test as api-test in the "
+           "web lane; resending the step unchanged will hit the same refusal")
+
+
+def blocked(monkeypatch, acs=THREE, who=("AC-1",)):
+    """The red agent answers BLOCKED (tooling) for the criteria in `who`, every time."""
+    monkeypatch.setattr(fake_mod, "default_acs", lambda title: [dict(a) for a in acs])
+    calls = []
+
+    def red(req, real):
+        calls.append(req.ac["id"])
+        return (None, "", REFUSED, {}) if req.ac["id"] in who else real(req)
+    by_step(monkeypatch, {"red": red})
+    return calls
+
+
+def test_blocked_with_another_criterion_left_defaults_to_skip(client, repo, monkeypatch):
+    calls = blocked(monkeypatch)
+    tid = start(client, repo)
+    s = to_loop(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "red_stuck" and w["choices"] == ["skip", "edit", "retry", "stop"], w
+    assert "a plain approve is skip" in w["detail"]
+    s = decide(client, tid)                                    # the e2e driver's plain approve
+    assert s["ac"] == "AC-2" and calls == ["AC-1", "AC-2"], "skipped, not retried"
+    assert [a["id"] for a in s["acs"]][-1] == "AC-1"
+
+
+def test_blocked_as_the_last_criterion_defaults_to_edit(client, repo, monkeypatch):
+    blocked(monkeypatch, acs=THREE[:1])
+    tid = start(client, repo)
+    s = to_loop(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "red_stuck" and w["choices"] == ["edit", "retry", "stop"], w
+    s = decide(client, tid)
+    assert values(client, tid)["data"]["amend"]["ac"] == "AC-1", "a plain approve amends the spec"
+
+
+def test_past_the_send_back_limit_a_blocked_criterion_gets_only_skip_or_stop(client, repo, monkeypatch):
+    calls = blocked(monkeypatch)
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "sendback_limit": 2})
+    s = to_loop(client, tid)
+    for n in (1, 2):
+        assert s["waiting"]["step"] == "red_stuck" and "retry" in s["waiting"]["choices"]
+        s = decide(client, tid, payload={"choice": "retry"}, why="try once more")
+    w = s["waiting"]
+    assert w["step"] == "red_stuck" and w["choices"] == ["skip", "stop"], w
+    assert "AC-1 came back 2 time(s) after another try (the limit is 2, settings.sendback_limit)" in w["detail"]
+    assert "- retry:" not in w["detail"] and "- edit:" not in w["detail"]
+    assert calls == ["AC-1"] * 3
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"choice": "retry"}})
+    assert r.status_code == 400, "retry is not offered any more"
+    s = decide(client, tid)
+    assert s["ac"] == "AC-2", "plain approve: skip"
+
+
+def test_past_the_limit_with_nothing_else_left_only_stop(client, repo, monkeypatch):
+    blocked(monkeypatch, acs=THREE[:1])
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "sendback_limit": 1})
+    s = to_loop(client, tid)
+    s = decide(client, tid, payload={"choice": "retry"}, why="again")
+    w = s["waiting"]
+    assert w["step"] == "red_stuck" and w["choices"] == ["stop"], w
+    s = decide(client, tid)
+    assert s["status"] == "stopped", "never an endless retry"
+
+
+def test_the_amendment_loop_counts_toward_the_limit_too(client, repo, monkeypatch):
+    from test_scenario_order_and_amend_loop import ludus
+
+    seen, calls, amends = ludus(monkeypatch, always=True)       # AC-1 says AMEND every time; the explorer writes nothing
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "sendback_limit": 1})
+    s = to_loop(client, tid)
+    for _ in range(12):
+        if s["waiting"]["step"] == "amend_loop":
+            break
+        s = decide(client, tid)
+    assert s["waiting"]["choices"] == ["first", "skip", "edit", "stop"]
+    s = decide(client, tid, payload={"choice": "first"})            # build AC-2 first, then AC-1 asks again
+    for _ in range(12):
+        if s["waiting"]["step"] == "amend_loop":
+            break
+        s = decide(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "amend_loop" and w["choices"] == ["stop"], w     # AC-1 is the only criterion left
+    assert "the limit is 1, settings.sendback_limit" in w["detail"] and "- first:" not in w["detail"]
+    s = decide(client, tid)
+    assert s["status"] == "stopped"
+
+
+def test_a_check_that_keeps_failing_past_the_limit_offers_only_the_way_out(client, repo):
+    from test_flows_base import wf
+
+    w = wf([{"id": "check", "kind": "code", "name": "check", "action": "run:false"}])
+    tid = start(client, repo, workflow=w, settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause",
+                                                    "fix_attempts": 0, "sendback_limit": 2})
+    s = wait(client, tid)
+    for _ in range(2):
+        assert s["waiting"]["title"] == "check keeps failing" and s["waiting"]["options"] == ["approve", "reject"]
+        s = decide(client, tid)                                      # try again
+    w = s["waiting"]
+    assert w["title"] == "check keeps failing" and w["options"] == ["reject"] and w["labels"] == {"reject": "Stop"}, w
+    assert "check came back 2 time(s) after another try" in w["detail"]
+    assert client.post(f"/threads/{tid}/resume", json={"decision": "approve"}).status_code == 400
+    s = decide(client, tid, "reject")
+    assert s["status"] == "failed"

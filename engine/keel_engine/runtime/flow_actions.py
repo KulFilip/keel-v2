@@ -21,6 +21,53 @@ from ..tools import git
 from . import verdict_actions
 
 LENSES = ["correctness", "security", "performance", "architecture", "assertions"]
+# How often one gate may be sent back in a row before keel asks (settings.sendback_limit). 0.18.12: a fix question that
+# keeps coming back for the same criterion ("AC-004 is blocked", "keeps failing", the amendment loop) counts toward the
+# same limit, under the key "stuck:<criterion>" ("stuck:<step>" outside a criteria loop): past it keel offers only skip
+# or stop, never another try (the e2e retried a blocked criterion until the driver stopped it).
+SENDBACK_LIMIT = 5
+STUCK = "stuck:"
+CHOICE_LINE = re.compile(r"^- (\w+):")
+
+
+def sendback_limit(settings: dict | None) -> int:
+    try:
+        return int((settings or {}).get("sendback_limit") or SENDBACK_LIMIT)
+    except (TypeError, ValueError):
+        return SENDBACK_LIMIT
+
+
+def stuck_tries(state: dict, who: str | None) -> int:
+    """How often the person already sent this stuck criterion (or step) around again."""
+    return int((state.get("sendbacks") or {}).get(STUCK + str(who), 0) or 0)
+
+
+def stuck_counted(state: dict, who: str | None, n: int | None) -> dict:
+    """The state update that sets (n) or clears (None) the stuck count of a criterion or step."""
+    counts = dict(state.get("sendbacks") or {})
+    if n is None:
+        if STUCK + str(who) not in counts:
+            return {}
+        counts.pop(STUCK + str(who))
+    else:
+        counts[STUCK + str(who)] = n
+    return {"sendbacks": counts}
+
+
+def past_limit(names: list[str], can_skip: bool) -> list[str]:
+    """The choices left past the limit: skip (when another criterion can go first) and stop."""
+    return (["skip"] if can_skip and "skip" in names else []) + ["stop"]
+
+
+def offered(detail: str, names: list[str]) -> str:
+    """A question's text without the "- <choice>: ..." lines of choices it no longer offers."""
+    return "\n".join(line for line in str(detail).splitlines()
+                     if not (m := CHOICE_LINE.match(line)) or m.group(1) in names)
+
+
+def limit_note(n: int, limit: int, who: str) -> str:
+    return (f"{who} came back {n} time(s) after another try (the limit is {limit}, settings.sendback_limit): keel offers "
+            "no more tries.")
 SIZES = ("trivial", "small", "feature")
 
 

@@ -296,7 +296,8 @@ DOCS: dict[str, dict] = {
         "summary": "Makes one explorer item per area (api, web, data) once the criteria are settled.",
     },
     "spec_sync": {
-        "summary": "Re-reads the criteria from the spec in the plan's order and prepares the spec gate's text.",
+        "summary": "Re-reads the criteria from the spec in the plan's order and prepares the spec gate's text; in a project without "
+                   "web tests a [WEB] criterion becomes [API] (the gate says so).",
     },
     "spec_freeze": {
         "summary": "Freezes the approved spec (status, dates) and commits only the spec: docs: spec and plan: <title>.",
@@ -311,13 +312,15 @@ DOCS: dict[str, dict] = {
         "summary": "Prepares the amendment gate's text from the spec's newest dated block.",
     },
     "spec_amend_commit": {
-        "summary": "Commits the approved amendment alone (docs: amend: ...); new criteria join, reopened ones are todo.",
+        "summary": "Applies the approved amendment to the criteria lines (layer, wording) and commits it alone (docs: amend: ...); "
+                   "new criteria join, reopened ones are todo.",
     },
     "amend_reorder": {
         "summary": "The amendment loop gate's first / skip: builds the named criterion first, or moves this one to the end.",
     },
     "stuck": {
-        "summary": "The red / green agent said BLOCKED: builds the criteria it names first, else asks retry / skip / edit / stop.",
+        "summary": "The red / green agent said BLOCKED: builds the criteria it names first, else asks skip / edit / retry / stop "
+                   "(a plain approve skips, or edits when no other criterion is left; past the send-back limit only skip / stop).",
     },
     "amend_with_note": {
         "summary": "The amendment loop gate's edit: the amendment is written again with the person's note.",

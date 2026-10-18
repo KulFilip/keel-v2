@@ -206,7 +206,7 @@ def test_blocked_by_tooling_asks_instead_of_retrying(client, repo, monkeypatch):
     tid = start(client, repo)
     s = to_loop(client, tid)
     w = s["waiting"]
-    assert w["step"] == "red_stuck" and w["choices"] == ["retry", "skip", "edit", "stop"] and "./mvnw is missing" in w["detail"]
+    assert w["step"] == "red_stuck" and w["choices"] == ["skip", "edit", "retry", "stop"] and "./mvnw is missing" in w["detail"]
     assert calls == ["AC-1"]                                       # no retry of the same thing
     s = decide(client, tid, payload={"choice": "skip"})
     assert s["ac"] == "AC-2"

@@ -58,7 +58,7 @@ KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations
 OPTIONS = ["approve", "reject"]
 # How often one gate (step and criterion or item) may be sent back in a row before keel asks: go on anyway or stop
 # (settings.sendback_limit). A loop of send-backs that changes nothing never runs by itself.
-SENDBACK_LIMIT = 5
+SENDBACK_LIMIT = flow_actions.SENDBACK_LIMIT
 # What the next agent reads when a send-back came without a reason (an old client, a driver script).
 NO_REASON = ("The person sent this back but gave no reason. Do not do the same work again: if you cannot tell what to "
              "change, say so in one line and ask them once what they want.")
@@ -1377,6 +1377,9 @@ class Compiler:
         retries.pop(key, None)
         upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None,
                    output="\n".join(details)[:2000] or None)   # what the actions printed (explain.py shows its head)
+        if not ac and not item:
+            # a step outside any loop passed: its "keeps failing" count starts again (a criterion's ends at its gate)
+            upd.update(flow_actions.stuck_counted({**state, **upd}, step.id, None))
         upd.setdefault("show", None)        # what the next gate shows: only an action of this step sets it
         if step.then == "end":
             # The work goes on in the flow start_flow started (or there is nothing more to do); this one ends here.
@@ -1520,7 +1523,16 @@ class Compiler:
         list, on with the next), edit (an amendment of the spec, with the note), stop. Plain approve = the first choice."""
         q = r.ask
         names = list(q["choices"])
-        question = {"step": step.id, "kind": "fix", "title": q["title"], "detail": q["detail"], "options": OPTIONS,
+        detail = q["detail"]
+        ac = _ac(state)
+        lp = self.nav.loop_of(i)
+        # 0.18.12 the same stuck criterion sent around again and again: past settings.sendback_limit only skip or stop
+        who = (ac or {}).get("id") or step.id
+        tries, limit = flow_actions.stuck_tries(state, who), flow_actions.sendback_limit(self.ctx.settings)
+        if tries >= limit:
+            names = flow_actions.past_limit(names, bool(ac and lp and lp.per_ac and self._others_open(state, ac)))
+            detail = flow_actions.limit_note(tries, limit, who) + "\n\n" + flow_actions.offered(detail, names)
+        question = {"step": step.id, "kind": "fix", "title": q["title"], "detail": detail, "options": OPTIONS,
                     "choices": names}
         answer, extra = self._ask(state, question, gate="failure")
         upd = {**upd, **extra}
@@ -1529,17 +1541,18 @@ class Compiler:
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         gates["log"].append(f"{q['type']} {choice}" + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": choice, "why": why})
-        ac = _ac(state)
         key = f"{step.id}:{(ac or {}).get('id')}"
         retries = {**(state.get("retries") or {}), key: int(q.get("retries_after") or 0) if choice == "retry" else 0}
         base = {**upd, "gates": gates, "retries": retries, "stall": {"fingerprint": None, "count": 0, "step": 0}}
+        if choice in ("recheck", "retry", "edit"):
+            # the same criterion goes around again: one more toward the limit (skip and stop do not count)
+            base.update(flow_actions.stuck_counted({**state, **upd}, who, tries + 1))
         if choice == "recheck":
             return {**base, "note": f"{step.name}: checked again"}, step.id
         if choice == "retry":
             feedback = f"{r.note}\n{r.detail[-2000:]}".strip() + (f"\n\nFrom the user: {why}" if why else "")
             target = self.nav.jump(q["retry_to"], i) if q.get("retry_to") else self.nav.retry_target(i)
             return {**base, "feedback": feedback, "last_failure": r.note[:300], "note": f"{r.note} · tried again"[:300]}, target or step.id
-        lp = self.nav.loop_of(i)
         if choice in ("skip", "edit") and ac:
             # the stuck criterion's uncommitted work goes back (keel's agents' files only, never the person's), so the next
             # criterion's red commit is not refused for it; its commits stay
@@ -1556,6 +1569,11 @@ class Compiler:
             return {**base, "data": data, "note": f"{ac['id']}: the spec is amended first"}, self.nav.jump("amend", i)
         return {**base, "status": "stopped", "error": r.note + (f" ({why})" if why else ""),
                 "note": f"stopped: {q['title']}"[:300]}, END
+
+    @staticmethod
+    def _others_open(state: FlowState, ac: dict) -> bool:
+        """Is another criterion still to build (so skipping this one moves the flow on, not round to it again)?"""
+        return any(x["id"] != ac["id"] and x.get("status") not in DONE for x in state.get("acs") or [])
 
     async def _answer_check(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
         """A commit check asked the user (new dependency, escalation). Apply the answer and run the step again.
@@ -1771,9 +1789,16 @@ class Compiler:
                 step, ac, r, count - 1, attempts)), base)
         in_items = bool(lp and not lp.per_ac and ac)
         reject = "reject to mark this item failed and go on with the next one" if in_items else "reject to stop the flow"
-        answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
-                                          "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, {reject}.",
-                                          "options": OPTIONS})
+        who = (ac or {}).get("id") or step.id
+        tries, limit = flow_actions.stuck_tries(state, who), flow_actions.sendback_limit(self.ctx.settings)
+        question = {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
+                    "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, {reject}.", "options": OPTIONS}
+        if tries >= limit:
+            # 0.18.12 past settings.sendback_limit tries: no "try again", only the way out
+            question.update(options=["reject"], labels={"reject": "Skip this item" if in_items else "Stop"},
+                            detail=f"{flow_actions.limit_note(tries, limit, who)}\n\n{r.note}\n\n{r.detail[-1500:]}\n\n"
+                                   f"Reject: {'the item is marked failed and the next one goes on' if in_items else 'the flow stops'}.")
+        answer, extra = self._ask(state, question)
         base.update(extra)
         if (answer or {}).get("decision") != "approve":
             if in_items:
@@ -1782,6 +1807,7 @@ class Compiler:
                         "note": f"{ac['id']} failed: {r.note}"[:300]}, self.nav.end(lp)
             return {**base, "status": "failed", "error": r.note}, END
         retries[key] = 0
+        base.update(flow_actions.stuck_counted({**state, **base}, who, tries + 1))
         why = (answer or {}).get("why")
         if why:
             base["feedback"] = f"{feedback}\n\nFrom the user: {why}"
@@ -1797,7 +1823,8 @@ class Compiler:
             due = rules.gate_due(gates.get("mode", "every-ac"), acs, ac["id"], gates.get("skipped"), rules.ac_lane(ac))
             if not due["due"]:
                 gates["log"].append(f"ac {ac['id']} approve: no gate here ({due['why']})")
-                return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}"}, self.nav.after(i)
+                return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}",
+                        **flow_actions.stuck_counted(state, ac["id"], None)}, self.nav.after(i)
         if step.when:
             label, values = self._when(state, step.when)
             if not self._holds(step.when, values):
@@ -1896,6 +1923,9 @@ class Compiler:
             back = decision != "approve"
         stop, counted = self._sendbacks(step, {**state, **extra}, f"{step.id}:{(ac or item or {}).get('id', '')}", back)
         extra = {**extra, **counted}
+        if ac and not back and decision == "approve":
+            # the criterion is through its gate: its stuck count starts again (flow_actions.STUCK)
+            extra.update(flow_actions.stuck_counted({**state, **extra}, ac["id"], None))
         if stop:
             gates["log"].append(f"gate {step.id} stop: {stop['note']}")
             return {"gates": gates, **extra, **stop}, END
@@ -1945,7 +1975,7 @@ class Compiler:
         counts = dict(state.get("sendbacks") or {})
         if not back:
             return None, ({"sendbacks": {k: v for k, v in counts.items() if k != key}} if key in counts else {})
-        limit = int(self.ctx.settings.get("sendback_limit") or SENDBACK_LIMIT)
+        limit = flow_actions.sendback_limit(self.ctx.settings)
         n = int(counts.get(key, 0))
         extra: dict = {}
         if n >= limit:
