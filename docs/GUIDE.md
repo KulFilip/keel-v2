@@ -370,7 +370,7 @@ saved encrypted in keel's own database (the `keel-data` volume), so it survives 
 | Codex (ChatGPT) | open the device link, type the code | `~/.codex/auth.json` |
 | GitHub Copilot | open github.com/login/device, type the code | a token with "Copilot Requests" |
 
-From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to list them.
+From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to list them. A long token is often shown over two lines; send it in one piece from the clipboard: `pbpaste | keel2 token claude` (Linux: `wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong.
 
 ## Signing in
 

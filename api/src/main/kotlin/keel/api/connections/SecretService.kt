@@ -52,6 +52,31 @@ class SecretService(
     private fun clean(name: String, value: String): String =
         if (name in TOKEN_NAMES || kinds.stream().anyMatch { name in it.tokens }) value.filterNot { it.isWhitespace() } else value
 
+    /** Refuses a login or key that cannot be right (PUT /api/secrets): a copy from a wrapped terminal line often has
+     *  extra characters. Only the shapes keel knows; the message names the bad characters, never the value. */
+    fun checkShape(name: String, raw: String) {
+        val value = clean(name, raw)
+        if (value.isEmpty()) return
+        val claude = SHAPES[name]
+        if (name == "CODEX_AUTH_JSON") {
+            val json = runCatching { com.fasterxml.jackson.databind.ObjectMapper().readTree(value) }.getOrNull()
+            if (json == null || !json.isObject) throw BadRequest("The Codex login is not the JSON of ~/.codex/auth.json.",
+                "Paste the whole file: it starts with { and ends with }.")
+            return
+        }
+        if (name !in TOKEN_NAMES) return
+        val allowed: (Char) -> Boolean = if (claude != null) { c -> (c.isLetterOrDigit() && c.code < 128) || c in "-_" }
+            else { c -> (c.isLetterOrDigit() && c.code < 128) || c in "-_.=" }
+        val what = claude ?: name
+        val bad = value.filterNot(allowed).toSet().joinToString("")
+        if (bad.isNotEmpty()) throw BadRequest("The $what has characters a token never has ($bad).",
+            "A token shown over two lines is often copied with extra characters. Copy it in one piece and save it again.")
+        if (claude != null && !value.startsWith("sk-ant-")) throw BadRequest(
+            "The $what does not start with sk-ant- (it has ${value.length} characters).",
+            if (name == "CLAUDE_CODE_OAUTH_TOKEN") "Copy the whole token that `claude setup-token` prints and save it again."
+            else "Check that you pasted the right key.")
+    }
+
     fun put(name: String, raw: String): String {
         checkName(name)
         val value = clean(name, raw)
@@ -122,6 +147,8 @@ class SecretService(
         val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
         /** Secret names whose value is a single token (whitespace is removed); CODEX_AUTH_JSON is a JSON file. */
         val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_REPO_TOKEN")
+        /** Secrets with a known Claude shape (sk-ant-…, only letters, digits, - and _), and what they are called. */
+        private val SHAPES = mapOf("CLAUDE_CODE_OAUTH_TOKEN" to "Claude login token", "ANTHROPIC_API_KEY" to "Anthropic API key")
         private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")
     }
 }

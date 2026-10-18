@@ -822,7 +822,8 @@ export type Connections = {
   providers: {
     id: Provider;
     label: string;
-    modes: { id: Mode; label: string; ready: boolean; detail: string }[];
+    // need: what a mode that is not ready misses (keel 0.18.12+): the CLI, or keel's login for it
+    modes: { id: Mode; label: string; ready: boolean; detail: string; need?: "cli" | "login" | null }[];
     selected: Mode;
     key_set: boolean;
     key_hint?: string;

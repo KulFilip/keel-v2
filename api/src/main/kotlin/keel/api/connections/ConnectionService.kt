@@ -8,7 +8,8 @@ import keel.api.engine.EngineClient
 import keel.api.settings.SettingsService
 import org.springframework.stereotype.Service
 
-data class ModeView(val id: String, val label: String, val ready: Boolean, val detail: String)
+/** [need]: what a mode that is not ready misses: "cli" (not installed) or "login" (no login saved); null when ready. */
+data class ModeView(val id: String, val label: String, val ready: Boolean, val detail: String, val need: String? = null)
 
 data class ProviderView(
     val id: String,
@@ -34,7 +35,7 @@ class ConnectionService(
     private val settings: SettingsService,
 ) {
     /** Programs on this machine, checked in parallel and cached for a minute (MachineTools). */
-    private val tools = MachineTools()
+    internal var tools = MachineTools()
 
     private fun selectedModes(): Map<String, String> = kv.get<Map<String, String>>(KEY) ?: emptyMap()
 
@@ -57,31 +58,38 @@ class ConnectionService(
         // Every program at once: the answer takes about the slowest single check (up to 5 s), not their sum.
         val machine = tools.check(MACHINE)
         val found = MACHINE.zip(machine).toMap()
-        fun cliMode(id: String, label: String, bin: String): ModeView {
+        // A CLI mode is ready only when keel has its login too: keel's agents never use the person's own CLI login
+        // (in the container, or in native mode where they have their own home). OpenCode keeps its own login
+        // (`opencode auth login`), so it needs none from keel.
+        fun cliMode(id: String, label: String, bin: String, loginSet: Boolean = true): ModeView {
             val t = found[bin] ?: tools.check(bin)
-            return ModeView(id, label, t.ok, if (t.ok) "${t.version ?: bin} found." else "$bin is not installed. Build the image with INSTALL_CLIS=1.")
+            return when {
+                !t.ok -> ModeView(id, label, false, "$bin is not installed. Build the image with INSTALL_CLIS=1.", "cli")
+                !loginSet -> ModeView(id, label, false, "${CLI_NAMES[bin] ?: bin} found — add your login: ${LOGIN_HOW[bin] ?: "Set up login"}.", "login")
+                else -> ModeView(id, label, true, "${t.version ?: bin} found, login saved.")
+            }
         }
         val providers = PROVIDERS.map { (id, label) ->
             val (keySet, hint) = keyView(id)
+            val (loginName, loginSet, loginHint) = loginView(id)
             val modes = when (id) {
                 "fake" -> listOf(ModeView("api", "Fake model (no network)", true, "Deterministic answers for demos and tests."))
                 "claude" -> listOf(
-                    cliMode("subscription", "Claude subscription (Claude Code CLI)", "claude"),
+                    cliMode("subscription", "Claude subscription (Claude Code CLI)", "claude", loginSet),
                     ModeView("api", "Anthropic API key", keySet, if (keySet) "Key saved." else "Add ANTHROPIC_API_KEY."),
                 )
                 "codex" -> listOf(
-                    cliMode("subscription", "ChatGPT subscription (Codex CLI)", "codex"),
+                    cliMode("subscription", "ChatGPT subscription (Codex CLI)", "codex", loginSet),
                     ModeView("api", "OpenAI API key", keySet, if (keySet) "Key saved." else "Add OPENAI_API_KEY."),
                 )
                 "copilot" -> listOf(
-                    cliMode("subscription", "Copilot CLI", "copilot"),
+                    cliMode("subscription", "Copilot CLI", "copilot", loginSet),
                     cliMode("opencode", "OpenCode", "opencode"),
                     ModeView("api", "GitHub Models (token)", keySet, if (keySet) "Token saved." else "Add GITHUB_TOKEN."),
                 )
                 else -> emptyList()
             }
             val selected = sel[id] ?: modes.firstOrNull { it.ready }?.id ?: modes.first().id
-            val (loginName, loginSet, loginHint) = loginView(id)
             ProviderView(id, label, modes, selected, keySet, hint, loginName, loginSet, loginHint)
         }
         return Connections(providers, machine)
@@ -127,6 +135,13 @@ class ConnectionService(
         const val KEY = "connections"
         val PROVIDERS = listOf("fake" to "Fake (demo)", "claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot")
         val DEFAULT_MODELS = mapOf("fake" to "fake", "claude" to "sonnet", "codex" to "gpt-5", "copilot" to "gpt-5")
+        val CLI_NAMES = mapOf("claude" to "Claude Code", "codex" to "Codex", "copilot" to "Copilot CLI", "opencode" to "OpenCode")
+        /** How to get a CLI's login for keel (the mode's detail when it is missing). */
+        val LOGIN_HOW = mapOf(
+            "claude" to "claude setup-token, then Set up login",
+            "codex" to "codex login, then Set up login",
+            "copilot" to "Set up login",
+        )
         /** What "This machine" lists, in this order. */
         val MACHINE = listOf("node", "git", "java", MachineTools.DOCKER, "claude", "codex", "copilot", "opencode")
     }

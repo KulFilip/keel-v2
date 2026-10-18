@@ -80,6 +80,18 @@ LOGIN_HINT = {
     "copilot": "Save a GitHub token with Copilot access in Connections › GitHub token for Copilot (or ./keel2 token copilot).",
     "opencode": "Run `opencode auth login` and pick GitHub Copilot.",
 }
+CLI_NAME = {"claude": "Claude Code", "codex": "Codex", "copilot": "Copilot CLI", "opencode": "OpenCode"}
+
+
+def login_error(tool: str) -> ModelError:
+    """The CLI is not logged in. In native mode there is no container, and the agents' own home holds no login of the
+    person's: keel gives the CLI the login saved in Connections, never the person's own one."""
+    hint = LOGIN_HINT.get(tool, "")
+    if not native():
+        return ModelError(f"`{tool}` is not logged in inside the container.", hint)
+    own = CLI_NAME.get(tool, tool)
+    return ModelError(f"`{tool}` is not logged in for keel (keel's agents use their own home in native mode, so your own "
+                      f"{own} login is not used).", f"{hint} Native mode does not use your own {own} login.".strip())
 
 
 def find(tool: str) -> str:
@@ -202,7 +214,7 @@ def _classify(tool: str, stdout: str, stderr: str, code) -> ModelError:
     if LIMIT_RE.search(tail):
         return ModelError(f"`{tool}` hit a usage limit: {short}", "Wait for the limit to reset, or switch this agent to another model.")
     if AUTH_RE.search((stderr if stderr.strip() else plain_out)[-3000:].lower()):
-        return ModelError(f"`{tool}` is not logged in inside the container.", LOGIN_HINT.get(tool, ""))
+        return login_error(tool)
     return ModelError(f"`{tool}` exited with code {code}: {short}")
 
 
