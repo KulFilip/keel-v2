@@ -21,6 +21,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 import tempfile
 import time
 import uuid
@@ -55,6 +56,8 @@ AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
+# A spec path an agent's answer names: `.keel/specs/x.md`, docs/specs/x.md
+SPEC_PATH = re.compile(r"(?<![\w./-])((?:\.{0,2}/)?[\w@.-]+(?:/[\w@.-]+)*\.md)\b")
 # The knowledge check's actions: a failure goes to the librarian, never fails the flow (Compiler._knowledge_failed).
 KNOWLEDGE_CHECKS = ("knowledge_check", "memory_check")
 RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
@@ -795,6 +798,7 @@ class Compiler:
             item_of = {n: loop_item for n in range(len(calls))}
 
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
+        started = time.time()       # a spec a CLI agent wrote with its own tools is found by its time (_acs_from)
         ac = _ac(state) if step.per_ac else None
 
         async def lane(action: str) -> ActionResult:
@@ -920,7 +924,7 @@ class Compiler:
         if said:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
-            acs, spec = self._acs_from(agent_results)
+            acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
@@ -1200,30 +1204,73 @@ class Compiler:
             secs = list(chosen) if isinstance(chosen, list) and chosen else (have or list(init_gates.SECTIONS))
         return secs
 
-    def _acs_from(self, results) -> tuple[list[dict], str | None]:
+    def _acs_from(self, results, started: float | None = None, known: str | None = None) -> tuple[list[dict], str | None]:
         from pathlib import Path
 
         for res, _m, tb in results:
             if res.data.get("acs"):
                 return [dict(a, status="todo") for a in res.data["acs"]], res.data.get("spec")
+        root = Path(self.ctx.root)
         seen = None
         for res, _m, tb in results:
-            spec = next((w["path"] for w in tb.writes if w["path"].endswith(".md")), None)
             # The spec file the agent wrote comes first; its chat answer only when no file has criteria.
-            texts = [(Path(self.ctx.root) / w["path"]).read_text(errors="replace") for w in tb.writes
-                     if (Path(self.ctx.root) / w["path"]).is_file()]
+            files = [w["path"] for w in tb.writes if w["path"].endswith(".md")]
             if git.is_repo(self.ctx.root):
-                for rel in git.dirty(self.ctx.root):
-                    if "spec" in rel and rel.endswith(".md") and (Path(self.ctx.root) / rel).is_file():
-                        texts.append((Path(self.ctx.root) / rel).read_text(errors="replace"))
-                        spec = spec or rel
+                files += [rel for rel in git.dirty(self.ctx.root) if "spec" in rel and rel.endswith(".md")]
+            # A CLI agent writes with its own tools (keel's ToolBox sees nothing), and a git-ignored .keel/specs/ is
+            # never dirty: the spec its answer names, the one the flow already knows, and the spec folder's files
+            # changed since the step started.
+            files += self._specs_named(res.text) + ([known] if known else []) + self._specs_since(started)
+            files = [f for f in dict.fromkeys(files) if (root / f).is_file()]
+            spec = files[0] if files else None
             seen = seen or spec
-            for t in texts + [res.text]:
-                acs = prompts.parse_acs(t)
+            for rel in files:
+                acs = prompts.parse_acs((root / rel).read_text(errors="replace"))
                 if acs:
-                    return acs, spec
+                    return acs, rel
+            acs = prompts.parse_acs(res.text)
+            if acs:
+                return acs, spec
         # No criteria yet, but the spec file is known: a send-back changes that file instead of starting over.
         return [], seen
+
+    def _spec_dirs(self) -> tuple[str, ...]:
+        from .. import layout
+
+        return layout.resolve(self.ctx.root).spec_dirs
+
+    def _specs_named(self, text: str | None) -> list[str]:
+        """Spec files an answer names ("I wrote the spec to `.keel/specs/x.md`"): .md paths inside the project, in a
+        spec folder or with "spec" in the path."""
+        root = Path(self.ctx.root).resolve()
+        out = []
+        for raw in SPEC_PATH.findall(text or ""):
+            p = (root / raw).resolve()          # an absolute path stays itself
+            if not p.is_relative_to(root) or not p.is_file():
+                continue
+            rel = p.relative_to(root).as_posix()
+            if "spec" in rel or any(rel.startswith(d.rstrip("/") + "/") for d in self._spec_dirs()):
+                out.append(rel)
+        return out
+
+    def _specs_since(self, started: float | None) -> list[str]:
+        """The spec folders' .md files changed since the step started (git-ignored ones too), newest first."""
+        if started is None:
+            return []
+        root = Path(self.ctx.root)
+        found = []
+        for d in self._spec_dirs():
+            folder = root / d
+            if not folder.is_dir():
+                continue
+            for p in folder.rglob("*.md"):
+                try:
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime >= started - 1:        # file systems keep mtimes to the second
+                    found.append((mtime, p.relative_to(root).as_posix()))
+        return [rel for _t, rel in sorted(found, reverse=True)]
 
     def _action_input(self, state: FlowState, ac: dict | None, item: dict | None = None) -> ActionInput:
         return ActionInput(root=self.ctx.root, project=self.ctx.project_id, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
