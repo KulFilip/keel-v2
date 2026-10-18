@@ -262,3 +262,40 @@ def test_a_check_that_keeps_failing_past_the_limit_offers_only_the_way_out(clien
     assert client.post(f"/threads/{tid}/resume", json={"decision": "approve"}).status_code == 400
     s = decide(client, tid, "reject")
     assert s["status"] == "failed"
+
+
+# ------------------------------------------------------------------ the guard: a server-rendered page is the backend's
+
+PAGE = "src/main/resources/templates/owners/ownerDetails.html"
+
+
+def test_without_a_web_layer_green_may_change_a_server_page_and_red_may_not(tmp_path):
+    from keel_engine import hook, rules
+
+    root = petclinic(tmp_path / "petclinic")
+    cfg = rules.load_config(root)
+    assert rules.classify(cfg, PAGE) == "api-main"
+    assert rules.classify(cfg, "src/main/resources/static/resources/css/petclinic.css") == "api-main"
+    assert rules.classify(cfg, "src/main/resources/templates/fragments/layout.jte") == "api-main"
+    assert rules.classify(cfg, "src/test/resources/templates/sample.html") == "api-test"
+    for phase in ("green", "review-fix", "integration", "bug-fix", "ac", "trivial"):
+        assert rules.check_edit(phase, PAGE, cfg, exists=True, lane="api").ok, phase
+    red = rules.check_edit("red", PAGE, cfg, exists=True, lane="api")
+    assert not red.ok and "production code belongs to GREEN" in red.reason
+    # the hook (what a CLI agent's Write goes through) reads the same config
+    write = {"file_path": f"{root}/{PAGE}", "content": "<p th:text=\"${visits}\">3 visits</p>\n"}
+    assert hook.decide("Write", write, {"root": root, "phase": "green", "lane": "api"}) is None
+    assert "blocked in phase \"red\"" in hook.decide("Write", write, {"root": root, "phase": "red", "lane": "api"})
+
+
+def test_with_a_web_layer_a_page_stays_the_web_lanes(tmp_path):
+    from keel_engine import rules
+
+    root = petclinic(tmp_path / "with-ts")
+    (Path(root) / "tsconfig.json").write_text("{}\n")
+    cfg = rules.load_config(root)
+    assert rules.classify(cfg, PAGE) == "web-src"
+    assert rules.classify(cfg, "src/main/resources/templates/fragments/layout.jte") == "other"     # as before
+    v = rules.check_edit("green", PAGE, cfg, exists=True, lane="api")
+    assert not v.ok and 'this is the "api" lane, so web-src is out of scope' in v.reason
+    assert rules.classify(rules.make_config(), PAGE) == "web-src", "keel's defaults (no project) are unchanged"

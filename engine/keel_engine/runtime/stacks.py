@@ -170,12 +170,22 @@ def has_web_layer(root: str) -> bool:
     """Does the project test a web layer of its own (0.18.12)? Yes with a web test command (commands.web_test_* in
     .keel/config.yml), a frontend folder that exists (frontend.dir), or a stack in the web lane. A server-rendered app
     (Spring MVC with Thymeleaf, Django templates) has none: its pages are tested by backend tests in the api lane, so a
-    [WEB] criterion there could never get a test past the guard."""
+    [WEB] criterion there could never get a test past the guard, and the guard counts its templates as the backend's
+    (rules.server_page)."""
     from .. import rules
-    from ..tools import testcmd
 
-    cmds = rules.load_config(root).get("commands") or {}
-    if any(str(cmds.get(k) or "").strip() for k in WEB_TEST_KEYS) or testcmd.part_dir(root, "frontend"):
+    return web_layer(root, rules.load_config(root))
+
+
+def web_layer(root: str, cfg: dict) -> bool:
+    """has_web_layer with the project's config already read (rules.classify calls it with its own)."""
+    cmds = cfg.get("commands") or {}
+    if any(str(cmds.get(k) or "").strip() for k in WEB_TEST_KEYS):
+        return True
+    front = str(((cfg.get("frontend") or {}).get("dir")) or "").strip().strip("/")
+    while front.startswith("./"):
+        front = front[2:]
+    if front not in ("", ".") and ".." not in Path(front).parts and (Path(root) / front).is_dir():
         return True
     return any(str(d.get("lane") or "") == "web" or any(k in (d.get("commands") or {}) for k in WEB_TEST_KEYS)
                for d in matched(root))

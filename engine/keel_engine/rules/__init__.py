@@ -193,6 +193,7 @@ def load_config(root: str | Path | None) -> dict:
     cfg["paths"] = {"specs": lay.specs, "knowledge": lay.knowledge, "adr": lay.adr, "runbook": lay.runbook,
                     "claude": lay.claude}
     cfg["specs"] = {**cfg["specs"], "dir": lay.specs, "dirs": list(lay.spec_dirs)}
+    cfg["_root"] = str(root)        # classify asks the project for its web layer only when a server page needs it
     return cfg
 
 
@@ -316,6 +317,8 @@ def classify(cfg: dict | None, path: str) -> str:
     ext = "." + name.rsplit(".", 1)[-1] if "." in name else ""
     if TOOL_CONFIG.search(name):
         return "api-test" if is_test else "other"
+    if server_page(cfg, rel, ext):
+        return "api-test" if is_test else "api-main"
     if ext in WEB_EXT:
         return "web-test" if is_test else "web-src"
     if is_test:
@@ -323,6 +326,30 @@ def classify(cfg: dict | None, path: str) -> str:
     if ext in CODE_EXT:
         return "api-main"
     return "other"
+
+
+# 0.18.12 server-rendered pages (Spring MVC + Thymeleaf, JSP, ERB, Blade, Jinja ...). In a project without a web layer of
+# its own (runtime/stacks.py web_layer: no web test command, frontend folder or web stack) they are the backend's: an
+# [API] criterion's green may change them, red may not (production code), the web lane never owns them. A project with a
+# web layer keeps them as the web buckets (or "other") as before. Template-only extensions count anywhere; plain .html
+# and stylesheets only in a server template folder.
+SERVER_TEMPLATE_EXT = {".jte", ".kte", ".ftl", ".ftlh", ".ftlx", ".mustache", ".peb", ".pebble", ".jsp", ".jspx", ".jspf",
+                       ".gsp", ".vm", ".erb", ".haml", ".slim", ".jinja", ".jinja2", ".j2", ".twig", ".hbs", ".handlebars",
+                       ".liquid", ".njk", ".ejs", ".eex", ".heex", ".leex", ".cshtml", ".razor"}
+SERVER_TEMPLATE_DIR = re.compile(r"(^|/)(src/main/resources/(templates|static|public)|src/main/webapp|app/views|"
+                                 r"resources/views|templates)/")
+
+
+def server_page(cfg: dict, rel: str, ext: str) -> bool:
+    """Is this a server-rendered page (or its stylesheet) of a project without a web layer?"""
+    if ext not in SERVER_TEMPLATE_EXT and not (ext in WEB_EXT and SERVER_TEMPLATE_DIR.search(rel)):
+        return False
+    web = cfg.get("_web_layer")
+    if web is None and cfg.get("_root"):
+        from ..runtime import stacks        # lazy: most paths never need it, and the hook stays light
+
+        web = cfg["_web_layer"] = stacks.web_layer(cfg["_root"], cfg)
+    return web is False
 
 
 # Source files by extension (production code unless the path says test); UI files go to the web buckets.
