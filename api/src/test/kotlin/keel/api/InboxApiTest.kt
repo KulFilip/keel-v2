@@ -39,7 +39,11 @@ class InboxApiTest : ApiTest() {
             mapOf("run_mode" to "important", "phase" to "spec",
                 "gate_log" to listOf("gate options approve", "ac AC-1 approve: auto-approved (mode important)")))
         waits("ib-b", mapOf("step" to "commit", "kind" to "fix", "title" to "Approve new dependency", "detail" to "httpx = \">=0.27\"",
-            "options" to listOf("approve", "reject"), "id" to "qb", "labels" to mapOf("approve" to "Allow", "reject" to "Refuse")))
+            "options" to listOf("approve", "reject"), "id" to "qb", "labels" to mapOf("approve" to "Allow", "reject" to "Refuse"),
+            "choices" to listOf("retry", "stop"),
+            "choice_info" to listOf(
+                mapOf("name" to "retry", "label" to "Try again", "description" to "one more round", "why" to "optional", "default" to true),
+                mapOf("name" to "stop", "label" to "Stop the flow", "description" to "stop here", "why" to "optional", "default" to false))))
         // ib-gone: the engine says it runs again (no override), so it is not listed and the api's row follows
 
         val view = get("/api/inbox").andExpect(status().isOk).json()
@@ -63,6 +67,12 @@ class InboxApiTest : ApiTest() {
         val b = mine[1]
         assertThat(b["kind"].asText()).isEqualTo("dependency")
         assertThat(b["labels"]["approve"].asText()).isEqualTo("Allow")
+        // 0.19.0 choice_info passes through: the button texts, the reason rule and the default
+        assertThat(b["choices"].map { it.asText() }).containsExactly("retry", "stop")
+        assertThat(b["choice_info"].map { it["label"].asText() }).containsExactly("Try again", "Stop the flow")
+        assertThat(b["choice_info"][0]["default"].asBoolean()).isTrue()
+        assertThat(b["choice_info"][1]["why"].asText()).isEqualTo("optional")
+        assertThat(a.has("choice_info") && !a["choice_info"].isNull).isFalse()
         assertThat(view["kinds"].map { it.asText() }).contains("clarify", "dependency")
         assertThat(view["projects"].first { it["id"].asText() == pb }["count"].asInt()).isEqualTo(1)
 

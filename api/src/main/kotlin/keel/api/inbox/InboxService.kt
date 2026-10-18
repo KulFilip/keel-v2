@@ -33,6 +33,10 @@ data class InboxItem(
     val more: Boolean,
     val options: List<String>,
     val choices: List<String>? = null,
+    /** 0.19.0 one entry per choice, in the order of [choices]: {name, label, description, why: required | optional | none,
+     *  default} (the engine's runtime/choices.py); the button text and whether a reason is needed, without reading [detail]. */
+    val choiceInfo: JsonNode? = null,
+    /** Questions to answer in a form (clarify's shape: {id, question, why, options, multiple?}); answers go back as payload.answers. */
     val questions: JsonNode? = null,
     val labels: JsonNode? = null,
     /** The question's id: send it back with an answer so a stale inbox cannot answer the next question. */
@@ -210,6 +214,7 @@ class InboxService(
             detail = if (detail.length > DETAIL_MAX) detail.take(DETAIL_MAX).trimEnd() + "…" else detail, more = detail.length > DETAIL_MAX,
             options = w.get("options")?.takeIf { it.isArray }?.map { it.asText() } ?: listOf("approve", "reject"),
             choices = w.get("choices")?.takeIf { it.isArray }?.map { it.asText() },
+            choiceInfo = w.get("choice_info")?.takeIf { it.isArray && it.size() > 0 },
             questions = w.get("questions")?.takeIf { it.isArray && it.size() > 0 },
             labels = w.get("labels")?.takeIf { it.isObject },
             id = w.get("id")?.asText(),
