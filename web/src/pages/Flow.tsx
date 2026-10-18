@@ -889,7 +889,8 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     setBusy(true);
     setErr(null);
     try {
-      const answers = w.kind === "clarify" && w.questions ? { answers: answersOf(w.questions, picked, typed) } : extra;
+      // keel 0.18.13 a gate may ask questions next to its choices (hunt lenses, a skip menu): both go back together
+      const answers = w.questions?.length ? { ...(extra ?? {}), answers: answersOf(w.questions, picked, typed) } : extra;
       await api.resume(thread.thread_id, decision, said.trim() || undefined, answers);
       setPicked({});
       setTyped({});
@@ -921,6 +922,10 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
             onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
         : w.detail && (plain ? <div className="gc-proof"><span className="gc-k">Proof</span><GateDetail text={w.detail} /></div> : <GateDetail text={w.detail} />)}
+      {w.kind !== "clarify" && w.questions?.length ? (
+        <ClarifyForm questions={w.questions} picked={picked} typed={typed}
+          onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
+      ) : null}
       {labels.whyLabel && !info && (
         <div className="field">
           <label htmlFor="why">{labels.whyLabel}</label>

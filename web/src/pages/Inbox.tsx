@@ -138,7 +138,8 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
     setBusy(true);
     setErr(null);
     const body: InboxAnswer = { decision, id: it.id ?? undefined, ...(said.trim() ? { why: said.trim() } : {}) };
-    if (it.kind === "clarify" && it.questions?.length) body.payload = { answers: answersOf(it.questions, picked, typed) };
+    // keel 0.18.13 a gate may ask questions next to its choices (hunt lenses, a skip menu): both go back together
+    if (it.questions?.length) body.payload = { ...(payload ?? {}), answers: answersOf(it.questions, picked, typed) };
     else if (payload) body.payload = payload;
     try {
       await inboxApi.act(it.thread_id, body);
@@ -169,6 +170,10 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
           onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : it.detail ? (
         <Detail text={it.detail} id={`${hid}-detail`} />
+      ) : null}
+      {it.kind !== "clarify" && it.questions?.length ? (
+        <ClarifyForm questions={it.questions} picked={picked} typed={typed}
+          onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : null}
       {it.more && <span className="hint">The rest is on the Flow page.</span>}
       {!info && (askWhy || !b.needWhy) && (

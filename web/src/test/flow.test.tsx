@@ -127,3 +127,31 @@ describe("Flow gate", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+
+describe("Flow gate: questions next to choices (0.18.13)", () => {
+  it("a gate that asks a question next to its choices sends the choice and the answers together", async () => {
+    const user = userEvent.setup();
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = {
+      step: "s8", kind: "gate", title: "lenses for the hunt", detail: "Pick the lenses to run.", options: ["approve"],
+      choices: ["confirm", "stop"],
+      choice_info: [
+        { name: "confirm", label: "Run these lenses", description: "the hunters run the ticked lenses", why: "optional", default: true },
+        { name: "stop", label: "Stop the hunt", description: "nothing runs", why: "none", default: false },
+      ],
+      questions: [{ id: "lenses", question: "Which lenses?", why: "", multiple: true,
+        options: [{ label: "security", description: "", recommended: true }, { label: "concurrency", description: "", recommended: false }] }],
+    };
+    render(<App />);
+    const card = await screen.findByRole("region", { name: "Gate waits for you" });
+    expect(within(card).getByText("Which lenses?")).toBeInTheDocument();
+    await user.click(within(card).getByRole("checkbox", { name: /concurrency/ }));
+    await user.click(within(card).getByRole("button", { name: /^Send/ }));
+    await waitFor(() => {
+      const body = db.calls.find((c) => c.method === "POST" && c.path === "/api/threads/th_7f3a/resume")?.body as
+        { decision: string; payload: { choice: string; answers: Record<string, string[]> } } | undefined;
+      expect(body?.payload.choice).toBe("confirm");
+      expect(body?.payload.answers.lenses).toEqual(["security", "concurrency"]);
+    });
+  });
+});
