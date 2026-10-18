@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
+import { ChoiceForm } from "../components/ChoiceForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
@@ -57,6 +58,8 @@ function buttonsFor(it: InboxItem): Buttons {
   if (it.kind === "budget") return { approve: "Continue over the cap", reject: "Stop here", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "fix") return { approve: l.approve ?? "Try again", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "clarify") return { approve: l.approve ?? "Send my answers", reject: "Send back", needWhy: false, whyLabel: "Anything else the explorer should know (optional)" };
+  // a commit check asks whether to escalate; keeping the change flow is a send back, which needs a reason
+  if (/escalat/i.test(it.title)) return { approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: true, whyLabel: "Why (needed to keep the change flow)" };
   return { approve: l.approve ?? `Approve${it.ac ? " " + it.ac : ""}`, reject: l.reject ?? "Send back", needWhy: true, whyLabel: "Why (needed to send back)" };
 }
 
@@ -123,15 +126,18 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
   const hid = `inbox-${it.thread_id}`;
   const whyId = `${hid}-why`;
 
-  const act = async (decision: "approve" | "reject", payload?: Record<string, unknown>, msg?: string) => {
-    if (decision === "reject" && b.needWhy && !why.trim()) {
+  // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
+  const info = (it.kind === "gate" || it.kind === "fix" || it.kind === "usage") && it.choice_info?.length ? it.choice_info : null;
+  const act = async (decision: "approve" | "reject", payload?: Record<string, unknown>, msg?: string, said = why) => {
+    // a gate's exit named "reject" sends back too: the engine wants the reason for it as well
+    if ((decision === "reject" && b.needWhy || (payload?.choice === "reject" && !info)) && !said.trim()) {
       setAskWhy(true);
       window.setTimeout(() => document.getElementById(whyId)?.focus(), 0);
       return;
     }
     setBusy(true);
     setErr(null);
-    const body: InboxAnswer = { decision, id: it.id ?? undefined, ...(why.trim() ? { why: why.trim() } : {}) };
+    const body: InboxAnswer = { decision, id: it.id ?? undefined, ...(said.trim() ? { why: said.trim() } : {}) };
     if (it.kind === "clarify" && it.questions?.length) body.payload = { answers: answersOf(it.questions, picked, typed) };
     else if (payload) body.payload = payload;
     try {
@@ -165,21 +171,25 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         <Detail text={it.detail} id={`${hid}-detail`} />
       ) : null}
       {it.more && <span className="hint">The rest is on the Flow page.</span>}
-      {(askWhy || !b.needWhy) && (
+      {!info && (askWhy || !b.needWhy) && (
         <div className="field">
           <label htmlFor={whyId}>{b.whyLabel}</label>
           <textarea id={whyId} rows={2} value={why} onChange={(e) => setWhy(e.target.value)} />
         </div>
       )}
+      {info && (
+        <ChoiceForm id={hid} choices={info} busy={busy}
+          onSend={(choice, said) => act("approve", { choice }, `${it.project_name}: ${info.find((c) => c.name === choice)?.label || choice}.`, said)} />
+      )}
       <div className="row inbox-actions">
-        {it.kind === "usage" && choices.length ? (
+        {info ? null : it.kind === "usage" && choices.length ? (
           <>
             {choices.includes("continue") && <button className="btn warn sm" type="button" disabled={busy} onClick={() => act("approve", { choice: "continue" })}>Continue anyway</button>}
             {choices.includes("wait") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("approve", { choice: "wait" })}>Wait for the reset</button>}
             {choices.includes("cheaper") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("approve", { choice: "cheaper" })}>Use the cheaper model</button>}
             {choices.includes("stop") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("reject")}>Stop here</button>}
           </>
-        ) : it.kind === "gate" && choices.length ? (
+        ) : (it.kind === "gate" || it.kind === "fix") && choices.length ? (
           <>
             {choices.map((c, n) => (
               <button key={c} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy}

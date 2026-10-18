@@ -147,6 +147,8 @@ main:has(> .helper-page) { padding-bottom: 14px; }
 .kb-request, .kb-meta, .kb-done { margin: 0; overflow-wrap: anywhere; }
 .kb-meta code { margin-left: 4px; }
 .kb-warn { margin: 0; color: var(--warn); }
+/* keel 0.18.13 the answers sent to KeelBot, or the ones it proposes for a flow */
+.kb-answers { margin: 4px 0; padding-left: 20px; display: grid; gap: 2px; }
 .kb-err { display: grid; gap: 6px; margin: 0; color: var(--bad); }
 .kb-err ul { margin: 0; padding-left: 18px; }
 .kb-err .btn { justify-self: start; }

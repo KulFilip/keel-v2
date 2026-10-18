@@ -133,13 +133,16 @@ describe("Flow v0.2", () => {
     await waitFor(() => expect(calls("POST", "/api/threads/th_7f3a/resume")[0]?.body).toEqual({ decision: "reject", why: "use the JDK client" }));
   });
 
-  it("an escalation gate says yes / no in words", async () => {
+  it("an escalation gate says yes / no in words, and keeping the change flow needs a reason (the engine refuses it without)", async () => {
     const user = userEvent.setup();
     db.flows["ludus-engine"].thread!.waiting = { step: "c3", kind: "gate", title: "Escalate to a feature flow?", detail: "touches db/migration/V7.sql", options: ["approve", "reject"] };
     render(<App />);
     expect(await screen.findByRole("button", { name: "Yes, switch to a feature flow" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "No, keep the change flow" }));
-    await waitFor(() => expect(calls("POST", "/api/threads/th_7f3a/resume")[0]?.body).toEqual({ decision: "reject" }));
+    expect(calls("POST", "/api/threads/th_7f3a/resume")).toHaveLength(0);
+    await user.type(screen.getByLabelText("Why (needed to keep the change flow)"), "only a column rename");
+    await user.click(screen.getByRole("button", { name: "No, keep the change flow" }));
+    await waitFor(() => expect(calls("POST", "/api/threads/th_7f3a/resume")[0]?.body).toEqual({ decision: "reject", why: "only a column rename" }));
   });
 
   it("a guard refusal offers 'Allow this file in this phase' with a confirm", async () => {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -35,6 +35,64 @@ describe("Flow gate", () => {
     expect(await screen.findByRole("button", { name: "edit" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "skip" }));
     await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual({ decision: "approve", payload: { choice: "skip" } }));
+  });
+
+  it("0.18.13 with choice_info: one card per choice with its words, the default marked, a reason only where it is needed", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "verify_green", kind: "fix", title: "AC-002 is stuck at verify_green",
+      detail: "failed 3 times", options: ["approve", "reject"], choices: ["retry", "skip", "stop"], choice_info: [
+        { name: "retry", label: "Try again", description: "one more round, with your note", why: "optional", default: true },
+        { name: "skip", label: "Skip it for now", description: "move AC-002 to the end of the list", why: "required", default: false },
+        { name: "stop", label: "Stop the flow", description: "the commits so far stay", why: "none", default: false }] };
+    render(<App />);
+    const gate = await screen.findByRole("region", { name: "Gate waits for you" });
+    const cards = within(gate).getAllByRole("radio");
+    expect(cards.map((c) => c.textContent)).toEqual([
+      "1Try againdefaultone more round, with your note", "2Skip it for nowneeds a reasonmove AC-002 to the end of the list",
+      "3Stop the flowthe commits so far stay"]);
+    // the raw names and the old reason box are gone
+    expect(within(gate).queryByRole("button", { name: "skip" })).not.toBeInTheDocument();
+    expect(within(gate).queryByRole("button", { name: "Reject fix" })).not.toBeInTheDocument();
+    await user.click(cards[1]);
+    await user.click(within(gate).getByRole("button", { name: "Send: Skip it for now" }));
+    expect(within(gate).getByRole("alert")).toHaveTextContent("needs a reason");
+    expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
+    await user.type(within(gate).getByLabelText("Why (needed for “Skip it for now”)"), "blocked by AC-003");
+    await user.click(within(gate).getByRole("button", { name: "Send: Skip it for now" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual(
+      { decision: "approve", why: "blocked by AC-003", payload: { choice: "skip" } }));
+  });
+
+  it("0.18.13 without choice_info a gate's exit named reject still asks for the reason first", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "spec_gate", kind: "gate", title: "spec", detail: "", options: ["approve"],
+      choices: ["approve", "reject"] };
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "reject" }));
+    expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
+    await user.type(screen.getByLabelText("Why (needed to send back)"), "the error case is missing");
+    await user.click(screen.getByRole("button", { name: "reject" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual(
+      { decision: "approve", why: "the error case is missing", payload: { choice: "reject" } }));
+  });
+
+  it("0.18.13 init's three questions are a clarify form: the recommended first, every recommended page ticked", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "questions", kind: "clarify", title: "Three questions before setup", detail: "",
+      options: ["approve"], labels: { approve: "Send my answers" }, questions: [
+        { id: "run", question: "How does the project run?", options: [{ label: "locally" }, { label: "docker compose", recommended: true }] },
+        { id: "services", question: "Which services does it need?", options: [{ label: "postgres", recommended: true }, { label: "none" }] },
+        { id: "knowledge", question: "Which knowledge pages?", multiple: true, options: [
+          { label: "architecture", recommended: true }, { label: "domain", recommended: true }, { label: "data" }] }] };
+    render(<App />);
+    const form = await screen.findByTestId("clarify-form");
+    expect(within(within(form).getByRole("radiogroup", { name: "How does the project run?" })).getAllByRole("radio")[0]).toHaveTextContent("docker compose");
+    expect(within(form).getAllByRole("checkbox").map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "true", "false"]);
+    expect(within(form).getByRole("status")).toHaveTextContent("1 of 3 answered");
+    await user.click(within(form).getByRole("radio", { name: /none/ }));
+    await user.click(screen.getByRole("button", { name: "Send my answers" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual(
+      { decision: "approve", payload: { answers: { services: "none", knowledge: ["architecture", "domain"] } } }));
   });
 
   it("Send back needs a reason, then sends it", async () => {

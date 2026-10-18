@@ -49,6 +49,38 @@ def test_the_block_names_the_workflows_the_flows_and_the_buttons():
     assert keelbot.keel_block(None, "hi") == ""
 
 
+def test_choices_are_asked_with_the_questions_block_and_a_flow_s_question_gets_an_answer_button():
+    b = keelbot.keel_block(KEEL, "Should the report be weekly or monthly?")
+    # 0.18.13 one way to ask: a choice for the person is a keel-questions block, never a prose "A or B?"
+    assert "Whenever the person must choose between options, ask with this block" in b and '("A or B?")' in b
+    # KeelBot proposes the answer to the question a flow waits at; the person presses Send
+    assert '{"do": "answer", "flow": "<flow id>", "answers": {"<question id>": "<label>"' in b
+    assert '{"do": "answer", "flow": "<flow id>", "choice": "<choice name>", "why":' in b
+    assert "named choices is answered (the answer button above" in b
+
+
+def test_a_waiting_flow_shows_its_question_ids_and_choice_names_when_the_api_sends_them():
+    asks = {**KEEL, "flows": [
+        {"thread_id": "t-2", "title": "Set up", "workflow": "init", "status": "waiting", "waiting": {
+            "title": "Three questions", "questions": [
+                {"id": "run", "question": "How does it run?", "options": [{"label": "docker", "recommended": True}, {"label": "local"}]},
+                {"id": "knowledge", "question": "Which pages?", "multiple": True, "options": ["architecture", "domain"]}]}},
+        {"thread_id": "t-3", "title": "Fix it", "workflow": "fix", "status": "waiting", "waiting": {
+            "title": "AC-1 is stuck", "choice_info": [
+                {"name": "retry", "label": "Try again", "description": "", "why": "optional", "default": True},
+                {"name": "stop", "label": "Stop", "description": "", "why": "none", "default": False},
+                {"name": "reject", "label": "Send back", "description": "", "why": "required", "default": False}]}},
+        {"thread_id": "t-4", "title": "Old engine", "workflow": "diagnose", "status": "waiting", "waiting": {
+            "title": "diagnosis", "choices": ["fix", "reject"]}},
+    ]}
+    b = keelbot.keel_block(asks, "what waits?")
+    assert ('waits for the person at "Three questions" (questions: run: How does it run? [docker | local]; '
+            "knowledge [several]: Which pages? [architecture | domain])") in b
+    assert 'waits for the person at "AC-1 is stuck" (choices: retry, stop, reject*; * needs a reason)' in b
+    assert 'waits for the person at "diagnosis" (choices: fix, reject*; * needs a reason)' in b
+    assert 'waits for the person at "spec approval"; step g-spec' in keelbot.keel_block(KEEL, "hi")    # nothing more asked
+
+
 def test_the_format_comes_with_a_question_about_a_workflow_of_ones_own():
     b = keelbot.keel_block(KEEL, "Make me a new workflow that runs the tests and the linters")
     assert "How a workflow is written" in b and "Phases: setup," in b and "- run: Runs one shell command" in b

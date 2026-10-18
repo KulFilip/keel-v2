@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
+import { ChoiceForm } from "../components/ChoiceForm";
 import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
@@ -790,7 +791,8 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
   }
   if (/escalat/.test(t)) {
     return {
-      approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: false, whyLabel: "Note (optional)",
+      // the engine refuses a send back from a gate without a reason: keeping the change flow needs one
+      approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: true, whyLabel: "Why (needed to keep the change flow)",
       explain: "This change touches a contract, a migration, auth code, or is large. A feature flow adds a spec and an AC gate.",
       approved: "Escalated. The work continues as a feature flow.", rejected: "Kept as a change flow.", special: true,
     };
@@ -861,6 +863,8 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const keelbot = useHasPage("helper");
 
   const showAc = w.kind === "gate" && !labels.special;
+  // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
+  const info = (w.kind === "gate" || w.kind === "fix" || w.kind === "usage") && w.choice_info?.length ? w.choice_info : null;
   // keel 0.18.11 a plain approve / send back gate says in plain words what you approve and what each button does
   const plain = w.kind === "gate" && !labels.special && !w.choices?.length && w.options.includes("approve") && w.options.includes("reject");
   const after = plain ? afterApprove(workflow, thread, step) : "";
@@ -875,8 +879,9 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     if (w.options.includes("reject") && labels.whyLabel && e.key.toLowerCase() === "r") { e.preventDefault(); document.getElementById("why")?.focus(); }
   };
 
-  const decide = async (decision: "approve" | "reject", extra?: Record<string, unknown>) => {
-    if (decision === "reject" && labels.needWhy && !why.trim()) {
+  const decide = async (decision: "approve" | "reject", extra?: Record<string, unknown>, said = why) => {
+    // a gate's exit named "reject" sends back too: the engine wants the reason for it as well
+    if ((decision === "reject" && labels.needWhy || (extra?.choice === "reject" && !info)) && !said.trim()) {
       document.getElementById("why")?.focus();
       toast("Write why first, so the agent knows what to change.");
       return;
@@ -885,7 +890,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     setErr(null);
     try {
       const answers = w.kind === "clarify" && w.questions ? { answers: answersOf(w.questions, picked, typed) } : extra;
-      await api.resume(thread.thread_id, decision, why.trim() || undefined, answers);
+      await api.resume(thread.thread_id, decision, said.trim() || undefined, answers);
       setPicked({});
       setTyped({});
       toast(decision === "approve" ? labels.approved : labels.rejected);
@@ -916,13 +921,15 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
             onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
         : w.detail && (plain ? <div className="gc-proof"><span className="gc-k">Proof</span><GateDetail text={w.detail} /></div> : <GateDetail text={w.detail} />)}
-      {labels.whyLabel && (
+      {labels.whyLabel && !info && (
         <div className="field">
           <label htmlFor="why">{labels.whyLabel}</label>
           <textarea id="why" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. also check the error message text in the test" />
         </div>
       )}
-      {w.kind === "usage" && w.choices ? (
+      {info ? (
+        <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} onSend={(choice, said) => decide("approve", { choice }, said)} />
+      ) : w.kind === "usage" && w.choices ? (
         <div className="row">
           {w.choices.includes("continue") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve", { choice: "continue" })}>Continue anyway</button>}
           {w.choices.includes("wait") && <button className="btn" type="button" disabled={busy} onClick={() => decide("approve", { choice: "wait" })}>Wait for the reset</button>}

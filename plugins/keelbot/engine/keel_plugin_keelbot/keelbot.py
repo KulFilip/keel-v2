@@ -10,6 +10,7 @@ and the panel turns that into a button the person presses (the plugin's web, Act
     ```                                ```
 
     ```keel-flow {"do": "approve" | "reject" | "stop" | "mode", ...}```   decide a gate, stop flows, a run mode
+    ```keel-flow {"do": "answer", "flow", "answers" | "choice" + "why"}``` propose the answer to a flow's question
 
     keel_block(keel, question)   the prompt block: workflows, flows, how to give buttons, what each part that is on
                                  says (its `keelbot` words, keel_engine/extensions.py), and (only when the question is
@@ -76,7 +77,8 @@ commands and tools; keel checks it, then Save writes .keel/stacks/<name>.yml): i
 - A question for the person, when you need their choice before you can go on (keel 0.18.9): one keel-questions block \
 with up to 4 questions, each 2 to 4 options, the recommended one first with "recommended": true, and "multiple": true \
 when several options can be true together. The person picks (or writes their own answer) and the answers come back as \
-your next message:
+your next message. Whenever the person must choose between options, ask with this block: never write the choice as a \
+question in your text ("A or B?"), and do not go on as if they had chosen:
 ```keel-questions
 [{"id": "<short word>", "question": "<the question>", "why": "<what the answer changes>", \
 "options": [{"label": "<option>", "description": "<what it costs>", "recommended": true}, {"label": "<option>"}]}]
@@ -95,10 +97,20 @@ the button and presses it, so offer it whenever they ask for one of these, never
 ```keel-flow
 {"do": "mode", "flow": "<flow id>", "mode": "manual | important | auto | readonly"}
 ```
+- Propose the answer to the question a flow waits at (keel 0.18.13; the person sees your answer on a card and presses \
+Send, nothing is sent before): for a flow that asks questions, your answers by question id (a label, a list of labels \
+for a question that takes several, or your own words); for a gate with named choices, the choice's name, and a "why" \
+when that choice needs a reason (a send back always does). Use the ids and names the flows list above shows:
+```keel-flow
+{"do": "answer", "flow": "<flow id>", "answers": {"<question id>": "<label>", "<question id>": ["<label>", "<label>"]}}
+```
+```keel-flow
+{"do": "answer", "flow": "<flow id>", "choice": "<choice name>", "why": "<the reason, when the choice needs one>"}
+```
 Run modes: manual stops at every gate; important approves a criterion's gate when its checks and review pass; auto \
 approves every gate keel can decide (it still stops for money, new dependencies, secrets and failures); readonly lets \
-agents read but not change anything. Only flows that run or wait can be stopped. A gate that asks questions is \
-answered in the dashboard or with /answer, not approved.
+agents read but not change anything. Only flows that run or wait can be stopped. A gate that asks questions or offers \
+named choices is answered (the answer button above, the dashboard or /answer), not approved.
 When the person asks how to build, change or fix something, say which workflow fits best and why (one or two \
 sentences, and when another one fits better), then give the start button with a good title and request."""
 
@@ -131,7 +143,7 @@ def _flow_line(f: dict) -> str:
     bits = [f"\"{f.get('title')}\" ({f.get('workflow') or '?'}, id {f.get('thread_id')}): {f.get('status')}"]
     w = f.get("waiting") or {}
     if f.get("status") == "waiting" and w.get("title"):
-        bits.append(f"waits for the person at \"{w['title']}\"")
+        bits.append(f"waits for the person at \"{w['title']}\"" + _asks(w))
     if f.get("step"):
         bits.append(f"step {f['step']}")
     if f.get("phase") and f["phase"] != "none":
@@ -147,6 +159,21 @@ def _flow_line(f: dict) -> str:
     if f.get("updated_at"):
         bits.append(f"last change {f['updated_at']}")
     return "- " + "; ".join(bits)
+
+
+def _asks(w: dict) -> str:
+    """What a waiting flow asks, when the api sends it (keel 0.18.13): its questions' ids and options, or its named
+    choices (a * marks one that needs a reason), so KeelBot can propose an answer with the right ids and names."""
+    qs = [q for q in w.get("questions") or [] if isinstance(q, dict) and q.get("id")]
+    if qs:
+        return " (questions: " + "; ".join(
+            f"{q['id']}{' [several]' if q.get('multiple') else ''}: {q.get('question', '')} ["
+            + " | ".join(str(o.get("label", o) if isinstance(o, dict) else o) for o in q.get("options") or []) + "]"
+            for q in qs) + ")"
+    info = [c for c in w.get("choice_info") or [] if isinstance(c, dict) and c.get("name")]
+    names = [f"{c['name']}{'*' if c.get('why') == 'required' else ''}" for c in info] or \
+        [str(c) + ("*" if c == "reject" else "") for c in w.get("choices") or []]
+    return f" (choices: {', '.join(names)}; * needs a reason)" if names else ""
 
 
 def _agents() -> list[str]:

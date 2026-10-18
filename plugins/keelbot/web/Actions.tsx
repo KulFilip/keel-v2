@@ -21,7 +21,18 @@ import {
   type WorkflowCheck,
 } from "@keel/web-sdk";
 import { kb } from "./keelbotApi";
-import { AskFixButton, AskKeelBot, ClarifyForm, answersOf, type ClarifyAnswers } from "@keel/web-sdk";
+import {
+  AskFixButton,
+  AskKeelBot,
+  ClarifyForm,
+  answersMessage,
+  answersOf,
+  parseQuestions,
+  readAnswersMessage,
+  type ChoiceInfo,
+  type ClarifyAnswers,
+  type ClarifyQuestion,
+} from "@keel/web-sdk";
 import { useContext } from "react";
 
 export type Segment =
@@ -428,7 +439,10 @@ export function CiCard({ pid, body }: { pid: string; body: string }) {
   );
 }
 
-type FlowSpec = { do?: string; flow?: string; flows?: string[]; why?: string; mode?: string };
+type FlowSpec = { do?: string; flow?: string; thread?: string; flows?: string[]; why?: string; mode?: string;
+  /** keel 0.18.13 do: "answer": the answers to the flow's questions (question id → a label, labels or own words), or
+   *  one of its named choices */
+  answers?: Record<string, unknown>; choice?: string };
 const RUN_MODES = ["manual", "important", "auto", "readonly"] as const;
 const MODE_ABOUT: Record<string, string> = {
   manual: "stops at every gate",
@@ -440,6 +454,11 @@ const MODE_ABOUT: Record<string, string> = {
 /** 0.18.4 a flow button KeelBot gives (```keel-flow```): approve or send back the gate a flow waits at, stop flows, or
  *  a flow's run mode. Nothing happens until the person presses it. */
 export function FlowCard({ pid, body }: { pid: string; body: string }) {
+  const spec = parseJson<FlowSpec>(body);
+  return spec?.do === "answer" ? <AnswerFlowCard pid={pid} spec={spec} /> : <FlowOpCard pid={pid} body={body} />;
+}
+
+function FlowOpCard({ pid, body }: { pid: string; body: string }) {
   const spec = parseJson<FlowSpec>(body);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -489,6 +508,84 @@ export function FlowCard({ pid, body }: { pid: string; body: string }) {
         <div className="row">
           <button type="button" className={`btn sm ${op === "stop" ? "warn" : "primary"}`} disabled={busy} onClick={() => void press()}>
             {busy ? "…" : label}</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The answers KeelBot proposes, as the engine takes them: question id → a label, a list of labels, or own words. */
+function proposedAnswers(raw: unknown): ClarifyAnswers | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: ClarifyAnswers = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (Array.isArray(v)) {
+      const list = v.map((x) => String(x ?? "").trim()).filter(Boolean);
+      if (list.length) out[k] = list;
+    } else if (typeof v === "string" || typeof v === "number") {
+      if (String(v).trim()) out[k] = String(v).trim();
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** keel 0.18.13 KeelBot proposes the answer to the question a flow waits at (```keel-flow {"do": "answer"}```): its
+ *  answers to the questions, or one of the gate's named choices with the reason. The card shows them with the
+ *  questions' and choices' own words; the button sends the same resume the Flow page sends. Nothing is sent until the
+ *  person presses it. */
+function AnswerFlowCard({ pid, spec }: { pid: string; spec: FlowSpec }) {
+  const tid = String(spec.flow || spec.thread || "").trim();
+  const answers = proposedAnswers(spec.answers);
+  const choice = typeof spec.choice === "string" ? spec.choice.trim() : "";
+  const why = typeof spec.why === "string" ? spec.why.trim() : "";
+  const view = useLoad(tid && (answers || choice) ? `kb-flow-answer:${pid}:${tid}` : null, () => kb.flowOf(pid, tid), { live: false });
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  if (!tid || (!answers && !choice)) return <p className="kb-card bad" role="note">KeelBot's answer button could not be read. Ask it to give it again.</p>;
+  const t = view.data?.thread;
+  const w = t?.waiting;
+  const questions: ClarifyQuestion[] = w?.questions ?? [];
+  const info: ChoiceInfo | undefined = choice ? w?.choice_info?.find((c) => c.name === choice) : undefined;
+  const label = answers ? "Send these answers" : `Choose “${info?.label || choice}”`;
+  const needsWhy = !!choice && !why && (info?.why === "required" || (!info && choice === "reject"));
+  const notWaiting = !!view.data && t?.status !== "waiting";
+  const press = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const s = await kb.answerFlow(tid, { decision: "approve", ...(why ? { why } : {}), payload: answers ? { answers } : { choice } });
+      setDone(`Sent. The flow is ${s.status}${s.current ? ` at ${s.current}` : ""}.`);
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="kb-card" aria-label={`Flow: ${label}`}>
+      <div className="kb-card-h"><span className="kb-tag">Flow</span><b>{label}</b><span className="sub">{t?.title ? `"${t.title}"` : tid.slice(0, 8)}</span></div>
+      {w?.title && <p className="sub">It waits at: {w.title}</p>}
+      {answers && (
+        <ol className="kb-answers" aria-label="KeelBot's answers">
+          {Object.entries(answers).map(([id, v]) => (
+            <li key={id}><span className="sub">{questions.find((q) => q.id === id)?.question ?? id}</span> → <b>{Array.isArray(v) ? v.join("; ") : v}</b></li>
+          ))}
+        </ol>
+      )}
+      {choice && info?.description && <p className="kb-request"><span className="sub">{info.label || choice}:</span> {info.description}</p>}
+      {why && <p className="kb-request"><span className="sub">The reason:</span> {why}</p>}
+      {needsWhy && <p className="kb-err" role="alert">“{info?.label || choice}” needs a reason: ask KeelBot for one, or answer on the Flow page.</p>}
+      {notWaiting && !done && <p className="kb-warn">The flow does not wait for this now ({t?.status ?? "gone"}).</p>}
+      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      <AskFixButton what={`KeelBot's flow button "${label}"`} error={err} />
+      {done ? (
+        <p className="kb-done" role="status">{done}{" "}
+          <button type="button" className="btn sm" onClick={() => go("flow", tid)}>Open the flow ▸</button></p>
+      ) : (
+        <div className="row">
+          <button type="button" className="btn sm primary" disabled={busy || needsWhy || notWaiting} onClick={() => void press()}>{busy ? "…" : label}</button>
+          <button type="button" className="btn sm ghost" onClick={() => go("flow", tid)}>Open the flow</button>
         </div>
       )}
     </section>
@@ -664,51 +761,34 @@ export function StackCard({ pid, body }: { pid: string; body: string }) {
   );
 }
 
-type AskedQuestion = { id: string; question: string; why?: string; multiple?: boolean;
-  options: { label: string; description?: string; recommended?: boolean }[] };
-
-/** KeelBot's questions as keel's form reads them (at most 4, 2–4 options, the recommended one marked, else the first). */
-export function parseAsked(body: string): AskedQuestion[] {
-  const v = parseJson<unknown>(body);
-  const list = Array.isArray(v) ? v : v && typeof v === "object" && Array.isArray((v as { questions?: unknown }).questions)
-    ? (v as { questions: unknown[] }).questions : [];
-  const out: AskedQuestion[] = [];
-  list.forEach((q, i) => {
-    if (out.length >= 4 || !q || typeof q !== "object") return;
-    const x = q as Record<string, unknown>;
-    const options = (Array.isArray(x.options) ? x.options : []).slice(0, 4)
-      .map((o) => (typeof o === "string" ? { label: o } : (o as Record<string, unknown>)))
-      .filter((o) => typeof o?.label === "string" && (o.label as string).trim())
-      .map((o) => ({ label: String(o.label).trim(), description: o.description ? String(o.description) : undefined, recommended: o.recommended === true }));
-    if (!String(x.question ?? "").trim() || !options.length) return;
-    if (!options.some((o) => o.recommended)) options[0].recommended = true;
-    out.push({ id: String(x.id || `q${i + 1}`), question: String(x.question).trim(), why: x.why ? String(x.why) : undefined, multiple: x.multiple === true, options });
-  });
-  return out;
-}
-
 /** keel 0.18.9 KeelBot asks the person to choose (```keel-questions```): keel's question form (pick one, tick several,
- *  your own words, how many are answered); Send gives the answers to KeelBot as the next message. */
-export function QuestionsCard({ body }: { body: string }) {
-  const qs = parseAsked(body);
+ *  your own words, how many are answered); Send gives the answers to KeelBot as the next message.
+ *  keel 0.18.13 `answered`: the chat's later message with the answers (it starts with "Answers to your questions"): the
+ *  card shows what was sent, read only, also after a reload (derived from the chat, nothing stored). */
+export function QuestionsCard({ body, answered }: { body: string; answered?: string | null }) {
+  const qs = parseQuestions(body);
   const ask = useContext(AskKeelBot);
   const [picked, setPicked] = useState<ClarifyAnswers>({});
   const [typed, setTyped] = useState<ClarifyAnswers>({});
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
   if (!qs.length) return <p className="kb-card bad" role="note">KeelBot's questions could not be read. Ask it to ask again.</p>;
   const send = () => {
-    const a = answersOf(qs, picked, typed);
-    const text = ["Answers to your questions:", ...qs.map((q, i) => {
-      const v = a[q.id];
-      return `${i + 1}. ${q.question}\n   → ${(Array.isArray(v) ? v.join("; ") : v) || "(not answered: use the recommended one)"}`;
-    })].join("\n");
+    const text = answersMessage(qs, answersOf(qs, picked, typed));
     ask?.(text);
-    setSent(true);
+    setSent(text);
   };
+  const said = readAnswersMessage(answered ?? sent ?? "");
   return (
     <section className="kb-card" aria-label="KeelBot's questions">
       <div className="kb-card-h"><span className="kb-tag">Questions</span><b>KeelBot asks</b></div>
-      {sent ? <p className="kb-done" role="status">Your answers went to KeelBot.</p> : (
+      {said ? (
+        <div className="kb-done" role="status">
+          <p>Your answers went to KeelBot:</p>
+          <ol className="kb-answers" aria-label="Your answers">
+            {said.map((x, i) => <li key={i}><span className="sub">{x.question}</span> → <b>{x.answer}</b></li>)}
+          </ol>
+        </div>
+      ) : (
         <>
           <ClarifyForm questions={qs} picked={picked} typed={typed}
             onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />

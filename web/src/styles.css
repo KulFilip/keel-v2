@@ -660,6 +660,16 @@ details.file-card[open] > summary.file-bar::before { content: "▾"; }
 .clarify-opt.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .clarify-rec { justify-self: start; font-size: 11px; color: var(--ok); }
 .clarify-other { margin-top: 10px; width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
+/* keel 0.18.13 a gate's named choices (ChoiceForm): one card each, the default marked, a reason when it needs one */
+.choice-form { display: grid; gap: 10px; }
+.choice-form:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 10px; }
+.choice-opts { display: grid; gap: 8px; }
+.choice-opt.default:not(.on) { border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); }
+.choice-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.choice-n { font-size: 11px; color: var(--faint); font-family: var(--f-mono); }
+.choice-default { font-size: 11px; color: var(--ok); }
+.choice-need { font-size: 11px; color: var(--warn); }
+.choice-problem { margin: 0; color: var(--bad); font-size: 13px; }
 
 /* usage dashboard: provider plan windows (components/UsageStrip.tsx) */
 .ustrip { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
