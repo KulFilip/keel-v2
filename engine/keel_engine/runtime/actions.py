@@ -148,9 +148,17 @@ def _with_ac_status(acs: list[dict], ac_id: str | None, status: str) -> list[dic
     return [dict(x, status=status) if x["id"] == ac_id else dict(x) for x in acs]
 
 
-async def _tests(a: ActionInput, whole_suite: bool = False) -> tuple[str | None, int, str]:
+def _module_layers(root: str) -> list[str]:
+    """0.18.17 the layers of the whole suite: the api module suite, and the web one when commands.web_test_module is
+    set and frontend.dir exists (as verify_module). Only the api suite ran: quick looked green with 2 failing web tests."""
+    cfg = rules.load_config(root)
+    web = str((cfg.get("commands") or {}).get("web_test_module") or "").strip()
+    return ["API", "WEB"] if web and testcmd.part_dir(root, "frontend") else ["API"]
+
+
+async def _tests(a: ActionInput, whole_suite: bool = False, layer: str | None = None) -> tuple[str | None, int, str]:
     ac_id = None if whole_suite else (a.ac or {}).get("id")
-    layer = (a.ac or {}).get("layer", "API")
+    layer = layer or (a.ac or {}).get("layer", "API")
     cmd, rel = testcmd.located(a.root, ac_id, layer)
     if not cmd:
         return None, 1, "No test command found. Add commands to .keel/config.yml."
@@ -226,26 +234,45 @@ async def verify_green(a: ActionInput) -> ActionResult:
     if a.fake:
         return ActionResult(True, f"{label}: green (simulated).", "1 passed",
                             {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
-    cmd, code, out = await _tests(a, whole_suite=not ac_id)
+    if not ac_id:
+        return await _whole_suite_green(a)
+    cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)
     if testcmd.cannot_run(code, out):
         return cannot_run(a, cmd, out, "green")
-    if ac_id and testcmd.ran_no_tests(out):
+    if testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
-    if not ac_id and verdict_actions.ran_no_tests(cmd, code, out):
-        # 0.18.17 the whole suite with no test is not green (vitest exits 0 with "No test files found")
-        await asyncio.to_thread(_release_verdict, a, False, cmd, out)
-        return ActionResult(False, "The suite ran no test, so it is not green.",
-                            f"$ {cmd}\n{tail(out, 3000)}\n{verdict_actions.NO_TESTS_HINT}")
     if code != 0:
         return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
-    if not ac_id:
-        # The whole suite green on these files is the release verdict for the commit made from them.
-        await asyncio.to_thread(_release_verdict, a, True, cmd, out)
     return ActionResult(True, f"{label}: green.", f"$ {cmd}\n{tail(out, 1500)}",
-                        {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
+                        {"acs": _with_ac_status(a.acs, ac_id, "green")})
+
+
+async def _whole_suite_green(a: ActionInput) -> ActionResult:
+    """verify_green without a criterion: every module suite of the project (api, then web), each in its own folder."""
+    ran, shown, layers = [], [], _module_layers(a.root)
+    for layer in layers:
+        cmd, code, out = await _tests(a, whole_suite=True, layer=layer)
+        if cmd is None:
+            return ActionResult(False, out, out)
+        if testcmd.cannot_run(code, out):
+            return cannot_run(a, cmd, out, "green")
+        what = "web" if layer == "WEB" else "api"
+        if verdict_actions.ran_no_tests(cmd, code, out):
+            # 0.18.17 the whole suite with no test is not green (vitest exits 0 with "No test files found")
+            await asyncio.to_thread(_release_verdict, a, False, cmd, out)
+            return ActionResult(False, f"The {what} suite ran no test, so it is not green.",
+                                f"$ {cmd}\n{tail(out, 3000)}\n{verdict_actions.NO_TESTS_HINT}")
+        if code != 0:
+            return ActionResult(False, f"The {what} suite does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
+        ran.append(cmd)
+        shown.append(f"$ {cmd}\n{tail(out, 1500 // len(layers))}")
+    # The whole suite green on these files is the release verdict for the commit made from them.
+    await asyncio.to_thread(_release_verdict, a, True, " && ".join(ran), "\n".join(shown))
+    return ActionResult(True, "the suite: green." if len(ran) == 1 else f"the suite: green ({len(ran)} module suites).",
+                        "\n".join(shown))
 
 
 def _release_verdict(a: ActionInput, ok: bool, cmd: str, out: str, flaky: list | None = None) -> dict:

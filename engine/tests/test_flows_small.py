@@ -102,3 +102,24 @@ def test_small_plans_then_runs_test_first_per_criterion_one_review_and_one_look(
     commits = [c.split(":")[0] for c in log(repo)]
     assert "test(AC-1)" in commits and "feat(AC-1)" in commits
     assert not any(a in agents for a in ("e2e-author", "security-auditor", "librarian"))   # nothing of ship
+
+
+def test_quick_runs_every_module_suite_not_only_the_backend(tmp_path):
+    # 0.18.17 quick reached its look step with 2 failing frontend tests: its verify step ran only the api suite
+    import asyncio
+    import subprocess
+    root = tmp_path / "p"
+    (root / ".keel").mkdir(parents=True)
+    (root / "web").mkdir()
+    (root / ".keel/config.yml").write_text(
+        "commands:\n  api_test_module: \"echo api 3 passed\"\n"
+        "  web_test_module: \"echo '2 failed' && echo $PWD && false\"\nfrontend: {dir: web}\n")
+    subprocess.run(["git", "init", "-q"], cwd=root)
+    a = actions_mod.ActionInput(root=str(root), phase="ac", title="t", ac=None, acs=[], fake=False, flow="quick")
+    r = asyncio.run(actions_mod.verify_green(a))
+    assert not r.ok and "web" in r.note, r.note
+    assert "2 failed" in r.detail and str(root / "web") in r.detail
+    (root / ".keel/config.yml").write_text(
+        "commands:\n  api_test_module: \"echo api 3 passed\"\n  web_test_module: \"echo web 2 passed\"\nfrontend: {dir: web}\n")
+    r = asyncio.run(actions_mod.verify_green(a))
+    assert r.ok and "api 3 passed" in r.detail and "web 2 passed" in r.detail, r.detail
