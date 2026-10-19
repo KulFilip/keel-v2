@@ -617,3 +617,21 @@ def test_ac_1_the_session_list_has_each_chats_last_message_and_size_newest_first
     preview = by[new["id"]]["last_message"]
     assert len(preview) <= 80 and "\n" not in preview
     assert preview == last or (preview.endswith("…") and last.startswith(preview[:-1].rstrip()))
+
+
+# ------------------------------------------------------------------ P1-3 sessions: /rename (AC-2)
+
+def test_ac_2_rename_through_the_patch_route_names_the_chat_in_the_session_list(client, repo):
+    """keel TUI's /rename sends the existing PATCH {title}: the chat keeps that name, its first turn does not
+    replace it with the question, and the session list (/chats) shows it."""
+    s = new_session(client, repo)
+    r = client.patch(f"/helper/sessions/{s['id']}", json={"title": "  Health endpoint work  "})
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "Health endpoint work"
+    _, s = ask(client, s["id"], "Where does the package start?")
+    assert s["title"] == "Health endpoint work"
+    rows = client.get("/helper/sessions", params={"project": "demo"}).json()
+    assert [(x["id"], x["title"]) for x in rows] == [(s["id"], "Health endpoint work")]
+    # renaming again, after the turn, works the same way
+    client.patch(f"/helper/sessions/{s['id']}", json={"title": "Health, done"})
+    assert client.get("/helper/sessions", params={"project": "demo"}).json()[0]["title"] == "Health, done"

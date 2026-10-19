@@ -98,3 +98,38 @@ describe("/chats", () => {
     expect(labels("nothing like it")).toEqual([]);
   });
 });
+
+const openS1 = async (c: KeelCore, stub: ReturnType<typeof stubKeel>) => {
+  stub.state.session = chat("s1", "Where does it start?", NOW, "src/app.ts:1", 2);
+  stub.state.sessions = [stub.state.session, ...threeChats()];
+  await c.openChat("s1");
+};
+
+describe("/rename", () => {
+  it("AC-2 renames the open chat through the session's PATCH route, and /chats shows the new name", async () => {
+    const { core: c, stub } = core();
+    await c.start();
+    await openS1(c, stub);
+    const r = await run({ core: c, width: 100 }, "/rename   Health endpoint work ");
+    const call = stub.calls.find((x) => x.method === "PATCH" && x.path === "/api/projects/demo/helper/sessions/s1");
+    expect(call?.body).toEqual({ title: "Health endpoint work" });
+    expect(r.blocks.map((b) => b.text).join("\n")).toContain('renamed: "Health endpoint work"');
+    expect(c.snapshot.chat.session?.title).toBe("Health endpoint work");
+    const labels = (await run({ core: c, width: 100 }, "/chats")).pick!.choices.map((x) => x.label);
+    expect(labels[0]).toBe("Health endpoint work");
+    expect(labels).not.toContain("Where does it start?");
+  });
+
+  it("AC-2 asks for the name when none is given, and says to open a chat when none is open", async () => {
+    const { core: c, stub } = core();
+    await c.start();
+    const none = await run({ core: c, width: 100 }, "/rename Something");
+    expect(none.blocks.map((b) => b.text).join("\n")).toContain("open a chat first");
+    expect(stub.calls.some((x) => x.method === "PATCH")).toBe(false);
+    await openS1(c, stub);
+    const r = await run({ core: c, width: 100 }, "/rename");
+    expect(r.ask?.prompt).toContain("name");
+    await r.ask!.then("Ports again");
+    expect(stub.calls.find((x) => x.method === "PATCH")?.body).toEqual({ title: "Ports again" });
+  });
+});

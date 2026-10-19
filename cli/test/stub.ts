@@ -107,6 +107,15 @@ export function stubKeel() {
         return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
       // P1-2 /compact: the engine's {before, after} token counts for the session it just summarised
       case "POST /api/projects/demo/helper/sessions/s1/compact": return [200, { before: 48000, after: 6000 }];
+      // P1-3 /rename: the existing PATCH {title} of a KeelBot session; the chats list shows the new name
+      case "PATCH /api/projects/demo/helper/sessions/s1": {
+        const title = String(body.title ?? "").trim();
+        if (title) {
+          state.session = { ...state.session, title };
+          state.sessions = state.sessions?.map((x) => (x.id === "s1" ? { ...x, title } : x)) ?? null;
+        }
+        return [200, state.session];
+      }
       case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
       case "GET /api/projects/demo/helper/sessions": return [200, state.sessions ?? (state.session ? [state.session] : [])];
       // 0.18.5 a new workflow, rule pack or agent
