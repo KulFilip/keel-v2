@@ -13,7 +13,9 @@ main:has(> .repo-page) { padding-bottom: 14px; }
   grid-template-columns: 48px var(--side-w, 280px) 4px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 24px;
   grid-template-areas: "act side split main" "sb sb sb sb";
-  height: calc(100dvh - var(--ide-top, 180px) - 14px); min-height: 420px;
+  /* the rest of the window (Ide.tsx measures --ide-top), so the page itself does not scroll and the code is the one scroll
+     area; the floor is low so a short or narrow window does not push the status bar and the last lines below the fold */
+  height: calc(100dvh - var(--ide-top, 180px) - 14px); min-height: 240px;
   border: 1px solid var(--ide-line); border-radius: 10px; overflow: hidden; background: var(--ide-bg);
   font-size: 13px;
 }
@@ -189,7 +191,7 @@ mark.sr-m { background: color-mix(in srgb, var(--warn) 30%, transparent); color:
 @container (max-width: 700px) { .tb span, .seg button span { display: none; } .tb { padding: 0 6px; } }
 .ed-head { display: flex; align-items: stretch; background: var(--ide-act); border-bottom: 1px solid var(--ide-line); min-height: 35px; }
 .ed-back { display: none; }
-.ed-tabs { display: flex; overflow-x: auto; min-width: 0; flex: 1; scrollbar-width: thin; }
+.ed-tabs { display: flex; overflow-x: auto; overflow-y: hidden; min-width: 0; flex: 1; scrollbar-width: thin; }
 .ed-tab { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 12px; height: 35px; flex: none; max-width: 240px; cursor: pointer; color: var(--dim); border-right: 1px solid var(--ide-line); border-top: 2px solid transparent; user-select: none; }
 .ed-tab:hover { color: var(--fg); }
 .ed-tab.on { background: var(--ide-bg); color: var(--fg); border-top-color: var(--accent); margin-bottom: -1px; }
@@ -240,7 +242,9 @@ kbd { font: 600 11.5px var(--f-mono); padding: 1px 6px; border: 1px solid var(--
 
 /* the code view: 20px rows (long files render only the rows on screen), a sticky gutter */
 .cv-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.cv { flex: 1; min-height: 0; overflow: auto; font: 13px/20px var(--f-mono); tab-size: 4; outline: none; scrollbar-width: thin; }
+/* the file body is the one scroll area, both ways (the tabs and the path bar above it stay); no scroll anchoring: a long
+   file swaps the rows it renders while it scrolls */
+.cv { flex: 1; min-height: 0; min-width: 0; overflow: auto; overflow-anchor: none; font: 13px/20px var(--f-mono); tab-size: 4; outline: none; scrollbar-width: thin; }
 .cv:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 .cv-lines { width: max-content; min-width: 100%; padding-block: 4px 40vh; box-sizing: border-box; }
 .cv-row { display: flex; height: 20px; white-space: pre; }
@@ -336,7 +340,7 @@ button.sb-i:disabled:hover { background: none; }
 }
 
 /* ---------- phones: the side bar and the editor are two screens ---------- */
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 720px) {
   .repo-page .top p { display: none; }
 }
 .ide.phone { grid-template-columns: minmax(0, 1fr); border-radius: 8px; }

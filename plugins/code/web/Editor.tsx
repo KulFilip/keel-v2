@@ -2,8 +2,10 @@
 // file (case / whole word / regex), go to line, word wrap, a Markdown / SVG preview, images, binary and big files,
 // and diffs (inline or side by side) against HEAD, the base branch, or one commit. Read-only.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ErrorBox, errorParts, highlight, languageOf, linesOf, MarkdownView, parseDiff, useLoad, type DiffRow } from "@keel/web-sdk";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  ErrorBox, errorParts, highlight, isTyping, languageOf, linesOf, MarkdownView, modalOpen, parseDiff, useLoad, type DiffRow,
+} from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon, isImage, extOf } from "./icons";
 import {
@@ -53,6 +55,79 @@ export function useFileText(pid: string, meta: RepoFile | null, enabled: boolean
   return state && state.key === key ? state : null;
 }
 
+// ---------- ⌘/Ctrl+A in a code or diff view ----------
+
+type Mark = { a: Node; ao: number; f: Node; fo: number; text: string | null };
+/** The select-all each view made last (cleared as soon as the selection is something else). */
+const allMarks = new WeakMap<HTMLElement, Mark>();
+
+/** The whole text of the view when its ⌘/Ctrl+A selection is still the page's selection, else null. */
+export function selectedAll(box: HTMLElement | null | undefined): string | null {
+  if (!box) return null;
+  const m = allMarks.get(box);
+  const sel = window.getSelection?.();
+  if (!m || !sel || sel.isCollapsed) return null;
+  const same = sel.anchorNode === m.a && sel.anchorOffset === m.ao && sel.focusNode === m.f && sel.focusOffset === m.fo;
+  return same ? m.text ?? sel.toString() : null;
+}
+
+const hovered = (el: HTMLElement) => {
+  try {
+    return el.matches(":hover");
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * ⌘/Ctrl+A while the view has the focus (a click puts it there) or the pointer is on it selects the view's own text,
+ * not the whole page. A text field keeps its own ⌘/Ctrl+A. `rows` names the elements that hold the text (the first one
+ * to the last one is selected); `whole` is what a copy of that selection gives (a long file only renders the rows on
+ * screen, so the copy gives the whole file from here).
+ */
+export function useSelectAll(box: RefObject<HTMLElement>, rows: string, whole?: () => string) {
+  const wholeRef = useRef(whole);
+  wholeRef.current = whole;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "a" || e.defaultPrevented) return;
+      const el = box.current;
+      if (!el || isTyping(e.target) || modalOpen()) return;
+      if (!el.contains(document.activeElement) && !hovered(el)) return;
+      const sel = window.getSelection?.();
+      if (!sel) return;
+      e.preventDefault();
+      const all = el.querySelectorAll(rows);
+      const first = all[0];
+      const last = all[all.length - 1];
+      if (first && last) {
+        const range = document.createRange();
+        range.setStart(first, 0);
+        range.setEnd(last, last.childNodes.length);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        sel.selectAllChildren(el);
+      }
+      if (sel.anchorNode && sel.focusNode) {
+        allMarks.set(el, { a: sel.anchorNode, ao: sel.anchorOffset, f: sel.focusNode, fo: sel.focusOffset, text: wholeRef.current?.() ?? null });
+      }
+    };
+    const onCopy = (e: ClipboardEvent) => {
+      const text = selectedAll(box.current);
+      if (text === null || !wholeRef.current || !e.clipboardData) return;
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", text);
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("copy", onCopy);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("copy", onCopy);
+    };
+  }, [box, rows]);
+}
+
 // ---------- the code view ----------
 
 type CodeProps = {
@@ -86,6 +161,8 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
   const virtual = !wrapOn && lines.length > VIRTUAL_FROM;
   const maxCols = useMemo(() => (virtual ? lines.reduce((m, l) => Math.max(m, l.replace(/\t/g, "    ").length), 0) : 0), [lines, virtual]);
   const box = useRef<HTMLDivElement>(null);
+  // ⌘/Ctrl+A selects the file, not the page; a copy of it gives the whole file (a long one renders only its rows on screen)
+  useSelectAll(box, ".cv-code", () => lines.join("\n"));
   const [win, setWin] = useState({ from: 0, to: 120 });
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [flash, setFlash] = useState<Target | null>(null);
@@ -310,7 +387,7 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
       <div ref={box} className={`cv${wrapOn ? " wrap" : ""}`} tabIndex={0} role="region" aria-label={`Code of ${path}`}
         onScroll={virtual ? measure : undefined} onMouseUp={onMouseUp} style={{ ["--gd" as string]: `${Math.max(3, digits)}ch` }}
         data-lines={lines.length}>
-        <div className="cv-lines" style={virtual ? { paddingTop: from * LH, paddingBottom: (lines.length - to) * LH, minWidth: `calc(${Math.max(3, digits)}ch + ${maxCols}ch + 64px)` } : undefined}>
+        <div className="cv-lines" style={virtual ? { paddingTop: from * LH + 4, paddingBottom: `calc(${(lines.length - to) * LH}px + 40vh)`, minWidth: `calc(${Math.max(3, digits)}ch + ${maxCols}ch + 64px)` } : undefined}>
           {rows}
         </div>
       </div>
@@ -338,6 +415,8 @@ export function DiffPane({ pid, path, against, sha, branch, mode }: {
   branch?: string; mode: DiffMode;
 }) {
   const d = useLoad(`diff:${pid}:${path}:${sha ?? (branch ? `branch:${branch}` : against)}`, () => api.diff(pid, path, against, sha, branch));
+  const body = useRef<HTMLDivElement>(null);
+  useSelectAll(body, ".dv-code, .dv-hunk");
   const parsed = useMemo(() => (d.data ? parseDiff(d.data.diff) : null), [d.data]);
   const lang = languageOf(path);
   if (d.error) return <div className="ed-note"><ErrorBox error={d.error} /></div>;
@@ -355,7 +434,7 @@ export function DiffPane({ pid, path, against, sha, branch, mode }: {
   return (
     <div className={`dv ${mode}`}>
       {head}
-      <div className="dv-body" tabIndex={0} role="region" aria-label={`Changes in ${path}`} data-mode={mode}>
+      <div ref={body} className="dv-body" tabIndex={0} role="region" aria-label={`Changes in ${path}`} data-mode={mode}>
         {mode === "inline" ? rows.map((r, i) => (
           r.kind === "hunk" || r.kind === "meta"
             ? <div key={i} className={`dv-row ${r.kind}`}><span className="dv-hunk">{r.text}</span></div>
