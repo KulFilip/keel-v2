@@ -173,7 +173,9 @@ def preflight(a):
     """keel v1 `keel preflight`: the tree is a git repository with a test command, and the flow works on its own
     branch. On the base branch (base_branch, main or master) it creates feat/<slug> (settings.branch_pattern; the api
     usually made it already); on any other branch it stays, so the commits of a flow that handed over stay too.
-    data.no_gates waives the optional gates (integration, e2e, smoke); the spec and criteria gates are never waived."""
+    data.no_gates waives the optional gates (integration, e2e, smoke); the spec and criteria gates are never waived.
+    preflight_warnings adds keel v1's other checks as warnings (setup ladder, Docker, missing commands); with
+    settings.preflight_strict (or preflight.strict in .keel/config.yml) they stop the flow instead."""
     notes, update = [], {}
     gates = _gates(a)
     if a.data.get("no_gates"):
@@ -207,7 +209,68 @@ def preflight(a):
     if a.acs:
         done = sum(1 for x in a.acs if x.get("status") in DONE)
         notes.append(f"{len(a.acs)} criteria handed over ({done} done): no interview")
+    warned = preflight_warnings(a, cfg)
+    if warned:
+        if a.settings.get("preflight_strict") or (cfg.get("preflight") or {}).get("strict") is True:
+            return _fail(f"Not ready: {len(warned)} preflight problem(s).",
+                         "\n".join(f"- {w}" for w in warned) + "\n\npreflight strict is on (settings.preflight_strict or "
+                         "preflight.strict in .keel/config.yml): fix these, or turn it off to go on with warnings.")
+        data = {**(update.get("data") or a.data)}
+        data["preflight_warnings"] = warned
+        data["warnings"] = [w for w in data.get("warnings") or [] if w.get("step") != "preflight"] + \
+            [{"step": "preflight", "text": f"preflight: {w}"} for w in warned]
+        update["data"] = data
+        notes.append(f"{len(warned)} warning(s): " + "; ".join(warned))
     return _ok("ready: " + "; ".join(notes), update=update)
+
+
+def _docker_up(root: str) -> bool:
+    import shutil
+    if not shutil.which("docker"):
+        return False
+    code, _out = testcmd.run(root, "docker info --format '{{.ServerVersion}}'", 20)
+    return code == 0
+
+
+def preflight_warnings(a, cfg: dict) -> list[str]:
+    """keel v1 `keel preflight` parity, as warnings for a project that adopted keel (.keel/config.yml): the setup ladder
+    never ran or did not pass; Docker is needed (a compose file, commands.services or a container-backed test) but not
+    running; a command the flow will need is empty (codegen when a contract file exists, e2e when the work asks for e2e
+    tests or the project has an e2e folder, static_checks for ship's static checks). Problems found here would
+    otherwise show up later as confusing test failures."""
+    from . import init_gates, ladder
+
+    root = Path(a.root)
+    if not (root / ".keel" / "config.yml").is_file():
+        return []
+    out: list[str] = []
+    cmds = cfg.get("commands") or {}
+    rungs = ladder.previous(a.root)
+    if not rungs:
+        out.append("the setup ladder never ran (run the init flow): the build, the tests and the stack are unchecked")
+    else:
+        bad = [r for r in rungs if r.get("status") not in ("pass", "skipped")]
+        if bad:
+            r = bad[0]
+            out.append(f"the setup ladder did not pass: rung {r.get('n')} ({r.get('name')}) is {r.get('status')}")
+    services = str(cmds.get("services") or "")
+    needs_docker = "docker" in services or "compose" in services or bool(str(cmds.get("testcontainers_test") or "").strip()) \
+        or any((root / f).is_file() for f in init_gates.COMPOSE)
+    if needs_docker and not a.fake and not _docker_up(a.root):
+        out.append("Docker is needed (a compose file, commands.services or a container-backed test) but is not running")
+    contract = (cfg.get("contract") or {}).get("file")
+    if ((contract and (root / str(contract)).is_file()) or (root / "docs" / "contract").is_dir()) \
+            and not str(cmds.get("codegen") or "").strip():
+        out.append("commands.codegen is empty: the contract step cannot regenerate the generated clients")
+    wants_e2e = bool(a.data.get("needs_e2e")) or "[E2E]" in str(a.request or "") or (root / "e2e").is_dir()
+    if wants_e2e and not str(cmds.get("e2e") or "").strip():
+        out.append("commands.e2e is empty: E2E specs can be written but not run")
+    stacked = any(str(((d.get("commands") or {}) if isinstance(d, dict) else {}).get("static_checks") or "").strip()
+                  for d in stacks.matched(a.root))
+    if not str(cmds.get("static_checks") or "").strip() and not stacked:
+        out.append("commands.static_checks is empty (and no stack of this project sets it): ship's static checks have "
+                   "no lint or type check to run")
+    return out
 
 
 # ------------------------------------------------------------------ the spec and the plan
