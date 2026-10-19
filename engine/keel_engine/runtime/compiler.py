@@ -650,6 +650,9 @@ class Compiler:
             await mem.finish(key, "done", res.text or "")
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
             res.cost_usd = catalog.cost_usd(model["provider"], model.get("model", ""), res.tokens_in, res.tokens_out)
+        if not res.cost_usd and res.premium_requests:
+            # 0.18.16 Copilot (any mode) costs premium requests, not tokens: it showed $0 for every call before
+            res.cost_usd = catalog.premium_cost(model["provider"], model.get("model", ""), res.premium_requests)
         ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
             "agent": agent, "status": "done", "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "tokens_cached": res.tokens_cached,
             "cost_usd": round(res.cost_usd, 6), "premium_requests": res.premium_requests, "result": res.text[:2000]})

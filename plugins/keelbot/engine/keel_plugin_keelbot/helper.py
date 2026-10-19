@@ -841,6 +841,9 @@ class HelperRunner:
         cost = float(used.get("cost_usd", 0.0))
         if res and not cost and model.get("mode") == "api" and provider != "fake":
             cost = catalog.cost_usd(provider, model.get("model", ""), tin, tout)
+        if res and not cost and int(used.get("premium_requests", 0)):
+            # 0.18.16 Copilot costs premium requests, not tokens (it showed $0 before)
+            cost = catalog.premium_cost(provider, model.get("model", ""), int(used.get("premium_requests", 0)))
         answer = (res.text if res else "") or ("" if status == "done" else err or "")
         if status == "done" and not answer.strip():
             answer = "(KeelBot gave no answer.)"

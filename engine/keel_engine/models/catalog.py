@@ -39,7 +39,12 @@ DEFAULT_PRICES: dict[str, dict] = {
     "codex:gpt-5.5": {"in": 2.5, "out": 10.0},
     "codex:gpt-5.5-mini": {"in": 0.5, "out": 2.0},
     "codex:*": {"in": 1.25, "out": 10.0},
-    "copilot:*": {"in": 0.0, "out": 0.0, "premium": 1},
+    # Copilot bills premium requests, not tokens: `premium` is the model's multiplier per request (GitHub's model
+    # table; a model "included in the plan" is 0) and `premium_usd` the price of one premium request (GitHub's
+    # price for extra requests). Both change at GitHub: override them in prices.json.
+    "copilot:gpt-4.1": {"in": 0.0, "out": 0.0, "premium": 0, "premium_usd": 0.04},
+    "copilot:gpt-5-mini": {"in": 0.0, "out": 0.0, "premium": 0, "premium_usd": 0.04},
+    "copilot:*": {"in": 0.0, "out": 0.0, "premium": 1, "premium_usd": 0.04},
 }
 
 # Typical tokens (thousands, in/out) and retry rate per agent, used until there is history.
@@ -82,6 +87,13 @@ def price(provider: str, model: str, table: dict | None = None) -> dict:
 def cost_usd(provider: str, model: str, tokens_in: int, tokens_out: int) -> float:
     p = price(provider, model)
     return round((tokens_in * p.get("in", 0) + tokens_out * p.get("out", 0)) / 1e6, 6)
+
+
+def premium_cost(provider: str, model: str, requests: int) -> float:
+    """0.18.16 what a call's premium requests cost: requests × the model's multiplier × the price of one premium request
+    (Copilot). 0 for a provider without premium requests."""
+    p = price(provider, model)
+    return round(max(0, requests) * float(p.get("premium", 0) or 0) * float(p.get("premium_usd", 0) or 0), 6)
 
 
 # ------------------------------------------------------------------ catalog (GET /providers/models)
