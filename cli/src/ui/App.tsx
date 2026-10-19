@@ -30,7 +30,9 @@ import { answersMessage, blockedByChanges, buttonWords, elsewhere, prepare, pres
 import { fixRequest } from "../../../web/src/askFix";
 import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
-import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
+import { blockLines, headerLine, isMouse, MOUSE, SCREEN, startLines, view, wheel, wrap } from "../core/lines";
+import { isNewline, moveRow, promptRows } from "../core/prompt";
+import { editText, findEditor } from "../core/editor";
 import { osc52, pickCopy } from "../core/clipboard";
 import { colsOn, highlight, mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../core/select";
 import type { ModeSession } from "../core/modes";
@@ -53,6 +55,8 @@ type Question = { id: string; command: string; title: string; path?: string | nu
 /** A selection with the mouse: in the transcript (`line` is the transcript's line) or in the prompt (line 0); `moved`
  *  once it covers more than the pressed cell (a plain click selects nothing). */
 type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
+/** 0.18.18 the prompt history keeps this many (as opencode's, MIT: the last 50) */
+const HISTORY_MAX = 50;
 /** two presses on the same cell within this many ms: a double-click (the word under it) */
 const DOUBLE_MS = 400;
 
@@ -127,6 +131,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [answers, setAnswers] = useState(0);
   const [footer, setFooter] = useState<string | null>(null);
   const ctrlC = useRef(0);
+  // 0.18.18 Ctrl+X, then E (or Ctrl+E): the prompt in the person's editor; when Ctrl+X came
+  const ctrlX = useRef(0);
+  const { stdin: inkStdin } = useStdin();
   // the full screen's scroll: lines up from the newest, the transcript area's height, and the wheel on or off
   const [offset, setOffset] = useState(0);
   const [viewH, setViewH] = useState(Math.max(3, height - 8));
@@ -338,7 +345,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     let alive = true;
     void core.prompts().then((ps) => {
       if (!alive) return;
-      setHistory((h) => [...new Set([...h.filter((x) => !ps.includes(x)), ...ps])].slice(0, 500));
+      setHistory((h) => [...new Set([...h.filter((x) => !ps.includes(x)), ...ps])].slice(0, HISTORY_MAX));
       setHIdx(-1);
     }).catch(() => undefined);
     return () => void (alive = false);
@@ -437,8 +444,38 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }
     }
     if (reply.mode) setMode(reply.mode);
+    if (reply.editor !== undefined) openEditor(reply.editor);
     if (reply.quit) exit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [core, exit, push, stdout, screen, mouse, items]);
+
+  /** 0.18.18 The text in the person's editor ($VISUAL / $EDITOR): the terminal is the editor's until it ends (no raw
+   *  keys, no mouse reports, keel TUI's screen given back after it), then what it saved is the prompt, not sent. */
+  function openEditor(text: string) {
+    const found = findEditor(process.env);
+    if ("why" in found) {
+      push({ kind: "error", text: found.why });
+      return;
+    }
+    const tty = !!(inkStdin as NodeJS.ReadStream).isTTY;
+    if (screen && mouse) stdout?.write(MOUSE.off);
+    if (tty) (inkStdin as NodeJS.ReadStream).setRawMode(false);
+    let r: ReturnType<typeof editText>;
+    try {
+      r = editText(text, found.editor);
+    } finally {
+      if (tty) (inkStdin as NodeJS.ReadStream).setRawMode(true);
+      // an editor leaves the terminal's other screen when it ends: keel TUI's full screen comes back, drawn anew
+      if (screen) stdout?.write(SCREEN.on + (mouse ? MOUSE.on : ""));
+    }
+    if ("error" in r) {
+      push({ kind: "error", text: r.error });
+      return;
+    }
+    setHIdx(-1);
+    setText(r.text);
+    push({ kind: "dim", text: `  written in ${found.editor.name}: the prompt has it, Enter sends it` });
+  }
 
   const submit = useCallback(async (raw: string) => {
     const text = raw.replace(/\s+$/, "");
@@ -458,7 +495,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     if (!text.trim()) return;
     setOffset(0);
     push({ kind: "user", text });
-    setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, 500));
+    setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, HISTORY_MAX));
     setHIdx(-1);
     const name = text.startsWith("/") ? text.split(/\s+/)[0] : "";
     if (name) setRunning(name);
@@ -484,9 +521,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const filtered = pending?.pick ? pickMatches(pending.pick.choices, pickFilter) : [];
 
   /** A prompt from the history, as it is: no completions open (they would take ↑ / ↓). */
-  const showPrompt = (t: string) => {
+  const showPrompt = (t: string, c = t.length) => {
     setLine(t);
-    setCursor(t.length);
+    setCursor(c);
     setComps([]);
   };
 
@@ -738,6 +775,23 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }
       return;
     }
+    // 0.18.18 Ctrl+X, then E or Ctrl+E (as opencode and readline): the prompt as it is, in the person's editor
+    if (key.ctrl && input === "x") {
+      ctrlX.current = Date.now();
+      return;
+    }
+    if (ctrlX.current) {
+      const chord = Date.now() - ctrlX.current < 2000 && input === "e";
+      ctrlX.current = 0;
+      if (chord) {
+        const text = line;
+        setLine("");
+        setCursor(0);
+        setComps([]);
+        openEditor(text);
+        return;
+      }
+    }
     const pluginPanel = key.ctrl ? snap.plugins.plugins.find((x) => x.panel?.key === input) : undefined;
     if (pluginPanel) {
       const id = `plugin:${pluginPanel.name}` as PanelId;
@@ -791,21 +845,34 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       if (cs.length) setText(cs[comps.length ? compIdx : 0].value);
       return;
     }
+    // 0.18.18 Alt / Option+Enter (and Shift+Enter where the terminal reports it): a new line, not sent
+    if (isNewline(input, key)) {
+      setHIdx(-1);
+      setText(line.slice(0, cursor) + "\n" + line.slice(cursor), cursor + 1);
+      return;
+    }
     if (key.upArrow || key.downArrow) {
       if (comps.length) {
         setCompIdx((i) => (key.upArrow ? Math.max(0, i - 1) : Math.min(Math.min(comps.length, 8) - 1, i + 1)));
         return;
       }
-      // 0.18.18 only an empty prompt, or the earlier prompt shown as it is, walks the history: ↑ older, ↓ newer
+      // 0.18.18 ↑ / ↓ move between a prompt's rows first; on the first row ↑ goes to its start, on the last ↓ to its
+      // end (as opencode, MIT; a prompt of one row skips that). Only from there, and only in an empty prompt or an earlier prompt shown as it is, they
+      // walk the history: ↑ older (the cursor at its start), ↓ newer (at its end), down to an empty prompt.
+      const up = key.upArrow;
       const walking = hIdx >= 0 && line === history[hIdx];
+      const to = moveRow(line, cursor, up ? -1 : 1);
+      if (to !== null) return setCursor(to);
+      const edge = up ? 0 : line.length;
+      if (line.includes("\n") && cursor !== edge) return setCursor(edge);
       if (!walking && line) return;
-      const i = key.upArrow ? Math.min(history.length - 1, hIdx + 1) : hIdx - 1;
+      const i = up ? Math.min(history.length - 1, hIdx + 1) : hIdx - 1;
       if (i < 0) {
         setHIdx(-1);
         if (walking) showPrompt("");
       } else if (history[i] !== undefined) {
         setHIdx(i);
-        showPrompt(history[i]);
+        showPrompt(history[i], up ? 0 : undefined);
       }
       return;
     }
@@ -970,18 +1037,42 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             {/* "copied N characters" takes the row the footer (or the prompt's air above it) had: nothing moves */}
             {flash ? <Box marginTop={footer && !chat.busy ? 1 : 0}><Text wrap="truncate-end" color={t.color("dim")}>{" " + flash}</Text></Box>
               : footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
-            <Box ref={promptRef} borderStyle="round" borderColor={border} paddingX={1} marginTop={flash || (footer && !chat.busy) ? 0 : 1}>
-              <Text>
-                <Text color={t.color("accent")} bold>{"› "}</Text>
-                {line ? <>{inputText(line.slice(0, cursor))}<Text inverse>{line[cursor] ?? " "}</Text>{inputText(line.slice(cursor + 1))}</>
-                  : <><Text inverse> </Text><Text color={t.color("dim")}>{pending?.ask ? "type the answer, Enter sends"
-                    : flowWaits ? "A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot" : "Ask KeelBot, or / for commands"}</Text></>}
-              </Text>
+            <Box ref={promptRef} borderStyle="round" borderColor={border} paddingX={1} marginTop={flash || (footer && !chat.busy) ? 0 : 1}
+              flexDirection="column">
+              {line ? promptText() : (
+                <Text>
+                  <Text color={t.color("accent")} bold>{"› "}</Text>
+                  <Text inverse> </Text><Text color={t.color("dim")}>{pending?.ask ? "type the answer, Enter sends"
+                    : flowWaits ? "A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot" : "Ask KeelBot, or / for commands"}</Text>
+                </Text>
+              )}
             </Box>
             {comps.length > 0 && <Completions items={comps} index={compIdx} />}
           </Box>
         )}
         <Clickable act={answerWaiting}><StatusLine s={snap} /></Clickable>
+      </>
+    );
+  }
+
+  /** 0.18.18 The prompt's rows (it grows with Alt+Enter up to PROMPT_ROWS rows, then shows the cursor's), the cursor
+   *  inverse, and how many rows are hidden above or below. */
+  function promptText() {
+    const pv = promptRows(line, cursor);
+    const more = (n: number, where: string) => (
+      <Text color={t.color("dim")} wrap="truncate-end">{`  ${n} more line${n === 1 ? "" : "s"} ${where}`}</Text>
+    );
+    return (
+      <>
+        {pv.above > 0 && more(pv.above, "above")}
+        {pv.rows.map((r, i) => (
+          <Text key={pv.above + i}>
+            <Text color={t.color("accent")} bold>{pv.above + i === 0 ? "› " : "  "}</Text>
+            {r.cursor === null ? inputText(r.text || " ")
+              : <>{inputText(r.text.slice(0, r.cursor))}<Text inverse>{r.text[r.cursor] ?? " "}</Text>{inputText(r.text.slice(r.cursor + 1))}</>}
+          </Text>
+        ))}
+        {pv.below > 0 && more(pv.below, "below")}
       </>
     );
   }

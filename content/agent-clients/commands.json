@@ -336,6 +336,14 @@
       "group": "Screen"
     },
     {
+      "name": "editor",
+      "args": "[text]",
+      "summary": "write the prompt in your editor ($VISUAL or $EDITOR): what you save comes back into the prompt, Enter sends it (Ctrl+X E opens the prompt as it is)",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
       "name": "quit",
       "summary": "leave keel TUI (keel keeps running)",
       "aliases": [
@@ -355,6 +363,14 @@
     {
       "key": "Up / Down",
       "does": "in an empty prompt: your earlier prompts of this project, newest first (kept by keel); Esc or typing leaves them; or the completion to take"
+    },
+    {
+      "key": "Alt+Enter / Shift+Enter",
+      "does": "a new line in the prompt (Shift+Enter where the terminal reports it; Ctrl+J too); Enter sends it all"
+    },
+    {
+      "key": "Ctrl+X E",
+      "does": "the prompt in your editor ($VISUAL or $EDITOR), as /editor"
     },
     {
       "key": "Ctrl+F",

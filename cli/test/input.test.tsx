@@ -1,12 +1,17 @@
 // 0.18.18 keel TUI phase 2, input comfort: the person's earlier prompts (↑ / ↓, from keel, so they survive a restart),
 // a prompt of several lines (Alt+Enter, /editor), `!command` through keel's guard, and images with a turn.
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
 import { App, type Probe } from "../src/ui/App";
 import { KeelCore } from "../src/core/keel";
 import { makeTheme } from "../src/core/theme";
 import { stripAnsi } from "../src/script";
+import { isNewline, moveRow, promptRows, PROMPT_ROWS } from "../src/core/prompt";
+import { findEditor } from "../src/core/editor";
 import { stubKeel, tick, waitFor } from "./stub";
 
 const UP = "\x1b[A";
@@ -66,9 +71,34 @@ describe("prompt history", () => {
     await a.key(ESC);
     expect(a.prompt()).not.toContain("newest");
     await a.key(UP);
-    await a.key("!");                                      // typing edits the prompt: ↑ no longer walks
+    await a.key("!");                                      // typing edits the prompt (↑ put the cursor at its start)
     await a.key(UP);
-    expect(a.prompt()).toContain("the newest question!");
+    expect(a.prompt()).toContain("!the newest question");
+    a.r.unmount();
+  });
+
+  it("in a prompt of several lines ↑ / ↓ move between its rows first, then walk the history (as opencode)", async () => {
+    const a = await app((s) => (s.state.prompts = ["newest a\nnewest b", "older"]));
+    await waitFor(() => a.stub.calls.some((c) => c.path === "/api/projects/demo/helper/prompts?limit=50" || c.path.endsWith("/helper/prompts")));
+    await a.key(UP);
+    expect(a.prompt()).toContain("newest b");             // the whole prompt, the cursor at its start
+    await a.key(UP);
+    expect(a.prompt()).toContain("older");
+    await a.key(DOWN);                                     // back: the cursor at its end, on the last row
+    expect(a.prompt()).toContain("newest b");
+    await a.key(UP);                                       // ↑ moves to the first row; it stays this prompt
+    expect(a.prompt()).toContain("newest b");
+    await a.key(DOWN);
+    await a.key(DOWN);                                     // the last row's end, then the empty prompt
+    expect(a.prompt()).not.toContain("newest");
+    await a.key("mine");
+    await a.key("\x1b\r");
+    await a.key("two");
+    await a.key(UP);
+    await a.key(UP);
+    await a.key(UP);                                       // a prompt the person wrote: rows only, never the history
+    expect(a.prompt()).toContain("mine");
+    expect(a.prompt()).not.toContain("older");
     a.r.unmount();
   });
 
@@ -83,5 +113,114 @@ describe("prompt history", () => {
     await a.key(UP);
     expect(a.prompt()).toContain("an older question");
     a.r.unmount();
+  });
+});
+
+describe("a prompt of several lines", () => {
+  it("knows the keys that add a line: Alt+Enter, Ctrl+J and Shift+Enter as kitty or xterm report it", () => {
+    const none = { return: false, meta: false, shift: false };
+    expect(isNewline("\r", none)).toBe(true);              // Alt / Option+Enter: Ink gets ESC CR, strips the ESC
+    expect(isNewline("\n", none)).toBe(true);
+    expect(isNewline("[13;2u", none)).toBe(true);
+    expect(isNewline("[27;2;13~", none)).toBe(true);
+    expect(isNewline("", { ...none, return: true })).toBe(false);   // a plain Enter sends
+    expect(isNewline("a", none)).toBe(false);
+  });
+
+  it("shows at most PROMPT_ROWS rows around the cursor and says how many are hidden", () => {
+    const text = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+    const v = promptRows(text, text.length);
+    expect(v.rows.length).toBe(PROMPT_ROWS);
+    expect(v.rows[v.rows.length - 1]).toEqual({ text: "line 12", cursor: 7 });
+    expect(v.above).toBe(12 - PROMPT_ROWS);
+    expect(v.below).toBe(0);
+    const top = promptRows(text, 0);
+    expect(top.rows[0]).toEqual({ text: "line 1", cursor: 0 });
+    expect(top.below).toBe(12 - PROMPT_ROWS);
+    expect(promptRows("one", 1).rows).toEqual([{ text: "one", cursor: 1 }]);
+  });
+
+  it("↑ / ↓ move between the rows, at the same column where it can", () => {
+    const t = "first line\nab\nthird";
+    expect(moveRow(t, t.length, -1)).toBe("first line\nab".length);           // col 5 → the end of "ab"
+    expect(moveRow(t, 3, 1)).toBe("first line\nab".length);
+    expect(moveRow(t, 2, -1)).toBeNull();
+    expect(moveRow(t, t.length, 1)).toBeNull();
+  });
+
+  it("Alt+Enter and Shift+Enter add a line, the box grows, and Enter sends it all to KeelBot", async () => {
+    const a = await app();
+    await a.key("first line");
+    await a.key("\x1b\r");
+    await a.key("second line");
+    await a.key("\x1b[13;2u");
+    await a.key("third");
+    expect(a.prompt().split("\n").length).toBe(3);
+    expect(a.prompt()).toContain("second line");
+    a.stub.answer("seen");
+    await a.key("\r", 200);
+    await waitFor(() => a.stub.calls.some((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn"));
+    const turn = a.stub.calls.find((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn")!;
+    expect((turn.body as { text: string }).text).toBe("first line\nsecond line\nthird");
+    a.r.unmount();
+  });
+
+  it("the box stops growing at PROMPT_ROWS rows and says how many lines are above", async () => {
+    const a = await app();
+    for (let i = 1; i <= 12; i++) {
+      await a.key(`row ${i}`, 10);
+      if (i < 12) await a.key("\x1b\r", 10);
+    }
+    await tick(60);
+    const shown = a.prompt().split("\n");
+    expect(shown.length).toBe(PROMPT_ROWS + 1);
+    expect(shown[0]).toContain(`${12 - PROMPT_ROWS} more lines above`);
+    expect(a.prompt()).toContain("row 12");
+    expect(a.prompt()).not.toContain("row 1\n");
+    a.r.unmount();
+  });
+});
+
+describe("/editor", () => {
+  it("finds $VISUAL, else $EDITOR, on PATH; with neither it says what to set", () => {
+    const on = (c: string) => c === "nvim" || c === "/opt/bin/code";
+    expect(findEditor({ VISUAL: "nvim", EDITOR: "nano" }, on)).toEqual({ editor: { cmd: "nvim", args: [], name: "nvim" } });
+    expect(findEditor({ EDITOR: "/opt/bin/code -w" }, on)).toEqual({ editor: { cmd: "/opt/bin/code", args: ["-w"], name: "code" } });
+    expect("why" in findEditor({}, on) && findEditor({}, on)).toMatchObject({ why: expect.stringContaining("$VISUAL or $EDITOR") });
+    expect(findEditor({ EDITOR: "nano" }, on)).toMatchObject({ why: expect.stringContaining("nano is not on PATH") });
+  });
+
+  it("opens the text in the editor and puts what it saved back in the prompt, not sent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-editor-"));
+    const ed = join(dir, "fake-editor");
+    writeFileSync(ed, `#!/bin/sh\ncp "$1" "${dir}/seen"\nprintf 'edited first\\nedited second\\n' > "$1"\n`);
+    chmodSync(ed, 0o755);
+    vi.stubEnv("VISUAL", ed);
+    try {
+      const a = await app();
+      await a.key("/editor draft text", 60);
+      await a.key("\r", 300);
+      await waitFor(() => a.prompt().includes("edited second"), 3000);
+      expect(readFileSync(join(dir, "seen"), "utf8")).toBe("draft text");
+      expect(a.prompt()).toContain("edited first");
+      expect(a.stub.calls.some((c) => c.path.endsWith("/turn"))).toBe(false);
+      a.r.unmount();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("says so when no editor is set", async () => {
+    vi.stubEnv("VISUAL", "");
+    vi.stubEnv("EDITOR", "");
+    try {
+      const a = await app();
+      await a.key("/editor", 60);
+      await a.key("\r", 200);
+      await waitFor(() => a.frame().includes("$VISUAL or $EDITOR"), 3000);
+      a.r.unmount();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

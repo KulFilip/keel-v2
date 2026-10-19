@@ -193,7 +193,7 @@ class HelperService(
     }
 
     /** 0.18.18 The person's earlier prompts in this project's chats, newest first, each once: keel TUI's ↑ / ↓. */
-    fun prompts(pid: String, limit: Int = 200): JsonNode {
+    fun prompts(pid: String, limit: Int = 50): JsonNode {
         projects.require(pid)
         return engine.get("/helper/prompts?project=$pid&limit=${limit.coerceIn(1, 500)}")
     }
@@ -489,7 +489,7 @@ class HelperController(private val helper: HelperService) {
     fun commands(@PathVariable pid: String): JsonNode = helper.commands(pid)
 
     @GetMapping("/prompts")
-    fun prompts(@PathVariable pid: String, @RequestParam(defaultValue = "200") limit: Int): JsonNode = helper.prompts(pid, limit)
+    fun prompts(@PathVariable pid: String, @RequestParam(defaultValue = "50") limit: Int): JsonNode = helper.prompts(pid, limit)
 
     @GetMapping("/sessions/{sid}/changes")
     fun changes(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.changes(pid, sid)

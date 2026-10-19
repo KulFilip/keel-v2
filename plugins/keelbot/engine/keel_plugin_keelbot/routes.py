@@ -226,7 +226,7 @@ async def post_helper_export(sid: str):
 
 
 @router.get("/helper/prompts")
-async def get_helper_prompts(project: str, limit: int = 200):
+async def get_helper_prompts(project: str, limit: int = 50):
     """0.18.18 The person's earlier prompts in this project's chats, newest first, each once (keel TUI's ↑ / ↓)."""
     return await asyncio.to_thread(helper.prompts, project, limit)
 

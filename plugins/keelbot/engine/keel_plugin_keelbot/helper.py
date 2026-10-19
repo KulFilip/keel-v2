@@ -358,11 +358,11 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
 PROMPTS_MAX = 500
 
 
-def prompts(project: str, limit: int = 200) -> list[str]:
+def prompts(project: str, limit: int = 50) -> list[str]:
     """0.18.18 What the person asked in this project's chats, newest first, each text once (at its newest place): keel
     TUI's ↑ / ↓ walk it, so the history survives a restart and is the same on another computer. Only the person's
     own messages (role user), never KeelBot's answers or notes."""
-    limit = max(1, min(int(limit or 200), PROMPTS_MAX))
+    limit = max(1, min(int(limit or 50), PROMPTS_MAX))
     out: list[str] = []
     seen: set[str] = set()
     with db.connect() as conn:

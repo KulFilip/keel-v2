@@ -45,6 +45,8 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   follow?: string;
   /** the start box again (keel, the project, its flow, what waits): after a switch to another project */
   start?: boolean;
+  /** 0.18.18 open this text in the person's editor ($VISUAL / $EDITOR); what they save comes back into the prompt */
+  editor?: string;
   /** 0.18.6 a plugin's mode, opened: it takes the screen until Esc (core/modes.ts) */
   mode?: import("./modes").ModeSession };
 
@@ -966,6 +968,9 @@ const IMPLS: Impl[] = [
     if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");
     return { blocks: [], mouse: w ? w === "on" : "toggle" };
   } },
+  // 0.18.18 write the prompt in the person's own editor: the words after /editor (or nothing) open in it, what they
+  // save comes back into the prompt to read and send (Ctrl+X E opens the prompt as it is)
+  { name: "editor", run: (_ctx, a) => ({ blocks: [], editor: a }) },
   { name: "quit", run: () => ({ blocks: [], quit: true }) },
 ];
 

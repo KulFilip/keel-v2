@@ -554,7 +554,7 @@ export class KeelCore {
   async prompts(): Promise<string[]> {
     const pid = this.pid;
     if (!pid) return [];
-    return get<string[]>(`/projects/${encodeURIComponent(pid)}/helper/prompts`);
+    return get<string[]>(`/projects/${encodeURIComponent(pid)}/helper/prompts?limit=50`);
   }
 
   /** P1-3 Name the open chat: the session's existing PATCH {title}; the engine keeps it (a first turn no longer names it). */
