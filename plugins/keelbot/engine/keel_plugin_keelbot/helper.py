@@ -52,7 +52,7 @@ except ImportError:                     # pragma: no cover
         def flush(self): pass
         def reset(self): pass
 from keel_engine.runtime.blockers import for_agents as push_blockers_for
-from keel_engine.runtime import agent_knowledge, db, doc_history, guard_ctx, permissions, plugins, prompts
+from keel_engine.runtime import agent_knowledge, db, doc_history, guard_ctx, permissions, plugins, prompts, repeats
 from keel_engine.tools import git, guard, testcmd, worktrees
 from keel_engine.tools.agent_tools import ToolBox, command_env
 
@@ -73,28 +73,59 @@ STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
     "ask": ("Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git). "
             "When the person asks for a change (edit a file, git checkout or switch a branch, install, build, commit), do "
-            "not try it and do not try other ways around it: say in one line that Ask mode is read only, and how to go "
-            "on: in keel TUI `/mode edit` (works in the project folder; a command that changes something waits for "
-            "their OK) or `/mode side` (its own copy on its own branch), in the dashboard the chat's mode menu; then "
-            "they ask again. Give the exact command they asked for too (for example `git checkout main`), so they can "
-            "run it themselves."),
+            "not try it and do not try other ways around it: say in one line that Ask mode is read only, and give the "
+            "exact command they asked for (for example `git checkout main`), so they can run it themselves. Then offer "
+            "the ways forward as a keel-questions block: switch to Edit (recommended: in keel TUI `/mode edit`, in the "
+            "dashboard the chat's mode menu; it works in the project folder and every command that changes something "
+            "waits for their OK), a side session (`/mode side`: its own copy on its own branch), or run the command "
+            "themselves. You cannot switch the mode yourself: after they switch, they ask again."),
     "fix": ("Mode: Fix at a gate. The flow waits for the person at a gate, and the person asked you to change something. "
             "Edit only what the request needs, with the smallest change; keel's guard refuses files the flow's phase "
             "({phase}) does not allow. Reading, searching and running the tests need no OK; any other command that changes "
             "something waits for the person's OK. Never commit: when the person presses Done, keel runs the checks and "
             "commits your change. End with one short line per file you changed."),
     "edit": ("Mode: Edit. You work in the project folder itself, with no flow: edit what the person asks, with the smallest "
-             "change; keel's always-on rules still apply (no secrets, no .git, no applied migration). Reading, searching and "
-             "running the tests need no OK; any other command that changes something (git checkout, a build, an install) "
-             "waits for the person's OK. Never commit or push: when the person keeps your change, keel runs the checks and "
-             "commits it. End with one short line per file you changed."),
+             "change; keel's always-on rules still apply (no secrets, never write .git by hand, no applied migration). "
+             "Reading, searching and running the tests need no OK; any other command that changes something waits for the "
+             "person's OK, and keel shows them each command first. Git work on the person's branch is yours to do when they "
+             "ask for it: git status, git stash and git stash pop, git checkout or git switch, git fetch and git pull, and "
+             "git commit of the person's own changes when they choose that (you write the message, they OK the command). "
+             "A command that throws work away (git checkout -- ., git restore, git reset --hard, git clean, git stash "
+             "drop) only when the person picked exactly that, and say first what is lost. Never commit your own file "
+             "changes and never push: when the person keeps your change, keel runs the checks and commits it. End with "
+             "one short line per file you changed."),
     "side": ("Mode: Side session. You work in your own copy of the project: a git worktree on branch {branch}, not the "
              "main folder. Edit freely there, but only there (keel refuses a file outside it); nothing you do touches the "
              "main folder or a flow running in it. Reading, searching and running the tests need no OK; any other command "
-             "that changes something waits for the person's OK. Never commit: the person keeps your work (keel runs the "
-             "checks and commits it on the branch), hands it over as a task or a flow, or throws it away. End with one "
-             "short line per file you changed."),
+             "that changes something (git stash, git pull, git checkout in this worktree) waits for the person's OK. Never "
+             "commit your own changes: the person keeps your work (keel runs the checks and commits it on the branch), "
+             "hands it over as a task or a flow, or throws it away. End with one short line per file you changed."),
 }
+# keel 0.18.18 when something fails (every mode). A person asked to check out main with uncommitted changes in the
+# folder; `git checkout main` failed, and KeelBot ran it again on every "fix it" and ended with "I cannot". The way
+# opencode does it (and now keel): read the error, say why in one line, offer the ways forward, do what the person picks.
+FAILURES = ("When a command or a tool fails, or keel refuses it: never run the same thing again unchanged (keel refuses an "
+            "exact repeat while nothing in the folder changed). Read the error, and say in one line why it failed, quoting "
+            "the error's own words. Then offer 2 to 4 ways forward as a keel-questions block, the safe one first and "
+            "recommended, each with what it does and what it costs, and a way to leave it as it is; then stop and wait. "
+            "Never end with only \"I cannot\": there is always a next step to offer. After the person's answer, do what "
+            "they picked, step by step (each command that changes something waits for their OK). If they deny a command, "
+            "their reason comes back to you: go on from what they said, do not ask for the same command again.\n"
+            "For example `git checkout main` fails with \"Your local changes to the following files would be overwritten "
+            "by checkout\": say that the folder has uncommitted changes in those files, and offer: stash them, check out "
+            "main, pull, then git stash pop (recommended: nothing is lost); commit them first on this branch; discard them "
+            "(git checkout -- <files>: they are lost); or leave it as it is.")
+COMMITS = {          # keel's commit line in KeelBot's system prompt (runtime/prompts.py system_prompt), per mode
+    "edit": ("keel commits your own file changes after its checks (when the person keeps them); never git commit them "
+             "yourself, and never push. Only the person's own uncommitted work may be committed with git commit, when they "
+             "choose that, and the command waits for their OK."),
+}
+# Ask mode's refusals in its own words (the guard said "this flow runs read-only", and KeelBot looked for a flow)
+ASK_LABEL = "KeelBot's Ask mode is read only"
+ASK_NOTE = ("You cannot switch the mode yourself and must not try another way around it. Say so in one line, give the "
+            "exact command for the person to run, and offer the ways forward as a keel-questions block: switch to Edit "
+            "(recommended; keel TUI `/mode edit`, the dashboard's mode menu), a side session (`/mode side`), or run it "
+            "themselves.")
 DIFF_MAX = 40_000
 ASK_PATH = PART_ASK_PATH               # where the guard hook asks (it checks the turn's key, then asks approvals.py)
 
@@ -640,6 +671,32 @@ def _flow_block(flow: dict | None) -> str:
     return "\n".join(lines)
 
 
+def flows_in_folder(keel: dict | None) -> list[dict]:
+    """The project's flows that run or wait in the project folder itself (not in a worktree of their own): a branch
+    switch there changes the files they work on."""
+    return [f for f in (keel or {}).get("flows") or [] if isinstance(f, dict)
+            and f.get("status") in ("running", "waiting") and (f.get("where") or "folder") != "worktree"]
+
+
+def flow_branches(keel: dict | None) -> set[str]:
+    """The branches of the project's flows that run or wait: theirs, not KeelBot's to check out."""
+    return {str(f["branch"]) for f in (keel or {}).get("flows") or [] if isinstance(f, dict) and f.get("branch")
+            and f.get("status") in ("running", "waiting")}
+
+
+def _failed_block(failed: list[dict] | None) -> str:
+    """keel 0.18.18 what failed or was refused in KeelBot's last answer: the next turn starts from the error, not from
+    the same command again."""
+    rows = [f for f in failed or [] if f.get("command") or f.get("said")]
+    if not rows:
+        return ""
+    lines = [f"- `{f['command']}`" + (f": {f['said']}" if f.get("said") else "") if f.get("command") else f"- {f['said']}"
+             for f in rows[-6:]]
+    return ("In your last answer these failed or were refused:\n" + "\n".join(lines) + "\nDo not run them again "
+            "unchanged. If the person now says \"fix it\" or \"try again\", offer the ways forward (a keel-questions block) "
+            "unless they already picked one.")
+
+
 def _transcript(hist: list[tuple[str, str]]) -> str:
     """The conversation so far, newest kept, for engines that cannot continue their own session."""
     parts, used = [], 0
@@ -715,9 +772,18 @@ def _shell_block(shell: dict | None) -> str:
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
                  branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None,
-                 images: list[str] | None = None) -> str:
+                 images: list[str] | None = None, failed: list[dict] | None = None) -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
-    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), where]
+    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), FAILURES, where]
+    if mode == "edit":
+        busy = flows_in_folder(keel)
+        if busy:
+            parts.append("A flow works in this project folder now (" + "; ".join(f"\"{f.get('title')}\" {f.get('status')}"
+                         for f in busy) + "): a branch switch, a pull or a stash changes the files it works on. Say so "
+                         "before you offer one, and recommend a side session (`/mode side`) or waiting for the flow.")
+    lost = _failed_block(failed)
+    if lost:
+        parts.append(lost)
     block = agent_knowledge.prompt_block(root, know, graph)
     if block:
         parts.append(block)
@@ -733,6 +799,12 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
             parts.append(extra)
     parts.append(f"Question: {question.strip()}")
     return "\n\n".join(parts)
+
+
+def last_failures(sid: str, before_n: int) -> list[dict]:
+    """What failed or was refused in KeelBot's last answer before message `before_n` (its stored `failed`)."""
+    msgs = [m for m in get(sid)["messages"] if m["n"] < before_n and m["role"] in ("helper", "note")]
+    return list((msgs[-1].get("data") or {}).get("failed") or []) if msgs else []
 
 
 # ------------------------------------------------------------------ /compact
@@ -765,6 +837,19 @@ async def compact(sid: str) -> dict:
 
 # ------------------------------------------------------------------ turns
 
+def said_no(command: str, ans: dict) -> dict:
+    """keel 0.18.18 the person's deny, as KeelBot reads it: their reason, and to go on from it (not to ask again)."""
+    if ans.get("decision") == "allow":
+        return ans
+    why = str(ans.get("why") or "").strip() or approvals.DENY_WHY
+    if why in (approvals.DENY_WHY, approvals.TIMEOUT_WHY) or why.startswith(("The person stopped", "KeelBot's answer")):
+        note = why
+    else:
+        note = f"The person said no to this command: {why}"
+    return {**ans, "why": f"{note} Do not run it again; go on from what they said, or offer other ways forward."}
+
+
+
 class HelperRunner:
     """Runs turns in the background (one at a time per session) and stops them."""
 
@@ -776,6 +861,9 @@ class HelperRunner:
         self.ask_keys: dict[str, str] = {}
         self.approvals = approvals.of(bus)
         self.commands: set[str] = set()          # 0.18.18 sessions whose person's `!command` runs now
+        # keel 0.18.18 the running turn's view of keel per session (its flows): the cards warn when a flow works in the
+        # folder, and a flow's own branch is not KeelBot's to check out
+        self.turn_keel: dict[str, dict] = {}
 
     # ---- permission cards (runtime/permissions.py) --------------------------------------------------------------
 
@@ -787,22 +875,48 @@ class HelperRunner:
             s = get(sid, messages=False)
         except HelperError:
             return None, {"decision": "deny", "why": "The KeelBot chat is gone."}
+        branch = self._flow_branch(sid, command)
+        if branch:
+            return None, {"decision": "deny", "why": f"{branch} is the branch of a keel flow that runs or waits: the flow "
+                          "owns it (in its own worktree), so KeelBot does not check it out or change it. Offer the person "
+                          "another way (a side session, or wait until the flow is finished)."}
         if permissions.granted(command, s["grants"]):
             return None, {"decision": "allow"}
         return s, None
+
+    def _flow_branch(self, sid: str, command: str) -> str:
+        """The flow branch this command checks out, switches to, resets or deletes, else ""."""
+        if not permissions.changes_tree(command) and " branch " not in f" {command} ":
+            return ""
+        words = set(str(command).replace("=", " ").split())
+        return next((b for b in sorted(flow_branches(self.turn_keel.get(sid))) if b in words), "")
+
+    def _warning(self, s: dict, command: str) -> str:
+        """What the person should know before they say yes: the command throws work away, or a flow works in this
+        folder and the command changes its files."""
+        out = [permissions.destructive(command)]
+        if s["mode"] in ("edit", "fix") and permissions.changes_tree(command):
+            busy = flows_in_folder(self.turn_keel.get(s["id"]))
+            if busy:
+                out.append(f"A flow works in this folder (\"{busy[0].get('title')}\" {busy[0].get('status')}): this "
+                           "changes the files it works on.")
+        return " ".join(w for w in out if w)
 
     def _open(self, s: dict, kind: str, command: str, path: str = "") -> str:
         """Asks approvals; KeelBot's own panel gets helper.permission, and helper.permission.answered when it ends."""
         sid = s["id"]
 
         def answered(q: dict, said: str, ans: dict):
-            if said == "always":
-                add_grant(sid, q["command"])
+            if said == "always" and not permissions.destructive(q["command"]):     # one that throws work away: every time
+                add_grant(sid, q.get("always") or q["command"])
             self.bus.emit("helper.permission.answered", sid, q["project"], step="helper",
                           data={"id": q["id"], "decision": ans.get("decision"), "why": ans.get("why", "")})
 
         q = self.approvals.open(kind, s["project"], s["title"], command, source="keelbot", thread_id=s["thread_id"],
-                                session=sid, path=path, on_answer=answered)
+                                session=sid, path=path, on_answer=answered,
+                                extra={"warning": self._warning(s, command),
+                                       # what "always" keeps; none for a command that throws work away (asked every time)
+                                       "always": "" if permissions.destructive(command) else permissions.always_pattern(command)})
         self.bus.emit("helper.permission", sid, s["project"], step="helper", data=q)
         return q["id"]
 
@@ -811,12 +925,12 @@ class HelperRunner:
         s, now = self._check(sid, key, command)
         if now:
             return now
-        return await self.approvals.wait(self._open(s, kind, command, path))
+        return said_no(command, await self.approvals.wait(self._open(s, kind, command, path)))
 
     def ask_blocking(self, sid: str, key: str, command: str) -> tuple[bool, str]:
         """The ToolBox's question (API-key models run their tools in a worker thread)."""
         s, now = self._check(sid, key, command)
-        ans = now or self.approvals.wait_blocking(self._open(s, "command", command))
+        ans = now or said_no(command, self.approvals.wait_blocking(self._open(s, "command", command)))
         return ans.get("decision") == "allow", ans.get("why", "")
 
     def answer(self, qid: str, decision: str, why: str = "") -> dict:
@@ -935,19 +1049,36 @@ class HelperRunner:
 
         # the answer as it is written: helper.delta events (the text so far, every 80 ms; never stored)
         live = DeltaThrottle(lambda d: ev("helper.delta", d))
+        # keel 0.18.18 what failed or was refused in this turn: the next turn's prompt starts from it, and failed.json
+        # (runtime/repeats.py, in the turn's scratch folder) lets the hook and the ToolBox refuse an exact repeat
+        failures: list[dict] = []
+        scratch: dict = {"dir": None}
+
+        def note_failure(kind: str, text: str, extra: dict):
+            if extra.get("ok") is not False:
+                return
+            if kind == "tool" and extra.get("tool") in ("Bash", "run_command") and text:
+                note = repeats.remember(scratch["dir"], root, str(text), str(extra.get("output") or ""))
+                failures.append({"command": str(text)[:300], "said": note.get("said", ""), "state": note.get("state", "")})
+            elif kind == "guard" and text:
+                failures.append({"command": str(extra.get("command") or "")[:300], "said": str(text)[:300]})
 
         def emit(kind: str, text: str = "", **extra):
             if kind == "delta":
                 live.add(str(text))
                 return
             live.reset()
+            try:
+                note_failure(kind, str(text), extra)
+            except Exception:  # noqa: BLE001  (a note for the next turn: never the turn's failure)
+                log.debug("KeelBot could not note a failure", exc_info=True)
             counter["n"] += 1
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
             data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})
             ev("helper.step", data)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
-            emit("guard", reason, tool=tool, path=path or None, ok=False)
+            emit("guard", reason, tool=tool, path=path or None, ok=False, command=command)
 
         # v0.15.9 keel's file history: what KeelBot changes in specs, knowledge, ADRs or the runbook
         def doc_emit(type_: str, step: str | None = None, data: dict | None = None):
@@ -981,6 +1112,8 @@ class HelperRunner:
         else:
             phase, unlocks, ac = "none", [], None
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
+            toolbox.readonly_label, toolbox.readonly_note = ASK_LABEL, ASK_NOTE
+        self.turn_keel[sid] = dict(body.get("keel") or {})
         if mode in ("fix", "side", "edit"):
             # keel v1's push gate for KeelBot's own `git push` / `gh pr create` (rules.push_gate)
             toolbox.push_blockers = await asyncio.to_thread(push_blockers_for, root, flow.get("base_head"), project)
@@ -1018,14 +1151,19 @@ class HelperRunner:
                 specs += extensions.server_specs(on, plugin_key)
                 allow += extensions.allow_entries(on)
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
+            before_failed = await asyncio.to_thread(last_failures, sid, n)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
-                                  shell=body.get("shell"), images=body.get("images_ok"))
+                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed)
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
-                req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills")), prompt=prompt,
+                scratch["dir"] = tmp
+                toolbox.no_repeat = tmp
+                repeats.seed(tmp, before_failed)        # "fix it" with nothing changed: the same command stays refused
+                req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills"), COMMITS.get(mode)),
+                                   prompt=prompt,
                                    root=root, phase=phase, model=model, toolbox=toolbox, title=s["title"], step_name="helper",
                                    ac=ac,
                                    mcp_specs=mcp_specs, tools_allow=tools_allow, key=models.key_for(provider, keys),
@@ -1043,6 +1181,8 @@ class HelperRunner:
             status, err = "failed", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}"
             emit("error", err[:2000], ok=False)
         self.ask_keys.pop(sid, None)
+        self.turn_keel.pop(sid, None)
+        scratch["dir"] = None
         extensions.close_call(plugin_key)
         self._drop_questions(sid, "KeelBot's answer ended.")
         # the backstop for engines without keel's hook: in Ask nothing may change; in Fix only what the phase allows
@@ -1074,7 +1214,8 @@ class HelperRunner:
         add_message(sid, "helper" if status == "done" else "note", answer, call_id=call_id,
                     data={"status": status, "provider": provider, "model": model.get("model"),
                           **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,
-                          "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000)})
+                          "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
+                          **({"failed": failures[-10:]} if failures else {})})
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
                tokens_in=cur["tokens_in"] + tin, tokens_out=cur["tokens_out"] + tout, tokens_cached=cur["tokens_cached"] + cached,

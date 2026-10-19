@@ -732,7 +732,11 @@ export type HelperHandover = { session: string; title: string; branch: string; b
 export type HelperChange = { path: string; status: "added" | "modified" | "deleted"; added: number; removed: number; diff: string };
 /** A Fix chat's command that waits for the person's OK (a card in the panel and the Inbox). */
 export type HelperQuestion = { id: string; session: string; project: string; thread_id?: string | null; kind: string; command: string;
-  path?: string; title: string; at: string };
+  path?: string; title: string; at: string;
+  /** keel 0.18.18 what to know before saying yes (the command throws work away, a flow works in this folder) */
+  warning?: string;
+  /** keel 0.18.18 what Always keeps (`git checkout *`); "" when the command is asked every time */
+  always?: string };
 /** Done: keel's commit of KeelBot's files after the checks, or why not (no change, the checks failed, the commit refused). */
 export type HelperDone = { ok: true; sha: string; message: string; files: string[]; checks?: string | null }
   | { ok: false; step: "changes" | "checks" | "commit"; error: string; command?: string; output?: string };

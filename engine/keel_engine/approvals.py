@@ -15,7 +15,7 @@ closes it. The api keeps a row per question in its `approvals` table, from the e
 An answer is {"decision": "allow" | "deny", "why": str}. `asked(id)` is for an asker that polls (`keel2 mcp`).
 
 Events (thread_id = the asker's session, else the question's id; step "approval"):
-    approval.asked      {id, kind, project, title, command, path, source, thread_id, session, at}
+    approval.asked      {id, kind, project, title, command, path, source, thread_id, session, at, warning?, always?}
     approval.answered   the same, plus {decision: once | always | deny | null, why, status, by}
                         status: approved | denied | expired (nobody answered in time) | closed (its asker ended)
                         by: person | keel
@@ -75,11 +75,14 @@ class Approvals:
     # ---- asking ------------------------------------------------------------------------------------------------
 
     def open(self, kind: str, project: str, title: str, command: str, *, source: str, thread_id: str | None = None,
-             session: str | None = None, path: str = "", on_answer: OnAnswer | None = None) -> dict:
-        """A new waiting question (approval.asked); the asker waits with wait() or polls with asked()."""
+             session: str | None = None, path: str = "", on_answer: OnAnswer | None = None, extra: dict | None = None) -> dict:
+        """A new waiting question (approval.asked); the asker waits with wait() or polls with asked(). `extra` (keel
+        0.18.18): more for the cards, e.g. KeelBot's `warning` (what the person should know before they say yes: the
+        command throws work away, a flow works in this folder) and `always` (what "always" would allow)."""
         qid = "p_" + uuid.uuid4().hex[:12]
         q = {"id": qid, "kind": kind, "project": project, "title": title, "command": command, "path": path or "",
-             "source": source, "thread_id": thread_id, "session": session, "at": _now()}
+             "source": source, "thread_id": thread_id, "session": session, "at": _now(),
+             **{k: v for k, v in (extra or {}).items() if v and k not in ("id", "kind", "project", "command")}}
         with self._lock:
             self.questions[qid] = q
             self._futures[qid] = concurrent.futures.Future()

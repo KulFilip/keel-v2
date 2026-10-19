@@ -62,13 +62,20 @@ export type Snapshot = {
   chat: ChatState;
 };
 
+/** KeelBot asks the person's OK for a command (helper.permission). keel 0.18.18: `warning` (the command throws work
+ *  away, or a flow works in this folder) and `always` (what "Allow in this chat" keeps: `git checkout *`; empty when
+ *  the command is asked every time). */
+export type PermissionQuestion = { id: string; command: string; title: string; path?: string | null; warning?: string; always?: string };
+
 export type CoreEvents = {
   change: (s: Snapshot) => void;
   notice: (text: string, ev?: EngineEvent) => void;
   /** a KeelBot turn ended: its answer (markdown) or why not */
   answer: (m: { text: string; ok: boolean; message?: HelperMessage }) => void;
   /** KeelBot asks the person's OK for a command (helper.permission): once, always (this chat) or deny */
-  question: (q: { id: string; command: string; title: string; path?: string | null }) => void;
+  question: (q: PermissionQuestion) => void;
+  /** keel 0.18.18 a permission question ended without this window (answered elsewhere, or KeelBot's turn ended) */
+  questionGone: (id: string) => void;
   /** 0.18.6 a KeelBot chat came on screen because another keel front end (the dashboard) opened it, or at the start */
   chat: (s: HelperSession, why: string) => void;
   /** 0.18.6 the person asked KeelBot in this chat from another front end (the dashboard): their words */
@@ -98,7 +105,7 @@ const STEP_KEEP = 200;
 
 export class KeelCore {
   snapshot: Snapshot;
-  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set(), chat: new Set(), remote: new Set() };
+  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set(), questionGone: new Set(), chat: new Set(), remote: new Set() };
   /** @mentions: the project's files, the code graph's symbols, the flow's criteria */
   readonly mentions = new Mentions(() => this.pid, () => (this.snapshot.flow?.thread?.acs ?? []).map((a) => ({ id: a.id, title: a.title })));
   private sub: Subscription | null = null;
@@ -416,8 +423,14 @@ export class KeelCore {
     }
     // KeelBot asks the person's OK for a command: a yes/no in the TUI (the dashboard shows the same card)
     if (ev.type === "helper.permission" && (!this.pid || ev.project_id === this.pid)) {
-      const q = ev.data as { id?: string; command?: string; title?: string; path?: string | null };
-      if (q.id) this.emit("question", { id: q.id, command: String(q.command ?? ""), title: String(q.title ?? "KeelBot asks to run a command"), path: q.path });
+      const q = ev.data as { id?: string; command?: string; title?: string; path?: string | null; warning?: string; always?: string };
+      if (q.id) this.emit("question", { id: q.id, command: String(q.command ?? ""), title: String(q.title ?? "KeelBot asks to run a command"), path: q.path,
+        ...(q.warning ? { warning: String(q.warning) } : {}), ...(q.always !== undefined ? { always: String(q.always ?? "") } : {}) });
+    }
+    // keel 0.18.18 answered in the dashboard, or closed when KeelBot's turn ended: the card here goes too
+    if (ev.type === "helper.permission.answered") {
+      const id = (ev.data as { id?: string }).id;
+      if (id) this.emit("questionGone", String(id));
     }
     if (ev.type.startsWith("helper.") && ev.type !== "helper.permission") return;
     if (ev.type === "tui.call") return;                     // the TUI's own writes: the person saw them already

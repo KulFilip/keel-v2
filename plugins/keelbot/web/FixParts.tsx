@@ -29,12 +29,14 @@ export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQ
     <div className="hp-perm" role="group" aria-label="KeelBot asks to run a command">
       <p className="hp-perm-q"><b>May KeelBot run this?</b> It changes something, so keel asks you first.</p>
       <pre className="hp-perm-cmd">{q.command}</pre>
+      {q.warning && <p className="hp-err" role="alert">{q.warning}</p>}
       <input className="hp-perm-why" value={why} onChange={(e) => setWhy(e.target.value)} aria-label="Why not (optional)"
         placeholder="Why not (optional, KeelBot reads it)" />
       <div className="hp-perm-btns">
         <button type="button" className="btn sm warn" disabled={busy} onClick={() => void answer("once")}>Allow once</button>
-        <button type="button" className="btn sm" disabled={busy} onClick={() => void answer("always")}
-          title="Allow this exact command for the rest of this chat">Always</button>
+        {q.always !== "" && <button type="button" className="btn sm" disabled={busy} onClick={() => void answer("always")}
+          title={q.always && q.always !== q.command ? `Allow ${q.always} for the rest of this chat` : "Allow this command for the rest of this chat"}>
+          {q.always && q.always !== q.command ? `Always: ${q.always}` : "Always"}</button>}
         <button type="button" className="btn sm" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
       </div>
       {err && <p className="hp-err" role="alert">{err}</p>}
