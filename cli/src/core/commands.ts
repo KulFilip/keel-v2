@@ -34,7 +34,9 @@ export const pickMatches = (choices: Choice[], filter: string): Choice[] => {
 /** Pick one of these; `then` runs with the chosen value. */
 /** `index`: the choice the cursor starts on (the current one), else the first. keel 0.18.9 `multi`: Space ticks
  *  choices, Enter sends them; `then` gets the ticked values as a JSON list. */
-export type Pick = { title: string; choices: Choice[]; then: (value: string) => Promise<Reply> | Reply; index?: number; multi?: boolean };
+export type Pick = { title: string; choices: Choice[]; then: (value: string) => Promise<Reply> | Reply; index?: number; multi?: boolean;
+  /** keel 0.18.18 Esc: what cancelling answers (a KeelBot permission card says no, so its command does not wait 10 minutes) */
+  onCancel?: () => Promise<Reply> | Reply };
 /** The next line the person types answers this; `then` runs with it. */
 export type Ask = { prompt: string; then: (text: string) => Promise<Reply> | Reply };
 export type PanelName = "flow" | "agents" | "inbox";

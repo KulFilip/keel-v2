@@ -324,6 +324,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       then: async (v) => {
         await inboxApi.decide(q.id, v);
         return { blocks: [{ kind: v === "deny" ? "dim" : "ok", text: v === "deny" ? `  refused: ${q.command}` : `allowed ${v === "always" ? "in this chat" : "once"}: ${q.command}` }] };
+      },
+      onCancel: async () => {
+        await inboxApi.decide(q.id, "deny", "The person closed the question without an answer.");
+        return { blocks: [{ kind: "dim", text: `  refused: ${q.command}` }] };
       } } });
     setPickIdx(0);
     setPickFilter("");
@@ -687,6 +691,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       if (key.escape) {
         push({ kind: "dim", text: "  cancelled" });
         setPending(null);
+        const cancel = pending.pick.onCancel;
+        if (cancel) void Promise.resolve(cancel()).then((r) => handle(r, pending.cmd)).catch((e) => push({ kind: "error", text: e instanceof Error ? e.message : String(e) }));
       } else if (key.upArrow) setPickIdx((i) => Math.max(0, i - 1));
       else if (key.downArrow) setPickIdx((i) => Math.min(filtered.length - 1, i + 1));
       else if (pending.pick.multi && input === " ") {
