@@ -38,6 +38,8 @@ export function stubKeel() {
     run: { exit: 0, output: "README.md\nsrc\n", refused: null } as { exit: number | null; output: string; refused: string | null },
     sessions: null as null | Record<string, unknown>[],
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
+    // 0.18.19 the files the engine says /undo (or /redo) of a whole answer put back
+    turnFiles: ["src/app.ts", "src/b.ts", "README.md"] as string[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
     messages: [] as Record<string, unknown>[],
     // 0.18.6 the shared focus (api ui/UiFocus.kt)
@@ -216,6 +218,19 @@ export function stubKeel() {
       case "POST /api/projects/demo/helper/sessions/s1/undo":
         state.changes = body?.path ? state.changes.filter((c) => c.path !== body.path) : [];
         return [200, state.changes];
+      // 0.18.19 /undo and /redo of a whole answer: the last user message's turn, marked reverted (or not any more)
+      case "POST /api/projects/demo/helper/sessions/s1/undo-turn":
+      case "POST /api/projects/demo/helper/sessions/s1/redo-turn": {
+        const undo = path.endsWith("/undo-turn");
+        const users = state.messages.filter((m) => m.role === "user" && !!(m.data as { reverted?: boolean }).reverted !== undo);
+        const u = undo ? users[users.length - 1] : users[0];
+        if (!u) return [409, { error: undo ? "Nothing to undo: KeelBot has no answer in this chat that is not undone already." : "Nothing to redo: no answer was undone since the last message." }];
+        const ns = state.messages.filter((m) => (m.n as number) >= (u.n as number)
+          && (m === u || (m.role !== "user" && !state.messages.some((x) => x.role === "user" && (x.n as number) > (u.n as number) && (x.n as number) < (m.n as number)))))
+          .map((m) => m.n as number);
+        for (const m of state.messages) if (ns.includes(m.n as number)) m.data = { ...(m.data as object), reverted: undo || undefined };
+        return [200, { n: u.n, text: u.text, files: state.turnFiles, messages: ns }];
+      }
       case "POST /api/projects/demo/helper/sessions/s1/done": {
         const files = (body?.paths as string[] | undefined) ?? state.changes.map((c) => c.path);
         state.changes = state.changes.filter((c) => !files.includes(c.path));

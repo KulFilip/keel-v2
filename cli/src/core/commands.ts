@@ -23,7 +23,11 @@ import { resolve } from "node:path";
 // ------------------------------------------------------------------ replies
 
 export type BlockKind = "text" | "markdown" | "diagram" | "error" | "notice" | "user" | "ok" | "dim";
-export type Block = { kind: BlockKind; text: string };
+/** `reverted` (0.18.19): part of a KeelBot answer /undo took back, drawn dim. */
+export type Block = { kind: BlockKind; text: string; reverted?: boolean };
+/** A stored chat message as a block: the person's own, KeelBot's answer, or a note (an undone turn's are reverted). */
+export const messageBlock = (m: { role: string; text: string; data?: { reverted?: unknown } | null }): Block => ({
+  kind: m.role === "user" ? "user" : m.role === "note" ? "dim" : "markdown", text: m.text, ...(m.data?.reverted ? { reverted: true } : {}) });
 /** `search`: more text that typing in the picker matches besides the label (P1-3 /chats: the last message). */
 export type Choice = { label: string; value: string; hint?: string; search?: string };
 /** The choices a picker shows for what the person typed: the label or `search` contains it, in any case. */
@@ -49,6 +53,10 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   start?: boolean;
   /** 0.18.18 open this text in the person's editor ($VISUAL / $EDITOR); what they save comes back into the prompt */
   editor?: string;
+  /** 0.18.19 this text goes into the prompt, not sent (/undo gives the undone question back) */
+  prompt?: string;
+  /** 0.18.19 a KeelBot answer was undone (undo) or redone (not): its question's turn on screen is drawn dim, or not any more */
+  revert?: { undo: boolean; text: string };
   /** 0.18.6 a plugin's mode, opened: it takes the screen until Esc (core/modes.ts) */
   mode?: import("./modes").ModeSession };
 
@@ -424,7 +432,7 @@ async function openAgent(ctx: Ctx, sid: string): Promise<Reply> {
   const s = await ctx.core.openChat(sid);
   const busy = s.busy || s.status === "running";
   const blocks: Block[] = [{ kind: "dim", text: `agent "${s.title}" · ${s.mode}${s.branch ? ` · branch ${s.branch}` : ""} · ${busy ? "at work: you see it live" : s.status}` }];
-  (s.messages ?? []).slice(-4).forEach((m) => blocks.push(m.role === "user" ? { kind: "user", text: m.text } : { kind: m.role === "note" ? "dim" : "markdown", text: m.text }));
+  (s.messages ?? []).slice(-4).forEach((m) => blocks.push(messageBlock(m)));
   if (!busy && s.mode === "side") blocks.push({ kind: "dim", text: "  Its changes: /changes · /keep keeps them · /undo · or ask it more here." });
   return { blocks };
 }
@@ -807,7 +815,7 @@ const IMPLS: Impl[] = [
         then: async (v) => {
           const s = await ctx.core.openChat(v);
           const blocks: Block[] = [{ kind: "dim", text: `chat "${s.title}" · ${s.mode} · ${s.turns} turns` }];
-          (s.messages ?? []).slice(-6).forEach((m) => blocks.push(m.role === "user" ? { kind: "user", text: m.text } : { kind: m.role === "note" ? "dim" : "markdown", text: m.text }));
+          (s.messages ?? []).slice(-6).forEach((m) => blocks.push(messageBlock(m)));
           return { blocks };
         } } };
     },
@@ -923,7 +931,7 @@ const IMPLS: Impl[] = [
   },
   {
     name: "changes",
-    run: async (ctx) => text(fmt.changesText(await ctx.core.changes(), P(ctx)) + `\n\n${P(ctx).accent("/keep")} [path|all] · ${P(ctx).accent("/undo")} [path|all]`),
+    run: async (ctx) => text(fmt.changesText(await ctx.core.changes(), P(ctx)) + `\n\n${P(ctx).accent("/keep")} [path|all] · ${P(ctx).accent("/undo")} [path|all] · ${P(ctx).accent("/undo")} ${P(ctx).dim("the last answer")}`),
   },
   {
     name: "keep",
@@ -945,11 +953,16 @@ const IMPLS: Impl[] = [
     complete: (ctx, a) => changedPaths(ctx).filter((p) => p.startsWith(a)),
     run: async (ctx, a) => {
       const arg = a.trim();
-      const left = await ctx.core.undo(!arg || arg === "all" ? undefined : arg);
+      // 0.18.19 no argument: KeelBot's last answer, as opencode's /undo (from opencode (MIT)): its files back, the
+      // question in the prompt to change and send again, the turn dim on screen
+      if (!arg) return turnRun(ctx, true);
+      const left = await ctx.core.undo(arg === "all" ? undefined : arg);
       changedCache = { sid: ctx.core.snapshot.chat.session?.id ?? "", paths: left.map((c) => c.path) };
-      return ok(`put back ${!arg || arg === "all" ? "every file KeelBot changed" : arg}` + (left.length ? ` · still changed: ${left.map((c) => c.path).join(", ")}` : ""));
+      return ok(`put back ${arg === "all" ? "every file KeelBot changed" : arg}` + (left.length ? ` · still changed: ${left.map((c) => c.path).join(", ")}` : ""));
     },
   },
+  // 0.18.19 the answer /undo took back, again (until a new message is sent)
+  { name: "redo", run: (ctx) => turnRun(ctx, false) },
   {
     name: "panel",
     complete: (_c, a) => PANELS.filter((x) => x.startsWith(a)),
@@ -995,6 +1008,24 @@ export function setPluginCommands(cmds: Command[]) {
 export const pluginCommandList = () => pluginCmds;
 /** keel's command, or a plugin's */
 export const lookup = (name: string): Command | null => COMMANDS_BY_NAME[name] ?? pluginCmds.find((c) => c.name === name) ?? null;
+
+/** 0.18.19 /undo (no argument) and /redo: a whole KeelBot answer, through the engine's undo-turn and redo-turn. */
+async function turnRun(ctx: Ctx, undo: boolean): Promise<Reply> {
+  if (!ctx.core.snapshot.chat.session) return text(`nothing to ${undo ? "undo" : "redo"}: open a chat first (/chats).`);
+  try {
+    const r = undo ? await ctx.core.undoTurn() : await ctx.core.redoTurn();
+    void refreshChanged(ctx);
+    const files = `${r.files.length} file${r.files.length === 1 ? "" : "s"} restored`;
+    return undo
+      ? { blocks: [{ kind: "ok", text: `undid the last answer: ${files}` },
+        { kind: "dim", text: `  ${r.files.length ? r.files.join(", ") + " · " : ""}the question is in the prompt: change it and send, or /redo` }],
+        prompt: r.text, revert: { undo: true, text: r.text } }
+      : { blocks: [{ kind: "ok", text: `redid the answer: ${files}` },
+        ...(r.files.length ? [{ kind: "dim" as const, text: `  ${r.files.join(", ")}` }] : [])], revert: { undo: false, text: r.text } };
+  } catch (e) {
+    return errorReply(e);
+  }
+}
 
 // the paths KeelBot changed, for /keep and /undo's Tab (read when a Fix or Side turn ends, and after each)
 let changedCache: { sid: string; paths: string[] } = { sid: "", paths: [] };

@@ -298,9 +298,16 @@
     {
       "name": "undo",
       "args": "[path|all]",
-      "summary": "put KeelBot's change back (one file, or all)",
+      "summary": "undo KeelBot's last answer: every file it changed goes back and your question comes back into the prompt (again: the answer before); a path or all puts only files back",
       "writes": true,
       "complete": "changes",
+      "group": "KeelBot"
+    },
+    {
+      "name": "redo",
+      "summary": "put back the answer /undo took (until you send a new message)",
+      "writes": true,
+      "local": false,
       "group": "KeelBot"
     },
     {

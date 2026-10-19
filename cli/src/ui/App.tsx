@@ -19,7 +19,7 @@ import { modelText } from "../core/effort";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
-import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
+import { COMMANDS, messageBlock, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
@@ -192,8 +192,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       // 0.18.6 the chat the dashboard has open (at the start, or when it opens another): its last messages
       core.on("chat", (s, why) => {
         const blocks: Block[] = [{ kind: "dim", text: `  ${why}: KeelBot chat "${s.title || s.id}" · ${s.mode}` }];
-        (s.messages ?? []).slice(-4).forEach((m) => blocks.push(m.role === "user" ? { kind: "user", text: m.text }
-          : { kind: m.role === "note" ? "dim" : "markdown", text: m.text }));
+        (s.messages ?? []).slice(-4).forEach((m) => blocks.push(messageBlock(m)));
         push(...blocks);
       }),
       // 0.18.6 a question asked in this chat from the dashboard: shown as the person's own, then KeelBot answers here too
@@ -475,9 +474,40 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (reply.mode) setMode(reply.mode);
     if (reply.editor !== undefined) openEditor(reply.editor);
+    if (reply.revert) markReverted(reply.revert);
+    if (reply.prompt !== undefined) {
+      // 0.18.19 /undo: the undone question, in the prompt to change and send (as opencode puts it back)
+      setHIdx(-1);
+      setText(reply.prompt);
+    }
     if (reply.quit) exit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [core, exit, push, stdout, screen, mouse, items]);
+
+  /** 0.18.19 /undo and /redo of a whole answer: the turn of that question on screen (the person's message and what
+   *  came after it, up to their next message) is drawn dim, or not any more. Undo takes the last such turn that is not
+   *  undone, redo the first that is. Lines the inline mode printed already stay as they were. */
+  function markReverted(rv: { undo: boolean; text: string }) {
+    setItems((xs) => {
+      const want = rv.text.trim();
+      const isQ = (it: Item) => it.kind === "block" && it.b.kind === "user" && it.b.text.trim() === want && !!it.b.reverted !== rv.undo;
+      let at = -1;
+      if (rv.undo) {
+        for (let i = xs.length - 1; i >= 0 && at < 0; i--) if (isQ(xs[i])) at = i;
+      } else at = xs.findIndex(isQ);
+      if (at < 0) return xs;
+      const out = xs.slice();
+      for (let i = at; i < out.length; i++) {
+        const it = out[i];
+        if (it.kind !== "block") continue;
+        if (i > at && it.b.kind === "user") break;
+        cache.current.delete(it.id);
+        const { reverted: _was, ...b } = it.b;
+        out[i] = { ...it, b: rv.undo ? { ...b, reverted: true } : b };
+      }
+      return out;
+    });
+  }
 
   /** 0.18.18 The text in the person's editor ($VISUAL / $EDITOR): the terminal is the editor's until it ends (no raw
    *  keys, no mouse reports, keel TUI's screen given back after it), then what it saved is the prompt, not sent. */
