@@ -100,6 +100,9 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         block = ("\n## Amendments\n\n### 2026-01-01 — AC-1\nWas: the main case works.\nNow: the main case works for ties too.\n"
                  "Why: the test showed ties.\n")
         return path, old.rstrip() + "\n" + block, "Amendment written.\nREOPEN: none\nCONTRACT: no", {}
+    if agent == "explorer" and phase == "spec" and not req.acs and "Write the spec under" not in (req.prompt or ""):
+        # an explorer in the spec phase that does not write the spec (prompts.spec_writer): the spike's frame
+        return None, "", f"Framed: {title}. Nothing from outside this repository is needed.", {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)
         path = f"{specs}/{slug(title)}.md"

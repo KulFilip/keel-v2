@@ -65,6 +65,7 @@ steps:
     agent: investigator
     model: default
     phase: spec
+    keep: true
     markers: [RECOMMEND]
     instructions: >-
       Write the spike's findings for the person who decides: the question; per angle what was found, with its data

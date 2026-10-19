@@ -515,7 +515,7 @@ def task_prompt(wf: Workflow, i: int, phase: str, agent: str, root: str | None, 
         agent=agent, phase=phase, step_name=step.name, title=(ctx.title if ctx else "«the flow's title»"),
         root=root or "«the project folder»", ac=ac, acs=acs, feedback=None, index=0, spec=spec,
         unlocks=st.get("unlocks") or [], request=(ctx.request if ctx else "«what the user asked for»"),
-        knowledge=know, graph=graph, item=item)
+        knowledge=know, graph=graph, item=item, writes_spec=prompts.spec_writer(step))
     cur = {**st, "request": ctx.request if ctx else "", "item": item}
 
     def value(path: str):

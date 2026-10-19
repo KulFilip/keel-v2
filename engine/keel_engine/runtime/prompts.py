@@ -105,7 +105,8 @@ def _allowed(phase: str) -> str:
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
                 section: str | None = None, unlocks: list[dict] | None = None, request: str = "",
-                knowledge: dict | None = None, graph: bool = False, item: dict | None = None, pid: str = "") -> str:
+                knowledge: dict | None = None, graph: bool = False, item: dict | None = None, pid: str = "",
+                writes_spec: bool = True) -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
@@ -161,7 +162,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     if phase in ("spec", "triage") and feedback and spec:
         lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
                      "file to answer the note. Read only what the note needs; do not explore the project again.")
-    if phase in ("spec", "triage") and not acs:
+    if phase in ("spec", "triage") and not acs and writes_spec:
         lines.append(f"Keep the reading short: the request, the README, {kdir or lay.knowledge}/ if it exists, and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
                      "a spec that exists beats a perfect map of the code.")
@@ -179,7 +180,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
-    if phase in ("spec", "triage") and not stacks.has_web_layer(root):
+    if phase in ("spec", "triage") and writes_spec and not stacks.has_web_layer(root):
         lines.append(NO_WEB)
     test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
     if phase == "red":
@@ -208,6 +209,14 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
     return "\n".join(lines)
+
+
+def spec_writer(step) -> bool:
+    """Does this agent step write the flow's spec (in a spec or triage phase)? A fan-out (one agent per item), a step
+    that asks the person first (`asks`), collects a list (`collect`) or keeps its answer as a document for the next
+    steps (`keep`) does something else there: the spike's frame, web research, researchers and findings, the feature's
+    interview. Those get no "write the spec" lines, and keel reads no criteria from their answers."""
+    return step.kind == "agent" and not (step.items_from or step.asks or step.collect or step.keep)
 
 
 # 0.18.12 a server-rendered app (Spring MVC + Thymeleaf) has no web tests of its own: its page tests are backend tests,

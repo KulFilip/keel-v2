@@ -171,3 +171,22 @@ def test_the_spikes_web_findings_reach_the_researchers_and_the_findings(client, 
     assert len(research) == 2 and all("https://developers.example.com/webhooks" in r.prompt for r in research)
     findings = next(r for r in seen if r.step_name.startswith("findings"))
     assert "https://developers.example.com/webhooks" in findings.prompt and "VERDICT: promising" in findings.prompt
+
+
+def test_the_spikes_agents_write_no_spec_and_its_gate_offers_spec_or_drop(client, repo, monkeypatch):
+    """The spike's agents (frame, web research, researchers, findings) are not spec writers: they were told to write a
+    spec under docs/specs/, and keel read criteria from the frame's answer, so the spike held criteria and a spec file
+    of its own before the person chose "spec"."""
+    from conftest import start, wait
+
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"], s["waiting"]
+    assert s["acs"] == [] and not s.get("spec")
+    assert [p.name for p in (Path(repo) / "docs" / "specs").glob("*.md")] in ([], ["README.md"])
+    assert seen and all("Write the spec under" not in r.prompt and "keel-questions block (max 4" not in r.prompt for r in seen)

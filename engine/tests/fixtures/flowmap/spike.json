@@ -57,7 +57,8 @@
    "markers": [
     "RECOMMEND"
    ],
-   "instructions": "Write the spike's findings for the person who decides: the question; per angle what was found, with its data and evidence; a comparison table (angle, verdict, the key numbers, risk, effort); what is confirmed and what is not (a fact is confirmed only when a source says it: give its URL or file:line; anything else is unconfirmed, with what a human should supply to settle it); a list of the sources with their URLs; open questions; and one recommendation with its reason. RECOMMEND is that recommendation on one line.\nThe web research (sources and confidence):\n{{data.web_docs_text}}\nThe researchers' answers:\n{{data.report}}"
+   "instructions": "Write the spike's findings for the person who decides: the question; per angle what was found, with its data and evidence; a comparison table (angle, verdict, the key numbers, risk, effort); what is confirmed and what is not (a fact is confirmed only when a source says it: give its URL or file:line; anything else is unconfirmed, with what a human should supply to settle it); a list of the sources with their URLs; open questions; and one recommendation with its reason. RECOMMEND is that recommendation on one line.\nThe web research (sources and confidence):\n{{data.web_docs_text}}\nThe researchers' answers:\n{{data.report}}",
+   "keep": true
   },
   {
    "id": "report",

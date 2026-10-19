@@ -631,7 +631,7 @@ class Compiler:
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
-                                     pid=ctx.project_id or "")
+                                     pid=ctx.project_id or "", writes_spec=prompts.spec_writer(step))
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
@@ -1054,7 +1054,7 @@ class Compiler:
         said = ((upd.get("markers") or {}).get(step.id) or {}) if step.markers else {}
         if said:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
-        if state["phase"] in ("spec", "triage") and not state.get("acs"):
+        if state["phase"] in ("spec", "triage") and not state.get("acs") and prompts.spec_writer(step):
             acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
             if not acs and ctx.request:
                 # 0.18.17 the agent wrote its criteria in another form ("1. ..."), but the request lists them as AC
@@ -1085,7 +1085,7 @@ class Compiler:
                 upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS]} if asked else {}
             if spec:
                 upd["spec"] = spec
-        if step.asks and not (state["phase"] in ("spec", "triage") and not state.get("acs")):
+        if step.asks:
             # keel's clarify loop for any agent step: its keel-questions go to the next gate as buttons, the answers back
             # to this agent (at most clarify.MAX_ROUNDS rounds; then it must decide with the recommended options).
             rounds = int(state.get("clarify_rounds") or 0)
@@ -1994,7 +1994,8 @@ class Compiler:
             return upd, self.nav.after(i)
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
-        no_criteria = not ac and step.phase in ("spec", "triage") and not acs
+        # only a flow with a step that writes the spec waits for criteria (a spike's gates have none, on purpose)
+        no_criteria = not ac and step.phase in ("spec", "triage") and not acs and self._writes_specs()
         clar = state.get("clarify") or {}
         # the spec's questions, or the questions of an agent step with `asks: true` (clar["step"])
         asked = clar.get("questions") if (no_criteria or clar.get("step")) else None
@@ -2364,6 +2365,10 @@ class Compiler:
             data[record] = [x for x in data.get(record) or [] if (x.get("key") or x.get("id")) != ident] + [rec]
             upd = {**upd, "data": data}
         return upd
+
+    def _writes_specs(self) -> bool:
+        """Does any agent step of this flow write a spec (prompts.spec_writer, in a spec or triage phase)?"""
+        return any(s.phase in ("spec", "triage") and prompts.spec_writer(s) for s in self.wf.steps)
 
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
