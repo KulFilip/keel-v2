@@ -591,3 +591,29 @@ async def test_ac_2_the_compact_route_answers_before_and_after_tokens(client, re
     assert body["after"] == after["ctx_tokens"]
     # the route actually ran the compaction, it did not just report numbers
     assert "note" in [m["role"] for m in after["messages"]]
+
+
+# ------------------------------------------------------------------ P1-3 sessions: picker (AC-1)
+
+def test_ac_1_the_session_list_has_each_chats_last_message_and_size_newest_first(client, repo):
+    """GET /helper/sessions: every chat with a short preview of its last message and how many messages it stores,
+    the chat with the latest activity first — what keel TUI's /chats picker shows and filters on."""
+    old = new_session(client, repo)
+    ask(client, old["id"], "Where does the package start?")
+    new = new_session(client, repo)
+    _, new = ask(client, new["id"], "And the tests? " + "word " * 60)
+    empty = new_session(client, repo)                 # nothing said yet
+    with helper.db.connect() as conn:                  # updated_at is to the second: set the order the test needs
+        for at, sid in (("2026-10-01T10:00:00Z", old["id"]), ("2026-10-02T10:00:00Z", new["id"]),
+                        ("2026-10-03T10:00:00Z", empty["id"])):
+            conn.execute("update helper_sessions set updated_at = ? where id = ?", (at, sid))
+
+    rows = client.get("/helper/sessions", params={"project": "demo"}).json()
+    assert [r["id"] for r in rows] == [empty["id"], new["id"], old["id"]]
+    by = {r["id"]: r for r in rows}
+    assert by[empty["id"]]["last_message"] == "" and by[empty["id"]]["message_count"] == 0
+    assert by[new["id"]]["message_count"] == len(new["messages"]) == 2
+    last = " ".join(new["messages"][-1]["text"].split())
+    preview = by[new["id"]]["last_message"]
+    assert len(preview) <= 80 and "\n" not in preview
+    assert preview == last or (preview.endswith("…") and last.startswith(preview[:-1].rstrip()))
