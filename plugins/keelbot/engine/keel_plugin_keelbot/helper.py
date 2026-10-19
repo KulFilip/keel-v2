@@ -67,6 +67,7 @@ RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session 
 TRANSCRIPT_CHARS = 6000                  # the conversation so far, for the engines that cannot continue a session
 HISTORY_TURNS = 12                       # earlier messages an API-key model gets
 TURN_TIMEOUT = 900
+COMPACT_RATIO = 0.85                     # ctx_tokens / ctx_window above this: compact before the next turn runs
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
     "ask": ("Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git). "
@@ -701,6 +702,8 @@ class HelperRunner:
             raise HelperError(409, "KeelBot is still answering in this session.", "Wait for the answer, or stop it.")
         if s["mode"] == "side" and not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
+        if s["ctx_window"] and s["ctx_tokens"] / s["ctx_window"] >= COMPACT_RATIO:
+            s = await compact(sid)
         if body.get("model"):
             s = set_model(sid, body["model"])
         question, command = plugins.expand(s["root"], text, body.get("plugins"))

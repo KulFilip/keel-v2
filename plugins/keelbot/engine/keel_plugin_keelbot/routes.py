@@ -4,6 +4,7 @@ its own routes (keel_engine/extensions.py mount). The runner is app.state.helper
 
     /helper/sessions[/{sid}]                 the chats of a project: create, list, read, rename or change the model, delete
     /helper/sessions/{sid}/turn | stop       one answer (it returns at once; helper.* events follow), stop it
+    /helper/sessions/{sid}/compact           summarises the chat so far into a fresh engine_session, on request
     /helper/sessions/{sid}/changes | undo    Fix and side: the files KeelBot changed, put one or all back
     /helper/sessions/{sid}/done              the checks, then keel's commit of KeelBot's files
     /helper/sessions/{sid}/handover|release  a side session's branch, handed over to a task or a change flow
@@ -204,6 +205,14 @@ async def post_helper_turn(sid: str, body: HelperTurn, request: Request):
 async def post_helper_stop(sid: str, request: Request):
     await asyncio.to_thread(helper_call, helper.get, sid, False)
     return await runner(request).stop(sid)
+
+
+@router.post("/helper/sessions/{sid}/compact")
+async def post_helper_compact(sid: str):
+    """Compacts the session on request, answering the tokens it had before and after."""
+    before = (await asyncio.to_thread(helper_call, helper.get, sid, False))["ctx_tokens"]
+    after = (await helper.compact(sid))["ctx_tokens"]
+    return {"before": before, "after": after}
 
 
 @router.post("/helper/permissions/ask")
