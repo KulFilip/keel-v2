@@ -178,6 +178,19 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                           "| search: example webhook eta | 3 hits |\n| https://docs.example.com/webhooks | found |\n\n"
                           "Unconfirmed: whether it can be null; a sample payload from the sandbox would settle it.\n"
                           "CONFIDENCE: medium"), {}
+    if agent == "ticket-reviewer":
+        # review-pr: result lines for its job (every item met, one minor finding, one quality note), or a confirmed check
+        item = req.item or {}
+        if item.get("job") == "check":
+            return None, "", "CHECK | confirmed | the lines say what the claim says\nTICKET-REVIEW: done", {}
+        files = [str(f).split(" ")[0] for f in item.get("files") or []] or ["src/scores/__init__.py"]
+        lines = [f"{it['id']} | met | {(it.get('files') or files)[0]}:1 | the change does it" for it in item.get("items") or []]
+        if item.get("job") in ("all", "bugs"):
+            lines.append(f"F | minor | {files[0]}:1 | the new name hides what it counts | name it after what it counts")
+        if item.get("job") in ("all", "quality"):
+            lines.append(f"Q | {files[0]}:1 | like its neighbour | no docstring here | add one line, like the others")
+        lines += ["S | A small change that does what it says.", "TICKET-REVIEW: done"]
+        return None, "", "\n".join(lines), {}
     if agent == "investigator":
         return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
                           "ROOT-CAUSE: confirmed"), {}

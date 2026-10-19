@@ -10,7 +10,7 @@ in runtime/verdict_actions.py; review_lenses and coverage_report in runtime/ship
 helpers in runtime/flow_actions.py, the feature flow's in runtime/feature_actions.py; start_flow and escalate_model are
 the compiler's (they start a thread, change a model).
 The hunt's backlog actions (hunt_*) are in runtime/hunt_actions.py, init's architecture and ladder-repair steps
-in runtime/init_actions.py.
+in runtime/init_actions.py, review-pr's (ticket_*) in runtime/ticket_actions.py.
 """
 
 from __future__ import annotations
@@ -128,9 +128,9 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
 
 
 def _flow_actions() -> dict:
-    """The actions of single flows (hunt, hunt-next, init's extra steps); imported late, they import this module."""
-    from . import hunt_actions, init_actions
-    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS}
+    """The actions of single flows (hunt, hunt-next, init's extra steps, review-pr); imported late, they import this module."""
+    from . import hunt_actions, init_actions, ticket_actions
+    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS, **ticket_actions.ACTIONS}
 
 
 
