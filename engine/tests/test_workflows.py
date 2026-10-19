@@ -134,7 +134,8 @@ def test_api_validate_and_estimate(client):
 def test_spike_researches_the_web_before_the_angles():
     """0.18.20 spike: frame → web_docs (web-researcher, CONFIDENCE) → one researcher per angle → findings with sources."""
     t = get_template("spike")
-    assert [s.id for s in t.steps] == ["frame", "web_docs", "research", "collect", "findings", "report", "decide", "hand_spec"]
+    assert [s.id for s in t.steps] == ["frame", "frame_questions", "web_docs", "research", "collect", "findings", "report", "decide",
+                                       "hand_spec"]
     frame, web, research, findings = t.step("frame"), t.step("web_docs"), t.step("research"), t.step("findings")
     assert frame.keep and frame.collect == "angles" and "outside this repository" in frame.instructions
     assert (web.kind, web.agent, web.phase, web.markers, web.keep) == ("agent", "web-researcher", "spec", ["CONFIDENCE"], True)

@@ -240,3 +240,28 @@ def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, re
     assert "Carry every claim with its file:line or URL into the spec's Findings (evidence)" in spec.prompt
     red = [r for r in seen if r.agent == "test-author"]
     assert all("Evidence handed over" not in r.prompt for r in red)
+
+
+def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_answers(client, repo, monkeypatch):
+    from conftest import decide, start, wait
+
+    qs = [{"id": "change", "question": "May the outbound webhook contract change?", "options": [
+        {"label": "Additive only", "recommended": True}, {"label": "A new version"}]}]
+    angles = "```json\n" + json.dumps([{"title": "map the field"}, {"title": "poll the API"}]) + "\n```"
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        if req.step_name == "frame the question":
+            first = sum(r.step_name == "frame the question" for r in seen) == 1
+            return None, "", f"Question: the ETA.\n{angles}" + (f"\n```keel-questions\n{json.dumps(qs)}\n```" if first else ""), {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    tid = start(client, repo, workflow="spike", title="ParcelPerform ETA")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "frame_questions" and s["waiting"]["kind"] == "clarify"
+    assert [q["id"] for q in s["waiting"]["questions"]] == ["change"]
+    s = decide(client, tid, "approve", payload={"answers": {"change": "Additive only"}})
+    frames = [r for r in seen if r.step_name == "frame the question"]
+    assert len(frames) == 2 and "→ Additive only" in frames[1].feedback
+    assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"]
