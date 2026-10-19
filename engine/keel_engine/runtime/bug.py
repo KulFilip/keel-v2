@@ -303,3 +303,43 @@ def section(state: dict) -> list[str]:
         where = ", ".join(x for x in (hunt.get("group"), f"hunt {hunt['run']}" if hunt.get("run") else None) if x)
         out.append(f"- Closes {', '.join(findings)}" + (f" ({where})" if where else ""))
     return out + [""]
+
+
+# ------------------------------------------------------------------ a fix of a hunt finding: its own branch
+
+def branch_name(pattern: str | None, title: str, flow: str) -> str:
+    """The branch pattern (settings.branch_pattern, default feat/{slug}) for a flow: {flow} is the workflow id, and a fix
+    goes on fix/ where the pattern says feat/ (the api's FlowService.branchName does the same)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(title).lower()).strip("-")[:40].strip("-") or "x"
+    name = str(pattern or "").strip() or "feat/{slug}"
+    if flow == "fix" and name.startswith("feat/"):
+        name = "fix/" + name[len("feat/"):]
+    return name.replace("{slug}", slug).replace("{user}", "keel").replace("{flow}", flow)
+
+
+def own_worktree(root: str, workflow_id: str, seed: dict, settings: dict | None, title: str) -> dict | None:
+    """keel v1 hunt: each finding is drained into its own fix/ branch. A fix that hunt-next started (its seed names the
+    hunt) gets a worktree of its own on a new branch from the base branch, instead of stacking on the hunt's branch:
+    {root, worktree: {name, branch, base}}, or None (another flow, not a git repository, or git refused)."""
+    from ..tools import worktrees
+    from .verdict_actions import base_ref
+
+    if workflow_id != "fix" or not (seed or {}).get("hunt"):
+        return None
+    main = root.split(f"/{worktrees.DIR}/", 1)[0]          # the parent may itself work in a worktree
+    if not git.is_repo(main):
+        return None
+    start = base_ref(main, rules.load_config(main))
+    first = branch_name((settings or {}).get("branch_pattern"), title, "fix")
+    name, n = first, 2
+    while git.git(main, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}").returncode == 0:
+        name, n = f"{first}-{n}", n + 1
+    slug = re.sub(r"[^a-z0-9]+", "-", str(title).lower()).strip("-")[:30].strip("-") or "fix"
+    import uuid
+
+    wt = f"flow-{slug}-{uuid.uuid4().hex[:6]}"
+    try:
+        made = worktrees.add(main, wt, name, start)
+    except worktrees.WorktreeError:
+        return None
+    return {"root": made["path"], "worktree": {"name": wt, "branch": made["branch"], "base": start or made["base"]}}

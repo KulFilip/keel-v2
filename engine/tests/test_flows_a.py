@@ -504,6 +504,35 @@ def test_fix_from_a_hunt_seed_writes_the_regression_e2e(client, repo, monkeypatc
     assert any(r.agent == "e2e-author" for r in seen) and log(repo)[0].startswith("e2e(BUG-1)")
 
 
+def test_a_fix_from_hunt_next_gets_its_own_fix_branch_from_the_base(client, repo, monkeypatch):
+    """keel v1 hunt: each finding is drained into its own fix/ branch. The fix that hunt-next starts works in a worktree
+    of its own, on fix/<slug> from the base branch: not on the hunt's branch, so fixes do not stack into one PR."""
+    answers(monkeypatch, {})
+    on_branch(repo, "feat/hunt-run")                     # the hunt's branch, with its own commit
+    w = wf([{"id": "hand", "kind": "code", "name": "hand to fix", "action": "start_flow", "flow": "fix", "then": "end",
+             "seed": {"title": "F-001: ranks overflow", "request": "500 on /ranks", "hunt": {"run": "H-1", "findings": ["F-001"]}}}])
+    s = wait(client, start(client, repo, workflow=w))
+    kid = child(client, s, "fix")
+    k = wait(client, kid)
+    assert k["waiting"]["step"] == "gate_r", k
+    started = client.bus.of(kid, "thread.started")[-1]["data"]
+    wt = started["worktree"]
+    assert wt["branch"] == "fix/f-001-ranks-overflow" and wt["base"] == "main" and wt["name"].startswith("flow-f-001-ranks")
+    assert started["root"].startswith(str(Path(repo) / ".keel/worktrees"))
+    root = started["root"]
+    assert git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "fix/f-001-ranks-overflow"
+    assert git(root, "log", "--format=%s", "-2").stdout.splitlines() == ["test(BUG-1): F-001: ranks overflow", "chore: demo project"]
+    assert git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "feat/hunt-run"   # the folder did not move
+    assert not any(x.startswith("test(BUG") for x in log(repo))
+    # a fix started without a hunt seed works where its parent works
+    w = wf([{"id": "hand", "kind": "code", "name": "hand to fix", "action": "start_flow", "flow": "fix", "then": "end",
+             "seed": {"title": "Average is wrong"}}])
+    kid = child(client, wait(client, start(client, repo, workflow=w)), "fix")
+    wait(client, kid)
+    assert "worktree" not in client.bus.of(kid, "thread.started")[-1]["data"]
+    assert log(repo)[0].startswith("test(BUG-2)")
+
+
 def test_fix_plan_can_ask_for_the_e2e(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"investigator": investigator(lambda r: "ROOT-CAUSE: confirmed\nE2E: yes")})
     tid = start(client, repo, workflow="fix", title="Average is wrong")
