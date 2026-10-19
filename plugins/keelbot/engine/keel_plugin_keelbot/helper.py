@@ -598,6 +598,28 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     return "\n\n".join(parts)
 
 
+# ------------------------------------------------------------------ /compact
+
+async def compact(sid: str) -> dict:
+    """Asks the model to summarise the stored conversation, stores that summary as a note (never a user or helper
+    turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
+    Nothing in helper_messages is ever deleted; ctx_tokens resets to the summary's own size."""
+    s = get(sid, messages=False)
+    model = models.effective(s["model"])
+    hist = history(sid)
+    root = workdir(s)
+    prompt = "Summarise the conversation so far, for a fresh session that continues from this summary alone.\n\n" \
+             + _transcript(hist)
+    req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, None), prompt=prompt, root=root, phase="none",
+                       model=model, toolbox=ToolBox(root, "none", agent=AGENT, readonly=True), title=s["title"],
+                       step_name="compact", key=models.key_for(model["provider"], {}), history=hist)
+    res = await models.runner_for(model).run(req, lambda *_a, **_k: None)
+    tin, tout, cached = int(res.tokens_in), int(res.tokens_out), int(res.tokens_cached)
+    add_message(sid, "note", res.text or "", data={"tokens_in": tin, "tokens_out": tout, "tokens_cached": cached})
+    update(sid, engine_session=str(uuid.uuid4()), ctx_tokens=tin + tout + cached)
+    return get(sid, messages=False)
+
+
 # ------------------------------------------------------------------ turns
 
 class HelperRunner:
