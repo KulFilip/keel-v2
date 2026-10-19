@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
-import { complete, follow, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
+import { complete, follow, pickMatches, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
 import { applyLevel, makeTheme, type Theme } from "../core/theme";
@@ -442,7 +442,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     await handle(r, p.cmd);
   }, [handle, pending, push]);
 
-  const filtered = pending?.pick ? pending.pick.choices.filter((c) => !pickFilter || c.label.toLowerCase().includes(pickFilter.toLowerCase())) : [];
+  const filtered = pending?.pick ? pickMatches(pending.pick.choices, pickFilter) : [];
 
   const setText = (t: string, c = t.length) => {
     setLine(t);

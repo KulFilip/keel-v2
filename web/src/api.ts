@@ -762,6 +762,9 @@ export type HelperSession = {
   /** P1-1 how full the model's context window is after the last turn: the last turn's tokens_in + tokens_out +
    *  tokens_cached, and the model's window size (engine/keel_engine/models/catalog.py's context_window). */
   ctx_tokens?: number; ctx_window?: number;
+  /** P1-3 in the session list only: its last user or KeelBot message as one short line ("" when none), and how many
+   *  messages it stores (plugins/keelbot helper.py list_sessions) */
+  last_message?: string; message_count?: number;
 };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };

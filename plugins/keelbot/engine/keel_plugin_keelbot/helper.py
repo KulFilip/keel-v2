@@ -159,10 +159,29 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
 
 
 def list_sessions(project: str, limit: int = 200) -> list[dict]:
+    """The project's chats, the latest activity first. P1-3: each with `last_message` (a one-line preview of its last
+    user or KeelBot message, "" when none) and `message_count` (every stored message), for keel TUI's /chats picker."""
     with db.connect() as conn:
         rows = conn.execute(f"select {', '.join(FIELDS)} from helper_sessions where project = ? order by updated_at desc limit ?",
                             (project, limit)).fetchall()
-    return [_session(r) for r in rows]
+        sids = [r[0] for r in rows]
+        marks = ", ".join("?" * len(sids))
+        counts = dict(conn.execute(f"select session_id, count(*) from helper_messages where session_id in ({marks}) "
+                                   "group by session_id", sids).fetchall()) if sids else {}
+        lasts = dict(conn.execute(f"select m.session_id, m.text from helper_messages m where m.session_id in ({marks}) "
+                                  "and m.n = (select max(x.n) from helper_messages x where x.session_id = m.session_id "
+                                  "and x.role in ('user', 'helper'))", sids).fetchall()) if sids else {}
+    out = [_session(r) for r in rows]
+    for s in out:
+        s["message_count"] = int(counts.get(s["id"], 0))
+        s["last_message"] = preview(lasts.get(s["id"]) or "")
+    return out
+
+
+def preview(text: str, limit: int = 80) -> str:
+    """P1-3 a message as one short line: its words on one line, cut at a word with "…" (as a title is)."""
+    line = " ".join((text or "").split())
+    return short_title(line, limit) if line else ""
 
 
 def get(sid: str, messages: bool = True) -> dict:
