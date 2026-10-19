@@ -1,8 +1,9 @@
 """keel v1's `keel spec check`, in the engine: is this spec ready for a human to approve?
 
-It warns, it never blocks: a one-line change does not need a wireframe, and the user decides. The engine sends a
-spec back to the explorer once when something clear is missing (a screen with no states drawn, an API with no
-request path); after that the findings are shown on the spec gate.
+It never blocks the person: they decide at the spec gate. The engine sends a spec back to the explorer once when
+something clear is missing (a section of keel's spec template, a criterion with no test layer, a screen with no states
+drawn, an API with no request path, outside facts with no Unverified and open questions); after that the findings are
+shown on the spec gate as missing, the rest as warnings.
 """
 from __future__ import annotations
 
@@ -12,6 +13,32 @@ from pathlib import Path
 SECTION = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.M)
 STATES = {"loading": r"load", "empty": r"empt|no results|nothing", "error": r"error|fail", "filled": r"fill|result|row|list|data|show"}
 VAGUE = re.compile(r"\b(either|any of|whichever|or something|etc\.?|as needed|appropriate(ly)?|fast|quickly|user[- ]friendly|nice)\b", re.I)
+
+
+# 0.18.21 keel v1's spec template (content/templates/spec.md), with the evidence a spike brings: the sections every spec
+# file must have, as (shown name, heading prefixes, what goes in it). A spec without one is sent back once, then the
+# gate names it.
+REQUIRED = (
+    ("Goal", ("goal",), "why this exists and what changes for whom, in two or three sentences"),
+    ("User stories", ("user stor",), "\"As a <role>, I want <capability>, so that <benefit>.\", one per actor"),
+    ("Findings (evidence)", ("findings",), "what is true today, each claim with its file:line or URL: the inbound, "
+                                           "internal-message, persistence and outbound paths, and the tests that exist"),
+    ("Acceptance criteria", ("acceptance criteria",), "numbered, layer-tagged, testable from outside"),
+    ("Test layers", ("test layer",), "per criterion the layers that prove it (unit, functional, integration, smoke, "
+                                     "e2e) or why a layer is not used"),
+    ("Validation and security rules", ("validation",), "what is refused and how, who may read and change what"),
+    ("Edge cases", ("edge case",), "absent, malformed, duplicate, limit, a later update, an old message still queued"),
+    ("Risks and cost", ("risk",), "files touched, migration or not, the rolling deploy order, what is ambiguous"),
+    ("Definition of done", ("definition of done",), "what must hold to call it done: criteria green on their layers, "
+                                                    "contract and docs updated, migration and rollout done, review passed"),
+)
+UNVERIFIED = ("unverified", "open question")
+SECTION_ORDER = ("Request", "Goal", "User stories", "Decisions", "Findings (evidence)", "Acceptance criteria", "Test layers",
+                 "UI mockup", "Request path", "Data and migrations", "Validation and security rules", "Edge cases",
+                 "Risks and cost", "Assumptions", "Unverified and open questions", "Out of scope", "Definition of done", "Plan")
+STORY = re.compile(r"\bas an?\b.+?\bi want\b.+?\bso that\b", re.I | re.S)
+CITE = re.compile(r"[\w./-]+\.\w+:\d+|https?://\S+")
+URL = re.compile(r"https?://[^\s)>\]]+")
 
 
 def sections(text: str) -> dict[str, str]:
@@ -29,8 +56,10 @@ def _shape(title: str) -> str:
     return re.sub(r"\s+", " ", t).strip() if "#" in t else ""
 
 
-def check(text: str, acs: list[dict]) -> list[dict]:
-    """Findings as {level: "fix"|"note", text}. "fix" ones are worth one automatic revision."""
+def check(text: str, acs: list[dict], outside: bool = False) -> list[dict]:
+    """Findings as {level: "fix"|"note", text}. "fix" ones are worth one automatic revision. `outside`: the work relies on
+    facts from outside the repository (web research, a spike's sources), so the spec needs Unverified and open
+    questions; a URL in the spec says the same."""
     found: list[dict] = []
     sec = sections(text)
     layers = {str(a.get("layer", "API")).upper() for a in acs}
@@ -40,6 +69,8 @@ def check(text: str, acs: list[dict]) -> list[dict]:
 
     if not acs:
         return [{"level": "fix", "text": "No acceptance criteria."}]
+    if text.strip():
+        found += _template(text, sec, acs, outside)
     if "WEB" in layers:
         mock = has("mockup", "ui mockup", "wireframe", "screen")
         if mock is None or not mock.strip("`\n "):
@@ -85,6 +116,58 @@ def check(text: str, acs: list[dict]) -> list[dict]:
     return found
 
 
+def _template(text: str, sec: dict[str, str], acs: list[dict], outside: bool) -> list[dict]:
+    """The template's required sections (a spec file only: a triage answer has none), a test layer for every criterion,
+    and Unverified and open questions when outside facts are involved."""
+    found: list[dict] = []
+
+    def body(prefixes: tuple[str, ...]) -> str | None:
+        hit = [v for k, v in sec.items() if k.startswith(prefixes)]
+        return "\n".join(hit) if hit else None
+
+    def bare(v: str) -> str:
+        return re.sub(r"<!--.*?-->", "", v, flags=re.S).strip()
+
+    missing = [(name, what) for name, pre, what in REQUIRED if not bare(body(pre) or "")]
+    for name, what in missing:
+        found.append({"level": "fix", "text": f"No “{name}” section (or it is empty): {what}."})
+    stories = body(("user stor",))
+    if stories and bare(stories) and not STORY.search(stories):
+        found.append({"level": "fix", "text": "User stories: write each as “As a <role>, I want <capability>, so that <benefit>.”"})
+    layers = body(("test layer",))
+    if layers is not None and bare(layers):
+        named = {int(n) for n in re.findall(r"\bAC-0*(\d+)\b", layers)}
+        lacking = [a["id"] for a in acs if (m := re.search(r"(\d+)$", str(a["id"]))) and int(m.group(1)) not in named]
+        if lacking:
+            found.append({"level": "fix", "text": f"Test layers names no layer for {', '.join(lacking)}: give each criterion the "
+                                                   "layers that prove it (unit, functional, integration, smoke, e2e) or say why none."})
+    findings = body(("findings",))
+    if findings and bare(findings) and not CITE.search(findings):
+        found.append({"level": "note", "text": "Findings (evidence) cites nothing: give each claim its file:line or URL."})
+    if (outside or URL.search(text)) and not bare(body(UNVERIFIED) or ""):
+        found.append({"level": "fix", "text": "The spec relies on facts from outside the repository but has no “Unverified and "
+                                               "open questions” section: list each fact no source confirmed and what must be "
+                                               "confirmed, by whom (or write “none: every outside fact is cited”)."})
+    done = body(("definition of done",))
+    if done and bare(done) and not re.search(r"^\s*[-*]\s", done, re.M):
+        found.append({"level": "note", "text": "Definition of done: list what must hold, one checkbox line each."})
+    return found
+
+
+def outside_facts(request: str, data: dict | None) -> bool:
+    """Does this flow rely on facts from outside the repository: web research ran (data.web_docs_text), or the request or
+    the evidence a parent flow handed over (a spike's report) cites a URL?"""
+    data = data or {}
+    seed = data.get("seed") if isinstance(data.get("seed"), dict) else {}
+    return bool(str(data.get("web_docs_text") or "").strip()) or bool(URL.search(f"{request or ''}\n{seed.get('evidence') or ''}"))
+
+
+def template_path() -> str:
+    from .. import config
+
+    return str(config.content_dir() / "templates" / "spec.md")
+
+
 def read_spec(root: str, rel: str | None) -> str:
     if not rel:
         return ""
@@ -122,4 +205,12 @@ def revision_note(findings: list[dict]) -> str:
 def describe(findings: list[dict]) -> str:
     if not findings:
         return "Spec check: nothing missing."
-    return "Spec check (warnings, you decide):\n" + "\n".join(f"- {f['text']}" for f in findings)
+    fixes = [f["text"] for f in findings if f["level"] == "fix"]
+    notes = [f["text"] for f in findings if f["level"] != "fix"]
+    out = []
+    if fixes:
+        out += ["Spec check, missing (keel sends the spec back once for these; choose edit or rewrite to fix the rest "
+                "before you approve):", *(f"- {t}" for t in fixes)]
+    if notes:
+        out += ["Spec check (warnings, you decide):", *(f"- {t}" for t in notes)]
+    return "\n".join(out)

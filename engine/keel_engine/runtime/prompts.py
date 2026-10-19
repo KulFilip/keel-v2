@@ -180,6 +180,8 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
+        if phase == "spec":
+            lines.append(spec_template_line())
     if phase in ("spec", "triage") and writes_spec and not stacks.has_web_layer(root):
         lines.append(NO_WEB)
     test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
@@ -229,6 +231,21 @@ def evidence_block(seed: dict | None) -> str:
             + ". Read all of it. Carry every claim with its file:line or URL into the spec's Findings (evidence), keep "
             "the paths it traced, the tests it named and its draft criteria, and put what it marks unconfirmed under "
             "Unverified and open questions. Do not summarise it away.\n\n" + text[:EVIDENCE_MAX])
+
+
+def spec_template_line() -> str:
+    """keel's spec template (content/templates/spec.md, keel v1's spec with the evidence a spike brings) for the step
+    that writes the spec: its path and its sections, which keel's spec check asks for."""
+    from . import spec_check
+
+    required = ", ".join(n for n, _p, _w in spec_check.REQUIRED)
+    return (f"Write the spec from keel's spec template {spec_check.template_path()} (read it once; keep its front matter "
+            f"and headings, in this order: {', '.join(spec_check.SECTION_ORDER)}). keel's spec check sends a spec back "
+            f"without: {required}; and without Unverified and open questions when the work relies on facts from outside "
+            "the repository. Cite a file:line or URL for every finding, give every criterion its test layers (unit, "
+            "functional, integration, smoke, e2e, or why not), turn each interview answer into a sentence under Decisions, "
+            "and call a gap that needs a product choice a decision, not a fact. Cut UI mockup, Request path, Data and "
+            "migrations, Assumptions and Plan only when they have nothing to say (the plan step writes the Plan).")
 
 
 def spec_writer(step) -> bool:

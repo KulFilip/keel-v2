@@ -158,8 +158,9 @@ def test_auto_runs_the_feature_flow_to_done_and_logs_every_gate(client, repo):
     assert "gate options approve: chosen at spec_gate" in s["gate_log"] and "gate ship_plan approve: chosen at spec_gate" in s["gate_log"]
     assert not client.bus.of(tid, "gate.waiting")
     decided = client.bus.of(tid, "gate.decided")
+    # (the interview's gate is not asked when the interview has no questions)
     assert decided and all(e["data"]["why"] in ("auto-approved (mode auto)", "chosen at spec_gate") for e in decided
-                           if e["data"].get("gate") != "unlock")
+                           if e["data"].get("gate") != "unlock" and not e["data"]["why"].startswith("not asked"))
     v = values(client, tid)
     # the PR body lists the gates keel approved by itself; open_pr opened nothing
     assert "## Auto-approved gates" in v["pr_body"] and "Run mode: auto." in v["pr_body"]
@@ -208,7 +209,7 @@ def test_changing_the_mode_mid_run_keeps_the_waiting_question_for_the_user(clien
     # the user's send-back wins over the new mode; every later gate is keel's
     s = decide(client, tid, "reject", why="say what a tie does")
     assert s["status"] == "done", s
-    log = s["gate_log"]
+    log = [x for x in s["gate_log"] if not x.startswith("gate interview_gate approve: not asked")]
     assert log[0] == "gate spec_gate reject: say what a tie does"
     assert "gate spec_gate approve: auto-approved (mode auto)" in log[1:]
     # the mode is stored with the thread: a fresh context (an engine restart) still has it

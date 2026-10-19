@@ -389,6 +389,8 @@ def when_text(when: dict) -> str:
         src = when.get("step")
         steps = ", ".join(src) if isinstance(src, list) else (src or "any earlier step")
         subject = f"marker {str(when.get('marker')).upper()} from {steps}" + (" (or any of its items)" if when.get("any") else "")
+    if when.get("absent"):
+        return f"{subject} is not set"
     if "equals" in when:
         return f"{subject} is {when['equals']}"
     if when.get("in"):

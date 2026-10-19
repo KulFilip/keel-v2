@@ -59,9 +59,19 @@ def default_acs(title: str) -> list[dict]:
 
 
 def spec_text(title: str, acs: list[dict]) -> str:
-    lines = [f"# {title}", "", "## Acceptance criteria", ""]
+    """A spec in keel's template (content/templates/spec.md): every section keel's spec check asks for."""
+    lines = [f"# {title}", "", "## Goal", "", f"{title}, so that players see where they stand.", "",
+             "## User stories", "", "- As a player, I want to see my rank, so that I know where I stand.", "",
+             "## Findings (evidence)", "", "- The scores live in `src/scores/__init__.py:1`; no test covers ranks yet.", "",
+             "## Acceptance criteria", ""]
     lines += [f"- **{a['id']}** [{a.get('layer', 'API')}] {a['title']}" for a in acs]
-    lines += ["", "## Plan", "", "1. Write the failing test for each criterion.", "2. Make it pass with the least code.", ""]
+    lines += ["", "## Test layers", ""] + [f"- {a['id']}: unit; e2e: not needed, no browser path" for a in acs]
+    lines += ["", "## Validation and security rules", "", "- No input from outside; nothing is logged.", "",
+              "## Edge cases", "", "- No scores: an empty list.", "",
+              "## Risks and cost", "", "- One module, no migration, no deploy order.", "",
+              "## Out of scope", "", "- Paging.", "",
+              "## Definition of done", "", "- [ ] Every criterion is green on its layers.", "- [ ] The review passed.", "",
+              "## Plan", "", "1. Write the failing test for each criterion.", "2. Make it pass with the least code.", ""]
     return "\n".join(lines)
 
 
@@ -101,7 +111,11 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                  "Why: the test showed ties.\n")
         return path, old.rstrip() + "\n" + block, "Amendment written.\nREOPEN: none\nCONTRACT: no", {}
     if agent == "explorer" and phase == "spec" and not req.acs and "Write the spec under" not in (req.prompt or ""):
-        # an explorer in the spec phase that does not write the spec (prompts.spec_writer): the spike's frame
+        # an explorer in the spec phase that does not write the spec (prompts.spec_writer): the feature's interview (the
+        # request answers every lens), the spike's frame
+        if req.step_name == "interview":
+            return None, "", ("- goal and users: the request says it\n- scope: the request names it\n"
+                              "NO_QUESTIONS: the request answers every lens that changes the criteria"), {}
         return None, "", f"Framed: {title}. Nothing from outside this repository is needed.", {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)

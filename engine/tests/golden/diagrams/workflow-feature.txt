@@ -1,8 +1,10 @@
-workflow feature "feature (keel)" - 105 steps, 15 gates
+workflow feature "feature (keel)" - 107 steps, 16 gates
 
 == Preflight: check the repo and move to the flow's own branch ==  id=preflight
    #  preflight + own branch  (code preflight)
 == Spec: write and approve what to build ==  id=spec
+   o  interview  (agent explorer)
+  [?] your answers  (gate, you decide)
    o  spec  (agent explorer)
    #  areas to map  (code explore_areas)
    =  one explorer per area  (parallel)
@@ -55,6 +57,4 @@ workflow feature "feature (keel)" - 105 steps, 15 gates
       \       fails -> spec amendment  (loops back)
       \  <  did the spec change?  (branch)
       \       yes -> spec amendment
-      \       no -> an order question?
-      \ [?] spec amendment  (gate, you decide)
-... 99 more (zoom with id=contract)
+... 101 more (zoom with id=contract)

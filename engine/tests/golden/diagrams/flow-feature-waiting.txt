@@ -7,6 +7,8 @@ usage    15,400 tokens of 500,000 - $0.42
 == Preflight: check the repo and move to the flow's own branch ==  id=preflight
   [x] preflight + own branch  (code preflight)
 == Spec: write and approve what to build ==  id=spec
+  [x] interview  (agent explorer)
+  [x] your answers  (gate, you decide)
   [x] spec  (agent explorer)
   [x] areas to map  (code explore_areas)
   [x] one explorer per area  (parallel)
@@ -55,6 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \ [ ] stop the flow  (code amend_stop)
       \       then -> end of the flow
       \ [ ] spec amendment  (agent explorer)
-      \ [ ] the amendment for the gate  (code spec_amendment)
-      \       fails -> spec amendment  (loops back)
-... 103 more (zoom with id=contract)
+... 105 more (zoom with id=contract)
