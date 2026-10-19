@@ -69,6 +69,8 @@ HISTORY_TURNS = 12                       # earlier messages an API-key model get
 TURN_TIMEOUT = 900
 SHELL_TIMEOUT = 300                      # 0.18.18 a `!command` the person runs (keel TUI), once it may run
 COMPACT_RATIO = 0.85                     # ctx_tokens / ctx_window above this: compact before the next turn runs
+COMPACT_WINDOW = 128_000                 # 0.18.19 the window assumed for /compact when the model's is unknown
+COMPACT_SHARE = 0.5                      # of the window (as characters, about 4 a token) the chat to summarise may fill
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
     "ask": ("Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git). "
@@ -372,6 +374,9 @@ def workdir(s: dict) -> str:
     return s.get("worktree") or s["root"]
 
 
+SUMMARY_HEAD = "The conversation so far, summarised (the full chat is stored in keel):\n"
+
+
 def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     """Earlier messages as [(user|assistant, text)], oldest first. After a /compact the history starts at the latest
     summary (a note with data.compact): the summary first, then what was said after it. Every message stays stored."""
@@ -379,7 +384,7 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     last = max((i for i, m in enumerate(msgs) if m["role"] == "note" and (m.get("data") or {}).get("compact")), default=None)
     out: list[tuple[str, str]] = []
     if last is not None:
-        out.append(("user", "The conversation so far, summarised (the full chat is stored in keel):\n" + msgs[last]["text"]))
+        out.append(("user", SUMMARY_HEAD + msgs[last]["text"]))
         msgs = msgs[last + 1:]
     out += [("user" if m["role"] == "user" else "assistant", m["text"]) for m in msgs if m["role"] in ("user", "helper")]
     return out
@@ -697,16 +702,23 @@ def _failed_block(failed: list[dict] | None) -> str:
             "unless they already picked one.")
 
 
-def _transcript(hist: list[tuple[str, str]]) -> str:
-    """The conversation so far, newest kept, for engines that cannot continue their own session."""
+def _transcript(hist: list[tuple[str, str]], limit: int = TRANSCRIPT_CHARS) -> str:
+    """The conversation so far, newest kept, for engines that cannot continue their own session. 0.18.19 a /compact
+    summary (history()'s first message) always stays: the newest messages share the rest of `limit`."""
     parts, used = [], 0
+    if hist and hist[0][0] == "user" and hist[0][1].startswith(SUMMARY_HEAD):
+        parts.append(f"Person: {hist[0][1].strip()}")
+        hist = hist[1:]
+    keep = parts[:]
+    parts = []
     for role, text in reversed(hist):
         line = f"{'Person' if role == 'user' else 'KeelBot'}: {text.strip()}"
-        if used + len(line) > TRANSCRIPT_CHARS:
+        if used + len(line) > limit:
             break
         parts.append(line)
         used += len(line)
-    return ("The conversation so far (oldest first):\n" + "\n\n".join(reversed(parts))) if parts else ""
+    parts = keep + list(reversed(parts))
+    return ("The conversation so far (oldest first):\n" + "\n\n".join(parts)) if parts else ""
 
 
 SHELL_OUTPUT_MAX = 8000
@@ -817,11 +829,14 @@ async def compact(sid: str) -> dict:
     model = models.effective(s["model"])
     hist = history(sid)
     root = workdir(s)
+    # 0.18.19 the whole chat, as far as the model's window allows (it was the newest 6000 characters), and only in the
+    # prompt: an API-key model got it a second time as its messages
+    room = max(TRANSCRIPT_CHARS, int((s.get("ctx_window") or COMPACT_WINDOW) * 4 * COMPACT_SHARE))
     prompt = "Summarise the conversation so far, for a fresh session that continues from this summary alone.\n\n" \
-             + _transcript(hist)
+             + _transcript(hist, room)
     req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, None), prompt=prompt, root=root, phase="none",
                        model=model, toolbox=ToolBox(root, "none", agent=AGENT, readonly=True), title=s["title"],
-                       step_name="compact", key=models.key_for(model["provider"], {}), history=hist)
+                       step_name="compact", key=models.key_for(model["provider"], {}), history=[])
     res = await models.runner_for(model).run(req, lambda *_a, **_k: None)
     tin, tout, cached = int(res.tokens_in), int(res.tokens_out), int(res.tokens_cached)
     before = int(s.get("ctx_tokens") or 0)
