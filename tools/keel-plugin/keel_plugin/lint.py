@@ -32,11 +32,11 @@ PYTHON_LIBRARIES = ("requirements.lock", "requirements.txt")
 # content with one of them never loads, because keel keeps its own (03-security.md 3.4, rule 2).
 # tests/test_lint_names.py checks the lists against keel-v2's content/.
 KEEL_WORKFLOWS = frozenset({"change", "cover", "diagnose", "feature", "fix", "hunt", "hunt-next", "implement", "init",
-                            "knowledge-refresh", "lint", "plugin", "quick", "review", "ship", "small", "spike"})
+                            "knowledge-refresh", "lint", "plugin", "quick", "review", "review-pr", "ship", "small", "spike"})
 KEEL_AGENTS = frozenset({"ac-reviewer", "arch-surveyor", "bulk-reader", "code-reviewer", "contract-author",
                          "dependency-triager", "e2e-author", "explorer", "hunter", "implementer", "investigator",
                          "lane-runner", "librarian", "prover", "reproducer", "reviewer", "security-auditor",
-                         "setup-doctor", "test-author", "web-researcher"})
+                         "setup-doctor", "test-author", "ticket-reviewer", "web-researcher"})
 FRONT_NAME = re.compile(r"^name:\s*['\"]?([^'\"\s#]+)", re.M)
 WORKFLOW_ID = re.compile(r"^id:\s*['\"]?([^'\"\s#]+)", re.M)
 

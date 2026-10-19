@@ -994,8 +994,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does: type is the workflow id
         (feature, change, fix, review, ...), idea says in your words what to build or fix (the first line is the
-        title). It runs under keel's guard, budget and records, and stops at its first human gate. allow_fake: start
-        it even though agents use the fake model (it writes example files), like the dashboard's checkbox."""
+        title; review-pr: the PR number or URL, or `branch: <name>`, on the first line, then the ticket). It runs
+        under keel's guard, budget and records, and stops at its first human gate. allow_fake: start it even though
+        agents use the fake model (it writes example files), like the dashboard's checkbox."""
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, START_WAIT, allow_fake)
 
