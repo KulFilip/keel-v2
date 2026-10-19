@@ -544,6 +544,10 @@ def _detect(root: str) -> dict:
     cmds = testcmd.config_commands(root)
     if cmds:
         cfg["commands"] = cmds
+    # 0.18.17 the commands were found in one backend subfolder: written as backend.dir, so they run there
+    sub = testcmd.detected_dir(root)
+    if sub:
+        cfg["backend"] = {**(cfg.get("backend") or {}), "dir": sub}
     # where keel keeps its files (keel_engine/layout.py), written down so the choice never changes by itself
     cfg["layout"] = layout.default_name(r, (r / ".keel").is_symlink(), layout.raw_config(r))
     if cfg["layout"] == "repo" and (r / "docs" / "specs").is_dir():

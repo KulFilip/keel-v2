@@ -217,9 +217,24 @@ def answers(root: str, text: str | None, fast: bool = False) -> dict:
     return a
 
 
+def _plan_commands(root: str, cfg_exists: bool) -> tuple[dict, str]:
+    """(the test commands the plan shows, the folder they run in). 0.18.17 the ones in .keel/config.yml first: the plan
+    said "none found" while the config named them, because it only asked detection."""
+    if cfg_exists:
+        from .. import rules
+
+        have = rules.load_config(root).get("commands") or {}
+        mine = {k: have[k] for k in ("api_test_module", "api_test_ac") if have.get(k)}
+        if not mine.get("api_test_module") and have.get("unit_tests"):
+            mine["api_test_module"] = have["unit_tests"]
+        if mine:
+            return mine, testcmd.part_dir(root, "backend")
+    return testcmd.config_commands(root), testcmd.detected_dir(root)
+
+
 def plan(root: str, init: dict) -> str:
-    cmds = testcmd.config_commands(root)
     cfg_exists = (Path(root) / ".keel" / "config.yml").is_file()
+    cmds, cmd_dir = _plan_commands(root, cfg_exists)
     secs = init.get("knowledge_sections") or []
     from .. import layout
 
@@ -227,13 +242,14 @@ def plan(root: str, init: dict) -> str:
     lines = ["keel will do this, in this order. Approve to start; send back to change it.", "",
              f"1. Write .keel/config.yml" + (" — it exists, so it is left as it is" if cfg_exists else ":"),]
     if not cfg_exists:
-        block = {"version": 4, "layout": lay.name, **({"commands": cmds} if cmds else {}),
+        block = {"version": 4, "layout": lay.name, **({"backend": {"dir": cmd_dir}} if cmd_dir else {}),
+                 **({"commands": cmds} if cmds else {}),
                  "init": {k: v for k, v in init.items() if k != "said"}}
         lines += ["   " + l for l in yaml.safe_dump(block, sort_keys=False).splitlines()]
     lines += [f"2. Run the setup ladder (install, build, tests, services up) and write {lay.runbook} with every "
               "command that passed.",
-              f"   test command: {cmds.get('api_test_module') or 'none found — the ladder will say so'}",
-              f"   one criterion: {cmds.get('api_test_ac') or '-'}",
+              f"   test command: {testcmd.shown(cmds['api_test_module'], cmd_dir) if cmds.get('api_test_module') else 'none found — the ladder will say so'}",
+              f"   one criterion: {testcmd.shown(cmds['api_test_ac'], cmd_dir) if cmds.get('api_test_ac') else '-'}",
               f"   services: {init.get('services')}",
               (f"3. Write the knowledge sections {', '.join(secs)} under {lay.knowledge}/ (one librarian each, every claim "
                "with a file:line citation), at the same time as the ladder." if secs else
