@@ -179,6 +179,18 @@ class HelperService(
         return engine.post("/helper/sessions/$sid/stop", emptyMap<String, Any>())
     }
 
+    /** P1-2 the engine summarises the chat and goes on from the summary: {before, after} tokens. */
+    fun compact(pid: String, sid: String): JsonNode {
+        get(pid, sid)
+        return engine.post("/helper/sessions/$sid/compact", emptyMap<String, Any>())
+    }
+
+    /** P1-3 the chat as Markdown in the project's .keel/chats/: {path, messages}. */
+    fun export(pid: String, sid: String): JsonNode {
+        get(pid, sid)
+        return engine.post("/helper/sessions/$sid/export", emptyMap<String, Any>())
+    }
+
     fun turn(pid: String, sid: String, body: HelperTurn): JsonNode {
         val text = body.text.trim()
         if (text.isEmpty()) throw BadRequest("The message is empty", "Write a question, or pick a command with /.")
@@ -459,6 +471,12 @@ class HelperController(private val helper: HelperService) {
 
     @PostMapping("/sessions/{sid}/stop")
     fun stop(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.stop(pid, sid)
+
+    @PostMapping("/sessions/{sid}/compact")
+    fun compact(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.compact(pid, sid)
+
+    @PostMapping("/sessions/{sid}/export")
+    fun export(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.export(pid, sid)
 
     @GetMapping("/commands")
     fun commands(@PathVariable pid: String): JsonNode = helper.commands(pid)

@@ -229,6 +229,8 @@ class StubEngine private constructor(private val server: HttpServer) {
             else 200 to mapOf("session" to id, "call_id" to "call-$id", "n" to 1, "command" to null)
         }
         path.matches(Regex("/helper/sessions/[^/]+/stop")) -> 200 to helperSessions[path.split('/')[3]]
+        path.matches(Regex("/helper/sessions/[^/]+/compact")) -> 200 to mapOf("before" to 48000, "after" to 6000)
+        path.matches(Regex("/helper/sessions/[^/]+/export")) -> 200 to mapOf("path" to ".keel/chats/${path.split('/')[3]}.md", "messages" to 2)
         path.matches(Regex("/helper/sessions/[^/]+")) -> {
             val id = path.split('/')[3]
             val sess = helperSessions[id]

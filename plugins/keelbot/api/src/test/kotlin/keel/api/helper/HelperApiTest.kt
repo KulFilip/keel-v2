@@ -45,6 +45,21 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `compact and export reach the engine, for this project's chats only`() {
+        // P1-2 / P1-3: keel TUI's /compact and /export went to routes the api did not have (404)
+        val (pid, _) = newProject("helper-compact")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("title" to "Scores")).json()["id"].asText()
+        val c = post("/api/projects/$pid/helper/sessions/$sid/compact").andExpect(status().isOk).json()
+        assertThat(c["before"].asInt()).isEqualTo(48000)
+        assertThat(c["after"].asInt()).isEqualTo(6000)
+        val x = post("/api/projects/$pid/helper/sessions/$sid/export").andExpect(status().isOk).json()
+        assertThat(x["path"].asText()).isEqualTo(".keel/chats/$sid.md")
+        val (other, _) = newProject("helper-compact-other")
+        post("/api/projects/$other/helper/sessions/$sid/compact").andExpect(status().isNotFound)
+        post("/api/projects/$other/helper/sessions/$sid/export").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `a turn carries the knowledge, MCP, what the person points at and the waiting flow`() {
         val (pid, _) = newProject("helper-turn")
         val sid = post("/api/projects/$pid/helper/sessions").json()["id"].asText()
