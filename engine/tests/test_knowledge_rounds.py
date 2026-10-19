@@ -136,3 +136,41 @@ def test_a_section_is_stale_only_when_a_file_it_cites_changed(tmp_path):
     write(root, "src/a.py", "A = 2\n")
     assert [s["name"] for s in knowledge.stale(str(root), since)] == ["architecture", "data"]
     assert knowledge.cited_files(str(root), "data") == ["src/deep/b.py"]
+
+
+def test_a_refresh_without_a_list_updates_only_the_stale_sections(client, tmp_path, monkeypatch):
+    root = tmp_path / "kr"
+    write(root, "src/a.py", "A = 1\n")
+    write(root, "src/b.py", "B = 1\n")
+    write(root, "docs/knowledge/architecture.md", "# A\n\nStarts in `src/a.py:1`.\n")
+    write(root, "docs/knowledge/domain.md", "# D\n\nNamed in `src/b.py:1`.\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    commit_all(root)
+    subprocess.run(["git", "checkout", "-q", "-b", "feat/x"], cwd=root, check=True)
+    write(root, "src/a.py", "A = 2\n")
+    commit_all(root)
+    seen = []
+    real = fake_mod._plan
+    monkeypatch.setattr(fake_mod, "_plan", lambda req: (seen.append(req), real(req))[1])
+    settings = {k: v for k, v in SETTINGS.items() if k != "sections"}
+    tid = start(client, root, workflow="knowledge-refresh", title="Refresh knowledge", settings=settings)
+    s = wait(client, tid)
+    assert s["status"] == "done", s
+    lib = [r for r in seen if r.agent == "librarian"]
+    assert [r.section for r in lib] == ["architecture"]
+    assert "`src/a.py`" in lib[0].prompt and "keep every claim that is still true" in lib[0].prompt
+
+
+def test_init_again_keeps_the_sections_that_exist(tmp_path):
+    from keel_engine.runtime import init_gates
+    root = tmp_path / "again"
+    write(root, "docs/knowledge/architecture.md", "# A\n")
+    write(root, "docs/knowledge/data.md", "# D\n")
+    d = init_gates.defaults(str(root))
+    assert d["knowledge_sections"] == [s for s in init_gates.SECTIONS if s not in ("architecture", "data")]
+    plan = init_gates.plan(str(root), d)
+    assert "Kept as they are (they exist; the knowledge refresh updates stale ones): architecture, data" in plan
+    q = next(x for x in init_gates.clarify_questions(str(root)) if x["id"] == "knowledge")
+    arch = next(o for o in q["options"] if o["label"] == "architecture")
+    assert arch["recommended"] is False and "kept as it is" in arch["description"]
+    assert "3. No new knowledge section." in init_gates.plan(str(root), {**d, "knowledge_sections": []})

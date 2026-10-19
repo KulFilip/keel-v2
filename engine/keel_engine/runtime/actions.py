@@ -39,7 +39,7 @@ VERDICT_ACTIONS = {
     "trace_strict": lambda a: verdict_actions.trace(a, strict=True), "arch": verdict_actions.arch,
     "pr": verdict_actions.pr, "open_pr": verdict_actions.open_pr,
     "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report, "memory_plan": ship.memory_plan,
-    "memory_skip": ship.memory_skip, **lint_actions.ACTIONS,
+    "memory_skip": ship.memory_skip, "knowledge_scan": ship.knowledge_scan, **lint_actions.ACTIONS,
 }
 
 

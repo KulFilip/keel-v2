@@ -156,6 +156,10 @@ DOCS: dict[str, dict] = {
             "Stale: the sections and the changed files they cite, for the gate (update is recommended; it costs tokens).",
         ],
     },
+    "knowledge_scan": {
+        "summary": "knowledge-refresh: finds the stale sections (a file they cite changed since the last knowledge check) "
+                   "and the chosen ones not written yet; a refresh without a list updates only these.",
+    },
     "memory_skip": {
         "summary": "The knowledge gate's skip: records the reason for the PR body; the knowledge check still runs.",
     },

@@ -184,6 +184,29 @@ def _memory_plan(a):
                    update={"show": show, "data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "update", "sections": names}}})
 
 
+async def knowledge_scan(a):
+    return await asyncio.to_thread(_knowledge_scan, a)
+
+
+def _knowledge_scan(a):
+    """knowledge-refresh: which sections are stale (a file they cite changed since the last knowledge check, else since
+    the base branch) and which chosen ones are not written yet. data.knowledge_stale {sections, text}: the librarians
+    are told the changed files, and a refresh started without a list refreshes only these sections."""
+    v = verdicts.latest(a.key, "memory")
+    since = (v or {}).get("commit") if v and v.get("ok") else None
+    if not since and git.is_repo(a.root):
+        since = verdict_actions.base_ref(a.root, rules.load_config(a.root), a.base)
+    found = knowledge.stale(a.root, since)
+    chosen = knowledge.selection(a.root) or []
+    missing = [n for n in chosen if not knowledge.section_file(a.root, n).is_file()]
+    lines = [f"- {s['name']}: these cited files changed: {', '.join(f'`{f}`' for f in s['files'][:12])}" for s in found] + \
+        [f"- {n}: not written yet (write it from the code)" for n in missing]
+    names = [s["name"] for s in found] + missing
+    note = (f"stale: {', '.join(names)}" if names else "no section is stale (no file a section cites changed)")
+    return _result(True, note, update={"data": {**a.data, "knowledge_stale": {"sections": names, "text": "\n".join(lines)
+                                                                              or "(no section is stale: refresh only what you were given)"}}})
+
+
 async def memory_skip(a):
     return await asyncio.to_thread(_memory_skip, a)
 

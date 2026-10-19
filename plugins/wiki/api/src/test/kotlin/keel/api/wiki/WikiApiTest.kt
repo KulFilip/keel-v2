@@ -39,18 +39,31 @@ class WikiApiTest : ApiTest() {
 
     @Test
     fun `wiki refresh starts the knowledge-refresh template with one AC per stale section`() {
-        val (pid, root) = newProject("v2-wiki", mapOf("docs/knowledge/architecture.md" to "# A\n", "docs/knowledge/domain.md" to "# D\n", "src/A.kt" to "class A"))
+        val (pid, root) = newProject("v2-wiki", mapOf(
+            "docs/knowledge/architecture.md" to "# A\n\nStarts in `src/A.kt:1`.\n",
+            "docs/knowledge/domain.md" to "# D\n\nNamed in `src/B.kt:1`.\n",
+            "docs/knowledge/data.md" to "# Data\n\nNo citation.\n",
+            "src/A.kt" to "class A", "src/B.kt" to "class B", "src/C.kt" to "class C"))
+        post("/api/projects/$pid/wiki/refresh", emptyMap<String, Any>()).andExpect(status().isBadRequest)
+        val sectionStatus = { id: String -> get("/api/projects/$pid/memory").json()["knowledge"].first { it["id"].asText() == id }["status"].asText() }
+
+        // a commit that touches no cited file leaves every section current (keel v1: stale only by citation)
+        Files.writeString(root.resolve("src/C.kt"), "class C2")
+        gitEnv(root, mapOf("GIT_COMMITTER_DATE" to "2099-01-01T00:00:00Z", "GIT_AUTHOR_DATE" to "2099-01-01T00:00:00Z"), "commit", "-q", "-am", "other code")
+        assertThat(listOf("architecture", "domain", "data").map(sectionStatus)).containsOnly("written")
         post("/api/projects/$pid/wiki/refresh", emptyMap<String, Any>()).andExpect(status().isBadRequest)
 
         Files.writeString(root.resolve("src/A.kt"), "class A2")
-        gitEnv(root, mapOf("GIT_COMMITTER_DATE" to "2099-01-01T00:00:00Z", "GIT_AUTHOR_DATE" to "2099-01-01T00:00:00Z"), "commit", "-q", "-am", "code moved on")
-        assertThat(get("/api/projects/$pid/memory").json()["knowledge"].first { it["id"].asText() == "architecture" }["status"].asText()).isEqualTo("stale")
+        gitEnv(root, mapOf("GIT_COMMITTER_DATE" to "2099-01-02T00:00:00Z", "GIT_AUTHOR_DATE" to "2099-01-02T00:00:00Z"), "commit", "-q", "-am", "code moved on")
+        assertThat(sectionStatus("architecture")).isEqualTo("stale")
+        assertThat(sectionStatus("domain")).isEqualTo("written")
+        assertThat(sectionStatus("data")).isEqualTo("written")
 
         val state = post("/api/projects/$pid/wiki/refresh").andExpect(status().isOk).json()
         assertThat(state["thread_id"].asText()).isEqualTo("t-stub-1")
         val body = engine.lastBody("/threads")!!
         assertThat(body["workflow"]["id"].asText()).isEqualTo("knowledge-refresh")
-        assertThat(body["acs"].map { it["id"].asText() }).containsExactly("architecture", "domain")
+        assertThat(body["acs"].map { it["id"].asText() }).containsExactly("architecture")
         assertThat(body["acs"][0]["layer"].asText()).isEqualTo("API")
         assertThat(body["title"].asText()).contains("architecture")
 

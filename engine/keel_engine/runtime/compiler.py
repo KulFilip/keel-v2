@@ -1339,8 +1339,12 @@ class Compiler:
         if not secs and (self.wf.flow == "knowledge-refresh" or all(a["id"] in KNOWN_SECTIONS for a in state.get("acs") or [{"id": "-"}])):
             secs = [a["id"] for a in state.get("acs") or []]
         if not secs and self.wf.flow == "knowledge-refresh":
-            # Started without a list (the plain "start a flow" form): the sections init chose, else the ones that
+            # Started without a list (the plain "start a flow" form): the stale sections (knowledge_scan: a cited file
+            # changed) and the chosen ones not written yet; when none is, the sections init chose, else the ones that
             # exist, else all five. A librarian always gets its own section; without one it wanders.
+            secs = [str(x) for x in ((state.get("data") or {}).get("knowledge_stale") or {}).get("sections") or []]
+            if secs:
+                return secs
             chosen = (rules.load_config(self.ctx.root).get("init") or {}).get("knowledge_sections")
             have = init_gates.existing_sections(self.ctx.root)
             secs = list(chosen) if isinstance(chosen, list) and chosen else (have or list(init_gates.SECTIONS))

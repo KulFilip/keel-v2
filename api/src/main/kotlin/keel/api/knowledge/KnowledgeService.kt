@@ -127,14 +127,14 @@ class KnowledgeService(
     }
 
     /**
-     * docs/knowledge/<section>.md: written | missing | stale. Stale = the section's last commit is
-     * older than the last commit that touched code (a heuristic).
+     * docs/knowledge/<section>.md: written | missing | stale. Stale (keel v1 `memory show`) = a file the section cites
+     * changed in a commit after the section's own last commit. A commit that touches no cited file leaves the section
+     * current; a section that cites nothing cannot go stale this way (the knowledge check flags it instead).
      */
     fun knowledge(root: Path): List<KnowledgeSection> {
         val lay = Layout.resolve(root)
         val extra = lay.knowledgeDirs.flatMap { d -> listMd(root.resolve(d)).map { it.fileName.toString().removeSuffix(".md") } }
             .distinct().filter { it !in SECTIONS && it.lowercase() != "readme" && it != "index" }
-        val lastCode = workspace.lastCodeCommit(root)
         return (SECTIONS + extra).map { s ->
             val rel = lay.knowledgeFile(root, s)
             val f = root.resolve(rel)
@@ -143,9 +143,17 @@ class KnowledgeService(
             val words = text.split(Regex("\\s+")).count { it.isNotBlank() }
             val cites = CITATION.findAll(text).count()
             val written = workspace.lastCommitTime(root, rel)
-            val stale = written != null && lastCode != null && written < lastCode
+            val stale = written != null && (citedChange(root, text) ?: 0L) > written
             KnowledgeSection(s, if (stale) "stale" else "written", words, cites)
         }
+    }
+
+    /** When a file the section cites last changed (commit time, seconds), or null when it cites no file that exists. */
+    private fun citedChange(root: Path, text: String): Long? {
+        val cited = CITATION.findAll(text).map { it.groupValues[1] }.distinct()
+            .filter { !it.contains("..") && Files.isRegularFile(root.resolve(it)) }.take(200).toList()
+        if (cited.isEmpty()) return null
+        return workspace.gitOut(root, "log", "-1", "--format=%ct", "--", *cited.toTypedArray())?.toLongOrNull()
     }
 
     companion object {

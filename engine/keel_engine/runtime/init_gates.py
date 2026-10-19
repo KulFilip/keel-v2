@@ -37,10 +37,13 @@ def existing_sections(root: str) -> list[str]:
 
 
 def defaults(root: str, fast: bool = False) -> dict:
-    """keel's answers when the user gives none. A fast init writes no knowledge base unless the user names sections."""
+    """keel's answers when the user gives none. A fast init writes no knowledge base unless the user names sections.
+    A section that exists already is kept as it is (init run again rebuilds nothing; the knowledge refresh updates
+    stale sections); naming it explicitly writes it again."""
+    have = set(existing_sections(root))
     return {"runs_on": "dev container" if (Path(root) / ".devcontainer").is_dir() else "this machine",
             "services": f"use {compose_file(root)}" if compose_file(root) else "none",
-            "knowledge_sections": [] if fast else list(SECTIONS)}
+            "knowledge_sections": [] if fast else [s for s in SECTIONS if s not in have]}
 
 
 RUNS_ON = {"this machine": "the app and its tools run on this computer",
@@ -77,7 +80,7 @@ def clarify_questions(root: str, fast: bool = False) -> list[dict]:
         {"id": "knowledge", "question": "Which knowledge sections should keel write?",
          "why": "More sections cost more tokens now and make the agents better later"
                 + (" (a fast init writes none unless you tick some; conventions and data help agents most)." if fast else "."),
-         "options": [{"label": sec, "description": SECTION_HELP[sec] + (" (exists)" if sec in have else ""),
+         "options": [{"label": sec, "description": SECTION_HELP[sec] + (" (exists: kept as it is unless you tick it)" if sec in have else ""),
                       "recommended": sec in d["knowledge_sections"]} for sec in SECTIONS],
          "multiple": True},
     ]
@@ -236,6 +239,7 @@ def plan(root: str, init: dict) -> str:
     cfg_exists = (Path(root) / ".keel" / "config.yml").is_file()
     cmds, cmd_dir = _plan_commands(root, cfg_exists)
     secs = init.get("knowledge_sections") or []
+    kept = [s for s in existing_sections(root) if s not in secs]
     from .. import layout
 
     lay = layout.resolve(root)
@@ -253,7 +257,8 @@ def plan(root: str, init: dict) -> str:
               f"   services: {init.get('services')}",
               (f"3. Write the knowledge sections {', '.join(secs)} under {lay.knowledge}/ (one librarian each, every claim "
                "with a file:line citation), at the same time as the ladder." if secs else
-               "3. No knowledge sections (you chose none)."),
+               "3. No knowledge sections (you chose none)." if not kept else "3. No new knowledge section."),
+              *([f"   Kept as they are (they exist; the knowledge refresh updates stale ones): {', '.join(kept)}"] if kept else []),
               f"4. Check that every citation in {lay.knowledge}/ points at a real line.",
               ("5. Commit it all as chore(setup): keel init. Nothing is pushed." if not lay.hidden else
                f"5. Record it (layout {lay.name}: keel's files stay out of git, so there is no commit). Nothing is pushed.")]
