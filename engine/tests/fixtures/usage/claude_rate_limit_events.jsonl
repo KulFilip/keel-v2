@@ -6,3 +6,5 @@
 {"type": "rate_limit_event"}
 {"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {"five_hour": "x", "seven_day": {"utilization": "not a number", "resetsAt": "soon"}}}}
 not json at all
+{"type": "rate_limit_event", "rate_limit_info": {"status": "allowed_warning", "resetsAt": 1792670400, "rateLimitType": "seven_day", "utilization": 0.25, "surpassedThreshold": 0.25, "overageStatus": "rejected", "overageDisabledReason": "out_of_credits", "isUsingOverage": false, "unifiedWindows": {"five_hour": {"utilization": 0.09, "resetsAt": 1792436400}, "seven_day": {"utilization": 0.57, "resetsAt": 1792670400}}}, "uuid": "00000000-0000-0000-0000-000000000003", "session_id": "00000000-0000-0000-0000-000000000004"}
+{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": 1792670400, "rateLimitType": "seven_day", "utilization": 0.25, "isUsingOverage": false, "unifiedWindows": {"seven_day": {"utilization": 1.0, "resetsAt": 1792670400}}}}

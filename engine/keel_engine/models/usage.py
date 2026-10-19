@@ -36,7 +36,7 @@ COPILOT_TIMEOUT = 8
 COPILOT_URL = "https://api.github.com/copilot_internal/user"
 LIVE_MAX_AGE = 300          # seconds: before an agent step, a codex/copilot reading older than this is read again
 LABELS = {"five_hour": "5-hour", "seven_day": "weekly", "seven_day_opus": "weekly Opus", "seven_day_sonnet": "weekly Sonnet",
-          "month": "monthly"}
+          "seven_day_overage_included": "weekly (extra usage included)", "month": "monthly"}
 NAMES = {"claude": "Claude", "codex": "Codex", "copilot": "Copilot"}
 
 # provider -> {"windows": [...], "source": str, "at": unix seconds}
@@ -84,7 +84,12 @@ def window(name: str, used_pct: float | None, resets_at=None, **extra) -> dict:
 # ------------------------------------------------------------------ claude: rate_limit_event
 
 def claude_windows(info) -> list[dict]:
-    """Windows from one `rate_limit_event` rate_limit_info. Shapes differ between CLI versions; unknown ones give []."""
+    """Windows from one `rate_limit_event` rate_limit_info. Shapes differ between CLI versions; unknown ones give [].
+
+    0.18.17 unifiedWindows is read from every response (Claude Code re-sends the event when a window's percentage
+    moves); the top-level rateLimitType/utilization describe the limiting window as of its last status change (a weekly
+    warning fires at 25%, then the same status rides along). Letting the top-level number win showed the weekly window
+    at 25% while the plan said 57%: it only fills a window unifiedWindows does not carry."""
     if not isinstance(info, dict):
         return []
     status = info.get("status") if isinstance(info.get("status"), str) else None
@@ -99,10 +104,8 @@ def claude_windows(info) -> list[dict]:
         util = _num(info.get("utilization"))
         if util is None and status == "rejected":
             util = 1.0                      # refused: that window is used up
-        if util is not None or kind not in out:
-            prev = out.get(kind, {})
-            out[kind] = window(kind, util if util is not None else prev.get("used_pct"),
-                               info.get("resetsAt") or info.get("resets_at") or prev.get("resets_at"))
+        if kind not in out:
+            out[kind] = window(kind, util, info.get("resetsAt") or info.get("resets_at"))
         if status:
             out[kind]["status"] = status
         if info.get("isUsingOverage") is True:
