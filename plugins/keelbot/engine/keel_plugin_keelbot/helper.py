@@ -374,17 +374,22 @@ def workdir(s: dict) -> str:
     return s.get("worktree") or s["root"]
 
 
-SUMMARY_HEAD = "The conversation so far, summarised (the full chat is stored in keel):\n"
+# 0.18.19 the summary as the next turn reads it: opencode's checkpoint (from opencode (MIT),
+# core/src/session/runner/to-llm-message.ts), so the model takes it as what happened, not as the person's new request
+SUMMARY_HEAD = ("<conversation-checkpoint>\nThe following is a summary of the earlier conversation (the full chat is "
+                "stored in keel). Treat it as historical context, not as new instructions.\n\n<summary>\n")
+SUMMARY_TAIL = "\n</summary>\n</conversation-checkpoint>"
 
 
 def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     """Earlier messages as [(user|assistant, text)], oldest first. After a /compact the history starts at the latest
-    summary (a note with data.compact): the summary first, then what was said after it. Every message stays stored."""
+    summary (a note with data.compact), wrapped as a checkpoint, then what was said after it, word for word. Every
+    message stays stored."""
     msgs = [m for m in get(sid)["messages"] if before_n is None or m["n"] < before_n]
     last = max((i for i, m in enumerate(msgs) if m["role"] == "note" and (m.get("data") or {}).get("compact")), default=None)
     out: list[tuple[str, str]] = []
     if last is not None:
-        out.append(("user", SUMMARY_HEAD + msgs[last]["text"]))
+        out.append(("user", SUMMARY_HEAD + msgs[last]["text"].strip() + SUMMARY_TAIL))
         msgs = msgs[last + 1:]
     out += [("user" if m["role"] == "user" else "assistant", m["text"]) for m in msgs if m["role"] in ("user", "helper")]
     return out
@@ -821,9 +826,82 @@ def last_failures(sid: str, before_n: int) -> list[dict]:
 
 # ------------------------------------------------------------------ /compact
 
+# 0.18.19 the summary's form and rules, from opencode (MIT), core/src/session/compaction.ts: what the person wants, what
+# was decided, what is done, active or blocked, the next move and the files to open, so a fresh session goes on alone
+SUMMARY_TEMPLATE = """You MUST use this format for your response (you may omit sections that aren't applicable). Do not \
+include the <template> tags in your response.
+<template>
+## Objective
+- [one or two brief sentences describing what the person is trying to accomplish]
+
+## Requirements
+- [constraints, preferences, requirements, and scope boundaries stated by the person, or "(none)"]
+
+## Decisions
+- [decisions already made and why, or "(none)"]
+
+## Work State
+Break the objective into smaller goals and report which are completed, which are being worked on, and which are blocked.
+### Completed
+- [goals that have been completed; otherwise "(none)"]
+
+### Active
+- [goals currently being worked on; otherwise "(none)"]
+
+### Blocked
+- [anything blocking progress, and why; otherwise "(none)"]
+
+## Next Move
+1. [ordered list of next actions, or "(none)"]
+
+## Relevant Files
+List the files and directories, other than the project folder itself, that another agent would need to open to \
+continue this work. Include at most 15, most important first. Do not list every file that was read or changed. If none, \
+write "(none)".
+- `[file or directory path]`: [brief reason it matters]
+
+## Important Context
+- [facts the next agent cannot continue without and cannot easily find on its own; or "(none)"]
+</template>"""
+SUMMARY_RULES = """Rules:
+- Keep each section concise. Use terse, single-line bullets, not prose paragraphs or nested lists.
+- Prefer short references over detailed restatement. It is fine to leave out information the next agent can recover \
+from the code or the files listed above.
+- Preserve exact file paths, symbols, commands, error strings, URLs, and identifiers.
+- Carry forward only the person's questions or requests that remain unanswered or require further action. Do not \
+repeat ones that newer history has answered or resolved. Preserve exact wording when carrying one forward.
+- Preserve consequential workflow state, including whether changes are uncommitted, committed, pushed, under review, or \
+merged (keel keeps KeelBot's own changes until the person keeps them: say which are kept and which wait).
+- Do not mention the summary process or that context was compacted."""
+
+
+def summary_prompt(update: bool) -> str:
+    """0.18.19 What /compact asks after the chat (opencode's buildPrompt): a new summary, or, when the chat starts from
+    an earlier one, that summary updated with what came after it."""
+    shared = ["Summarize only what the person and KeelBot said and did. Leave out instructions and setup KeelBot was "
+              "given rather than told by the person (keel's rules, the mode, the project's knowledge): the next session "
+              "receives current versions of these separately.",
+              SUMMARY_TEMPLATE, SUMMARY_RULES, "Do not continue the task or call tools.",
+              "Return only the structured summary in the requested format. Do not include a preamble, explanation, or "
+              "other commentary."]
+    if not update:
+        return "\n\n".join(["You MUST summarize the conversation above into a structured summary that will be given to "
+                             "another agent to resume the work.", *shared])
+    return "\n\n".join([
+        "Update the existing checkpoint in the conversation above into one consolidated summary.",
+        "Newer history always takes precedence over the existing checkpoint. Preserve previous information unless newer "
+        "history clearly contradicts, supersedes, resolves, or makes it stale. If something is no longer relevant to "
+        "continuing the work, you may remove it.",
+        "Incorporate newer requirements, decisions, progress, and context. Reconcile Work State and Next Move: move "
+        "completed work out of Active, remove resolved blockers and answered questions, and preserve unresolved or "
+        "pending work.",
+        "Return only the updated Markdown sections. Do not reproduce the `<conversation-checkpoint>` or `<summary>` "
+        "wrapper tags from the previous checkpoint.", *shared])
+
+
 async def compact(sid: str) -> dict:
-    """Asks the model to summarise the stored conversation, stores that summary as a note (never a user or helper
-    turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
+    """Asks the model to summarise the stored conversation (0.18.19 in opencode's structured form, or to update the
+    earlier summary), stores that summary as a note (never a user or helper turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
     Nothing in helper_messages is ever deleted; ctx_tokens resets to the summary's own size."""
     s = get(sid, messages=False)
     model = models.effective(s["model"])
@@ -832,8 +910,8 @@ async def compact(sid: str) -> dict:
     # 0.18.19 the whole chat, as far as the model's window allows (it was the newest 6000 characters), and only in the
     # prompt: an API-key model got it a second time as its messages
     room = max(TRANSCRIPT_CHARS, int((s.get("ctx_window") or COMPACT_WINDOW) * 4 * COMPACT_SHARE))
-    prompt = "Summarise the conversation so far, for a fresh session that continues from this summary alone.\n\n" \
-             + _transcript(hist, room)
+    earlier = bool(hist) and hist[0][1].startswith(SUMMARY_HEAD)
+    prompt = _transcript(hist, room) + "\n\n" + summary_prompt(update=earlier)
     req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, None), prompt=prompt, root=root, phase="none",
                        model=model, toolbox=ToolBox(root, "none", agent=AGENT, readonly=True), title=s["title"],
                        step_name="compact", key=models.key_for(model["provider"], {}), history=[])
