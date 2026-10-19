@@ -171,6 +171,66 @@ def _ac_scope(a, cfg: dict, ac_id: str):
                update={"data": {**a.data, "review_lenses": [item]}})
 
 
+# ------------------------------------------------------------------ the AC gate's evidence
+
+_AC_REVIEW = re.compile(r"^\s*(?:\*\*|__|`)?\s*AC-REVIEW\s*:\s*(?:\*\*|__)?\s*(pass|findings)\b", re.I | re.M)
+REVIEW_MAX = 4000
+STAT_LINES = 25
+
+
+def ac_commit(root: str, prefix: str, ac_id: str, since: str | None = None) -> tuple[str, str] | None:
+    """(short sha, subject) of the newest commit whose subject starts with "<prefix>(<ac id>)" (test = RED, feat =
+    GREEN), since `since` (the flow's start) when given; None when there is none."""
+    if not git.is_repo(root):
+        return None
+    rng = [f"{since}..HEAD"] if since and git.git(root, "rev-parse", "--verify", "-q", f"{since}^{{commit}}").returncode == 0 else []
+    out = git.git(root, "log", "--format=%h%x09%s", "-n", "300", *rng).stdout
+    head = f"{prefix}({ac_id})"
+    for line in out.splitlines():
+        sha, _, subject = line.partition("\t")
+        if subject.startswith(head):
+            return sha, subject
+    return None
+
+
+def ac_evidence(root: str, ac: dict, acs: list[dict], review: str | None, note: str = "", since: str | None = None) -> str:
+    """What the AC gate shows (keel v1's AC gate: the board, the review word for word): the criterion, its RED commit
+    and test files, its GREEN commit and diffstat, the ac-reviewer's verdict and answer, and the board."""
+    ac_id = ac["id"]
+    lines = [f"{ac_id} [{ac.get('layer', 'API')}] {ac.get('title', '')}", ""]
+    red = ac_commit(root, "test", ac_id, since)
+    if red:
+        files = [f for f in git.git(root, "show", "--name-only", "--format=", red[0]).stdout.splitlines() if f.strip()]
+        lines.append(f"RED: {red[0]} {red[1]}")
+        lines += [f"  test file: {f}" for f in files[:15]] or ["  (no files in this commit)"]
+    else:
+        lines.append(f"RED: no test({ac_id}) commit found")
+    green = ac_commit(root, "feat", ac_id, since)
+    if green:
+        stat = [x.rstrip() for x in git.git(root, "show", "--stat", "--format=", green[0]).stdout.splitlines() if x.strip()]
+        lines.append(f"GREEN: {green[0]} {green[1]}")
+        if len(stat) > STAT_LINES:
+            stat = stat[:STAT_LINES - 1] + [f" ... {len(stat) - STAT_LINES} more", stat[-1]]
+        lines += [f"  {x.strip()}" for x in stat] or ["  (no files in this commit)"]
+    else:
+        lines.append(f"GREEN: no feat({ac_id}) commit found")
+    lines.append("")
+    text = (review or "").strip()
+    if text:
+        m = _AC_REVIEW.findall(text)
+        verdict = m[-1].lower() if m else "no verdict line"
+        body = text if len(text) <= REVIEW_MAX else text[:REVIEW_MAX] + "\n... (cut)"
+        lines += [f"AC-REVIEW: {verdict}", "", "The ac-reviewer's answer:", body, ""]
+    else:
+        lines += ["AC-REVIEW: no review ran for this criterion", ""]
+    done = [a["id"] for a in acs if a.get("status") in ("done", "already-met") and a["id"] != ac_id]
+    todo = [a["id"] for a in acs if a.get("status") not in ("done", "already-met") and a["id"] != ac_id]
+    lines.append(f"Board: done {', '.join(done) or '-'} · now {ac_id} · todo {', '.join(todo) or '-'}")
+    if note:
+        lines.append(f"Last step: {note}")
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------------ report
 
 def report(a):

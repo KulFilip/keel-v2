@@ -659,6 +659,9 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
   `route` = review-fix (implementer, verify_green + fix commit; default) | coverage-fix (test-author, verify_green +
   coverage commit) | red (test-author, red commit); after the fix the flow goes on from `redo`; past `rounds` the
   question says the limit is reached. "Go on anyway" keeps them in `data.dismissed_findings` (shown at the final review).
+- **AC gate detail** (0.18.22): the criterion line, `RED: <sha> test(<AC>) ...` with its test files, `GREEN: <sha>
+  feat(<AC>) ...` with its diffstat (commits since the flow started), `AC-REVIEW: pass|findings` and the ac-reviewer's
+  answer word for word, `Board: done ... · now <AC> · todo ...`, and `Last step:`.
 - **Choice gate** (`choices` on a per-item gate): options `["approve"]`, the question carries `choices`; payload
   `{choice}` (plain approve = the first); stored on the item (`decision`, `reason`) and as `markers[<id>].CHOICE`.
 - **Final report** (`report: verdicts`): exceptions first (skipped steps, accepted coverage, dismissed findings,

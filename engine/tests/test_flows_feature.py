@@ -353,6 +353,23 @@ def test_security_is_not_shown_when_clean_and_asks_when_it_finds_something(clien
     assert s["waiting"]["step"] == "ship_final_review", "clean the second time: nothing shown"
 
 
+def test_the_ac_gate_shows_the_commits_the_review_and_the_board(client, repo, monkeypatch):
+    """WP-B: the AC gate shows the criterion, RED sha + test files, GREEN sha + diffstat, the review and the board."""
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "ac_gate")
+    d = s["waiting"]["detail"]
+    red = git(repo, "log", "--format=%h", "--grep=test(AC-1)", "--fixed-strings").stdout.split()[0]
+    green = git(repo, "log", "--format=%h", "--grep=feat(AC-1)", "--fixed-strings").stdout.split()[0]
+    assert d.startswith("AC-1 [API] Player ranks: the main case works")
+    assert f"RED: {red} test(AC-1)" in d and "  test file: " in d
+    assert f"GREEN: {green} feat(AC-1)" in d and "changed" in d, "the diffstat"
+    assert "AC-REVIEW: pass" in d and "The ac-reviewer's answer:" in d and "the test proves AC-1" in d
+    assert "Board: done - · now AC-1 · todo AC-2" in d
+    s = decide(client, tid)
+    s = to(client, tid, s, "ac_gate")
+    assert "Board: done AC-1 · now AC-2 · todo -" in s["waiting"]["detail"]
+
+
 def test_the_dependency_triager_runs_after_verify_deps_found_something(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"dependency-triager": lambda r: "lodash 4.17.20: not reachable, dev-only.\nDEPS: clean"})
     script(monkeypatch, {"verify_deps": [ActionResult(False, "Dependencies: the web audit fails.", "lodash 4.17.20 high CVE-1")]})
