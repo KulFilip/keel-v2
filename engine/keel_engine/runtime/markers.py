@@ -79,8 +79,11 @@ def blocked(text: str) -> str | None:
 
 
 def matches(value: str | None, when: dict) -> bool:
-    """A branch's `when`: equals (one value) or in (a list); case does not matter."""
+    """A branch's `when`: equals (one value) or in (a list); case does not matter. Neither: the value is set, and
+    False, 0, "", [] and {} are not (str(False) is "false", which used to count as set)."""
     if value is None:
+        return False
+    if "equals" not in when and "in" not in when and (value is False or value in (0, "", [], {}) or value == ()):
         return False
     v = str(value).strip().lower()
     if "equals" in when:
