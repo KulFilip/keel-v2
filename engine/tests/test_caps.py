@@ -5,7 +5,7 @@ import pytest
 
 from conftest import decide, start, wait
 from keel_engine.models import fake as fake_mod
-from keel_engine.runtime.compiler import _step_cap
+from keel_engine.runtime.compiler import _step_cap, raised_cap
 from keel_engine.workflows.model import Step, from_dict
 
 SETTINGS = {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause"}
@@ -40,7 +40,7 @@ def test_the_dollar_cap_is_kept_and_pauses_before_the_next_agent(client, repo, c
     # a1 ($0.40) and a2 ($0.80) ran; before a3 the cost is past $0.70
     assert s["status"] == "waiting" and s["waiting"]["kind"] == "budget", s
     assert s["waiting"]["step"] == "a3" and s["waiting"]["title"] == "Cost cap reached"
-    assert "$0.80 of $0.70" in s["waiting"]["detail"]
+    assert "$0.80 of $0.70" in s["waiting"]["detail"] and "its cost cap to $1.50" in s["waiting"]["detail"]
     assert s["usage"]["cap_usd"] == 0.7 and s["usage"]["cost_usd"] == pytest.approx(0.8)
     s = decide(client, tid, "approve")
     assert s["status"] == "done", s
@@ -128,3 +128,28 @@ def test_no_step_cap_lets_a_step_run_again(client, repo):
     tid = start(client, repo, workflow=wf(AGAIN), settings=SETTINGS)
     s = to_second_run(client, tid)
     assert s["status"] == "waiting" and s["waiting"]["step"] == "g", s
+
+
+# ------------------------------------------------------------------ 0.18.17 an approved token cap goes up by more
+
+def test_an_approved_cap_grows_by_the_largest_of_the_cap_the_first_cap_and_half_the_use():
+    # the default 500k cap at 1.03M used: half the use (515k) beats one more cap (it was +500k per approval)
+    assert raised_cap(1_030_000, 500_000, 500_000) == 1_545_000
+    assert raised_cap(3_000_000, 500_000, 500_000) == 4_500_000
+    assert raised_cap(530_000, 500_000, 500_000) == 1_030_000        # early on: one more first cap
+    assert raised_cap(700_000, 650_000, 500_000) == 1_350_000        # never less than the cap now (as before)
+    assert raised_cap(10, 0, 0) == 15
+
+
+def test_the_token_cap_gate_says_the_new_cap_and_sets_it(client, repo):
+    many = [agent(i) for i in range(1, 7)]           # 22k tokens each (the fake model)
+    tid = start(client, repo, workflow=wf(many), settings={**SETTINGS, "cap_tokens": 30_000})
+    s = wait(client, tid)
+    assert s["waiting"]["title"] == "Token cap reached", s
+    assert "44,000 of 30,000 tokens" in s["waiting"]["detail"]
+    assert "the flow's cap goes up to 74,000 tokens" in s["waiting"]["detail"]
+    s = decide(client, tid, "approve")
+    assert s["usage"]["cap_tokens"] == 74_000, s
+    assert "88,000 of 74,000 tokens" in s["waiting"]["detail"] and "goes up to 162,000 tokens" in s["waiting"]["detail"]
+    s = decide(client, tid, "approve", payload={"cap_tokens": 500_000})     # a cap the person names still wins
+    assert s["status"] == "done" and s["usage"]["cap_tokens"] == 500_000, s

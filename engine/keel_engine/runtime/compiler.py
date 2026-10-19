@@ -141,6 +141,14 @@ def running_usage(usage: dict, running: dict) -> dict:
     return out
 
 
+def raised_cap(used: int, cap: int, first: int) -> int:
+    """0.18.17 the token cap after "Token cap reached" is approved: what the flow used plus the largest of the cap now,
+    the flow's first cap and half of what it used. One approval bought only one cap more (used + cap): with the 500,000
+    default a big flow asked a person every 500k (500k, 1.03M, 1.53M, ...); half the use so far makes the gates come
+    further apart as the flow grows, and an approval never buys less than before."""
+    return int(used + max(cap, first, used // 2, 1))
+
+
 def budget_tokens(usage: dict) -> int:
     """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
     return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
@@ -703,6 +711,12 @@ class Compiler:
             self.ctx.emit("provider.usage", step=step.id, data={"provider": provider, "windows": entry["windows"],
                                                                 "source": entry["source"], "at": provider_usage.iso(entry["at"])})
 
+    def _first_cap(self) -> int:
+        """The token cap the flow started with (initial_state): the settings' (or start request's) cap_tokens, else the
+        workflow's budget.max_tokens."""
+        b = self.wf.budget
+        return int(self.ctx.settings.get("cap_tokens") or (b.max_tokens if b and b.max_tokens else 0) or 0)
+
     def _running_cap(self, state: FlowState, step: Step) -> None:
         """0.18.17 while agents run: the flow's tokens with what they used so far (state.usage holds only finished
         calls). Past the token cap, budget.warn says so once per step (a running CLI cannot be paused); _budget asks
@@ -810,8 +824,14 @@ class Compiler:
             return {"status": "stopped", "note": f"{what} cap reached; flow stopped"}
         limit_txt = (f"{step_used:,} of {step_cap:,} tokens for this step" if over_step
                      else f"{used:,} of {cap:,} tokens" if over_cap else f"${cost:,.2f} of ${cap_usd:,.2f}")
+        new_cap = raised_cap(used, cap, self._first_cap()) if over_cap else 0
+        new_usd = round(cost + max(cap_usd, 0.01), 4) if over_usd else 0.0
+        after = [f"the flow's cap goes up to {new_cap:,} tokens" if over_cap else "",
+                 f"its cost cap to ${new_usd:,.2f}" if over_usd else "",
+                 f"this step gets another {step_cap:,} tokens" if over_step else ""]
         answer, extra = self._ask(state, {"step": step.id, "kind": "budget", "title": "Token cap reached" if what == "token" else "Cost cap reached",
-                                          "detail": f"This flow has used {limit_txt}. Approve to continue past the cap, reject to stop.",
+                                          "detail": f"This flow has used {limit_txt}. Approve to continue: "
+                                                    f"{', '.join(a for a in after if a)}. Reject to stop.",
                                           "options": OPTIONS})
         if (answer or {}).get("decision") != "approve":
             ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
@@ -819,10 +839,10 @@ class Compiler:
         payload = (answer or {}).get("payload") or {}
         upd: dict = {"warned": False, **extra}
         if over_cap:
-            usage["cap_tokens"] = int(payload.get("cap_tokens") or (used + max(cap, 1)))
+            usage["cap_tokens"] = int(payload.get("cap_tokens") or new_cap)
             upd["usage"] = usage
         if over_usd:
-            usage["cap_usd"] = round(float(payload.get("cap_usd") or (cost + max(cap_usd, 0.01))), 4)
+            usage["cap_usd"] = round(float(payload.get("cap_usd") or new_usd), 4)
             upd["usage"] = usage
         if over_step:
             st = dict(state.get("step_tokens") or {})
