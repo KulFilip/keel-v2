@@ -2,15 +2,29 @@
 
 The [README](../README.md) is the short version. This page has the details.
 
+- [How a flow works](#how-a-flow-works)
 - [Flows in detail](#flows-in-detail)
+- [Web research](#web-research)
+- [Rules](#rules)
 - [KeelBot](#keelbot)
+- [keel TUI (keel2 tui)](#keel-tui-keel2-tui)
+- [Thinking effort](#thinking-effort)
 - [Plugins and the Marketplace](#plugins-and-the-marketplace)
+- [Stacks](#stacks)
+- [Plugins: Database, Git and CI/CD](#plugins-database-git-and-cicd)
 - [Quality](#quality)
 - [Inbox and run modes](#inbox-and-run-modes)
+- [Usage and caps](#usage-and-caps)
 - [Tasks and Jira](#tasks-and-jira)
 - [Logins](#logins)
+- [Signing in](#signing-in)
 - [Use keel from Claude Code or Claude Desktop (MCP)](#use-keel-from-claude-code-or-claude-desktop-mcp)
+- [keel2 commands](#keel2-commands)
+- [Where keel keeps its files (layouts)](#where-keel-keeps-its-files-layouts)
+- [Native mode (no Docker)](#native-mode-no-docker)
 - [Docker mode](#docker-mode)
+- [Several project folders](#several-project-folders)
+- [Git worktree projects](#git-worktree-projects)
 - [Problems](#problems)
 - [Folders in the container](#folders-in-the-container)
 - [Without the install script](#without-the-install-script)
@@ -35,7 +49,24 @@ The [README](../README.md) is the short version. This page has the details.
 - keel's commits are by you, and end with `Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>`, so GitHub shows both.
   Settings › Git: **KeelBot as co-author** (on by default) and **Commit author** (`Name <email>`; empty: the
   project's git name — in Docker there is none, so set it there, or the commits are by KeelBot alone).
-- Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**.
+- Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**. A code step (the
+  setup ladder, a test suite, a commit) is a job too: agent "keel", no model, no tokens. The Flow page shows the line
+  it is at ("rung 4/12 · Both apps compile: $ npm run build"), then "passed" or "failed (exit 1)".
+- **The Flow page** (0.18.11): each block shows what really ran (model and effort, time, cost, the first line of its
+  answer, ×N tries). Phases fold to one line with a summary. The criterion loop has one row per criterion with its
+  tries and why you sent it back. **Needs you** is pinned on top. The canvas follows the live step until you scroll
+  (**Jump to live** brings it back). A gate card says what you approve, the cost so far, the proof, and what happens
+  after **Approve** and after **Send back**; in the card **A** approves and **R** opens the reason box.
+- **Choices are cards** (0.18.13): every gate with named choices shows one card per choice, with what it does, which
+  one a plain approve takes, and whether it needs a reason. Keys 1–9 pick. A question can take several answers
+  (tick each that applies).
+- **A stuck criterion** gets a ladder: the same agent with the exact failure → a different agent (investigator) → a
+  stronger model once → you, with real choices (retry with a note, skip, edit the spec, stop). After 5 send-backs or
+  retries in a row keel asks "go on anyway / stop". A test command that cannot start is said plainly. "No tests found"
+  is never green.
+- **The spec's build order**: when a spec says `**ORDER**: AC-6, AC-2, …`, keel builds the criteria in that order. An
+  amendment that changed nothing never loops: you get **build another criterion first**, **skip this one for now**,
+  **edit the spec** or **stop**.
 - **Several flows at once**: while a flow runs in the project folder, the next one runs in a worktree of its own
   (a copy of the project on its own branch, under `.keel/worktrees/`), so neither touches the other's files. Press
   **Start** on three tasks, or **Start another flow** on the Flow page. The Flow page then shows a board: each flow,
@@ -51,27 +82,238 @@ The [README](../README.md) is the short version. This page has the details.
 
 | Flow | What it does |
 |---|---|
-| **feature** | spec (with questions) → plan → contract → per criterion: failing test, code, review ◆ → security, full review, e2e, smoke → ship |
+| **feature** | web check (and web docs when needed) → spec (with questions) ◆ → plan → contract ◆ → per criterion: failing test, code, review ◆ → integration, security, full review, e2e, smoke → ship |
 | **change** | small change without a spec: trivial (one commit) or 1–3 criteria; too big → hands over to feature |
 | **quick** | one agent makes the change and a test → keel runs the tests (2 fix rounds) → your one look ◆ → one commit; no spec, no ship |
 | **implement** | the usual order, not test-first: the code → its tests → keel runs them; pass → one commit, done; fail → a fix and the tests again (2 rounds); no gate |
 | **small** | a short plan with 1–3 criteria ◆ → per criterion a failing test and the code → one review (its blocking findings fixed, 2 rounds) → your one look ◆; no ship |
-
-Start a flow suggests a size from your words (quick, implement, small, change, feature, or fix for a bug) and shows each size's steps and estimate; you pick.
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
-| **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note |
-| **review** | read-only review of the branch, one reviewer per lens; the report word for word |
-| **review-pr** | someone else's PR or branch against a ticket and your definition of done: build and lint in a throwaway worktree, each checklist item met / not met with evidence, bugs checked twice; you pick what the author sees, nothing is posted unless you choose post |
+| **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note ◆ |
+| **spike** | research before building: frame → web docs → one researcher per angle → findings with one recommendation ◆ → a feature flow, or drop |
+| **review** | read-only review of the branch, one reviewer per lens; the report word for word ◆ |
+| **review-pr** | someone else's PR or branch against a ticket and your definition of done: build and lint in a throwaway worktree, each checklist item met / not met with evidence, bugs checked twice; you pick what the author sees ◆, nothing is posted unless you choose post |
 | **lint** | run the project's formatters and linters (from its stacks and `.keel/config.yml`) → fix the findings without changing behaviour (2 rounds) → `chore(lint)` commit → report ◆ |
-| **cover** | measure coverage of the changed lines → per gap: test / delete / accept with a reason |
-| **ship** | verify, static checks, release tests, coverage, deps, audit, trace, lens reviewers, final review ◆, memory, PR body ◆ (never pushes) |
-| **hunt** · **hunt-next** | read-only bug hunt: hunters per lens, provers reproduce each candidate twice, a report; the top bug goes to fix |
+| **cover** | measure coverage of the changed lines → per gap: test / delete / accept with a reason ◆ |
+| **ship** | which steps run ◆ → verify, static checks, release tests, coverage, deps, audit, trace, lens reviewers, spec walk → final review ◆ → knowledge → PR body ◆ (never pushes) |
+| **hunt** · **hunt-next** | read-only bug hunt: hunters per lens, provers reproduce each candidate, a report; the top bug goes to fix (or feature) |
 | **init** · **knowledge-refresh** | set a project up (architecture, setup checks, knowledge) · refresh `docs/knowledge/` |
+| **plugin** | spec ◆ → `keel-plugin new` → each criterion test first ◆ → `keel-plugin lint` and the plugin's tests → review ◆ |
 
 ◆ = keel stops and waits for you. The flows are YAML files in `content/workflows/`; the **Workflows** page edits them.
 A workflow can sit in a **Folder** (type a name above the blocks; the list groups by folder), and the page shows how
 often it ran and opens its last run. A workflow does not need agents: a few code steps (`run: npm test`) and a gate
 automate a task without any model. KeelBot writes one for you when you ask.
+
+**Start a flow › How big is it?** lists quick, implement, small, change and feature with their steps and estimate, and
+marks the one that fits your words (or fix for a bug). You pick. In keel TUI: `/flow [workflow] [idea…]`.
+
+Each flow below has a short picture and what it asks you.
+
+### feature
+
+```
+ web_check ─ WEB? ─yes─ web_docs ─┐
+            └─no──────────────────┴─ spec ─ explore ─ plan ─◆ spec gate ─◆ options
+   ─ contract ─◆─ per criterion: red ─ green ─ AC review ─◆
+   ─ integration ◆ ─ security ─ full review ─ e2e ◆ ─ smoke ◆ ─ ship ─ ADR ─ done
+```
+
+- **web_check**: does the spec need facts from outside the repository (a vendor API, a webhook, a library, a
+  standard)? Only on yes does **web_docs** run (see [Web research](#web-research)).
+- **The interview** (spec step): the explorer asks you questions when the request leaves something open. Several
+  answers can be ticked; the recommended ones come first.
+  <!-- 0.18.21: the interview with lens questions -->
+- **Spec gate**: **approve**, **edit** (a note on what to change), **rewrite** (one section), **review** (a reviewer
+  reads the spec first), **order** (plan the build order again), **reject** (the interview starts again).
+- **Options**: which optional phases run (integration gate, security, e2e, smoke).
+- **Contract gate** (only when the plan changes the API contract): approve, change, or amend the spec.
+- **AC gate** per criterion. An agent may say the spec needs an amendment: you approve it, or change it.
+- **Security**: a security auditor reads the diff (plus a dependency triager when `verify deps` failed).
+  <!-- 0.18.21: per-finding security decisions -->
+- **e2e** and **smoke** run for criteria tagged `[E2E]` or `[SMOKE]`. No e2e command: keel asks whether to write the
+  specs without running them.
+- Then the **ship** part (below). <!-- 0.18.21: the ready-to-ship stop -->
+
+#### The spec
+
+The spec has numbered criteria (`AC-1 [API] …`), a UI mockup with four states (default, empty, loading, error) for each
+`[WEB]` criterion, a request path (each hop marked new or changed) for each `[API]` one, a Migration section for a
+schema change, Validation and security rules, Out of scope, Smoke checks and Open questions. A journey that needs a
+browser is tagged `[E2E]`; a check that must also pass after a deploy, `[SMOKE]`.
+
+<!-- 0.18.21: the spec layout: Goal, User stories, Interview answers, Findings, ACs with [API]/[WEB]/[E2E]/[SMOKE], Definition of done, and so on -->
+
+### change
+
+```
+ triage ─◆ scope: trivial ─ change ─ commit ─ ship
+                │ small ── per criterion: red ─ green ─◆ ── ship
+                └ feature ─► starts a feature flow with the criteria
+```
+
+- **Scope gate**: trivial, small or feature (the triage's choice is recommended). Trivial means no test could notice
+  a difference. A change that rests on outside docs the repository does not hold is a feature, so its flow does the
+  web research.
+
+### quick
+
+```
+ preflight ─ implement (change + a test) ─ run the tests (2 fix rounds) ─ diff ─◆ look ─ commit ─ done
+```
+
+- **Look**: you see the diff once; approve, or send it back with a reason.
+
+### implement
+
+```
+ preflight ─ implement (code) ─ tests ─ run them ─ pass ─ commit ─ done
+                                            └ fail ─ fix ─ run again (2 rounds)
+```
+
+- No gate. keel asks only when the tests still fail after the rounds.
+
+### small
+
+```
+ preflight ─ plan (1–3 criteria) ─◆ ─ per criterion: red ─ green ─ review (2 fix rounds) ─ diff ─◆ look ─ done
+```
+
+- **Plan gate**: approve the 1–3 criteria, or send the plan back. Criteria you write in the request are used as they are.
+- **Look**: one look at the whole diff.
+
+### fix
+
+```
+ bug report ─ reproduce ─◆ R ─ hypotheses ─ investigators ─ plan ─◆ F ─ fix ─ regression e2e ─ ship
+                                              │ no cause: a stronger model once, then diagnose
+```
+
+- **Gate R**: the failing test that shows the bug: **investigate** or **stop** (the test stays on the branch).
+- **Gate F**: the cause and the fix plan: **fix**, or **feature** (it was a missing requirement).
+
+### diagnose
+
+```
+ frame (3–4 guesses) ─ one investigator per guess ─ rank + recipe ─◆ ─ fix │ feature │ note
+```
+
+- **Diagnosis gate**: **fix** (starts a fix flow with the recipe), **feature** (starts a feature flow with the
+  evidence), or **unresolved** (keel writes a note).
+
+### spike
+
+```
+ frame (2–4 angles) ─ web docs ─ one researcher per angle ─ findings + recommendation ─◆ ─ spec │ drop
+```
+
+- **Spike result**: **spec** starts a feature flow from the findings; **drop** ends it. Send it back with a note to
+  research again from "frame".
+
+### review
+
+```
+ scope ─ one reviewer per lens (correctness, security, performance, architecture, assertions) ─ report ─◆
+```
+
+- **Review report**: read it; send it back to review again. Nothing is changed.
+
+### review-pr
+
+<!-- 0.18.21: the review-pr flow: what it does, what it asks, and its ASCII diagram -->
+
+### lint
+
+```
+ scope ─ run the checks ─ fail ─ fix (no behaviour change) ─ run again (2 rounds) ─ chore(lint) commit ─ report ─◆
+```
+
+### cover
+
+```
+ measure ─ fails ─◆ per group: test │ delete │ accept ─ write ─ review ─ commit ─ measure again ─ report
+```
+
+- **Per group**: **test** (write a test), **delete** (the lines cannot be reached), **accept** (with a reason).
+- When coverage cannot be measured: **try again** or **go on**.
+
+### ship
+
+```
+ ◆ which steps ─ verify ─ lint ─ release ─ cover ─ deps ─ audit ─ trace ─ lens reviewers ─ spec walk
+   ─◆ final review ─ knowledge update ─ PR body ─◆ open the PR (never pushes)
+```
+
+- **Which steps run**: optional and deferred steps can be skipped (static checks, release tests, coverage, deps, the
+  reviewers).
+- **Final review**: every verdict on one page; send it back to fix.
+- **Open the PR**: the PR body; keel never pushes.
+
+### hunt and hunt-next
+
+```
+ hunt:      start ─◆ lenses ─ deps ─ one hunter per lens ─ provers ─ group ─ report ─ commit ─◆ triage
+ hunt-next: take the top group ─ defect ─► fix flow │ unspecified ─► feature flow │ nothing open ─► end
+```
+
+- **Lenses**: tick the lenses to hunt with (or stop). In semi mode keel also stops after the candidates and after the
+  verdicts.
+- **Triage**: **take** the top group (starts hunt-next), **close** a finding (fixed, accepted or won't fix, with a note),
+  or **stop**.
+
+### init
+
+```
+ discover ─ architecture ─◆ questions ─◆ setup plan ─ write config
+   ─ ladder + knowledge ─ setup-doctor ─ ladder again ─◆ a rung keeps failing ─ knowledge check ─ commit
+   ─◆ audit now: hunt │ skip ─◆ hand over
+```
+
+- **Questions**: where the app runs while you develop, how services run (when there is no compose file), and which
+  knowledge sections keel writes (tick several). The defaults are pre-selected.
+- **Setup plan**: the commands keel will use, before it writes `.keel/config.yml`.
+- **A rung keeps failing**: **fix**, **exclude** it, or **accept** it. One setup-doctor looks at all failing rungs and
+  first looks for a cause they share; its next round continues the same session.
+  <!-- 0.18.21: the init doctor fix -->
+- **Audit now**: start a bug hunt, or skip.
+
+### knowledge-refresh
+
+```
+ one librarian per section ─ knowledge check ─ commit
+```
+
+- No gate. The check accepts a citation like `.../owner/Pet.java:46`; real problems go back to the writer.
+
+### plugin
+
+```
+ spec ─◆ ─ keel-plugin new ─ per criterion: red ─ green ─ review ─◆ ─ keel-plugin lint ─ the plugin's tests ─◆ review
+```
+
+## Web research
+
+**web-researcher** (0.18.20) is a read-only agent for outside docs: APIs, libraries, webhooks, standards. It searches
+first, then reads the best sources (developer portal, API reference, webhook pages, changelog, OpenAPI, SDKs on
+GitHub, Postman, Stack Overflow). It tries at least five sources before it calls a fact unconfirmed. Its answer has
+the confirmed facts (URL + quote), every URL it tried, what a person must supply, and `CONFIDENCE`.
+
+```
+ spike:    frame ─ web_docs ─ researchers per angle (they cite its URLs) ─ findings (confirmed / not confirmed, sources)
+ feature:  web_check ─ WEB: yes ─ web_docs ─ spec      (WEB: no ─ spec)
+```
+
+- **spike**: the web step always runs. The findings list their sources and say what is confirmed and what is not.
+- **feature** (0.18.21): `web_check` decides first. WEB is yes when the request or the code it touches depends on a
+  third-party API, webhook, library or standard whose details the repository does not hold. It is no for work inside
+  the code (a refactor, a page) and for a request that already carries web research (a spike's findings). On yes,
+  `web_docs` runs, and the spec cites what is confirmed. An unconfirmed detail becomes an **Open question** with what a
+  person must supply (a sample payload, a sandbox account, a docs page), never an invented field name.
+- **change**: a change whose criteria rest on outside docs is triaged as a feature, so the feature flow does the
+  research.
+- **Web tools**: an agent whose `tools:` line names WebSearch or WebFetch gets them (Claude Code, opencode). On Codex,
+  Copilot and API keys it reads the web with `curl -sL`. Other agents get no web tools.
+- A read-only run can read the web (`curl -sL`, `wget -qO-`) but not download files: `curl -o`, `curl -O` and
+  `wget <url>` are refused.
 
 ## Rules
 
@@ -86,8 +328,8 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
 ```
 
 - **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`), old migrations, force push,
-  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit. These never
-  switch off.
+  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit, and keel's
+  own sign-in keys. These never switch off.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
   reads, the push gate, MCP tools that change things. Off is saved in `.keel/config.yml` (`rules.off`).
 - **Your lists** (`.keel/config.yml`): protected files, generated files, build output, shell commands, `mcp.allow`,
@@ -96,7 +338,7 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
 - **Rule packs**: your own rules, one YAML file each in `.keel/rules/`, shared with the team through git. **Library**
   installs one (strict secrets, no new dependencies, migrations only in a flow, frontend can't touch the API, Spring,
   Node, Python); **New rule** writes one with a form or as YAML; **Check and try it** says which of the project's recent
-  tool calls it would have refused. Export and Import move a pack between projects.
+  tool calls it would have refused. Export and Import move a pack between projects. The Marketplace has rule packs too.
 
 ```yaml
 schema: 1
@@ -139,19 +381,24 @@ the step), how well the running engine is checked, and the last command an agent
 ## KeelBot
 
 Open the Code page and press **⌘I** (or the KeelBot button at the bottom of the left bar), or open **KeelBot** in the
-menu. Ask about the project in plain words. KeelBot reads the code, the knowledge pages, the map and the code graph,
-and every answer links to the lines (`file:line` opens the editor there).
+menu. In the terminal, KeelBot is the main view of [keel TUI](#keel-tui-keel2-tui). Ask about the project in plain
+words. KeelBot reads the code, the knowledge pages, the map and the code graph, and every answer links to the lines
+(`file:line` opens the editor there). Answers stream in as they are written (Claude CLI, API keys; Codex, OpenCode and
+Copilot send the answer when it is done).
 
-KeelBot also knows keel itself: the workflows this project can run and its flows. It gives you buttons; nothing
-starts or is saved until you press one.
+KeelBot also knows keel itself: the workflows this project can run and its flows, the step a flow is at and its
+newest jobs. It gives you buttons; nothing starts, stops or is saved until you press one.
 
 - **Which workflow?** Ask "how do I add a weekly report page?": KeelBot names the workflow that fits and why, and
   gives a **Start the flow** button with a title (you can change it) and the request every agent gets.
-- **About a running flow**: "why does Euro prices wait?", "how far is the fix?", "what did it cost?".
-- **A workflow of your own**: "make a workflow that runs the linters and the tests, then stops for a look". KeelBot
-  writes it with only the steps the task needs (code steps only when no model is needed); keel checks it on the spot
-  and shows what it runs. **Save the workflow** (into a folder if you like), or **Ask KeelBot to fix it** when the
-  check finds a problem.
+- **About a running flow**: "why does Euro prices wait?", "how far is the fix?", "what did it cost?", "what did the
+  doctor find?".
+- **Act on flows** (you press): **stop flows**, **approve or send back a gate**, **change a flow's run mode**, or
+  **answer a flow's question** (KeelBot proposes the answer as a button).
+- **A workflow, rule pack, agent, skill or stack of your own**: "make a workflow that runs the linters and the tests,
+  then stops for a look". KeelBot writes it with only the steps the task needs; keel checks it on the spot and shows
+  what it runs. **Save** it, or **Ask KeelBot to fix it** when the check finds a problem.
+- **It asks you to choose** with a question card, never as a prose "A or B?".
 
 - **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (in
   the status bar at the bottom, or ⇧⌘\) hides everything but the code; ⤢ in the panel (or **KeelBot** in the menu)
@@ -161,22 +408,111 @@ starts or is saved until you press one.
   running flow; the open file always goes along.
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
   project can add its own in `.keel/plugins/<name>/plugin.yml` (see `plugins/keelbot/content/plugins/core/plugin.yml`).
-- **Ask mode changes nothing**: no edit, no new file, no command that changes files or git, whatever the model.
-- **Fix mode** (while a flow waits at a gate): switch to **Fix** and tell KeelBot what to change. It works inside the
-  rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow
-  once**, **Always**, **Deny**). The panel lists every changed file with its diff and **Undo**. **Done** runs the tests
-  and lets keel commit only those files; if the tests fail, one click hands the failure back to KeelBot.
-- **Edit mode** (any time, keel 0.18.7): switch to **Edit** (in `keel2`: `/mode edit`) and KeelBot changes files and runs
-  commands in the project folder itself, with no flow. keel's always-on rules still hold (no secrets, no `.git`, no
-  applied migration), a command that changes something (`git checkout`, a build) asks you first, and KeelBot never
-  commits or pushes: **Keep** runs the checks and makes keel's commit, **Undo** puts a file back.
-- **Side sessions** (any time): switch to **Side** to try an idea in KeelBot's own copy of the project (a git
-  worktree on its own branch). Nothing touches your project folder or a running flow. **Keep** runs the tests and
-  commits on that branch. Then **Make a task**, **Start a flow on the branch** (a change flow writes the tests for it),
-  or **Throw away**.
+
+**Four modes.** The mode decides what KeelBot may change. Changing the mode keeps the chat, and KeelBot is told what
+changed.
+
+| Mode | What KeelBot may do |
+|---|---|
+| **Ask** (default) | read only: no edit, no new file, no command that changes files or git, whatever the model. Asked to change something, it says Ask is read only and offers Edit (recommended), Side, or the exact command to run yourself |
+| **Edit** (0.18.7) | change files and run commands in the project folder itself, with no flow |
+| **Fix** | only while a flow waits at a gate: change things inside the rules of the flow's phase |
+| **Side** | work in KeelBot's own copy of the project (a git worktree on its own branch); nothing touches your folder or a running flow |
+
+- In every mode keel's always-on rules hold (no secrets, no `.git`, no applied migration), and KeelBot never commits
+  or pushes. **Keep** runs the checks and makes keel's commit of only KeelBot's files; **Undo** puts a file back. The
+  panel lists every changed file with its diff.
+- In Fix mode **Done** runs the tests and lets keel commit only those files; if the tests fail, one click hands the
+  failure back to KeelBot. In Side mode, after **Keep**: **Make a task**, **Start a flow on the branch** (a change flow
+  writes the tests for it), or **Throw away**.
+- **Permission cards**: a command that changes something (`git checkout`, a build, an install) waits for your OK in
+  the panel, keel TUI or the Inbox: **Allow once**, **Allow `git checkout *` in this chat** (the command's family),
+  **Deny**, or **Deny, and say why** (KeelBot goes on from your reason). Commands that throw work away
+  (`git reset --hard`, `git checkout -- .`, `git restore`, `git clean`, `git stash drop`, `git branch -D`, `rm -r`) always
+  ask, with a warning; "in this chat" never covers them. When a flow works in the folder, the card says that
+  switching branches changes its files. Esc on a card says no.
+- **The failure rule** (0.18.18): KeelBot never tries a failed command again unchanged. It says in one line why it
+  failed (it quotes the error) and offers the ways forward as a card, the safe one first. Example: "check out main"
+  with uncommitted work → stash, check out main, pull, stash pop (recommended) · commit them first · discard them ·
+  leave it · your own words. keel refuses an identical retry while nothing in the folder changed, also in the next
+  turn. Every KeelBot button that fails offers **Ask KeelBot to fix it**.
+- **Chats**: a chat lives in keel's backend, so it goes on in keel TUI, the dashboard or on another computer. Chats name
+  themselves after the first answer (3–6 words); a name you give is kept. When a chat's context is above 85% before a
+  turn, keel compacts it by itself: a summary of the chat in a fresh session (every message stays stored).
 - **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
   session, so a follow-up question is cheap (the context stays cached).
-- The model is the `helper` agent's (Agents page); change it for one chat in the panel.
+- The model is the `helper` agent's (Agents page); change it, and its thinking effort, for one chat in the panel.
+
+## keel TUI (keel2 tui)
+
+keel TUI is keel in your terminal, the way Claude Code is. Run `keel2` (or `keel2 tui`) while keel runs. It starts on
+the project of the folder you are in, and on the KeelBot chat the dashboard has open. Switch the project or the chat
+in one, and the other follows. What you do in keel TUI shows in the dashboard as "via keel TUI".
+
+```
+ keel v2 0.18.21 · ✓ claude · today 120k $0.84 · month 2.1M $14.20      ← keel itself: version, logins, spend
+ ─────────────────────────────────────────────────────────────────
+ KeelBot's answers, flow events and command output scroll here
+ ─────────────────────────────────────────────────────────────────
+ › Ask KeelBot, or / for commands
+ [?] ask · shop · main · Refunds · ◆ 1 waiting here · ctx 41%            ← where you are
+```
+
+- **Modes**: the first word of the bottom line is KeelBot's mode: `[?] ask`, `[=/] edit`, `[-{] fix`, `[-<] side`.
+  **Shift+Tab** or **Alt+Tab** switches to the next one (fix only while a gate waits), or `/mode <ask|edit|fix|side>`.
+- **Typing**: Enter sends. **Alt/Option+Enter** or **Ctrl+J** adds a line (Shift+Enter where the terminal reports it).
+  A paste of many lines becomes `[pasted 120 lines #1]` and goes to KeelBot whole. Tab completes commands and their
+  arguments. `@` opens a picker over files, symbols and the flow's criteria (`@AC-2`).
+- **History**: in an empty prompt **↑ / ↓** walk your earlier prompts of the project, newest first (the last 50, kept
+  by keel, so they are the same after a restart and on another computer).
+- **$EDITOR**: `/editor` or **Ctrl+X E** opens the prompt in `$VISUAL` / `$EDITOR`; what you save comes back.
+- **!commands**: `!git status` runs a shell command in the project folder through keel's guard (a command that changes
+  something waits for your OK; Ask mode only reads). Its output goes with your next question, once. `!` alone drops it.
+- **Images**: a prompt that names an image (`shot.png`, an @mention, or a pasted image) sends it with the question to
+  a model that can see it (Claude Code). Otherwise keel says why not.
+- **Changed files**: after an answer in Edit, Fix or Side, a block lists the files that answer changed, with their
+  diffs; an answer that changed nothing shows no block (0.18.21). `/changes` lists every file KeelBot changed in the
+  chat. `/keep [path|all]` runs the checks, then keel commits.
+- **/undo /redo**: `/undo` undoes KeelBot's last answer: every file it changed goes back, and your question comes back
+  into the prompt. `/undo` again goes one answer further back; `/redo` brings it back until you send something new. It
+  never runs git commands that throw work away, and it refuses (naming the files) when you changed them since.
+  `/undo <file>` or `/undo all` puts only files back.
+- **/compact**: KeelBot writes a real summary (objective, requirements, decisions, work state, next move, relevant
+  files, exact commands and errors) and goes on from it in a fresh session; every message stays stored. A second
+  `/compact` updates the summary. The **context meter** in the bottom line (`ctx 41%`) is yellow from 70%, red from 85%.
+- **/chats** is a picker (title, last message, age, size; type to filter). **/rename <name>** names the open chat.
+  **/export** writes it as Markdown into `.keel/chats/<id>.md`. **/new** starts a new chat.
+- **Select to copy**: drag with the mouse and the text is copied ("copied N characters"); a double-click copies a word
+  (a path or a URL is one word). `/copy` copies the last answer, `/copy 2` the block before it. Copying goes through the
+  terminal (OSC 52), so it also works through docker exec and ssh, but not in macOS Terminal: there, `/mouse off` and
+  select. Shift/Option + drag gives your terminal's own selection.
+- **Permission cards**: KeelBot's questions are a choice right after the answer: Allow once, Allow … in this chat,
+  Deny, Deny and say why (see [KeelBot](#keelbot)). KeelBot's buttons (start a flow, git, CI, database) are Yes / No.
+- **The failure rule**: a failed command is not tried again unchanged; KeelBot offers the ways forward as a choice.
+  After a failed button keel asks "It did not work. Find a fix?"; `/fix` sends the last error to KeelBot.
+- **Working**: a spinner with a keel word (*Charting…*, *Tacking…*), seconds and tokens. **Esc** stops the turn.
+  "✓ Finished in 4.2s · claude/sonnet · high" ends each turn.
+- **Screen**: keel's name on top and the prompt at the bottom stay; the transcript scrolls (PgUp / PgDn, Shift+↑↓, the
+  wheel, Home, End). Panels: **Ctrl+F** the flow rail, **Ctrl+A** the agents, **Ctrl+B** the Inbox, **Ctrl+O** follow
+  the agent at work. Click an agent to follow it, or "◆ waiting" to answer it. `/clear` keeps the start screen.
+
+**Commands** (`/help` lists them all, grouped):
+
+| Group | Commands |
+|---|---|
+| Flows | `/project`, `/flow [workflow] [idea…]`, `/flows`, `/resume [n]`, `/stop [all\|n]`, `/run [manual\|important\|auto\|readonly]`, `/status`, `/next`, `/workflows`, `/create <workflow\|rule\|agent\|skill\|stack> [what]` |
+| Gates | `/inbox`, `/approve [n]`, `/reject [n] <why>`, `/answer [choice \| q1=answer …]` |
+| Look | `/jobs`, `/agent [n \| new <task>]`, `/live`, `/steps`, `/timeline`, `/diagram …`, `/rules`, `/skills`, `/skill …`, `/stacks`, `/stack …`, `/plugins`, `/budget`, `/dashboard` |
+| KeelBot | `/model`, `/effort`, `/chats`, `/rename`, `/export`, `/compact`, `/fix`, `/new`, `/mode`, `/changes`, `/keep`, `/undo`, `/redo` |
+| Screen | `/help`, `/panel`, `/clear`, `/copy [n]`, `/mouse [on\|off]`, `/editor`, `/quit` |
+
+`/agent new <task>` starts an agent of your own in its own worktree and branch; a notice says when it is finished.
+Plugins add commands, panels and whole modes (the Git plugin: `/git`, Ctrl+G; Code Review: `/review`). KeelBot's own
+commands (`/gate`, `/where` …) go to KeelBot as they are.
+
+Options: `keel2 tui -c /status -c /next` prints answers without opening the app; `--inline` (or `KEEL_TUI_INLINE=1`)
+keeps the transcript in the terminal's scrollback; `--no-mouse` gives the mouse back to the terminal; `--profile`
+times the start, API calls and frames. Colours: `NO_COLOR`, `KEEL_TUI_THEME=light`.
 
 ## Thinking effort
 
@@ -216,14 +552,16 @@ the budget and connections. Each other part is a plugin with its own version:
 | **Tasks**, **Jira** | the task board and Jira tickets | Jira needs Tasks |
 | **keel Product** (beta) | initiatives and teams | Tasks and Jira |
 
-**Control › Plugins** has three tabs:
+**Control › Plugins** has these tabs:
 
 - **Installed:** every plugin with its version and an On switch. Turning a plugin on or off restarts keel (about 30 s).
   A plugin that others need goes off together with them, and one that needs others turns them on. Database, Git,
   CI/CD and Code Review also have a **This project** switch: they are on only for the projects you choose.
-- **Marketplace:** plugins you can add, with who made them, what they may do ("Runs code in keel"), and what they
-  need. keel checks each package's signature before it installs. The public marketplace opens soon; until then it
-  shows the plugins of the catalogs you add. The switch at the top finds **Plugins · Workflows · Rules · Skills · Stacks**.
+- **Marketplace:** things you can add, with who made them, what they may do ("Runs code in keel"), and what they
+  need. keel checks each package's signature before it installs. The switch at the top finds **Plugins · Workflows ·
+  Rules · Skills · Stacks**: preview (a workflow's steps, what a rule pack stops and in which phases), install, update
+  and uninstall. **Publish** a workflow from Build › Workflows. The public marketplace opens soon; until then it shows
+  the catalogs you add.
 - **Skills** (0.18.6): know-how an agent reads before it works. **From keel** lists keel's own skills (in every
   project already): **Agents…** picks which agents load each. A catalog's skill opens with its whole text and keel's
   review (its size in tokens, its sections); **Install** asks which agents should load it; **Update** asks before it
@@ -253,8 +591,9 @@ Start keel with fewer plugins:
 
 Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publish-your-plugin.md), or let keel build it:
 the **plugin** workflow writes its spec (you approve), scaffolds it with `keel-plugin new`, builds each criterion test
-first, then runs `keel-plugin lint` and the plugin's tests (`scripts/plugin-check.sh`) and ends at a review gate. How it all works:
-[docs/plugins/README.md](plugins/README.md).
+first, then runs `keel-plugin lint` and the plugin's tests (`scripts/plugin-check.sh`) and ends at a review gate. A
+plugin can also add commands, panels and full-screen modes to keel TUI (`contributes.tui`; data only, no plugin code
+runs in the terminal app). How it all works: [docs/plugins/README.md](plugins/README.md).
 
 ## Stacks
 
@@ -270,6 +609,8 @@ checks, migrate, compile) and its tools (formatters, linters, pre-commit).
   keel's own stacks cannot be removed (other projects use them): **Turn off for this project** stops keel using one
   here (`stacks: {ignore: [...]}` in `.keel/config.yml`); **Turn on** brings it back.
 - **Find stacks** opens Marketplace › Stacks.
+- Test filters: `{AC}` is the criterion id (`AC-006`), `{AC_ID}` the same without the dash (`AC006`) for Java class
+  names. Maven `-Dtest` and Gradle `--tests` filters written with `{AC}` also match `AC006…`.
 
 The same from keel TUI (`/stacks`, `/stack <name>`, `/stack remove <name>`, `/stack off <name>`, `/stack install
 <name>`, `/create stack`) and MCP (`keel_stacks`, `keel_stack`, `keel_stack_suggest`, `keel_stack_check`,
@@ -297,9 +638,10 @@ pages you use.
   PR (`/commit`, `/pr`, `/sync`, `/branch` draft the next step) and gives buttons; workflows get `git:sync`,
   `git:push`, `git:pr`, `git:pr-checks` (wait for CI), `git:branch` and `git:cleanup`. keel never force-pushes and never
   pushes to main.
-  Under **Branches**, click a branch (for example `feat/test`) to open it as a tab: the files it changed since it left
-  main (click one for its diff), its commits that main does not have, **Switch to feat/test**, and **Ask KeelBot to
-  review it**. Switching keeps your uncommitted work; git stops when a change would be lost.
+  Under **Branches** (the current one first and marked, a filter when there are many), click a branch (for example
+  `feat/test`) to open it as a tab: the files it changed since it left main (click one for its diff), its commits that
+  main does not have, **Switch to feat/test**, and **Ask KeelBot to review it**. Switching keeps your uncommitted work;
+  when git refuses because of uncommitted changes, keel offers **Stash my changes and switch**.
 - **Database tool (Code page)**: with the Database plugin on, the Code page gets a **Database** activity, like the
   database window of an IntelliJ IDE: every connection as a tree of tables and columns (keys, types, foreign keys).
   Click a table for its data (and its structure); press the console icon on a connection for a query console
@@ -334,20 +676,50 @@ count in the budget.
 ## Inbox and run modes
 
 **Inbox** lists everything that waits for you in every project: gates, the explorer's questions, a check that keeps
-failing, a budget pause, a new dependency. Answer it there or open its flow.
+failing, a budget pause, a new dependency, a KeelBot command that needs your OK. Answer it there or open its flow.
+Choices show as cards with their meaning; a reason box opens only for a choice that needs one.
 
 Each flow has a run mode. Pick it in *Start a flow* (the default is in Settings), and change it on the Flow page while
-the flow runs.
+the flow runs (keel TUI: `/run`; MCP: `keel_run_mode`; or ask KeelBot).
 
 | Run mode | keel decides by itself |
 |---|---|
 | **manual** (default) | nothing: it stops at every gate |
 | **important** | a criterion's gate, when its checks pass and its review is clean |
 | **auto** | every gate it can decide (plain approve, the default choice, the recommended answers); each is logged and listed in the final review and the PR body; it never opens a PR |
-| **readonly** | nothing; agents cannot edit, write or commit anything |
+| **readonly** | nothing; agents cannot edit, write or commit anything (or download files) |
 
 In every mode keel still stops for the token cap, a new dependency, a secret in a commit, a check that keeps failing,
-and anything only you can answer. It never pushes.
+a stuck criterion, and anything only you can answer. It never pushes.
+
+## Usage and caps
+
+keel counts every agent call: tokens, money, model and effort. **Budget** shows today, this month, per flow and per
+agent, and the caps. The bar on top of every page shows each provider's fullest window. keel TUI's top line shows the
+tokens and money of today and this month; `/budget` and `keel_budget` show the rest.
+
+- **Real numbers**: failed, cancelled and out-of-turns calls count too. A long step counts while it runs (Claude Code
+  and opencode report tokens as they go). A resumed Claude session is counted once.
+- **Plan usage**: for each provider that is set up, what its plan says is used and what remains (5 hours, week,
+  month), with where the number came from and how old it is. The Claude card shows the live weekly number. Before a
+  subscription agent, keel warns at 80% of a plan window and pauses at 95%.
+- **Copilot** costs its premium requests × the model's multiplier × $0.04 (models included in the plan cost $0). Set
+  your own multipliers and prices in `prices.json` in keel's data folder.
+
+```
+ Start a flow ─ keel's estimate ─ cap = high end + 30% (when above the Settings cap)
+      │
+      ▼
+ the flow runs ─ tokens reach the cap ─◆ cap gate ─ approve ─ the cap goes up by at least half of what the flow used
+                                                └ stop
+```
+
+- **Token cap per flow**: Settings (default 500,000 tokens). **When a flow reaches its cap**: pause (default), go on
+  with a cheaper model, or stop. A flow started without a cap (MCP, keel TUI, the API, a KeelBot button) gets the
+  estimate's high end plus 30%, and says so.
+- **Your own caps** (Budget): per day, per flow, per step, and API spend per month. **Accounts**: tokens in the last 5
+  hours for a Claude or Codex subscription, Copilot premium requests this month (300 by default), and USD spent on API
+  keys this month (100 by default). 0 = not set.
 
 ## Tasks and Jira
 
@@ -371,7 +743,11 @@ saved encrypted in keel's own database (the `keel-data` volume), so it survives 
 | Codex (ChatGPT) | open the device link, type the code | `~/.codex/auth.json` |
 | GitHub Copilot | open github.com/login/device, type the code | a token with "Copilot Requests" |
 
-From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to list them. A long token is often shown over two lines; send it in one piece from the clipboard: `pbpaste | keel2 token claude` (Linux: `wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong.
+From the terminal: `keel2 token <claude|codex|copilot|anthropic|openai|github>`, and `keel2 tokens` to list them. A long
+token is often shown over two lines; send it in one piece from the clipboard: `pbpaste | keel2 token claude` (Linux:
+`wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong. Connections shows a
+subscription as ready only when keel has its login. In native mode keel's agents use their own home, so your own
+Claude Code login is not used.
 
 ## Signing in
 
@@ -381,11 +757,12 @@ in. A browser that is not signed in shows one screen: "Run keel2 open in a termi
 ```bash
 keel2 open            # open keel signed in (a link that works once, for 60 seconds)
 keel2 open --print    # print that link, to open it in another browser
+keel2 auth key        # print the key, for your own scripts: Authorization: Bearer <key>
 keel2 auth reset      # a new key: every browser signs in again (keel restarts)
 ```
 
-Other programs on your computer, and web pages, cannot change anything in keel. keel2, keel's MCP server and keel's
-own engine bring their own keys. keel's agents never read those keys (a rule that cannot be switched off).
+Other programs on your computer, and web pages, cannot change anything in keel. keel2, keel TUI, keel's MCP server and
+keel's own engine bring their own keys. keel's agents never read those keys (a rule that cannot be switched off).
 
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
@@ -393,18 +770,19 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules (`keel_rules`) |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), restore a spec, git / PR / CI / database writes |
-| admin | `keel2 mcp --admin` | stop, pause (`keel_pause`; `keel_resume` goes on) and delete flows, add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), change workflows, install and change rules |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
+| admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), change workflows, install and change rules |
 
 ```bash
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
 claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 ```
 
-Pushes, database changes, deletes and stops ask you first in the client; a client that cannot ask is refused unless
-you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. Everything the client changes shows
-on the flow's timeline as "via MCP · <client>: <tool>". keel's own agents always get the read level.
+Pushes, database changes, deletes, stops and saves ask you first in the client; a client that cannot ask is refused
+unless you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. `keel_answer(ask_person=true)`
+asks you through the client's own form when it has one. Everything the client changes shows on the flow's timeline as
+"via MCP · <client>: <tool>". keel's own agents always get the read level.
 
 When a flow asks you something (the interview, a decision per finding, "ready to ship?"), `keel_status` and
 `keel_inbox` show each question with its options and the recommended one. A client that can show forms asks you right
@@ -419,13 +797,49 @@ there when you approve (`keel_answer`): pick one, tick several, or write your ow
 keel v1 is a separate project; its MCP server can be added like any other: `keel2 start --with-keel-v1 <keel
 checkout>`, then turn on "keel v1 (optional)" in Tools.
 
+**xal**: `clients/xal/` is a keel plugin for [xal](https://github.com/xal-sh/xal), a terminal coding harness, with
+`/keel:status`, `/keel:flow`, `/keel:approve`, `/keel:watch`, `/keel:diagram` and more (it signs in with `keel2 auth key`).
+
+## keel2 commands
+
+`keel2` starts and manages keel. `keel2 help` lists everything.
+
+| Command | What it does |
+|---|---|
+| `keel2` | in a terminal while keel runs: keel TUI; otherwise the help (`KEEL_TUI_DEFAULT=0`: always the help) |
+| `keel2 start [folder]` | start keel for a project (default: this folder) and open the browser |
+| `keel2 start --docker [dir]` | the same, and the project's tests may use your Docker (Testcontainers, compose) |
+| `keel2 start --native [dir]` | keel on this computer without Docker (see [Native mode](#native-mode-no-docker)) |
+| `keel2 start --core` · `--safe` · `--with-keel-v1 <checkout>` | core only · only the image's plugins · also keel v1's MCP server |
+| `keel2 stop` · `restart` | stop keel / start it again with the same project, options and image (they ask when agents work; `--force` does not) |
+| `keel2 add <folder…>` · `remove <folder…>` · `folders` | more project folders (see [Several project folders](#several-project-folders)) |
+| `keel2 status` | is keel running, for which project, on which port, which edition |
+| `keel2 tui` | keel TUI (see [keel TUI](#keel-tui-keel2-tui)) |
+| `keel2 open [--print]` | the dashboard, signed in |
+| `keel2 auth key` · `auth reset` | print the sign-in key · make a new one |
+| `keel2 logs` | follow keel's log |
+| `keel2 doctor` | check Docker, the port, the image and the project, and say how to fix problems |
+| `keel2 update [--rollback]` | the newest image (native: release) and a restart; `--rollback` goes back one version (native) |
+| `keel2 token <tool>` · `tokens` | save a login or key · list them (hints only) |
+| `keel2 backup [file]` · `restore <file>` | keel's data to a .tgz file and back |
+| `keel2 sql` | open keel's SQLite database |
+| `keel2 mcp [--write\|--admin]` | keel's MCP server (see [MCP](#use-keel-from-claude-code-or-claude-desktop-mcp)) |
+| `keel2 plugins list\|install\|remove\|search\|update\|rollback\|safe` | manage plugins from the terminal |
+| `keel2 uninstall [--all]` | remove the container (`--all`: also keel's data, after you confirm) |
+| `keel2 version` | keel2's version and the image |
+
+Settings (environment): `PORT` (default 8080; a busy port moves to the next free one), `KEEL_NAME`, `KEEL_VOLUME`,
+`KEEL_IMAGE`, `KEEL_OPEN=0` (no browser), `KEEL_DOCKER=1`, `KEEL_PLUGINS=on|image|off`. Get a new `keel2` script with
+`curl -fsSL https://raw.githubusercontent.com/MiladNalbandi/keel-v2/main/install.sh | bash`.
+
 ## Where keel keeps its files (layouts)
 
 keel reads keel v1's `layout:` from `.keel/config.yml`: `repo` (specs in `docs/specs` or `specs`, `docs/knowledge`,
 `docs/adr`, `docs/RUNNING.md`, committed with your code), `keel` (all of it in `.keel/`, which keel hides from git in
 `.git/info/exclude`) or `external` (`.keel` is a link to a folder outside the repo; add that folder too:
 `keel2 add <folder>`). A new project gets `keel`. A project that has keel files in `docs/` keeps them there. A project
-with both `.keel/specs` and `docs/specs` shows both in the Wiki and in Code › keel files.
+with both `.keel/specs` and `docs/specs` shows both in the Wiki and in Code › keel files. KeelBot's exported chats go to
+`.keel/chats/`.
 
 keel keeps every version of these files in its own database, because `.keel/` is not in git: each Wiki page of a
 spec, a knowledge section or a decision has a **History** (who changed it, in which step, a diff, Restore), Code ›
@@ -441,6 +855,8 @@ flow (only the last stopped flow can be resumed; otherwise it says why), and **S
 feature flow, started from this spec and its criteria, with the estimate first). keel knows this from the flows that
 wrote the spec (its History) and the flows started from it.
 
+<!-- 0.18.21: the wiki page layout -->
+
 ## Native mode (no Docker)
 
 ```bash
@@ -449,7 +865,8 @@ keel2 start --native ~/Projects/shop        # Java 21, uv and git on this comput
 
 keel runs on your computer instead of in a container: the engine and the api start from `~/.keel2/<KEEL_NAME>/`
 (the release is downloaded and checked once; `keel2 update` gets the next one, `keel2 update --rollback` goes back).
-Every other command works the same: `status`, `stop`, `logs`, `doctor`, `mcp`, `add`, `backup` …
+Every other command works the same: `status`, `stop`, `logs`, `doctor`, `mcp`, `tui`, `add`, `backup` … (keel TUI uses
+this computer's Node 20+).
 
 **Agents run as you**: they can read what you can (your SSH keys, other projects, your network). In Docker they only
 see the project folders. Docker stays the default; use native mode only on a computer and projects you trust. keel
@@ -473,11 +890,32 @@ keel2 remove ~/Work/web                                  # off the list; keel ke
 ```
 
 The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs, `add` and `remove` restart it once
-(they ask first when agents are working). Each added folder is mounted at the **same path** as on your computer, and
-every git repo in it becomes a project (a folder of repos: each repo directly inside it). More repos later? All
-projects › Add projects lets you pick them. A folder that no longer exists is skipped (`keel2 folders` marks it).
+(they ask first when agents are working), with the image keel runs now (only `keel2 update` takes a new one). Each
+added folder is mounted at the **same path** as on your computer, and every git repo in it becomes a project (a folder
+of repos: each repo directly inside it). More repos later? All projects › Add projects lets you pick them. A folder
+that no longer exists is skipped (`keel2 folders` marks it).
 
 **A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.
+
+## Git worktree projects
+
+A git worktree (or a submodule) has a `.git` **file**, not a folder: it points to its repository's git folder
+somewhere else. Inside keel's container that path did not exist, so git said "not a git repository".
+
+```
+ ~/Projects/shop/.git/                  ← the repository's git folder
+ ~/Projects/shop-feature/.git (a file)  → "gitdir: ~/Projects/shop/.git/worktrees/shop-feature"
+        │
+ keel2 start / add ─ mounts both, at the same path as on your computer ─ git works in the container
+```
+
+- From 0.18.17, `keel2 start` and `keel2 add` also mount the repository's git folder, at the same path. keel2 says so:
+  "… is a git worktree or submodule: its repository … is mounted too".
+- Get the new `keel2` script for this (`curl -fsSL https://raw.githubusercontent.com/MiladNalbandi/keel-v2/main/install.sh | bash`),
+  then `keel2 restart`.
+- When keel still cannot see the repository, the message says which folder keel checked, what git said (a folder keel
+  cannot see, git's "dubious ownership"…) and the fix.
+- Native mode needs nothing: keel runs on your computer and sees every path.
 
 ## Problems
 
@@ -486,10 +924,12 @@ Run `keel2 doctor` first. The most common ones:
 | You see | Do this |
 |---|---|
 | "Docker is not running" | start Docker Desktop (keel2 starts it on a Mac) |
-| "not a git repository" | say yes when keel2 offers `git init` |
+| "not a git repository" | say yes when keel2 offers `git init`; for a git worktree, see [Git worktree projects](#git-worktree-projects) |
 | port 8080 is busy | nothing: keel2 uses the next free port and tells you |
 | an agent "is not logged in" | Connections › Set up login |
 | your tests start containers | `keel2 start --docker <folder>` |
+| "Sign in to keel" in the browser | `keel2 open` |
+| copying in keel TUI does nothing (macOS Terminal) | `/mouse off`, then select |
 
 All commands: `keel2 help` (logs, tokens, backup, restore, uninstall …).
 
@@ -498,9 +938,10 @@ All commands: `keel2 help` (logs, tokens, backup, restore, uninstall …).
 | Folder | What |
 |---|---|
 | `/workspace` | your project (one git repo, or a folder of repos); its real path with `--docker` |
-| the same path as on your computer | each folder added with `keel2 add` |
-| `/data` | keel's database, flow checkpoints, encrypted logins |
+| the same path as on your computer | each folder added with `keel2 add`, and a worktree's repository git folder |
+| `/data` | keel's database, flow checkpoints, encrypted logins, `prices.json` |
 | `/opt/keel-v2/content` | keel v2's agents, skills, stacks, packs, templates and workflows |
+| `/opt/keel-v2/cli` | keel TUI (`keel-tui.mjs`) |
 | `/opt/keel-v1-optional` | only with `--with-keel-v1`: that keel v1 checkout, read-only, for its MCP server |
 
 ## Without the install script
@@ -518,6 +959,7 @@ docker run -d --name keel-v2 -p 127.0.0.1:8080:8080 \
 | `engine/` | Python 3.12, FastAPI, LangGraph, LangChain, MCP | `uv run keel-engine` (:8090) | `uv run pytest` |
 | `api/` | Kotlin, Spring Boot 3, SQLite, Flyway | `./gradlew bootRun` (:8080) | `./gradlew test` |
 | `web/` | React, TypeScript, Vite | `npm run dev` (:5173) | `npm test` |
+| `cli/` | keel TUI: TypeScript, Ink, esbuild | `npm run build`, then `KEEL_TUI_JS=cli/dist/keel-tui.mjs keel2 tui` | `npm test` |
 
 How the parts talk: [CONTRACT.md](CONTRACT.md).
 
@@ -528,6 +970,7 @@ npx -y -p playwright@1 node docs/gif/record.js            # record the README's 
 scripts/no-v1.sh                                          # lists anything that still depends on keel v1 (CI: 0)
 ```
 
-A version tag (`v*`) builds amd64 + arm64 images and pushes them to `ghcr.io/miladnalbandi/keel-v2` (and to Docker
-Hub when the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets are set). Dependabot (`.github/dependabot.yml`) opens a
-pull request every week for each part's dependencies, the Docker base images and the GitHub Actions.
+A version tag (`v*`) builds amd64 + arm64 images (on GitHub's Intel and ARM machines at the same time) and pushes them
+to `ghcr.io/miladnalbandi/keel-v2` (and to Docker Hub when the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets are
+set). Dependabot (`.github/dependabot.yml`) opens a pull request every week for each part's dependencies, the Docker
+base images and the GitHub Actions.
