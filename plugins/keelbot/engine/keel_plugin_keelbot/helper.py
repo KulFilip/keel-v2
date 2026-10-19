@@ -33,6 +33,7 @@ import asyncio
 import difflib
 import json
 import logging
+import re
 import secrets
 import subprocess
 import tempfile
@@ -69,6 +70,8 @@ HISTORY_TURNS = 12                       # earlier messages an API-key model get
 TURN_TIMEOUT = 900
 SHELL_TIMEOUT = 300                      # 0.18.18 a `!command` the person runs (keel TUI), once it may run
 COMPACT_RATIO = 0.85                     # ctx_tokens / ctx_window above this: compact before the next turn runs
+COMPACT_WINDOW = 128_000                 # 0.18.19 the window assumed for /compact when the model's is unknown
+COMPACT_SHARE = 0.5                      # of the window (as characters, about 4 a token) the chat to summarise may fill
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
     "ask": ("Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git). "
@@ -115,6 +118,20 @@ FAILURES = ("When a command or a tool fails, or keel refuses it: never run the s
             "by checkout\": say that the folder has uncommitted changes in those files, and offer: stash them, check out "
             "main, pull, then git stash pop (recommended: nothing is lost); commit them first on this branch; discard them "
             "(git checkout -- <files>: they are lost); or leave it as it is.")
+# keel 0.18.19 the person changed the mode in the middle of a chat (keel TUI /mode, Shift+Tab). Claude and Codex resume
+# their own session, which still holds the old mode's rules: the next turn's prompt starts with a note of the change,
+# as opencode's plan mode does when the person switches agents (from opencode (MIT), core/src/plugin/plan.ts).
+MODE_NAMES = {"ask": "Ask mode (read only)", "edit": "Edit mode", "fix": "Fix mode", "side": "a side session (your own worktree)"}
+MODE_NOW = {
+    "ask": ("you may not change anything (no edits, no command that changes files or git), even what you offered or "
+            "began before: give the person the exact command instead."),
+    "edit": ("you may change files in the project folder and run commands that change something, each command after "
+             "the person's OK. What Ask mode did not let you do, you may do now, if the person still wants it."),
+    "fix": ("you may change only what the flow's phase allows, for the gate the flow waits at; keel's guard refuses "
+            "the rest."),
+    "side": ("you may change files again, in your own worktree only; each command that changes something waits for "
+             "the person's OK."),
+}
 COMMITS = {          # keel's commit line in KeelBot's system prompt (runtime/prompts.py system_prompt), per mode
     "edit": ("keel commits your own file changes after its checks (when the person keeps them); never git commit them "
              "yourself, and never push. Only the person's own uncommitted work may be committed with git commit, when they "
@@ -233,7 +250,7 @@ def get(sid: str, messages: bool = True) -> dict:
 def update(sid: str, **fields) -> dict:
     allowed = {k: v for k, v in fields.items() if k in ("title", "model_json", "engine_session", "status", "error",
                                                        "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase",
-                                                       "ctx_tokens")}
+                                                       "ctx_tokens", "mode", "thread_id")}
     if allowed:
         sets = ", ".join(f"{k} = ?" for k in allowed)
         with db.connect() as conn:
@@ -248,6 +265,39 @@ def set_model(sid: str, model: dict) -> dict:
     m = models.effective(model)
     same = (s["model"] or {}).get("provider") == m.get("provider")
     return update(sid, model_json=json.dumps(m), **({} if same else {"engine_session": None}))
+
+
+def mode_note(was: str, now: str) -> str:
+    """0.18.19 The note the next turn's prompt starts with when the mode changed since KeelBot's last answer."""
+    if not was or was == now or was not in MODE_NAMES or now not in MODE_NAMES:
+        return ""
+    return (f"You were in {MODE_NAMES[was]}; you are now in {MODE_NAMES[now]}: {MODE_NOW[now]} The rules of "
+            f"{MODE_NAMES[was].split(' (')[0]} from earlier in this conversation no longer apply: follow the mode below.")
+
+
+def set_mode(sid: str, mode: str, thread_id: str | None = None, flow: dict | None = None) -> dict:
+    """0.18.19 Another mode for the chat's next turn, in the same chat (it keeps its messages and its engine session;
+    the next turn's prompt starts with a note of the change). Ask, Edit and Fix work in the project folder, so a chat
+    moves between them; Fix needs the flow that waits (`thread_id`, and its phase from `flow`). A side session keeps
+    its worktree: it moves between Side and Ask (read only, there). Into or out of a worktree is a new chat."""
+    if mode not in MODES:
+        raise HelperError(400, f"Unknown KeelBot mode {mode!r}.", f"Use one of: {', '.join(MODES)}.")
+    s = get(sid, messages=False)
+    if mode == s["mode"]:
+        return s
+    if is_side(s) and mode not in ("side", "ask"):
+        raise HelperError(409, f"A side session works in its own worktree; {mode} mode works in the project folder.",
+                          f"Start a new chat in {mode} mode (keel TUI: /new, then /mode {mode}).")
+    if not is_side(s) and mode == "side":
+        raise HelperError(409, "A side session needs its own worktree, which this chat does not have.",
+                          "Start a new chat in side mode: keel TUI starts one with the next message after /mode side.")
+    fields: dict = {"mode": mode}
+    if mode == "fix":
+        tid = thread_id or s.get("thread_id")
+        if not tid:
+            raise HelperError(400, "Fix mode needs the flow that waits.", "Switch while a flow of this project waits at a gate.")
+        fields.update(thread_id=tid, phase=fix_phase(flow) if flow else (s.get("phase") or "none"))
+    return update(sid, **fields)
 
 
 def set_folder(sid: str, folder: str | None) -> dict:
@@ -367,19 +417,65 @@ def short_title(text: str, limit: int = 80) -> str:
     return (cut.rsplit(" ", 1)[0] if " " in cut[limit // 2:] else cut).rstrip(" ,.;:-") + "…"
 
 
+def is_side(s: dict) -> bool:
+    """A side session, in whatever mode it is now (0.18.19 it can switch to Ask): it has its own branch."""
+    return s.get("mode") == "side" or bool(s.get("branch"))
+
+
+# 0.18.19 a new chat's own title, at no second model call: its first answer ends with one hidden line that keel takes
+# out (the rules from opencode (MIT), core/src/plugin/agent.ts PROMPT_TITLE). A title the person gave stays.
+TITLE_ASK = ("This is the first message of a new chat. After your whole answer, end with one last line of the form "
+             "`TITLE: <title>`: a title of 3 to 6 words that helps the person find this chat later. Use the same "
+             "language as the person's message; name the main topic or what they want done (with a file: what they "
+             "want done with it); keep technical terms, numbers and file names exact; leave out the, this, my, a, an; "
+             "no quotes, no tool names, at most 50 characters. keel removes this line before the person sees your answer.")
+TITLE_WORDS, TITLE_CHARS = 6, 50
+_TITLE_LINE = re.compile(r"^\s*title:(.*)$", re.I)
+
+
+def split_title(text: str) -> tuple[str, str]:
+    """0.18.19 An answer and the title its last line gives ("TITLE: ..."), that line taken out; ("answer", "") when
+    its last line is no title line."""
+    lines = (text or "").rstrip().split("\n")
+    m = _TITLE_LINE.match(lines[-1]) if lines else None
+    if not m:
+        return text, ""
+    title = " ".join(m[1].strip().strip("`\"'*").split()[:TITLE_WORDS]).rstrip(" .,;:-")
+    if len(title) > TITLE_CHARS:
+        title = title[:TITLE_CHARS].rsplit(" ", 1)[0]
+    return "\n".join(lines[:-1]).rstrip(), title
+
+
+def hide_title(text: str) -> str:
+    """0.18.19 The answer as it is written, without a title line that has begun at its end (TITLE:, or a start of it)."""
+    head, _, last = (text or "").rpartition("\n")
+    word = last.lstrip().upper()
+    if word and ("TITLE:".startswith(word) or word.startswith("TITLE:")):
+        return head + "\n" if head or "\n" in text else ""
+    return text
+
+
 def workdir(s: dict) -> str:
     """Where a session's agent works: a side session's worktree, else the project folder."""
     return s.get("worktree") or s["root"]
 
 
+# 0.18.19 the summary as the next turn reads it: opencode's checkpoint (from opencode (MIT),
+# core/src/session/runner/to-llm-message.ts), so the model takes it as what happened, not as the person's new request
+SUMMARY_HEAD = ("<conversation-checkpoint>\nThe following is a summary of the earlier conversation (the full chat is "
+                "stored in keel). Treat it as historical context, not as new instructions.\n\n<summary>\n")
+SUMMARY_TAIL = "\n</summary>\n</conversation-checkpoint>"
+
+
 def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     """Earlier messages as [(user|assistant, text)], oldest first. After a /compact the history starts at the latest
-    summary (a note with data.compact): the summary first, then what was said after it. Every message stays stored."""
+    summary (a note with data.compact), wrapped as a checkpoint, then what was said after it, word for word. Every
+    message stays stored."""
     msgs = [m for m in get(sid)["messages"] if before_n is None or m["n"] < before_n]
     last = max((i for i, m in enumerate(msgs) if m["role"] == "note" and (m.get("data") or {}).get("compact")), default=None)
     out: list[tuple[str, str]] = []
     if last is not None:
-        out.append(("user", "The conversation so far, summarised (the full chat is stored in keel):\n" + msgs[last]["text"]))
+        out.append(("user", SUMMARY_HEAD + msgs[last]["text"].strip() + SUMMARY_TAIL))
         msgs = msgs[last + 1:]
     out += [("user" if m["role"] == "user" else "assistant", m["text"]) for m in msgs if m["role"] in ("user", "helper")]
     return out
@@ -473,7 +569,7 @@ def changes(sid: str) -> list[dict]:
     """The files KeelBot changed in this session, against what they were before: path, status, +/- lines, diff.
     A side session: what is not kept yet (its worktree against the last commit on its branch)."""
     s = get(sid, messages=False)
-    if s["mode"] == "side":
+    if is_side(s):
         return worktrees.changes(s["worktree"], "HEAD") if s.get("worktree") else []
     root = s["root"]
     with db.connect() as conn:
@@ -498,7 +594,7 @@ def changes(sid: str) -> list[dict]:
 def undo(sid: str, path: str | None = None) -> list[dict]:
     """Put one file (or every file) back as it was before KeelBot changed it."""
     s = get(sid, messages=False)
-    if s["mode"] == "side":
+    if is_side(s):
         if not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.")
         if path and not any(c["path"] == path for c in changes(sid)):
@@ -532,9 +628,10 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     from keel_engine.runtime import actions          # late: actions imports most of the runtime
 
     s = get(sid, messages=False)
-    if s["mode"] not in ("fix", "side", "edit"):
+    # 0.18.19 a chat switched to Ask keeps what it changed before (and a side session its worktree)
+    if s["mode"] not in ("fix", "side", "edit") and not (is_side(s) or changes(sid)):
         raise HelperError(400, "Only a Fix, Edit or side chat has changes to commit.")
-    if s["mode"] == "side" and not s.get("worktree"):
+    if is_side(s) and not s.get("worktree"):
         raise HelperError(409, "This side session was handed over; its worktree is gone.")
     root = workdir(s)
     files = [c["path"] for c in changes(sid)]
@@ -567,7 +664,7 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     sha = git.head(root)
     with db.connect() as conn:
         conn.executemany("delete from helper_files where session_id = ? and path = ?", [(sid, f) for f in files])
-    where = f" on branch {s['branch']}" if s["mode"] == "side" else ""
+    where = f" on branch {s['branch']}" if is_side(s) else ""
     note = f"keel committed KeelBot's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
     subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()
     add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files, "subject": subject})
@@ -581,7 +678,7 @@ def handover(sid: str) -> dict:
     """What a side session hands over (a task or a change flow): its branch, the commits kept on it, what is not kept
     yet, and its last answer."""
     s = get(sid)
-    if s["mode"] != "side":
+    if not is_side(s):
         raise HelperError(400, "Only a side session can be handed over.")
     if not s.get("worktree"):
         raise HelperError(409, "This side session was handed over already.")
@@ -697,16 +794,23 @@ def _failed_block(failed: list[dict] | None) -> str:
             "unless they already picked one.")
 
 
-def _transcript(hist: list[tuple[str, str]]) -> str:
-    """The conversation so far, newest kept, for engines that cannot continue their own session."""
+def _transcript(hist: list[tuple[str, str]], limit: int = TRANSCRIPT_CHARS) -> str:
+    """The conversation so far, newest kept, for engines that cannot continue their own session. 0.18.19 a /compact
+    summary (history()'s first message) always stays: the newest messages share the rest of `limit`."""
     parts, used = [], 0
+    if hist and hist[0][0] == "user" and hist[0][1].startswith(SUMMARY_HEAD):
+        parts.append(f"Person: {hist[0][1].strip()}")
+        hist = hist[1:]
+    keep = parts[:]
+    parts = []
     for role, text in reversed(hist):
         line = f"{'Person' if role == 'user' else 'KeelBot'}: {text.strip()}"
-        if used + len(line) > TRANSCRIPT_CHARS:
+        if used + len(line) > limit:
             break
         parts.append(line)
         used += len(line)
-    return ("The conversation so far (oldest first):\n" + "\n\n".join(reversed(parts))) if parts else ""
+    parts = keep + list(reversed(parts))
+    return ("The conversation so far (oldest first):\n" + "\n\n".join(parts)) if parts else ""
 
 
 SHELL_OUTPUT_MAX = 8000
@@ -772,9 +876,12 @@ def _shell_block(shell: dict | None) -> str:
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
                  branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None,
-                 images: list[str] | None = None, failed: list[dict] | None = None) -> str:
-    where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
-    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), FAILURES, where]
+                 images: list[str] | None = None, failed: list[dict] | None = None, was: str = "",
+                 title: bool = False) -> str:
+    where = f"Your folder (the worktree): {root}" if mode == "side" or (mode == "ask" and branch) else \
+        f"The project folder: {root}"
+    note = mode_note(was, mode)            # 0.18.19 the mode changed since the last answer: say so first
+    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), FAILURES, where]
     if mode == "edit":
         busy = flows_in_folder(keel)
         if busy:
@@ -797,8 +904,17 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
                   _pointing(mentions or [], selection, open_file), _shell_block(shell), _images_block(images)):
         if extra:
             parts.append(extra)
+    if title:
+        parts.append(TITLE_ASK)            # 0.18.19 a new chat: its first answer names it
     parts.append(f"Question: {question.strip()}")
     return "\n\n".join(parts)
+
+
+def last_mode(sid: str, before_n: int) -> str:
+    """0.18.19 The mode KeelBot's last answer (or stopped turn) before message `before_n` ran in; "" when none says."""
+    msgs = [m for m in get(sid)["messages"] if m["n"] < before_n and m["role"] in ("helper", "note")
+            and (m.get("data") or {}).get("mode")]
+    return str(msgs[-1]["data"]["mode"]) if msgs else ""
 
 
 def last_failures(sid: str, before_n: int) -> list[dict]:
@@ -809,19 +925,95 @@ def last_failures(sid: str, before_n: int) -> list[dict]:
 
 # ------------------------------------------------------------------ /compact
 
+# 0.18.19 the summary's form and rules, from opencode (MIT), core/src/session/compaction.ts: what the person wants, what
+# was decided, what is done, active or blocked, the next move and the files to open, so a fresh session goes on alone
+SUMMARY_TEMPLATE = """You MUST use this format for your response (you may omit sections that aren't applicable). Do not \
+include the <template> tags in your response.
+<template>
+## Objective
+- [one or two brief sentences describing what the person is trying to accomplish]
+
+## Requirements
+- [constraints, preferences, requirements, and scope boundaries stated by the person, or "(none)"]
+
+## Decisions
+- [decisions already made and why, or "(none)"]
+
+## Work State
+Break the objective into smaller goals and report which are completed, which are being worked on, and which are blocked.
+### Completed
+- [goals that have been completed; otherwise "(none)"]
+
+### Active
+- [goals currently being worked on; otherwise "(none)"]
+
+### Blocked
+- [anything blocking progress, and why; otherwise "(none)"]
+
+## Next Move
+1. [ordered list of next actions, or "(none)"]
+
+## Relevant Files
+List the files and directories, other than the project folder itself, that another agent would need to open to \
+continue this work. Include at most 15, most important first. Do not list every file that was read or changed. If none, \
+write "(none)".
+- `[file or directory path]`: [brief reason it matters]
+
+## Important Context
+- [facts the next agent cannot continue without and cannot easily find on its own; or "(none)"]
+</template>"""
+SUMMARY_RULES = """Rules:
+- Keep each section concise. Use terse, single-line bullets, not prose paragraphs or nested lists.
+- Prefer short references over detailed restatement. It is fine to leave out information the next agent can recover \
+from the code or the files listed above.
+- Preserve exact file paths, symbols, commands, error strings, URLs, and identifiers.
+- Carry forward only the person's questions or requests that remain unanswered or require further action. Do not \
+repeat ones that newer history has answered or resolved. Preserve exact wording when carrying one forward.
+- Preserve consequential workflow state, including whether changes are uncommitted, committed, pushed, under review, or \
+merged (keel keeps KeelBot's own changes until the person keeps them: say which are kept and which wait).
+- Do not mention the summary process or that context was compacted."""
+
+
+def summary_prompt(update: bool) -> str:
+    """0.18.19 What /compact asks after the chat (opencode's buildPrompt): a new summary, or, when the chat starts from
+    an earlier one, that summary updated with what came after it."""
+    shared = ["Summarize only what the person and KeelBot said and did. Leave out instructions and setup KeelBot was "
+              "given rather than told by the person (keel's rules, the mode, the project's knowledge): the next session "
+              "receives current versions of these separately.",
+              SUMMARY_TEMPLATE, SUMMARY_RULES, "Do not continue the task or call tools.",
+              "Return only the structured summary in the requested format. Do not include a preamble, explanation, or "
+              "other commentary."]
+    if not update:
+        return "\n\n".join(["You MUST summarize the conversation above into a structured summary that will be given to "
+                             "another agent to resume the work.", *shared])
+    return "\n\n".join([
+        "Update the existing checkpoint in the conversation above into one consolidated summary.",
+        "Newer history always takes precedence over the existing checkpoint. Preserve previous information unless newer "
+        "history clearly contradicts, supersedes, resolves, or makes it stale. If something is no longer relevant to "
+        "continuing the work, you may remove it.",
+        "Incorporate newer requirements, decisions, progress, and context. Reconcile Work State and Next Move: move "
+        "completed work out of Active, remove resolved blockers and answered questions, and preserve unresolved or "
+        "pending work.",
+        "Return only the updated Markdown sections. Do not reproduce the `<conversation-checkpoint>` or `<summary>` "
+        "wrapper tags from the previous checkpoint.", *shared])
+
+
 async def compact(sid: str) -> dict:
-    """Asks the model to summarise the stored conversation, stores that summary as a note (never a user or helper
-    turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
+    """Asks the model to summarise the stored conversation (0.18.19 in opencode's structured form, or to update the
+    earlier summary), stores that summary as a note (never a user or helper turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
     Nothing in helper_messages is ever deleted; ctx_tokens resets to the summary's own size."""
     s = get(sid, messages=False)
     model = models.effective(s["model"])
     hist = history(sid)
     root = workdir(s)
-    prompt = "Summarise the conversation so far, for a fresh session that continues from this summary alone.\n\n" \
-             + _transcript(hist)
+    # 0.18.19 the whole chat, as far as the model's window allows (it was the newest 6000 characters), and only in the
+    # prompt: an API-key model got it a second time as its messages
+    room = max(TRANSCRIPT_CHARS, int((s.get("ctx_window") or COMPACT_WINDOW) * 4 * COMPACT_SHARE))
+    earlier = bool(hist) and hist[0][1].startswith(SUMMARY_HEAD)
+    prompt = _transcript(hist, room) + "\n\n" + summary_prompt(update=earlier)
     req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, None), prompt=prompt, root=root, phase="none",
                        model=model, toolbox=ToolBox(root, "none", agent=AGENT, readonly=True), title=s["title"],
-                       step_name="compact", key=models.key_for(model["provider"], {}), history=hist)
+                       step_name="compact", key=models.key_for(model["provider"], {}), history=[])
     res = await models.runner_for(model).run(req, lambda *_a, **_k: None)
     tin, tout, cached = int(res.tokens_in), int(res.tokens_out), int(res.tokens_cached)
     before = int(s.get("ctx_tokens") or 0)
@@ -1013,7 +1205,8 @@ class HelperRunner:
                                                                     "shell": body.get("shell"), "images": att["images"],
                                                                     "images_skipped": att["skipped"]}.items() if v})
         if s["title"] == "New chat" and s["turns"] == 0:
-            update(sid, title=short_title(text))
+            # named by the question until the first answer gives its own short title (0.18.19, _run)
+            body["auto_title"] = update(sid, title=short_title(text))["title"]
         call_id = uuid.uuid4().hex
         update(sid, status="running", error=None)
         self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
@@ -1048,7 +1241,9 @@ class HelperRunner:
             self.bus.emit(type_, sid, project, step="helper", call_id=call_id, data=data)
 
         # the answer as it is written: helper.delta events (the text so far, every 80 ms; never stored)
-        live = DeltaThrottle(lambda d: ev("helper.delta", d))
+        # 0.18.19 a new chat's first answer ends with its title line: the person never sees it
+        auto = str(body.get("auto_title") or "")
+        live = DeltaThrottle(lambda d: ev("helper.delta", {**d, "text": hide_title(d.get("text", ""))} if auto else d))
         # keel 0.18.18 what failed or was refused in this turn: the next turn's prompt starts from it, and failed.json
         # (runtime/repeats.py, in the turn's scratch folder) lets the hook and the ToolBox refuse an exact repeat
         failures: list[dict] = []
@@ -1073,6 +1268,8 @@ class HelperRunner:
             except Exception:  # noqa: BLE001  (a note for the next turn: never the turn's failure)
                 log.debug("KeelBot could not note a failure", exc_info=True)
             counter["n"] += 1
+            if auto and kind in ("text", "answer"):
+                text = split_title(str(text))[0]
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
             data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})
             ev("helper.step", data)
@@ -1152,12 +1349,14 @@ class HelperRunner:
                 allow += extensions.allow_entries(on)
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             before_failed = await asyncio.to_thread(last_failures, sid, n)
+            was = await asyncio.to_thread(last_mode, sid, n)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
-                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed)
+                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed, was=was,
+                                  title=bool(auto))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 scratch["dir"] = tmp
                 toolbox.no_repeat = tmp
@@ -1209,10 +1408,15 @@ class HelperRunner:
             # 0.18.16 Copilot costs premium requests, not tokens (it showed $0 before)
             cost = catalog.premium_cost(provider, model.get("model", ""), int(used.get("premium_requests", 0)))
         answer = (res.text if res else "") or ("" if status == "done" else err or "")
+        named = ""
+        if auto and status == "done":
+            answer, named = split_title(answer)
         if status == "done" and not answer.strip():
             answer = "(KeelBot gave no answer.)"
+        if named and get(sid, messages=False)["title"] == auto:
+            update(sid, title=named)            # before the answer is stored: keel TUI reads the chat once it is
         add_message(sid, "helper" if status == "done" else "note", answer, call_id=call_id,
-                    data={"status": status, "provider": provider, "model": model.get("model"),
+                    data={"status": status, "mode": mode, "provider": provider, "model": model.get("model"),
                           **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
                           **({"failed": failures[-10:]} if failures else {})})

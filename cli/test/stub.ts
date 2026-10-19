@@ -120,6 +120,7 @@ export function stubKeel() {
       // P1-3 /rename: the existing PATCH {title} of a KeelBot session; the chats list shows the new name
       case "PATCH /api/projects/demo/helper/sessions/s1": {
         const title = String(body.title ?? "").trim();
+        if (body.mode) state.session = { ...state.session, mode: body.mode };     // 0.18.19 the same chat, another mode
         if (title) {
           state.session = { ...state.session, title };
           state.sessions = state.sessions?.map((x) => (x.id === "s1" ? { ...x, title } : x)) ?? null;

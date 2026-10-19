@@ -906,7 +906,7 @@ const IMPLS: Impl[] = [
   {
     name: "mode",
     complete: (_c, a) => ["ask", "edit", "fix", "side"].filter((x) => x.startsWith(a)),
-    run: (ctx, a) => {
+    run: async (ctx, a) => {
       const m = a.trim() as HelperMode;
       const about: Record<string, string> = {
         ask: "it reads and answers; it changes nothing",
@@ -917,8 +917,9 @@ const IMPLS: Impl[] = [
       if (!about[m]) return text(`KeelBot is in ${ctx.core.snapshot.chat.mode} mode. /mode ask | edit | fix | side:\n`
         + Object.entries(about).map(([k, v]) => `  ${k}: ${v}`).join("\n"));
       if (m === "fix" && ctx.core.snapshot.flow?.thread?.status !== "waiting") return fail("Fix works while a flow waits at a gate. /mode edit changes the project folder without a flow.");
-      ctx.core.setChatMode(m);
-      return ok(`KeelBot: ${m} mode: ${about[m]}. A new chat starts with the next message.`);
+      const same = await ctx.core.setChatMode(m);
+      return ok(`KeelBot: ${m} mode: ${about[m]}. ` + (same ? `This chat goes on in ${m} mode; KeelBot is told of the change.`
+        : "A new chat starts with the next message."));
     },
   },
   {

@@ -203,6 +203,23 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `a chat changes its mode in place, and Fix takes the flow that waits now`() {
+        val (pid, _) = newProject("helper-mode")
+        val sid = post("/api/projects/$pid/helper/sessions").json()["id"].asText()
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("mode" to "edit")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid")!!["mode"].asText()).isEqualTo("edit")
+        assertThat(engine.lastBody("/helper/sessions/$sid")!!.has("thread_id")).isFalse()
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("mode" to "loud")).andExpect(status().isBadRequest)
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("mode" to "fix")).andExpect(status().isConflict)
+        waitingFlow(pid, "t-mode-1")
+        patch("/api/projects/$pid/helper/sessions/$sid", mapOf("mode" to "fix")).andExpect(status().isOk)
+        val body = engine.lastBody("/helper/sessions/$sid")!!
+        assertThat(body["mode"].asText()).isEqualTo("fix")
+        assertThat(body["thread_id"].asText()).isEqualTo("t-mode-1")
+        assertThat(body["flow"]["phases_before"][0].asText()).isEqualTo("green")
+    }
+
+    @Test
     fun `fix mode needs a flow that waits, and sends its phase, criterion, unlocks and run mode`() {
         val (pid, _) = newProject("helper-fix")
         post("/api/projects/$pid/helper/sessions", mapOf("mode" to "fix")).andExpect(status().isConflict)
