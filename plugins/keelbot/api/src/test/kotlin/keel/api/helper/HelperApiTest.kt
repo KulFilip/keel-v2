@@ -60,6 +60,49 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `a bang command reaches the engine's guarded run, and its output goes with the next turn`() {
+        // 0.18.18 keel TUI's `!command`: the engine runs it through keel's guard; its output goes with the next question
+        val (pid, _) = newProject("helper-run")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("title" to "Shell")).json()["id"].asText()
+        val r = post("/api/projects/$pid/helper/sessions/$sid/run", mapOf("command" to " ls ")).andExpect(status().isOk).json()
+        assertThat(r["exit"].asInt()).isEqualTo(0)
+        assertThat(engine.lastBody("/helper/sessions/$sid/run")!!["command"].asText()).isEqualTo("ls")
+        post("/api/projects/$pid/helper/sessions/$sid/run", mapOf("command" to "  ")).andExpect(status().isBadRequest)
+        val (other, _) = newProject("helper-run-other")
+        post("/api/projects/$other/helper/sessions/$sid/run", mapOf("command" to "ls")).andExpect(status().isNotFound)
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "why?",
+            "shell" to mapOf("command" to "npm test", "exit" to 1, "output" to "1 failed"))).andExpect(status().isOk)
+        val shell = engine.lastBody("/helper/sessions/$sid/turn")!!["shell"]
+        assertThat(shell["command"].asText()).isEqualTo("npm test")
+        assertThat(shell["exit"].asInt()).isEqualTo(1)
+        assertThat(shell["output"].asText()).isEqualTo("1 failed")
+    }
+
+    @Test
+    fun `the images the person names go on to the engine with the turn`() {
+        // 0.18.18 keel TUI sends the image files a prompt names; the engine sends those the model can see
+        val (pid, _) = newProject("helper-images")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("title" to "Look")).json()["id"].asText()
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "what is wrong here?",
+            "images" to listOf(" docs/shot.png ", "docs/shot.png", ""))).andExpect(status().isOk)
+        val sent = engine.lastBody("/helper/sessions/$sid/turn")!!
+        assertThat(sent["images"].map { it.asText() }).containsExactly("docs/shot.png")
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "and now?")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid/turn")!!.has("images")).isFalse()
+    }
+
+    @Test
+    fun `the prompt history is the engine's, for this project only`() {
+        // 0.18.18 keel TUI's ↑ / ↓ walk the person's earlier prompts of the project, newest first, from keel
+        val (pid, _) = newProject("helper-prompts")
+        val r = get("/api/projects/$pid/helper/prompts?limit=50").andExpect(status().isOk).json()
+        assertThat(r.map { it.asText() }).containsExactly("And the tests?", "Where does it start?")
+        val q = engine.calls.last { it.path == "/helper/prompts" }.query!!
+        assertThat(q).contains("project=$pid").contains("limit=50")
+        get("/api/projects/nope-no-such/helper/prompts").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `a turn carries the knowledge, MCP, what the person points at and the waiting flow`() {
         val (pid, _) = newProject("helper-turn")
         val sid = post("/api/projects/$pid/helper/sessions").json()["id"].asText()

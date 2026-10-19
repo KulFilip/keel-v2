@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Paths
 
@@ -54,6 +55,10 @@ data class HelperFolderBody(val name: String = "")
 /** What the person points at in the Repo page: a file, a code-graph symbol or a criterion. */
 data class HelperMention(val kind: String = "", val value: String = "", val file: String? = null, val line: Int? = null)
 data class HelperSelection(val path: String = "", val from: Int? = null, val to: Int? = null, val text: String = "")
+/** 0.18.18 keel TUI's `!command`: the person's own shell command, run in the chat's folder through keel's guard ... */
+data class HelperRun(val command: String = "", val timeout: Int? = null)
+/** ... and its output, sent along with the person's next question. */
+data class HelperShell(val command: String = "", val exit: Int? = null, val output: String = "")
 
 /** One message to KeelBot; the api adds the logins, the MCP servers, the agent's settings and the project's flow. */
 data class HelperTurn(
@@ -62,6 +67,9 @@ data class HelperTurn(
     val mentions: List<HelperMention> = emptyList(),
     val selection: HelperSelection? = null,
     val openFile: String? = null,
+    val shell: HelperShell? = null,
+    /** 0.18.18 image files of the project the person named (keel TUI); the engine sends those the model can see. */
+    val images: List<String> = emptyList(),
 )
 
 /**
@@ -191,6 +199,12 @@ class HelperService(
         return engine.post("/helper/sessions/$sid/export", emptyMap<String, Any>())
     }
 
+    /** 0.18.18 The person's earlier prompts in this project's chats, newest first, each once: keel TUI's ↑ / ↓. */
+    fun prompts(pid: String, limit: Int = 50): JsonNode {
+        projects.require(pid)
+        return engine.get("/helper/prompts?project=$pid&limit=${limit.coerceIn(1, 500)}")
+    }
+
     fun turn(pid: String, sid: String, body: HelperTurn): JsonNode {
         val text = body.text.trim()
         if (text.isEmpty()) throw BadRequest("The message is empty", "Write a question, or pick a command with /.")
@@ -214,8 +228,22 @@ class HelperService(
             "mentions" to body.mentions.filter { it.value.isNotBlank() }.take(30),
             "selection" to body.selection?.takeIf { it.path.isNotBlank() && it.text.isNotBlank() }?.let { it.copy(text = it.text.take(8000)) },
             "open_file" to body.openFile?.takeIf { it.isNotBlank() },
+            "images" to body.images.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 1000 }.distinct().take(16).takeIf { it.isNotEmpty() },
+            "shell" to body.shell?.takeIf { it.command.isNotBlank() }?.let { it.copy(command = it.command.take(2000), output = it.output.takeLast(8000)) },
         ).filterValues { it != null }
         return engine.post("/helper/sessions/$sid/turn", payload)
+    }
+
+    /** 0.18.18 keel TUI's `!command`: the engine runs it in the chat's folder through keel's guard (a command that
+     *  changes something waits for the person's OK, as KeelBot's own do): {command, exit, output, refused}. It may wait
+     *  for that OK (up to 10 minutes), then for the command. */
+    fun run(pid: String, sid: String, body: HelperRun): JsonNode {
+        val cmd = body.command.trim()
+        if (cmd.isEmpty()) throw BadRequest("The command is empty", "Write it after the !, for example !git status.")
+        if (cmd.length > 8000) throw BadRequest("The command is too long", "Keep it under 8,000 characters.")
+        get(pid, sid)
+        return engine.postWaiting("/helper/sessions/$sid/run", mapOf("command" to cmd, "timeout" to body.timeout?.coerceIn(1, 3600))
+            .filterValues { it != null })
     }
 
     fun commands(pid: String): JsonNode =
@@ -478,8 +506,14 @@ class HelperController(private val helper: HelperService) {
     @PostMapping("/sessions/{sid}/export")
     fun export(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.export(pid, sid)
 
+    @PostMapping("/sessions/{sid}/run")
+    fun run(@PathVariable pid: String, @PathVariable sid: String, @RequestBody body: HelperRun): JsonNode = helper.run(pid, sid, body)
+
     @GetMapping("/commands")
     fun commands(@PathVariable pid: String): JsonNode = helper.commands(pid)
+
+    @GetMapping("/prompts")
+    fun prompts(@PathVariable pid: String, @RequestParam(defaultValue = "50") limit: Int): JsonNode = helper.prompts(pid, limit)
 
     @GetMapping("/sessions/{sid}/changes")
     fun changes(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.changes(pid, sid)

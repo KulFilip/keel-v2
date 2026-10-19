@@ -222,6 +222,8 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.matches(Regex("/helper/sessions/[^/]+/(handover|release)")) -> 200 to helperHandover
         path.matches(Regex("/helper/sessions/[^/]+/done")) -> 200 to mapOf("ok" to true, "sha" to "abc1234", "message" to "green: helper: x",
             "files" to listOf("src/a.kt"))
+        // 0.18.18 the person's earlier prompts of a project, newest first (keel TUI's ↑ / ↓)
+        path == "/helper/prompts" -> 200 to (if (query?.contains("project=") != true) emptyList() else listOf("And the tests?", "Where does it start?"))
         path == "/helper/commands" -> 200 to listOf(mapOf("name" to "explain", "description" to "Explain", "plugin" to "core", "source" to "keel"))
         path.matches(Regex("/helper/sessions/[^/]+/turn")) -> {
             val id = path.split('/')[3]
@@ -230,6 +232,9 @@ class StubEngine private constructor(private val server: HttpServer) {
         }
         path.matches(Regex("/helper/sessions/[^/]+/stop")) -> 200 to helperSessions[path.split('/')[3]]
         path.matches(Regex("/helper/sessions/[^/]+/compact")) -> 200 to mapOf("before" to 48000, "after" to 6000)
+        // 0.18.18 keel TUI's `!command`, run through keel's guard
+        path.matches(Regex("/helper/sessions/[^/]+/run")) -> 200 to mapOf("command" to body?.get("command")?.asText(), "exit" to 0,
+            "output" to "README.md\n", "refused" to null)
         path.matches(Regex("/helper/sessions/[^/]+/export")) -> 200 to mapOf("path" to ".keel/chats/${path.split('/')[3]}.md", "messages" to 2)
         path.matches(Regex("/helper/sessions/[^/]+")) -> {
             val id = path.split('/')[3]

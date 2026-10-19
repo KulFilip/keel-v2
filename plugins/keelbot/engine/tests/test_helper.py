@@ -673,3 +673,136 @@ async def test_ac_3_export_writes_every_message_as_markdown_and_leaves_the_sessi
     # exporting again overwrites the same file with the same content
     assert client.post(f"/helper/sessions/{sid}/export").json()["path"] == str(path)
     assert client.post("/helper/sessions/h_nope/export").status_code == 404
+
+
+# ------------------------------------------------------------------ 0.18.18 prompt history (keel TUI's ↑ / ↓)
+
+def test_the_prompt_history_is_the_projects_own_user_messages_newest_first_once_each(client, repo):
+    """GET /helper/prompts?project= answers what the person asked in this project's chats, newest first, each text
+    once (its newest place): keel TUI walks it with ↑ / ↓, so it survives a restart and another computer."""
+    a = new_session(client, repo)["id"]
+    ask(client, a, "Where does the package start?")
+    b = new_session(client, repo)["id"]
+    ask(client, b, "And the tests?")
+    ask(client, a, "Where does the package start?")       # asked again: it moves to the top, once
+    ask(client, a, "line one\nline two")                  # a prompt of several lines comes back whole
+    other = client.post("/helper/sessions", json={"project_id": "elsewhere", "root": str(repo), "model": FAKE}).json()["id"]
+    ask(client, other, "Not this project's")
+    r = client.get("/helper/prompts", params={"project": "demo"})
+    assert r.status_code == 200, r.text
+    assert r.json() == ["line one\nline two", "Where does the package start?", "And the tests?"]
+    # KeelBot's answers and notes are never prompts; the limit cuts the oldest
+    assert client.get("/helper/prompts", params={"project": "demo", "limit": 1}).json() == ["line one\nline two"]
+    assert client.get("/helper/prompts", params={"project": "nobody"}).json() == []
+
+
+# ------------------------------------------------------------------ 0.18.18 keel TUI's `!command`
+
+def test_a_command_that_changes_nothing_runs_in_the_project_folder_and_answers_its_output(client, repo):
+    """POST /helper/sessions/{sid}/run runs the person's command in the chat's folder through keel's guard
+    (ToolBox.run_command): one that changes nothing runs at once and answers its exit and output."""
+    s = new_session(client, repo, mode="edit")
+    r = client.post(f"/helper/sessions/{s['id']}/run", json={"command": "ls src"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["command"] == "ls src" and body["exit"] == 0 and body["refused"] is None
+    assert "scores" in body["output"]
+    bad = client.post(f"/helper/sessions/{s['id']}/run", json={"command": "ls no-such-dir"}).json()
+    assert bad["exit"] != 0 and bad["refused"] is None
+    assert client.post("/helper/sessions/h_nope/run", json={"command": "ls"}).status_code == 404
+    assert client.post(f"/helper/sessions/{s['id']}/run", json={"command": "  "}).status_code == 400
+    # nothing is stored in the chat: the output goes with the person's next question (keel TUI keeps it)
+    assert client.get(f"/helper/sessions/{s['id']}").json()["messages"] == []
+
+
+def test_a_command_that_changes_something_waits_for_the_persons_ok_as_keelbots_own_do(client, repo):
+    """Edit (and Fix, side): a command that changes something waits for the person's OK on a permission card, as
+    KeelBot's own commands do; a deny answers the reason and the command never runs."""
+    s = new_session(client, repo, mode="edit")
+    got = {}
+    t = threading.Thread(target=lambda: got.update(client.post(f"/helper/sessions/{s['id']}/run",
+                                                                json={"command": "touch made-by-bang.txt"}).json()))
+    t.start()
+    deadline = time.time() + 10
+    while not client.get("/helper/permissions", params={"project": "demo"}).json() and time.time() < deadline:
+        time.sleep(0.02)
+    q = client.get("/helper/permissions", params={"project": "demo"}).json()[0]
+    assert q["command"] == "touch made-by-bang.txt" and q["session"] == s["id"]
+    assert client.get(f"/helper/sessions/{s['id']}").json()["busy"] is True        # no turn starts meanwhile
+    client.post(f"/helper/permissions/{q['id']}", json={"decision": "deny", "why": "not now"})
+    t.join(10)
+    assert got["refused"] == "not now" and got["exit"] is None
+    assert not (Path(repo) / "made-by-bang.txt").exists()
+    # allowed once: it runs
+    t = threading.Thread(target=lambda: got.update(client.post(f"/helper/sessions/{s['id']}/run",
+                                                                json={"command": "touch made-by-bang.txt"}).json()))
+    t.start()
+    while not client.get("/helper/permissions").json() and time.time() < deadline:
+        time.sleep(0.02)
+    client.post(f"/helper/permissions/{client.get('/helper/permissions').json()[0]['id']}", json={"decision": "once"})
+    t.join(10)
+    assert got["exit"] == 0 and got["refused"] is None and (Path(repo) / "made-by-bang.txt").exists()
+    assert client.get(f"/helper/sessions/{s['id']}").json()["busy"] is False
+
+
+def test_ask_mode_refuses_a_command_that_changes_something_and_says_how_to_go_on(client, repo):
+    s = new_session(client, repo)                                            # Ask: read only
+    body = client.post(f"/helper/sessions/{s['id']}/run", json={"command": "touch nope.txt"}).json()
+    assert body["refused"] and body["exit"] is None and "/mode edit" in body["refused"]
+    assert not (Path(repo) / "nope.txt").exists()
+    assert client.post(f"/helper/sessions/{s['id']}/run", json={"command": "cat README.md"}).json()["exit"] == 0
+
+
+def test_the_output_of_the_persons_command_goes_into_the_next_turns_prompt():
+    p = helper.build_prompt(mode="ask", root="/r", question="why does it fail?", know={"sections": [], "code_graph": False, "memory": False}, graph=False, flow=None,
+                            mentions=None, selection=None, open_file=None, transcript="",
+                            shell={"command": "npm test", "exit": 1, "output": "1 failed: test_rank"})
+    assert "The person ran `npm test` in the project folder (exit 1)" in p and "1 failed: test_rank" in p
+    assert p.index("1 failed") < p.index("Question: why does it fail?")
+
+
+# ------------------------------------------------------------------ 0.18.18 images with a turn
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+CLAUDE = {"provider": "claude", "mode": "cli", "model": "claude-sonnet-4-5"}
+
+
+def test_images_of_the_project_go_to_a_model_that_can_see_them_and_others_say_why_not(repo, tmp_path):
+    """helper.attach_images: an image file of the chat's folder (relative or absolute) goes to Claude Code, which reads
+    it with its Read tool; one outside the folder, missing, not a picture, too big, or for a model that cannot see
+    images, does not go, with the reason in words."""
+    root = Path(repo).resolve()
+    (root / "docs").mkdir(exist_ok=True)
+    (root / "docs" / "shot.png").write_bytes(PNG)
+    (root / "notes.txt").write_text("hi")
+    (tmp_path / "outside.png").write_bytes(PNG)
+    s = {"root": str(root), "worktree": None}
+    got = helper.attach_images(s, CLAUDE, ["docs/shot.png", str(root / "docs" / "shot.png"), "missing.png",
+                                          str(tmp_path / "outside.png"), "notes.txt"])
+    assert got["images"] == [str(root / "docs" / "shot.png")]                 # once
+    why = {x["path"]: x["why"] for x in got["skipped"]}
+    assert "does not exist" in why["missing.png"]
+    assert "outside the project folder" in why[str(tmp_path / "outside.png")]
+    assert "not an image" in why["notes.txt"]
+    fake = helper.attach_images(s, FAKE, ["docs/shot.png"])
+    assert fake["images"] == [] and "cannot see images" in fake["skipped"][0]["why"]
+    api = helper.attach_images(s, {"provider": "anthropic", "mode": "api", "model": "claude-sonnet-4-5"}, ["docs/shot.png"])
+    assert api["images"] == [] and "cannot see images" in api["skipped"][0]["why"]
+
+
+def test_the_prompt_asks_the_model_to_look_at_the_attached_images():
+    p = helper.build_prompt(mode="ask", root="/r", question="what is wrong on this screen?",
+                            know={"sections": [], "code_graph": False, "memory": False}, graph=False, flow=None,
+                            mentions=None, selection=None, open_file=None, transcript="", images=["/r/docs/shot.png"])
+    assert "The person attached these images" in p and "- /r/docs/shot.png" in p and "Read tool" in p
+    assert p.index("/r/docs/shot.png") < p.index("Question:")
+
+
+def test_a_turn_answers_which_images_went_with_it_and_which_did_not(client, repo):
+    (Path(repo) / "shot.png").write_bytes(PNG)
+    s = new_session(client, repo)                                          # the fake model: it cannot see images
+    r = client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "look at shot.png", "images": ["shot.png"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["images"] == [] and r.json()["images_skipped"][0]["path"] == "shot.png"
+    s = wait_idle(client, s["id"])
+    assert s["messages"][0]["data"]["images_skipped"][0]["path"] == "shot.png"
