@@ -96,6 +96,12 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("init:rung_gate", "accept"): ("Keep it, not checked", OPTIONAL, "keep it, marked as not checked (setup.not_checked)"),
     ("init:audit_now", "skip"): ("Hand over now", NONE, "hand over now; nothing checked behaviour"),
     ("init:audit_now", "hunt"): ("Start a bug hunt", NONE, "start a bug hunt now (semi mode, whole project); it changes no code"),
+    # review-pr: nothing reaches the author unless the person shares and then posts
+    ("review-pr:share", "done"): ("Keep it here", NONE, "the review stays here; nothing is shared with the author"),
+    ("review-pr:share", "share"): ("Make a text for the author", NONE,
+                                   "a text from the sections you tick, shown to you first; nothing is posted yet"),
+    ("review-pr:post", "keep"): ("Do not post", NONE, "nothing is posted; copy the text yourself if you want"),
+    ("review-pr:post", "post"): ("Post it on the PR", NONE, "post this text as one comment on the PR (gh pr comment)"),
     # hunt
     ("hunt:confirm_lenses", "confirm"): ("Run these lenses", OPTIONAL, "sweep with the lenses ticked (or named in your note)"),
     ("hunt:confirm_lenses", "stop"): ("Stop the hunt", NONE, "end here; nothing is swept"),

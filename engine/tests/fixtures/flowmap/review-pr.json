@@ -1,0 +1,159 @@
+{
+ "workflow": "review-pr",
+ "name": "review a PR (keel)",
+ "steps": [
+  {
+   "id": "prep",
+   "kind": "code",
+   "name": "prepare the review",
+   "phase": "review",
+   "action": "ticket_prep",
+   "lock": true
+  },
+  {
+   "id": "build",
+   "kind": "code",
+   "name": "build and lint in a throwaway worktree",
+   "phase": "review",
+   "action": "ticket_build"
+  },
+  {
+   "id": "reviewers",
+   "kind": "parallel",
+   "name": "one reviewer per job",
+   "agent": "ticket-reviewer",
+   "model": "default",
+   "phase": "review",
+   "from": "ticket_jobs",
+   "markers": [
+    "TICKET-REVIEW"
+   ],
+   "instructions": "Do only your item's job, against the reviewed version (the item's read commands), never the working tree. The ticket is the text the user gave, after the line that names the PR or branch. Items listed under decided are already judged by a script: skip them. Answer in result lines only."
+  },
+  {
+   "id": "claims",
+   "kind": "code",
+   "name": "claims to check",
+   "phase": "review",
+   "action": "ticket_claims"
+  },
+  {
+   "id": "check",
+   "kind": "parallel",
+   "name": "check each problem again",
+   "agent": "ticket-reviewer",
+   "model": "default",
+   "phase": "review",
+   "from": "ticket_checks",
+   "markers": [
+    "TICKET-REVIEW"
+   ],
+   "instructions": "Your item holds one claim another reviewer made. Read only the lines it names in the reviewed version and answer whether it is true: CHECK | confirmed | <why> or CHECK | rejected | <why>."
+  },
+  {
+   "id": "record",
+   "kind": "code",
+   "name": "record the review",
+   "phase": "review",
+   "action": "ticket_record"
+  },
+  {
+   "id": "share",
+   "kind": "gate",
+   "name": "the review",
+   "phase": "review",
+   "choices": {
+    "done": "end",
+    "share": "share_text"
+   }
+  },
+  {
+   "id": "share_text",
+   "kind": "code",
+   "name": "the text for the author",
+   "phase": "review",
+   "action": "ticket_share"
+  },
+  {
+   "id": "post",
+   "kind": "gate",
+   "name": "share with the author",
+   "phase": "review",
+   "choices": {
+    "keep": "end",
+    "post": "post_comment"
+   }
+  },
+  {
+   "id": "post_comment",
+   "kind": "code",
+   "name": "post the comment",
+   "phase": "review",
+   "action": "ticket_comment"
+  }
+ ],
+ "expect": {
+  "main": [
+   "prep",
+   "build",
+   "reviewers",
+   "claims",
+   "check",
+   "record",
+   "share",
+   "share_text",
+   "post",
+   "post_comment"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "review",
+    "nodes": [
+     {
+      "step": "prep",
+      "side": []
+     },
+     {
+      "step": "build",
+      "side": []
+     },
+     {
+      "step": "reviewers",
+      "side": []
+     },
+     {
+      "step": "claims",
+      "side": []
+     },
+     {
+      "step": "check",
+      "side": []
+     },
+     {
+      "step": "record",
+      "side": []
+     },
+     {
+      "step": "share",
+      "side": []
+     },
+     {
+      "step": "share_text",
+      "side": []
+     },
+     {
+      "step": "post",
+      "side": []
+     },
+     {
+      "step": "post_comment",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

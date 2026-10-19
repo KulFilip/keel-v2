@@ -103,6 +103,7 @@ CASES = {
     "workflow-feature-zoom-ac": ("workflow", {"workflow": "feature"}, {"zoom": "ac", "max_lines": 200}),
     "workflow-fix": ("workflow", {"workflow": "fix"}, {"max_lines": 200}),
     "workflow-ship-80": ("workflow", {"workflow": "ship"}, {"width": 80}),
+    "workflow-review-pr": ("workflow", {"workflow": "review-pr"}, {}),
     "flow-feature-waiting": ("flow", {"workflow": "feature", "thread": THREAD, "visited": ["preflight", "spec", "spec_sync"]}, {}),
     "map-system": ("map-system", LEVEL, {}),
     "map-er": ("map-er", {"schema": SCHEMA}, {}),

@@ -61,6 +61,7 @@ Start a flow suggests a size from your words (quick, implement, small, change, f
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
 | **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note |
 | **review** | read-only review of the branch, one reviewer per lens; the report word for word |
+| **review-pr** | someone else's PR or branch against a ticket and your definition of done: build and lint in a throwaway worktree, each checklist item met / not met with evidence, bugs checked twice; you pick what the author sees, nothing is posted unless you choose post |
 | **lint** | run the project's formatters and linters (from its stacks and `.keel/config.yml`) → fix the findings without changing behaviour (2 rounds) → `chore(lint)` commit → report ◆ |
 | **cover** | measure coverage of the changed lines → per gap: test / delete / accept with a reason |
 | **ship** | verify, static checks, release tests, coverage, deps, audit, trace, lens reviewers, final review ◆, memory, PR body ◆ (never pushes) |

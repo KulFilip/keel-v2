@@ -41,6 +41,10 @@ ABOUT = {
     "spike": "research before building: frame → web research of outside docs (search first, 5+ sources) → 2–4 angles researched in parallel → findings with data, sources and one recommendation → spec (a feature flow) or drop",
     "diagnose": "a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hands over to fix or feature",
     "review": "read-only review of the branch, one reviewer per lens (code, security, performance, ...); a report",
+    "review-pr": "review someone else's PR or branch against a ticket and the definition of done: build and lint in a "
+                 "throwaway worktree → reviewers judge each checklist item met / not met with evidence and hunt bugs → "
+                 "a check of every problem → the review; you pick which sections the author sees, nothing is posted "
+                 "unless you choose post",
     "lint": "run the project's formatters and linters, fix the findings without changing behaviour, one commit",
     "cover": "test coverage of the changed lines: per gap write a test, delete dead code, or accept it with a reason",
     "ship": "get a branch ready: checks, coverage, dependencies, reviews, final review, the PR body (never pushes)",

@@ -1,0 +1,19 @@
+workflow review-pr "review a PR (keel)" - 10 steps, 2 gates
+
+== Review: a read-only review ==  id=review
+   #  prepare the review  (code ticket_prep)
+   #  build and lint in a throwaway worktree  (code ticket_build)
+   =  one reviewer per job  (parallel)
+   #  claims to check  (code ticket_claims)
+   =  check each problem again  (parallel)
+   #  record the review  (code ticket_record)
+  [?] the review  (gate, you decide)
+        done -> end of the flow
+        share -> the text for the author
+   #  the text for the author  (code ticket_share)
+  [?] share with the author  (gate, you decide)
+        keep -> end of the flow
+        post -> post the comment
+   #  post the comment  (code ticket_comment)
+
+ o  agent   #  code   [?] gate (you decide)   <  branch   =  parallel   [+] included flow

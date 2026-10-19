@@ -1045,10 +1045,12 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, review-pr, ...), one line each on what it is for
         and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out;
-        title: its name (default the request's first line); ticket / pr: the ticket key or pull request a flow like
-        review-pr reviews; inputs: any other input the flow lists (e.g. lens for review, scope for lint). It runs under
-        keel's guard, budget and records, and stops at its first human gate. allow_fake: start it even though agents
-        use the fake model (it writes example files), like the dashboard's checkbox."""
+        title: its name (default the request's first line); ticket / pr: the ticket text or key and the pull request a
+        flow like review-pr reviews (review-pr also reads the PR number or URL, or `branch: <name>`, from the request's
+        first line, and the ticket from the lines after it); inputs: any other input the flow lists (e.g. lens for
+        review, scope for lint, branch and base for review-pr). It runs under keel's guard, budget and records, and
+        stops at its first human gate. allow_fake: start it even though agents use the fake model (it writes example
+        files), like the dashboard's checkbox."""
         if not type:
             from . import mcp_flows
             return guard(mcp_flows.startable, api, project)

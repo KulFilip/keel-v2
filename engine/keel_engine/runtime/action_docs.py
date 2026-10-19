@@ -461,6 +461,54 @@ DOCS: dict[str, dict] = {
         "steps": ["fix: the rung's attempts start at 0 again; exclude / accept: the rung number is added to .keel/config.yml.",
                   "Then the ladder runs again."],
     },
+    # ---------------------------------------------------------------- review-pr (ticket_actions.py)
+    "ticket_prep": {
+        "summary": "Works out what to review (a PR or a branch, and the ticket) and plans the reviewer jobs; no model.",
+        "steps": [
+            "The PR (a number, #12, PR 12, its URL) or `branch: <name>` from the request's lines or data pr / branch / "
+            "base; the rest of the request (or data.ticket) is the ticket.",
+            "A PR: gh pr view for its state, then git fetch of its head and base into refs/keel/review-pr/<n>. A closed "
+            "or draft PR stops the flow (data force: true reviews it anyway).",
+            "Stops on an empty diff, only lockfiles, generated or built files, or only docs.",
+            "The checklist: the ticket's Acceptance criteria / Definition of done bullets (T1..) and .keel/dod.md "
+            "(D1..; keel's starter list without one). Script checks on the added lines decide secrets, disabled tests, "
+            "debug output and \"no database change\" (AUTO).",
+            "Files ranked by risk, each with a like: neighbour at the base; one job for a small change (400 lines or "
+            "less), else ticket, team, bugs and quality jobs (data.ticket_jobs).",
+        ],
+    },
+    "ticket_build": {
+        "summary": "Compiles and lints the reviewed code in a throwaway git worktree; only messages on changed files count.",
+        "steps": [
+            "git worktree add --detach of the reviewed ref outside the project (node_modules and vendor linked in).",
+            "commands.api_compile and web_typecheck (only where the change touches), then the check tools without the "
+            "fixers. On the fake model only the tools in .keel/config.yml run, no compile command.",
+            "The worktree is removed afterwards. A failure that names no changed file is noted, never blamed on the change.",
+        ],
+    },
+    "ticket_claims": {
+        "summary": "Reads the reviewers' result lines and makes one check job per not-met item and blocking finding.",
+        "steps": ["Lines T1/D1 | verdict | where | what | to do, F | severity | ..., Q | ..., S | ...; an item judged "
+                  "twice keeps the met verdict first.", "Each claim to check becomes data.ticket_checks."],
+    },
+    "ticket_record": {
+        "summary": "Applies the checks, decides the verdict and writes the report shown at the share gate.",
+        "steps": ["A rejected finding is dropped; a rejected not-met item becomes unclear. An item no reviewer judged "
+                  "becomes unclear and is named in the note.",
+                  "Verdict: not done on a not-met item, a blocking bug or a compile error in a changed file; unclear "
+                  "items make it need a check; quality and lint never change it.",
+                  "The report puts the next steps last; the share gate asks which sections the author's text has."],
+    },
+    "ticket_share": {
+        "summary": "Writes the text for the author from the sections you ticked; shown at the post gate, nothing posted.",
+        "steps": ["The sections ticked at the share gate (payload.answers.sections; none ticked: summary, not met and "
+                  "blocking), each as a short list with where and what to do.", "Nothing is sent: the post gate shows the text."],
+    },
+    "ticket_comment": {
+        "summary": "Posts the text as one comment on the PR (gh pr comment), only after you chose post.",
+        "steps": ["Never in run mode auto, never on the fake model, never for a branch without a PR; then the text is "
+                  "only shown to copy."],
+    },
 }
 
 

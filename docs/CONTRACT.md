@@ -693,7 +693,7 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
 
 ## v0.4.0 additions: review, diagnose, fix and change
 
-Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, small, implement, then fix, diagnose, review, init, knowledge-refresh, cover, ship, hunt, hunt-next; then lint and, from 0.18.6, plugin).
+Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, small, implement, then fix, diagnose, review, review-pr, init, knowledge-refresh, cover, ship, hunt, hunt-next; then lint and, from 0.18.6, plugin).
 
 - **review** (read-only, phase `review`): `review_scope` reads `data.lens` (code | all | correctness | security | performance |
   architecture | assertions | ac <ID>) and `data.base` (default base_branch, main, master) and builds `data.review_lenses`
@@ -701,6 +701,28 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   missing base or a criterion without its test/feat commits **stops** the flow (`ActionResult.stop`). One reviewer per item
   in parallel → `report` → gate showing every answer verbatim + tally (`2 of 4 blocking`). Reviews in a read-only phase never
   start the findings fix loop. Send back = review again.
+- **review-pr** (read-only, phase `review`; ORDER after review): someone else's change against a ticket and the team's
+  definition of done (keel v1's review-pr). Input: the request's first line names the PR (a number, `#12`, `PR 12`, a pull
+  URL) or `branch: <name>`, the rest is the ticket; or `data` (the api's options) `pr`, `branch`, `base`, `ticket`, `force`.
+  `ticket_prep` (no model): a PR is read with `gh pr view` and its head and base fetched into `refs/keel/review-pr/<n>`
+  (a branch: local, else `origin/<branch>`); a closed or draft PR, an empty diff, only lockfiles / generated files, or only
+  docs **stops** the flow (`force` reviews a draft, closed or docs-only one). The checklist: the ticket's "Acceptance
+  criteria" / "Definition of done" bullets (else its checkboxes) as T1.., `.keel/dod.md` as D1.. (else
+  `content/templates/dod.md`); script checks on the added lines decide AUTO verdicts (secrets, disabled tests, debug / TODO
+  prove not-met; no database change = met). Files ranked by risk with a `like:` neighbour at the base; `data.ticket_jobs` =
+  one `all` job (400 changed lines or less) or ticket / team / bugs (up to two groups) / quality. → `ticket_build`: compile
+  (`commands.api_compile`, `web_typecheck`) and the check tools (no fixers, no sonar) in a throwaway `git worktree` outside
+  the project; only messages naming a changed file count (fake model: only `.keel/config.yml` tools, no compile) →
+  `ticket-reviewer` per job (result lines `T1 | met | file:line | why | to do`, `F | blocking|minor | ...`, `Q | ...`,
+  `S | ...`, `TICKET-REVIEW: done`) → `ticket_claims`: one `check` job per not-met item and blocking finding →
+  `ticket-reviewer` per claim (`CHECK | confirmed|rejected | why`) → `ticket_record`: a rejected finding is dropped, a
+  rejected not-met becomes unclear, an item no reviewer judged becomes unclear (named in the note); verdict not done (a
+  not-met item, a blocking bug, a compile error in a changed file) / needs a check / done; the report (next steps last) is
+  the gate's text → gate `share` `choices: {done: end, share: share_text}` with the multi-select question `sections`
+  (summary, notmet, blocking, unclear, minor, build, quality; only non-empty ones offered; summary, notmet and blocking
+  recommended) → `ticket_share`: the author's text from the ticked sections → gate `post` `choices: {keep: end, post:
+  post_comment}` → `ticket_comment`: `gh pr comment <n> --body-file`, never in run mode auto, on the fake model or for a
+  branch. A plain approve at either gate shares and posts nothing.
 - **diagnose** (phase `bug-investigate`): explorer frames the symptom and collects `hypotheses` → one investigator each
   (ROOT-CAUSE) → `report` → investigator ranks + RECIPE/KIND → `report` → gate `choices: [fix, feature, unresolved]`:
   start_flow fix (seed recipe + symptoms, never the cause), start_flow feature (seed evidence), or `investigation_note`
