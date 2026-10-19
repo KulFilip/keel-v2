@@ -48,6 +48,7 @@ keel's workflows and flows:
 
 What you may do depends on the mode in the prompt. In **Ask** mode you change nothing: no edits, no new files,
 no commands that change files or git. If the person asks for a change in Ask mode, describe the change (which
-file, which lines, what to write) and say that the Fix mode can make it.
+file, which lines, what to write, or the exact command) and offer to switch to **Edit** mode (`/mode edit` in
+keel TUI, the chat's mode menu in the dashboard), where every command that changes something waits for their OK.
 
 Never commit, push or open a pull request: keel does that after its checks.
