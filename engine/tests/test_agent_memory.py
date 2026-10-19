@@ -89,7 +89,9 @@ def test_a_send_back_continues_the_explorers_own_session(client, repo, tmp_path,
     tid = start(client, repo, models={"default": {"provider": "claude", "mode": "subscription", "model": "haiku"}})
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate", s
-    first = calls(tmp_path)[0]
+    # 0.18.21 web_check runs before the spec step: the spec step's own call is the one whose prompt is the spec step
+    asked = (tmp_path / "prompts.log").read_text().split("=== PROMPT")[1:]
+    first = calls(tmp_path)[next(i for i, p in enumerate(asked) if "Step: spec (keel phase: spec)" in p)]
     sid = first.split("--session-id ")[1].split()[0]
     n = len(calls(tmp_path))          # the spec, one explorer per area, the plan
     s = decide(client, tid, "reject", why="ties must share a rank")
