@@ -33,6 +33,7 @@ import asyncio
 import difflib
 import json
 import logging
+import re
 import secrets
 import subprocess
 import tempfile
@@ -419,6 +420,39 @@ def short_title(text: str, limit: int = 80) -> str:
 def is_side(s: dict) -> bool:
     """A side session, in whatever mode it is now (0.18.19 it can switch to Ask): it has its own branch."""
     return s.get("mode") == "side" or bool(s.get("branch"))
+
+
+# 0.18.19 a new chat's own title, at no second model call: its first answer ends with one hidden line that keel takes
+# out (the rules from opencode (MIT), core/src/plugin/agent.ts PROMPT_TITLE). A title the person gave stays.
+TITLE_ASK = ("This is the first message of a new chat. After your whole answer, end with one last line of the form "
+             "`TITLE: <title>`: a title of 3 to 6 words that helps the person find this chat later. Use the same "
+             "language as the person's message; name the main topic or what they want done (with a file: what they "
+             "want done with it); keep technical terms, numbers and file names exact; leave out the, this, my, a, an; "
+             "no quotes, no tool names, at most 50 characters. keel removes this line before the person sees your answer.")
+TITLE_WORDS, TITLE_CHARS = 6, 50
+_TITLE_LINE = re.compile(r"^\s*title:(.*)$", re.I)
+
+
+def split_title(text: str) -> tuple[str, str]:
+    """0.18.19 An answer and the title its last line gives ("TITLE: ..."), that line taken out; ("answer", "") when
+    its last line is no title line."""
+    lines = (text or "").rstrip().split("\n")
+    m = _TITLE_LINE.match(lines[-1]) if lines else None
+    if not m:
+        return text, ""
+    title = " ".join(m[1].strip().strip("`\"'*").split()[:TITLE_WORDS]).rstrip(" .,;:-")
+    if len(title) > TITLE_CHARS:
+        title = title[:TITLE_CHARS].rsplit(" ", 1)[0]
+    return "\n".join(lines[:-1]).rstrip(), title
+
+
+def hide_title(text: str) -> str:
+    """0.18.19 The answer as it is written, without a title line that has begun at its end (TITLE:, or a start of it)."""
+    head, _, last = (text or "").rpartition("\n")
+    word = last.lstrip().upper()
+    if word and ("TITLE:".startswith(word) or word.startswith("TITLE:")):
+        return head + "\n" if head or "\n" in text else ""
+    return text
 
 
 def workdir(s: dict) -> str:
@@ -842,7 +876,8 @@ def _shell_block(shell: dict | None) -> str:
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
                  branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None,
-                 images: list[str] | None = None, failed: list[dict] | None = None, was: str = "") -> str:
+                 images: list[str] | None = None, failed: list[dict] | None = None, was: str = "",
+                 title: bool = False) -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" or (mode == "ask" and branch) else \
         f"The project folder: {root}"
     note = mode_note(was, mode)            # 0.18.19 the mode changed since the last answer: say so first
@@ -869,6 +904,8 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
                   _pointing(mentions or [], selection, open_file), _shell_block(shell), _images_block(images)):
         if extra:
             parts.append(extra)
+    if title:
+        parts.append(TITLE_ASK)            # 0.18.19 a new chat: its first answer names it
     parts.append(f"Question: {question.strip()}")
     return "\n\n".join(parts)
 
@@ -1168,7 +1205,8 @@ class HelperRunner:
                                                                     "shell": body.get("shell"), "images": att["images"],
                                                                     "images_skipped": att["skipped"]}.items() if v})
         if s["title"] == "New chat" and s["turns"] == 0:
-            update(sid, title=short_title(text))
+            # named by the question until the first answer gives its own short title (0.18.19, _run)
+            body["auto_title"] = update(sid, title=short_title(text))["title"]
         call_id = uuid.uuid4().hex
         update(sid, status="running", error=None)
         self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
@@ -1203,7 +1241,9 @@ class HelperRunner:
             self.bus.emit(type_, sid, project, step="helper", call_id=call_id, data=data)
 
         # the answer as it is written: helper.delta events (the text so far, every 80 ms; never stored)
-        live = DeltaThrottle(lambda d: ev("helper.delta", d))
+        # 0.18.19 a new chat's first answer ends with its title line: the person never sees it
+        auto = str(body.get("auto_title") or "")
+        live = DeltaThrottle(lambda d: ev("helper.delta", {**d, "text": hide_title(d.get("text", ""))} if auto else d))
         # keel 0.18.18 what failed or was refused in this turn: the next turn's prompt starts from it, and failed.json
         # (runtime/repeats.py, in the turn's scratch folder) lets the hook and the ToolBox refuse an exact repeat
         failures: list[dict] = []
@@ -1228,6 +1268,8 @@ class HelperRunner:
             except Exception:  # noqa: BLE001  (a note for the next turn: never the turn's failure)
                 log.debug("KeelBot could not note a failure", exc_info=True)
             counter["n"] += 1
+            if auto and kind in ("text", "answer"):
+                text = split_title(str(text))[0]
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
             data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})
             ev("helper.step", data)
@@ -1313,7 +1355,8 @@ class HelperRunner:
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
-                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed, was=was)
+                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed, was=was,
+                                  title=bool(auto))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 scratch["dir"] = tmp
                 toolbox.no_repeat = tmp
@@ -1365,8 +1408,13 @@ class HelperRunner:
             # 0.18.16 Copilot costs premium requests, not tokens (it showed $0 before)
             cost = catalog.premium_cost(provider, model.get("model", ""), int(used.get("premium_requests", 0)))
         answer = (res.text if res else "") or ("" if status == "done" else err or "")
+        named = ""
+        if auto and status == "done":
+            answer, named = split_title(answer)
         if status == "done" and not answer.strip():
             answer = "(KeelBot gave no answer.)"
+        if named and get(sid, messages=False)["title"] == auto:
+            update(sid, title=named)            # before the answer is stored: keel TUI reads the chat once it is
         add_message(sid, "helper" if status == "done" else "note", answer, call_id=call_id,
                     data={"status": status, "mode": mode, "provider": provider, "model": model.get("model"),
                           **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,

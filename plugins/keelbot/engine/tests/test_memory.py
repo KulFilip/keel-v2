@@ -201,3 +201,58 @@ def test_a_side_session_in_ask_mode_still_owns_its_worktree_and_an_edit_chat_in_
     (Path(repo) / "README.md").write_text("changed in Edit\n")
     helper.remember_originals(edit["id"], str(repo), before)
     assert [c["path"] for c in helper.changes(edit["id"])] == ["README.md"]   # still there to keep or undo in Ask
+
+
+# ------------------------------------------------------------------ 3. a chat's own short title after its first answer
+
+def events(client, sid, kind):
+    return [e["data"] for e in client.bus.recent if e["thread_id"] == sid and e["type"] == kind]
+
+
+def test_the_first_answer_names_a_new_chat_with_a_hidden_title_line_that_keel_takes_out(client, repo, monkeypatch):
+    sc = Script(monkeypatch, "It starts in `src/scores/__init__.py:1`.\n\nTITLE: Package entry point", "The tests are in tests/.")
+    s = new_session(client, repo)
+    s = turn(client, s["id"], "where does the package start? I mean the very first function that runs")
+    p = sc.reqs[0].prompt
+    assert "TITLE:" in p and p.index("TITLE:") < p.index("Question:") and "3 to 6 words" in p
+    assert s["title"] == "Package entry point"
+    answer = s["messages"][-1]["text"]
+    assert answer == "It starts in `src/scores/__init__.py:1`." and "TITLE" not in answer
+    # the person never sees the line: not while it is written, not in the answer step, not in helper.finished
+    assert events(client, s["id"], "helper.delta") and not any("TIT" in d["text"] for d in events(client, s["id"], "helper.delta"))
+    assert not any("TITLE" in d["text"] for d in events(client, s["id"], "helper.step"))
+    assert "TITLE" not in events(client, s["id"], "helper.finished")[-1]["result"]
+    # the session list (keel TUI's /chats) shows it; later turns ask for no title and keep it
+    assert client.get("/helper/sessions", params={"project": "demo"}).json()[0]["title"] == "Package entry point"
+    s = turn(client, s["id"], "and the tests?")
+    assert "TITLE:" not in sc.reqs[1].prompt and s["title"] == "Package entry point"
+
+
+def test_a_title_the_person_gave_is_never_changed_and_a_model_that_gives_none_keeps_the_question(client, repo, monkeypatch):
+    sc = Script(monkeypatch, "ok\nTITLE: Something else", "ok")
+    s = new_session(client, repo)
+    patch(client, s["id"], title="Health endpoint work")
+    s = turn(client, s["id"], "where does it start?")
+    assert "TITLE:" not in sc.reqs[0].prompt and s["title"] == "Health endpoint work"
+    assert s["messages"][-1]["text"] == "ok\nTITLE: Something else"     # not asked for: an answer's own words stay
+
+    def renamed_meanwhile(req):
+        helper.update(req.thread, title="Mine")                          # /rename while the first answer is written
+        return "ok\n\nTITLE: Package entry point"
+    sc = Script(monkeypatch, renamed_meanwhile)
+    s = turn(client, new_session(client, repo)["id"], "where does it start?")
+    assert s["title"] == "Mine" and s["messages"][-1]["text"] == "ok"
+
+    Script(monkeypatch, "It starts in src/scores/__init__.py.")
+    s = turn(client, new_session(client, repo)["id"], "Where does the package start?")
+    assert s["title"] == "Where does the package start?"
+
+
+def test_the_title_line_is_read_as_a_short_title_and_hidden_while_it_is_written():
+    assert helper.split_title("Answer.\n\nTITLE: Package entry point\n") == ("Answer.", "Package entry point")
+    assert helper.split_title('ok\ntitle: "Rate limiting implementation."') == ("ok", "Rate limiting implementation")
+    assert helper.split_title("ok\nTITLE: one two three four five six seven eight") == ("ok", "one two three four five six")
+    assert helper.split_title("TITLE: is a word here\nmore text") == ("TITLE: is a word here\nmore text", "")
+    assert helper.split_title("ok\nTITLE:   ") == ("ok", "")
+    assert helper.hide_title("Answer.\n\nTIT") == "Answer.\n\n" and helper.hide_title("Answer.\nTITLE: Pack") == "Answer.\n"
+    assert helper.hide_title("Answer.\nThe end") == "Answer.\nThe end" and helper.hide_title("Tests pass") == "Tests pass"
