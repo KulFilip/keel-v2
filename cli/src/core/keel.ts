@@ -535,6 +535,13 @@ export class KeelCore {
     return kb.changes(pid, sid);
   }
 
+  /** Summarise the open chat's stored history into a fresh engine session: nothing in `helper_messages` is lost. */
+  async compact(): Promise<{ before: number; after: number }> {
+    const { pid, sid } = this.chatOf();
+    return post<{ before: number; after: number }>(
+      `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/compact`);
+  }
+
   /** Keep one file, some, or (no paths) all: the dashboard's Done, with keel 0.18.3's `paths`. */
   async keep(paths?: string[], message = ""): Promise<HelperDone> {
     const { pid, sid } = this.chatOf();

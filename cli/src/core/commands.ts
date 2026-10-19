@@ -751,6 +751,16 @@ const IMPLS: Impl[] = [
     run: (ctx, a) => text(dashboardUrl(ctx, a.trim() || "flow") + "\nOpen it in your browser: the same keel, the same flows and chats."),
   },
   { name: "model", run: (ctx) => modelRun(ctx) },
+  {
+    // P1-2: summarise the open chat's stored history into a fresh engine session; every stored message stays.
+    name: "compact",
+    run: async (ctx) => {
+      if (!ctx.core.snapshot.chat.session) return text("nothing to compact: open a chat first.");
+      const r = await ctx.core.compact();
+      const tok = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+      return text(`compacted: ${tok(r.before)} → ${tok(r.after)} tokens, nothing lost`);
+    },
+  },
   { name: "effort", run: (ctx, a) => effortRun(ctx, a), complete: (ctx, a) => effortComplete(ctx, a) },
   {
     name: "chats",
