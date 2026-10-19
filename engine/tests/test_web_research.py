@@ -190,3 +190,22 @@ def test_the_spikes_agents_write_no_spec_and_its_gate_offers_spec_or_drop(client
     assert s["acs"] == [] and not s.get("spec")
     assert [p.name for p in (Path(repo) / "docs" / "specs").glob("*.md")] in ([], ["README.md"])
     assert seen and all("Write the spec under" not in r.prompt and "keel-questions block (max 4" not in r.prompt for r in seen)
+
+
+def test_a_long_findings_answer_reaches_the_report_whole(client, repo, monkeypatch):
+    """The report took the findings from last_answer, which is cut at 8 000 characters: a spike's findings lost their
+    end (the recommendation, the sources) on the decide gate and in the evidence a feature starts from."""
+    from conftest import start, wait
+
+    real = fake._plan
+    long = "## Findings (evidence)\n" + "\n".join(f"- claim {n}: src/app/Eta.kt:{n}" for n in range(900)) + "\nRECOMMEND: map the field"
+    assert len(long) > 20_000
+
+    def plan(req):
+        if req.agent == "investigator" and req.step_name.startswith("findings"):
+            return None, "", long, {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide"
+    assert "claim 899: src/app/Eta.kt:899" in s["waiting"]["detail"] and "RECOMMEND: map the field" in s["waiting"]["detail"]

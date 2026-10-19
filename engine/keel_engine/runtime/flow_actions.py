@@ -180,8 +180,11 @@ def report(a):
     keys = [k for k, v in data.items() if k.endswith("_results") and isinstance(v, list)]
     out: list[str] = []
     prev = a.state.get("current")
-    if prev and f"{prev}_results" not in data and (a.state.get("last_answer") or "").strip():
-        out += [a.state["last_answer"].strip(), ""]
+    # the step's kept answer (keep: true, up to 60 000 characters) before last_answer, which is cut at 8 000: a spike's
+    # findings were cut there, and the feature it seeds read only that much
+    whole = str(data.get(f"{prev}_text") or "").strip() if prev else ""
+    if prev and f"{prev}_results" not in data and (whole or (a.state.get("last_answer") or "").strip()):
+        out += [whole or a.state["last_answer"].strip(), ""]
     if data.get("lint_report"):
         out += ["## Static checks", "", str(data["lint_report"]).strip(), ""]
     for key in keys:
