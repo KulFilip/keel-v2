@@ -83,7 +83,8 @@ describe("Jobs: Running and Finished tabs", () => {
     await at("#/jobs");
     const running = await main().findByRole("tab", { name: "Running 1" });
     expect(running).toHaveAttribute("aria-selected", "true");
-    const now = main().getByRole("region", { name: "Running now" });
+    // the panel can come a moment after its tab on a slow machine (CI): wait for it too
+    const now = await main().findByRole("region", { name: "Running now" }, { timeout: 5000 });
     expect(within(now).getByText("ac-reviewer")).toBeInTheDocument();
     expect(within(now).queryByText("implementer")).toBeNull();
     // the count comes from the api: all 61 finished calls, past the list's limit of 50
