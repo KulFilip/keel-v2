@@ -1,16 +1,21 @@
 """The code steps of the hunt and hunt-next workflows (content/workflows/hunt.yaml, hunt-next.yaml).
 
-    hunt_start     opens a run in the backlog: mode auto|semi, scope, fast, the proposed lenses (settings or seed)
-    hunt_confirm   the lens set the user confirmed at the gate -> one sweep item per lens and lane
+    hunt_start     opens a run in the backlog: mode auto|semi, scope, fast, the proposed lenses (settings or seed), the
+                   stack's health; the lens gate asks the mode and the lenses as questions
+    hunt_confirm   the mode and the lens set the user confirmed at the gate -> one sweep item per lens and lane, each
+                   with the base URLs and the environment caution (shared unless hunt.disposable)
+    hunt_map       one explorer's map of the repository (no knowledge base yet) -> every sweep item
     hunt_deps      the security lens runs the dependency audit first (always, not only when a manifest changed)
     hunt_ingest    each hunter's JSON list -> candidates (lane enforced, severity dropped, duplicates merged);
                    writes candidates.md (UNVERIFIED) and the prover items (symptom only)
+    hunt_stack     before the provers: the stack's health (commands.services first when it is down); down -> a gate
     hunt_verdicts  each prover's verdict -> the backlog; a refused verdict sends that candidate back to the provers
     hunt_group     the investigator's groups (findings that share one cause)
     hunt_report    report.md + recipes; refuses while any candidate has no verdict
     hunt_commit    commits docs/hunts/<run>/ as docs(HUNT-<run>)
     hunt_close     closes a finding or group (fixed | accepted | wontfix + a note) from a gate's answer
-    hunt_take      hunt-next: the top open group -> fix (defect) or feature (unspecified), with the recipe
+    hunt_preview   hunt-next: what take would hand over (the top group, its severity, a stale verdict) for the gate
+    hunt_take      hunt-next: the top open group (or the one picked) -> fix (defect) or feature (unspecified), with the recipe
 
 Steps branch on the marker LEFT (verdicts: none | some) and FLOW (take: fix | feature | none), set as the latest
 value of that marker ("*").
@@ -22,7 +27,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from .. import rules
+from .. import layout, rules
 from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
@@ -78,12 +83,62 @@ def _health(a: ActionInput, cfg: dict, key: str) -> str:
     return "ok" if code == 0 else "down"
 
 
+def _stack_line(stack: dict) -> str:
+    return " · ".join(f"{k} {v}" for k, v in (stack or {}).items()) or "unknown"
+
+
+def _down(stack: dict) -> list[str]:
+    return [k for k, v in (stack or {}).items() if v == "down"]
+
+
+def _env_fields(root: str) -> dict:
+    """What every hunter and prover item carries about the running system (keel v1 hunt: base URLs for a lens that
+    acts, and "name what the environment is, and whose it is"). Leaving the caution out is how a sweep costs someone
+    their data: the guards stop writes to the repository, nothing stops an agent from reaching a database."""
+    kcfg, cfg = rules.load_config(root), hunt.settings(root)
+    e2e = kcfg.get("e2e") if isinstance(kcfg.get("e2e"), dict) else {}
+    urls = {k: str(e2e[f"{k}_url"]) for k in ("api", "web") if e2e.get(f"{k}_url")}
+    told = str(cfg.get("environment") or "").strip() or \
+        "Not described (hunt.environment in .keel/config.yml): find the database and broker from the project's config."
+    if cfg.get("disposable") is True:
+        caution = ("The project marks this environment disposable (hunt.disposable: true): you may reset it, but say in "
+                   "your answer what you changed.")
+    else:
+        caution = ("CAUTION: treat every database, broker and service you reach as shared with other people and working "
+                   "copies. Insert your own probe rows freely; do NOT truncate tables, drop anything, or delete or change "
+                   "rows you did not create, and do not restart shared services. If you need a disposable database, "
+                   "create one and apply the migrations to it yourself.")
+    return {"base_urls": urls, "environment": f"{told}\n{caution}"}
+
+
+def _mode_question(mode: str, hunters: int) -> dict:
+    """0.19.x ask the mode first (keel v1 hunt "Ask this first"), with what each costs; the current mode is recommended
+    and listed first. The answer (payload.answers.mode, or payload.mode) is the mode hunt_confirm runs with."""
+    about = {
+        "semi": ("You decide twice more: after the sweep (the candidates page) and before the report. Nothing is "
+                 "proved until you say so, so no prover tokens go to candidates you would drop."),
+        "auto": (f"Runs on to the report without stopping again: {hunters} hunter(s), then one prover per candidate. "
+                 "Safe to let run (a hunt changes no code); the worst case is time and tokens, and the report says which "
+                 "gates no person saw."),
+    }
+    order = [mode, *[m for m in MODES if m != mode]]
+    return {"id": "mode", "question": "How closely do you want to watch this hunt?",
+            "why": "Settle it before the sweep: auto spends the prover tokens without asking.",
+            "options": [{"label": m, "description": about[m], "recommended": m == mode} for m in order]}
+
+
 def _lens_detail(cfg: dict, run: dict, proposed: list[str]) -> str:
     pairs = hunt.sweep_pairs(cfg, proposed)
+    stack = run.get("stack") or {}
     lines = [f"Hunt {run['run']} ({run['mode']}{', fast' if run['fast'] else ''}), scope {run['scope']['mode']}"
              + (f": {', '.join(run['scope']['paths'])}" if run["scope"].get("paths") else "") + ".", "",
              "A hunt changes no code. Hunters propose candidates, a prover tries to reproduce each one against the running "
              "stack, and only what reproduces gets a severity. The report and a backlog are what it leaves.", "",
+             f"Stack now: {_stack_line(stack)}."
+             + (f" The provers need it running: start the {' and '.join(_down(stack))} before the prove step "
+                "(keel checks again there)." if _down(stack) else ""), "",
+             f"Mode: {run['mode']} (answer the mode question to change it). semi stops after the sweep and before the "
+             f"report; auto runs on: {len(pairs)} hunter(s), then one prover per candidate.", "",
              "Proposed lenses (one hunter per lens and lane):"]
     lines += [f"- {lens} [{', '.join(hunt.lanes_for(cfg, lens))}]: {hunt.LENS_HELP.get(lens, '')}" for lens in proposed]
     off = [x for x in cfg["lenses"] if x not in proposed]
@@ -122,7 +177,8 @@ def _triage_questions(open_: list[dict], grps: dict) -> list[dict]:
         return []
     about = {"fixed": "the code is fixed (name the commit in the note)", "accepted": "the risk is known and accepted",
              "wontfix": "it will not be fixed (say why)"}
-    return [{"id": "finding", "question": "Which finding (or group) do you close?", "why": "Only for close.", "options": opts},
+    return [{"id": "finding", "question": "Which finding (or group)?",
+             "why": "close: the one to close. take: the one hunt-next hands over (default the top one).", "options": opts},
             {"id": "as", "question": "How does it close?", "why": "Only for close; the note says why.",
              "options": [{"label": d, "description": about.get(d, ""), "recommended": False}
                          for d in hunt.DISPOSITIONS]}]
@@ -160,11 +216,24 @@ def _start(a: ActionInput) -> ActionResult:
     run = hunt.new_run(a.key, a.root, thread_id=a.thread_id, mode=mode, fast=fast, scope=scope, configured=configured,
                        proposed=proposed, stack=stack)
     info = {"run": run["run"], "mode": mode, "fast": fast, "scope": scope["mode"],
-            "prove_concurrency": max(1, int(cfg["prove_concurrency"] or 4)), "report_dir": cfg["report_dir"]}
+            "prove_concurrency": max(1, int(cfg["prove_concurrency"] or 4)), "report_dir": cfg["report_dir"],
+            "map": "yes" if _wants_map(a.root, cfg) else "no"}
+    hunters = len(hunt.sweep_pairs(cfg, proposed))
     data = _data(a, hunt=info, proposed_lenses=proposed, confirm_lenses_detail=_lens_detail(cfg, run, proposed),
-                 confirm_lenses_questions=[_lens_question(cfg, proposed)])
+                 confirm_lenses_questions=[_mode_question(mode, hunters), _lens_question(cfg, proposed)])
     return ActionResult(True, f"hunt {run['run']} started ({mode}{', fast' if fast else ''}), scope {scope['mode']}: "
                               f"{len(proposed)} lens(es) proposed", update={"data": data})
+
+
+def _wants_map(root: str, cfg: dict) -> bool:
+    """One explorer maps the repository before the sweep (hunt.map: auto = only when there is no knowledge base)."""
+    how = str(cfg.get("map") or "auto").lower()
+    if how in ("always", "yes", "true"):
+        return True
+    if how in ("never", "no", "false"):
+        return False
+    lay = layout.resolve(root)
+    return not any((Path(root) / d).is_dir() and any((Path(root) / d).glob("*.md")) for d in lay.knowledge_dirs)
 
 
 def _scope_text(a: ActionInput, run: dict) -> str:
@@ -204,24 +273,52 @@ def _confirm(a: ActionInput) -> ActionResult:
     confirmed = chosen if chosen is not None else proposed
     dropped = [x for x in confirmed if not hunt.brief(a.root, x)]
     confirmed = [x for x in confirmed if x not in dropped] or proposed
-    lenses = {**(run["lenses"] or {}), "confirmed": confirmed, "confirmed_by": "user", "confirmed_at": hunt.db.now()}
-    hunt.update_run(a.key, run["run"], lenses=lenses)
+    # the run mode answered the gate (answer.auto): the lens set was not reviewed, and the report says so
+    by = "model" if answer.get("auto") else "user"
+    lenses = {**(run["lenses"] or {}), "confirmed": confirmed, "confirmed_by": by, "confirmed_at": hunt.db.now()}
+    said = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    mode = str(_one(said.get("mode")) or payload.get("mode") or run["mode"]).strip().split(" ")[0].lower()
+    mode = mode if mode in MODES else run["mode"]
+    changes: dict = {"lenses": lenses}
+    if mode != run["mode"]:
+        at = hunt.db.now()
+        changes.update(mode=mode, gates={g: ({"decision": "approve", "by": "model", "at": at} if mode == "auto" else None)
+                                         for g in hunt.GATES})
+        info["mode"] = mode
+    hunt.update_run(a.key, run["run"], **changes)
     cap = int(cfg["max_candidates_per_lens"])
     cap = max(1, -(-cap // 2)) if run["fast"] else cap
     scope = _scope_text(a, run)
+    env = _env_fields(a.root)
     items = []
     for pair in hunt.sweep_pairs(cfg, confirmed):
         lens, lane = pair.split(":", 1)
         items.append({"id": pair, "lens": lens, "lane": lane, "run": run["run"], "scope": scope, "cap": cap,
-                      "brief": hunt.brief(a.root, lens) or "",
+                      "brief": hunt.brief(a.root, lens) or "", **env,
                       "rules": (f"Cite only files in the {lane} lane; a batch citing the other lane is thrown away whole. "
                                 if lane != "both" else "This lens reads both sides on purpose. ")
                                + f"At most {cap} candidates. Never a severity. Write nothing into the project; scripts go "
                                "in your scratch folder. End with one ```json list and the line FINDINGS: <n>."})
-    note = f"lenses confirmed: {', '.join(confirmed)}; {len(items)} hunter(s)"
+    note = f"lenses confirmed by the {by}: {', '.join(confirmed)}; {len(items)} hunter(s); mode {mode}"
     if dropped:
         note += f"; no brief for {', '.join(dropped)}, left out"
-    return ActionResult(True, note, update={"data": _data(a, sweep_items=items, confirm_lenses_answer=None)})
+    return ActionResult(True, note, update={"data": _data(a, hunt=info, sweep_items=items, confirm_lenses_answer=None)})
+
+
+async def hunt_map(a: ActionInput) -> ActionResult:
+    return await asyncio.to_thread(_map, a)
+
+
+def _map(a: ActionInput) -> ActionResult:
+    """The explorer's map (the agent step before this one) goes into every sweep item: one map shared by every hunter
+    instead of each one reading the tree again (keel v1 hunt: "six hunters sharing one map")."""
+    text = str(a.state.get("last_answer") or "").strip()
+    if not text:
+        return ActionResult(True, "the explorer wrote no map; the hunters map what they need themselves")
+    text = text[:6000]
+    items = [{**x, "map": text} for x in a.data.get("sweep_items") or []]
+    return ActionResult(True, f"repository map ({len(text)} characters) given to {len(items)} hunter(s)",
+                        update={"data": _data(a, sweep_items=items, hunt_map=text)})
 
 
 async def hunt_deps(a: ActionInput) -> ActionResult:
@@ -303,7 +400,8 @@ def _ingest(a: ActionInput) -> ActionResult:
     page = hunt.write_candidates_page(a.key, a.root, run["run"])
     cfg = hunt.settings(a.root)
     waiting = [c for c in hunt.candidates(a.key, run["run"]) if c["status"] == "candidate"]
-    items = [hunt.prove_item(c, run["run"], cfg["report_dir"]) for c in waiting]
+    env = _env_fields(a.root)
+    items = [{**hunt.prove_item(c, run["run"], cfg["report_dir"]), **env} for c in waiting]
     note = f"{added} candidate(s), {merged} merged as corroboration" + (f", {refused} batch(es) refused" if refused else "")
     if dropped:
         note += f"; dropped a hunter's severity on {dropped}: only a prover's verdict sets one"
@@ -312,6 +410,42 @@ def _ingest(a: ActionInput) -> ActionResult:
                         "prove: one prover per candidate, with the symptom only. stop: end here; the backlog keeps them."])
     return ActionResult(True, note + f"; {page}", "\n".join(lines),
                         {"data": _data(a, prove_items=items, prove_round=0, sweep_gate_detail=detail)})
+
+
+# ------------------------------------------------------------------ the stack, before the provers
+
+async def hunt_stack(a: ActionInput) -> ActionResult:
+    return await asyncio.to_thread(_stack, a)
+
+
+def _stack(a: ActionInput) -> ActionResult:
+    """keel v1 hunt "keel stack up" before the provers: with the stack down every candidate comes back unproven after
+    the rounds, the tokens are spent and the report looks wrongly thin. A health check that fails starts
+    commands.services once and checks again; still down -> data.hunt.stack_down, and the stack gate asks."""
+    info = _hunt(a)
+    kcfg = rules.load_config(a.root)
+    stack = {"api": _health(a, kcfg, "api_health_check"), "web": _health(a, kcfg, "web_health_check")}
+    started = ""
+    up = str((kcfg.get("commands") or {}).get("services") or "").strip()
+    if _down(stack) and up and not a.fake:
+        code, out = testcmd.run(a.root, up, 600, command_env())
+        started = f"started the services ($ {up}, exit {code})"
+        stack = {"api": _health(a, kcfg, "api_health_check"), "web": _health(a, kcfg, "web_health_check")}
+    down = _down(stack)
+    info["stack_down"] = ", ".join(down) or None
+    note = f"stack before the provers: {_stack_line(stack)}" + (f"; {started}" if started else "")
+    detail = None
+    if down:
+        cmds = kcfg.get("commands") or {}
+        detail = "\n".join([
+            f"The {' and '.join(down)} does not answer its health check ({', '.join(str(cmds.get(f'{x}_health_check')) for x in down)}).",
+            f"Stack now: {_stack_line(stack)}." + (f" keel {started}." if started else
+                                                  " No commands.services in .keel/config.yml to start it with."),
+            "", "Every prover works against the running stack. With it down each candidate comes back unproven after "
+            f"{hunt.settings(a.root).get('prove_rounds') or 3} rounds: the tokens are spent and the report looks thinner than it is.",
+            "", "recheck: start it yourself, then keel checks again. prove: prove anyway (for findings that need no "
+            "running stack). stop: end here; the backlog keeps the candidates."])
+    return ActionResult(True, note, update={"data": _data(a, hunt=info, stack_gate_detail=detail)})
 
 
 # ------------------------------------------------------------------ prove -> verdicts
@@ -356,7 +490,8 @@ def _verdicts(a: ActionInput) -> ActionResult:
     left = [c for c in cands if c["status"] == "candidate"]
     c = hunt.counts(cands)
     if left:
-        items = [hunt.prove_item(x, run["run"], cfg["report_dir"]) for x in left]
+        env = _env_fields(a.root)
+        items = [{**hunt.prove_item(x, run["run"], cfg["report_dir"]), **env} for x in left]
         feedback = ("Your verdict was refused; prove again and fix this:\n" + "\n".join(f"- {r}" for r in refusals))[:3000]
         return ActionResult(True, f"round {rounds}: {len(left)} candidate(s) still have no verdict; back to the provers",
                             "\n".join(refusals), {"data": _data(a, prove_items=items, prove_round=rounds, verdicts=[]),
@@ -490,9 +625,9 @@ async def hunt_close(a: ActionInput) -> ActionResult:
 
 
 def _close(a: ActionInput) -> ActionResult:
-    """From the answer of the gate before it: hunt-next's close gate (choice = the disposition) or the hunt's triage
-    (choice close, payload {id, as}). The note is the answer's text (or payload.note) and is required."""
-    for key in ("close_gate_answer", "triage_answer"):
+    """From the answer of the hunt's triage (choice close, payload {id, as}, or the answers finding and as). The note is
+    the answer's text (or payload.note) and is required."""
+    for key in ("triage_answer",):
         ans = a.data.get(key) or {}
         choice = ans.get("choice")
         if choice in hunt.DISPOSITIONS or choice == "close":
@@ -519,32 +654,94 @@ def _close(a: ActionInput) -> ActionResult:
     return ActionResult(True, msg, update={"data": _data(a, **upd)})
 
 
+def _next_run(a: ActionInput) -> str | None:
+    seed = a.data.get("seed") if isinstance(a.data.get("seed"), dict) else {}
+    return a.settings.get("hunt_run") or a.settings.get("run") or seed.get("run")
+
+
+def _picked(a: ActionInput) -> str | None:
+    """The finding or group to take: the preview gate's answer (payload.id, or the finding question), else the one the
+    hunt's triage named (seed.pick), else None (the top one)."""
+    ans = a.data.get("next_gate_answer") or {}
+    payload = ans.get("payload") or {}
+    said = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    seed = a.data.get("seed") if isinstance(a.data.get("seed"), dict) else {}
+    got = payload.get("id") or _one(said.get("finding")) or _one(seed.get("pick"))
+    return str(got).strip().split(" ")[0] if got else None
+
+
+def _next_question(open_: list[dict], grps: dict) -> dict | None:
+    opts, seen = [], set()
+    for c in open_:
+        key = c.get("group") or c["id"]
+        if key in seen:
+            continue
+        seen.add(key)
+        what = c["symptom"] if key not in grps else f"{c['symptom']} (+ the other symptoms of {key})"
+        opts.append({"label": key, "description": f"{c.get('severity')} · {c['kind']} · {' '.join(str(what).split())}"[:300],
+                     "recommended": not opts})
+    if not opts:
+        return None
+    return {"id": "finding", "question": "Which finding (or group) should go to a fix or feature flow?",
+            "why": "The top one is the worst severity; pick another to take it first.", "options": opts}
+
+
+async def hunt_preview(a: ActionInput) -> ActionResult:
+    return await asyncio.to_thread(_preview, a)
+
+
+def _preview(a: ActionInput) -> ActionResult:
+    """hunt-next's preview (keel v1 hunt-next shows the top group, then --take): what take would hand over, its severity
+    and a stale verdict, for the next gate. Nothing is marked. Not asked when there is nothing to take, when take will
+    refuse (it says why itself) or when the hunt's triage already chose (seed.preview no)."""
+    seed = a.data.get("seed") if isinstance(a.data.get("seed"), dict) else {}
+    r = hunt.peek(a.key, a.root, _next_run(a), _one(seed.get("pick")))
+    if not r["ok"] or not r.get("flow") or str(seed.get("preview", "")).lower() in ("no", "false"):
+        return ActionResult(True, "no preview: " + (r.get("note") or r.get("why") or "the hunt's triage chose already"),
+                            update={"data": _data(a, next_preview={"ask": "no"})})
+    s = r["seed"]
+    run = r["run"]
+    grps = {g["id"]: g for g in hunt.groups(a.key, run)}
+    open_ = sorted(hunt.open_findings(hunt.candidates(a.key, run)), key=lambda c: (-hunt.rank(c.get("severity")), c["id"]))
+    key = r["group"] or r["lead"]
+    lines = [f"Next from hunt {run}: {key} · {r['severity']} · {r['flow']} flow · {len(r['members'])} finding(s)", "",
+             "Symptoms (each one becomes a regression criterion):", *[f"- {x}" for x in s["symptoms"]]]
+    if r["group"]:
+        lines += ["", f"The investigator's suspected cause (a theory; the reproducer never sees it): {grps[r['group']]['cause']}"]
+    if s.get("recipe"):
+        lines += ["", f"Recipe: {s['recipe'].splitlines()[0]}"]
+    if r.get("stale"):
+        lines += ["", "STALE: " + hunt._stale_note(r["stale"])]
+    others = [c.get("group") or c["id"] for c in open_ if (c.get("group") or c["id"]) != key]
+    if others:
+        lines += ["", f"Also open: {', '.join(dict.fromkeys(others))}."]
+    lines += ["", "take: hand this one over. pick: take the one you choose in the question instead. stop: end here; "
+              "nothing is handed over."]
+    q = _next_question(open_, grps)
+    return ActionResult(True, f"next: {key} ({r['severity']}) -> {r['flow']}" + (" · stale" if r.get("stale") else ""),
+                        update={"data": _data(a, next_preview={"ask": "yes", "key": key},
+                                              next_gate_detail="\n".join(lines), next_gate_questions=[q] if q else [])})
+
+
 async def hunt_take(a: ActionInput) -> ActionResult:
     return await asyncio.to_thread(_take, a)
 
 
 def _take(a: ActionInput) -> ActionResult:
-    seed = a.data.get("seed") if isinstance(a.data.get("seed"), dict) else {}
-    run_id = a.settings.get("hunt_run") or a.settings.get("run") or seed.get("run")
-    r = hunt.take(a.key, a.root, run_id)
+    r = hunt.take(a.key, a.root, _next_run(a), _picked(a))
     if not r["ok"]:
         return ActionResult(False, "hunt-next refuses: " + r["why"], r["why"])
     if not r.get("flow"):
         return ActionResult(True, r["note"], update={"markers": _marker(a, "FLOW", "none", "take")})
     s = r["seed"]
-    detail = "\n".join([f"Handed {r['group'] or r['lead']} to a {r['flow']} flow: {s['title']}",
-                        f"Severity {r['severity']} · findings {', '.join(r['members'])}" +
-                        (" · a regression end-to-end test is required" if s["needs_e2e"] else ""), "",
-                        "When the fix merges (or you decide), close it:",
-                        "fixed / accepted / wontfix, with a note (the PR or commit, or why). later: end here and close it "
-                        "from the Hunt page."])
     return ActionResult(True, r["note"], json.dumps(s, indent=2)[:3000],
-                        {"data": _data(a, next=s, close_gate_detail=detail),
+                        {"data": _data(a, next=s, stale=r.get("stale"), next_gate_answer=None),
                          "markers": _marker(a, "FLOW", r["flow"], "take")})
 
 
 ACTIONS = {
     "hunt_start": hunt_start, "hunt_confirm": hunt_confirm, "hunt_deps": hunt_deps, "hunt_ingest": hunt_ingest,
     "hunt_verdicts": hunt_verdicts, "hunt_group": hunt_group, "hunt_report": hunt_report, "hunt_commit": hunt_commit,
-    "hunt_close": hunt_close, "hunt_take": hunt_take,
+    "hunt_close": hunt_close, "hunt_take": hunt_take, "hunt_map": hunt_map, "hunt_stack": hunt_stack,
+    "hunt_preview": hunt_preview,
 }

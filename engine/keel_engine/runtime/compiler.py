@@ -2197,7 +2197,9 @@ class Compiler:
             return {"gates": gates, **extra, "note": f"{step.name}: '{choice}' is not one of {', '.join(names)}"}, step.id
         gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "choice": choice, "why": why})
-        data = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": choice, "why": why, "payload": payload}}
+        # auto: the run mode answered, no person (the hunt's lens gate records "confirmed by the model")
+        data = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": choice, "why": why, "payload": payload,
+                                                                  **({"auto": True} if answer.get("auto") else {})}}
         said = None if answer.get("auto") else why
         upd = {"gates": gates, **extra, "data": data, "feedback": said or (NO_REASON if choice == "reject" else None),
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}

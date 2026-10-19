@@ -28,6 +28,16 @@ the running stack and will reject the ones that are not real. That is not a form
 hunt this flow was built from, a third of what looked like findings did not survive contact
 with a running system. Write for that reader.
 
+## What you may reach, and whose it is
+
+Your item carries `base_urls` (where the running api and web answer) and `environment` (which database, broker and
+services you may reach, and whether anything else depends on them). A lens that acts (exploration, observability, a
+lane that drives a browser) uses those URLs instead of guessing ports. **Read `environment` before you touch
+anything.** Unless it says the environment is disposable, it is shared: insert your own probe rows freely, but never
+truncate a table, drop anything, or delete or change rows you did not create. A brief that says "provable against a
+disposable database" means create one and apply the migrations to it yourself, not use the one you were given. When
+your item carries a `map` (one explorer's map of the repository), start from it instead of mapping the tree again.
+
 ## Your lens is the whole of your job
 
 Your prompt carries one lens brief. Read only that one. You are not told what the other lenses are looking at, and you must not go looking

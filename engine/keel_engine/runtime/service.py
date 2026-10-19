@@ -344,11 +344,18 @@ class Engine:
         if not wf:
             raise EngineError(404, f"No workflow {workflow_id} to start.", "start_flow takes a keel workflow id (fix, feature, ...).")
         request = str(seed.get("request") or "").strip()
+        # The request goes into every agent's prompt. A flow with a reproducer (fix) must not show it a theory about the
+        # cause (a hunt group's cause, a diagnosis): its test would confirm the theory. There the evidence stays in
+        # data.evidence for the steps that may read it (the investigators, the plan).
+        blind = any(s.agent == "reproducer" for s in wf.steps)
         for label, k in (("Symptoms", "symptoms"), ("Reproduction recipe", "recipe"), ("Evidence so far", "evidence")):
             v = seed.get(k)
-            if v:
+            if v and not (blind and k == "evidence"):
                 text = "\n".join(f"- {x}" for x in v) if isinstance(v, list) else str(v)
                 request += f"\n\n{label}:\n{text}"
+            if k == "symptoms" and isinstance(v, list) and len(v) > 1:
+                request += ("\n\nOne cause, several symptoms: each symptom above is a regression criterion. The plan names "
+                            "the assertion that covers each one, not only the one the first test reproduces.")
         if seed.get("needs_e2e"):
             request += "\n\nA regression end-to-end test is required for this bug."
         acs = []
@@ -359,7 +366,8 @@ class Engine:
         child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
         child.update(root=row["root"], workflow=wf, title=str(seed.get("title") or row["title"])[:200], acs=acs or None,
                      request=request.strip()[:8000], parent=link, keys=self.keys.get(parent),
-                     data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "needs_e2e", "no_gates") if k in seed}})
+                     data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "evidence", "stale", "needs_e2e", "no_gates")
+                                             if k in seed}})
         return await self.start_thread(child)
 
     async def state(self, tid: str) -> dict:

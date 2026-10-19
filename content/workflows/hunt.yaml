@@ -5,15 +5,22 @@ version: 1
 # A read-only bug hunt. Options (StartThread.settings, or a parent flow's seed): mode auto|semi (default semi),
 # scope all|diff|<path,path>, lenses [a, b] (default: hunt.lenses in .keel/config.yml), fast (the fast lenses, half the
 # cap, scope diff). Nothing here changes code: the output is docs/hunts/<run>/ and the backlog in the engine DB
-# (GET /projects/{p}/hunts). Semi mode also stops after the sweep and after the provers.
+# (GET /projects/{p}/hunts). Semi mode also stops after the sweep and after the provers. The lens gate asks the mode
+# first (semi recommended unless the start said auto) and shows the stack's health. Without a knowledge base one
+# explorer maps the repository for every hunter (hunt.map: auto | always | never). Before the provers keel checks the
+# stack (commands.services starts it once); still down, the stack gate asks: recheck, prove anyway or stop.
 steps:
   - { id: start, kind: code, name: start the hunt, action: hunt_start, lock: true, phase: hunt-scope }
   - { id: confirm_lenses, kind: gate, name: confirm the lenses, lock: true, phase: hunt-scope, choices: { confirm: confirm, stop: end } }
   - { id: confirm, kind: code, name: lens set, action: hunt_confirm, lock: true, phase: hunt-scope }
+  - { id: map, kind: agent, name: map the repository once for every hunter, agent: explorer, model: default, phase: hunt-sweep, when: { data: hunt.map, equals: "yes" }, instructions: "Map this repository for the bug hunters that run after you, so none of them reads the tree again: the apps and their entry points (routes, handlers, pages, consumers) with file paths, where the data access and the migrations are, the auth and security code, the tests. Short lines with paths, no prose, at most 80 lines. Change no file. End with the line MAP-END." }
+  - { id: mapped, kind: code, name: the map to every hunter, action: hunt_map, phase: hunt-sweep, when: { data: hunt.map, equals: "yes" } }
   - { id: deps, kind: code, name: dependency audit (security lens), action: hunt_deps, phase: hunt-sweep }
   - { id: sweep, kind: parallel, name: one hunter per lens and lane, agent: hunter, model: default, from: sweep_items, collect: candidates, markers: [FINDINGS], phase: hunt-sweep }
   - { id: ingest, kind: code, name: ingest candidates, action: hunt_ingest, lock: true, phase: hunt-sweep }
-  - { id: sweep_gate, kind: gate, name: candidates (semi), phase: hunt-sweep, when: { data: hunt.mode, equals: semi }, choices: { prove: prove, stop: end } }
+  - { id: sweep_gate, kind: gate, name: candidates (semi), phase: hunt-sweep, when: { data: hunt.mode, equals: semi }, choices: { prove: stack, stop: end } }
+  - { id: stack, kind: code, name: the stack is up before the provers, action: hunt_stack, phase: hunt-prove }
+  - { id: stack_gate, kind: gate, name: the stack is down, phase: hunt-prove, when: { data: hunt.stack_down }, choices: { recheck: stack, prove: prove, stop: end } }
   - { id: prove, kind: parallel, name: one prover per candidate, agent: prover, model: default, from: prove_items, batch: $data.hunt.prove_concurrency, collect: verdicts, markers: [PROOF], phase: hunt-prove }
   - { id: verdicts, kind: code, name: record verdicts, action: hunt_verdicts, lock: true, phase: hunt-prove }
   - { id: all_proved, kind: branch, name: every candidate has a verdict, when: { marker: LEFT, equals: none }, no: prove, phase: hunt-prove }
@@ -24,4 +31,5 @@ steps:
   - { id: commit, kind: code, name: commit the report, action: hunt_commit, lock: true, phase: hunt-report }
   - { id: close, kind: code, name: close a finding, action: hunt_close, back: triage, phase: hunt-triage }
   - { id: triage, kind: gate, name: triage, phase: hunt-triage, choices: { take: take, close: close, stop: end } }
-  - { id: take, kind: code, name: take the top group, action: start_flow, flow: hunt-next, seed: { title: Next finding from the hunt, run: $data.hunt.run }, then: end, phase: hunt-triage }
+  # the person chose at the triage: hunt-next takes that one (the finding question, else the top one) without a preview
+  - { id: take, kind: code, name: take the top group, action: start_flow, flow: hunt-next, seed: { title: Next finding from the hunt, run: $data.hunt.run, pick: $data.triage_answer.payload.answers.finding, preview: "no" }, then: end, phase: hunt-triage }

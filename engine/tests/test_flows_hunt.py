@@ -92,7 +92,10 @@ def test_a_semi_hunt_from_lenses_to_triage(client, repo, monkeypatch):
     assert s["waiting"]["step"] == "confirm_lenses" and s["waiting"]["choices"] == ["confirm", "stop"]
     assert "security [api, web]" in s["waiting"]["detail"] and "5 hunter(s)" in s["waiting"]["detail"]
     # 0.19.0 the lens set as a question (the proposed ones recommended) and choice_info for the buttons
-    lq = s["waiting"]["questions"][0]
+    # the mode first (keel v1 "ask this first"): the current one recommended and listed first, with what it costs
+    mq, lq = s["waiting"]["questions"]
+    assert mq["id"] == "mode" and [(o["label"], o["recommended"]) for o in mq["options"]] == [("semi", True), ("auto", False)]
+    assert "5 hunter(s)" in mq["options"][1]["description"] and "Stack now:" in s["waiting"]["detail"]
     assert lq["id"] == "lenses" and lq["multiple"] is True
     assert {o["label"] for o in lq["options"] if o["recommended"]} == {"security", "technical", "contract-drift"}
     assert [(c["name"], c["label"], c["default"]) for c in s["waiting"]["choice_info"]] == [
@@ -240,6 +243,8 @@ def test_an_unspecified_finding_goes_to_the_feature_flow_and_nothing_open_ends(c
     answers(monkeypatch, {})
     tid = start(client, repo, workflow="hunt-next", title="next", settings=SETTINGS)
     s = wait(client, tid)
+    assert s["waiting"]["step"] == "next_gate", s
+    s = decide(client, tid, "approve", payload={"choice": "take"})
     assert s["status"] == "done" and s["children"][0]["workflow"] == "feature"
     # the group is dispatched: nothing is open, so the next hunt-next ends at once
     s = wait(client, start(client, repo, workflow="hunt-next", title="next", settings={**SETTINGS, "hunt_run": run}))
@@ -377,3 +382,196 @@ def test_flow_options_from_the_api_reach_the_hunt():
     from keel_engine.runtime import hunt_actions
     a = SimpleNamespace(settings={}, data={"hunt_mode": "auto", "lenses": "security", "seed": {"scope": "all"}})
     assert hunt_actions._options(a) == {"mode": "auto", "scope": "all", "lenses": "security", "fast": None, "run": None}
+
+
+# ------------------------------------------------------------------ hunt -> fix hand-over (keel v1 hunt-next)
+
+CAUSE = "CAUSE-THEORY the list query has no owner filter"
+
+
+def _group_run(repo) -> str:
+    """A committed report with two proven findings that share one cause (G-01, lead F-001)."""
+    r = hunt.new_run("demo", str(repo), thread_id="t", mode="auto", fast=False, scope={"mode": "all", "paths": []},
+                     configured=["security"], proposed=["security"])
+    hunt.update_run("demo", r["run"], lenses={**r["lenses"], "confirmed": ["security"]})
+    hunt.ingest("demo", str(repo), r["run"], "security:api", [
+        cand("List has no owner check", [f"{API}:10"], "GET /scores as alice returns bob's rows"),
+        cand("Export has no owner check", [f"{API}:90"], "GET /scores/export as alice includes bob's rows")])
+    for cid in ("F-001", "F-002"):
+        assert hunt.record_verdict("demo", str(repo), r["run"], cid, {
+            "verdict": "proven", "severity": "critical", "runs": 2, "evidence": "rows of two owners",
+            "recipe": {"file": f"{cid}.http", "body": "GET /scores"}}) is None
+    assert hunt.add_group("demo", r["run"], ["F-001", "F-002"], CAUSE, "F-001")[0] == "G-01"
+    assert hunt.write_report("demo", str(repo), r["run"])[0]
+    subprocess.run(["git", "add", "docs/hunts"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "report"], cwd=repo, check=True)
+    return r["run"]
+
+
+def _take_via_hunt_next(client, repo, monkeypatch, run, by_agent=None):
+    seen = answers(monkeypatch, by_agent or {})
+    tid = start(client, repo, workflow="hunt-next", title="next", settings={**SETTINGS, "hunt_run": run})
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "next_gate", s
+    preview = s["waiting"]
+    s = decide(client, tid, "approve", payload={"choice": "take"})
+    assert s["status"] == "done" and s["children"][0]["workflow"] == "fix", s
+    return tid, s["children"][0]["thread_id"], preview, seen
+
+
+def test_hunt_next_title_never_carries_the_group_cause(client, repo, monkeypatch):
+    run = _group_run(repo)
+    peek = hunt.peek("demo", str(repo), run)
+    assert peek["seed"]["title"].startswith("F-001: GET /scores as alice returns bob's rows") and "G-01" in peek["seed"]["title"]
+    assert not hunt.candidates("demo", run)[0].get("dispatch"), "a preview marks nothing"
+    _tid, fix, preview, seen = _take_via_hunt_next(client, repo, monkeypatch, run)
+    assert "suspected cause" in preview["detail"] and CAUSE in preview["detail"]       # the person may see the theory
+    body = json.loads(client.portal.call(client.app.state.engine._row, fix)["body"])
+    assert "CAUSE-THEORY" not in body["title"] and "no owner check" not in body["title"]
+    assert "CAUSE-THEORY" not in body["request"], "a flow with a reproducer gets no theory in its request"
+    fv = values(client, fix)
+    assert CAUSE in fv["data"]["evidence"]                                               # kept for the investigators
+    wait(client, fix)
+    repro = [r for r in seen if r.agent == "reproducer"]
+    assert repro and all("CAUSE-THEORY" not in r.prompt for r in repro)
+
+
+def test_fix_from_group_plan_lists_every_symptom(client, repo, monkeypatch):
+    run = _group_run(repo)
+    _tid, fix, _preview, seen = _take_via_hunt_next(client, repo, monkeypatch, run)
+    s = wait(client, fix)
+    assert s["waiting"]["step"] == "gate_r", s
+    s = decide(client, fix)
+    assert s["waiting"]["step"] == "gate_f", s
+    plan = [r for r in seen if r.step_name == "fix plan"][-1]
+    for line in ("F-001: GET /scores as alice returns bob's rows", "F-002: GET /scores/export as alice includes bob's rows"):
+        assert line in plan.prompt
+    assert "each symptom above is a regression criterion" in plan.prompt
+    assert values(client, fix)["data"]["symptoms"] == [
+        "F-001: GET /scores as alice returns bob's rows", "F-002: GET /scores/export as alice includes bob's rows"]
+
+
+def test_hunt_next_flags_a_stale_verdict(client, repo, monkeypatch):
+    run = _proven_run(repo)
+    assert hunt.peek("demo", str(repo), run)["stale"] is None             # proven at HEAD: nothing to flag
+    (repo / API).write_text((repo / API).read_text() + "\n# touched after the proof\n")
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "touch scores"], cwd=repo, check=True)
+    tid, fix, preview, _seen = _take_via_hunt_next(client, repo, monkeypatch, run)
+    assert "STALE" in preview["detail"] and API in preview["detail"]
+    stale = values(client, tid)["data"]["stale"]
+    assert stale["cited"] == [API] and stale["head"] != stale["proved_sha"]
+    body = json.loads(client.portal.call(client.app.state.engine._row, fix)["body"])
+    assert "an older commit than HEAD" in body["request"] and API in body["request"]
+    assert values(client, fix)["data"]["stale"]["files"][0] == API
+
+
+def test_hunt_next_preview_and_pick(client, repo, monkeypatch):
+    run = _group_run(repo)
+    # a third, lower finding of its own: the top is G-01 (critical); pick F-003 instead
+    hunt.ingest("demo", str(repo), run, "security:api", [cand("Slow list", [f"{API}:200"], "GET /scores takes 9 seconds")])
+    hunt.record_verdict("demo", str(repo), run, "F-003", {"verdict": "proven", "severity": "low", "runs": 2, "evidence": "9s",
+                                                          "recipe": {"file": "F-003.sh", "body": "time curl /scores"}})
+    hunt.write_report("demo", str(repo), run)
+    subprocess.run(["git", "add", "docs/hunts"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "report"], cwd=repo, check=True)
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="hunt-next", title="next", settings={**SETTINGS, "hunt_run": run})
+    s = wait(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "next_gate" and w["choices"] == ["take", "pick", "stop"]
+    assert w["detail"].startswith(f"Next from hunt {run}: G-01 · critical · fix flow · 2 finding(s)")
+    assert [(c["name"], c["default"]) for c in w["choice_info"]] == [("take", True), ("pick", False), ("stop", False)]
+    q = w["questions"][0]
+    assert q["id"] == "finding" and [(o["label"], o["recommended"]) for o in q["options"]] == [("G-01", True), ("F-003", False)]
+    s = decide(client, tid, "approve", payload={"choice": "pick", "answers": {"finding": "F-003"}})
+    assert s["status"] == "done" and s["children"][0]["title"].startswith("F-003: GET /scores takes 9 seconds"), s
+    cands = {c["id"]: c for c in hunt.candidates("demo", run)}
+    assert cands["F-003"]["dispatch"] and not cands["F-001"].get("dispatch")
+    # stop hands nothing over; an unknown pick is refused by take
+    s = wait(client, start(client, repo, workflow="hunt-next", title="next", settings={**SETTINGS, "hunt_run": run}))
+    s = decide(client, s["thread_id"], "approve", payload={"choice": "stop"})
+    assert s["status"] == "done" and not s.get("children") and not hunt.candidates("demo", run)[0].get("dispatch")
+    assert "is not an open proven finding" in hunt.take("demo", str(repo), run, "F-009")["why"]
+
+
+# ------------------------------------------------------------------ hunt environment, stack and mode
+
+def test_hunt_items_carry_base_urls_and_db_caution(client, repo, monkeypatch):
+    provers = {"F-001": lambda n: proof("F-001", "false"), "F-002": lambda n: proof("F-002", "false"),
+               "F-003": lambda n: proof("F-003", "false")}
+    tid, seen, _ = start_hunt(client, repo, monkeypatch, mode="auto", provers=provers, groups=[])
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload={"choice": "confirm"})
+    assert s["waiting"]["step"] == "triage", s
+    for r in [x for x in seen if x.agent in ("hunter", "prover")]:
+        assert r.item["base_urls"] == {"api": "http://localhost:8080", "web": "http://localhost:5173"}
+        assert "do NOT truncate tables" in r.item["environment"] and "rows you did not create" in r.item["environment"]
+    # one explorer map (no knowledge base in the demo) reached every hunter
+    assert [r.agent for r in seen].count("explorer") == 1
+    assert all("MAP-END" in r.item["map"] for r in seen if r.agent == "hunter")
+
+
+def test_hunt_disposable_environment_drops_the_caution(repo):
+    from keel_engine.runtime import hunt_actions
+    (repo / ".keel").mkdir(exist_ok=True)
+    (repo / ".keel" / "config.yml").write_text("hunt: {environment: 'Postgres in docker, db scratch', disposable: true, map: never}\n")
+    env = hunt_actions._env_fields(str(repo))
+    assert env["environment"].startswith("Postgres in docker, db scratch") and "disposable" in env["environment"]
+    assert "do NOT truncate" not in env["environment"]
+    assert hunt_actions._wants_map(str(repo), hunt.settings(str(repo))) is False
+
+
+def test_hunt_prove_waits_when_stack_down(client, repo, monkeypatch):
+    from keel_engine.runtime import hunt_actions
+    health = {"api": "ok", "web": "ok"}
+    monkeypatch.setattr(hunt_actions, "_health", lambda a, cfg, key: health[key.split("_")[0]])
+    provers = {"F-001": lambda n: proof("F-001", "false"), "F-002": lambda n: proof("F-002", "false"),
+               "F-003": lambda n: proof("F-003", "false")}
+    tid, seen, _ = start_hunt(client, repo, monkeypatch, provers=provers)
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload={"choice": "confirm"})
+    assert s["waiting"]["step"] == "sweep_gate"
+    health["api"] = "down"
+    s = decide(client, tid, "approve", payload={"choice": "prove"})
+    w = s["waiting"]
+    assert w["step"] == "stack_gate" and w["choices"] == ["recheck", "prove", "stop"], s
+    assert "The api does not answer" in w["detail"] and not any(r.agent == "prover" for r in seen)
+    s = decide(client, tid, "approve", payload={"choice": "recheck"})
+    assert s["waiting"]["step"] == "stack_gate", "still down: asks again"
+    health["api"] = "ok"
+    s = decide(client, tid, "approve", payload={"choice": "recheck"})
+    assert s["waiting"]["step"] == "verdicts_gate", s
+    assert sum(r.agent == "prover" for r in seen) == 3
+
+
+def test_hunt_auto_lens_confirm_marks_model_and_banner(client, repo, monkeypatch):
+    provers = {"F-001": lambda n: proof("F-001", "proven", "critical"), "F-002": lambda n: proof("F-002", "false"),
+               "F-003": lambda n: proof("F-003", "false")}
+    # run mode auto answers the lens gate: no person reviewed the lens set, and the report says so
+    tid, _seen, _ = start_hunt(client, repo, monkeypatch, mode="auto", provers=provers, groups=[])
+    client.post(f"/threads/{tid}/stop")
+    wait(client, tid)
+    tid2 = start(client, repo, workflow="hunt", title="Bug hunt",
+                 settings={**SETTINGS, "run_mode": "auto", "hunt_mode": "auto", "hunt_scope": "all",
+                           "hunt_lenses": ["security", "technical", "contract-drift"]})
+    s = wait(client, tid2)
+    run2 = values(client, tid2)["data"]["hunt"]["run"]
+    assert hunt.get_run("demo", run2)["lenses"]["confirmed_by"] == "model", s
+    report = (repo / "docs" / "hunts" / run2 / "report.md").read_text()
+    assert "The lens set was confirmed by the model, not reviewed." in report
+
+
+def test_hunt_mode_answer_changes_the_run_before_the_sweep(client, repo, monkeypatch):
+    provers = {"F-001": lambda n: proof("F-001", "proven", "critical"), "F-002": lambda n: proof("F-002", "false"),
+               "F-003": lambda n: proof("F-003", "false")}
+    tid, _seen, _ = start_hunt(client, repo, monkeypatch, provers=provers, groups=[])
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "confirm_lenses"
+    run_id = values(client, tid)["data"]["hunt"]["run"]
+    assert hunt.get_run("demo", run_id)["mode"] == "semi"
+    # a person picks auto in the mode question: no stop after the sweep or the provers, the gates marked as the model's
+    s = decide(client, tid, "approve", payload={"choice": "confirm", "answers": {"mode": "auto"}})
+    assert s["waiting"]["step"] == "triage", s
+    run = hunt.get_run("demo", run_id)
+    assert run["mode"] == "auto" and run["lenses"]["confirmed_by"] == "user"
+    assert all((run["gates"][g] or {}).get("by") == "model" for g in hunt.GATES)

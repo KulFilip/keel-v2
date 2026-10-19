@@ -8,7 +8,13 @@ version: 1
 # needs_e2e. The flow ends at the hand-off: when that fix/feature flow finishes, keel closes the group as fixed (branch
 # and commit in the note); when it fails or is stopped, the group is open again for the next hunt-next. Accepted and
 # wontfix are closed from the hunt's triage gate or the Hunt page (POST /projects/{p}/hunts/{run}/close).
+# The preview gate shows the top group first (severity, symptoms, a verdict proven on an older commit): take it, pick
+# another (the finding question, or payload.id), or stop. Not asked when the hunt's triage already chose (seed preview:
+# no) or there is nothing to take. The seed's title is the lead's symptom (it reaches every prompt, the reproducer's
+# too); the group's cause goes as evidence, which a flow with a reproducer keeps out of the request.
 steps:
+  - { id: preview, kind: code, name: what is next, action: hunt_preview, lock: true, phase: hunt-triage }
+  - { id: next_gate, kind: gate, name: next finding, phase: hunt-triage, when: { data: next_preview.ask, equals: "yes" }, choices: { take: take, pick: take, stop: end } }
   - { id: take, kind: code, name: take the top group, action: hunt_take, lock: true, phase: hunt-triage }
   - { id: has_work, kind: branch, name: anything open, when: { marker: FLOW, in: [fix, feature] }, no: end, phase: hunt-triage }
   - { id: is_defect, kind: branch, name: defect or unspecified, when: { marker: FLOW, equals: fix }, no: to_feature, phase: hunt-triage }
@@ -19,7 +25,7 @@ steps:
     flow: fix
     phase: hunt-triage
     then: end
-    seed: { title: $data.next.title, request: $data.next.request, recipe: $data.next.recipe, symptoms: $data.next.symptoms, needs_e2e: $data.next.needs_e2e, hunt: $data.next.hunt }
+    seed: { title: $data.next.title, request: $data.next.request, recipe: $data.next.recipe, symptoms: $data.next.symptoms, needs_e2e: $data.next.needs_e2e, hunt: $data.next.hunt, evidence: $data.next.evidence, stale: $data.next.stale }
   - id: to_feature
     kind: code
     name: start the feature flow
@@ -27,4 +33,4 @@ steps:
     flow: feature
     phase: hunt-triage
     then: end
-    seed: { title: $data.next.title, request: $data.next.request, recipe: $data.next.recipe, symptoms: $data.next.symptoms, needs_e2e: $data.next.needs_e2e, hunt: $data.next.hunt }
+    seed: { title: $data.next.title, request: $data.next.request, recipe: $data.next.recipe, symptoms: $data.next.symptoms, needs_e2e: $data.next.needs_e2e, hunt: $data.next.hunt, evidence: $data.next.evidence, stale: $data.next.stale }
