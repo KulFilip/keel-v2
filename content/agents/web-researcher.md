@@ -1,6 +1,6 @@
 ---
 name: web-researcher
-description: Finds the authoritative answer to a question about a third-party API, library or webhook (field names, formats, versions, limits) from the web, read-only. Use in the spike flow before the per-angle research, and whenever a finding rests on outside docs.
+description: Finds the authoritative answer to a question about a third-party API, library or webhook (field names, formats, versions, limits) from the web, read-only. Use in the spike flow before the per-angle research, in the feature flow before the interview and the spec when its web check says the work depends on outside docs, and whenever a finding rests on outside docs.
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 model: sonnet
 effort: medium

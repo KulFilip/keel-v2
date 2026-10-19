@@ -120,7 +120,7 @@ Each flow below has a short picture and what it asks you.
 
 - **web_check**: does the spec need facts from outside the repository (a vendor API, a webhook, a library, a
   standard)? Only on yes does **web_docs** run (see [Web research](#web-research)).
-- **The interview** (spec step): the explorer asks you questions when the request leaves something open. Several
+- **The interview** (its own step, before the spec): the explorer asks you questions when the request leaves something open. Several
   answers can be ticked; the recommended ones come first.
   <!-- 0.18.21: the interview with lens questions -->
 - **Spec gate**: **approve**, **edit** (a note on what to change), **rewrite** (one section), **review** (a reviewer
@@ -299,15 +299,16 @@ the confirmed facts (URL + quote), every URL it tried, what a person must supply
 
 ```
  spike:    frame ─ web_docs ─ researchers per angle (they cite its URLs) ─ findings (confirmed / not confirmed, sources)
- feature:  web_check ─ WEB: yes ─ web_docs ─ spec      (WEB: no ─ spec)
+ feature:  web_check ─ WEB: yes ─ web_docs ─ interview ─ spec      (WEB: no ─ interview ─ spec)
 ```
 
 - **spike**: the web step always runs. The findings list their sources and say what is confirmed and what is not.
 - **feature** (0.18.21): `web_check` decides first. WEB is yes when the request or the code it touches depends on a
   third-party API, webhook, library or standard whose details the repository does not hold. It is no for work inside
   the code (a refactor, a page) and for a request that already carries web research (a spike's findings). On yes,
-  `web_docs` runs, and the spec cites what is confirmed. An unconfirmed detail becomes an **Open question** with what a
-  person must supply (a sample payload, a sandbox account, a docs page), never an invented field name.
+  `web_docs` runs; the interview asks only what it could not confirm, and the spec cites what is confirmed. An
+  unconfirmed detail goes under **Unverified and open questions** with what a person must supply (a sample payload, a
+  sandbox account, a docs page), never an invented field name.
 - **change**: a change whose criteria rest on outside docs is triaged as a feature, so the feature flow does the
   research.
 - **Web tools**: an agent whose `tools:` line names WebSearch or WebFetch gets them (Claude Code, opencode). On Codex,
