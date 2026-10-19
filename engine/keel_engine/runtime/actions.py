@@ -53,6 +53,9 @@ class ActionResult:
     ask: dict | None = None
     # A refusal no retry can change (nothing to review, an unknown argument): the flow stops and says why.
     stop: bool = False
+    # A failure another round in the same place cannot change (a "trivial" commit that edits existing tests): the step
+    # skips its rounds and goes on to after_rounds (else asks) at once.
+    final: bool = False
 
 
 @dataclass
@@ -431,7 +434,8 @@ def commit(a: ActionInput) -> ActionResult:
         edited = [f for f, b in buckets if b in ("api-test", "web-test", "e2e") and git.tracked_in_head(a.root, f)]
         if edited:
             return _refuse(a, "This is not a trivial change: it edits existing tests.",
-                           "\n".join("  " + f for f in edited) + "\nRun it as a small change flow through the AC loop instead.")
+                           "\n".join("  " + f for f in edited) + "\nRun it as a small change flow through the AC loop instead.",
+                           final=True)
 
     if ctype == "coverage":
         added = []
@@ -447,16 +451,15 @@ def commit(a: ActionInput) -> ActionResult:
             return _refuse(a, "A coverage commit may not edit .keel/config.yml.",
                            "Raising coverage cannot include lowering the threshold.")
 
-    if a.flow == "change" and not any(line.startswith("escalation-override") for line in a.gates_log):
-        must = [t for t in checks.triggers(cfg, staged) if t["must"]]
-        if must:
-            why = "; ".join(t["why"] for t in must)
-            detail = (f"Escalation trigger: {why}.\n\nApprove to stop this change flow and start a feature flow with a spec. "
-                      "Reject (with a reason) to stay a small change and commit.")
-            git.git(a.root, "reset", "-q")
-            return ActionResult(False, f"Escalation trigger: {why}.", detail,
-                                ask={"type": "escalate", "kind": "gate", "title": "Escalate to a feature flow?", "detail": detail,
-                                     "why": why})
+    must, suggest = checks.escalation(cfg, staged, a.gates_log) if a.flow in checks.ESCALATING_FLOWS else ([], [])
+    if must:
+        why = "; ".join(t["why"] for t in must)
+        detail = (f"Escalation trigger: {why}.\n\nApprove to stop this {a.flow} flow and start a feature flow with a spec. "
+                  "Reject (with a reason) to stay a small change and commit; the reason covers only this trigger.")
+        git.git(a.root, "reset", "-q")
+        return ActionResult(False, f"Escalation trigger: {why}.", detail,
+                            ask={"type": "escalate", "kind": "gate", "title": "Escalate to a feature flow?", "detail": detail,
+                                 "why": why, "ids": [t["id"] for t in must]})
 
     rule = rules.COMMIT_RULES[ctype]
     bug = ctype in ("fix", "red") or (ctype == "e2e" and a.flow == "fix")
@@ -481,8 +484,11 @@ def commit(a: ActionInput) -> ActionResult:
         _applied(a, "commit", sha, message, staged)
     extensions.on_commit(a.root)            # the parts follow every keel commit (the code graph syncs in the background)
     tail_note = f" · tools: {'; '.join(tool_notes)}" if tool_notes else ""
+    tail_note += f" · suggest: {'; '.join(t['why'] for t in suggest)} (not blocking)" if suggest else ""
+    gates = a.state.get("gates") or {"mode": "every-ac", "log": list(a.gates_log), "skipped": {}}
+    noted = {"gates": {**gates, "log": [*(gates.get("log") or []), *checks.suggest_lines(suggest)]}} if suggest else {}
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note, "\n".join(staged),
-                        {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key)})
+                        {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key), **noted})
 
 
 def _applied(a: ActionInput, kind: str, ref: str, subject: str, files: list[str]) -> None:

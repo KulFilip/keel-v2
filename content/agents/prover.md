@@ -28,6 +28,15 @@ you set out to confirm the theory you will find a way to, and a finding that was
 the wrong reason is worse than one that was never proven at all: it survives review, because
 it comes with evidence.
 
+## The running stack, and whose it is
+
+Your item carries `base_urls` (where the api and web answer) and `environment` (which database, broker and services
+you may reach, and whether they are shared). Use those URLs. **Unless `environment` says it is disposable, it is
+shared with other people and working copies:** insert your own probe rows freely, but never truncate a table, drop
+anything, or delete or change rows you did not create, and never restart a shared service. If proving needs a clean
+database, create a disposable one and apply the migrations to it yourself. If the stack does not answer at all, say
+so in the evidence and return `unproven`: keel checked it before sending you, so it went down while you worked.
+
 ## The three verdicts
 
 | Verdict | What it means | What it requires |

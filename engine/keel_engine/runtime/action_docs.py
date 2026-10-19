@@ -331,6 +331,10 @@ DOCS: dict[str, dict] = {
     "show_diff": {
         "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff.",
     },
+    "test_check": {
+        "summary": "quick: the change comes with a test, or the agent's UNTESTABLE: line says why not; neither leads "
+                   "the look gate's diff with a warning (the person decides, nothing is refused).",
+    },
     "security_scope": {
         "summary": "Makes the security items: the auditor always, the dependency triager only when verify deps found "
                    "something.",
@@ -409,11 +413,26 @@ DOCS: dict[str, dict] = {
         "summary": "Closes a finding or group (fixed | accepted | wontfix) with the note from the gate's answer.",
     },
     "hunt_take": {
-        "summary": "hunt-next: takes the top open group and starts fix (defect) or feature (unspecified) with its recipe.",
+        "summary": "hunt-next: takes the top open group (or the one picked) and starts fix (defect) or feature "
+                   "(unspecified) with its recipe.",
         "steps": [
             "Refuses while any candidate has no verdict or the report folder is uncommitted.",
-            "The open group with the worst severity is marked dispatched; marker FLOW = fix | feature | none.",
+            "The open group with the worst severity (or the finding or group picked at the preview gate or the hunt's "
+            "triage) is marked dispatched; marker FLOW = fix | feature | none.",
+            "The seed's title is the lead's symptom, never the group's cause (that goes as evidence); a verdict proven on "
+            "an older commit is flagged stale with the files changed since.",
         ],
+    },
+    "hunt_preview": {
+        "summary": "hunt-next: what take would hand over (top group, severity, symptoms, a stale verdict) for the next gate; "
+                   "nothing is marked.",
+    },
+    "hunt_map": {
+        "summary": "Gives the explorer's repository map (the step before) to every hunter item.",
+    },
+    "hunt_stack": {
+        "summary": "Before the provers: checks the stack's health (starts commands.services once when it is down); "
+                   "still down, the stack gate asks recheck, prove anyway or stop.",
     },
     # ---------------------------------------------------------------- init (init_actions.py)
     "arch_detect": {

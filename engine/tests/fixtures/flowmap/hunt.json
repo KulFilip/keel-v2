@@ -30,6 +30,30 @@
    "lock": true
   },
   {
+   "id": "map",
+   "kind": "agent",
+   "name": "map the repository once for every hunter",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "hunt-sweep",
+   "when": {
+    "data": "hunt.map",
+    "equals": "yes"
+   },
+   "instructions": "Map this repository for the bug hunters that run after you, so none of them reads the tree again: the apps and their entry points (routes, handlers, pages, consumers) with file paths, where the data access and the migrations are, the auth and security code, the tests. Short lines with paths, no prose, at most 80 lines. Change no file. End with the line MAP-END."
+  },
+  {
+   "id": "mapped",
+   "kind": "code",
+   "name": "the map to every hunter",
+   "phase": "hunt-sweep",
+   "action": "hunt_map",
+   "when": {
+    "data": "hunt.map",
+    "equals": "yes"
+   }
+  },
+  {
    "id": "deps",
    "kind": "code",
    "name": "dependency audit (security lens)",
@@ -67,6 +91,27 @@
     "equals": "semi"
    },
    "choices": {
+    "prove": "stack",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "stack",
+   "kind": "code",
+   "name": "the stack is up before the provers",
+   "phase": "hunt-prove",
+   "action": "hunt_stack"
+  },
+  {
+   "id": "stack_gate",
+   "kind": "gate",
+   "name": "the stack is down",
+   "phase": "hunt-prove",
+   "when": {
+    "data": "hunt.stack_down"
+   },
+   "choices": {
+    "recheck": "stack",
     "prove": "prove",
     "stop": "end"
    }
@@ -180,7 +225,9 @@
    "flow": "hunt-next",
    "seed": {
     "title": "Next finding from the hunt",
-    "run": "$data.hunt.run"
+    "run": "$data.hunt.run",
+    "pick": "$data.triage_answer.payload.answers.finding",
+    "preview": "no"
    },
    "then": "end"
   }
@@ -190,10 +237,14 @@
    "start",
    "confirm_lenses",
    "confirm",
+   "map",
+   "mapped",
    "deps",
    "sweep",
    "ingest",
    "sweep_gate",
+   "stack",
+   "stack_gate",
    "prove",
    "verdicts",
    "all_proved",
@@ -230,6 +281,14 @@
     "phase": "hunt-sweep",
     "nodes": [
      {
+      "step": "map",
+      "side": []
+     },
+     {
+      "step": "mapped",
+      "side": []
+     },
+     {
       "step": "deps",
       "side": []
      },
@@ -251,6 +310,14 @@
     "kind": "phase",
     "phase": "hunt-prove",
     "nodes": [
+     {
+      "step": "stack",
+      "side": []
+     },
+     {
+      "step": "stack_gate",
+      "side": []
+     },
      {
       "step": "prove",
       "side": []

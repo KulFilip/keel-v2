@@ -3,6 +3,29 @@
  "name": "hunt next (keel)",
  "steps": [
   {
+   "id": "preview",
+   "kind": "code",
+   "name": "what is next",
+   "phase": "hunt-triage",
+   "action": "hunt_preview",
+   "lock": true
+  },
+  {
+   "id": "next_gate",
+   "kind": "gate",
+   "name": "next finding",
+   "phase": "hunt-triage",
+   "when": {
+    "data": "next_preview.ask",
+    "equals": "yes"
+   },
+   "choices": {
+    "take": "take",
+    "pick": "take",
+    "stop": "end"
+   }
+  },
+  {
    "id": "take",
    "kind": "code",
    "name": "take the top group",
@@ -48,7 +71,9 @@
     "recipe": "$data.next.recipe",
     "symptoms": "$data.next.symptoms",
     "needs_e2e": "$data.next.needs_e2e",
-    "hunt": "$data.next.hunt"
+    "hunt": "$data.next.hunt",
+    "evidence": "$data.next.evidence",
+    "stale": "$data.next.stale"
    },
    "then": "end"
   },
@@ -65,13 +90,17 @@
     "recipe": "$data.next.recipe",
     "symptoms": "$data.next.symptoms",
     "needs_e2e": "$data.next.needs_e2e",
-    "hunt": "$data.next.hunt"
+    "hunt": "$data.next.hunt",
+    "evidence": "$data.next.evidence",
+    "stale": "$data.next.stale"
    },
    "then": "end"
   }
  ],
  "expect": {
   "main": [
+   "preview",
+   "next_gate",
    "take",
    "has_work",
    "is_defect",
@@ -82,6 +111,14 @@
     "kind": "phase",
     "phase": "hunt-triage",
     "nodes": [
+     {
+      "step": "preview",
+      "side": []
+     },
+     {
+      "step": "next_gate",
+      "side": []
+     },
      {
       "step": "take",
       "side": []

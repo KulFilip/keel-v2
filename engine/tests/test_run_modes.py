@@ -138,8 +138,11 @@ def test_classify_names_each_pause():
     assert run_mode.classify({}, fix["gate_r"], flow="fix") == "choice"
     init = {s.id: s for s in get_template("init").steps}
     assert run_mode.classify({}, init["rung_gate"], flow="init") == "rung"
-    # hunt-next has no close gate any more: the child flow's end closes the group (hunt.child_finished)
-    assert not any(s.kind == "gate" for s in get_template("hunt-next").steps)
+    # hunt-next has no close gate any more: the child flow's end closes the group (hunt.child_finished); its one gate is
+    # the preview (take | pick | stop), a choice a run mode may answer
+    nxt = {s.id: s for s in get_template("hunt-next").steps}
+    assert [s.id for s in nxt.values() if s.kind == "gate"] == ["next_gate"]
+    assert run_mode.classify({}, nxt["next_gate"], flow="hunt-next") == "choice"
 
 
 # ------------------------------------------------------------------ whole flows in each mode

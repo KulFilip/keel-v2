@@ -90,7 +90,7 @@
    "action": "verify_green+commit",
    "lock": true,
    "then": "ship_plan",
-   "rounds": 1,
+   "rounds": 2,
    "after_rounds": "not_trivial"
   },
   {

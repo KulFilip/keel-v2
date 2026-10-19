@@ -5,7 +5,9 @@ version: 1
 # A small, clear change in a few steps (keel 0.18.12): one agent makes the change and a test that proves it (phase ac:
 # code and tests), keel runs the tests (up to 2 fix rounds, then keel asks), you look at the diff once, keel commits.
 # No spec, no criteria loop, no ship: for a typo, a small bug, a config value. Bigger work: small, implement, change or
-# feature.
+# feature. Test first (0.19.x): the agent writes the test and sees it fail before the change; the look gate leads with
+# a warning when no test changed and the agent gave no UNTESTABLE: line. A commit that touches the contract, a
+# migration or auth code asks to escalate to a feature flow, as in change (an override covers only that trigger).
 steps:
   - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
   - id: implement
@@ -15,13 +17,14 @@ steps:
     model: default
     phase: ac
     instructions: >-
-      Make the requested change with the least code, and only in the files it needs. Add a test that proves it, or
-      change the test that covers it; if the change cannot be tested (a text, a doc, a comment), say so in one line and
-      add none. Run the tests you touched. Do not refactor, rename or tidy anything else. When it is bigger than a small
+      Test first: write the test that proves the requested change (or change the test that covers it) and run it; it
+      must fail, for the reason the change fixes, before you touch the code. Then make the change with the least code,
+      only in the files it needs, and run the tests you touched again. If the change cannot be tested (a text, a doc, a
+      comment), add no test and end with one line "UNTESTABLE: <why>". Do not refactor, rename or tidy anything else. When it is bigger than a small
       change (a new page, a migration, the API contract, several parts), stop and say so: it needs the small or the
       feature flow.
   - { id: verify, kind: code, name: run the tests, action: verify_green, phase: ac, back: implement, rounds: 2, lock: true }
-  - { id: diff, kind: code, name: the diff for your look, action: show_diff, phase: ac }
+  - { id: diff, kind: code, name: the diff for your look, action: show_diff+test_check, phase: ac }
   - { id: look, kind: gate, name: look at the change, back: implement, lock: true, phase: gate }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: ac }
   - { id: close, kind: code, name: done, action: close_flow, then: end, phase: close }

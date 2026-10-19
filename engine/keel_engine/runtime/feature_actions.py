@@ -828,6 +828,32 @@ def show_diff(a):
     return _ok(f"diff ready ({len(dirty)} uncommitted file(s))" if dirty else "branch diff ready", update={"show": text})
 
 
+UNTESTABLE = re.compile(r"^\W*UNTESTABLE:\s*(.+)$", re.M | re.I)
+TEST_BUCKETS = ("api-test", "web-test", "e2e")
+
+
+def test_check(a):
+    """quick (keel 0.19.x): the change comes with a test, or the agent said in one line why it cannot be tested
+    (UNTESTABLE: <why>). Neither: the look gate's diff starts with that, so the person decides (soft: nothing is
+    refused). Runs after show_diff in the same step and leads its text."""
+    if not git.is_repo(a.root):
+        return _ok("Not a git repository: no test check.")
+    cfg = rules.load_config(a.root)
+    mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
+    changed = [f for f in git.dirty(a.root) if f not in mine]
+    tests = [f for f in changed if rules.classify(cfg, f) in TEST_BUCKETS]
+    if tests:
+        return _ok(f"tests changed: {', '.join(tests[:5])}" + (f" (+{len(tests) - 5})" if len(tests) > 5 else ""))
+    said = UNTESTABLE.search(str(a.state.get("last_answer") or ""))
+    shown = str(a.state.get("show") or "")
+    if said:
+        head = f"No test added or changed. The agent says it cannot be tested: {said.group(1).strip()[:300]}"
+        return _ok("no test: the agent says it cannot be tested", update={"show": f"{head}\n\n{shown}".strip()})
+    head = ("NO TEST: no test was added or changed, and the agent did not say why it cannot be tested (an UNTESTABLE: "
+            "line). Nothing proves this change. Approve to commit it without a test, or send it back to add one.")
+    return _ok("no test added or changed", update={"show": f"{head}\n\n{shown}".strip()})
+
+
 # ------------------------------------------------------------------ security
 
 def security_scope(a):
@@ -974,7 +1000,7 @@ def close_flow(a):
 ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": spec_sync, "spec_freeze": spec_freeze,
            "spec_restart": spec_restart, "amend_start": amend_start, "spec_amendment": spec_amendment,
            "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note, "stuck": stuck,
-           "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
+           "amend_stop": amend_stop, "show_diff": show_diff, "test_check": test_check, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow}
 

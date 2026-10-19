@@ -57,6 +57,14 @@ DEFAULTS: dict = {
     "prove_concurrency": 4,
     "prove_rounds": 3,
     "report_dir": "docs/hunts",
+    # what the hunters and provers may reach (keel v1 hunt "name what the environment is, and whose it is"): a line on
+    # the database / broker / services, and whether they are disposable. Unless disposable is true, every item says
+    # they are shared: probe rows only, never delete what you did not create.
+    "environment": "",
+    "disposable": False,
+    # one explorer maps the repository before the sweep and every hunter gets the map: auto (only when the project
+    # has no knowledge base), always, never
+    "map": "auto",
 }
 
 LENS_HELP = {
@@ -701,11 +709,42 @@ def report_committed(root: str, run: dict) -> tuple[bool, str]:
 
 # ------------------------------------------------------------------ take + close
 
-def take(project: str, root: str, run_id: str | None = None) -> dict:
-    """The top open group (worst severity first; a group goes as one unit) and the flow it goes to.
+def _stale(root: str, members: list[dict]) -> dict | None:
+    """A verdict proven on an older commit than HEAD: the commit it was proven at and the files changed since (the ones
+    a finding cites first). None when every member was proven at HEAD, or it cannot tell."""
+    if not git.is_repo(root):
+        return None
+    head = git.head(root)
+    shas = sorted({str(c.get("proved_sha")) for c in members if c.get("proved_sha")})
+    old = [s for s in shas if head and s != head]
+    if not old:
+        return None
+    changed: list[str] = []
+    report = settings(root)["report_dir"].rstrip("/") + "/"
+    for sha in old:
+        r = git.git(root, "diff", "--name-only", f"{sha}..{head}")
+        # the hunt's own report commit (docs(HUNT-...)) always follows the proof: it changes no code
+        changed += [f for f in r.stdout.splitlines() if f.strip() and f not in changed and not f.startswith(report)] \
+            if r.returncode == 0 else []
+    if not changed:
+        return None
+    cited = {_spot(w)[0] for c in members for w in c.get("where") or []}
+    files = sorted(changed, key=lambda f: (f not in cited, f))
+    return {"proved_sha": old[0], "head": head, "files": files[:30], "more": max(0, len(files) - 30),
+            "cited": [f for f in files if f in cited]}
 
-    {ok: False, why} while any candidate has no verdict or the report is uncommitted; {ok: True, flow: None} when
-    nothing is open; else {ok, flow: fix|feature, seed, members, ...} and the members are marked dispatched."""
+
+def _stale_note(stale: dict | None) -> str:
+    if not stale:
+        return ""
+    files = ", ".join(stale["files"]) + (f" (+{stale['more']} more)" if stale.get("more") else "")
+    hit = (f" It touched cited file(s): {', '.join(stale['cited'])}." if stale.get("cited") else "")
+    return (f"Proven at {stale['proved_sha'][:7]}, an older commit than HEAD ({str(stale['head'])[:7]}); changed since: "
+            f"{files or 'nothing'}.{hit} The bug may already be gone: reproduce it before anything else.")
+
+
+def _choose(project: str, root: str, run_id: str | None = None, pick: str | None = None) -> dict:
+    """What take would hand over, with no side effect: {ok: False, why} or {ok, flow: None} or the hand-over."""
     run = get_run(project, run_id)
     if not run:
         return {"ok": False, "why": "No hunt on this project yet. Run the hunt flow first."}
@@ -721,6 +760,12 @@ def take(project: str, root: str, run_id: str | None = None) -> dict:
     if not open_:
         return {"ok": True, "flow": None, "run": run["run"], "note": "Nothing open: every proven finding is handed over or closed."}
     top = open_[0]
+    key = str(pick or "").strip().split(" ")[0].upper()
+    if key:
+        top = next((c for c in open_ if c["id"] == key or c.get("group") == key), None)
+        if not top:
+            return {"ok": False, "why": f"Hunt {run['run']}: {key} is not an open proven finding or group "
+                                        f"(open: {', '.join(sorted({c.get('group') or c['id'] for c in open_}))})."}
     grp = next((g for g in groups(project, run["run"]) if g["id"] == top.get("group")), None)
     members = [c for c in cands if grp and c.get("group") == grp["id"]] or [top]
     lead = next((c for c in members if grp and c["id"] == grp["lead"]), top)
@@ -729,17 +774,48 @@ def take(project: str, root: str, run_id: str | None = None) -> dict:
     flow = "feature" if lead["kind"] == "unspecified" else "fix"
     recipe = f"{folder}/{run['run']}/repro/{rec['file']}\n\n{rec['body']}".strip() if rec else None
     symptoms = [f"{c['id']}: {c['symptom']}" for c in [lead, *[m for m in members if m is not lead]]]
-    title = (f"{grp['id']}: {grp['cause']}" if grp else f"{lead['id']}: {lead['title']}")[:200]
+    # The title goes into every prompt of the child flow ("Flow: <title>"), the reproducer's too: the lead's symptom,
+    # never the group's cause (a theory) nor the hunter's title (it often names a cause: "List has no auth check").
+    said = " ".join(str(lead["symptom"]).split())
+    title = f"{lead['id']}: {said[:140]}{'…' if len(said) > 140 else ''}" + \
+        (f" ({grp['id']}, {len(members)} findings)" if grp else "")
+    stale = _stale(root, members)
+    request = lead["symptom"] + (f"\n\n{_stale_note(stale)}" if stale else "")
     # The reproducer gets the symptom and the recipe, never the claim: a test written from the theory confirms the theory.
-    seed = {"title": title, "request": lead["symptom"], "recipe": recipe, "symptoms": symptoms,
+    # The group's cause is evidence for the investigators and the plan only (start_child keeps it out of the request).
+    seed = {"title": title[:200], "request": request, "recipe": recipe, "symptoms": symptoms,
             "needs_e2e": any(bool(c.get("needs_e2e")) for c in members),
             "hunt": {"run": run["run"], "group": grp["id"] if grp else None, "lead": lead["id"], "findings": [c["id"] for c in members]}}
-    at = db.now()
-    for c in members:
-        update_candidate(project, run["run"], c["id"], dispatch={"flow": flow, "at": at})
+    if grp:
+        seed["evidence"] = (f"The hunt's investigator grouped {', '.join(c['id'] for c in members)} under one suspected "
+                            f"cause (a theory to confirm or kill, not a verdict): {grp['cause']}")
+    if stale:
+        seed["stale"] = stale
     return {"ok": True, "flow": flow, "run": run["run"], "group": grp["id"] if grp else None, "lead": lead["id"],
-            "members": [c["id"] for c in members], "severity": lead.get("severity"), "seed": seed,
-            "note": f"{title} -> {flow} flow ({len(members)} finding(s), severity {lead.get('severity')})"}
+            "members": [c["id"] for c in members], "severity": lead.get("severity"), "seed": seed, "stale": stale,
+            "note": f"{seed['title']} -> {flow} flow ({len(members)} finding(s), severity {lead.get('severity')})"
+                    + (f"; STALE: proven at {stale['proved_sha'][:7]}, HEAD is {str(stale['head'])[:7]}" if stale else "")}
+
+
+def peek(project: str, root: str, run_id: str | None = None, pick: str | None = None) -> dict:
+    """hunt-next's preview: what take would hand over, nothing marked."""
+    return _choose(project, root, run_id, pick)
+
+
+def take(project: str, root: str, run_id: str | None = None, pick: str | None = None) -> dict:
+    """The top open group (worst severity first; a group goes as one unit), or the finding or group `pick` names, and
+    the flow it goes to.
+
+    {ok: False, why} while any candidate has no verdict or the report is uncommitted; {ok: True, flow: None} when
+    nothing is open; else {ok, flow: fix|feature, seed, members, stale, ...} and the members are marked dispatched.
+    stale: the verdict was proven on an older commit than HEAD (the files changed since are listed)."""
+    r = _choose(project, root, run_id, pick)
+    if not r["ok"] or not r.get("flow"):
+        return r
+    at = db.now()
+    for cid in r["members"]:
+        update_candidate(project, r["run"], cid, dispatch={"flow": r["flow"], "at": at})
+    return r
 
 
 def close(project: str, run_id: str | None, key: str, as_: str, note: str, sha: str | None = None) -> tuple[bool, str]:

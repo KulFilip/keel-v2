@@ -103,9 +103,15 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("hunt:sweep_gate", "stop"): ("Stop here", NONE, "end here; the backlog keeps the candidates"),
     ("hunt:verdicts_gate", "report"): ("Write the report", NONE, "group shared causes and render the report"),
     ("hunt:verdicts_gate", "stop"): ("Stop here", NONE, "end here"),
-    ("hunt:triage", "take"): ("Take the top group", NONE, "start hunt-next for the top group"),
+    ("hunt:triage", "take"): ("Take the top group", NONE, "start hunt-next for the top group (or the one picked in the question)"),
     ("hunt:triage", "close"): ("Close a finding", REQUIRED, "close one finding as fixed, accepted or wontfix; say why"),
     ("hunt:triage", "stop"): ("Stop here", NONE, "end here; the backlog stays for hunt-next"),
+    ("hunt:stack_gate", "recheck"): ("I started it: check again", NONE, "start the stack yourself, then keel checks its health again"),
+    ("hunt:stack_gate", "prove"): ("Prove anyway", NONE, "send the provers with the stack down (most will come back unproven)"),
+    ("hunt:stack_gate", "stop"): ("Stop here", NONE, "end here; the backlog keeps the candidates"),
+    ("hunt-next:next_gate", "take"): ("Take this one", NONE, "hand the finding shown to a fix or feature flow"),
+    ("hunt-next:next_gate", "pick"): ("Take the one I picked", NONE, "hand the finding or group picked in the question over instead"),
+    ("hunt-next:next_gate", "stop"): ("Stop here", NONE, "end here; nothing is handed over"),
 }
 
 

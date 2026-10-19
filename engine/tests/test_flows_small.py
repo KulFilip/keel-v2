@@ -4,7 +4,8 @@ look; no ship). All run on the fake model in a real git repo."""
 
 from conftest import decide, start, wait
 from test_flows_base import answers
-from test_v02 import log
+from test_v02 import configure, log
+from keel_engine.models import fake as fake_mod
 from keel_engine.runtime import actions as actions_mod
 
 
@@ -158,3 +159,49 @@ def test_criteria_lines_with_a_colon_or_a_dash_after_the_id_are_read():
     text = "- **AC-1:** [API] The list returns visits\nAC-2 - [WEB] The page shows them\nAC-3 [API] Plain one"
     assert [(a["id"], a["layer"], a["title"]) for a in prompts.parse_acs(text)] == [
         ("AC-1", "API", "The list returns visits"), ("AC-2", "WEB", "The page shows them"), ("AC-3", "API", "Plain one")]
+
+
+# ------------------------------------------------------------------ size triggers (keel v1 change: must triggers)
+
+def test_quick_migration_asks_to_escalate(client, repo, monkeypatch):
+    real = fake_mod._plan
+
+    def plan(req):
+        if req.agent == "implementer":
+            return "db/migration/V9__visits.sql", "alter table pets add column visits int;\n", "Done.\nUNTESTABLE: a schema change", {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+    tid = start(client, repo, workflow="quick", title="Count the visits")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "look", s
+    assert "cannot be tested: a schema change" in s["waiting"]["detail"]
+    s = decide(client, tid)
+    assert s["waiting"]["title"] == "Escalate to a feature flow?" and "a migration was added or changed" in s["waiting"]["detail"], s
+    assert "stop this quick flow" in s["waiting"]["detail"]
+    s = decide(client, tid, "approve")
+    assert s["status"] == "done" and [c["workflow"] for c in s["children"]] == ["feature"], s
+    assert not any(x.startswith("feat") for x in log(repo))
+
+
+def test_small_auth_path_asks_to_escalate(client, repo, monkeypatch):
+    configure(repo, "change: {auth_paths: ['src/scores/**']}\n")
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="small", title="Show the visits per pet")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "plan_gate", s
+    s = decide(client, tid)
+    assert s["waiting"]["title"] == "Escalate to a feature flow?" and "auth or security code changed" in s["waiting"]["detail"], s
+    # stay small with a reason: recorded per trigger, and the same trigger does not ask again
+    s = decide(client, tid, "reject", why="a helper next to the auth code, not auth itself")
+    assert s["waiting"]["step"] == "look", s
+    assert "escalation-override [auth]: a helper next to the auth code, not auth itself" in s["gate_log"]
+
+
+def test_quick_without_a_test_or_a_reason_warns_at_the_look(client, repo, monkeypatch):
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="quick", title="Fix the owner page title")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "look" and s["waiting"]["detail"].startswith("NO TEST: no test was added or changed"), s
+    seen = answers(monkeypatch, {})
+    s = decide(client, tid, "reject", why="add a test")
+    assert "Test first" in seen[-1].prompt and "UNTESTABLE:" in seen[-1].prompt
