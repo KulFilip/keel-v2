@@ -113,3 +113,91 @@ async def test_compact_asks_for_the_structured_summary_then_updates_it_and_the_n
     assert "- a /health endpoint" in p2 and "Now a test for it" in p2
     assert helper.history(sid) == [("user", helper.history(sid)[0][1])]
     assert "- a /health endpoint, tested" in helper.history(sid)[0][1]
+
+
+# ------------------------------------------------------------------ 2. a note when the mode changes in a chat
+
+def patch(client, sid, **body):
+    return client.patch(f"/helper/sessions/{sid}", json=body)
+
+
+def test_a_mode_change_keeps_the_chat_and_the_next_prompt_starts_with_a_note_of_it(client, repo, monkeypatch):
+    """Claude and Codex resume their own session: without the note they keep the old mode's rules (opencode's plan
+    mode does the same, core/src/plugin/plan.ts)."""
+    sc = Script(monkeypatch, "ok")
+    s = new_session(client, repo)
+    sid = s["id"]
+    turn(client, sid, "Why does the test fail?")
+    assert not sc.reqs[0].prompt.startswith("You were in")
+
+    r = patch(client, sid, mode="edit")
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == sid and r.json()["mode"] == "edit"
+    s = turn(client, sid, "Fix it then")
+    p = sc.reqs[1].prompt
+    assert p.startswith("You were in Ask mode (read only); you are now in Edit mode: you may change files")
+    assert "after the person's OK" in p.split("\n\n")[0]
+    assert "Mode: Edit." in p and "Mode: Ask." not in p
+    assert [m["role"] for m in s["messages"]] == ["user", "helper", "user", "helper"]     # the same chat goes on
+    assert s["messages"][-1]["data"]["mode"] == "edit"
+
+    turn(client, sid, "And the other one?")                  # no change since the last answer: no note
+    assert not sc.reqs[2].prompt.startswith("You were in")
+
+    patch(client, sid, mode="ask")
+    turn(client, sid, "What did you change?")
+    p = sc.reqs[3].prompt
+    assert p.startswith("You were in Edit mode; you are now in Ask mode (read only): you may not change anything")
+    assert "Mode: Ask." in p
+
+    # switched there and back before the next answer: nothing changed for the model, no note
+    patch(client, sid, mode="edit")
+    patch(client, sid, mode="ask")
+    turn(client, sid, "Thanks")
+    assert not sc.reqs[4].prompt.startswith("You were in")
+
+
+def test_which_mode_changes_a_chat_can_make(client, repo, monkeypatch):
+    s = new_session(client, repo)
+    sid = s["id"]
+    assert patch(client, sid, mode="loud").status_code == 400
+    r = patch(client, sid, mode="side")                  # a side session is its own worktree: a new chat
+    assert r.status_code == 409 and "new chat" in r.json()["hint"].lower(), r.text
+    assert patch(client, sid, mode="fix").status_code == 400          # Fix needs the flow that waits
+    s = helper.set_mode(sid, "fix", thread_id="t_waits", flow={"phase": "green"})
+    assert (s["mode"], s["thread_id"], s["phase"]) == ("fix", "t_waits", "green")
+
+    side = new_session(client, repo, "side")
+    assert patch(client, side["id"], mode="ask").json()["mode"] == "ask"       # read only, in its own worktree
+    assert patch(client, side["id"], mode="side").json()["mode"] == "side"
+    assert patch(client, side["id"], mode="edit").status_code == 409
+
+
+def test_the_mode_notes_say_what_the_new_mode_lets_keelbot_do():
+    assert helper.mode_note("ask", "ask") == ""
+    assert helper.mode_note("", "edit") == ""
+    side = helper.mode_note("side", "ask")
+    assert side.startswith("You were in a side session (your own worktree); you are now in Ask mode (read only)")
+    fix = helper.mode_note("ask", "fix")
+    assert "you are now in Fix mode" in fix and "the flow's phase" in fix
+    assert "no longer apply" in helper.mode_note("edit", "ask")
+
+
+def test_a_side_session_in_ask_mode_still_owns_its_worktree_and_an_edit_chat_in_ask_can_still_keep(client, repo):
+    from pathlib import Path
+    side = new_session(client, repo, "side")
+    (Path(side["worktree"]) / "NOTE.md").write_text("from the side\n")
+    helper.set_mode(side["id"], "ask")
+    assert [c["path"] for c in helper.changes(side["id"])] == ["NOTE.md"]
+    assert helper.handover(side["id"])["uncommitted"] == ["NOTE.md"]
+    assert helper.undo(side["id"], "NOTE.md") == []
+
+    edit = new_session(client, repo, "edit")
+    helper.set_mode(edit["id"], "ask")
+    with pytest.raises(helper.HelperError, match="has changes to commit"):     # nothing changed: nothing to keep
+        helper.done(edit["id"], {})
+    from keel_engine.tools import guard
+    before = guard.snapshot(str(repo))
+    (Path(repo) / "README.md").write_text("changed in Edit\n")
+    helper.remember_originals(edit["id"], str(repo), before)
+    assert [c["path"] for c in helper.changes(edit["id"])] == ["README.md"]   # still there to keep or undo in Ask

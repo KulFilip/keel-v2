@@ -442,8 +442,26 @@ export class KeelCore {
 
   // ------------------------------------------------------------------ KeelBot
 
-  setChatMode(mode: HelperMode) {
+  /** KeelBot's mode for the next message. 0.18.19 the open chat goes on in it where it can (the engine keeps the
+   *  chat and tells KeelBot of the change): Ask, Edit and Fix share the project folder, a side session moves between
+   *  Side and Ask in its own worktree. Into or out of a worktree, or with no chat open, the next message starts a new
+   *  chat. Answers true when the open chat goes on. */
+  async setChatMode(mode: HelperMode): Promise<boolean> {
+    const pid = this.pid;
+    const s = this.snapshot.chat.session;
+    if (pid && s && s.mode === mode) return true;
+    if (pid && s && sameChatMode(s, mode)) {
+      this.setChat({ mode });               // the status line changes at once
+      try {
+        const next = await kb.patch(pid, s.id, { mode });
+        if (this.snapshot.chat.session?.id === s.id) this.setChat({ mode: next.mode, session: { ...this.snapshot.chat.session, ...next } });
+        return true;
+      } catch {
+        // the engine said no (a flow moved on): a new chat in that mode, as before
+      }
+    }
     this.setChat({ mode, session: null, callId: null, steps: [] });
+    return false;
   }
 
   async setChatModel(model: Model) {
@@ -715,3 +733,10 @@ const lastIsUser = (s: HelperSession) => {
   const m = s.messages ?? [];
   return !m.length || m[m.length - 1].role === "user";
 };
+
+/** 0.18.19 Can the open chat go on in `mode`? A side session (its own branch) only as Side or Ask; any other chat in
+ *  every mode but Side (a side session needs its own worktree). */
+export function sameChatMode(s: Pick<HelperSession, "mode" | "branch">, mode: HelperMode): boolean {
+  const side = s.mode === "side" || !!s.branch;
+  return side ? mode === "side" || mode === "ask" : mode !== "side";
+}

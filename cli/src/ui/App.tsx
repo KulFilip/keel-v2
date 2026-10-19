@@ -869,7 +869,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       const waits = core.snapshot.flow?.thread?.status === "waiting";
       const order: HelperMode[] = ["ask", "edit", ...(waits ? (["fix"] as HelperMode[]) : []), "side"];
       const next = order[(order.indexOf(now) + 1) % order.length] ?? "ask";
-      core.setChatMode(next);          // the status line's first word changes; nothing goes into the transcript
+      void core.setChatMode(next);     // the status line's first word changes; nothing goes into the transcript
       return;
     }
     if (key.tab) {

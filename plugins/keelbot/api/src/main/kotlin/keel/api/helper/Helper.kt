@@ -47,8 +47,9 @@ data class HelperTaskBody(val title: String = "", val type: String = "task")
 data class HelperFlowBody(val title: String = "", val workflowId: String = "change")
 /** The person's answer to a permission card: once | always (this command, for the rest of the chat) | deny (with a reason). */
 data class HelperAnswer(val decision: String = "", val why: String = "")
-/** v0.15.2 folder: a folder id of this project; "" takes the chat out of its folder. */
-data class HelperPatch(val title: String? = null, val model: Model? = null, val folder: String? = null)
+/** v0.15.2 folder: a folder id of this project; "" takes the chat out of its folder. 0.18.19 mode: the same chat in
+ *  another mode (Fix: the flow that waits now goes with it). */
+data class HelperPatch(val title: String? = null, val model: Model? = null, val folder: String? = null, val mode: String? = null)
 /** v0.15.2 a folder for KeelBot's chats (create, rename): its name. */
 data class HelperFolderBody(val name: String = "")
 
@@ -141,7 +142,11 @@ class HelperService(
         get(pid, sid)
         val folder = body.folder?.trim()
         if (!folder.isNullOrEmpty()) requireFolder(pid, folder)
-        return engine.patch("/helper/sessions/$sid", mapOf("title" to body.title, "model" to body.model?.checked(), "folder" to folder)
+        val mode = body.mode?.trim()?.takeIf { it.isNotEmpty() }
+        if (mode != null && mode !in MODES) throw BadRequest("Unknown KeelBot mode $mode", "Use ask, edit, fix or side.")
+        val threadId = if (mode == "fix") waitingThread(pid).path("thread_id").asText() else null
+        return engine.patch("/helper/sessions/$sid", mapOf("title" to body.title, "model" to body.model?.checked(), "folder" to folder,
+            "mode" to mode, "thread_id" to threadId, "flow" to threadId?.let { fixContext(pid, it) })
             .filterValues { it != null })
     }
 

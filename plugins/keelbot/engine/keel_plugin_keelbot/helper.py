@@ -117,6 +117,20 @@ FAILURES = ("When a command or a tool fails, or keel refuses it: never run the s
             "by checkout\": say that the folder has uncommitted changes in those files, and offer: stash them, check out "
             "main, pull, then git stash pop (recommended: nothing is lost); commit them first on this branch; discard them "
             "(git checkout -- <files>: they are lost); or leave it as it is.")
+# keel 0.18.19 the person changed the mode in the middle of a chat (keel TUI /mode, Shift+Tab). Claude and Codex resume
+# their own session, which still holds the old mode's rules: the next turn's prompt starts with a note of the change,
+# as opencode's plan mode does when the person switches agents (from opencode (MIT), core/src/plugin/plan.ts).
+MODE_NAMES = {"ask": "Ask mode (read only)", "edit": "Edit mode", "fix": "Fix mode", "side": "a side session (your own worktree)"}
+MODE_NOW = {
+    "ask": ("you may not change anything (no edits, no command that changes files or git), even what you offered or "
+            "began before: give the person the exact command instead."),
+    "edit": ("you may change files in the project folder and run commands that change something, each command after "
+             "the person's OK. What Ask mode did not let you do, you may do now, if the person still wants it."),
+    "fix": ("you may change only what the flow's phase allows, for the gate the flow waits at; keel's guard refuses "
+            "the rest."),
+    "side": ("you may change files again, in your own worktree only; each command that changes something waits for "
+             "the person's OK."),
+}
 COMMITS = {          # keel's commit line in KeelBot's system prompt (runtime/prompts.py system_prompt), per mode
     "edit": ("keel commits your own file changes after its checks (when the person keeps them); never git commit them "
              "yourself, and never push. Only the person's own uncommitted work may be committed with git commit, when they "
@@ -235,7 +249,7 @@ def get(sid: str, messages: bool = True) -> dict:
 def update(sid: str, **fields) -> dict:
     allowed = {k: v for k, v in fields.items() if k in ("title", "model_json", "engine_session", "status", "error",
                                                        "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase",
-                                                       "ctx_tokens")}
+                                                       "ctx_tokens", "mode", "thread_id")}
     if allowed:
         sets = ", ".join(f"{k} = ?" for k in allowed)
         with db.connect() as conn:
@@ -250,6 +264,39 @@ def set_model(sid: str, model: dict) -> dict:
     m = models.effective(model)
     same = (s["model"] or {}).get("provider") == m.get("provider")
     return update(sid, model_json=json.dumps(m), **({} if same else {"engine_session": None}))
+
+
+def mode_note(was: str, now: str) -> str:
+    """0.18.19 The note the next turn's prompt starts with when the mode changed since KeelBot's last answer."""
+    if not was or was == now or was not in MODE_NAMES or now not in MODE_NAMES:
+        return ""
+    return (f"You were in {MODE_NAMES[was]}; you are now in {MODE_NAMES[now]}: {MODE_NOW[now]} The rules of "
+            f"{MODE_NAMES[was].split(' (')[0]} from earlier in this conversation no longer apply: follow the mode below.")
+
+
+def set_mode(sid: str, mode: str, thread_id: str | None = None, flow: dict | None = None) -> dict:
+    """0.18.19 Another mode for the chat's next turn, in the same chat (it keeps its messages and its engine session;
+    the next turn's prompt starts with a note of the change). Ask, Edit and Fix work in the project folder, so a chat
+    moves between them; Fix needs the flow that waits (`thread_id`, and its phase from `flow`). A side session keeps
+    its worktree: it moves between Side and Ask (read only, there). Into or out of a worktree is a new chat."""
+    if mode not in MODES:
+        raise HelperError(400, f"Unknown KeelBot mode {mode!r}.", f"Use one of: {', '.join(MODES)}.")
+    s = get(sid, messages=False)
+    if mode == s["mode"]:
+        return s
+    if is_side(s) and mode not in ("side", "ask"):
+        raise HelperError(409, f"A side session works in its own worktree; {mode} mode works in the project folder.",
+                          f"Start a new chat in {mode} mode (keel TUI: /new, then /mode {mode}).")
+    if not is_side(s) and mode == "side":
+        raise HelperError(409, "A side session needs its own worktree, which this chat does not have.",
+                          "Start a new chat in side mode: keel TUI starts one with the next message after /mode side.")
+    fields: dict = {"mode": mode}
+    if mode == "fix":
+        tid = thread_id or s.get("thread_id")
+        if not tid:
+            raise HelperError(400, "Fix mode needs the flow that waits.", "Switch while a flow of this project waits at a gate.")
+        fields.update(thread_id=tid, phase=fix_phase(flow) if flow else (s.get("phase") or "none"))
+    return update(sid, **fields)
 
 
 def set_folder(sid: str, folder: str | None) -> dict:
@@ -369,6 +416,11 @@ def short_title(text: str, limit: int = 80) -> str:
     return (cut.rsplit(" ", 1)[0] if " " in cut[limit // 2:] else cut).rstrip(" ,.;:-") + "…"
 
 
+def is_side(s: dict) -> bool:
+    """A side session, in whatever mode it is now (0.18.19 it can switch to Ask): it has its own branch."""
+    return s.get("mode") == "side" or bool(s.get("branch"))
+
+
 def workdir(s: dict) -> str:
     """Where a session's agent works: a side session's worktree, else the project folder."""
     return s.get("worktree") or s["root"]
@@ -483,7 +535,7 @@ def changes(sid: str) -> list[dict]:
     """The files KeelBot changed in this session, against what they were before: path, status, +/- lines, diff.
     A side session: what is not kept yet (its worktree against the last commit on its branch)."""
     s = get(sid, messages=False)
-    if s["mode"] == "side":
+    if is_side(s):
         return worktrees.changes(s["worktree"], "HEAD") if s.get("worktree") else []
     root = s["root"]
     with db.connect() as conn:
@@ -508,7 +560,7 @@ def changes(sid: str) -> list[dict]:
 def undo(sid: str, path: str | None = None) -> list[dict]:
     """Put one file (or every file) back as it was before KeelBot changed it."""
     s = get(sid, messages=False)
-    if s["mode"] == "side":
+    if is_side(s):
         if not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.")
         if path and not any(c["path"] == path for c in changes(sid)):
@@ -542,9 +594,10 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     from keel_engine.runtime import actions          # late: actions imports most of the runtime
 
     s = get(sid, messages=False)
-    if s["mode"] not in ("fix", "side", "edit"):
+    # 0.18.19 a chat switched to Ask keeps what it changed before (and a side session its worktree)
+    if s["mode"] not in ("fix", "side", "edit") and not (is_side(s) or changes(sid)):
         raise HelperError(400, "Only a Fix, Edit or side chat has changes to commit.")
-    if s["mode"] == "side" and not s.get("worktree"):
+    if is_side(s) and not s.get("worktree"):
         raise HelperError(409, "This side session was handed over; its worktree is gone.")
     root = workdir(s)
     files = [c["path"] for c in changes(sid)]
@@ -577,7 +630,7 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     sha = git.head(root)
     with db.connect() as conn:
         conn.executemany("delete from helper_files where session_id = ? and path = ?", [(sid, f) for f in files])
-    where = f" on branch {s['branch']}" if s["mode"] == "side" else ""
+    where = f" on branch {s['branch']}" if is_side(s) else ""
     note = f"keel committed KeelBot's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
     subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()
     add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files, "subject": subject})
@@ -591,7 +644,7 @@ def handover(sid: str) -> dict:
     """What a side session hands over (a task or a change flow): its branch, the commits kept on it, what is not kept
     yet, and its last answer."""
     s = get(sid)
-    if s["mode"] != "side":
+    if not is_side(s):
         raise HelperError(400, "Only a side session can be handed over.")
     if not s.get("worktree"):
         raise HelperError(409, "This side session was handed over already.")
@@ -789,9 +842,11 @@ def _shell_block(shell: dict | None) -> str:
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
                  branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None,
-                 images: list[str] | None = None, failed: list[dict] | None = None) -> str:
-    where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
-    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), FAILURES, where]
+                 images: list[str] | None = None, failed: list[dict] | None = None, was: str = "") -> str:
+    where = f"Your folder (the worktree): {root}" if mode == "side" or (mode == "ask" and branch) else \
+        f"The project folder: {root}"
+    note = mode_note(was, mode)            # 0.18.19 the mode changed since the last answer: say so first
+    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), FAILURES, where]
     if mode == "edit":
         busy = flows_in_folder(keel)
         if busy:
@@ -816,6 +871,13 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
             parts.append(extra)
     parts.append(f"Question: {question.strip()}")
     return "\n\n".join(parts)
+
+
+def last_mode(sid: str, before_n: int) -> str:
+    """0.18.19 The mode KeelBot's last answer (or stopped turn) before message `before_n` ran in; "" when none says."""
+    msgs = [m for m in get(sid)["messages"] if m["n"] < before_n and m["role"] in ("helper", "note")
+            and (m.get("data") or {}).get("mode")]
+    return str(msgs[-1]["data"]["mode"]) if msgs else ""
 
 
 def last_failures(sid: str, before_n: int) -> list[dict]:
@@ -1245,12 +1307,13 @@ class HelperRunner:
                 allow += extensions.allow_entries(on)
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             before_failed = await asyncio.to_thread(last_failures, sid, n)
+            was = await asyncio.to_thread(last_mode, sid, n)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
-                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed)
+                                  shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed, was=was)
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 scratch["dir"] = tmp
                 toolbox.no_repeat = tmp
@@ -1305,7 +1368,7 @@ class HelperRunner:
         if status == "done" and not answer.strip():
             answer = "(KeelBot gave no answer.)"
         add_message(sid, "helper" if status == "done" else "note", answer, call_id=call_id,
-                    data={"status": status, "provider": provider, "model": model.get("model"),
+                    data={"status": status, "mode": mode, "provider": provider, "model": model.get("model"),
                           **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
                           **({"failed": failures[-10:]} if failures else {})})

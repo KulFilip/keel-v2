@@ -64,7 +64,7 @@ export const kb = {
   patch: (
     pid: string,
     sid: string,
-    body: { title?: string; model?: Model; folder?: string },
+    body: { title?: string; model?: Model; folder?: string; mode?: HelperMode },
   ) =>
     patch<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`, body),
   remove: (pid: string, sid: string) =>

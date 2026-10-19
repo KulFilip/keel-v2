@@ -82,6 +82,9 @@ class HelperPatch(BaseModel):
     title: str | None = None
     model: ModelSpec | None = None
     folder: str | None = None           # v0.15.2 a folder id of the chat's project; "" takes the chat out of its folder
+    mode: Literal["ask", "edit", "fix", "side"] | None = None   # 0.18.19 the same chat in another mode (helper.set_mode)
+    thread_id: str | None = None        # 0.18.19 Fix: the flow that waits, and its context (the api sends both)
+    flow: dict[str, Any] | None = None
 
 
 class HelperFolder(BaseModel):
@@ -158,6 +161,8 @@ async def patch_helper_session(sid: str, body: HelperPatch):
         await asyncio.to_thread(helper.update, sid, title=body.title.strip()[:120])
     if body.folder is not None:
         await asyncio.to_thread(helper_call, helper.set_folder, sid, body.folder)
+    if body.mode:
+        await asyncio.to_thread(helper_call, helper.set_mode, sid, body.mode, body.thread_id, body.flow)
     return await asyncio.to_thread(helper.get, sid)
 
 
