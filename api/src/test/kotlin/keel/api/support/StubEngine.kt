@@ -232,6 +232,9 @@ class StubEngine private constructor(private val server: HttpServer) {
         }
         path.matches(Regex("/helper/sessions/[^/]+/stop")) -> 200 to helperSessions[path.split('/')[3]]
         path.matches(Regex("/helper/sessions/[^/]+/compact")) -> 200 to mapOf("before" to 48000, "after" to 6000)
+        // 0.18.18 keel TUI's `!command`, run through keel's guard
+        path.matches(Regex("/helper/sessions/[^/]+/run")) -> 200 to mapOf("command" to body?.get("command")?.asText(), "exit" to 0,
+            "output" to "README.md\n", "refused" to null)
         path.matches(Regex("/helper/sessions/[^/]+/export")) -> 200 to mapOf("path" to ".keel/chats/${path.split('/')[3]}.md", "messages" to 2)
         path.matches(Regex("/helper/sessions/[^/]+")) -> {
             val id = path.split('/')[3]

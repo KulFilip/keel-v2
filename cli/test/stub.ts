@@ -32,6 +32,8 @@ export function stubKeel() {
     // P1-3 the project's chats for /chats (with last_message and message_count); null: just the open one, if any
     // 0.18.18 the person's earlier prompts of the project, newest first (GET …/helper/prompts, keel TUI's ↑ / ↓)
     prompts: [] as string[],
+    // 0.18.18 what keel's guarded run answers for keel TUI's `!command` (POST …/helper/sessions/s1/run)
+    run: { exit: 0, output: "README.md\nsrc\n", refused: null } as { exit: number | null; output: string; refused: string | null },
     sessions: null as null | Record<string, unknown>[],
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
@@ -100,6 +102,7 @@ export function stubKeel() {
         state.thread = { ...state.thread, status: "running", current: "red", phase: "red", waiting: undefined };
         return [200, state.thread];
       case "GET /api/projects/demo/helper/prompts": return [200, state.prompts];
+      case "POST /api/projects/demo/helper/sessions/s1/run": return [200, { command: body.command, ...state.run }];
       case "GET /api/projects/demo/helper/commands": return [200, [{ name: "gate", description: "explain the gate", plugin: "keelbot", source: "keel" }]];
       case "POST /api/projects/demo/helper/sessions":
         state.session = { id: "s1", project: "demo", root: "/work/demo", mode: body.mode ?? "ask", title: body.title ?? "", model: body.model ?? { provider: "fake", mode: "api", model: "fake" },

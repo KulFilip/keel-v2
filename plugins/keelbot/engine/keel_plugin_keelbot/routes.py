@@ -6,6 +6,7 @@ its own routes (keel_engine/extensions.py mount). The runner is app.state.helper
     /helper/sessions/{sid}/turn | stop       one answer (it returns at once; helper.* events follow), stop it
     /helper/sessions/{sid}/compact           summarises the chat so far into a fresh engine_session, on request
     /helper/sessions/{sid}/export            P1-3 writes the chat as Markdown into the project's .keel/chats/<sid>.md
+    /helper/sessions/{sid}/run               0.18.18 keel TUI's `!command`: the person's command, through keel's guard
     /helper/prompts?project=                 0.18.18 what the person asked in the project's chats, newest first (keel TUI's ↑)
     /helper/sessions/{sid}/changes | undo    Fix and side: the files KeelBot changed, put one or all back
     /helper/sessions/{sid}/done              the checks, then keel's commit of KeelBot's files
@@ -60,6 +61,12 @@ class HelperAnswer(BaseModel):
     why: str = ""
 
 
+class HelperRun(BaseModel):
+    """0.18.18 keel TUI's `!command`: the person's own shell command, in the chat's folder."""
+    command: str = Field(min_length=1, max_length=8000, pattern=r"\S")
+    timeout: int | None = Field(default=None, ge=1, le=3600)
+
+
 class HelperUndo(BaseModel):
     path: str | None = None
 
@@ -102,6 +109,7 @@ class HelperTurn(BaseModel):
     mentions: list[dict[str, Any]] = Field(default_factory=list)   # [{kind: file|symbol|ac, value, file?, line?}]
     selection: dict[str, Any] | None = None     # {path, from, to, text}
     open_file: str | None = None
+    shell: dict[str, Any] | None = None         # 0.18.18 {command, exit, output}: a `!command` the person ran before
     timeout: int | None = Field(default=None, ge=30, le=3600)
 
 
@@ -223,6 +231,15 @@ async def post_helper_compact(sid: str, request: Request):
 async def post_helper_export(sid: str):
     """P1-3 Writes the chat as Markdown into the project's .keel/chats/<sid>.md; answers {path, messages}."""
     return await asyncio.to_thread(helper_call, helper.export, sid)
+
+
+@router.post("/helper/sessions/{sid}/run")
+async def post_helper_run(sid: str, body: HelperRun, request: Request):
+    """0.18.18 keel TUI's `!command` through keel's guard; answers {command, exit, output, refused}."""
+    try:
+        return await runner(request).run_command(sid, body.command, body.timeout or helper.SHELL_TIMEOUT)
+    except helper.HelperError as exc:
+        raise EngineError(exc.status, str(exc), exc.hint) from exc
 
 
 @router.get("/helper/prompts")

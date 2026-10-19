@@ -1073,7 +1073,36 @@ export function complete(ctx: Ctx, input: string, extra: { name: string; descrip
 }
 
 /** Run one line the person typed. Plain text (and KeelBot's own commands) asks KeelBot: the Reply says so in `chat`. */
+/** The most of a `!command`'s output the transcript shows (KeelBot gets up to 8,000 characters of it). */
+const SHELL_LINES = 200;
+
+/** 0.18.18 `!command`: keel runs it in the chat's folder through its guard; the output is a block, kept for the next
+ *  question to KeelBot. `!` alone drops a kept output. */
+async function shellRun(ctx: Ctx, command: string): Promise<Reply> {
+  const p = P(ctx);
+  if (!command) {
+    if (!ctx.core.shell) return text("!<command> runs a shell command in the project folder through keel's guard, for example !git status.");
+    const was = ctx.core.shell.command;
+    ctx.core.shell = null;
+    return { blocks: [{ kind: "dim", text: `  the output of !${was} is dropped: your next question goes without it` }] };
+  }
+  try {
+    const r = await ctx.core.runShell(command);
+    if (r.refused) return { blocks: [{ kind: "error", text: `refused: ${command}\n${r.refused}` }] };
+    const lines = r.output.replace(/\n+$/, "").split("\n");
+    const shown = lines.length > SHELL_LINES ? [`… ${lines.length - SHELL_LINES} lines above`, ...lines.slice(-SHELL_LINES)] : lines;
+    return { blocks: [
+      { kind: "text", text: [`${p.bold(`$ ${command}`)}`, ...(r.output.trim() ? shown : [p.dim("(no output)")]),
+        r.exit === 0 ? p.ok("exit 0") : p.warn(`exit ${r.exit}`)].join("\n") },
+      { kind: "dim", text: "  your next question to KeelBot gets this output (! alone drops it)" },
+    ] };
+  } catch (e) {
+    return errorReply(e);
+  }
+}
+
 export async function run(ctx: Ctx, input: string, keelbot: { name: string }[] = []): Promise<Reply> {
+  if (input.trimStart().startsWith("!")) return shellRun(ctx, input.trim().slice(1).trim());
   const p = parse(input);
   if (p.kind === "empty") return { blocks: [] };
   if (p.kind === "chat") return { blocks: [], chat: p.text };

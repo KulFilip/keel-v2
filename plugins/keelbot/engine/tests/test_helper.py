@@ -694,3 +694,68 @@ def test_the_prompt_history_is_the_projects_own_user_messages_newest_first_once_
     # KeelBot's answers and notes are never prompts; the limit cuts the oldest
     assert client.get("/helper/prompts", params={"project": "demo", "limit": 1}).json() == ["line one\nline two"]
     assert client.get("/helper/prompts", params={"project": "nobody"}).json() == []
+
+
+# ------------------------------------------------------------------ 0.18.18 keel TUI's `!command`
+
+def test_a_command_that_changes_nothing_runs_in_the_project_folder_and_answers_its_output(client, repo):
+    """POST /helper/sessions/{sid}/run runs the person's command in the chat's folder through keel's guard
+    (ToolBox.run_command): one that changes nothing runs at once and answers its exit and output."""
+    s = new_session(client, repo, mode="edit")
+    r = client.post(f"/helper/sessions/{s['id']}/run", json={"command": "ls src"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["command"] == "ls src" and body["exit"] == 0 and body["refused"] is None
+    assert "scores" in body["output"]
+    bad = client.post(f"/helper/sessions/{s['id']}/run", json={"command": "ls no-such-dir"}).json()
+    assert bad["exit"] != 0 and bad["refused"] is None
+    assert client.post("/helper/sessions/h_nope/run", json={"command": "ls"}).status_code == 404
+    assert client.post(f"/helper/sessions/{s['id']}/run", json={"command": "  "}).status_code == 400
+    # nothing is stored in the chat: the output goes with the person's next question (keel TUI keeps it)
+    assert client.get(f"/helper/sessions/{s['id']}").json()["messages"] == []
+
+
+def test_a_command_that_changes_something_waits_for_the_persons_ok_as_keelbots_own_do(client, repo):
+    """Edit (and Fix, side): a command that changes something waits for the person's OK on a permission card, as
+    KeelBot's own commands do; a deny answers the reason and the command never runs."""
+    s = new_session(client, repo, mode="edit")
+    got = {}
+    t = threading.Thread(target=lambda: got.update(client.post(f"/helper/sessions/{s['id']}/run",
+                                                                json={"command": "touch made-by-bang.txt"}).json()))
+    t.start()
+    deadline = time.time() + 10
+    while not client.get("/helper/permissions", params={"project": "demo"}).json() and time.time() < deadline:
+        time.sleep(0.02)
+    q = client.get("/helper/permissions", params={"project": "demo"}).json()[0]
+    assert q["command"] == "touch made-by-bang.txt" and q["session"] == s["id"]
+    assert client.get(f"/helper/sessions/{s['id']}").json()["busy"] is True        # no turn starts meanwhile
+    client.post(f"/helper/permissions/{q['id']}", json={"decision": "deny", "why": "not now"})
+    t.join(10)
+    assert got["refused"] == "not now" and got["exit"] is None
+    assert not (Path(repo) / "made-by-bang.txt").exists()
+    # allowed once: it runs
+    t = threading.Thread(target=lambda: got.update(client.post(f"/helper/sessions/{s['id']}/run",
+                                                                json={"command": "touch made-by-bang.txt"}).json()))
+    t.start()
+    while not client.get("/helper/permissions").json() and time.time() < deadline:
+        time.sleep(0.02)
+    client.post(f"/helper/permissions/{client.get('/helper/permissions').json()[0]['id']}", json={"decision": "once"})
+    t.join(10)
+    assert got["exit"] == 0 and got["refused"] is None and (Path(repo) / "made-by-bang.txt").exists()
+    assert client.get(f"/helper/sessions/{s['id']}").json()["busy"] is False
+
+
+def test_ask_mode_refuses_a_command_that_changes_something_and_says_how_to_go_on(client, repo):
+    s = new_session(client, repo)                                            # Ask: read only
+    body = client.post(f"/helper/sessions/{s['id']}/run", json={"command": "touch nope.txt"}).json()
+    assert body["refused"] and body["exit"] is None and "/mode edit" in body["refused"]
+    assert not (Path(repo) / "nope.txt").exists()
+    assert client.post(f"/helper/sessions/{s['id']}/run", json={"command": "cat README.md"}).json()["exit"] == 0
+
+
+def test_the_output_of_the_persons_command_goes_into_the_next_turns_prompt():
+    p = helper.build_prompt(mode="ask", root="/r", question="why does it fail?", know={"sections": [], "code_graph": False, "memory": False}, graph=False, flow=None,
+                            mentions=None, selection=None, open_file=None, transcript="",
+                            shell={"command": "npm test", "exit": 1, "output": "1 failed: test_rank"})
+    assert "The person ran `npm test` in the project folder (exit 1)" in p and "1 failed: test_rank" in p
+    assert p.index("1 failed") < p.index("Question: why does it fail?")

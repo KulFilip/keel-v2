@@ -437,6 +437,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         const mentions = core.mentions.mentionsIn(reply.chat);
         if (images.length) push({ kind: "dim", text: `  KeelBot takes no images yet: it gets the path of ${images.map((i) => i.name).join(", ")}` });
         if (mentions.length) push({ kind: "dim", text: `  with ${mentions.map((m) => `@${m.value}`).join(" ")}` });
+        if (core.shell) push({ kind: "dim", text: `  with the output of !${core.shell.command}` });
         pastes.current.clear();
         await core.send(full, mentions);
       } catch (e) {
@@ -1043,7 +1044,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
                 <Text>
                   <Text color={t.color("accent")} bold>{"› "}</Text>
                   <Text inverse> </Text><Text color={t.color("dim")}>{pending?.ask ? "type the answer, Enter sends"
-                    : flowWaits ? "A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot" : "Ask KeelBot, or / for commands"}</Text>
+                    : flowWaits ? "A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot" : "Ask KeelBot, / for commands, ! for a shell command"}</Text>
                 </Text>
               )}
             </Box>
@@ -1059,6 +1060,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
    *  inverse, and how many rows are hidden above or below. */
   function promptText() {
     const pv = promptRows(line, cursor);
+    // 0.18.18 `!` at the start: a shell command keel runs in the project folder (as opencode's shell mode, MIT)
+    const shellLine = line.startsWith("!");
     const more = (n: number, where: string) => (
       <Text color={t.color("dim")} wrap="truncate-end">{`  ${n} more line${n === 1 ? "" : "s"} ${where}`}</Text>
     );
@@ -1067,7 +1070,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         {pv.above > 0 && more(pv.above, "above")}
         {pv.rows.map((r, i) => (
           <Text key={pv.above + i}>
-            <Text color={t.color("accent")} bold>{pv.above + i === 0 ? "› " : "  "}</Text>
+            <Text color={t.color(shellLine ? "warn" : "accent")} bold>{pv.above + i === 0 ? (shellLine ? "shell › " : "› ") : shellLine ? "        " : "  "}</Text>
             {r.cursor === null ? inputText(r.text || " ")
               : <>{inputText(r.text.slice(0, r.cursor))}<Text inverse>{r.text[r.cursor] ?? " "}</Text>{inputText(r.text.slice(r.cursor + 1))}</>}
           </Text>

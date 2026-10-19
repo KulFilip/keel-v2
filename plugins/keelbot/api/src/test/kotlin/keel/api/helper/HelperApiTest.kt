@@ -60,6 +60,25 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `a bang command reaches the engine's guarded run, and its output goes with the next turn`() {
+        // 0.18.18 keel TUI's `!command`: the engine runs it through keel's guard; its output goes with the next question
+        val (pid, _) = newProject("helper-run")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("title" to "Shell")).json()["id"].asText()
+        val r = post("/api/projects/$pid/helper/sessions/$sid/run", mapOf("command" to " ls ")).andExpect(status().isOk).json()
+        assertThat(r["exit"].asInt()).isEqualTo(0)
+        assertThat(engine.lastBody("/helper/sessions/$sid/run")!!["command"].asText()).isEqualTo("ls")
+        post("/api/projects/$pid/helper/sessions/$sid/run", mapOf("command" to "  ")).andExpect(status().isBadRequest)
+        val (other, _) = newProject("helper-run-other")
+        post("/api/projects/$other/helper/sessions/$sid/run", mapOf("command" to "ls")).andExpect(status().isNotFound)
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "why?",
+            "shell" to mapOf("command" to "npm test", "exit" to 1, "output" to "1 failed"))).andExpect(status().isOk)
+        val shell = engine.lastBody("/helper/sessions/$sid/turn")!!["shell"]
+        assertThat(shell["command"].asText()).isEqualTo("npm test")
+        assertThat(shell["exit"].asInt()).isEqualTo(1)
+        assertThat(shell["output"].asText()).isEqualTo("1 failed")
+    }
+
+    @Test
     fun `the prompt history is the engine's, for this project only`() {
         // 0.18.18 keel TUI's ↑ / ↓ walk the person's earlier prompts of the project, newest first, from keel
         val (pid, _) = newProject("helper-prompts")

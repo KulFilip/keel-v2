@@ -557,6 +557,28 @@ export class KeelCore {
     return get<string[]>(`/projects/${encodeURIComponent(pid)}/helper/prompts?limit=50`);
   }
 
+  /** 0.18.18 The last `!command`'s output that goes with the person's next question to KeelBot (once), as @mentions
+   *  do; null when there is none (a refused command keeps none). */
+  shell: ShellRun | null = null;
+
+  /** 0.18.18 keel TUI's `!command`: keel runs it in the chat's folder through its guard (a command that changes
+   *  something waits for the person's OK on a permission card, as KeelBot's own do; Ask mode runs only what changes
+   *  nothing). Opens a chat first when none is open. Its output is kept for the next question. */
+  async runShell(command: string): Promise<ShellRun & { refused: string | null }> {
+    const pid = this.pid;
+    if (!pid) throw new Error("no project: /project picks one");
+    setCommand(`!${command.split(/\s+/)[0]}`);
+    try {
+      const s = await this.ensureChat(pid, `!${command}`);
+      const r = await post<ShellRun & { refused: string | null }>(
+        `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(s.id)}/run`, { command });
+      this.shell = r.refused ? null : { command: r.command, exit: r.exit, output: r.output };
+      return r;
+    } finally {
+      setCommand("");
+    }
+  }
+
   /** P1-3 Name the open chat: the session's existing PATCH {title}; the engine keeps it (a first turn no longer names it). */
   async rename(title: string): Promise<HelperSession> {
     const { pid, sid } = this.chatOf();
@@ -577,19 +599,29 @@ export class KeelCore {
     return kb.undo(pid, sid, path);
   }
 
-  private async sendTurn(pid: string, text: string, mentions: HelperMention[] = []): Promise<HelperSession> {
+  /** The open chat, or a new one in the chosen mode and model (and the shared focus says so). */
+  private async ensureChat(pid: string, title: string): Promise<HelperSession> {
     let s = this.snapshot.chat.session;
     if (!s) {
       const { mode, model } = this.snapshot.chat;
-      s = await kb.create(pid, { mode, ...(model ? { model } : {}), title: text.slice(0, 60) });
+      s = await kb.create(pid, { mode, ...(model ? { model } : {}), title: title.slice(0, 60) });
       this.setChat({ session: s });
       this.shareFocus({ chat: s.id, chat_project: pid });
     }
+    return s;
+  }
+
+  private async sendTurn(pid: string, text: string, mentions: HelperMention[] = []): Promise<HelperSession> {
+    const s = await this.ensureChat(pid, text);
     // its helper.started may arrive before the turn's answer: it is this app's own, not one from the dashboard
     this.sending = true;
     let t;
     try {
-      t = await kb.turn(pid, s.id, { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}) });
+      // 0.18.18 the last `!command`'s output goes with this question, once
+      const body = { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}),
+        ...(this.shell ? { shell: this.shell } : {}) };
+      t = await kb.turn(pid, s.id, body);
+      this.shell = null;
     } finally {
       this.sending = false;
     }
@@ -657,6 +689,9 @@ export class KeelCore {
     return kb.commands(this.pid).catch(() => []);
   }
 }
+
+/** 0.18.18 a `!command` keel ran for the person: its exit (null: it did not run) and what it printed */
+export type ShellRun = { command: string; exit: number | null; output: string };
 
 const lastIsUser = (s: HelperSession) => {
   const m = s.messages ?? [];

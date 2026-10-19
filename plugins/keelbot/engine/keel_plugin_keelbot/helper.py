@@ -67,6 +67,7 @@ RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session 
 TRANSCRIPT_CHARS = 6000                  # the conversation so far, for the engines that cannot continue a session
 HISTORY_TURNS = 12                       # earlier messages an API-key model gets
 TURN_TIMEOUT = 900
+SHELL_TIMEOUT = 300                      # 0.18.18 a `!command` the person runs (keel TUI), once it may run
 COMPACT_RATIO = 0.85                     # ctx_tokens / ctx_window above this: compact before the next turn runs
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
@@ -651,9 +652,22 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
     return ("The conversation so far (oldest first):\n" + "\n\n".join(reversed(parts))) if parts else ""
 
 
+SHELL_OUTPUT_MAX = 8000
+
+
+def _shell_block(shell: dict | None) -> str:
+    """0.18.18 The output of a command the person ran themselves (keel TUI's `!command`), for their next question."""
+    if not shell or not str(shell.get("command") or "").strip():
+        return ""
+    code = shell.get("exit")
+    how = f"exit {code}" if code is not None else "refused"
+    out = str(shell.get("output") or "")[-SHELL_OUTPUT_MAX:]
+    return f"The person ran `{shell['command']}` in the project folder ({how}); its output:\n```\n{out.rstrip()}\n```"
+
+
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
-                 branch: str = "", pid: str = "", keel: dict | None = None) -> str:
+                 branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None) -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
     parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), where]
     block = agent_knowledge.prompt_block(root, know, graph)
@@ -666,7 +680,7 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     if ctx:
         parts.append("Read these when they help: " + ", ".join(ctx))
     for extra in (_flow_block(flow), keelbot.keel_block(keel, question), transcript,
-                  _pointing(mentions or [], selection, open_file)):
+                  _pointing(mentions or [], selection, open_file), _shell_block(shell)):
         if extra:
             parts.append(extra)
     parts.append(f"Question: {question.strip()}")
@@ -713,6 +727,7 @@ class HelperRunner:
         # (keel_engine/approvals.py); KeelBot keeps its keys, its "always" grants and the cards of its own panel.
         self.ask_keys: dict[str, str] = {}
         self.approvals = approvals.of(bus)
+        self.commands: set[str] = set()          # 0.18.18 sessions whose person's `!command` runs now
 
     # ---- permission cards (runtime/permissions.py) --------------------------------------------------------------
 
@@ -771,7 +786,48 @@ class HelperRunner:
 
     def busy(self, sid: str) -> bool:
         t = self.tasks.get(sid)
-        return bool(t and not t.done())
+        return bool(t and not t.done()) or sid in self.commands
+
+    async def run_command(self, sid: str, command: str, timeout: int = SHELL_TIMEOUT) -> dict:
+        """0.18.18 keel TUI's `!command`: the person's own command, in the chat's folder (a side session's worktree),
+        through keel's guard as KeelBot's own commands go (ToolBox.run_command): the rules first, then in Edit, Fix and
+        side a command that changes something waits for the person's OK on a permission card; Ask runs only what
+        changes nothing. Answers {command, exit, output, refused}; nothing is stored in the chat."""
+        s = get(sid, messages=False)
+        cmd = (command or "").strip()
+        if self.busy(sid):
+            raise HelperError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then run the command.")
+        root, mode = workdir(s), s["mode"]
+        cfg = rules.load_config(root)
+        refused: list[str] = []
+
+        def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
+            refused.append(reason)
+
+        if mode == "ask":
+            toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, readonly=True)
+        else:
+            key = secrets.token_urlsafe(24)
+            self.ask_keys[sid] = key
+            toolbox = ToolBox(root, (s.get("phase") or "none") if mode == "fix" else "none", cfg=cfg, on_refuse=on_refuse,
+                              agent=AGENT, confine=mode in ("side", "edit"),
+                              asker=lambda c: self.ask_blocking(sid, key, c))
+        self.commands.add(sid)
+        try:
+            said = await asyncio.to_thread(toolbox.run_command, cmd, timeout)
+        finally:
+            self.commands.discard(sid)
+            self.ask_keys.pop(sid, None)
+            self._drop_questions(sid, "The command ended.")
+        if said.startswith("REFUSED:"):
+            why = refused[-1] if refused else said[len("REFUSED:"):].strip()
+            if mode == "ask":
+                why = (f"{why} KeelBot's Ask mode is read only: /mode edit runs it (a command that changes something "
+                       "waits for your OK), or run it in your own terminal.")
+            return {"command": cmd, "exit": None, "output": "", "refused": why}
+        head, _, out = said.partition("\n")
+        code = int(head.split()[1]) if head.startswith("exit ") and head.split()[1].lstrip("-").isdigit() else None
+        return {"command": cmd, "exit": code, "output": out, "refused": None}
 
     async def turn(self, sid: str, body: dict) -> dict:
         s = get(sid, messages=False)
@@ -788,7 +844,8 @@ class HelperRunner:
             s = set_model(sid, body["model"])
         question, command = plugins.expand(s["root"], text, body.get("plugins"))
         n = add_message(sid, "user", text, data={k: v for k, v in {"command": command, "mentions": body.get("mentions"),
-                                                                    "selection": body.get("selection")}.items() if v})
+                                                                    "selection": body.get("selection"),
+                                                                    "shell": body.get("shell")}.items() if v})
         if s["title"] == "New chat" and s["turns"] == 0:
             update(sid, title=short_title(text))
         call_id = uuid.uuid4().hex
@@ -912,7 +969,8 @@ class HelperRunner:
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
-                                  transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on})
+                                  transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
+                                  shell=body.get("shell"))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills")), prompt=prompt,
                                    root=root, phase=phase, model=model, toolbox=toolbox, title=s["title"], step_name="helper",

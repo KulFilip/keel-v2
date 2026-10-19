@@ -369,6 +369,10 @@
       "does": "a new line in the prompt (Shift+Enter where the terminal reports it; Ctrl+J too); Enter sends it all"
     },
     {
+      "key": "!command",
+      "does": "runs the shell command in the project folder through keel's guard (a command that changes something waits for your OK; Ask mode only reads); its output goes with your next question to KeelBot, once"
+    },
+    {
       "key": "Ctrl+X E",
       "does": "the prompt in your editor ($VISUAL or $EDITOR), as /editor"
     },

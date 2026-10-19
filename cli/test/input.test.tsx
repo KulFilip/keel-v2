@@ -224,3 +224,45 @@ describe("/editor", () => {
     }
   });
 });
+
+describe("!command", () => {
+  it("runs through keel's guarded run, shows its output as a block, and sends it with the next question once", async () => {
+    const a = await app();
+    await a.key("!ls");
+    expect(a.prompt()).toContain("shell");                 // the prompt says it is a shell command
+    await a.key("\r", 200);
+    await waitFor(() => a.stub.calls.some((c) => c.path === "/api/projects/demo/helper/sessions/s1/run"));
+    const run = a.stub.calls.find((c) => c.path === "/api/projects/demo/helper/sessions/s1/run")!;
+    expect(run.body).toEqual({ command: "ls" });
+    await waitFor(() => a.frame().includes("README.md"), 3000);
+    expect(a.frame()).toContain("$ ls");
+    expect(a.frame()).toContain("your next question to KeelBot gets this output");
+    expect(a.stub.calls.some((c) => c.path.endsWith("/turn"))).toBe(false);   // KeelBot was not asked
+    a.stub.answer("I see two entries.");
+    await a.key("what is here?", 60);
+    await a.key("\r", 300);
+    await waitFor(() => a.stub.calls.some((c) => c.path.endsWith("/s1/turn")));
+    const turn = a.stub.calls.find((c) => c.path.endsWith("/s1/turn"))!;
+    expect((turn.body as { shell?: unknown }).shell).toEqual({ command: "ls", exit: 0, output: "README.md\nsrc\n" });
+    await waitFor(() => a.frame().includes("with the output of !ls"), 3000);
+    expect(a.core.shell).toBeNull();                       // once: the next question goes without it
+    a.r.unmount();
+  });
+
+  it("a refused command says why and keeps no output; ! alone drops a kept one", async () => {
+    const a = await app((s) => (s.state.run = { exit: null, output: "", refused: "KeelBot's Ask mode is read only: /mode edit runs it" }));
+    await a.key("!touch x", 60);
+    await a.key("\r", 200);
+    await waitFor(() => a.frame().includes("Ask mode is read only"), 3000);
+    expect(a.core.shell).toBeNull();
+    a.stub.state.run = { exit: 0, output: "ok\n", refused: null };
+    await a.key("!true", 60);
+    await a.key("\r", 200);
+    await waitFor(() => a.core.shell !== null, 3000);
+    await a.key("!", 60);
+    await a.key("\r", 200);
+    await waitFor(() => a.frame().includes("dropped"), 3000);
+    expect(a.core.shell).toBeNull();
+    a.r.unmount();
+  });
+});
