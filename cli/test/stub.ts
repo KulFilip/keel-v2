@@ -103,6 +103,8 @@ export function stubKeel() {
       case "POST /api/projects/demo/helper/sessions/s1/turn":
         state.messages.push({ n: state.messages.length + 1, role: "user", text: body.text, data: {}, at: AT });
         return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
+      // P1-2 /compact: the engine's {before, after} token counts for the session it just summarised
+      case "POST /api/projects/demo/helper/sessions/s1/compact": return [200, { before: 48000, after: 6000 }];
       case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
       case "GET /api/projects/demo/helper/sessions": return [200, state.session ? [state.session] : []];
       // 0.18.5 a new workflow, rule pack or agent
