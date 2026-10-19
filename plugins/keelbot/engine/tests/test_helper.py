@@ -524,11 +524,18 @@ async def test_ac_1_compact_summarises_keeps_every_row_and_starts_a_fresh_sessio
     note = after_rows[-1]
     assert note["role"] == "note"
     assert note["text"].strip()
-    # a fresh engine_session: the next turn continues the model on a new session, not the summarised one
-    assert after["engine_session"] and after["engine_session"] != before_session
-    # ctx_tokens resets to the summary's own size, not the running total of everything it replaced
+    # no engine session to resume: the next turn starts a new one (a made-up id would "resume" nothing, with no
+    # transcript, and the model would lose the whole chat)
+    assert after["engine_session"] is None
+    # ctx_tokens resets to the summary's own size, not the size of the summary call (that read the whole old chat)
     data = note["data"]
-    assert after["ctx_tokens"] == data["tokens_in"] + data["tokens_out"] + data["tokens_cached"]
+    assert data["compact"] is True and after["ctx_tokens"] == data["after"] < data["tokens_in"] + data["after"]
+    # the next turn's history starts from the summary, then only what comes after it; nothing is lost
+    hist = helper.history(sid)
+    assert hist[0][0] == "user" and note["text"].strip() in hist[0][1] and len(hist) == 1
+    _, s = ask(client, sid, "Go on.")
+    hist = helper.history(sid)
+    assert note["text"].strip() in hist[0][1] and [r for r, _ in hist[1:]] == ["user", "assistant"]
 
 
 # ------------------------------------------------------------------ P1-2 /compact (AC-2)
@@ -548,8 +555,9 @@ def test_ac_2_a_turn_above_85_percent_of_the_window_compacts_itself_before_it_ru
     roles = [m["role"] for m in rows]
     assert "note" in roles
     assert roles.index("note") < roles.index("user")
-    # the compacted session moved to a fresh engine_session before the turn used it
-    assert s["engine_session"] != before_session
+    # the turn compacted first: the note is a compact summary, and the window is far from full again
+    note = next(m for m in rows if m["role"] == "note")
+    assert note["data"]["compact"] is True and note["data"]["after"] < int(s["ctx_window"] * 0.9)
 
 
 def test_ac_2_a_turn_below_the_threshold_never_compacts(client, repo):
