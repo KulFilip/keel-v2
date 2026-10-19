@@ -9,6 +9,8 @@ its own routes (keel_engine/extensions.py mount). The runner is app.state.helper
     /helper/sessions/{sid}/run               0.18.18 keel TUI's `!command`: the person's command, through keel's guard
     /helper/prompts?project=                 0.18.18 what the person asked in the project's chats, newest first (keel TUI's ↑)
     /helper/sessions/{sid}/changes | undo    Fix and side: the files KeelBot changed, put one or all back
+    /helper/sessions/{sid}/undo-turn | redo-turn   0.18.19 undo KeelBot's last answer (its files, its messages marked
+                                             reverted; the question comes back), or redo it until a new message
     /helper/sessions/{sid}/done              the checks, then keel's commit of KeelBot's files
     /helper/sessions/{sid}/handover|release  a side session's branch, handed over to a task or a change flow
     /helper/permissions[/ask | /{qid}]       a command that waits for the person's OK (core approvals; old aliases)
@@ -277,6 +279,22 @@ async def post_helper_undo(sid: str, body: HelperUndo, request: Request):
     if runner(request).busy(sid):
         raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then undo.")
     return await asyncio.to_thread(helper_call, helper.undo, sid, body.path)
+
+
+@router.post("/helper/sessions/{sid}/undo-turn")
+async def post_helper_undo_turn(sid: str, request: Request):
+    """0.18.19 Undo KeelBot's last answer: {n, text, files, messages} (keel TUI's /undo with no argument)."""
+    if runner(request).busy(sid):
+        raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then undo.")
+    return await asyncio.to_thread(helper_call, helper.undo_turn, sid)
+
+
+@router.post("/helper/sessions/{sid}/redo-turn")
+async def post_helper_redo_turn(sid: str, request: Request):
+    """0.18.19 Redo the answer /undo took back, while no new message was sent: {n, text, files, messages}."""
+    if runner(request).busy(sid):
+        raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then redo.")
+    return await asyncio.to_thread(helper_call, helper.redo_turn, sid)
 
 
 @router.post("/helper/sessions/{sid}/done")

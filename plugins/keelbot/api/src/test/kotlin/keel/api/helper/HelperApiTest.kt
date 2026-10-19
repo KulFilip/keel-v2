@@ -60,6 +60,21 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `undo-turn and redo-turn reach the engine, for this project's chats only`() {
+        // 0.18.19 keel TUI's /undo and /redo with no argument: a whole KeelBot answer
+        val (pid, _) = newProject("helper-undo-turn")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("title" to "Scores")).json()["id"].asText()
+        val u = post("/api/projects/$pid/helper/sessions/$sid/undo-turn").andExpect(status().isOk).json()
+        assertThat(u["text"].asText()).isEqualTo("add b")
+        assertThat(u["files"].map { it.asText() }).containsExactly("src/a.kt", "src/b.kt")
+        val r = post("/api/projects/$pid/helper/sessions/$sid/redo-turn").andExpect(status().isOk).json()
+        assertThat(r["n"].asInt()).isEqualTo(3)
+        val (other, _) = newProject("helper-undo-turn-other")
+        post("/api/projects/$other/helper/sessions/$sid/undo-turn").andExpect(status().isNotFound)
+        post("/api/projects/$other/helper/sessions/$sid/redo-turn").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `a bang command reaches the engine's guarded run, and its output goes with the next turn`() {
         // 0.18.18 keel TUI's `!command`: the engine runs it through keel's guard; its output goes with the next question
         val (pid, _) = newProject("helper-run")

@@ -231,3 +231,19 @@ def test_a_final_revert_starts_a_fresh_cli_session_without_the_undone_turn(clien
     assert helper.finalize_reverts(s["id"]) == 1
     assert helper.get(s["id"], messages=False)["engine_session"] is None
     assert helper.finalize_reverts(s["id"]) == 0
+
+
+# ------------------------------------------------------------------ the routes keel TUI's /undo and /redo call
+
+def test_the_undo_turn_and_redo_turn_routes(client, repo, model):
+    s, _ = two_turns(client, repo, model)
+    r = client.post(f"/helper/sessions/{s['id']}/undo-turn")
+    assert r.status_code == 200 and r.json()["text"] == "second: change a, add b" and len(r.json()["files"]) == 2
+    r = client.post(f"/helper/sessions/{s['id']}/redo-turn")
+    assert r.status_code == 200 and r.json()["n"] == 3
+    r = client.post(f"/helper/sessions/{s['id']}/redo-turn")
+    assert r.status_code == 409 and r.json()["error"].startswith("Nothing to redo")
+    assert client.post("/helper/sessions/nope/undo-turn").status_code == 404
+    assert client.post("/helper/sessions/nope/redo-turn").status_code == 404
+    a = new_session(client, repo)
+    assert client.post(f"/helper/sessions/{a['id']}/undo-turn").status_code == 400
