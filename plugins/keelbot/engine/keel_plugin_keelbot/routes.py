@@ -208,8 +208,10 @@ async def post_helper_stop(sid: str, request: Request):
 
 
 @router.post("/helper/sessions/{sid}/compact")
-async def post_helper_compact(sid: str):
+async def post_helper_compact(sid: str, request: Request):
     """Compacts the session on request, answering the tokens it had before and after."""
+    if runner(request).busy(sid):
+        raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then compact.")
     before = (await asyncio.to_thread(helper_call, helper.get, sid, False))["ctx_tokens"]
     after = (await helper.compact(sid))["ctx_tokens"]
     return {"before": before, "after": after}
