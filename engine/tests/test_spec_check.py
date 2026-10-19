@@ -164,3 +164,26 @@ def test_keels_spec_template_has_every_section_the_check_asks_for():
     for n in spec_check.SECTION_ORDER:
         assert n.lower() in names, n
     assert names.index("goal") < names.index("acceptance criteria") < names.index("test layers") < names.index("plan")
+
+
+def test_e2e_and_smoke_criteria_pass_the_check_without_a_mockup_or_request_path():
+    """[E2E] and [SMOKE] are real criteria tags (spec-writing, the template, the parser): the check asks a [WEB] criterion
+    for a mockup and an [API] one for a request path, never an [E2E] or [SMOKE] one."""
+    from keel_engine.runtime import prompts
+
+    text = GOOD.replace("- **AC-2** [WEB] Given the page, when it loads, then every player's rank is shown.",
+                        "- **AC-2** [E2E] Given the page, when a player signs in, then their rank is shown.\n"
+                        "- **AC-3** [SMOKE] Given a deploy, when GET /leaderboard is called, then it answers 200.")
+    text = text.replace("- AC-2: component test; e2e: not needed, one screen", "- AC-2: e2e (sign in, open the board)\n- AC-3: smoke")
+    acs = [{"id": m.group(1), "layer": m.group(2).upper(), "title": m.group(3)} for m in map(prompts.AC_LINE.search, text.splitlines()) if m]
+    assert [a["layer"] for a in acs] == ["API", "E2E", "SMOKE"]
+    texts = [f["text"] for f in spec_check.check(text, [a for a in acs if a["layer"] != "API"]) if f["level"] == "fix"]
+    assert not any("Mockup" in t or "Request path" in t for t in texts), texts
+    assert "[E2E]" in open(spec_check.template_path()).read()
+
+
+def test_an_amendment_can_retag_a_criterion_as_e2e():
+    from keel_engine.runtime import feature_actions
+
+    block = "### 2026-10-19 — AC-2\nWas: - **AC-2** [WEB] the board shows\nNow:\n- **AC-2** [E2E] the board shows after sign-in\nWhy: a journey."
+    assert feature_actions.amended_criteria(block) == {"AC-2": {"layer": "E2E", "title": "the board shows after sign-in"}}

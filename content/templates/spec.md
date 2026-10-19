@@ -65,10 +65,14 @@ story, and a story with no "so that" is a task with a role bolted on. -->
 
 <!-- Numbered, layer-tagged, testable from outside: Given / when / then, the then
      observable (a status, a stored value, a message sent, text on screen). Cover: the value
-     absent, valid, malformed, a later update, an old message still queued, the docs. -->
+     absent, valid, malformed, a later update, an old message still queued, the docs.
+     Tags: [API] or [WEB] (built one by one, failing test first); [E2E] for a journey that
+     needs a browser and [SMOKE] for a check that must also pass after a deploy (their tests
+     are written in the e2e and smoke steps). -->
 
 - **AC-001** [API] Given <state>, when <action>, then <observable result>.
 - **AC-002** [WEB] Given <state>, when <action>, then <observable result>.
+- **AC-003** [E2E] Given <state>, when <journey>, then <what the user sees>.
 
 ## Test layers
 

@@ -598,8 +598,8 @@ def _last_amendment(text: str) -> str:
 # or retags the criteria it names ("Now: tagged [API]"). The block stays as the record of what changed and why.
 
 NOW_PART = re.compile(r"(?ims)^[ \t>*+-]*\**now\**[ \t]*:\**(.*?)(?=^[ \t>*+-]*\**(?:was|why|reopen|contract)\**[ \t]*:|\Z)")
-FULL_LINE = re.compile(r"^[ \t>*+-]*\**(AC-\d+)\**[ \t]*\[(API|WEB)\][ \t]*(.*)$", re.I)
-LAYER_TAG = re.compile(r"\[(API|WEB)\]", re.I)
+FULL_LINE = re.compile(r"^[ \t>*+-]*\**(AC-\d+)\**[ \t]*\[(API|WEB|E2E|SMOKE)\][ \t]*(.*)$", re.I)
+LAYER_TAG = re.compile(r"\[(API|WEB|E2E|SMOKE)\]", re.I)
 # "(wording unchanged)", "same as approved": a restated line that keeps the old words
 SAME_WORDS = re.compile(r"^\W*(\(?\s*(wording|text|behaviou?r)?\s*(unchanged|the same|same|as (before|approved))\s*\)?)?\W*$", re.I)
 AC_RANGE = re.compile(r"\b(AC)-(\d+)\s*(?:\.\.\.?|–|—|-|\bto\b|\bthrough\b)\s*AC-(\d+)\b", re.I)

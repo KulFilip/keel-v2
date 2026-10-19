@@ -96,7 +96,7 @@ steps:
       exists. Use keel's spec template (its path and sections are above): a Goal, User stories ("As a <role>, I want
       <capability>, so that <benefit>"), Findings (evidence) with a file:line or URL behind every claim and the paths
       the change touches traced (inbound, internal messages and their contract, persistence, outbound) with the tests
-      that exist today, criteria "AC-n [API|WEB] Given, when, then" that cover absent, valid, malformed, a later
+      that exist today, criteria "AC-n [API|WEB|E2E|SMOKE] Given, when, then" that cover absent, valid, malformed, a later
       update, an old message still queued and the docs, Test layers for every criterion, Validation and security
       rules, Edge cases, Risks and cost (files, migration, rolling deploy order, ambiguities to decide), Unverified and
       open questions for anything no source confirms, Out of scope, and a Definition of done. Draw before you finish

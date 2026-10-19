@@ -88,7 +88,7 @@ steps:
       deploy, persistence, outbound); the tests that exist today for those paths (or none); gaps that need a product
       decision, called decisions, not facts; Unverified, each fact no source confirms with what must be confirmed and
       by whom; a comparison table (angle, verdict, the key numbers, risk, effort); for the recommended angle, draft
-      acceptance criteria "AC-n [API|WEB] Given, when, then" that are testable and cover absent, valid, malformed, a
+      acceptance criteria "AC-n [API|WEB|E2E|SMOKE] Given, when, then" that are testable and cover absent, valid, malformed, a
       later update, an old queued message and the docs; Test layers per draft criterion (unit, functional,
       integration, smoke, e2e, or why not); Risks and cost (files touched, migration or not, the rolling deploy order
       between producer and consumer, ambiguities to decide); the sources with their URLs; open questions; and one
