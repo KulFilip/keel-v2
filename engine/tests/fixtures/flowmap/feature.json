@@ -340,6 +340,35 @@
    "lock": true
   },
   {
+   "id": "refactor",
+   "kind": "agent",
+   "name": "refactor (tests frozen)",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "refactor",
+   "per_ac": true,
+   "markers": [
+    "REFACTOR"
+   ],
+   "instructions": "This criterion is green. Tidy only the code GREEN just wrote for it and the code it touched: duplication GREEN built up, a name that no longer says what it does, a long function that hides its steps, dead code it left. Behaviour stays exactly the same: the tests are frozen (you cannot edit them) and must stay green. No new behaviour, no new public surface, nothing outside this criterion's code. When nothing is worth tidying, change nothing. End with exactly one line: REFACTOR: done, or REFACTOR: none.",
+   "skippable": "optional"
+  },
+  {
+   "id": "refactor_commit",
+   "kind": "code",
+   "name": "verify + refactor commit",
+   "phase": "refactor",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "when": {
+    "marker": "REFACTOR",
+    "equals": "done",
+    "step": "refactor"
+   },
+   "skippable": "optional",
+   "group": "refactor"
+  },
+  {
    "id": "ac_review",
    "kind": "agent",
    "name": "AC review",
@@ -455,6 +484,67 @@
    "action": "full_review"
   },
   {
+   "id": "stack_up",
+   "kind": "code",
+   "name": "stack up + migrate",
+   "phase": "smoke",
+   "action": "stack_up",
+   "soft": true
+  },
+  {
+   "id": "smoke_scope",
+   "kind": "code",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "action": "smoke_scope",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_needed",
+   "kind": "branch",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "no": "e2e_scope",
+   "when": {
+    "marker": "SMOKE",
+    "equals": "yes",
+    "step": "smoke_scope"
+   },
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke",
+   "kind": "agent",
+   "name": "smoke",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "smoke",
+   "instructions": "This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path. Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:\n{{data.smoke.checks}}",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_commit",
+   "kind": "code",
+   "name": "run smoke + commit",
+   "phase": "smoke",
+   "action": "verify_smoke+commit",
+   "rounds": 2,
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_gate",
+   "kind": "gate",
+   "name": "smoke",
+   "phase": "smoke",
+   "back": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
    "id": "e2e_scope",
    "kind": "code",
    "name": "e2e criteria + tool",
@@ -468,7 +558,7 @@
    "kind": "branch",
    "name": "e2e criteria",
    "phase": "e2e",
-   "no": "smoke_scope",
+   "no": "ready_show",
    "when": {
     "marker": "E2E",
     "equals": "yes",
@@ -526,59 +616,6 @@
    "back": "e2e",
    "skippable": "optional",
    "group": "e2e"
-  },
-  {
-   "id": "smoke_scope",
-   "kind": "code",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "action": "smoke_scope",
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_needed",
-   "kind": "branch",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "no": "ready_show",
-   "when": {
-    "marker": "SMOKE",
-    "equals": "yes",
-    "step": "smoke_scope"
-   },
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke",
-   "kind": "agent",
-   "name": "smoke",
-   "agent": "e2e-author",
-   "model": "default",
-   "phase": "smoke",
-   "instructions": "This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path. Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:\n{{data.smoke.checks}}",
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_commit",
-   "kind": "code",
-   "name": "run smoke + commit",
-   "phase": "smoke",
-   "action": "verify_smoke+commit",
-   "rounds": 2,
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_gate",
-   "kind": "gate",
-   "name": "smoke",
-   "phase": "smoke",
-   "back": "smoke",
-   "skippable": "optional",
-   "group": "smoke"
   },
   {
    "id": "ready_show",
@@ -1302,6 +1339,8 @@
    "green_amend",
    "green_blocked",
    "verify_green",
+   "refactor",
+   "refactor_commit",
    "ac_review",
    "ac_gate",
    "integration",
@@ -1315,17 +1354,18 @@
    "review_fix_commit",
    "code_review",
    "full_review",
+   "stack_up",
+   "smoke_scope",
+   "smoke_needed",
+   "smoke",
+   "smoke_commit",
+   "smoke_gate",
    "e2e_scope",
    "e2e_needed",
    "e2e_tool",
    "e2e",
    "e2e_commit",
    "e2e_gate",
-   "smoke_scope",
-   "smoke_needed",
-   "smoke",
-   "smoke_commit",
-   "smoke_gate",
    "ready_show",
    "ready_gate",
    "ship_plan",
@@ -1564,6 +1604,14 @@
         "side": []
        },
        {
+        "step": "refactor",
+        "side": []
+       },
+       {
+        "step": "refactor_commit",
+        "side": []
+       },
+       {
         "step": "ac_review",
         "side": []
        },
@@ -1645,6 +1693,43 @@
    },
    {
     "kind": "phase",
+    "phase": "smoke",
+    "nodes": [
+     {
+      "step": "stack_up",
+      "side": []
+     },
+     {
+      "step": "smoke_scope",
+      "side": []
+     },
+     {
+      "if": "smoke_needed",
+      "cond": "smoke checks says SMOKE = yes",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "smoke",
+         "side": []
+        },
+        {
+         "step": "smoke_commit",
+         "side": []
+        },
+        {
+         "step": "smoke_gate",
+         "side": []
+        }
+       ],
+       "side": false
+      },
+      "no": "go"
+     }
+    ]
+   },
+   {
+    "kind": "phase",
     "phase": "e2e",
     "nodes": [
      {
@@ -1673,39 +1758,6 @@
         },
         {
          "step": "e2e_gate",
-         "side": []
-        }
-       ],
-       "side": false
-      },
-      "no": "go"
-     }
-    ]
-   },
-   {
-    "kind": "phase",
-    "phase": "smoke",
-    "nodes": [
-     {
-      "step": "smoke_scope",
-      "side": []
-     },
-     {
-      "if": "smoke_needed",
-      "cond": "smoke checks says SMOKE = yes",
-      "side": [],
-      "yes": {
-       "nodes": [
-        {
-         "step": "smoke",
-         "side": []
-        },
-        {
-         "step": "smoke_commit",
-         "side": []
-        },
-        {
-         "step": "smoke_gate",
          "side": []
         }
        ],

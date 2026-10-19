@@ -220,7 +220,34 @@ def skip_menu_detail(steps: list, after: int) -> str:
     lines += ["", "Approve runs everything (the default). To skip, approve with payload "
               "{\"skip\": {\"<name>\": \"<reason>\"}} (or answer the skip question: payload.answers.skip and "
               "payload.reasons {\"<name>\": \"<reason>\"}); to pick the review lenses, add {\"lenses\": [\"correctness\", ...]}."]
+    if has_loop(steps, after):
+        lines += ["", "The criteria's gates for this flow only: add {\"gate_mode\": \"every-ac\" | \"end-of-lane\" | \"end\"} "
+                  "(default: the project's gate mode)."]
     return "\n".join(lines)
+
+
+GATE_MODES = {"every-ac": "a gate after every criterion", "end-of-lane": "one gate after the last criterion of each lane",
+              "end": "one gate after the last criterion"}
+
+
+def has_loop(steps: list, after: int) -> bool:
+    """Does the menu at `after` decide about a per-criterion loop (feature's options menu)? Then it can set the AC gates."""
+    return any(s.per_ac for s in covered(steps, after))
+
+
+def gate_mode_question() -> dict:
+    """keel v1's start picker: the AC gates for this flow only (the project's gates_mode stays the default)."""
+    return {"id": "gate_mode", "question": "When should keel stop for the criteria's gates in this flow?",
+            "why": "Only this flow; the project's gate mode setting stays as it is. Unanswered: the project's setting.",
+            "options": [{"label": k, "description": v, "recommended": False} for k, v in GATE_MODES.items()], "multiple": False}
+
+
+def gate_mode_of(payload: dict) -> str | None:
+    """payload.gate_mode, or the form's answers.gate_mode, when it names a gate mode."""
+    answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    mode = payload.get("gate_mode") or answers.get("gate_mode")
+    mode = mode[0] if isinstance(mode, list) and mode else mode
+    return str(mode) if str(mode or "") in GATE_MODES else None
 
 
 def skip_question(units: list[dict]) -> dict:

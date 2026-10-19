@@ -120,7 +120,8 @@ def green_fails(monkeypatch, left=99):
 
 
 def agents(seen, ac="AC-1"):
-    return [r.agent for r in seen if (r.ac or {}).get("id") == ac]
+    """The agents that worked on a criterion (the optional refactor's implementer is not a green attempt)."""
+    return [r.agent for r in seen if (r.ac or {}).get("id") == ac and r.phase != "refactor"]
 
 
 def test_the_ladder_same_agent_then_investigator_then_a_stronger_model_then_real_choices(client, repo, monkeypatch):

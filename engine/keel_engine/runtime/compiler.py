@@ -2219,6 +2219,8 @@ class Compiler:
             units = [u for j in self._menu_steps(i) for u in ship_mod.skip_units(self.wf.steps, j)]
             if units:
                 out.append(ship_mod.skip_question(units))
+            if any(ship_mod.has_loop(self.wf.steps, j) for j in self._menu_steps(i)):
+                out.append(ship_mod.gate_mode_question())
         return out
 
     def _menu_steps(self, after: int) -> list[int]:
@@ -2270,6 +2272,7 @@ class Compiler:
                 data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
                 if lenses:
                     data["lenses_chosen"] = lenses
+                self._gate_mode(i, gates, payload)
                 gates["log"].append(f"gate {step.id} approve: chosen at {gid}")
                 for sk in skips:
                     gates["log"].append(f"gate {step.id} skip {sk['step']} ({sk['band']}): {sk['reason']}")
@@ -2296,6 +2299,7 @@ class Compiler:
         data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
         if lenses:
             data["lenses_chosen"] = lenses
+        self._gate_mode(i, gates, answer.get("payload") or {})
         gates["log"].append(f"gate {step.id} approve" + (f": {why}" if why else ""))
         for sk in skips:
             gates["log"].append(f"gate {step.id} skip {sk['step']} ({sk['band']}): {sk['reason']}")
@@ -2303,6 +2307,14 @@ class Compiler:
                                                           "skipped": skips, **({"lenses": lenses} if lenses else {})})
         note = ("skipped: " + ", ".join(f"{s['step']} ({s['reason']})" for s in skips)) if skips else "every step runs"
         return {**extra_all, "gates": gates, "data": data, "note": note[:300]}, self.nav.after(i)
+
+    def _gate_mode(self, i: int, gates: dict, payload: dict) -> None:
+        """keel v1's start picker: a skip menu before the per-criterion loop may set the AC gates for this flow only
+        (payload gate_mode, or the form's answers.gate_mode); the project's gates_mode stays the default."""
+        mode = ship_mod.gate_mode_of(payload) if ship_mod.has_loop(self.wf.steps, i) else None
+        if mode and mode != gates.get("mode"):
+            gates["log"].append(f"gate mode for this flow: {mode} (was {gates.get('mode') or 'every-ac'})")
+            gates["mode"] = mode
 
     def _choice_gate(self, i: int, step: Step, state: FlowState, gates: dict, item: dict):
         """One choice per item of a for_each loop (cover: test, delete or accept). The choice is stored on the item

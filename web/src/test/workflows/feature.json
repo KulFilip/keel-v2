@@ -335,6 +335,34 @@
    "lock": true
   },
   {
+   "id": "refactor",
+   "kind": "agent",
+   "name": "refactor (tests frozen)",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "refactor",
+   "per_ac": true,
+   "markers": [
+    "REFACTOR"
+   ],
+   "skippable": "optional"
+  },
+  {
+   "id": "refactor_commit",
+   "kind": "code",
+   "name": "verify + refactor commit",
+   "phase": "refactor",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "when": {
+    "marker": "REFACTOR",
+    "equals": "done",
+    "step": "refactor"
+   },
+   "skippable": "optional",
+   "group": "refactor"
+  },
+  {
    "id": "ac_review",
    "kind": "agent",
    "name": "AC review",
@@ -447,6 +475,66 @@
    "action": "full_review"
   },
   {
+   "id": "stack_up",
+   "kind": "code",
+   "name": "stack up + migrate",
+   "phase": "smoke",
+   "action": "stack_up",
+   "soft": true
+  },
+  {
+   "id": "smoke_scope",
+   "kind": "code",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "action": "smoke_scope",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_needed",
+   "kind": "branch",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "no": "e2e_scope",
+   "when": {
+    "marker": "SMOKE",
+    "equals": "yes",
+    "step": "smoke_scope"
+   },
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke",
+   "kind": "agent",
+   "name": "smoke",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_commit",
+   "kind": "code",
+   "name": "run smoke + commit",
+   "phase": "smoke",
+   "action": "verify_smoke+commit",
+   "rounds": 2,
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_gate",
+   "kind": "gate",
+   "name": "smoke",
+   "phase": "smoke",
+   "back": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
    "id": "e2e_scope",
    "kind": "code",
    "name": "e2e criteria + tool",
@@ -460,7 +548,7 @@
    "kind": "branch",
    "name": "e2e criteria",
    "phase": "e2e",
-   "no": "smoke_scope",
+   "no": "ready_show",
    "when": {
     "marker": "E2E",
     "equals": "yes",
@@ -517,58 +605,6 @@
    "back": "e2e",
    "skippable": "optional",
    "group": "e2e"
-  },
-  {
-   "id": "smoke_scope",
-   "kind": "code",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "action": "smoke_scope",
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_needed",
-   "kind": "branch",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "no": "ready_show",
-   "when": {
-    "marker": "SMOKE",
-    "equals": "yes",
-    "step": "smoke_scope"
-   },
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke",
-   "kind": "agent",
-   "name": "smoke",
-   "agent": "e2e-author",
-   "model": "default",
-   "phase": "smoke",
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_commit",
-   "kind": "code",
-   "name": "run smoke + commit",
-   "phase": "smoke",
-   "action": "verify_smoke+commit",
-   "rounds": 2,
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_gate",
-   "kind": "gate",
-   "name": "smoke",
-   "phase": "smoke",
-   "back": "smoke",
-   "skippable": "optional",
-   "group": "smoke"
   },
   {
    "id": "ready_show",

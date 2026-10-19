@@ -47,7 +47,7 @@ describe("flow map model (real templates)", () => {
   it("groups the main path into sections by phase; the loop and the included ship flow are sections of their own", () => {
     expect(feature.steps.length).toBeGreaterThan(90);
     expect(map.sections.map((s) => (s.kind === "phase" ? s.phase : `${s.kind}:${s.phase}`))).toEqual([
-      "preflight", "spec", "contract", "loop:ac", "integration", "security", "review-fix", "gate", "e2e", "smoke", "ship", "include:ship", "close",
+      "preflight", "spec", "contract", "loop:ac", "integration", "security", "review-fix", "gate", "smoke", "e2e", "ship", "include:ship", "close",
     ]);
     // every step is placed exactly once (main path, a side path, an arm or a folded flow); none is lost
     expect(new Set(map.sections.flatMap((s) => s.ids)).size).toBe(feature.steps.length);
@@ -79,7 +79,7 @@ describe("flow map model (real templates)", () => {
     const loops = nodes(map.sections).filter((n) => n.t === "loop") as Extract<Node, { t: "loop" }>[];
     expect(loops.map((l) => l.loop.title)).toEqual(["For each criterion", "For each coverage group"]);
     expect(loops[0].ids).toEqual(["red", "red_amend", "red_to_amend", "amend_entry", "red_blocked", "red_stuck", "verify_red", "green", "green_amend",
-      "green_to_amend", "green_blocked", "green_stuck", "verify_green", "ac_review", "ac_gate"]);
+      "green_to_amend", "green_blocked", "green_stuck", "verify_green", "refactor", "refactor_commit", "ac_review", "ac_gate"]);
   });
 
   it("draws a branch as if / else: the steps a no skips sit in the yes arm, a side path in its own arm", () => {
@@ -124,12 +124,12 @@ describe("flow map model (real templates)", () => {
     expect(stepStates(feature.steps, map, "green", "running").green).toBe("run");
     expect(stepStates(feature.steps, map, "green", "failed").green).toBe("fail");
     expect(stepStates(feature.steps, map, null, "done").close).toBe("done");
-    // smoke_scope is current: e2e_needed answered no (none of its arm ran), so those steps were skipped
-    const at = stepStates(feature.steps, map, "smoke_scope", "running");
-    const visited = new Set(["e2e_scope", "e2e_needed"]);
+    // e2e_scope is current: smoke_needed answered no (none of its arm ran), so those steps were skipped
+    const at = stepStates(feature.steps, map, "e2e_scope", "running");
+    const visited = new Set(["smoke_scope", "smoke_needed"]);
     const { taken, skipped } = armsTaken(map, at, visited);
-    expect(taken.e2e_needed).toBe("no");
-    expect([...skipped]).toEqual(["e2e_tool", "e2e", "e2e_commit", "e2e_gate"]);
+    expect(taken.smoke_needed).toBe("no");
+    expect([...skipped]).toEqual(["smoke", "smoke_commit", "smoke_gate"]);
   });
 
   it("moves a dragged step into a loop's mouth (it joins the loop) or out of it (it leaves)", () => {

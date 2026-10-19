@@ -394,6 +394,71 @@ def test_the_full_diff_review_sends_findings_back_twice_then_asks(client, repo, 
     assert values(client, tid)["data"]["dismissed_findings"][0]["why"] == "the duplication is deliberate"
 
 
+# ------------------------------------------------------------------ refactor, smoke before e2e, stack up, gate mode
+
+def test_refactor_runs_after_green_commits_only_when_it_tidied_and_is_skippable(client, repo, monkeypatch):
+    def refactor(req, real):
+        if (req.ac or {}).get("id") == "AC-1":
+            return "src/scores/ac_1.py", 'def run():\n    return "AC-1 done"  # tidied\n', "Renamed a helper.\nREFACTOR: done", {}
+        return None, "", "Nothing worth tidying.\nREFACTOR: none", {}
+    seen = by_step(monkeypatch, {"refactor (tests frozen)": refactor})
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "ready_gate")
+    assert [r.phase for r in seen if r.step_name == "refactor (tests frozen)"] == ["refactor", "refactor"]
+    assert [m for m in log(repo) if m.startswith("refactor(")] == ["refactor(AC-1): Player ranks: the main case works"]
+    skipped = [e["data"]["note"] for e in client.bus.of(tid, "step.finished") if e["step"] == "refactor_commit" and e["data"].get("skipped")]
+    assert len(skipped) == 1 and "REFACTOR" in skipped[0]
+    # skipped at the spec gate: no refactor agent at all
+    seen2 = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    to(client, tid, wait(client, tid), "ready_gate", {"spec_gate": {"choice": "approve", "skip": {"refactor": "a tiny change"}}})
+    assert not [r for r in seen2 if r.step_name == "refactor (tests frozen)"]
+
+
+def test_smoke_runs_before_e2e_and_the_stack_comes_up_first(client, repo, monkeypatch):
+    spec_with(monkeypatch, "- **AC-5** [E2E] a player sees their rank", "- **AC-6** [SMOKE] the rank page answers")
+    configure(repo, "version: 4\ncommands: {services: 'echo up', migrate: 'echo migrated', e2e: 'true'}\n")
+    by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "ready_gate")
+    started = [e["step"] for e in client.bus.of(tid, "step.started")]
+    assert started.index("stack_up") < started.index("smoke_scope") < started.index("smoke") < started.index("e2e_scope") < started.index("e2e")
+    note = [e["data"]["note"] for e in client.bus.of(tid, "step.finished") if e["step"] == "stack_up"][-1]
+    assert note == "stack up + migrate: simulated"
+
+
+def test_stack_up_only_when_configured_and_needed(tmp_path):
+    from test_preflight import project
+    from keel_engine.runtime.actions import ActionInput
+    root = project(tmp_path, "version: 4\ncommands: {services: 'echo up > up.txt', migrate: 'exit 4'}\n")
+    write(root, "docs/specs/x.md", "# X\n\n- **AC-1** [SMOKE] health answers\n")
+
+    def go(fake=False, cfg=None, spec="docs/specs/x.md"):
+        if cfg:
+            write(root, ".keel/config.yml", cfg)
+        a = ActionInput(root=str(root), project="p", phase="smoke", title="x", ac=None, acs=[], fake=fake, flow="feature",
+                        step="stack_up", state={"spec": spec})
+        return feature_actions.stack_up(a)
+    r = go()
+    assert not r.ok and r.note.startswith("stack up: commands.migrate failed (exit 4)") and (root / "up.txt").is_file()
+    assert r.update["data"]["warnings"][0]["step"] == "stack_up"
+    assert go(cfg="version: 4\ncommands: {services: 'true', migrate: 'true'}\n").note == "stack up: commands.services and commands.migrate passed"
+    write(root, "docs/specs/x.md", "# X\n\n- **AC-1** [API] health answers\n")
+    assert go().note == "no smoke check or e2e test to run: the stack is not brought up"
+    assert go(cfg="version: 4\n").note.startswith("no stack configured")
+
+
+def test_the_gate_mode_for_this_flow_is_chosen_at_the_spec_gate(client, repo, monkeypatch):
+    by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = wait(client, tid)
+    assert any(q["id"] == "gate_mode" for q in s["waiting"].get("questions") or [])
+    assert '"gate_mode": "every-ac" | "end-of-lane" | "end"' in s["waiting"]["detail"]
+    s, gates = gates_until_done(client, tid, s, {"spec_gate": {"choice": "approve", "gate_mode": "end"}})
+    assert gates.count("ac_gate") == 1, gates
+    assert "gate mode for this flow: end (was every-ac)" in s["gate_log"]
+
+
 # ------------------------------------------------------------------ "ready to ship?"
 
 def test_ready_to_ship_shows_the_state_and_can_show_the_diff_or_stop(client, repo, monkeypatch):

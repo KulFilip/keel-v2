@@ -32,15 +32,15 @@ def test_feature_template_shape():
     t = get_template("feature")
     loop = [s.id for s in t.steps if s.per_ac]
     assert loop == ["red", "red_amend", "red_to_amend", "red_blocked", "red_stuck", "verify_red", "green", "green_amend",
-                    "green_to_amend", "green_blocked", "green_stuck", "verify_green", "ac_review", "ac_gate"]
+                    "green_to_amend", "green_blocked", "green_stuck", "verify_green", "refactor", "refactor_commit", "ac_review", "ac_gate"]
     assert t.step("ac_gate").back == "red" and t.step("spec_gate").back == "spec"
     assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
     main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]
     assert main == ["preflight", "web_check", "web_docs", "spec", "explore_areas", "explore", "maps", "plan", "spec_sync", "spec_gate", "freeze", "options",
                     "contract", "contract_check", "contract_diff", "contract_gate", "contract_commit", "integration", "integration_commit",
                     "integration_diff", "integration_gate", "security_deps", "security_scope", "security", "review_fix",
-                    "review_fix_commit", "code_review", "full_review", "e2e_scope", "e2e_needed", "e2e_tool", "e2e", "e2e_commit", "e2e_gate",
-                    "smoke_scope", "smoke_needed", "smoke", "smoke_commit", "smoke_gate", "ready_show", "ready_gate", "adr", "adr_commit", "close"]
+                    "review_fix_commit", "code_review", "full_review", "stack_up", "smoke_scope", "smoke_needed", "smoke", "smoke_commit",
+                    "smoke_gate", "e2e_scope", "e2e_needed", "e2e_tool", "e2e", "e2e_commit", "e2e_gate", "ready_show", "ready_gate", "adr", "adr_commit", "close"]
     # ship's steps are included (its review, final review, memory and PR); feature has no copies of its own
     assert t.step("ship_final_review").lock and t.step("ship_open_pr") and not t.step("final_review")
     assert {s.id for s in t.steps if s.lock} >= {"spec_gate", "freeze", "contract_gate", "verify_red", "verify_green", "ac_gate",

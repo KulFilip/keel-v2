@@ -371,6 +371,10 @@ DOCS: dict[str, dict] = {
     "verify_e2e": {
         "summary": "Runs the e2e command; a failure runs once more (fail then pass = flaky).",
     },
+    "stack_up": {
+        "summary": "Before smoke and e2e: brings the stack up (commands.services) and migrates (commands.migrate) when "
+                   "the project configures them and smoke or e2e has something to run; a failure is a warning.",
+    },
     "smoke_scope": {
         "summary": "Collects the [SMOKE] criteria or the spec's Smoke checks section (marker SMOKE).",
     },

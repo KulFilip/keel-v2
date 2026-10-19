@@ -15,6 +15,7 @@
     e2e_scope          the spec's [E2E] criteria (or a hunt's needs_e2e) and whether commands.e2e is set
     e2e_unrun          no e2e tool: the specs are written but not run; recorded for the final review and the PR body
     verify_e2e         runs commands.e2e (a failure runs once more: flaky), unless the specs are not to be run
+    stack_up           before smoke and e2e: commands.services and commands.migrate, when configured (soft)
     smoke_scope        the spec's [SMOKE] criteria or its Smoke checks section
     verify_smoke       runs smoke/*.sh and commands.smoke_e2e
     full_review        after code_review: its verdict and sha (data.full_review; ship drops correctness on it)
@@ -1033,6 +1034,37 @@ def verify_e2e(a):
     return _ok("E2E: passed." + verdict_actions._flaky_note(r["flaky"]), update=verdict_actions.flaky_update(a, r["flaky"]))
 
 
+def stack_up(a):
+    """keel v1 phase 5: before smoke and e2e, the stack up (commands.services) and the database migrated
+    (commands.migrate), so neither runs against a stale or stopped stack. Only when the project configures one of them
+    and smoke or e2e has something to run; a failure is a warning (the step is soft) that smoke and e2e then show."""
+    cfg = rules.load_config(a.root)
+    cmds = cfg.get("commands") or {}
+    run = [(k, str(cmds.get(k) or "").strip()) for k in ("services", "migrate") if str(cmds.get(k) or "").strip()]
+    if not run:
+        return _ok("no stack configured (commands.services, commands.migrate): nothing to bring up")
+    skipped = {s.get("step") for s in a.data.get("ship_skipped") or [] if isinstance(s, dict)}
+    text = _read(a.root, spec_path(a))
+    smoke = "smoke" not in skipped and bool(_tagged(text, "SMOKE") or re.sub(r"(?is)\s*(none|n/?a|-|tbd)?\.?\s*", "",
+                                                                              _section(text, "smoke")))
+    e2e = "e2e" not in skipped and bool(_tagged(text, "E2E") or a.data.get("needs_e2e"))
+    if not smoke and not e2e:
+        return _ok("no smoke check or e2e test to run: the stack is not brought up")
+    if a.fake:
+        return _ok("stack up + migrate: simulated")
+    done = []
+    for key, cmd in run:
+        code, out = testcmd.run(a.root, cmd, 900, command_env())
+        if code != 0:
+            warn = f"stack up: commands.{key} failed (exit {code}); smoke and e2e may hit a stopped or stale stack"
+            data = {**a.data, "warnings": [w for w in a.data.get("warnings") or [] if w.get("step") != "stack_up"]
+                    + [{"step": "stack_up", "text": warn}]}
+            from .actions import ActionResult
+            return ActionResult(False, warn, f"$ {cmd}\n{verdict_actions._tail(out)}", {"data": data})
+        done.append(key)
+    return _ok(f"stack up: {' and '.join(f'commands.{k}' for k in done)} passed")
+
+
 def smoke_scope(a):
     """keel v1 phase 6: the [SMOKE] criteria or a filled Smoke checks section; nothing there, no smoke phase."""
     text = _read(a.root, spec_path(a))
@@ -1173,5 +1205,5 @@ ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": 
            "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow, "full_review": full_review, "ship_ready": ship_ready,
-           "ship_stop": ship_stop, "contract_check": contract_check}
+           "ship_stop": ship_stop, "contract_check": contract_check, "stack_up": stack_up}
 
