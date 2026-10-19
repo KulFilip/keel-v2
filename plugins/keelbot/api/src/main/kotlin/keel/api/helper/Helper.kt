@@ -204,6 +204,18 @@ class HelperService(
         return engine.post("/helper/sessions/$sid/export", emptyMap<String, Any>())
     }
 
+    /** 0.18.19 Undo KeelBot's last answer (its files back, its messages marked reverted): {n, text, files, messages}. */
+    fun undoTurn(pid: String, sid: String): JsonNode {
+        get(pid, sid)
+        return engine.post("/helper/sessions/$sid/undo-turn", emptyMap<String, Any>())
+    }
+
+    /** 0.18.19 Redo the answer undoTurn took back, while no new message was sent: {n, text, files, messages}. */
+    fun redoTurn(pid: String, sid: String): JsonNode {
+        get(pid, sid)
+        return engine.post("/helper/sessions/$sid/redo-turn", emptyMap<String, Any>())
+    }
+
     /** 0.18.18 The person's earlier prompts in this project's chats, newest first, each once: keel TUI's ↑ / ↓. */
     fun prompts(pid: String, limit: Int = 50): JsonNode {
         projects.require(pid)
@@ -510,6 +522,12 @@ class HelperController(private val helper: HelperService) {
 
     @PostMapping("/sessions/{sid}/export")
     fun export(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.export(pid, sid)
+
+    @PostMapping("/sessions/{sid}/undo-turn")
+    fun undoTurn(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.undoTurn(pid, sid)
+
+    @PostMapping("/sessions/{sid}/redo-turn")
+    fun redoTurn(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.redoTurn(pid, sid)
 
     @PostMapping("/sessions/{sid}/run")
     fun run(@PathVariable pid: String, @PathVariable sid: String, @RequestBody body: HelperRun): JsonNode = helper.run(pid, sid, body)

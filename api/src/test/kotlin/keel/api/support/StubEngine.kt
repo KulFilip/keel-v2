@@ -219,6 +219,9 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.matches(Regex("/helper/sessions/[^/]+/changes")) -> 200 to listOf(mapOf("path" to "src/a.kt", "status" to "modified",
             "added" to 2, "removed" to 1, "diff" to "@@ -1 +1,2 @@"))
         path.matches(Regex("/helper/sessions/[^/]+/undo")) -> 200 to emptyList<Any>()
+        // 0.18.19 undo / redo a whole KeelBot answer
+        path.matches(Regex("/helper/sessions/[^/]+/(undo|redo)-turn")) -> 200 to mapOf("n" to 3, "text" to "add b",
+            "files" to listOf("src/a.kt", "src/b.kt"), "messages" to listOf(3, 4))
         path.matches(Regex("/helper/sessions/[^/]+/(handover|release)")) -> 200 to helperHandover
         path.matches(Regex("/helper/sessions/[^/]+/done")) -> 200 to mapOf("ok" to true, "sha" to "abc1234", "message" to "green: helper: x",
             "files" to listOf("src/a.kt"))

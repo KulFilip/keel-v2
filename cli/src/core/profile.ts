@@ -22,7 +22,7 @@ export function route(method: string, url: string): string {
   const path = url.replace(/^https?:\/\/[^/]+/, "").split("?")[0];
   const known = new Set(["api", "projects", "threads", "jobs", "helper", "sessions", "inbox", "events", "workflows", "flows", "flow",
     "history", "repo", "files", "graph", "search", "diagrams", "ascii", "health", "tui", "plugins", "approvals", "decide", "runs",
-    "budget", "now", "rules", "steps", "turn", "changes", "undo", "done", "stop", "act", "resume", "rewind", "git", "status", "log", "diff"]);
+    "budget", "now", "rules", "steps", "turn", "changes", "undo", "undo-turn", "redo-turn", "done", "stop", "act", "resume", "rewind", "git", "status", "log", "diff"]);
   return `${method} ` + path.split("/").map((s) => (!s || known.has(s) ? s : "{id}")).join("/");
 }
 

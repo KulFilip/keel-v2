@@ -47,6 +47,11 @@ const indent = (lines: string[], n: number) => lines.map((l) => " ".repeat(n) + 
 /** One block of the transcript as lines; `tint` is the background of the person's own messages (none without colour). */
 export function blockLines(b: Block, width: number, p: Paint, tint?: string, level: 0 | 1 | 2 | 3 = 3): string[] {
   const role = (r: Role, s: string) => p[r](s);
+  if (b.reverted) {
+    // 0.18.19 a KeelBot answer /undo took back: dim, as plain text, and the person's message says it is undone
+    if (b.kind === "user") return ["", ...wrap(`${b.text}  (undone)`, width - 3).map((r, i) => p.faint((i ? "   " : " ↶ ") + r))];
+    return indent(wrap(b.text, width - 2), 2).map((l) => p.faint(l));
+  }
   switch (b.kind) {
     case "markdown": return indent(wrap(renderMarkdown(b.text, p, width - 2), width - 2), 2);
     // a diagram keeps its lines whole: a line wider than the screen is cut by the view, never folded

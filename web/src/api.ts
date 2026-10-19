@@ -748,7 +748,9 @@ export type HelperMessage = {
   /** the turn's agent call: its steps come from /jobs/{call_id}/steps and live agent steps */
   call_id?: string | null;
   data: { status?: string; provider?: string; model?: string; effort?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
-    cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection; sha?: string; files?: string[] };
+    cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection; sha?: string; files?: string[];
+    /** 0.18.19 part of an answer /undo took back (kept, shown dim); final: a newer message came, /redo cannot bring it back */
+    reverted?: boolean; final?: boolean };
   at: string;
 };
 export type HelperSession = {

@@ -53,3 +53,14 @@ def test_project_commands_do_not_see_keels_own_python(monkeypatch):
             assert venv_bin not in env["PATH"].split(os.pathsep)
         assert "/usr/bin" in env["PATH"].split(os.pathsep)
     assert project_env({"PATH": "/usr/bin", "UV_LINK_MODE": "copy"}) == {"PATH": "/usr/bin"}
+
+
+def test_a_short_connection_adds_the_columns_added_later(tmp_path, monkeypatch):
+    # 0.18.19 bug: a file a short connection made first had the tables of MIGRATIONS but not COLUMNS, so KeelBot's
+    # helper.get failed with "no such column: ctx_tokens" until the engine's own migrate ran
+    from keel_engine.runtime import migrate
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "short"))
+    (tmp_path / "short").mkdir()
+    with db.connect() as conn:
+        for table, column, _decl in migrate.COLUMNS:
+            assert column in {row[1] for row in conn.execute(f"pragma table_info({table})")}, (table, column)

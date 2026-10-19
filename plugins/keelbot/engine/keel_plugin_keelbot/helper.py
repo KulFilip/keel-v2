@@ -394,6 +394,8 @@ def delete(sid: str) -> None:
     if s.get("worktree"):
         worktrees.remove(s["root"], s["worktree"], s.get("branch"))
     with db.connect() as conn:
+        _turn_table(conn)
+        conn.execute("delete from helper_turn_files where session_id = ?", (sid,))
         conn.execute("delete from helper_files where session_id = ?", (sid,))
         conn.execute("delete from helper_messages where session_id = ?", (sid,))
         conn.execute("delete from helper_sessions where id = ?", (sid,))
@@ -471,7 +473,8 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     """Earlier messages as [(user|assistant, text)], oldest first. After a /compact the history starts at the latest
     summary (a note with data.compact), wrapped as a checkpoint, then what was said after it, word for word. Every
     message stays stored."""
-    msgs = [m for m in get(sid)["messages"] if before_n is None or m["n"] < before_n]
+    # 0.18.19 an undone turn (data.reverted) is not part of the conversation any more: the model never gets it
+    msgs = [m for m in get(sid)["messages"] if (before_n is None or m["n"] < before_n) and not (m.get("data") or {}).get("reverted")]
     last = max((i for i, m in enumerate(msgs) if m["role"] == "note" and (m.get("data") or {}).get("compact")), default=None)
     out: list[tuple[str, str]] = []
     if last is not None:
@@ -600,9 +603,11 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
         if path and not any(c["path"] == path for c in changes(sid)):
             raise HelperError(404, f"KeelBot did not change {path} in this chat.")
         try:
-            return worktrees.undo(s["worktree"], "HEAD", path)
+            left = worktrees.undo(s["worktree"], "HEAD", path)
         except worktrees.WorktreeError as exc:
             raise HelperError(400, str(exc), exc.hint) from exc
+        _drop_turn_paths(sid, [path] if path else None)
+        return left
     root = Path(s["root"])
     with db.connect() as conn:
         q = "select path, existed, content from helper_files where session_id = ?" + (" and path = ?" if path else "")
@@ -617,7 +622,209 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
             else:
                 f.unlink(missing_ok=True)
             conn.execute("delete from helper_files where session_id = ? and path = ?", (sid, rel))
+    _drop_turn_paths(sid, [path] if path else None)
     return changes(sid)
+
+
+# ------------------------------------------------------------------ 0.18.19 undo / redo a whole answer
+#
+# As opencode's /undo and /redo (from opencode (MIT), core/src/session/revert.ts): undo marks the last turn (the person's
+# message and KeelBot's answer) as reverted, puts back every file that turn changed and gives its question back for the
+# prompt; redo puts the turn back while no new turn was sent; a new turn makes the revert final. keel keeps each
+# turn's files in helper_turn_files (this plugin's own table): the file as it was before the turn and after it.
+
+TURN_TABLE = """create table if not exists helper_turn_files (
+  session_id text not null, n integer not null, path text not null, before_exists integer not null, before blob,
+  after_exists integer not null, after blob, kept integer not null default 0, primary key (session_id, n, path)
+)"""
+
+
+def _turn_table(conn) -> None:
+    """0.18.19 helper_turn_files is KeelBot's own table (core's migrate.py keeps only its old ones): made on first use."""
+    conn.execute(TURN_TABLE)
+
+
+def _now_bytes(root: Path, rel: str) -> bytes | None:
+    f = root / rel
+    return f.read_bytes() if f.is_file() else None
+
+
+def _put(root: Path, rel: str, content: bytes | None) -> None:
+    """A file as it was: written back, or deleted when it did not exist (only this one file, no git command)."""
+    f = root / rel
+    if content is None:
+        f.unlink(missing_ok=True)
+        parent = f.parent
+        while parent != root and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
+    else:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(content)
+
+
+def record_turn(sid: str, n: int, root: str, before: guard.Snapshot | None) -> list[str]:
+    """0.18.19 After a Fix, Edit or side turn: each file it changed, as it was before the turn (the person's own unsaved
+    version when there was one, else HEAD, else "did not exist") and as it is now (after the guard put back what it
+    refused). `n` is the turn's user message. Returns the paths."""
+    if before is None:
+        return []
+    base = Path(root)
+    changed = list(guard.changed_since(root, before))
+    # a file that was dirty before and is back to HEAD now: the turn changed it too (changed_since leaves it out)
+    changed += [rel for rel, old in before.content.items() if rel not in changed and _now_bytes(base, rel) != old]
+    rows = []
+    for rel in sorted(set(changed)):
+        old = before.content[rel] if rel in before.content else _head_bytes(root, rel)
+        new = _now_bytes(base, rel)
+        if old != new:
+            rows.append((sid, n, rel, 0 if old is None else 1, old, 0 if new is None else 1, new))
+    if rows:
+        with db.connect() as conn:
+            _turn_table(conn)
+            conn.executemany("insert or replace into helper_turn_files (session_id, n, path, before_exists, before, "
+                             "after_exists, after) values (?, ?, ?, ?, ?, ?, ?)", rows)
+    return [r[2] for r in rows]
+
+
+def _turns(msgs: list[dict]) -> list[dict]:
+    """The turns of a chat in order: its user message's n and text, and the n of each message that belongs to it (the
+    user message, then KeelBot's answer or the note a stopped or failed turn left: the messages with a call id)."""
+    out: list[dict] = []
+    for m in msgs:
+        if m["role"] == "user":
+            out.append({"n": m["n"], "text": m["text"], "ns": [m["n"]], "data": m.get("data") or {}})
+        elif out and m.get("call_id") and m["role"] in ("helper", "note"):
+            out[-1]["ns"].append(m["n"])
+    return out
+
+
+def _mark(conn, sid: str, ns: list[int], **flags) -> None:
+    """Sets (a value) or clears (None) flags in these messages' data."""
+    for n in ns:
+        row = conn.execute("select data_json from helper_messages where session_id = ? and n = ?", (sid, n)).fetchone()
+        data = db.loads(row[0], {}) if row else {}
+        for k, v in flags.items():
+            if v is None:
+                data.pop(k, None)
+            else:
+                data[k] = v
+        conn.execute("update helper_messages set data_json = ? where session_id = ? and n = ?", (json.dumps(data), sid, n))
+
+
+def _undoable(sid: str) -> tuple[dict, Path]:
+    s = get(sid)
+    # an Ask chat that never changed a file has nothing to undo; one switched to Ask from Edit, Fix or Side (0.18.19)
+    # can still take back the answers that changed files, as it can still keep or undo its files
+    if s["mode"] == "ask" and not is_side(s) and not _has_turn_files(sid):
+        raise HelperError(400, "Ask mode changes nothing, so there is nothing to undo.",
+                          "In Edit, Fix or a side chat, /undo takes KeelBot's last answer back.")
+    if is_side(s) and not s.get("worktree"):
+        raise HelperError(409, "This side session was handed over; its worktree is gone.")
+    return s, Path(workdir(s))
+
+
+def _has_turn_files(sid: str) -> bool:
+    with db.connect() as conn:
+        _turn_table(conn)
+        return conn.execute("select 1 from helper_turn_files where session_id = ? limit 1", (sid,)).fetchone() is not None
+
+
+def _turn_files(conn, sid: str, n: int) -> list[tuple]:
+    _turn_table(conn)
+    return conn.execute("select path, before_exists, before, after_exists, after, kept from helper_turn_files "
+                        "where session_id = ? and n = ? order by path", (sid, n)).fetchall()
+
+
+def _changed_by_person(root: Path, rows: list[tuple], want: str) -> list[str]:
+    """The files that are not as the turn left them (want "after") or as undo left them (want "before")."""
+    out = []
+    for rel, bx, b, ax, a, _kept in rows:
+        expect = (a if ax else None) if want == "after" else (b if bx else None)
+        if _now_bytes(root, rel) != expect:
+            out.append(rel)
+    return out
+
+
+def undo_turn(sid: str) -> dict:
+    """0.18.19 Undo KeelBot's last answer: every file that turn changed goes back to what it was before it (Edit and Fix:
+    the project folder; side: its worktree), its question and answer stay stored, marked reverted, and the question
+    comes back. Each call takes one more turn back. Refused, with nothing changed, when the person changed one of those
+    files after the turn, or keel kept (committed) one of them. Answers {n, text, files, messages}."""
+    s, root = _undoable(sid)
+    live = [t for t in _turns(s["messages"]) if not t["data"].get("reverted")]
+    if not live:
+        raise HelperError(409, "Nothing to undo: KeelBot has no answer in this chat that is not undone already.")
+    t = live[-1]
+    with db.connect() as conn:
+        rows = _turn_files(conn, sid, t["n"])
+        kept = [r[0] for r in rows if r[5]]
+        if kept:
+            raise HelperError(409, f"keel kept (committed) {', '.join(kept[:5])} already, so that answer cannot be undone.",
+                              "Change the file in a new answer, or revert the commit yourself.")
+        mine = _changed_by_person(root, rows, "after")
+        if mine:
+            raise HelperError(409, f"You changed {', '.join(mine[:5])} after that answer, so keel did not undo it.",
+                              "Undo your own change first, or keep the files as they are and ask KeelBot again.")
+        for rel, bx, b, _ax, _a, _k in rows:
+            _put(root, rel, b if bx else None)
+        _mark(conn, sid, t["ns"], reverted=True)
+        conn.execute("update helper_sessions set updated_at = ? where id = ?", (db.now(), sid))
+    return {"n": t["n"], "text": t["text"], "files": [r[0] for r in rows], "messages": t["ns"]}
+
+
+def redo_turn(sid: str) -> dict:
+    """0.18.19 Redo: the earliest undone turn that is not final comes back (its files as that turn left them, its
+    messages no longer reverted), as opencode's /redo moves the revert one turn on. Refused
+    when the person changed one of those files after the undo. Answers {n, text, files, messages}."""
+    s, root = _undoable(sid)
+    undone = [t for t in _turns(s["messages"]) if t["data"].get("reverted") and not t["data"].get("final")]
+    if not undone:
+        raise HelperError(409, "Nothing to redo: no answer was undone since the last message.",
+                          "/redo puts back what /undo took, until you send a new message.")
+    t = undone[0]
+    with db.connect() as conn:
+        rows = _turn_files(conn, sid, t["n"])
+        mine = _changed_by_person(root, rows, "before")
+        if mine:
+            raise HelperError(409, f"You changed {', '.join(mine[:5])} after the undo, so keel did not redo it.",
+                              "Undo your own change first, or ask KeelBot again.")
+        for rel, _bx, _b, ax, a, _k in rows:
+            _put(root, rel, a if ax else None)
+        _mark(conn, sid, t["ns"], reverted=None)
+        conn.execute("update helper_sessions set updated_at = ? where id = ?", (db.now(), sid))
+    return {"n": t["n"], "text": t["text"], "files": [r[0] for r in rows], "messages": t["ns"]}
+
+
+def finalize_reverts(sid: str) -> int:
+    """0.18.19 A new turn makes the undone turns final: they stay stored and shown as reverted, but redo cannot bring
+    them back (their newer files are dropped), and the CLI's own session, which still holds them, is not continued
+    (the next turn starts a new one with the conversation without them). Answers how many turns became final."""
+    s = get(sid)
+    undone = [t for t in _turns(s["messages"]) if t["data"].get("reverted") and not t["data"].get("final")]
+    if not undone:
+        return 0
+    with db.connect() as conn:
+        _turn_table(conn)
+        for t in undone:
+            _mark(conn, sid, t["ns"], final=True)
+            conn.execute("delete from helper_turn_files where session_id = ? and n = ?", (sid, t["n"]))
+        conn.execute("update helper_sessions set engine_session = null where id = ?", (sid,))
+    return len(undone)
+
+
+def _drop_turn_paths(sid: str, paths: list[str] | None, kept: bool = False) -> None:
+    """0.18.19 A file undone on its own (/undo <path>, or every file) leaves the turns' records (undo_turn skips it); a
+    kept (committed) one is marked kept, so no undo_turn puts it back behind keel's commit."""
+    with db.connect() as conn:
+        _turn_table(conn)
+        if kept:
+            conn.executemany("update helper_turn_files set kept = 1 where session_id = ? and path = ?",
+                             [(sid, p) for p in paths or []])
+        elif paths is None:
+            conn.execute("delete from helper_turn_files where session_id = ?", (sid,))
+        else:
+            conn.executemany("delete from helper_turn_files where session_id = ? and path = ?", [(sid, p) for p in paths])
 
 
 def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None = None,
@@ -664,6 +871,7 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     sha = git.head(root)
     with db.connect() as conn:
         conn.executemany("delete from helper_files where session_id = ? and path = ?", [(sid, f) for f in files])
+    _drop_turn_paths(sid, files, kept=True)          # 0.18.19 a kept file: no undo_turn puts it back behind the commit
     where = f" on branch {s['branch']}" if is_side(s) else ""
     note = f"keel committed KeelBot's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
     subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()
@@ -1192,6 +1400,8 @@ class HelperRunner:
             raise HelperError(409, "KeelBot is still answering in this session.", "Wait for the answer, or stop it.")
         if s["mode"] == "side" and not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
+        if finalize_reverts(sid):         # 0.18.19 a new message makes /undo final (no /redo any more)
+            s = get(sid, messages=False)
         if s["ctx_window"] and s["ctx_tokens"] / s["ctx_window"] >= COMPACT_RATIO:
             s = await compact(sid)
         if body.get("model"):
@@ -1398,6 +1608,11 @@ class HelperRunner:
                                       flow.get("run_mode") == "readonly"):
                 emit("guard", f"Put back {r['path']}: {r['reason']}", path=r["path"], ok=False)
             remember_originals(sid, root, before)
+        if mode != "ask":
+            try:                                               # 0.18.19 this turn's files, for /undo of the whole answer
+                record_turn(sid, n, root, before)
+            except Exception:  # noqa: BLE001  (a record for /undo: never the turn's failure)
+                log.warning("KeelBot could not record turn %s of %s for /undo", n, sid, exc_info=True)
         used = getattr(res, "__dict__", {}) if res else {}
         tin, tout = int(used.get("tokens_in", 0)), int(used.get("tokens_out", 0))
         cached = int(used.get("tokens_cached", 0))

@@ -625,6 +625,19 @@ export class KeelCore {
       { ...(message.trim() ? { message: message.trim() } : {}), ...(paths?.length ? { paths } : {}) });
   }
 
+  /** 0.18.19 Undo KeelBot's last answer in the open chat: the files it changed go back, its messages are marked
+   *  reverted, and the question comes back ({n, text, files, messages}). Each call takes one more answer back. */
+  async undoTurn(): Promise<TurnUndo> {
+    const { pid, sid } = this.chatOf();
+    return post<TurnUndo>(`/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/undo-turn`);
+  }
+
+  /** 0.18.19 Redo the answer undoTurn took back, while no new message was sent. */
+  async redoTurn(): Promise<TurnUndo> {
+    const { pid, sid } = this.chatOf();
+    return post<TurnUndo>(`/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/redo-turn`);
+  }
+
   async undo(path?: string): Promise<HelperChange[]> {
     const { pid, sid } = this.chatOf();
     return kb.undo(pid, sid, path);
@@ -740,3 +753,6 @@ export function sameChatMode(s: Pick<HelperSession, "mode" | "branch">, mode: He
   const side = s.mode === "side" || !!s.branch;
   return side ? mode === "side" || mode === "ask" : mode !== "side";
 }
+
+/** 0.18.19 What undo-turn and redo-turn answer: the turn's user message (n, its text), the files put back, its messages. */
+export type TurnUndo = { n: number; text: string; files: string[]; messages: number[] };
