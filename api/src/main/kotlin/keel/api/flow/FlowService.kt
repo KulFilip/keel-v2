@@ -257,11 +257,11 @@ class FlowService(
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
-        val wt = if (inWorktree(pid, where)) worktreeFor(pid, root, title) else null
+        val wt = if (inWorktree(pid, where)) worktreeFor(pid, root, title, workflowId) else null
         if (wt == null) {
             refuseDirty(root, allowDirty)
             // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on
-            if (ownBranch) ownBranch(pid, root, title)
+            if (ownBranch) ownBranch(pid, root, title, workflowId)
         } else {
             start = start.copy(root = wt.path)
         }
@@ -355,11 +355,10 @@ class FlowService(
     private data class FlowWorktree(val name: String, val branch: String, val path: String)
 
     /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has. */
-    private fun worktreeFor(pid: String, root: Path, title: String): FlowWorktree {
+    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String): FlowWorktree {
         if (!workspace.git(root, "rev-parse", "--git-dir").ok)
             throw Conflict("This project is not a git repository", "A flow next to another one needs git: its own worktree and branch.")
-        val pattern = settings.effective(pid).branchPattern.ifBlank { "feat/{slug}" }
-        val first = pattern.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", "flow")
+        val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var branch = first
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
@@ -388,6 +387,11 @@ class FlowService(
         return mapper.valueToTree(mapOf("ok" to true, "worktree" to name))
     }
 
+    /** A flow the engine gave a worktree of its own (a fix of a hunt finding: its own fix/ branch from the base). */
+    fun recordWorktree(child: String, name: String, branch: String) {
+        jdbc.update("UPDATE threads SET worktree = ?, branch = ? WHERE id = ?", name, branch, child)
+    }
+
     /** A flow a flow handed over to (change → feature) works where its parent worked. */
     fun inheritWorktree(child: String, parent: String) {
         jdbc.update("UPDATE threads SET worktree = (SELECT worktree FROM threads WHERE id = ?), branch = (SELECT branch FROM threads WHERE id = ?) " +
@@ -395,13 +399,12 @@ class FlowService(
     }
 
     /** Never work on main/master: a flow gets its own branch from the branch pattern in Settings (feat/{slug}). */
-    private fun ownBranch(pid: String, root: Path, title: String) {
+    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String) {
         if (isDemo(root)) return
         val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return
         val base = workspace.base(root) ?: return
         if (current != base) return
-        val pattern = settings.effective(pid).branchPattern.ifBlank { "feat/{slug}" }
-        val first = pattern.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", "flow")
+        val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var name = first
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
@@ -726,6 +729,16 @@ class FlowService(
 private const val SHOWN = "(hidden_at IS NULL OR status IN ('running','waiting'))"
 
 data class UnlockResult(val unlocks: List<Any?>, val via: String, val threadId: String?)
+
+/**
+ * A flow's branch from the branch pattern in Settings (blank: feat/{slug}): {slug} is the title, {flow} the workflow id
+ * (it was always the word "flow"), and a fix goes on fix/ where the pattern says feat/ (the engine's bug.branch_name).
+ */
+fun branchName(pattern: String?, title: String, workflowId: String): String {
+    var p = pattern?.trim().orEmpty().ifBlank { "feat/{slug}" }
+    if (workflowId == "fix" && p.startsWith("feat/")) p = "fix/" + p.removePrefix("feat/")
+    return p.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", workflowId.ifBlank { "flow" })
+}
 
 
 /** When the api is ready (the engine is already up: keel-start starts it first), hand running threads back to it. */

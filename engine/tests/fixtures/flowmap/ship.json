@@ -278,6 +278,9 @@
    "agent": "reviewer",
    "model": "default",
    "phase": "ship",
+   "when": {
+    "state": "spec"
+   },
    "rounds": 2,
    "redo": "verify",
    "skippable": "optional"

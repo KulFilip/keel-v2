@@ -29,7 +29,9 @@ Method:
 3. Pick the **lowest** layer that can show the symptom: unit, then slice, then Testcontainers,
    then Playwright. A Playwright reproduction of a rule that a unit test could express is a
    worse reproduction, not a more thorough one.
-4. Write the test. Tag and name it with the bug ID so keel can run it on its own and trace it to the bug.
+4. Write the test. Name it with the bug ID keel gives you (BUG-<n>; in a Java or Kotlin name without the dash,
+   BUG3...) so keel runs it on its own and traces it to the bug. keel runs only that test: a test without the
+   ID, or a failure of some other test, is not a reproduction.
 5. Run it once yourself. It must fail with an assertion failure. A setup problem — a
    compile error, a Spring context failure, Docker — is not a reproduction; fix the setup.
    keel runs it again after you and makes the commit.
@@ -47,4 +49,5 @@ Rules:
 Report in at most 15 lines: the test file, the test name, the failure message, the layer you
 chose and why, and the bug class you identified.
 
-End with exactly one line: `REPRO: confirmed` or `REPRO: not-reproducible`.
+End with two lines: `LAYER: API` (a backend test) or `LAYER: WEB` (a frontend test: keel runs it with the web
+test command), then `REPRO: confirmed` or `REPRO: not-reproducible`.

@@ -24,7 +24,7 @@ from ..events import EventBus
 from ..tools import git
 from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
-from . import hunt, ladder as ladder_mod
+from . import bug, hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import db, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
@@ -316,6 +316,8 @@ class Engine:
                    "acs": len(state["acs"]), "fake": ctx.fake}
         if body.get("parent"):
             started["parent"] = body["parent"]
+        if isinstance((body.get("data") or {}).get("worktree"), dict):
+            started["worktree"] = body["data"]["worktree"]      # its own worktree (bug.own_worktree): the api records it
         via = (body.get("data") or {}).get("started_via")
         if via in ("mcp", "tui", "xal"):
             started["via"] = via            # v0.15.8 keel_start_flow (keel2 mcp --write), keel TUI's /flow, xal: the timeline says so
@@ -377,6 +379,10 @@ class Engine:
                      request=request, parent=link, keys=self.keys.get(parent),
                      data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "evidence", "stale", "needs_e2e", "no_gates")
                                              if k in seed}})
+        # a fix of a hunt finding works on its own fix/ branch from the base branch, not on the hunt's (runtime/bug.py)
+        own = await asyncio.to_thread(bug.own_worktree, row["root"], workflow_id, seed, body.get("settings"), child["title"])
+        if own:
+            child.update(root=own["root"], data={**child["data"], "worktree": own["worktree"]})
         return await self.start_thread(child)
 
     async def state(self, tid: str) -> dict:

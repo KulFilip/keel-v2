@@ -492,3 +492,64 @@ def test_cover_without_coverage_reports_asks_at_once(client, repo, monkeypatch):
     assert calls.count("verify_coverage") == 1
     s = decide(client, tid, "approve", payload={"choice": "stop"})
     assert s["status"] != "waiting" and calls.count("verify_coverage") == 1
+
+
+# ------------------------------------------------------------------ the bug section (fix flow)
+
+def _fix_through_ship(client, repo, monkeypatch, **extra):
+    """The fix flow with the fake model up to its PR gate (ship's actions scripted green; spec_walk not skipped).
+    Returns (thread id, final review text, PR body)."""
+    answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
+    tid = start(client, repo, workflow="fix", title="Average of one score is wrong", **extra)
+    s = wait(client, tid)
+    while s["status"] == "waiting" and s["waiting"]["step"] != "ship_plan":
+        s = decide(client, tid)
+    s = decide(client, tid, "approve", payload={"skip": {"reviewers": "covered by gate F", "release": "r", "cover": "c",
+                                                         "deps": "d"}})
+    assert s["waiting"]["step"] == "ship_final_review", s
+    final = s["waiting"]["detail"]
+    s = decide(client, tid)
+    assert s["waiting"]["step"] == "ship_pr_gate", s
+    return tid, final, s["waiting"]["detail"]
+
+
+def test_fix_pr_body_has_bug_section(client, repo, monkeypatch):
+    _tid, final, body = _fix_through_ship(client, repo, monkeypatch, request="The average of [5] is 6, not 5.")
+    for text in (final, body):
+        assert "## Bug" in text
+        for want in ("- **BUG-1** [API]", "- Symptom: The average of [5] is 6, not 5.",
+                     "- Root cause: the counter is read before it is written (src/scores/__init__.py:1).",
+                     "- Reproducing test: `tests/test_bug_average_of_one_score_is_wrong.py::test_bug_1_average_of_one_score_is_wrong`", "- Regression e2e: no"):
+            assert want in text, (want, text)
+        # the trace table names the bug like any criterion: its test and fix commits
+        row = next(line for line in text.splitlines() if line.startswith("| BUG-1 |"))
+        assert "| — |" not in row, row
+
+
+def test_final_review_lists_hunt_findings_closed(tmp_path):
+    state = {"data": {"bug": {"id": "BUG-4", "layer": "API", "symptom": "500 on /ranks with 1001 scores",
+                              "root_cause": "the rank table is sized to 1000", "hunt": {"run": "H-2", "group": "G-01",
+                                                                                        "lead": "F-003", "findings": ["F-003", "F-007"]},
+                              "test": {"file": "tests/test_ranks.py", "name": "test_bug_4_overflow"}}},
+             "markers": {"plan": {"E2E": "yes"}, "e2e": {"E2E-RESULT": "pass"}}, "gates": {"log": []}}
+    text = ship.final_report(str(tmp_path), "pb", state, "Ranks overflow")
+    for want in ("## Bug", "- Symptom: 500 on /ranks with 1001 scores", "- Root cause: the rank table is sized to 1000",
+                 "- Reproducing test: `tests/test_ranks.py::test_bug_4_overflow`", "- Regression e2e: yes (pass)",
+                 "- Closes F-003, F-007 (G-01, hunt H-2)"):
+        assert want in text, want
+    assert text.index("## Exceptions") < text.index("## Bug") < text.index("## Verdicts")
+    body = verdict_actions.pr_body(str(tmp_path), "pb", state, "Ranks overflow", None)
+    assert "- Closes F-003, F-007 (G-01, hunt H-2)" in body
+    # a flow without a bug has no bug section
+    assert "## Bug" not in ship.final_report(str(tmp_path), "pb", {"data": {}, "gates": {"log": []}}, "Rank")
+
+
+def test_spec_walk_skipped_without_spec(client, repo, monkeypatch):
+    tid, final, _body = _fix_through_ship(client, repo, monkeypatch)
+    walk = finished(client, tid, "ship_spec_walk")
+    assert walk and walk[-1].get("skipped") and "not needed (spec: not given)" in walk[-1]["note"], walk
+    assert not [e for e in client.bus.of(tid, "agent.started") if e.get("step") == "ship_spec_walk"]
+    # with a spec the walk runs (the feature flow's case)
+    w = get_template("ship")
+    assert w.step("spec_walk").when == {"state": "spec"}

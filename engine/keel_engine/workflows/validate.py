@@ -19,6 +19,8 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
                 "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
                 "escalate_model",
+                # the bug flow's own steps (runtime/bug.py)
+                "bug_plan", "bug_drop_red", "bug_reset",
                 # the feature flow (runtime/feature_actions.py)
                 "preflight", "explore_areas", "spec_sync", "spec_freeze", "spec_restart", "amend_start", "spec_amendment",
                 "spec_amend_commit", "amend_reorder", "amend_with_note", "amend_stop", "stuck", "show_diff", "test_check", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",

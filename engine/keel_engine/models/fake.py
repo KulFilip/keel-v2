@@ -145,9 +145,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                 f"def test_{k}_works():\n    assert run() == \"{ac_id} done\"\n")
         return f"tests/test_{k}.py", body, f"RED: tests/test_{k}.py asserts {ac_id}.", {}
     if agent == "reproducer":
-        body = (f'"""{title}: reproduces the bug."""\nfrom scores.fix_{key_of(title)} import run\n\n\n'
-                f"def test_bug_{key_of(title)}():\n    assert run() == \"fixed\"\n")
-        return f"tests/test_bug_{key_of(title)}.py", body, "The test fails for the reported reason.\nREPRO: confirmed", {}
+        # named after the flow's bug id (BUG-<n>, bug_intake), so keel can run it alone
+        bug = next((a["id"] for a in req.acs or [] if str(a.get("id", "")).startswith("BUG-")), "BUG-1")
+        name = f"{key_of(bug)}_{key_of(title)}"
+        body = (f'"""{bug} {title}: reproduces the bug."""\nfrom scores.fix_{key_of(title)} import run\n\n\n'
+                f"def test_{name}():\n    assert run() == \"fixed\"\n")
+        return f"tests/test_bug_{key_of(title)}.py", body, "The test fails for the reported reason.\nLAYER: API\nREPRO: confirmed", {}
     if agent == "implementer" and phase == "integration":
         return None, "", "Nothing to wire: the criteria already call the real code.", {}
     if agent == "e2e-author" and phase == "smoke":

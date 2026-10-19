@@ -32,6 +32,9 @@ DOCS: dict[str, dict] = {
             "It fails from a setup problem (compile error, missing module, connection refused, the red_reject list): fails, "
             "and the red agent fixes the test setup.",
             "It fails on an assertion: red confirmed; the criterion's status becomes red.",
+            "In the bug flow (a BUG-<n> criterion and no AC loop): only the bug's test runs, in its layer (a WEB "
+            "reproducer runs web_test_ac); a passing test, or a failure that is not that test's (a test that was red "
+            "before), is not a reproduction; Gate R shows the test file::name, the command and the failure.",
             "With the fake model (simulated checks) nothing runs: a fixed assertion failure stands in.",
         ],
     },
@@ -43,6 +46,7 @@ DOCS: dict[str, dict] = {
             "No test for the criterion ran: fails, the red test is missing.",
             "Exit code not 0: fails, \"does not pass yet\"; the output goes back to the agent before it.",
             "Exit 0: green. A whole-suite pass also writes the release verdict for this commit.",
+            "In the bug flow: the bug's own test first (it must pass now), then the whole suite.",
             "Simulated runs pass with \"1 passed\" and write no verdict.",
         ],
     },
@@ -276,8 +280,19 @@ DOCS: dict[str, dict] = {
         "summary": "Writes docs/investigations/<date>-<slug>.md with every hypothesis and commits it.",
     },
     "bug_intake": {
-        "summary": "Reads the bug report's options: no_gates waives Gate R and F; needs_e2e makes the regression e2e "
-                   "required.",
+        "summary": "Gives the bug its id BUG-<n> (the flow's criterion: its test, commits and trace name it) and reads the "
+                   "report's options: no_gates waives Gate R and F; needs_e2e makes the regression e2e required.",
+    },
+    "bug_plan": {
+        "summary": "Keeps the Gate F plan's root cause, for the fix commit's body and the PR body's bug section.",
+    },
+    "bug_drop_red": {
+        "summary": "Gate R \"reproduce differently\": drops the rejected test(BUG-<n>) commit and its files, so the next "
+                   "test replaces it instead of stacking.",
+    },
+    "bug_reset": {
+        "summary": "After two failed fixes: puts back keel's uncommitted changes (the reproducing test stays) and keeps "
+                   "what was learned for the next investigation; a third reset stops the flow.",
     },
     "reset": {
         "summary": "Puts back what keel's agents changed and did not commit; your own uncommitted files stay.",
