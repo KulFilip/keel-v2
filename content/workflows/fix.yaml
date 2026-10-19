@@ -95,6 +95,8 @@ steps:
       each one testable on its own. Do not investigate them yet. What earlier fix attempts ruled out (do not list
       those again): {{data.learned}}
 
+      {{data.evidence_note}}
+
   - id: investigate
     kind: parallel
     name: one investigator per hypothesis
@@ -108,6 +110,8 @@ steps:
       Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only
       queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed. What earlier fix attempts
       ruled out: {{data.learned}}
+
+      {{data.evidence_note}}
 
   - id: findings
     kind: code
@@ -137,7 +141,13 @@ steps:
       Write the fix plan for Gate F. Start with a "Root cause:" line (one or two sentences: it goes into the fix
       commit's body), then the evidence for it, the files to change, the approach, the risk, one alternative, and
       whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible across both apps or
-      invisible to a unit test, else no). Fix the cause narrowly; no refactoring. The investigators' answers:
+      invisible to a unit test, else no). Fix the cause narrowly; no refactoring.
+
+      {{data.symptoms_note}}
+
+      {{data.evidence_note}}
+
+      The investigators' answers:
 
       {{data.report}}
 

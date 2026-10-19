@@ -533,6 +533,30 @@ def test_a_fix_from_hunt_next_gets_its_own_fix_branch_from_the_base(client, repo
     assert log(repo)[0].startswith("test(BUG-2)")
 
 
+def test_fix_evidence_and_symptoms_reach_the_investigators_and_the_plan_not_the_reproducer(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {})
+    tid = start(client, repo, workflow="fix", title="F-001: ranks overflow", request="500 on /ranks",
+                data={"evidence": "G-01: the rank table is sized to 1000", "symptoms": ["F-001: 500 on /ranks", "F-007: empty page 11"]})
+    wait(client, tid)
+    decide(client, tid)
+    repro = next(r for r in seen if r.agent == "reproducer").prompt
+    assert "rank table is sized" not in repro and "regression criterion" not in repro
+    hyp = next(r for r in seen if r.step_name == "hypotheses").prompt
+    assert "Evidence handed over (a theory to check, not a fact):\nG-01: the rank table is sized to 1000" in hyp
+    assert all("rank table is sized" in r.prompt for r in seen if r.agent == "investigator" and r.item)
+    plan = next(r for r in seen if r.step_name == "fix plan").prompt
+    assert "Each of these symptoms is a regression criterion" in plan and "- F-007: empty page 11" in plan
+    assert "rank table is sized" in plan
+    # without evidence or a group: plain sentences, never a gap
+    seen.clear()
+    tid = start(client, repo, workflow="fix", title="Average is wrong")
+    wait(client, tid)
+    decide(client, tid)
+    plan = next(r for r in seen if r.step_name == "fix plan").prompt
+    assert "No evidence was handed over with this bug." in plan and "The reproducing test is the regression criterion." in plan
+    assert "(nothing yet)" not in next(r for r in seen if r.step_name == "fix plan").prompt.split("The investigators")[0]
+
+
 def test_fix_plan_can_ask_for_the_e2e(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"investigator": investigator(lambda r: "ROOT-CAUSE: confirmed\nE2E: yes")})
     tid = start(client, repo, workflow="fix", title="Average is wrong")

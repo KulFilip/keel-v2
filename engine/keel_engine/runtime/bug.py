@@ -88,7 +88,22 @@ def register(a) -> dict:
     if seed.get("hunt"):
         info["hunt"] = seed["hunt"]
     acs = [x for x in a.acs if x["id"] != bug["id"]] + [bug]
-    return {"acs": acs, "ac": bug["id"], "data": {**a.data, "bug": info}}
+    return {"acs": acs, "ac": bug["id"], "data": {**a.data, "bug": info, **notes(a.data)}}
+
+
+def notes(data: dict) -> dict:
+    """What the investigators and the plan read (fix.yaml {{data.evidence_note}}, {{data.symptoms_note}}), never the
+    reproducer: the evidence handed over (a hunt group's cause, a diagnosis) as a theory to check, and every symptom of
+    the group as a regression criterion of the plan. Both are full sentences, so a missing value never reads as a gap."""
+    seed = data.get("seed") or {}
+    ev = data.get("evidence") or seed.get("evidence")
+    ev = "\n".join(f"- {x}" for x in ev) if isinstance(ev, list) else str(ev or "").strip()
+    symptoms = [str(x) for x in (data.get("symptoms") or seed.get("symptoms") or []) if str(x).strip()]
+    return {"evidence_note": (f"Evidence handed over (a theory to check, not a fact):\n{ev[:4000]}" if ev
+                              else "No evidence was handed over with this bug."),
+            "symptoms_note": ("Each of these symptoms is a regression criterion: the plan names an assertion for every "
+                              "one (the reproducing test covers the first):\n" + "\n".join(f"- {x}" for x in symptoms)
+                              if len(symptoms) > 1 else "The reproducing test is the regression criterion.")}
 
 
 # ------------------------------------------------------------------ the reproducing test

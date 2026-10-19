@@ -77,7 +77,7 @@
    "model": "default",
    "phase": "bug-investigate",
    "collect": "hypotheses",
-   "instructions": "The failing test is committed (the test({{data.bug.id}}) commit). List two to four distinct plausible causes, each one testable on its own. Do not investigate them yet. What earlier fix attempts ruled out (do not list those again): {{data.learned}}"
+   "instructions": "The failing test is committed (the test({{data.bug.id}}) commit). List two to four distinct plausible causes, each one testable on its own. Do not investigate them yet. What earlier fix attempts ruled out (do not list those again): {{data.learned}}\n{{data.evidence_note}}"
   },
   {
    "id": "investigate",
@@ -91,7 +91,7 @@
    "markers": [
     "ROOT-CAUSE"
    ],
-   "instructions": "Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed. What earlier fix attempts ruled out: {{data.learned}}"
+   "instructions": "Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed. What earlier fix attempts ruled out: {{data.learned}}\n{{data.evidence_note}}"
   },
   {
    "id": "findings",
@@ -123,7 +123,7 @@
    "markers": [
     "E2E"
    ],
-   "instructions": "Write the fix plan for Gate F. Start with a \"Root cause:\" line (one or two sentences: it goes into the fix commit's body), then the evidence for it, the files to change, the approach, the risk, one alternative, and whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible across both apps or invisible to a unit test, else no). Fix the cause narrowly; no refactoring. The investigators' answers:\n{{data.report}}"
+   "instructions": "Write the fix plan for Gate F. Start with a \"Root cause:\" line (one or two sentences: it goes into the fix commit's body), then the evidence for it, the files to change, the approach, the risk, one alternative, and whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible across both apps or invisible to a unit test, else no). Fix the cause narrowly; no refactoring.\n{{data.symptoms_note}}\n{{data.evidence_note}}\nThe investigators' answers:\n{{data.report}}"
   },
   {
    "id": "plan_report",
