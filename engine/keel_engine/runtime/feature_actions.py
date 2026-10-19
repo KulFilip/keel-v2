@@ -8,13 +8,19 @@
     amend_start        why the frozen spec needs an amendment: an agent's AMEND line, or the contract gate's note
     spec_amendment     the amendment gate's text: the dated block, why, and the criteria it touches (finished ones too)
     spec_amend_commit  approved: new criteria join, the ones it names (REOPEN) are open again, the spec is committed alone
-    show_diff          what the next gate shows: keel's uncommitted change (the contract), else the branch diff
+    contract_check     before the contract gate: commands.codegen, then the fast check (a failure goes back to the agent)
+    show_diff          what the next gate shows: keel's uncommitted change (the contract: new / changed / breaks callers
+                       per endpoint first), else the branch diff
     security_scope     the security fan-out: the auditor always, the dependency triager when verify deps found something
     e2e_scope          the spec's [E2E] criteria (or a hunt's needs_e2e) and whether commands.e2e is set
     e2e_unrun          no e2e tool: the specs are written but not run; recorded for the final review and the PR body
     verify_e2e         runs commands.e2e (a failure runs once more: flaky), unless the specs are not to be run
+    stack_up           before smoke and e2e: commands.services and commands.migrate, when configured (soft)
     smoke_scope        the spec's [SMOKE] criteria or its Smoke checks section
     verify_smoke       runs smoke/*.sh and commands.smoke_e2e
+    full_review        after code_review: its verdict and sha (data.full_review; ship drops correctness on it)
+    ship_ready         "ready to ship?": criteria, full review, security, e2e/smoke, open items; ship / diff / wrong / stop
+    ship_stop          the ready-to-ship gate's stop
     close_flow         the closing line: criteria done, ADRs written
 
 The step ids these actions read are the feature workflow's: the plan's ORDER marker (any step), the dependency check's
@@ -31,7 +37,7 @@ from pathlib import Path
 from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
-from . import prompts, spec_check, stacks, verdict_actions
+from . import contract_delta, prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
 from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
@@ -168,7 +174,9 @@ def preflight(a):
     """keel v1 `keel preflight`: the tree is a git repository with a test command, and the flow works on its own
     branch. On the base branch (base_branch, main or master) it creates feat/<slug> (settings.branch_pattern; the api
     usually made it already); on any other branch it stays, so the commits of a flow that handed over stay too.
-    data.no_gates waives the optional gates (integration, e2e, smoke); the spec and criteria gates are never waived."""
+    data.no_gates waives the optional gates (integration, e2e, smoke); the spec and criteria gates are never waived.
+    preflight_warnings adds keel v1's other checks as warnings (setup ladder, Docker, missing commands); with
+    settings.preflight_strict (or preflight.strict in .keel/config.yml) they stop the flow instead."""
     notes, update = [], {}
     gates = _gates(a)
     if a.data.get("no_gates"):
@@ -202,7 +210,68 @@ def preflight(a):
     if a.acs:
         done = sum(1 for x in a.acs if x.get("status") in DONE)
         notes.append(f"{len(a.acs)} criteria handed over ({done} done): no interview")
+    warned = preflight_warnings(a, cfg)
+    if warned:
+        if a.settings.get("preflight_strict") or (cfg.get("preflight") or {}).get("strict") is True:
+            return _fail(f"Not ready: {len(warned)} preflight problem(s).",
+                         "\n".join(f"- {w}" for w in warned) + "\n\npreflight strict is on (settings.preflight_strict or "
+                         "preflight.strict in .keel/config.yml): fix these, or turn it off to go on with warnings.")
+        data = {**(update.get("data") or a.data)}
+        data["preflight_warnings"] = warned
+        data["warnings"] = [w for w in data.get("warnings") or [] if w.get("step") != "preflight"] + \
+            [{"step": "preflight", "text": f"preflight: {w}"} for w in warned]
+        update["data"] = data
+        notes.append(f"{len(warned)} warning(s): " + "; ".join(warned))
     return _ok("ready: " + "; ".join(notes), update=update)
+
+
+def _docker_up(root: str) -> bool:
+    import shutil
+    if not shutil.which("docker"):
+        return False
+    code, _out = testcmd.run(root, "docker info --format '{{.ServerVersion}}'", 20)
+    return code == 0
+
+
+def preflight_warnings(a, cfg: dict) -> list[str]:
+    """keel v1 `keel preflight` parity, as warnings for a project that adopted keel (.keel/config.yml): the setup ladder
+    never ran or did not pass; Docker is needed (a compose file, commands.services or a container-backed test) but not
+    running; a command the flow will need is empty (codegen when a contract file exists, e2e when the work asks for e2e
+    tests or the project has an e2e folder, static_checks for ship's static checks). Problems found here would
+    otherwise show up later as confusing test failures."""
+    from . import init_gates, ladder
+
+    root = Path(a.root)
+    if not (root / ".keel" / "config.yml").is_file():
+        return []
+    out: list[str] = []
+    cmds = cfg.get("commands") or {}
+    rungs = ladder.previous(a.root)
+    if not rungs:
+        out.append("the setup ladder never ran (run the init flow): the build, the tests and the stack are unchecked")
+    else:
+        bad = [r for r in rungs if r.get("status") not in ("pass", "skipped")]
+        if bad:
+            r = bad[0]
+            out.append(f"the setup ladder did not pass: rung {r.get('n')} ({r.get('name')}) is {r.get('status')}")
+    services = str(cmds.get("services") or "")
+    needs_docker = "docker" in services or "compose" in services or bool(str(cmds.get("testcontainers_test") or "").strip()) \
+        or any((root / f).is_file() for f in init_gates.COMPOSE)
+    if needs_docker and not a.fake and not _docker_up(a.root):
+        out.append("Docker is needed (a compose file, commands.services or a container-backed test) but is not running")
+    contract = (cfg.get("contract") or {}).get("file")
+    if ((contract and (root / str(contract)).is_file()) or (root / "docs" / "contract").is_dir()) \
+            and not str(cmds.get("codegen") or "").strip():
+        out.append("commands.codegen is empty: the contract step cannot regenerate the generated clients")
+    wants_e2e = bool(a.data.get("needs_e2e")) or "[E2E]" in str(a.request or "") or (root / "e2e").is_dir()
+    if wants_e2e and not str(cmds.get("e2e") or "").strip():
+        out.append("commands.e2e is empty: E2E specs can be written but not run")
+    stacked = any(str(((d.get("commands") or {}) if isinstance(d, dict) else {}).get("static_checks") or "").strip()
+                  for d in stacks.matched(a.root))
+    if not str(cmds.get("static_checks") or "").strip() and not stacked:
+        out.append("commands.static_checks is empty (and no stack of this project sets it): ship's static checks have "
+                   "no lint or type check to run")
+    return out
 
 
 # ------------------------------------------------------------------ the spec and the plan
@@ -355,6 +424,11 @@ def amend_start(a):
     if said:
         frm, text = said[-1]
         reason = f"{ac + ' · ' if ac else ''}{frm}: {text}"
+    elif a.step.startswith("ready_"):
+        # the "ready to ship?" gate's wrong: the person names what is not right; the spec gets an amendment
+        frm = "ready_gate"
+        why = ((a.data.get("ready_gate_answer") or {}).get("why") or "").strip()
+        reason = f"ready-to-ship gate: {why or 'something is not right before ship'}"
     else:
         frm = "contract"
         why = ((a.data.get("contract_gate_answer") or {}).get("why") or "").strip()
@@ -809,7 +883,11 @@ def show_diff(a):
                                                   "data": {**a.data, "contract": "no"}})
     if dirty:
         tracked = [f for f, xy in dirty.items() if "?" not in xy]
-        out = [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]
+        out = []
+        delta = contract_view(a, dirty) if a.phase == "contract" else None
+        if delta:
+            out += [*delta["lines"], ""]
+        out += [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]
         if tracked:
             out.append(git.git(a.root, "diff", "HEAD", "--", *tracked).stdout)
         for f in sorted(x for x, xy in dirty.items() if "?" in xy):
@@ -825,6 +903,10 @@ def show_diff(a):
     text = text.strip()
     if len(text) > 12000:
         text = text[:12000] + "\n… (cut; see the repository for the rest)"
+    if dirty and a.phase == "contract" and delta:
+        breaks = sum(len(d["breaks"]) for d in delta["files"].values() if d)
+        return _ok(f"contract delta: {breaks} change(s) that break callers" if breaks else "contract delta: nothing breaks callers",
+                   update={"show": text, "data": {**a.data, "contract_delta": delta["files"]}})
     return _ok(f"diff ready ({len(dirty)} uncommitted file(s))" if dirty else "branch diff ready", update={"show": text})
 
 
@@ -852,6 +934,63 @@ def test_check(a):
     head = ("NO TEST: no test was added or changed, and the agent did not say why it cannot be tested (an UNTESTABLE: "
             "line). Nothing proves this change. Approve to commit it without a test, or send it back to add one.")
     return _ok("no test added or changed", update={"show": f"{head}\n\n{shown}".strip()})
+
+
+def _contract_files(a, dirty: dict) -> list[str]:
+    cfg = rules.load_config(a.root)
+    named = str((cfg.get("contract") or {}).get("file") or "")
+    return sorted(f for f in dirty if f == named or rules.classify(cfg, f) == "contract"
+                  or (f.endswith((".yaml", ".yml", ".json")) and contract_delta.load(_text(a.root, f)) is not None))
+
+
+def _text(root: str, rel: str) -> str:
+    p = Path(root) / rel
+    return p.read_text(errors="replace") if p.is_file() else ""
+
+
+def contract_view(a, dirty: dict) -> dict | None:
+    """keel v1 phase 2: the contract delta endpoint by endpoint, new / changed / removed-or-narrowed ("breaks
+    callers"), for every changed contract file (OpenAPI YAML or JSON; another format gets the plain diff)."""
+    files = _contract_files(a, dirty)
+    if not files:
+        return None
+    lines, out = ["Contract delta, endpoint by endpoint (the removed or narrowed half breaks callers):"], {}
+    for f in files:
+        old_text = git.git(a.root, "show", f"HEAD:{f}").stdout if "?" not in dirty.get(f, "?") else ""
+        new_doc = contract_delta.load(_text(a.root, f))
+        if new_doc is None:
+            removed = sum(1 for line in git.git(a.root, "diff", "HEAD", "--", f).stdout.splitlines()
+                          if line.startswith("-") and not line.startswith("---"))
+            out[f] = None
+            lines += contract_delta.describe(f, None, removed)
+            continue
+        out[f] = contract_delta.classify(contract_delta.load(old_text), new_doc)
+        lines += contract_delta.describe(f, out[f])
+    return {"files": out, "lines": lines}
+
+
+def contract_check(a):
+    """keel v1 phase 2: "edit the contract file, regenerate both sides, then keel verify fast", before its gate. The
+    codegen command (commands.codegen) runs, then the fast check (api compile, web typecheck, contract lint); a
+    failure goes back to the contract agent with the output. Nothing to check when the agent changed nothing."""
+    mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
+    if not git.is_repo(a.root) or not [f for f in git.dirty(a.root) if f not in mine]:
+        return _ok("no contract change to check")
+    if a.fake:
+        return _ok("codegen and the fast check: simulated")
+    cmd = str((rules.load_config(a.root).get("commands") or {}).get("codegen") or "").strip()
+    notes = []
+    if cmd:
+        code, out = testcmd.run(a.root, cmd, 900, command_env())
+        if code != 0:
+            return _fail(f"Codegen failed on the new contract: {cmd}", f"$ {cmd}\n{verdict_actions._tail(out)}")
+        notes.append(f"codegen ran (`{cmd}`)")
+    else:
+        notes.append("no codegen command (commands.codegen): the generated sides were not refreshed")
+    r = verdict_actions._fast(a)
+    if not r.ok:
+        return _fail(f"The contract does not build: {r.note}", r.detail)
+    return _ok("; ".join([*notes, r.note]))
 
 
 # ------------------------------------------------------------------ security
@@ -944,6 +1083,37 @@ def verify_e2e(a):
                update={**covers, "acs": _covered(a, ids), **verdict_actions.flaky_update(a, r["flaky"])})
 
 
+def stack_up(a):
+    """keel v1 phase 5: before smoke and e2e, the stack up (commands.services) and the database migrated
+    (commands.migrate), so neither runs against a stale or stopped stack. Only when the project configures one of them
+    and smoke or e2e has something to run; a failure is a warning (the step is soft) that smoke and e2e then show."""
+    cfg = rules.load_config(a.root)
+    cmds = cfg.get("commands") or {}
+    run = [(k, str(cmds.get(k) or "").strip()) for k in ("services", "migrate") if str(cmds.get(k) or "").strip()]
+    if not run:
+        return _ok("no stack configured (commands.services, commands.migrate): nothing to bring up")
+    skipped = {s.get("step") for s in a.data.get("ship_skipped") or [] if isinstance(s, dict)}
+    text = _read(a.root, spec_path(a))
+    smoke = "smoke" not in skipped and bool(_tagged(text, "SMOKE") or re.sub(r"(?is)\s*(none|n/?a|-|tbd)?\.?\s*", "",
+                                                                              _section(text, "smoke")))
+    e2e = "e2e" not in skipped and bool(_tagged(text, "E2E") or a.data.get("needs_e2e"))
+    if not smoke and not e2e:
+        return _ok("no smoke check or e2e test to run: the stack is not brought up")
+    if a.fake:
+        return _ok("stack up + migrate: simulated")
+    done = []
+    for key, cmd in run:
+        code, out = testcmd.run(a.root, cmd, 900, command_env())
+        if code != 0:
+            warn = f"stack up: commands.{key} failed (exit {code}); smoke and e2e may hit a stopped or stale stack"
+            data = {**a.data, "warnings": [w for w in a.data.get("warnings") or [] if w.get("step") != "stack_up"]
+                    + [{"step": "stack_up", "text": warn}]}
+            from .actions import ActionResult
+            return ActionResult(False, warn, f"$ {cmd}\n{verdict_actions._tail(out)}", {"data": data})
+        done.append(key)
+    return _ok(f"stack up: {' and '.join(f'commands.{k}' for k in done)} passed")
+
+
 def smoke_scope(a):
     """keel v1 phase 6: the [SMOKE] criteria or a filled Smoke checks section; nothing there, no smoke phase."""
     text = _read(a.root, spec_path(a))
@@ -982,6 +1152,92 @@ def verify_smoke(a):
                update=passed)
 
 
+# ------------------------------------------------------------------ the full-diff review and "ready to ship?"
+
+def full_review(a):
+    """After the full-diff review (code_review): its verdict and the sha it read, in data.full_review. "pass" when it
+    ended clean; "findings accepted" when the person let findings through (a new dismissed_findings entry for it).
+    Ship drops its correctness lens when this passed and no production file changed since the sha (ship._lenses)."""
+    prev = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
+    dismissed = len([d for d in a.data.get("dismissed_findings") or [] if isinstance(d, dict)
+                     and str(d.get("step") or "").endswith("code_review")])
+    verdict = "findings accepted" if dismissed > int(prev.get("dismissed") or 0) else "pass"
+    sha = git.head(a.root) if git.is_repo(a.root) else None
+    full = {"verdict": verdict, "sha": sha, "dismissed": dismissed}
+    return _ok(f"full-diff review: {verdict}" + (f" at {sha[:7]}" if sha else ""), update={"data": {**a.data, "full_review": full}})
+
+
+def _phase_result(a, name: str) -> str:
+    """What e2e or smoke did in this flow, in a few words: skipped (why), nothing to do, written not run, ran."""
+    skip = next((s for s in a.data.get("ship_skipped") or [] if isinstance(s, dict) and s.get("step") == name), None)
+    if skip:
+        return f"skipped: {skip.get('reason') or 'no reason given'}"
+    waived = (_gates(a).get("skipped") or {}).get(name)
+    mk = ((a.state.get("markers") or {}).get(f"{name}_scope") or {}).get("E2E" if name == "e2e" else "SMOKE")
+    if mk == "no":
+        return "nothing to do: the spec has no " + ("[E2E] criteria" if name == "e2e" else "smoke checks")
+    if name == "e2e":
+        e2e = a.data.get("e2e") or {}
+        if not e2e:
+            return "not run"
+        out = f"{len(e2e.get('criteria') or [])} criteria, " + (f"run with `{e2e['command']}`" if e2e.get("run") and e2e.get("command")
+                                                                else "written, not run (no e2e command)")
+    else:
+        checks = (a.data.get("smoke") or {}).get("checks")
+        out = f"{len(checks)} check(s) written and run" if checks else "not run"
+    return out + (f" (gate waived: {waived})" if waived else "")
+
+
+SHIP_CHOICES = [
+    "- ship: ship it (recommended): ship runs its whole sequence now (verify, release, coverage, deps, audit, trace, the "
+    "review lenses, the spec walk) and stops next at the final review",
+    "- diff: show me the branch diff first: it is shown here, then this question comes again",
+    "- wrong: something is not right: say what in your note; the spec gets a dated amendment (its gate shows it) and the "
+    "criteria it reopens are built again",
+    "- stop: stop here: the branch and its commits stay as they are; nothing is pushed",
+]
+
+
+def ship_ready(a):
+    """keel v1 feature phase 8, "ask before you start it": the state in front of the person (criteria done, the
+    full-diff review's verdict, what security found, what e2e and smoke cover, what is still open), then ship / diff /
+    wrong / stop. A step id ending in _diff adds the branch diff (the gate's diff choice)."""
+    acs = a.acs
+    done = [x for x in acs if x.get("status") in DONE]
+    full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
+    sec, sec_lines = verdict_actions.security_summary(a.state)
+    lines = ["Ready to ship? Everything after this runs without stopping until the final review.", "",
+             f"Criteria: {len(done)}/{len(acs)} done", *_criteria_lines(acs), "",
+             "Full-diff review: " + (f"{full.get('verdict')} at {str(full.get('sha') or '?')[:7]}" if full else "not run"),
+             f"Security: {sec}", *sec_lines,
+             f"E2E: {_phase_result(a, 'e2e')}", f"Smoke: {_phase_result(a, 'smoke')}"]
+    open_ = [f"- {x['id']} is not done ({x.get('status') or 'todo'})" for x in acs if x.get("status") not in DONE]
+    open_ += verdict_actions.dismissed_lines(a.data)
+    open_ += [f"- skipped: {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in a.data.get("ship_skipped") or []
+              if isinstance(s, dict)]
+    open_ += [f"- flaky: {f.get('label')}" for f in a.state.get("flaky") or []]
+    open_ += [f"- warning: {w.get('text')}" for w in a.data.get("warnings") or [] if isinstance(w, dict)]
+    lines += ["", "Still open:" if open_ else "Still open: nothing.", *open_[:30]]
+    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"}; a plain approve ships):", *SHIP_CHOICES]
+    if a.step.endswith("_diff") and git.is_repo(a.root):
+        base = a.base or "HEAD"
+        stat = git.git(a.root, "diff", "--stat", f"{base}..HEAD").stdout.strip()
+        diff = git.git(a.root, "diff", f"{base}..HEAD").stdout
+        text = f"Branch diff since the flow started ({base[:7]}..HEAD):\n{stat or 'no change'}\n\n{diff}".strip()
+        if len(text) > 12000:
+            text = text[:12000] + "\n… (cut; see the repository for the rest)"
+        lines += ["", text]
+    return _ok(f"ready to ship? {len(done)}/{len(acs)} criteria done; security {sec}", update={"show": "\n".join(lines)})
+
+
+def ship_stop(a):
+    """The "ready to ship?" gate's stop: the flow stops before ship; the branch and its commits stay."""
+    from .actions import ActionResult
+
+    why = str((a.data.get("ready_gate_answer") or {}).get("why") or "").strip()
+    return ActionResult(False, "Stopped before ship" + (f": {why}" if why else "; the branch and its commits stay."), stop=True)
+
+
 # ------------------------------------------------------------------ close
 
 def close_flow(a):
@@ -1002,5 +1258,6 @@ ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": 
            "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note, "stuck": stuck,
            "amend_stop": amend_stop, "show_diff": show_diff, "test_check": test_check, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
-           "verify_smoke": verify_smoke, "close_flow": close_flow}
+           "verify_smoke": verify_smoke, "close_flow": close_flow, "full_review": full_review, "ship_ready": ship_ready,
+           "ship_stop": ship_stop, "contract_check": contract_check, "stack_up": stack_up}
 

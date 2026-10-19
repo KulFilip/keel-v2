@@ -35,7 +35,7 @@ def test_feature_flow_reaches_done(client, repo):
     assert s["status"] == "done", s
     # v0.17.5 both optional-step menus (options, ship_plan) are asked at the spec gate
     assert gates == [("spec_gate", None), ("contract_gate", None), ("ac_gate", "AC-1"), ("ac_gate", "AC-2"),
-                     ("integration_gate", None), ("ship_final_review", None), ("ship_pr_gate", None)]
+                     ("integration_gate", None), ("ready_gate", None), ("ship_final_review", None), ("ship_pr_gate", None)]
     assert all(a["status"] == "done" for a in s["acs"])
     assert s["usage"]["tokens_in"] > 0 and s["checkpoints"] > 10
 
@@ -174,7 +174,8 @@ def test_feature_flow_leaves_nothing_uncommitted(client, repo):
     assert s["status"] == "done", s
     log = git_log(repo)
     assert any(m.startswith("docs: spec and plan") for m in log), log
-    assert any(m.startswith("docs(memory)") for m in log), log
+    # the demo has no knowledge base: ship asks nothing about it and makes no docs(memory) commit
+    assert not any(m.startswith("docs(memory)") for m in log), log
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
     assert [l for l in dirty.splitlines() if ".keel/" not in l] == []
 

@@ -13,6 +13,25 @@
    "skip_menu": true
   },
   {
+   "id": "doc_updates",
+   "kind": "agent",
+   "name": "docs the change makes wrong",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "close",
+   "skippable": "optional",
+   "keep": true
+  },
+  {
+   "id": "doc_updates_commit",
+   "kind": "code",
+   "name": "commit the doc edits",
+   "phase": "close",
+   "action": "commit",
+   "skippable": "optional",
+   "group": "doc_updates"
+  },
+  {
    "id": "verify_fix",
    "kind": "agent",
    "name": "fix what the checks found",
@@ -277,26 +296,71 @@
    "report": "verdicts"
   },
   {
+   "id": "memory_plan",
+   "kind": "code",
+   "name": "is the knowledge base stale?",
+   "phase": "memory",
+   "action": "memory_plan"
+  },
+  {
+   "id": "memory_gate",
+   "kind": "gate",
+   "name": "update the knowledge base?",
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "choices": {
+    "update": "memory",
+    "skip": "memory_skip"
+   }
+  },
+  {
+   "id": "memory_skip",
+   "kind": "code",
+   "name": "skip the knowledge update",
+   "phase": "memory",
+   "action": "memory_skip",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "then": "memory_check"
+  },
+  {
    "id": "memory",
    "kind": "agent",
    "name": "knowledge update",
    "agent": "librarian",
    "model": "default",
-   "phase": "memory"
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   }
   },
   {
    "id": "memory_check",
    "kind": "code",
    "name": "knowledge check",
    "phase": "memory",
-   "action": "knowledge_check"
+   "action": "knowledge_check",
+   "when": {
+    "data": "memory_plan.check",
+    "equals": "yes"
+   }
   },
   {
    "id": "memory_commit",
    "kind": "code",
    "name": "commit memory",
    "phase": "memory",
-   "action": "commit"
+   "action": "commit",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   }
   },
   {
    "id": "pr",

@@ -3,13 +3,21 @@
  "name": "knowledge refresh (keel)",
  "steps": [
   {
+   "id": "stale_scan",
+   "kind": "code",
+   "name": "which sections are stale",
+   "phase": "memory",
+   "action": "knowledge_scan"
+  },
+  {
    "id": "librarians",
    "kind": "parallel",
    "name": "librarian per section",
    "agent": "librarian",
    "model": "default",
    "phase": "memory",
-   "parallel": 5
+   "parallel": 5,
+   "instructions": "This is a refresh, not a first draft: keep every claim that is still true and its citation. Check first the claims that cite the files below (they changed since the last knowledge check), fix or remove what is no longer true, and add only what the code now makes worth knowing. A section not written yet is written from the code.\n{{data.knowledge_stale.text}}"
   },
   {
    "id": "memory_check",
@@ -30,6 +38,7 @@
  ],
  "expect": {
   "main": [
+   "stale_scan",
    "librarians",
    "memory_check",
    "commit"
@@ -39,6 +48,10 @@
     "kind": "phase",
     "phase": "memory",
     "nodes": [
+     {
+      "step": "stale_scan",
+      "side": []
+     },
      {
       "step": "librarians",
       "side": []

@@ -178,9 +178,21 @@
    }
   },
   {
+   "id": "contract_check",
+   "kind": "code",
+   "name": "codegen + fast check",
+   "phase": "contract",
+   "action": "contract_check",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   },
+   "rounds": 2
+  },
+  {
    "id": "contract_diff",
    "kind": "code",
-   "name": "the contract delta",
+   "name": "the contract delta: new, changed, breaks callers",
    "phase": "contract",
    "action": "show_diff",
    "when": {
@@ -352,6 +364,35 @@
    "lock": true
   },
   {
+   "id": "refactor",
+   "kind": "agent",
+   "name": "refactor (tests frozen)",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "refactor",
+   "per_ac": true,
+   "markers": [
+    "REFACTOR"
+   ],
+   "instructions": "This criterion is green. Tidy only the code GREEN just wrote for it and the code it touched: duplication GREEN built up, a name that no longer says what it does, a long function that hides its steps, dead code it left. Behaviour stays exactly the same: the tests are frozen (you cannot edit them) and must stay green. No new behaviour, no new public surface, nothing outside this criterion's code. When nothing is worth tidying, change nothing. End with exactly one line: REFACTOR: done, or REFACTOR: none.",
+   "skippable": "optional"
+  },
+  {
+   "id": "refactor_commit",
+   "kind": "code",
+   "name": "verify + refactor commit",
+   "phase": "refactor",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "when": {
+    "marker": "REFACTOR",
+    "equals": "done",
+    "step": "refactor"
+   },
+   "skippable": "optional",
+   "group": "refactor"
+  },
+  {
    "id": "ac_review",
    "kind": "agent",
    "name": "AC review",
@@ -460,6 +501,74 @@
    "rounds": 2
   },
   {
+   "id": "full_review",
+   "kind": "code",
+   "name": "the full-diff review's verdict",
+   "phase": "gate",
+   "action": "full_review"
+  },
+  {
+   "id": "stack_up",
+   "kind": "code",
+   "name": "stack up + migrate",
+   "phase": "smoke",
+   "action": "stack_up",
+   "soft": true
+  },
+  {
+   "id": "smoke_scope",
+   "kind": "code",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "action": "smoke_scope",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_needed",
+   "kind": "branch",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "no": "e2e_scope",
+   "when": {
+    "marker": "SMOKE",
+    "equals": "yes",
+    "step": "smoke_scope"
+   },
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke",
+   "kind": "agent",
+   "name": "smoke",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "smoke",
+   "instructions": "This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path. Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:\n{{data.smoke.checks}}",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_commit",
+   "kind": "code",
+   "name": "run smoke + commit",
+   "phase": "smoke",
+   "action": "verify_smoke+commit",
+   "rounds": 2,
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_gate",
+   "kind": "gate",
+   "name": "smoke",
+   "phase": "smoke",
+   "back": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
    "id": "e2e_scope",
    "kind": "code",
    "name": "e2e criteria + tool",
@@ -473,7 +582,7 @@
    "kind": "branch",
    "name": "e2e criteria",
    "phase": "e2e",
-   "no": "smoke_scope",
+   "no": "ready_show",
    "when": {
     "marker": "E2E",
     "equals": "yes",
@@ -533,57 +642,24 @@
    "group": "e2e"
   },
   {
-   "id": "smoke_scope",
+   "id": "ready_show",
    "kind": "code",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "action": "smoke_scope",
-   "skippable": "optional",
-   "group": "smoke"
+   "name": "the state before ship",
+   "phase": "ship",
+   "action": "ship_ready"
   },
   {
-   "id": "smoke_needed",
-   "kind": "branch",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "no": "ship_plan",
-   "when": {
-    "marker": "SMOKE",
-    "equals": "yes",
-    "step": "smoke_scope"
-   },
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke",
-   "kind": "agent",
-   "name": "smoke",
-   "agent": "e2e-author",
-   "model": "default",
-   "phase": "smoke",
-   "instructions": "This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path. Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:\n{{data.smoke.checks}}",
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_commit",
-   "kind": "code",
-   "name": "run smoke + commit",
-   "phase": "smoke",
-   "action": "verify_smoke+commit",
-   "rounds": 2,
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_gate",
+   "id": "ready_gate",
    "kind": "gate",
-   "name": "smoke",
-   "phase": "smoke",
-   "back": "smoke",
-   "skippable": "optional",
-   "group": "smoke"
+   "name": "ready to ship?",
+   "phase": "ship",
+   "lock": true,
+   "choices": {
+    "ship": "ship_plan",
+    "diff": "ready_diff",
+    "wrong": "ready_amend",
+    "stop": "ready_stop"
+   }
   },
   {
    "id": "ship_plan",
@@ -592,6 +668,29 @@
    "phase": "ship",
    "lock": true,
    "skip_menu": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_doc_updates",
+   "kind": "agent",
+   "name": "docs the change makes wrong",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "close",
+   "instructions": "This step is about the project's own docs, not code and not keel's knowledge base. Read the branch diff against the base branch, then the README, the CHANGELOG (when the project keeps one), the API docs (an OpenAPI description, docs/api, pages for the routes this branch adds or changes) and the user guide pages. Edit only what this change makes wrong or incomplete: a new or changed route, flag, config key, command or behaviour a reader would miss. A project with a CHANGELOG gets one entry under its unreleased heading. Touch no code, no test, no spec and nothing in the knowledge base; keep each edit small. When nothing is wrong, change nothing and say so. End with one line per file you changed and why: the final review shows it.",
+   "skippable": "optional",
+   "group": "doc_updates",
+   "keep": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_doc_updates_commit",
+   "kind": "code",
+   "name": "commit the doc edits",
+   "phase": "close",
+   "action": "commit",
+   "skippable": "optional",
+   "group": "doc_updates",
    "included_from": "ship"
   },
   {
@@ -895,12 +994,53 @@
    "included_from": "ship"
   },
   {
+   "id": "ship_memory_plan",
+   "kind": "code",
+   "name": "is the knowledge base stale?",
+   "phase": "memory",
+   "action": "memory_plan",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_gate",
+   "kind": "gate",
+   "name": "update the knowledge base?",
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "choices": {
+    "update": "ship_memory",
+    "skip": "ship_memory_skip"
+   },
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_skip",
+   "kind": "code",
+   "name": "skip the knowledge update",
+   "phase": "memory",
+   "action": "memory_skip",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "then": "ship_memory_check",
+   "included_from": "ship"
+  },
+  {
    "id": "ship_memory",
    "kind": "agent",
    "name": "knowledge update",
    "agent": "librarian",
    "model": "default",
    "phase": "memory",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
+   "instructions": "Update only these sections, and in them only the claims that cite the files listed (they changed since the last knowledge check). Re-read those files, fix or remove what is no longer true, add what this branch makes worth knowing, and keep every other line as it is. A section listed as not written yet is written from the code.\n{{data.memory_plan.text}}",
    "included_from": "ship"
   },
   {
@@ -909,6 +1049,10 @@
    "name": "knowledge check",
    "phase": "memory",
    "action": "knowledge_check",
+   "when": {
+    "data": "memory_plan.check",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -917,6 +1061,10 @@
    "name": "commit memory",
    "phase": "memory",
    "action": "commit",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -1182,6 +1330,30 @@
    "phase": "e2e",
    "action": "e2e_unrun",
    "then": "e2e"
+  },
+  {
+   "id": "ready_diff",
+   "kind": "code",
+   "name": "the branch diff before ship",
+   "phase": "ship",
+   "action": "ship_ready",
+   "then": "ready_gate"
+  },
+  {
+   "id": "ready_amend",
+   "kind": "code",
+   "name": "to the amendment",
+   "phase": "spec",
+   "action": "amend_start",
+   "then": "amend_entry"
+  },
+  {
+   "id": "ready_stop",
+   "kind": "code",
+   "name": "stop before ship",
+   "phase": "ship",
+   "action": "ship_stop",
+   "then": "end"
   }
  ],
  "expect": {
@@ -1201,6 +1373,7 @@
    "freeze",
    "options",
    "contract",
+   "contract_check",
    "contract_diff",
    "contract_gate",
    "contract_commit",
@@ -1212,6 +1385,8 @@
    "green_amend",
    "green_blocked",
    "verify_green",
+   "refactor",
+   "refactor_commit",
    "ac_review",
    "ac_gate",
    "integration",
@@ -1224,18 +1399,24 @@
    "review_fix",
    "review_fix_commit",
    "code_review",
+   "full_review",
+   "stack_up",
+   "smoke_scope",
+   "smoke_needed",
+   "smoke",
+   "smoke_commit",
+   "smoke_gate",
    "e2e_scope",
    "e2e_needed",
    "e2e_tool",
    "e2e",
    "e2e_commit",
    "e2e_gate",
-   "smoke_scope",
-   "smoke_needed",
-   "smoke",
-   "smoke_commit",
-   "smoke_gate",
+   "ready_show",
+   "ready_gate",
    "ship_plan",
+   "ship_doc_updates",
+   "ship_doc_updates_commit",
    "ship_verify_fix",
    "ship_verify_fix_commit",
    "ship_verify",
@@ -1260,6 +1441,8 @@
    "ship_review",
    "ship_spec_walk",
    "ship_final_review",
+   "ship_memory_plan",
+   "ship_memory_gate",
    "ship_memory",
    "ship_memory_check",
    "ship_memory_commit",
@@ -1351,6 +1534,10 @@
     "nodes": [
      {
       "step": "contract",
+      "side": []
+     },
+     {
+      "step": "contract_check",
       "side": []
      },
      {
@@ -1472,6 +1659,14 @@
         "side": []
        },
        {
+        "step": "refactor",
+        "side": []
+       },
+       {
+        "step": "refactor_commit",
+        "side": []
+       },
+       {
         "step": "ac_review",
         "side": []
        },
@@ -1544,6 +1739,47 @@
      {
       "step": "code_review",
       "side": []
+     },
+     {
+      "step": "full_review",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "smoke",
+    "nodes": [
+     {
+      "step": "stack_up",
+      "side": []
+     },
+     {
+      "step": "smoke_scope",
+      "side": []
+     },
+     {
+      "if": "smoke_needed",
+      "cond": "smoke checks says SMOKE = yes",
+      "side": [],
+      "yes": {
+       "nodes": [
+        {
+         "step": "smoke",
+         "side": []
+        },
+        {
+         "step": "smoke_commit",
+         "side": []
+        },
+        {
+         "step": "smoke_gate",
+         "side": []
+        }
+       ],
+       "side": false
+      },
+      "no": "go"
      }
     ]
    },
@@ -1588,34 +1824,19 @@
    },
    {
     "kind": "phase",
-    "phase": "smoke",
+    "phase": "ship",
     "nodes": [
      {
-      "step": "smoke_scope",
+      "step": "ready_show",
       "side": []
      },
      {
-      "if": "smoke_needed",
-      "cond": "smoke checks says SMOKE = yes",
-      "side": [],
-      "yes": {
-       "nodes": [
-        {
-         "step": "smoke",
-         "side": []
-        },
-        {
-         "step": "smoke_commit",
-         "side": []
-        },
-        {
-         "step": "smoke_gate",
-         "side": []
-        }
-       ],
-       "side": false
-      },
-      "no": "go"
+      "step": "ready_gate",
+      "side": [
+       "ready_diff",
+       "ready_amend",
+       "ready_stop"
+      ]
      }
     ]
    },
@@ -1625,7 +1846,7 @@
     "nodes": [
      {
       "include": "ship",
-      "count": 31,
+      "count": 36,
       "body": [
        {
         "kind": "phase",
@@ -1633,6 +1854,20 @@
         "nodes": [
          {
           "step": "ship_plan",
+          "side": []
+         }
+        ]
+       },
+       {
+        "kind": "phase",
+        "phase": "close",
+        "nodes": [
+         {
+          "step": "ship_doc_updates",
+          "side": []
+         },
+         {
+          "step": "ship_doc_updates_commit",
           "side": []
          }
         ]
@@ -1799,6 +2034,16 @@
         "phase": "memory",
         "nodes": [
          {
+          "step": "ship_memory_plan",
+          "side": []
+         },
+         {
+          "step": "ship_memory_gate",
+          "side": [
+           "ship_memory_skip"
+          ]
+         },
+         {
           "step": "ship_memory",
           "side": []
          },
@@ -1874,9 +2119,13 @@
    "e2e_unrun": "e2e_tool",
    "green_stuck": "green_blocked",
    "green_to_amend": "green_amend",
+   "ready_amend": "ready_gate",
+   "ready_diff": "ready_gate",
+   "ready_stop": "ready_gate",
    "rebuild": "contract_gate",
    "red_stuck": "red_blocked",
    "red_to_amend": "red_amend",
+   "ship_memory_skip": "ship_memory_gate",
    "spec_edit": "spec_gate",
    "spec_edit_sync": "spec_gate",
    "spec_restart": "spec_gate",

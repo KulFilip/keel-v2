@@ -1,7 +1,10 @@
-workflow ship "ship (keel)" - 31 steps, 6 gates
+workflow ship "ship (keel)" - 36 steps, 7 gates
 
 == Ship: checks, reviews and the pull request ==  id=ship
   [?] which ship steps run  (gate, you decide)
+== Close: decision records and the closing note ==  id=close
+   o  docs the change makes wrong  (agent implementer)
+   #  commit the doc edits  (code commit)
 == Review fix: fix what a review or a check found ==  id=review-fix
    o  fix what the checks found  (agent implementer)
    #  commit the fix  (code commit)
@@ -23,6 +26,12 @@ workflow ship "ship (keel)" - 31 steps, 6 gates
   [?] final review  (gate, you decide)
         send back -> fix what the checks found  (loops back)
 == Knowledge: update what keel knows about the project ==  id=memory
+   #  is the knowledge base stale?  (code memory_plan)
+  [?] update the knowledge base?  (gate, you decide)
+        update -> knowledge update
+        skip -> skip the knowledge update
+      \  #  skip the knowledge update  (code memory_skip)
+      \       then -> knowledge check
    o  knowledge update  (agent librarian)
    #  knowledge check  (code knowledge_check)
    #  commit memory  (code commit)

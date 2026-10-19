@@ -11,9 +11,30 @@ version: 1
 # lint (v0.4.1): the stacks' and the project's check tools on the branch diff, fixers left out; soft (a failure is shown
 # at the final review and in the PR body, the lint flow fixes it); optional.
 # spec_walk runs only when the flow has a spec (a fix or a small change has none: its walk had nothing to walk against).
+# doc_updates: the project's own docs this change makes wrong (README, CHANGELOG, API docs), optional, first so
+# the verdicts see them; the final review shows what it changed. The knowledge update is asked (memory_plan,
+# memory_gate): only when a file a section cites changed, update or skip with a reason (the PR body records it).
 # Other flows end with these steps: `- { id: ship, kind: include, name: ship, flow: ship }`.
 steps:
   - { id: plan, kind: gate, name: which ship steps run, phase: ship, skip_menu: true, lock: true }
+  # the project's own docs this change makes wrong (README, CHANGELOG, API docs), first so verify sees them; optional
+  - id: doc_updates
+    kind: agent
+    name: docs the change makes wrong
+    agent: implementer
+    model: default
+    phase: close
+    keep: true
+    skippable: optional
+    instructions: >-
+      This step is about the project's own docs, not code and not keel's knowledge base. Read the branch diff against
+      the base branch, then the README, the CHANGELOG (when the project keeps one), the API docs (an OpenAPI
+      description, docs/api, pages for the routes this branch adds or changes) and the user guide pages. Edit only what
+      this change makes wrong or incomplete: a new or changed route, flag, config key, command or behaviour a reader
+      would miss. A project with a CHANGELOG gets one entry under its unreleased heading. Touch no code, no test, no spec
+      and nothing in the knowledge base; keep each edit small. When nothing is wrong, change nothing and say so. End with
+      one line per file you changed and why: the final review shows it.
+  - { id: doc_updates_commit, kind: code, name: commit the doc edits, action: commit, phase: close, skippable: optional, group: doc_updates }
   - { id: verify_fix, kind: agent, name: fix what the checks found, agent: implementer, model: default, phase: review-fix, retry_only: true }
   - { id: verify_fix_commit, kind: code, name: commit the fix, action: commit, phase: review-fix }
   - { id: verify, kind: code, name: verify fast + module, action: verify_fast+verify_module, phase: ship, rounds: 2, lock: true }
@@ -29,9 +50,32 @@ steps:
   - { id: spec_walk, kind: agent, name: "walk the diff against the spec: name behaviour no criterion asks for", agent: reviewer, model: default,
       phase: ship, rounds: 2, redo: verify, skippable: optional, when: { state: spec } }
   - { id: final_review, kind: gate, name: final review, phase: final-review, report: verdicts, back: verify_fix, lock: true }
-  - { id: memory, kind: agent, name: knowledge update, agent: librarian, model: default, phase: memory }
-  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: memory }
-  - { id: memory_commit, kind: code, name: commit memory, action: commit, phase: memory }
+  # keel v1 ship step 8: the knowledge update is asked, only when a file a section cites changed (update / skip + why)
+  - { id: memory_plan, kind: code, name: "is the knowledge base stale?", action: memory_plan, phase: memory }
+  - id: memory_gate
+    kind: gate
+    name: update the knowledge base?
+    phase: memory
+    when: { data: memory_plan.ask, equals: "yes" }
+    choices: { update: memory, skip: memory_skip }
+  # reached only by the gate's skip (update jumps past it; unasked, its when is false): the reason, then the check
+  - { id: memory_skip, kind: code, name: skip the knowledge update, action: memory_skip, then: memory_check, phase: memory,
+      when: { data: memory_plan.ask, equals: "yes" } }
+  - id: memory
+    kind: agent
+    name: knowledge update
+    agent: librarian
+    model: default
+    phase: memory
+    when: { data: memory_plan.run, equals: "yes" }
+    instructions: >-
+      Update only these sections, and in them only the claims that cite the files listed (they changed since the last
+      knowledge check). Re-read those files, fix or remove what is no longer true, add what this branch makes worth
+      knowing, and keep every other line as it is. A section listed as not written yet is written from the code.
+
+      {{data.memory_plan.text}}
+  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: memory, when: { data: memory_plan.check, equals: "yes" } }
+  - { id: memory_commit, kind: code, name: commit memory, action: commit, phase: memory, when: { data: memory_plan.run, equals: "yes" } }
   - { id: pr, kind: code, name: PR body, action: pr, phase: close }
   - { id: pr_gate, kind: gate, name: open the PR, phase: close, lock: true }
   - { id: open_pr, kind: code, name: open the PR (never pushes), action: open_pr, phase: close }

@@ -13,11 +13,11 @@ A skipped step is recorded in state.data.ship_skipped ([{step, band, reason}]); 
 from __future__ import annotations
 
 import asyncio
+import re
 
 from .. import extensions, rules
 from ..tools import git
-from . import blockers, run_mode, verdict_actions, verdicts
-from . import bug
+from . import blockers, bug, knowledge, run_mode, verdict_actions, verdicts
 
 DEFAULT_LENSES = ["correctness", "security", "performance"]
 BANDS = {
@@ -25,6 +25,26 @@ BANDS = {
     "optional": "Optional: nothing downstream demands it; skipping is a real choice with a real cost",
 }
 VERDICT_ROWS = ["fast", "module", "lint", "release", "coverage", "deps", "audit", "trace", "arch", "memory"]
+# Production code: the buckets keel's rules know, plus any other file that is not a test, a doc or keel's own.
+PROD_BUCKETS = {"api-main", "web-src", "migration"}
+_TESTISH = re.compile(r"(^|/)(tests?|__tests__|e2e|smoke|specs?)/|(^|/)test_[^/]*$|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
+_DOCISH = re.compile(r"\.(md|txt|rst|adoc)$|^docs/|^\.keel/|^\.claude/|^\.github/")
+
+
+def is_production(cfg: dict, path: str) -> bool:
+    bucket = rules.classify(cfg, path)
+    if bucket in PROD_BUCKETS:
+        return True
+    return bucket == "other" and not _TESTISH.search(path) and not _DOCISH.search(path)
+
+
+def production_changed(root: str, cfg: dict, sha: str) -> list[str] | None:
+    """The production files changed since `sha` (committed or not); None when the sha is unknown here."""
+    r = git.git(root, "diff", "--name-only", f"{sha}..HEAD")
+    if r.returncode != 0:
+        return None
+    files = {f.strip() for f in r.stdout.splitlines() if f.strip()} | set(git.dirty(root))
+    return sorted(f for f in files if is_production(cfg, f))
 
 
 def _result(ok, note, detail="", update=None):
@@ -55,8 +75,46 @@ def _lenses(a):
     for lens in lenses:
         if lens and lens not in seen:
             seen.append(lens)
-    items = [{"id": lens, "title": f"{lens} lens"} for lens in seen]
-    return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}.", update={"data": {**a.data, "review_lenses": items}})
+    data = {k: v for k, v in a.data.items() if k != "lens_dropped"}
+    dropped = "" if isinstance(chosen, list) and chosen else _drop_correctness(a, cfg, seen)
+    if dropped:
+        seen = [x for x in seen if x != "correctness"]
+        data["lens_dropped"] = dropped
+    scope = _lens_scope(a, cfg)
+    items = [{"id": lens, "title": f"{lens} lens", "lens": lens, **scope} for lens in seen]
+    return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}." + (f" {dropped}." if dropped else ""),
+                   update={"data": {**data, "review_lenses": items}})
+
+
+def _lens_scope(a, cfg: dict) -> dict:
+    """What each ship reviewer reads (as the review flow's items: review_scope): the branch diff against its base, the
+    files it touches, and the spec. Without it a reviewer guesses the base."""
+    if not git.is_repo(a.root):
+        return {}
+    base = verdict_actions.base_ref(a.root, cfg, a.base)
+    if not base:
+        return {}
+    files = [f for f in git.git(a.root, "diff", "--name-only", f"{base}...HEAD").stdout.splitlines() if f.strip()]
+    out = {"scope": f"git diff {base}...HEAD", "base": base, "files": files[:60]}
+    if len(files) > 60:
+        out["files_more"] = len(files) - 60
+    if a.state.get("spec"):
+        out["spec"] = a.state["spec"]
+    return out
+
+
+def _drop_correctness(a, cfg: dict, lenses: list[str]) -> str:
+    """keel v1 ship step 5: the correctness lens is dropped when the full-diff review (data.full_review, written after
+    the feature flow's code_review) passed and no production file changed since its sha: it read the same code for the
+    same thing. Any production change since (an integration commit, a fix) and the lens runs. Returns why, or ""."""
+    full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
+    sha = str(full.get("sha") or "")
+    if "correctness" not in lenses or full.get("verdict") != "pass" or not sha or not git.is_repo(a.root):
+        return ""
+    changed = production_changed(a.root, cfg, sha)
+    if changed is None or changed:
+        return ""
+    return f"correctness lens dropped: the full-diff review passed at {sha[:7]} and no production file changed since"
 
 
 async def coverage_report(a):
@@ -78,6 +136,88 @@ def _coverage_report(a):
     lines = [f"- {x.get('key') or x.get('id')}: {x.get('reason') or 'no reason given'}" for x in accepted]
     note = head + (f" {len(accepted)} group(s) accepted, not covered." if accepted else "")
     return _result(True, note, "\n".join(["Accepted, not covered:", *lines]) if lines else "")
+
+
+# ------------------------------------------------------------------ the knowledge update: asked, not assumed
+
+async def memory_plan(a):
+    return await asyncio.to_thread(_memory_plan, a)
+
+
+MEMORY_CHOICES = [
+    "- update: update the stale sections (recommended: a file they cite changed). A librarian re-reads the cited code "
+    "and rewrites only the claims that cite the changed files: it costs tokens",
+    "- skip: keep the knowledge base as it is this time; say why (the PR body records it, and the knowledge check still runs)",
+]
+
+
+def _memory_plan(a):
+    """keel v1 ship step 8: the knowledge base is optional and the person's call. No knowledge base: nothing runs. Nothing
+    stale (no file a section cites changed since the last knowledge check, else since the branch started): the
+    librarian does not run, the check does. Stale: the gate asks update / skip (update recommended), with the sections
+    and the files that made them stale. data.memory_plan {state, ask, run, check, text}; data.memory_choice for the PR."""
+    sel = knowledge.selection(a.root)
+    if sel is None:
+        plan = {"state": "none", "ask": "no", "run": "no", "check": "no", "text": ""}
+        choice = {"choice": "none", "reason": "the project has no knowledge base"}
+        return _result(True, "No knowledge base: nothing to update (the knowledge refresh flow builds one).",
+                       update={"data": {**a.data, "memory_plan": plan, "memory_choice": choice}})
+    v = verdicts.latest(a.key, "memory")
+    cfg = rules.load_config(a.root)
+    since = (v or {}).get("commit") if v and v.get("ok") else None
+    since = since or (verdict_actions.base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None)
+    found = knowledge.stale(a.root, since)
+    missing = [n for n in sel if not knowledge.section_file(a.root, n).is_file()]
+    if not found and not missing:
+        plan = {"state": "current", "ask": "no", "run": "no", "check": "yes", "text": ""}
+        return _result(True, "Knowledge base current: no file a section cites changed; the librarian does not run.",
+                       update={"data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "current"}}})
+    lines = [f"- {s['name']}: cites {', '.join(f'`{f}`' for f in s['files'][:8])}" + (" …" if len(s["files"]) > 8 else "")
+             for s in found] + [f"- {n}: chosen at init, not written yet" for n in missing]
+    names = [s["name"] for s in found] + missing
+    text = "\n".join(lines)
+    show = "\n".join([f"The knowledge base is stale: {len(names)} section(s) cite files this branch changed"
+                      + (f" since the last knowledge check ({str(since)[:7]})" if since else "") + ".", "", *lines, "",
+                      "Choose one (approve with payload {\"choice\": \"<name>\"}; a plain approve updates):", *MEMORY_CHOICES])
+    plan = {"state": "stale", "ask": "yes", "run": "yes", "check": "yes", "text": text, "sections": names}
+    return _result(True, f"Knowledge base stale: {', '.join(names)}.",
+                   update={"show": show, "data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "update", "sections": names}}})
+
+
+async def knowledge_scan(a):
+    return await asyncio.to_thread(_knowledge_scan, a)
+
+
+def _knowledge_scan(a):
+    """knowledge-refresh: which sections are stale (a file they cite changed since the last knowledge check, else since
+    the base branch) and which chosen ones are not written yet. data.knowledge_stale {sections, text}: the librarians
+    are told the changed files, and a refresh started without a list refreshes only these sections."""
+    v = verdicts.latest(a.key, "memory")
+    since = (v or {}).get("commit") if v and v.get("ok") else None
+    if not since and git.is_repo(a.root):
+        since = verdict_actions.base_ref(a.root, rules.load_config(a.root), a.base)
+    found = knowledge.stale(a.root, since)
+    chosen = knowledge.selection(a.root) or []
+    missing = [n for n in chosen if not knowledge.section_file(a.root, n).is_file()]
+    lines = [f"- {s['name']}: these cited files changed: {', '.join(f'`{f}`' for f in s['files'][:12])}" for s in found] + \
+        [f"- {n}: not written yet (write it from the code)" for n in missing]
+    names = [s["name"] for s in found] + missing
+    note = (f"stale: {', '.join(names)}" if names else "no section is stale (no file a section cites changed)")
+    return _result(True, note, update={"data": {**a.data, "knowledge_stale": {"sections": names, "text": "\n".join(lines)
+                                                                              or "(no section is stale: refresh only what you were given)"}}})
+
+
+async def memory_skip(a):
+    return await asyncio.to_thread(_memory_skip, a)
+
+
+def _memory_skip(a):
+    """The knowledge gate's skip: the reason goes to data.memory_choice (the PR body prints it); the check still runs."""
+    ans = next((v for k, v in a.data.items() if k.endswith("memory_gate_answer") and isinstance(v, dict)), {})
+    why = str(ans.get("why") or "").strip() or "no reason given"
+    plan = {**(a.data.get("memory_plan") or {}), "run": "no"}
+    return _result(True, f"Knowledge update skipped: {why}",
+                   update={"data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "skip", "reason": why}}})
 
 
 # ------------------------------------------------------------------ the opening skip menu
@@ -121,7 +261,34 @@ def skip_menu_detail(steps: list, after: int) -> str:
     lines += ["", "Approve runs everything (the default). To skip, approve with payload "
               "{\"skip\": {\"<name>\": \"<reason>\"}} (or answer the skip question: payload.answers.skip and "
               "payload.reasons {\"<name>\": \"<reason>\"}); to pick the review lenses, add {\"lenses\": [\"correctness\", ...]}."]
+    if has_loop(steps, after):
+        lines += ["", "The criteria's gates for this flow only: add {\"gate_mode\": \"every-ac\" | \"end-of-lane\" | \"end\"} "
+                  "(default: the project's gate mode)."]
     return "\n".join(lines)
+
+
+GATE_MODES = {"every-ac": "a gate after every criterion", "end-of-lane": "one gate after the last criterion of each lane",
+              "end": "one gate after the last criterion"}
+
+
+def has_loop(steps: list, after: int) -> bool:
+    """Does the menu at `after` decide about a per-criterion loop (feature's options menu)? Then it can set the AC gates."""
+    return any(s.per_ac for s in covered(steps, after))
+
+
+def gate_mode_question() -> dict:
+    """keel v1's start picker: the AC gates for this flow only (the project's gates_mode stays the default)."""
+    return {"id": "gate_mode", "question": "When should keel stop for the criteria's gates in this flow?",
+            "why": "Only this flow; the project's gate mode setting stays as it is. Unanswered: the project's setting.",
+            "options": [{"label": k, "description": v, "recommended": False} for k, v in GATE_MODES.items()], "multiple": False}
+
+
+def gate_mode_of(payload: dict) -> str | None:
+    """payload.gate_mode, or the form's answers.gate_mode, when it names a gate mode."""
+    answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    mode = payload.get("gate_mode") or answers.get("gate_mode")
+    mode = mode[0] if isinstance(mode, list) and mode else mode
+    return str(mode) if str(mode or "") in GATE_MODES else None
 
 
 def skip_question(units: list[dict]) -> dict:
@@ -198,9 +365,7 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     for x in data.get("coverage_accepted") or []:
         if isinstance(x, dict):
             exc.append(f"- coverage accepted, not covered: `{x.get('key') or x.get('id')}`: {x.get('reason') or 'no reason given'}")
-    for d in data.get("dismissed_findings") or []:
-        for f in d.get("findings") or []:
-            exc.append(f"- blocking finding dismissed ({d.get('name') or d.get('step')}): {f} — why: {d.get('why') or 'no reason given'}")
+    exc += verdict_actions.dismissed_lines(data)
     for line in gates.get("log") or []:
         if "no gate here" in line or "accepted:" in line or " go on after " in line:
             exc.append(f"- gate: {line}")
@@ -227,11 +392,15 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     out += [f"## Exceptions ({len(exc)})", ""] + (exc or ["None: nothing skipped, accepted, dismissed or blocking."]) + [""]
     out += ["The knowledge update and its check run after you approve.", ""]
     out += bug.section(state)           # a bug flow: symptom, root cause, reproducing test, hunt findings it closes
+    out += _spec_part(root, state)
     out += [f"## Verdicts for HEAD {str(head or 'not a git repository')[:7]}", "", "| check | result | summary |", "|---|---|---|"]
     for kind in VERDICT_ROWS:
         res, summary = _mark(verdicts.latest(key, kind), head, tree)
         out.append(f"| {kind} | {res} | {summary} |")
+    sec, sec_lines = verdict_actions.security_summary(state)
+    out.append(f"| security | {sec} | {'; '.join(x.strip(' -') for x in sec_lines if not x.startswith('  '))[:200] or '—'} |")
     out.append("")
+    out += _reviews_part(root, cfg, state)
     rounds = state.get("review_rounds") or {}
     if rounds:
         out += ["## Review fix rounds", ""] + [f"- {k}: {v}" for k, v in rounds.items()] + [""]
@@ -245,6 +414,69 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
         stat = git.git(root, "diff", "--stat", f"{base}...HEAD").stdout.strip()
         if stat:
             out += ["## Diff", "", "```", verdict_actions._tail(stat, 2500), "```", ""]
+        files = files_to_open(root, cfg, base)
+        if files:
+            out += ["Files a reviewer should open (the largest production changes):", ""] + [f"- `{f}` (+{a} -{d})" for f, a, d in files] + [""]
     out += ["Approve: final approve (the knowledge base is updated next, then the PR body). "
             "Reject with what to change: the implementer makes the change and ship runs again from verify."]
     return "\n".join(out)
+
+
+def _spec_part(root: str, state: dict) -> list[str]:
+    """keel v1 ship step 7, "the spec": its goal, the criteria, and every amendment with its Was: line (a criterion
+    agreed late reads like one agreed at the start unless it is said)."""
+    from . import feature_actions
+
+    spec = state.get("spec")
+    text = feature_actions._read(root, spec) if spec else ""
+    acs = state.get("acs") or []
+    if not text and not acs:
+        return []
+    out = ["## The spec", ""]
+    goal = feature_actions._section(text, "goal", "context", "request", "summary", "problem").strip() if text else ""
+    if goal:
+        out += ["Goal:", goal[:800], ""]
+    if acs:
+        done = sum(1 for x in acs if x.get("status") in feature_actions.DONE)
+        out += [f"Criteria ({done}/{len(acs)} done):", *[f"- {x['id']} [{x.get('layer', 'API')}] {x.get('title', '')} ({x.get('status') or 'todo'})"
+                                                         for x in acs], ""]
+    blocks = feature_actions._amendment_blocks(text) if text else []
+    if blocks:
+        out += [f"Amendments ({len(blocks)}), each with what it was:", ""]
+        for b in blocks:
+            out += [b[:1500], ""]
+    return out
+
+
+def _reviews_part(root: str, cfg: dict, state: dict) -> list[str]:
+    """Security, the full-diff review (verdict, sha, whether the correctness lens was dropped because of it), the spec
+    walk (behaviour no criterion asks for), and the findings nobody fixed: non-blocking ones and dismissed ones."""
+    data = state.get("data") or {}
+    out: list[str] = []
+    res, lines = verdict_actions.security_summary(state)
+    out += [f"## Security: {res}", "", *lines, ""]
+    full = data.get("full_review") if isinstance(data.get("full_review"), dict) else {}
+    if full:
+        out += ["## Full-diff review", "", f"- verdict: {full.get('verdict')} at {str(full.get('sha') or '?')[:7]}"]
+        out.append(f"- {data['lens_dropped']}" if data.get("lens_dropped") else "- the correctness lens ran at ship (not dropped)")
+        out.append("")
+    walk = next((str(v) for k, v in data.items() if k.endswith("spec_walk_text") and str(v or "").strip()), "")
+    if walk:
+        out += ["## Spec walk: behaviour no criterion asks for", "", verdict_actions._tail(walk.strip(), 2500), ""]
+    docs = next((str(v) for k, v in data.items() if k.endswith("doc_updates_text") and str(v or "").strip()), "")
+    if docs:
+        out += ["## Docs this change made wrong (edited before verify)", "", verdict_actions._tail(docs.strip(), 1500), ""]
+    nb = verdict_actions.nonblocking_lines(data)
+    if nb:
+        out += [f"## Non-blocking findings, not fixed ({len(nb)})", "", *nb, ""]
+    return out
+
+
+def files_to_open(root: str, cfg: dict, base: str, n: int = 8) -> list[tuple[str, int, int]]:
+    """The production files with the most changed lines since base: what a reviewer should actually open."""
+    rows = []
+    for line in git.git(root, "diff", "--numstat", f"{base}...HEAD").stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and is_production(cfg, parts[2]):
+            rows.append((parts[2], int(parts[0]), int(parts[1])))
+    return sorted(rows, key=lambda r: -(r[1] + r[2]))[:n]

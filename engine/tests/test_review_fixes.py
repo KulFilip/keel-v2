@@ -120,7 +120,8 @@ def green_fails(monkeypatch, left=99):
 
 
 def agents(seen, ac="AC-1"):
-    return [r.agent for r in seen if (r.ac or {}).get("id") == ac]
+    """The agents that worked on a criterion (the optional refactor's implementer is not a green attempt)."""
+    return [r.agent for r in seen if (r.ac or {}).get("id") == ac and r.phase != "refactor"]
 
 
 def test_the_ladder_same_agent_then_investigator_then_a_stronger_model_then_real_choices(client, repo, monkeypatch):
@@ -360,14 +361,14 @@ def plan_says(monkeypatch, line):
     return by_step(monkeypatch, {"plan under the criteria": plan})
 
 
-def test_no_contract_delta_no_contract_step_and_four_stops_in_important(client, repo, monkeypatch):
+def test_no_contract_delta_no_contract_step_and_five_stops_in_important(client, repo, monkeypatch):
     seen = plan_says(monkeypatch, "CONTRACT-DELTA: none")
     tid = start(client, repo, settings=IMPORTANT)
     s = wait(client, tid)
     assert "the contract step and its gate are skipped" in s["waiting"]["detail"]
     s, pauses = stops(client, tid, s)
     assert s["status"] == "done"
-    assert pauses == ["spec_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
+    assert pauses == ["spec_gate", "integration_gate", "ready_gate", "ship_final_review", "ship_pr_gate"]
     assert not any(r.agent == "contract-author" for r in seen)
     assert any(x.startswith("gate contract_gate approve: not asked, contract: no") for x in s["gate_log"])
 

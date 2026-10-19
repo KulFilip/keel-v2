@@ -1,4 +1,4 @@
-workflow feature "feature (keel)" - 110 steps, 17 gates
+workflow feature "feature (keel)" - 125 steps, 19 gates
 
 loop: For each criterion (each criterion)  id=ac
   :  o  red  (agent test-author)
@@ -28,6 +28,8 @@ loop: For each criterion (each criterion)  id=ac
   :     |        then -> red  (loops back)
   :     no: go on
   :  #  verify_green + commit  (code verify_green+commit)
+  :  o  refactor (tests frozen)  (agent implementer)
+  :  #  verify + refactor commit  (code verify_green+commit)
   :  o  AC review  (agent ac-reviewer)
   : [?] AC gate  (gate, you decide)
   :       send back -> red  (loops back)

@@ -231,6 +231,28 @@
    "included_from": "ship"
   },
   {
+   "id": "ship_doc_updates",
+   "kind": "agent",
+   "name": "docs the change makes wrong",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "close",
+   "skippable": "optional",
+   "group": "doc_updates",
+   "keep": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_doc_updates_commit",
+   "kind": "code",
+   "name": "commit the doc edits",
+   "phase": "close",
+   "action": "commit",
+   "skippable": "optional",
+   "group": "doc_updates",
+   "included_from": "ship"
+  },
+  {
    "id": "ship_verify_fix",
    "kind": "agent",
    "name": "fix what the checks found",
@@ -511,12 +533,52 @@
    "included_from": "ship"
   },
   {
+   "id": "ship_memory_plan",
+   "kind": "code",
+   "name": "is the knowledge base stale?",
+   "phase": "memory",
+   "action": "memory_plan",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_gate",
+   "kind": "gate",
+   "name": "update the knowledge base?",
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "choices": {
+    "update": "ship_memory",
+    "skip": "ship_memory_skip"
+   },
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_skip",
+   "kind": "code",
+   "name": "skip the knowledge update",
+   "phase": "memory",
+   "action": "memory_skip",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "then": "ship_memory_check",
+   "included_from": "ship"
+  },
+  {
    "id": "ship_memory",
    "kind": "agent",
    "name": "knowledge update",
    "agent": "librarian",
    "model": "default",
    "phase": "memory",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -525,6 +587,10 @@
    "name": "knowledge check",
    "phase": "memory",
    "action": "knowledge_check",
+   "when": {
+    "data": "memory_plan.check",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -533,6 +599,10 @@
    "name": "commit memory",
    "phase": "memory",
    "action": "commit",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {

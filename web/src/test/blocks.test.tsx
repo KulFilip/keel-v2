@@ -47,7 +47,7 @@ describe("flow map model (real templates)", () => {
   it("groups the main path into sections by phase; the loop and the included ship flow are sections of their own", () => {
     expect(feature.steps.length).toBeGreaterThan(90);
     expect(map.sections.map((s) => (s.kind === "phase" ? s.phase : `${s.kind}:${s.phase}`))).toEqual([
-      "preflight", "spec", "contract", "loop:ac", "integration", "security", "review-fix", "gate", "e2e", "smoke", "include:ship", "close",
+      "preflight", "spec", "contract", "loop:ac", "integration", "security", "review-fix", "gate", "smoke", "e2e", "ship", "include:ship", "close",
     ]);
     // every step is placed exactly once (main path, a side path, an arm or a folded flow); none is lost
     expect(new Set(map.sections.flatMap((s) => s.ids)).size).toBe(feature.steps.length);
@@ -59,14 +59,15 @@ describe("flow map model (real templates)", () => {
     expect(stepOf(map.sections, "spec_gate").row.side.map((r) => r.step.id)).toEqual(["spec_edit", "spec_edit_sync", "spec_review", "spec_review_sync", "spec_restart"]);
     // the amendment path is reached first from the contract gate's "amend"
     expect(stepOf(map.sections, "contract_gate").row.side.map((r) => r.step.id)).toEqual(
-      ["contract_undo", "amend", "amend_show", "amend_gate", "amend_commit", "amend_contract", "amend_to_contract", "rebuild"]);
+      ["contract_undo", "amend_loop", "amend_first", "amend_skip", "amend_edit", "amend_stop", "amend", "amend_show", "amend_changed",
+        "amend_gate", "amend_commit", "amend_contract", "amend_to_contract", "amend_none", "amend_reordered", "rebuild"]);
     expect(map.parentOf.get("rebuild")).toBe("contract_gate");
     expect(map.containers("amend_gate")).toEqual(["side:contract_gate"]);
   });
 
   it("folds an included flow into one block, nested includes inside it", () => {
     const ship = nodes(map.sections).find((n) => n.t === "include" && n.flow === "ship") as Extract<Node, { t: "include" }>;
-    expect(ship.count).toBe(30);
+    expect(ship.count).toBe(35);
     expect(ship.ids).toContain("ship_verify");
     const cover = nodes(ship.body).find((n) => n.t === "include") as Extract<Node, { t: "include" }>;
     expect(cover.path).toBe("ship/cover");
@@ -77,7 +78,8 @@ describe("flow map model (real templates)", () => {
   it("makes the per-AC steps one loop and a for_each list another", () => {
     const loops = nodes(map.sections).filter((n) => n.t === "loop") as Extract<Node, { t: "loop" }>[];
     expect(loops.map((l) => l.loop.title)).toEqual(["For each criterion", "For each coverage group"]);
-    expect(loops[0].ids).toEqual(["red", "red_amend", "red_to_amend", "verify_red", "green", "green_amend", "green_to_amend", "verify_green", "ac_review", "ac_gate"]);
+    expect(loops[0].ids).toEqual(["red", "red_amend", "red_to_amend", "amend_entry", "red_blocked", "red_stuck", "verify_red", "green", "green_amend",
+      "green_to_amend", "green_blocked", "green_stuck", "verify_green", "refactor", "refactor_commit", "ac_review", "ac_gate"]);
   });
 
   it("draws a branch as if / else: the steps a no skips sit in the yes arm, a side path in its own arm", () => {
@@ -87,7 +89,7 @@ describe("flow map model (real templates)", () => {
     expect(e2e.no.t).toBe("go");
     const amend = ifOf(map.sections, "red_amend");
     expect(amend.yes.t === "nodes" && amend.yes.side).toBe(true);
-    expect(armIds(amend.yes)).toEqual(["red_to_amend"]);
+    expect(armIds(amend.yes)).toEqual(["red_to_amend", "amend_entry"]);
     // fix: "reproduced" goes on when yes; the hand-off to diagnose is the else arm
     const fixMap = buildFlowMap(fix.steps);
     const rep = ifOf(fixMap.sections, "reproduced");
@@ -122,12 +124,12 @@ describe("flow map model (real templates)", () => {
     expect(stepStates(feature.steps, map, "green", "running").green).toBe("run");
     expect(stepStates(feature.steps, map, "green", "failed").green).toBe("fail");
     expect(stepStates(feature.steps, map, null, "done").close).toBe("done");
-    // smoke_scope is current: e2e_needed answered no (none of its arm ran), so those steps were skipped
-    const at = stepStates(feature.steps, map, "smoke_scope", "running");
-    const visited = new Set(["e2e_scope", "e2e_needed"]);
+    // e2e_scope is current: smoke_needed answered no (none of its arm ran), so those steps were skipped
+    const at = stepStates(feature.steps, map, "e2e_scope", "running");
+    const visited = new Set(["smoke_scope", "smoke_needed"]);
     const { taken, skipped } = armsTaken(map, at, visited);
-    expect(taken.e2e_needed).toBe("no");
-    expect([...skipped]).toEqual(["e2e_tool", "e2e", "e2e_commit", "e2e_gate"]);
+    expect(taken.smoke_needed).toBe("no");
+    expect([...skipped]).toEqual(["smoke", "smoke_commit", "smoke_gate"]);
   });
 
   it("moves a dragged step into a loop's mouth (it joins the loop) or out of it (it leaves)", () => {
@@ -154,7 +156,7 @@ describe("Blocks (read only and live)", () => {
     render(<Blocks steps={feature.steps} onOpenStep={() => {}} />);
     expect(performance.now() - t0).toBeLessThan(1500);
     expect(screen.queryByText("verify fast + module", { selector: ".sb-name" })).not.toBeInTheDocument();
-    const ship = screen.getByRole("button", { name: /^ship: 30 blocks from the ship workflow/ });
+    const ship = screen.getByRole("button", { name: /^ship: 35 blocks from the ship workflow/ });
     expect(ship).toHaveAttribute("aria-expanded", "false");
     await user.click(ship);
     expect(screen.getByText("verify fast + module", { selector: ".sb-name" })).toBeInTheDocument();

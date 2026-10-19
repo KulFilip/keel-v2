@@ -151,6 +151,22 @@ DOCS: dict[str, dict] = {
             "Writes data.review_lenses (one item per lens).",
         ],
     },
+    "memory_plan": {
+        "summary": "Is the knowledge base stale? Only when a file a section cites changed since the last knowledge check "
+                   "(else since the branch started); then the gate asks update or skip.",
+        "steps": [
+            "No knowledge base: nothing runs (no librarian, no check).",
+            "Current: the librarian does not run; the knowledge check does.",
+            "Stale: the sections and the changed files they cite, for the gate (update is recommended; it costs tokens).",
+        ],
+    },
+    "knowledge_scan": {
+        "summary": "knowledge-refresh: finds the stale sections (a file they cite changed since the last knowledge check) "
+                   "and the chosen ones not written yet; a refresh without a list updates only these.",
+    },
+    "memory_skip": {
+        "summary": "The knowledge gate's skip: records the reason for the PR body; the knowledge check still runs.",
+    },
     "coverage_report": {
         "summary": "Says what cover leaves behind: the latest coverage verdict and every group accepted, not covered.",
     },
@@ -344,7 +360,18 @@ DOCS: dict[str, dict] = {
         "summary": "The amendment loop gate's stop: the flow stops here; the commits so far stay.",
     },
     "show_diff": {
-        "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff.",
+        "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff. For the "
+                   "contract: each OpenAPI operation as new, changed or breaking callers (removed or narrowed) first.",
+    },
+    "contract_check": {
+        "summary": "Before the contract gate: runs commands.codegen, then the fast check; a failure goes back to the "
+                   "contract agent.",
+        "steps": [
+            "Nothing changed: nothing to check.",
+            "Runs commands.codegen when it is set (else says the generated sides were not refreshed).",
+            "Runs the fast check (api compile, web typecheck, contract lint): a contract that does not build fails "
+            "here, before the gate, with the output for the contract agent (2 rounds).",
+        ],
     },
     "test_check": {
         "summary": "quick: the change comes with a test, or the agent's UNTESTABLE: line says why not; neither leads "
@@ -367,11 +394,34 @@ DOCS: dict[str, dict] = {
     "verify_e2e": {
         "summary": "Runs the e2e command; a failure runs once more (fail then pass = flaky).",
     },
+    "stack_up": {
+        "summary": "Before smoke and e2e: brings the stack up (commands.services) and migrates (commands.migrate) when "
+                   "the project configures them and smoke or e2e has something to run; a failure is a warning.",
+    },
     "smoke_scope": {
         "summary": "Collects the [SMOKE] criteria or the spec's Smoke checks section (marker SMOKE).",
     },
     "verify_smoke": {
         "summary": "Runs every smoke/*.sh, then commands.smoke_e2e; the first failure stops.",
+    },
+    "full_review": {
+        "summary": "After the full-diff review: records its verdict (pass, or findings accepted) and the sha it read; ship "
+                   "drops its correctness lens when it passed and no production file changed since.",
+    },
+    "ship_ready": {
+        "summary": "Prepares the \"ready to ship?\" gate: criteria done, the full-diff review, security, e2e and smoke, "
+                   "what is still open, and the choices ship / diff / wrong / stop.",
+        "steps": [
+            "Lists the criteria with their status and how many are done.",
+            "Says the full-diff review's verdict and sha, what security found (or that it was skipped), and what e2e and "
+            "smoke did (ran, written but not run, nothing to do, skipped).",
+            "Lists what is still open: unfinished criteria, findings let through with why, skipped steps, flaky tests, "
+            "warnings.",
+            "From the diff choice (a step id ending in _diff) it adds the branch diff, then the gate asks again.",
+        ],
+    },
+    "ship_stop": {
+        "summary": "The \"ready to ship?\" gate's stop: the flow stops before ship; the branch and its commits stay.",
     },
     "close_flow": {
         "summary": "Says what shipped in one line (criteria done, the ADRs this flow added).",

@@ -11,6 +11,26 @@
    "skip_menu": true
   },
   {
+   "id": "doc_updates",
+   "kind": "agent",
+   "name": "docs the change makes wrong",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "close",
+   "instructions": "This step is about the project's own docs, not code and not keel's knowledge base. Read the branch diff against the base branch, then the README, the CHANGELOG (when the project keeps one), the API docs (an OpenAPI description, docs/api, pages for the routes this branch adds or changes) and the user guide pages. Edit only what this change makes wrong or incomplete: a new or changed route, flag, config key, command or behaviour a reader would miss. A project with a CHANGELOG gets one entry under its unreleased heading. Touch no code, no test, no spec and nothing in the knowledge base; keep each edit small. When nothing is wrong, change nothing and say so. End with one line per file you changed and why: the final review shows it.",
+   "skippable": "optional",
+   "keep": true
+  },
+  {
+   "id": "doc_updates_commit",
+   "kind": "code",
+   "name": "commit the doc edits",
+   "phase": "close",
+   "action": "commit",
+   "skippable": "optional",
+   "group": "doc_updates"
+  },
+  {
    "id": "verify_fix",
    "kind": "agent",
    "name": "fix what the checks found",
@@ -295,26 +315,72 @@
    "report": "verdicts"
   },
   {
+   "id": "memory_plan",
+   "kind": "code",
+   "name": "is the knowledge base stale?",
+   "phase": "memory",
+   "action": "memory_plan"
+  },
+  {
+   "id": "memory_gate",
+   "kind": "gate",
+   "name": "update the knowledge base?",
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "choices": {
+    "update": "memory",
+    "skip": "memory_skip"
+   }
+  },
+  {
+   "id": "memory_skip",
+   "kind": "code",
+   "name": "skip the knowledge update",
+   "phase": "memory",
+   "action": "memory_skip",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "then": "memory_check"
+  },
+  {
    "id": "memory",
    "kind": "agent",
    "name": "knowledge update",
    "agent": "librarian",
    "model": "default",
-   "phase": "memory"
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
+   "instructions": "Update only these sections, and in them only the claims that cite the files listed (they changed since the last knowledge check). Re-read those files, fix or remove what is no longer true, add what this branch makes worth knowing, and keep every other line as it is. A section listed as not written yet is written from the code.\n{{data.memory_plan.text}}"
   },
   {
    "id": "memory_check",
    "kind": "code",
    "name": "knowledge check",
    "phase": "memory",
-   "action": "knowledge_check"
+   "action": "knowledge_check",
+   "when": {
+    "data": "memory_plan.check",
+    "equals": "yes"
+   }
   },
   {
    "id": "memory_commit",
    "kind": "code",
    "name": "commit memory",
    "phase": "memory",
-   "action": "commit"
+   "action": "commit",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   }
   },
   {
    "id": "pr",
@@ -341,6 +407,8 @@
  "expect": {
   "main": [
    "plan",
+   "doc_updates",
+   "doc_updates_commit",
    "verify_fix",
    "verify_fix_commit",
    "verify",
@@ -365,6 +433,8 @@
    "review",
    "spec_walk",
    "final_review",
+   "memory_plan",
+   "memory_gate",
    "memory",
    "memory_check",
    "memory_commit",
@@ -379,6 +449,20 @@
     "nodes": [
      {
       "step": "plan",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "doc_updates",
+      "side": []
+     },
+     {
+      "step": "doc_updates_commit",
       "side": []
      }
     ]
@@ -545,6 +629,16 @@
     "phase": "memory",
     "nodes": [
      {
+      "step": "memory_plan",
+      "side": []
+     },
+     {
+      "step": "memory_gate",
+      "side": [
+       "memory_skip"
+      ]
+     },
+     {
       "step": "memory",
       "side": []
      },
@@ -578,6 +672,8 @@
    }
   ],
   "orphans": [],
-  "parent_of": {}
+  "parent_of": {
+   "memory_skip": "memory_gate"
+  }
  }
 }

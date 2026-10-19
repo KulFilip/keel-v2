@@ -5,7 +5,23 @@ version: 1
 # Which sections: StartThread.settings.sections (e.g. ["architecture", "data"]) gives one librarian
 # per section. Without it, `parallel` librarians cover keel's five sections in order
 # (architecture, domain, conventions, data, integrations).
+# Stale (keel v1 `memory show`): a file the section cites changed since the last knowledge check. Started without a list,
+# the refresh updates only the stale sections (and chosen ones not written yet); the librarians are told the changed
+# files and keep every claim that is still true.
 steps:
-  - { id: librarians, kind: parallel, name: librarian per section, agent: librarian, model: default, parallel: 5, phase: memory }
+  - { id: stale_scan, kind: code, name: which sections are stale, action: knowledge_scan, phase: memory }
+  - id: librarians
+    kind: parallel
+    name: librarian per section
+    agent: librarian
+    model: default
+    parallel: 5
+    phase: memory
+    instructions: >-
+      This is a refresh, not a first draft: keep every claim that is still true and its citation. Check first the
+      claims that cite the files below (they changed since the last knowledge check), fix or remove what is no longer
+      true, and add only what the code now makes worth knowing. A section not written yet is written from the code.
+
+      {{data.knowledge_stale.text}}
   - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, lock: true, phase: memory }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: memory }

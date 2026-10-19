@@ -12,6 +12,35 @@
    "action": "preflight"
   },
   {
+   "id": "web_check",
+   "kind": "agent",
+   "name": "outside docs needed?",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "markers": [
+    "WEB"
+   ],
+   "keep": true
+  },
+  {
+   "id": "web_docs",
+   "kind": "agent",
+   "name": "research the outside docs",
+   "agent": "web-researcher",
+   "model": "default",
+   "phase": "spec",
+   "markers": [
+    "CONFIDENCE"
+   ],
+   "when": {
+    "marker": "WEB",
+    "equals": "yes",
+    "step": "web_check"
+   },
+   "keep": true
+  },
+  {
    "id": "spec",
    "kind": "agent",
    "name": "spec",
@@ -62,7 +91,8 @@
    "model": "default",
    "phase": "spec",
    "markers": [
-    "ORDER"
+    "ORDER",
+    "CONTRACT-DELTA"
    ],
    "when": {
     "state": "acs"
@@ -82,6 +112,7 @@
    "phase": "spec",
    "back": "spec",
    "lock": true,
+   "menus": true,
    "choices": {
     "approve": "freeze",
     "edit": "spec_edit",
@@ -113,14 +144,34 @@
    "name": "contract",
    "agent": "contract-author",
    "model": "default",
-   "phase": "contract"
+   "phase": "contract",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   }
+  },
+  {
+   "id": "contract_check",
+   "kind": "code",
+   "name": "codegen + fast check",
+   "phase": "contract",
+   "action": "contract_check",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   },
+   "rounds": 2
   },
   {
    "id": "contract_diff",
    "kind": "code",
-   "name": "the contract delta",
+   "name": "the contract delta: new, changed, breaks callers",
    "phase": "contract",
-   "action": "show_diff"
+   "action": "show_diff",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   }
   },
   {
    "id": "contract_gate",
@@ -128,6 +179,10 @@
    "name": "contract delta",
    "phase": "contract",
    "lock": true,
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   },
    "choices": {
     "approve": "contract_commit",
     "change": "contract",
@@ -139,7 +194,11 @@
    "kind": "code",
    "name": "commit contract",
    "phase": "contract",
-   "action": "commit"
+   "action": "commit",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   }
   },
   {
    "id": "red",
@@ -153,7 +212,8 @@
     "mcp:keel:*"
    ],
    "markers": [
-    "AMEND"
+    "AMEND",
+    "BLOCKED"
    ]
   },
   {
@@ -162,7 +222,7 @@
    "name": "the spec needs an amendment",
    "phase": "red",
    "per_ac": true,
-   "no": "verify_red",
+   "no": "red_blocked",
    "when": {
     "marker": "AMEND",
     "step": "red"
@@ -175,7 +235,28 @@
    "phase": "red",
    "action": "amend_start",
    "per_ac": true,
-   "then": "amend"
+   "then": "amend_entry"
+  },
+  {
+   "id": "red_blocked",
+   "kind": "branch",
+   "name": "is the agent blocked?",
+   "phase": "red",
+   "per_ac": true,
+   "no": "verify_red",
+   "when": {
+    "marker": "BLOCKED",
+    "step": "red"
+   }
+  },
+  {
+   "id": "red_stuck",
+   "kind": "code",
+   "name": "blocked",
+   "phase": "red",
+   "action": "stuck",
+   "per_ac": true,
+   "then": "red"
   },
   {
    "id": "verify_red",
@@ -198,7 +279,8 @@
     "mcp:keel:*"
    ],
    "markers": [
-    "AMEND"
+    "AMEND",
+    "BLOCKED"
    ]
   },
   {
@@ -207,7 +289,7 @@
    "name": "the spec needs an amendment",
    "phase": "green",
    "per_ac": true,
-   "no": "verify_green",
+   "no": "green_blocked",
    "when": {
     "marker": "AMEND",
     "step": "green"
@@ -220,7 +302,28 @@
    "phase": "green",
    "action": "amend_start",
    "per_ac": true,
-   "then": "amend"
+   "then": "amend_entry"
+  },
+  {
+   "id": "green_blocked",
+   "kind": "branch",
+   "name": "is the agent blocked?",
+   "phase": "green",
+   "per_ac": true,
+   "no": "verify_green",
+   "when": {
+    "marker": "BLOCKED",
+    "step": "green"
+   }
+  },
+  {
+   "id": "green_stuck",
+   "kind": "code",
+   "name": "blocked",
+   "phase": "green",
+   "action": "stuck",
+   "per_ac": true,
+   "then": "red"
   },
   {
    "id": "verify_green",
@@ -230,6 +333,34 @@
    "action": "verify_green+commit",
    "per_ac": true,
    "lock": true
+  },
+  {
+   "id": "refactor",
+   "kind": "agent",
+   "name": "refactor (tests frozen)",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "refactor",
+   "per_ac": true,
+   "markers": [
+    "REFACTOR"
+   ],
+   "skippable": "optional"
+  },
+  {
+   "id": "refactor_commit",
+   "kind": "code",
+   "name": "verify + refactor commit",
+   "phase": "refactor",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "when": {
+    "marker": "REFACTOR",
+    "equals": "done",
+    "step": "refactor"
+   },
+   "skippable": "optional",
+   "group": "refactor"
   },
   {
    "id": "ac_review",
@@ -337,6 +468,73 @@
    "rounds": 2
   },
   {
+   "id": "full_review",
+   "kind": "code",
+   "name": "the full-diff review's verdict",
+   "phase": "gate",
+   "action": "full_review"
+  },
+  {
+   "id": "stack_up",
+   "kind": "code",
+   "name": "stack up + migrate",
+   "phase": "smoke",
+   "action": "stack_up",
+   "soft": true
+  },
+  {
+   "id": "smoke_scope",
+   "kind": "code",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "action": "smoke_scope",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_needed",
+   "kind": "branch",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "no": "e2e_scope",
+   "when": {
+    "marker": "SMOKE",
+    "equals": "yes",
+    "step": "smoke_scope"
+   },
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke",
+   "kind": "agent",
+   "name": "smoke",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_commit",
+   "kind": "code",
+   "name": "run smoke + commit",
+   "phase": "smoke",
+   "action": "verify_smoke+commit",
+   "rounds": 2,
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_gate",
+   "kind": "gate",
+   "name": "smoke",
+   "phase": "smoke",
+   "back": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
    "id": "e2e_scope",
    "kind": "code",
    "name": "e2e criteria + tool",
@@ -350,7 +548,7 @@
    "kind": "branch",
    "name": "e2e criteria",
    "phase": "e2e",
-   "no": "smoke_scope",
+   "no": "ready_show",
    "when": {
     "marker": "E2E",
     "equals": "yes",
@@ -409,56 +607,24 @@
    "group": "e2e"
   },
   {
-   "id": "smoke_scope",
+   "id": "ready_show",
    "kind": "code",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "action": "smoke_scope",
-   "skippable": "optional",
-   "group": "smoke"
+   "name": "the state before ship",
+   "phase": "ship",
+   "action": "ship_ready"
   },
   {
-   "id": "smoke_needed",
-   "kind": "branch",
-   "name": "smoke checks",
-   "phase": "smoke",
-   "no": "ship_plan",
-   "when": {
-    "marker": "SMOKE",
-    "equals": "yes",
-    "step": "smoke_scope"
-   },
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke",
-   "kind": "agent",
-   "name": "smoke",
-   "agent": "e2e-author",
-   "model": "default",
-   "phase": "smoke",
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_commit",
-   "kind": "code",
-   "name": "run smoke + commit",
-   "phase": "smoke",
-   "action": "verify_smoke+commit",
-   "rounds": 2,
-   "skippable": "optional",
-   "group": "smoke"
-  },
-  {
-   "id": "smoke_gate",
+   "id": "ready_gate",
    "kind": "gate",
-   "name": "smoke",
-   "phase": "smoke",
-   "back": "smoke",
-   "skippable": "optional",
-   "group": "smoke"
+   "name": "ready to ship?",
+   "phase": "ship",
+   "lock": true,
+   "choices": {
+    "ship": "ship_plan",
+    "diff": "ready_diff",
+    "wrong": "ready_amend",
+    "stop": "ready_stop"
+   }
   },
   {
    "id": "ship_plan",
@@ -467,6 +633,28 @@
    "phase": "ship",
    "lock": true,
    "skip_menu": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_doc_updates",
+   "kind": "agent",
+   "name": "docs the change makes wrong",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "close",
+   "skippable": "optional",
+   "group": "doc_updates",
+   "keep": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_doc_updates_commit",
+   "kind": "code",
+   "name": "commit the doc edits",
+   "phase": "close",
+   "action": "commit",
+   "skippable": "optional",
+   "group": "doc_updates",
    "included_from": "ship"
   },
   {
@@ -750,12 +938,52 @@
    "included_from": "ship"
   },
   {
+   "id": "ship_memory_plan",
+   "kind": "code",
+   "name": "is the knowledge base stale?",
+   "phase": "memory",
+   "action": "memory_plan",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_gate",
+   "kind": "gate",
+   "name": "update the knowledge base?",
+   "phase": "memory",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "choices": {
+    "update": "ship_memory",
+    "skip": "ship_memory_skip"
+   },
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_skip",
+   "kind": "code",
+   "name": "skip the knowledge update",
+   "phase": "memory",
+   "action": "memory_skip",
+   "when": {
+    "data": "memory_plan.ask",
+    "equals": "yes"
+   },
+   "then": "ship_memory_check",
+   "included_from": "ship"
+  },
+  {
    "id": "ship_memory",
    "kind": "agent",
    "name": "knowledge update",
    "agent": "librarian",
    "model": "default",
    "phase": "memory",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -764,6 +992,10 @@
    "name": "knowledge check",
    "phase": "memory",
    "action": "knowledge_check",
+   "when": {
+    "data": "memory_plan.check",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -772,6 +1004,10 @@
    "name": "commit memory",
    "phase": "memory",
    "action": "commit",
+   "when": {
+    "data": "memory_plan.run",
+    "equals": "yes"
+   },
    "included_from": "ship"
   },
   {
@@ -870,6 +1106,62 @@
    "then": "amend"
   },
   {
+   "id": "amend_entry",
+   "kind": "branch",
+   "name": "the same question again?",
+   "phase": "spec",
+   "no": "amend",
+   "when": {
+    "data": "amend.route",
+    "equals": "ask"
+   }
+  },
+  {
+   "id": "amend_loop",
+   "kind": "gate",
+   "name": "the amendment changed nothing",
+   "phase": "spec",
+   "lock": true,
+   "choices": {
+    "first": "amend_first",
+    "skip": "amend_skip",
+    "edit": "amend_edit",
+    "stop": "amend_stop"
+   }
+  },
+  {
+   "id": "amend_first",
+   "kind": "code",
+   "name": "build the other criterion first",
+   "phase": "spec",
+   "action": "amend_reorder",
+   "then": "red"
+  },
+  {
+   "id": "amend_skip",
+   "kind": "code",
+   "name": "move the criterion to the end",
+   "phase": "spec",
+   "action": "amend_reorder",
+   "then": "red"
+  },
+  {
+   "id": "amend_edit",
+   "kind": "code",
+   "name": "the amendment again with your note",
+   "phase": "spec",
+   "action": "amend_with_note",
+   "then": "amend"
+  },
+  {
+   "id": "amend_stop",
+   "kind": "code",
+   "name": "stop the flow",
+   "phase": "spec",
+   "action": "amend_stop",
+   "then": "end"
+  },
+  {
    "id": "amend",
    "kind": "agent",
    "name": "spec amendment",
@@ -888,6 +1180,17 @@
    "phase": "spec",
    "action": "spec_amendment",
    "back": "amend"
+  },
+  {
+   "id": "amend_changed",
+   "kind": "branch",
+   "name": "did the spec change?",
+   "phase": "spec",
+   "no": "amend_none",
+   "when": {
+    "data": "amend.route",
+    "equals": "gate"
+   }
   },
   {
    "id": "amend_gate",
@@ -929,6 +1232,24 @@
    "then": "contract"
   },
   {
+   "id": "amend_none",
+   "kind": "branch",
+   "name": "an order question?",
+   "phase": "spec",
+   "no": "amend_loop",
+   "when": {
+    "data": "amend.route",
+    "equals": "reorder"
+   }
+  },
+  {
+   "id": "amend_reordered",
+   "kind": "code",
+   "name": "the other criterion first",
+   "phase": "spec",
+   "then": "red"
+  },
+  {
    "id": "rebuild",
    "kind": "code",
    "name": "start the spec again in a new feature flow",
@@ -948,6 +1269,30 @@
    "phase": "e2e",
    "action": "e2e_unrun",
    "then": "e2e"
+  },
+  {
+   "id": "ready_diff",
+   "kind": "code",
+   "name": "the branch diff before ship",
+   "phase": "ship",
+   "action": "ship_ready",
+   "then": "ready_gate"
+  },
+  {
+   "id": "ready_amend",
+   "kind": "code",
+   "name": "to the amendment",
+   "phase": "spec",
+   "action": "amend_start",
+   "then": "amend_entry"
+  },
+  {
+   "id": "ready_stop",
+   "kind": "code",
+   "name": "stop before ship",
+   "phase": "ship",
+   "action": "ship_stop",
+   "then": "end"
   }
  ],
  "yaml": ""

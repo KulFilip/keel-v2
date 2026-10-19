@@ -112,3 +112,65 @@ def test_stop_at_the_knowledge_question_ends_the_flow_done_not_failed(client, re
     assert s["status"] == "done" and "error" not in s, s
     assert s["warnings"] and not client.bus.of(tid, "thread.failed")
     assert client.bus.of(tid, "thread.done")[-1]["data"]["title"].startswith("stopped with a warning")
+
+
+def test_a_section_is_stale_only_when_a_file_it_cites_changed(tmp_path):
+    from test_v02 import commit_all, git, write
+    from keel_engine.runtime import knowledge
+    root = tmp_path / "k"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    write(root, "src/a.py", "A = 1\n")
+    write(root, "src/deep/b.py", "B = 1\n")
+    write(root, "docs/knowledge/architecture.md", "# A\n\nStarts in `src/a.py:1`.\n")
+    write(root, "docs/knowledge/data.md", "# D\n\nShorthand `b.py:1`.\n")
+    commit_all(root, "init")
+    since = git(root, "rev-parse", "HEAD").stdout.strip()
+    write(root, "src/c.py", "C = 1\n")
+    write(root, "docs/knowledge/architecture.md", "# A\n\nStarts in `src/a.py:1`. Edited.\n")
+    commit_all(root, "a commit that touches no cited file")
+    assert knowledge.stale(str(root), since) == []
+    write(root, "src/deep/b.py", "B = 2\n")                    # uncommitted counts too; the shorthand resolves
+    assert knowledge.stale(str(root), since) == [{"name": "data", "files": ["src/deep/b.py"]}]
+    commit_all(root, "b")
+    write(root, "src/a.py", "A = 2\n")
+    assert [s["name"] for s in knowledge.stale(str(root), since)] == ["architecture", "data"]
+    assert knowledge.cited_files(str(root), "data") == ["src/deep/b.py"]
+
+
+def test_a_refresh_without_a_list_updates_only_the_stale_sections(client, tmp_path, monkeypatch):
+    root = tmp_path / "kr"
+    write(root, "src/a.py", "A = 1\n")
+    write(root, "src/b.py", "B = 1\n")
+    write(root, "docs/knowledge/architecture.md", "# A\n\nStarts in `src/a.py:1`.\n")
+    write(root, "docs/knowledge/domain.md", "# D\n\nNamed in `src/b.py:1`.\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    commit_all(root)
+    subprocess.run(["git", "checkout", "-q", "-b", "feat/x"], cwd=root, check=True)
+    write(root, "src/a.py", "A = 2\n")
+    commit_all(root)
+    seen = []
+    real = fake_mod._plan
+    monkeypatch.setattr(fake_mod, "_plan", lambda req: (seen.append(req), real(req))[1])
+    settings = {k: v for k, v in SETTINGS.items() if k != "sections"}
+    tid = start(client, root, workflow="knowledge-refresh", title="Refresh knowledge", settings=settings)
+    s = wait(client, tid)
+    assert s["status"] == "done", s
+    lib = [r for r in seen if r.agent == "librarian"]
+    assert [r.section for r in lib] == ["architecture"]
+    assert "`src/a.py`" in lib[0].prompt and "keep every claim that is still true" in lib[0].prompt
+
+
+def test_init_again_keeps_the_sections_that_exist(tmp_path):
+    from keel_engine.runtime import init_gates
+    root = tmp_path / "again"
+    write(root, "docs/knowledge/architecture.md", "# A\n")
+    write(root, "docs/knowledge/data.md", "# D\n")
+    d = init_gates.defaults(str(root))
+    assert d["write_sections"] == [s for s in init_gates.SECTIONS if s not in ("architecture", "data")]
+    plan = init_gates.plan(str(root), d)
+    assert "Kept as they are (they exist): architecture, data" in plan
+    q = next(x for x in init_gates.clarify_questions(str(root)) if x["id"] == "knowledge")
+    arch = next(o for o in q["options"] if o["label"] == "architecture")
+    assert arch["recommended"] is False and "kept" in arch["description"]
+    assert "3. Write no knowledge section." in init_gates.plan(str(root), {**d, "write_sections": []})

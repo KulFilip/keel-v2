@@ -793,6 +793,82 @@ def _arch_action(a):
     return _result(True, f"Architecture: {r['inspected']} changed file(s) inspected, no boundary crossed.")
 
 
+# ------------------------------------------------------------------ what the flow's reviews left behind
+
+UNREACHABLE = re.compile(r"\b(?:not|un)[ -]?reachable\b", re.I)
+
+
+def results_of(data: dict, step: str) -> list[dict]:
+    """A fan-out step's answers (data["<id>_results"]), under its own id or an include's prefix (ship_review)."""
+    for k, v in data.items():
+        if (k == f"{step}_results" or k.endswith(f"_{step}_results")) and isinstance(v, list):
+            return [r for r in v if isinstance(r, dict)]
+    return []
+
+
+def security_summary(state: dict) -> tuple[str, list[str]]:
+    """(result, lines): what the feature flow's security step found, for the ship-ready gate, the final review and the
+    PR body. result is "clean", "findings", "skipped" or "not run"; the lines say what each pipeline reported, what the
+    dependency triage judged unreachable, and the findings the person let through (with why)."""
+    data = state.get("data") or {}
+    gates = state.get("gates") or {}
+    skip = next((s for s in data.get("ship_skipped") or [] if isinstance(s, dict) and s.get("step") == "security"), None)
+    if skip:
+        return "skipped", [f"- skipped: {skip.get('reason') or 'no reason given'}"]
+    if (gates.get("skipped") or {}).get("security"):
+        return "skipped", [f"- skipped: {gates['skipped']['security']}"]
+    results = results_of(data, "security")
+    if not results:
+        return "not run", ["- not run in this flow (no security step ran before ship)"]
+    from .findings import blocking
+    lines, found = [], 0
+    for r in results:
+        got = blocking(str(r.get("text") or ""))
+        found += len(got)
+        lines.append(f"- {r.get('title') or r.get('item')}: " + (f"{len(got)} blocking finding(s)" if got else "clean"))
+        if str(r.get("item")) == "deps":
+            for line in str(r.get("text") or "").splitlines():
+                if UNREACHABLE.search(line):
+                    lines.append(f"  - triaged unreachable: {line.strip(' -*')[:240]}")
+    let = [f"  - let through: {text} — why: {why}" for _who, text, why in dismissed_items(data, "security")]
+    lines += let
+    return ("findings" if found or let else "clean"), lines
+
+
+def dismissed_items(data: dict, step: str | None = None) -> list[tuple[str, str, str]]:
+    """Every blocking finding the person let through as (who, finding, why): one reason per review, or one per finding
+    when the findings gate kept them per item ({text, why|reason, decision}). `step`: only that review's (an id suffix)."""
+    out = []
+    for d in data.get("dismissed_findings") or []:
+        if not isinstance(d, dict) or (step and not str(d.get("step") or "").endswith(step)):
+            continue
+        who = str(d.get("name") or d.get("step"))
+        for f in d.get("findings") or []:
+            if isinstance(f, dict):
+                out.append((who + (f", {f['decision']}" if f.get("decision") else ""), str(f.get("text") or f.get("finding")),
+                            str(f.get("why") or f.get("reason") or d.get("why") or "no reason given")))
+            else:
+                out.append((who, str(f), str(d.get("why") or "no reason given")))
+    return out
+
+
+def dismissed_lines(data: dict, step: str | None = None) -> list[str]:
+    return [f"- blocking finding dismissed ({who}): {text} — why: {why}" for who, text, why in dismissed_items(data, step)]
+
+
+def nonblocking_lines(data: dict) -> list[str]:
+    """data.nonblocking_findings (kept by the findings gate): strings, or {lens|name|step, text|finding|findings}."""
+    out = []
+    for n in data.get("nonblocking_findings") or []:
+        if isinstance(n, dict):
+            who = n.get("lens") or n.get("name") or n.get("step")
+            texts = n.get("findings") if isinstance(n.get("findings"), list) else [n.get("text") or n.get("finding")]
+            out += [f"- {who + ': ' if who else ''}{t.get('text') if isinstance(t, dict) else t}" for t in texts if t]
+        elif str(n).strip():
+            out.append(f"- {n}")
+    return out
+
+
 # ------------------------------------------------------------------ PR
 
 def pr_body(root: str, project: str, state: dict, title: str, base: str | None, request: str = "", run_mode: str = "",
@@ -846,6 +922,11 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     if ship_skipped:
         out += ["## Ship steps skipped", ""] + [f"- {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in ship_skipped
                                                 if isinstance(s, dict)] + [""]
+    out += security_section(state)
+    dismissed = dismissed_lines(data)
+    if dismissed:
+        out += ["## Blocking findings let through", ""] + dismissed + [""]
+    out += memory_section(data)
     unlocks = [u for u in state.get("unlocks") or [] if u.get("by") != "settings" or u.get("reason")]
     if unlocks:
         out += ["## Unlocks used", ""] + [f"- `{u.get('path')}` in {u.get('phase')}: {u.get('reason') or 'no reason given'}"
@@ -859,6 +940,23 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     out += extensions.pr_body_sections(thread_id)      # the parts' sections: KeelBot's commits at a gate
     out += ["---", "_Prepared by keel._"]
     return "\n".join(out)
+
+
+def security_section(state: dict) -> list[str]:
+    """The PR body's security result (the feature flow's auditor and dependency triage), or that it did not run."""
+    res, lines = security_summary(state)
+    return [f"## Security: {res}", "", *lines, ""]
+
+
+def memory_section(data: dict) -> list[str]:
+    """The PR body's knowledge-base line: updated (which sections), skipped (why), current, or none (ship's memory_plan)."""
+    m = data.get("memory_choice") if isinstance(data.get("memory_choice"), dict) else None
+    if not m:
+        return []
+    said = {"update": "updated: " + ", ".join(m.get("sections") or []) if m.get("sections") else "updated",
+            "skip": f"skipped: {m.get('reason') or 'no reason given'}",
+            "current": "current: no file a section cites changed", "none": "none: the project has no knowledge base"}
+    return ["## Knowledge base", "", said.get(m.get("choice"), str(m.get("choice"))), ""]
 
 
 def lint_section(project: str) -> list[str]:

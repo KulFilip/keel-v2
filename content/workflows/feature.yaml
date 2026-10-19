@@ -8,11 +8,14 @@ version: 2
 # per open lens as buttons on the interview gate, before the spec) and the spec from keel's spec template with its
 # numbered criteria; only then one explorer per area (api, web, data) and
 # the plan under the criteria; the spec gate (approve freezes and commits the spec; edit, rewrite, review, order and
-# reject come back to it); the contract and its gate; the test-first loop per criterion, where an agent that finds the
-# frozen spec wrong stops with AMEND and the spec gets a dated amendment with its own gate; integration and its gate;
-# security (auditor + dependency triager, shown only when they report something); the full-diff review (2 rounds);
-# e2e (asks when no e2e command is set) and smoke with their gates; ship (its steps are included, ids ship_*); an ADR
-# when a decision had a real alternative; close.
+# reject come back to it); the contract (codegen and the fast check before its gate, which lists each endpoint as new,
+# changed or breaking callers) and its gate; the test-first loop per criterion (red, green, an optional refactor with
+# the tests frozen), where an agent that finds the frozen spec wrong stops with AMEND and the spec gets a dated
+# amendment with its own gate; integration and its gate; security (auditor + dependency triager, shown only when they
+# report something); the full-diff review (2 rounds); the stack up and migrated (when configured); smoke, then e2e
+# (asks when no e2e command is set), with their gates; "ready to ship?" (ship / diff / wrong -> an amendment / stop,
+# with the criteria, the full-diff review, security and e2e/smoke in front); ship (its steps are included, ids ship_*);
+# an ADR when a decision had a real alternative; close.
 # Inputs (StartThread.data / a start_flow seed): acs (inline criteria from change; finished ones stay finished, no
 # interview), evidence (fix, diagnose: added to the request), needs_e2e (hunt), no_gates (waives the optional gates).
 # Deferred: lanes in their own worktrees, spike mode.
@@ -166,7 +169,9 @@ steps:
   - { id: freeze, kind: code, name: freeze + commit the spec, action: spec_freeze, back: spec, lock: true, phase: spec }
   - { id: options, kind: gate, name: which optional phases run, phase: spec, skip_menu: true }
   - { id: contract, kind: agent, name: contract, agent: contract-author, model: default, phase: contract, when: { data: contract, equals: "yes" } }
-  - { id: contract_diff, kind: code, name: the contract delta, action: show_diff, phase: contract, when: { data: contract, equals: "yes" } }
+  # keel v1 phase 2: regenerate both sides and run the fast check before the gate (a failure goes back to the contract)
+  - { id: contract_check, kind: code, name: codegen + fast check, action: contract_check, phase: contract, rounds: 2, when: { data: contract, equals: "yes" } }
+  - { id: contract_diff, kind: code, name: "the contract delta: new, changed, breaks callers", action: show_diff, phase: contract, when: { data: contract, equals: "yes" } }
   - id: contract_gate
     kind: gate
     name: contract delta
@@ -214,6 +219,24 @@ steps:
   - { id: green_blocked, kind: branch, name: "is the agent blocked?", when: { marker: BLOCKED, step: green }, no: verify_green, per_ac: true, phase: green }
   - { id: green_stuck, kind: code, name: blocked, action: stuck, then: red, per_ac: true, phase: green }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
+  # keel v1 REFACTOR: optional, tests frozen (the refactor phase refuses test edits), its own refactor commit
+  - id: refactor
+    kind: agent
+    name: refactor (tests frozen)
+    agent: implementer
+    model: default
+    phase: refactor
+    per_ac: true
+    markers: [REFACTOR]
+    skippable: optional
+    instructions: >-
+      This criterion is green. Tidy only the code GREEN just wrote for it and the code it touched: duplication GREEN
+      built up, a name that no longer says what it does, a long function that hides its steps, dead code it left.
+      Behaviour stays exactly the same: the tests are frozen (you cannot edit them) and must stay green. No new
+      behaviour, no new public surface, nothing outside this criterion's code. When nothing is worth tidying, change
+      nothing. End with exactly one line: REFACTOR: done, or REFACTOR: none.
+  - { id: refactor_commit, kind: code, name: verify + refactor commit, action: verify_green+commit, phase: refactor, per_ac: true,
+      when: { marker: REFACTOR, equals: done, step: refactor }, skippable: optional, group: refactor }
   - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
   - id: integration
@@ -257,8 +280,31 @@ steps:
     instructions: >-
       Read the spec's criteria and scope, then the whole branch diff against the base branch. Report only what needs
       the whole diff in view.
+  # its verdict and sha: ship drops its correctness lens when this passed and no production file changed since
+  - { id: full_review, kind: code, name: the full-diff review's verdict, action: full_review, phase: gate }
+  # keel v1 phase 5: the stack up and migrated before smoke and e2e (when the project configures them); soft
+  - { id: stack_up, kind: code, name: stack up + migrate, action: stack_up, phase: smoke, soft: true }
+  # keel v1: smoke before e2e, the cheap check first (a broken stack shows in seconds, not inside a long e2e run)
+  - { id: smoke_scope, kind: code, name: smoke checks, action: smoke_scope, phase: smoke, skippable: optional, group: smoke }
+  - { id: smoke_needed, kind: branch, name: smoke checks, when: { marker: SMOKE, equals: "yes", step: smoke_scope }, no: e2e_scope, phase: smoke, skippable: optional, group: smoke }
+  - id: smoke
+    kind: agent
+    name: smoke
+    agent: e2e-author
+    model: default
+    phase: smoke
+    skippable: optional
+    group: smoke
+    instructions: >-
+      This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and
+      API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path.
+      Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:
+
+      {{data.smoke.checks}}
+  - { id: smoke_commit, kind: code, name: run smoke + commit, action: verify_smoke+commit, phase: smoke, rounds: 2, skippable: optional, group: smoke }
+  - { id: smoke_gate, kind: gate, name: smoke, back: smoke, phase: smoke, skippable: optional, group: smoke }
   - { id: e2e_scope, kind: code, name: e2e criteria + tool, action: e2e_scope, phase: e2e, skippable: optional, group: e2e }
-  - { id: e2e_needed, kind: branch, name: e2e criteria, when: { marker: E2E, equals: "yes", step: e2e_scope }, no: smoke_scope, phase: e2e, skippable: optional, group: e2e }
+  - { id: e2e_needed, kind: branch, name: e2e criteria, when: { marker: E2E, equals: "yes", step: e2e_scope }, no: ready_show, phase: e2e, skippable: optional, group: e2e }
   - id: e2e_tool
     kind: gate
     name: no e2e command
@@ -284,24 +330,14 @@ steps:
       {{data.e2e.criteria}}
   - { id: e2e_commit, kind: code, name: verify e2e + commit, action: verify_e2e+commit, phase: e2e, rounds: 2, skippable: optional, group: e2e }
   - { id: e2e_gate, kind: gate, name: e2e, back: e2e, phase: e2e, skippable: optional, group: e2e }
-  - { id: smoke_scope, kind: code, name: smoke checks, action: smoke_scope, phase: smoke, skippable: optional, group: smoke }
-  - { id: smoke_needed, kind: branch, name: smoke checks, when: { marker: SMOKE, equals: "yes", step: smoke_scope }, no: ship_plan, phase: smoke, skippable: optional, group: smoke }
-  - id: smoke
-    kind: agent
-    name: smoke
-    agent: e2e-author
-    model: default
-    phase: smoke
-    skippable: optional
-    group: smoke
-    instructions: >-
-      This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and
-      API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path.
-      Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:
-
-      {{data.smoke.checks}}
-  - { id: smoke_commit, kind: code, name: run smoke + commit, action: verify_smoke+commit, phase: smoke, rounds: 2, skippable: optional, group: smoke }
-  - { id: smoke_gate, kind: gate, name: smoke, back: smoke, phase: smoke, skippable: optional, group: smoke }
+  # keel v1 phase 8: ask before ship, with the state in front (ship runs without stopping until its final review)
+  - { id: ready_show, kind: code, name: the state before ship, action: ship_ready, phase: ship }
+  - id: ready_gate
+    kind: gate
+    name: ready to ship?
+    lock: true
+    phase: ship
+    choices: { ship: ship_plan, diff: ready_diff, wrong: ready_amend, stop: ready_stop }
   - { id: ship, kind: include, name: ship, flow: ship }
   - id: adr
     kind: agent
@@ -397,3 +433,6 @@ steps:
     phase: spec
     seed: { title: $title, evidence: $data.amend.reason }
   - { id: e2e_unrun, kind: code, name: e2e specs without a tool, action: e2e_unrun, then: e2e, phase: e2e }
+  - { id: ready_diff, kind: code, name: the branch diff before ship, action: ship_ready, then: ready_gate, phase: ship }
+  - { id: ready_amend, kind: code, name: to the amendment, action: amend_start, then: amend_entry, phase: spec }
+  - { id: ready_stop, kind: code, name: stop before ship, action: ship_stop, then: end, phase: ship }

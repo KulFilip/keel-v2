@@ -15,7 +15,7 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 "verify_fast", "verify_module", "verify_deps", "audit", "trace", "trace_strict", "arch", "pr", "open_pr",
                 "start_flow",
                 # ship and cover (runtime/ship.py)
-                "review_lenses", "coverage_report",
+                "review_lenses", "coverage_report", "memory_plan", "memory_skip", "knowledge_scan",
                 # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
                 "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
                 "escalate_model",
@@ -24,7 +24,7 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # the feature flow (runtime/feature_actions.py)
                 "preflight", "explore_areas", "spec_sync", "spec_freeze", "spec_restart", "amend_start", "spec_amendment",
                 "spec_amend_commit", "amend_reorder", "amend_with_note", "amend_stop", "stuck", "show_diff", "test_check", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
-                "verify_smoke", "close_flow",
+                "verify_smoke", "close_flow", "full_review", "ship_ready", "ship_stop", "contract_check", "stack_up",
                 # static checks (runtime/lint_actions.py)
                 "lint_scope", "lint_run", "lint_report", "verify_lint"}
 # the hunt and hunt-next flows (runtime/hunt_actions.py), init's extra steps (runtime/init_actions.py) and review-pr's

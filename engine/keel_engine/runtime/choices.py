@@ -60,6 +60,11 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("feature:contract_gate", "change"): ("Change the contract", OPTIONAL, "the contract agent writes it again with your note"),
     ("feature:contract_gate", "amend"): ("Amend the spec first", OPTIONAL,
                                  "the spec is wrong, not the contract: the draft goes back and the spec is amended"),
+    ("feature:ready_gate", "ship"): ("Ship it", NONE, "ship runs its whole sequence now and stops next at the final review"),
+    ("feature:ready_gate", "diff"): ("Show me the diff first", NONE, "the branch diff is shown, then this question again"),
+    ("feature:ready_gate", "wrong"): ("Something is not right", REQUIRED,
+                                      "say what; the spec gets a dated amendment and the criteria it reopens are built again"),
+    ("feature:ready_gate", "stop"): ("Stop here", OPTIONAL, "stop before ship; the branch and its commits stay"),
     ("feature:e2e_tool", "write"): ("Write without running", NONE, "the specs are written and committed but not run"),
     ("feature:e2e_tool", "check"): ("Check again", NONE, "you set commands.e2e now; keel looks again"),
     ("feature:amend_loop", "first"): ("Build the other one first", NONE, "build the other criterion first, then this one"),
@@ -69,6 +74,9 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("feature:amend_gate", "context"): ("Add what was missing", OPTIONAL, "tell keel what it was missing; the block is written again"),
     ("feature:amend_gate", "change"): ("Change the amendment", OPTIONAL, "the block is close but wrong; say how"),
     ("feature:amend_gate", "rebuild"): ("Rebuild from here", OPTIONAL, "the spec itself is wrong; a new feature flow starts"),
+    # ship
+    ("ship:memory_gate", "update"): ("Update it", NONE, "a librarian updates the stale sections (it costs tokens)"),
+    ("ship:memory_gate", "skip"): ("Skip it", REQUIRED, "keep the knowledge base as it is; the reason goes in the PR body"),
     # fix and diagnose
     ("fix:gate_r", "investigate"): ("Yes, investigate", NONE, "this is the bug: find its cause"),
     ("fix:gate_r", "reject"): ("Reproduce differently", REQUIRED,
