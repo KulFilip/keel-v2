@@ -12,7 +12,7 @@ import {
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoInfo } from "./codeApi";
 import {
-  CodeView, DiffPane, ImagePane, MarkdownPane, Notice, TEXT_MAX, WRAP_MAX, canPreview, kindOf, useFileText,
+  CodeView, DiffPane, ImagePane, MarkdownPane, Notice, TEXT_MAX, WRAP_MAX, canPreview, kindOf, selectedAll, useFileText,
   type Cmd, type Cursor, type DiffMode, type Target,
 } from "./Editor";
 import { Explorer } from "./Explorer";
@@ -259,6 +259,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     const rowOf = (n: Node | null) => (n instanceof Element ? n : n?.parentElement)?.closest<HTMLElement>(".cv-row");
     const a = rowOf(sel.anchorNode), b = rowOf(sel.focusNode);
     if (!a || !b || !root.current?.contains(a)) return null;
+    // ⌘/Ctrl+A in the code: the whole file (a long file renders only the rows on screen)
+    const all = selectedAll(a.closest<HTMLElement>(".cv"));
+    if (all !== null) return all.trim() ? { path: activeFile, from: 1, to: all.split("\n").length, text: all.trim().slice(0, 8000) } : null;
     const lines = [Number(a.dataset.line), Number(b.dataset.line)].sort((x, y) => x - y);
     const text = sel.toString().trim();
     return text ? { path: activeFile, from: lines[0], to: lines[1], text: text.slice(0, 8000) } : null;
@@ -360,7 +363,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     return () => window.removeEventListener("keydown", on);
   }, [showSide, toggleSide, hideActive, codeActive, helperOpen, codeSelection, askHelper, shownIds]);
 
-  // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
+  // the IDE fills the window below the page head, so the code is the one thing that scrolls (not the page as well).
+  // Measured again when anything above it changes height: the page head (a merge result), and keel's own bars above
+  // the page (in a narrow window the usage bar wraps to more lines once its numbers come, and the menu is a header).
   useLayoutEffect(() => {
     const el = root.current;
     if (!el) return;
@@ -368,9 +373,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     set();
     window.addEventListener("resize", set);
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(set) : null;
-    if (el.parentElement) ro?.observe(el.parentElement);
-    const head = el.parentElement?.firstElementChild;
-    if (head && head !== el) ro?.observe(head);
+    // the boxes above it, and the ones around it (they grow when a bar or a notice appears above it)
+    for (let a: Element | null = el; a && a !== document.body; a = a.parentElement) {
+      if (a !== el) ro?.observe(a, { box: "border-box" });
+      for (let s = a.previousElementSibling; s; s = s.previousElementSibling) ro?.observe(s, { box: "border-box" });
+    }
     return () => {
       window.removeEventListener("resize", set);
       ro?.disconnect();
