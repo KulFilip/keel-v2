@@ -148,34 +148,93 @@ def questions(root: str, fast: bool = False) -> str:
     return "\n".join(lines)
 
 
+# 0.18.17 a numbered answer ("1 this machine · 2 none · 3 none (… refreshed later)") is read per question: a part
+# starts with its number after the start or a separator (· ; , or a new line) and runs to the next number. Matching the
+# whole text let "later" in part 3 make runs_on "decide later", and "3 none" did not clear the sections.
+_PART = re.compile(r"(?:^|[·;,\n])\s*([123])(?:\s*[.):]\s*|\s+)")
+
+
+def _parts(t: str) -> dict[str, str] | None:
+    """{"1": text, "2": text, "3": text} of a numbered answer, None when it has no numbers (an old free-text answer)."""
+    marks = list(_PART.finditer(t))
+    if not marks:
+        return None
+    out: dict[str, str] = {}
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(t)
+        out[m.group(1)] = (out.get(m.group(1), "") + " " + t[m.end():end]).strip()
+    return out
+
+
+def _runs_on(t: str) -> str | None:
+    if "dev container" in t or "devcontainer" in t:
+        return "dev container"
+    if "decide later" in t:
+        return "decide later"
+    # 0.18.17 "this machine" before a bare "later": the words name the choice, "later" may be about something else
+    if "machine" in t or "local" in t:
+        return "this machine"
+    return "decide later" if "later" in t else None
+
+
+def _services(root: str, t: str, own_part: bool) -> str | None:
+    if "myself" in t or "my own" in t:
+        return "I run them myself"
+    if "generate" in t:
+        return "generate a compose file"
+    if own_part:
+        # only inside its own part: in the whole text "none" or "use" could belong to another question
+        comp = compose_file(root)
+        if re.match(r"\s*(no|none)\b", t):
+            return "none"
+        if comp and re.match(r"\s*use\b", t):
+            return f"use {comp}"
+    return None
+
+
 def answers(root: str, text: str | None, fast: bool = False) -> dict:
-    """The defaults, changed by what the user wrote (free text: words are matched, not a strict format)."""
+    """The defaults, changed by what the user wrote (free text: words are matched, not a strict format). A numbered
+    answer ("1 … · 2 … · 3 …") is matched per question; an unnumbered one as a whole."""
     a = defaults(root, fast)
     t = (text or "").lower()
     if not t.strip():
         return a
-    if "dev container" in t or "devcontainer" in t:
-        a["runs_on"] = "dev container"
-    elif "later" in t:
-        a["runs_on"] = "decide later"
-    elif "machine" in t or "local" in t:
-        a["runs_on"] = "this machine"
-    if "myself" in t or "my own" in t:
-        a["services"] = "I run them myself"
-    elif "generate" in t:
-        a["services"] = "generate a compose file"
-    named = [s for s in SECTIONS if re.search(rf"\b{s}\b", t)]
-    if re.search(r"\b(no|none) (knowledge|sections)\b|sections?:?\s*none", t):
+    parts = _parts(t)
+    run_t, srv_t, sec_t = (parts.get("1", ""), parts.get("2", ""), parts.get("3", "")) if parts else (t, t, t)
+    if run := _runs_on(run_t):
+        a["runs_on"] = run
+    if srv := _services(root, srv_t, parts is not None):
+        a["services"] = srv
+    named = [s for s in SECTIONS if re.search(rf"\b{s}\b", sec_t)]
+    if re.search(r"\b(no|none) (knowledge|sections)\b|sections?:?\s*none", sec_t) or \
+            (parts is not None and re.match(r"\s*(no|none)\b", sec_t)):
         a["knowledge_sections"] = []
     elif named:
         a["knowledge_sections"] = named
+    elif parts is not None and re.match(r"\s*all\b", sec_t):
+        a["knowledge_sections"] = list(SECTIONS)
     a["said"] = text.strip()[:500]
     return a
 
 
+def _plan_commands(root: str, cfg_exists: bool) -> tuple[dict, str]:
+    """(the test commands the plan shows, the folder they run in). 0.18.17 the ones in .keel/config.yml first: the plan
+    said "none found" while the config named them, because it only asked detection."""
+    if cfg_exists:
+        from .. import rules
+
+        have = rules.load_config(root).get("commands") or {}
+        mine = {k: have[k] for k in ("api_test_module", "api_test_ac") if have.get(k)}
+        if not mine.get("api_test_module") and have.get("unit_tests"):
+            mine["api_test_module"] = have["unit_tests"]
+        if mine:
+            return mine, testcmd.part_dir(root, "backend")
+    return testcmd.config_commands(root), testcmd.detected_dir(root)
+
+
 def plan(root: str, init: dict) -> str:
-    cmds = testcmd.config_commands(root)
     cfg_exists = (Path(root) / ".keel" / "config.yml").is_file()
+    cmds, cmd_dir = _plan_commands(root, cfg_exists)
     secs = init.get("knowledge_sections") or []
     from .. import layout
 
@@ -183,13 +242,14 @@ def plan(root: str, init: dict) -> str:
     lines = ["keel will do this, in this order. Approve to start; send back to change it.", "",
              f"1. Write .keel/config.yml" + (" — it exists, so it is left as it is" if cfg_exists else ":"),]
     if not cfg_exists:
-        block = {"version": 4, "layout": lay.name, **({"commands": cmds} if cmds else {}),
+        block = {"version": 4, "layout": lay.name, **({"backend": {"dir": cmd_dir}} if cmd_dir else {}),
+                 **({"commands": cmds} if cmds else {}),
                  "init": {k: v for k, v in init.items() if k != "said"}}
         lines += ["   " + l for l in yaml.safe_dump(block, sort_keys=False).splitlines()]
     lines += [f"2. Run the setup ladder (install, build, tests, services up) and write {lay.runbook} with every "
               "command that passed.",
-              f"   test command: {cmds.get('api_test_module') or 'none found — the ladder will say so'}",
-              f"   one criterion: {cmds.get('api_test_ac') or '-'}",
+              f"   test command: {testcmd.shown(cmds['api_test_module'], cmd_dir) if cmds.get('api_test_module') else 'none found — the ladder will say so'}",
+              f"   one criterion: {testcmd.shown(cmds['api_test_ac'], cmd_dir) if cmds.get('api_test_ac') else '-'}",
               f"   services: {init.get('services')}",
               (f"3. Write the knowledge sections {', '.join(secs)} under {lay.knowledge}/ (one librarian each, every claim "
                "with a file:line citation), at the same time as the ladder." if secs else

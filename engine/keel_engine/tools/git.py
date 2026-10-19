@@ -22,6 +22,33 @@ def is_repo(root: str | None) -> bool:
     return git(root, "rev-parse", "--is-inside-work-tree").stdout.strip() == "true"
 
 
+def unseen_gitdir(root: str | None) -> str | None:
+    """0.18.17 the repository a .git FILE points at ("gitdir: /path/main/.git/worktrees/x", a git worktree or a
+    submodule) when keel cannot see it, else None. keel's container mounts only the project folder, so every git call
+    there failed with "fatal: not a git repository" while .git was right there."""
+    if not root:
+        return None
+    f = Path(root) / ".git"
+    if not f.is_file():
+        return None
+    try:
+        first = (f.read_text(errors="replace").strip().splitlines() or [""])[0]
+    except OSError:
+        return None
+    if not first.startswith("gitdir:"):
+        return None
+    d = first[len("gitdir:"):].strip()
+    p = Path(d) if os.path.isabs(d) else Path(root) / d
+    return None if not d or p.exists() else os.path.normpath(str(p))
+
+
+def unseen_gitdir_hint(root: str | None) -> str | None:
+    """What to say when git fails in a worktree whose repository keel cannot see (None when that is not the cause)."""
+    d = unseen_gitdir(root)
+    return None if d is None else (f"this folder is a git worktree; keel cannot see its repository at {d}; "
+                                   "run keel2 add <main repo> or keel2 restart with keel2 0.18.17")
+
+
 def head(root: str) -> str | None:
     r = git(root, "rev-parse", "HEAD")
     return r.stdout.strip() if r.returncode == 0 else None

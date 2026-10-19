@@ -288,21 +288,26 @@ async def verify_release(a: ActionInput) -> ActionResult:
     A failing run runs once more (loops.flaky_reruns, default 1): failed then passed is flaky, a pass with a warning."""
     if a.fake:
         return ActionResult(True, "Release suite: green (simulated, no verdict written).", "1 passed")
-    cmd = testcmd.command_for(a.root, None, "API")
+    # 0.18.17 a configured command runs in the folder of its key (api_* in backend.dir, docs/CONTRACT.md), like
+    # verify_module's suites: run at the repo root a PHP backend in backend/ failed with "Could not open input file:
+    # vendor/bin/phpunit"
+    cmd, rel = testcmd.located(a.root, None, "API")
     if cmd is None:
         out = "No test command found. Add commands to .keel/config.yml."
         return ActionResult(False, out, out)
     reruns = int((rules.load_config(a.root).get("loops") or {}).get("flaky_reruns", 1) or 0)
+    show = testcmd.shown(cmd, rel)
     if callable(a.progress):
-        a.progress(f"release suite: $ {cmd}", tool="verify_release", command=cmd)
-    r = await asyncio.to_thread(verdict_actions.run_suite, a.root, cmd, "release suite", reruns)
+        a.progress(f"release suite: $ {show}", tool="verify_release", command=cmd)
+    cwd = str(Path(a.root) / rel) if rel else None
+    r = await asyncio.to_thread(verdict_actions.run_suite, a.root, cmd, "release suite", reruns, cwd)
     await asyncio.to_thread(_release_verdict, a, r["ok"], cmd, r["out"], r["flaky"])
     upd = verdict_actions.flaky_update(a, r["flaky"])
     if not r["ok"]:
         what = "ran no test" if r.get("no_tests") else "fails"
-        return ActionResult(False, f"The release suite {what}.", f"$ {cmd}\n{tail(r['out'], 3000)}")
+        return ActionResult(False, f"The release suite {what}.", f"$ {show}\n{tail(r['out'], 3000)}")
     return ActionResult(True, "Release suite: green; verdict recorded for this commit." + verdict_actions._flaky_note(r["flaky"]),
-                        f"$ {cmd}\n{tail(r['out'], 1500)}", upd)
+                        f"$ {show}\n{tail(r['out'], 1500)}", upd)
 
 
 async def verify_coverage(a: ActionInput) -> ActionResult:
@@ -577,6 +582,10 @@ def _detect(root: str) -> dict:
     cmds = testcmd.config_commands(root)
     if cmds:
         cfg["commands"] = cmds
+    # 0.18.17 the commands were found in one backend subfolder: written as backend.dir, so they run there
+    sub = testcmd.detected_dir(root)
+    if sub:
+        cfg["backend"] = {**(cfg.get("backend") or {}), "dir": sub}
     # where keel keeps its files (keel_engine/layout.py), written down so the choice never changes by itself
     cfg["layout"] = layout.default_name(r, (r / ".keel").is_symlink(), layout.raw_config(r))
     if cfg["layout"] == "repo" and (r / "docs" / "specs").is_dir():

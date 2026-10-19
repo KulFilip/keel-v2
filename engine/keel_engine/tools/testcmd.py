@@ -115,9 +115,12 @@ def cannot_run(code: int, output: str) -> bool:
 
 
 def config_commands(root: str) -> dict:
-    """The detected commands in .keel/config.yml form ({AC} / {AC_KEY} placeholders), for init to write."""
+    """The detected commands in .keel/config.yml form ({AC} / {AC_KEY} placeholders), for init to write. They are made
+    for detected_dir(root): init writes that folder as backend.dir, where configured commands run."""
     mark = "ZZ-ACZZ"
-    one, all_ = detected(root, mark), detected(root)
+    d = detected_dir(root)
+    base = str(Path(root) / d) if d else root
+    one, all_ = _project_stack(root, mark) or _detect_in(base, mark), _project_stack(root) or _detect_in(base)
     out = {}
     if one:
         out["api_test_ac"] = one.replace(mark, "{AC}").replace(ac_id(mark), "{AC_ID}").replace(_pytest_key(mark), "{AC_KEY}")
@@ -126,8 +129,60 @@ def config_commands(root: str) -> dict:
     return out
 
 
+# 0.18.17 a backend in a subfolder (backend/composer.json, backend/pom.xml, ...) was not detected at all: detection
+# looks one level down when the root has nothing, if exactly one folder holds a backend build file (or several do and
+# one of them has an obvious backend name). A folder with only a package.json is a frontend, not that folder.
+BACKEND_FILES = ("gradlew", "build.gradle", "build.gradle.kts", "mvnw", "pom.xml", "pyproject.toml", "pytest.ini",
+                 "setup.py", "composer.json")
+BACKEND_NAMES = ("backend", "api", "server")
+_SKIP_DIRS = {"node_modules", "build", "dist", "target", "vendor", "venv", ".venv", "__pycache__"}
+
+
+def detected_dir(root: str) -> str:
+    """The folder detected commands are made for, relative to the root: "" (the root) unless the root has no test
+    command of its own and one subfolder is the obvious backend."""
+    r = Path(root)
+    if _detect_in(root) or _project_stack(root):
+        return ""
+    try:
+        kids = sorted(p for p in r.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name not in _SKIP_DIRS)
+    except OSError:
+        return ""
+    found = [p for p in kids if any((p / f).exists() for f in BACKEND_FILES) and _detect_in(str(p))]
+    if len(found) > 1:
+        found = [p for p in found if p.name.lower() in BACKEND_NAMES]
+    return found[0].name if len(found) == 1 else ""
+
+
+def _project_stack(root: str, ac: str | None = None) -> str | None:
+    """0.18.17 the test command of the project's own stack pack (<root>/.keel/stacks, an api one): the project said
+    how its tests run, so it comes before keel's guess from the build files."""
+    from ..runtime import stacks
+
+    key = "api_test_ac" if ac else "api_test_module"
+    for d in stacks.project_defs(root):
+        if str(d.get("lane") or "api") != "api":
+            continue
+        cmd = str(((d.get("commands") or {}) if isinstance(d.get("commands"), dict) else {}).get(key) or "").strip()
+        if cmd:
+            build = str((rules.load_config(root).get("backend") or {}).get("build") or "./gradlew")
+            return fill(cmd.replace("{BUILD}", build), ac) if ac else cmd.replace("{BUILD}", build)
+    return None
+
+
 def detected(root: str, ac: str | None = None) -> str | None:
-    """The test command keel finds by itself (no .keel/config.yml)."""
+    """The test command keel finds by itself (no .keel/config.yml), runnable from the repo root: the project's own
+    stack pack, the root's build files, else the one backend subfolder's (as `cd <dir> && ...`)."""
+    cmd = _project_stack(root, ac) or _detect_in(root, ac)
+    if cmd:
+        return cmd
+    d = detected_dir(root)
+    sub = _detect_in(str(Path(root) / d), ac) if d else None
+    return shown(sub, d) if sub else None
+
+
+def _detect_in(root: str, ac: str | None = None) -> str | None:
+    """The test command for the build files in one folder."""
     r = Path(root)
     if (r / "gradlew").exists():
         return fill("./gradlew -q test --tests '*{AC}*'", ac) if ac else "./gradlew -q test"
@@ -137,6 +192,19 @@ def detected(root: str, ac: str | None = None) -> str | None:
     if (r / "pyproject.toml").exists() or (r / "pytest.ini").exists() or (r / "setup.py").exists():
         base = "python -m pytest -q"
         return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base
+    comp = r / "composer.json"
+    if comp.exists():
+        # 0.18.17 PHP: phpunit (a PHP method name cannot hold the dash, so the filter is the dash-free id)
+        try:
+            doc = json.loads(comp.read_text())
+        except (OSError, json.JSONDecodeError):
+            doc = {}
+        doc = doc if isinstance(doc, dict) else {}
+        deps = {**(doc.get("require") or {}), **(doc.get("require-dev") or {})}
+        if "phpunit/phpunit" in deps or (r / "phpunit.xml").exists() or (r / "phpunit.xml.dist").exists():
+            return fill("vendor/bin/phpunit --filter '{AC_ID}'", ac) if ac else "vendor/bin/phpunit"
+        if "test" in (doc.get("scripts") or {}):
+            return fill("composer test -- --filter '{AC_ID}'", ac) if ac else "composer test"
     pkg = r / "package.json"
     if pkg.exists():
         try:

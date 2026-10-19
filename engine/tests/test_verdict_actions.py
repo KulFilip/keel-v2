@@ -162,6 +162,16 @@ def test_verify_release_fails_when_the_rerun_fails_too(proj):
     assert not r.ok and verdicts.latest("p1", "release")["ok"] is False
 
 
+def test_verify_release_runs_the_module_command_in_backend_dir(proj):
+    # 0.18.17 an api_* command runs in backend.dir (docs/CONTRACT.md); it ran at the repo root
+    write(proj, "backend/vendor/bin/phpunit", "ok\n")
+    config(proj, "backend: {dir: backend}\ncommands: {api_test_module: 'test -f vendor/bin/phpunit && echo 1 passed'}\n")
+    r = run("verify_release", ai(proj))
+    assert r.ok, r.detail
+    assert r.detail.startswith("$ cd backend && test -f vendor/bin/phpunit")
+    assert verdicts.latest("p1", "release")["ok"] is True
+
+
 def test_verify_module_and_fast(proj, tmp_path):
     r = run("verify_module", ai(proj))
     assert r.ok and "not available" in r.note

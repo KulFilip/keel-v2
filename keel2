@@ -262,6 +262,21 @@ docker_socket() {  # the host's Docker socket path, for --docker
 folders_file() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/keel2/$NAME.folders"; }
 list_folders() { local f; f="$(folders_file)"; [ -f "$f" ] || return 0; grep -v '^[[:space:]]*$' "$f" || true; }
 is_repo() { [ -d "$1/.git" ] || [ -f "$1/.git" ]; }
+# 0.18.17 a git worktree (or submodule) has a .git FILE ("gitdir: /path/main/.git/worktrees/x"): its repository is
+# outside the folder, so in keel's container, which mounts only the folder, every git call failed ("fatal: not a git
+# repository"). keel2 start mounts the repository's common git dir too, at the same path, so the gitdir line works.
+git_common_dir() {  # git_common_dir <folder> — the absolute common git dir of a folder whose .git is a file, or nothing
+  [ -f "$1/.git" ] && command -v git >/dev/null 2>&1 || return 0
+  local d; d="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" || return 0
+  [ -n "$d" ] || return 0
+  case "$d" in /*) ;; *) d="$1/$d" ;; esac
+  (cd "$d" 2>/dev/null && pwd) || true
+}
+git_dirs() {  # git_dirs <folder> — git_common_dir of the folder and of the repos one level down (a folder of repos)
+  local r; git_common_dir "$1"
+  for r in "$1"/*/; do r="${r%/}"; [ -f "$r/.git" ] && git_common_dir "$r"; done
+  return 0
+}
 json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }   # a string for inside JSON quotes
 keel_running() { command -v docker >/dev/null 2>&1 && container_running; }
 main_project() {  # the main project folder of keel's container, or nothing (no Docker, or never started)
@@ -394,6 +409,22 @@ cmd_start() {
     args+=(-v "$f:$f"); folders="$folders:$f"
   done
   args+=(-e KEEL_FOLDERS="$folders")
+  # 0.18.17 worktrees and submodules: their repository's git dir, at the same path, unless a folder mounted at the
+  # same path holds it already (in the /workspace mode the main project is not at its own path, so it does not count)
+  local same=() gd m inside
+  if [ "$docker_mode" = 1 ]; then same+=("$project"); fi
+  same+=(${added[@]+"${added[@]}"})
+  for f in "$project" ${added[@]+"${added[@]}"}; do
+    while IFS= read -r gd; do
+      [ -n "$gd" ] || continue
+      inside=0
+      for m in ${same[@]+"${same[@]}"}; do case "$gd" in "$m"|"$m"/*) inside=1 ;; esac; done
+      [ "$inside" = 0 ] || continue
+      check_shared "$gd"
+      args+=(-v "$gd:$gd"); same+=("$gd")
+      info "  ${D}$f is a git worktree or submodule: its repository $gd is mounted too.${N}"
+    done < <(git_dirs "$f")
+  done
   local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
   done

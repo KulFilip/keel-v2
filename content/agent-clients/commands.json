@@ -330,7 +330,7 @@
     {
       "name": "mouse",
       "args": "[on|off]",
-      "summary": "the wheel scrolls keel TUI, or selects text as usual",
+      "summary": "on: the wheel scrolls keel TUI and selecting text copies it; off: the terminal's own selection",
       "writes": false,
       "local": true,
       "group": "Screen"

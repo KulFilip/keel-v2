@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import hook, rules
-from ..tools import testcmd
+from ..tools import git, testcmd
 
 NAMES = ["Toolchain", "Dependencies resolve", "Frontend dependencies", "Both apps compile", "Frontend typecheck",
          "Unit tests", "A container-backed test", "Services up and healthy", "API boots and is healthy",
@@ -150,6 +150,10 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
             code, out = runner(str(Path(root) / rel) if rel else root, rung["cmd"])
             rung["status"] = "pass" if code == 0 else "fail"
             rung["detail"] = f"exit {code}" + (f": {out.strip()[-400:]}" if code else "")
+            # 0.18.17 git failed because the folder is a worktree whose repository keel cannot see: say that plainly
+            hint = git.unseen_gitdir_hint(root) if code and "not a git repository" in (out or "") else None
+            if hint:
+                rung["detail"] += f"\n{hint}"
             if progress:
                 progress(f"{label}: {'passed' if code == 0 else f'failed (exit {code})'}", tool="ladder", command=rung["cmd"],
                          ok=code == 0, ms=int((time.monotonic() - t0) * 1000), output=out.strip()[-4000:] or None)
