@@ -31,6 +31,24 @@ class EventsApiTest : ApiTest() {
     }
 
     @Test
+    fun `agent usage books a running call's tokens so far, and never overwrites the finished total`(
+        @org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate,
+    ) {
+        val (pid, _) = newProject("events-usage")
+        fun tokens() = jdbc.queryForMap("SELECT tokens_in, tokens_out, tokens_cached, status FROM agent_calls WHERE id = 'u1'")
+        send(listOf(
+            ev("agent.started", pid, "t-usage", callId = "u1", step = "impl", data = mapOf("agent" to "implementer", "provider" to "claude", "mode" to "subscription")),
+            ev("agent.usage", pid, "t-usage", callId = "u1", step = "impl", data = mapOf("tokens_in" to 1200, "tokens_out" to 300, "tokens_cached" to 50_000)),
+        )).andExpect(status().isOk)
+        assertThat(tokens()).containsEntry("tokens_in", 1200).containsEntry("tokens_out", 300).containsEntry("tokens_cached", 50_000)
+        send(listOf(ev("agent.finished", pid, "t-usage", callId = "u1", step = "impl",
+            data = mapOf("status" to "done", "tokens_in" to 2000, "tokens_out" to 500, "tokens_cached" to 90_000)))).andExpect(status().isOk)
+        send(listOf(ev("agent.usage", pid, "t-usage", callId = "u1", step = "impl", data = mapOf("tokens_in" to 1500, "tokens_out" to 400))))
+            .andExpect(status().isOk)
+        assertThat(tokens()).containsEntry("tokens_in", 2000).containsEntry("tokens_out", 500).containsEntry("status", "done")
+    }
+
+    @Test
     fun `a thread the engine started by itself (start_flow) keeps its workflow id`(@org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate) {
         val (pid, _) = newProject("events-child")
         send(listOf(ev("thread.started", pid, "t-child", data = mapOf("workflow" to "fix", "title" to "Fix the rank", "parent" to mapOf("thread_id" to "t-parent")))))

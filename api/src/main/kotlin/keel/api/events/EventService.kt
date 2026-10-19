@@ -117,6 +117,8 @@ class EventService(
                 notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
             }
             "agent.step" -> calls.step(e, at)
+            // 0.18.17 the usage so far of a call that still runs: the Budget page, day caps and flow lists see it
+            "agent.usage" -> calls.usage(e, at)
             "agent.finished" -> {
                 val id = calls.finish(e, at) ?: return
                 if (d.str("status") == "failed") {

@@ -290,6 +290,32 @@ class ClaudeStream:
         self.failed: dict | None = None    # the last Bash call that failed (keel v1 post-failure)
         self.windows: list[dict] = []      # the plan's usage windows from rate_limit_event lines (models/usage.py)
         self.steps = Steps(emit, root)
+        self.messages: dict[str, dict] = {}  # message id -> the largest usage numbers seen for it
+        self.current: str | None = None      # the message the stream_event lines belong to
+
+    def note_usage(self, mid: str | None, u) -> None:
+        """0.18.17 the run's usage so far: Claude Code puts `usage` on every assistant message and on the partial
+        message_start / message_delta events, long before the result. A step of 82 turns showed 0 tokens for 40 minutes
+        and no cap saw it; now each change goes out as an emit("usage", ...) with the run's totals. A message's numbers
+        are not final until its end, so each field keeps the largest value seen; the result's usage still wins."""
+        if not mid or not isinstance(u, dict):
+            return
+        have = self.messages.setdefault(mid, {})
+        changed = False
+        for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"):
+            v = u.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and int(v) > have.get(k, 0):
+                have[k] = int(v)
+                changed = True
+        if changed:
+            self.emit("usage", "", **self.running())
+
+    def running(self) -> dict:
+        """The run's tokens so far, counted like the result's (new input = fresh + cache writes)."""
+        ms = self.messages.values()
+        return {"tokens_in": sum(m.get("input_tokens", 0) + m.get("cache_creation_input_tokens", 0) for m in ms),
+                "tokens_out": sum(m.get("output_tokens", 0) for m in ms),
+                "tokens_cached": sum(m.get("cache_read_input_tokens", 0) for m in ms)}
 
     def line(self, raw: str):
         try:
@@ -301,6 +327,11 @@ class ClaudeStream:
             # --include-partial-messages: the text as Claude writes it (the whole message follows as "assistant")
             e = ev.get("event") or {}
             d = e.get("delta") or {}
+            if e.get("type") == "message_start" and isinstance(e.get("message"), dict):
+                self.current = e["message"].get("id")
+                self.note_usage(self.current, e["message"].get("usage"))
+            elif e.get("type") == "message_delta":
+                self.note_usage(self.current, e.get("usage"))
             if e.get("type") == "content_block_delta" and d.get("type") == "text_delta" and d.get("text"):
                 self.emit("delta", d["text"])
             return
@@ -313,6 +344,7 @@ class ClaudeStream:
                 self.windows = list({**{w["window"]: w for w in self.windows}, **{w["window"]: w for w in got}}.values())
                 provider_usage.record("claude", got, "last run")
         elif t == "assistant":
+            self.note_usage((ev.get("message") or {}).get("id"), (ev.get("message") or {}).get("usage"))
             for b in ev.get("message", {}).get("content", []):
                 if b.get("type") == "text" and b.get("text", "").strip():
                     self.emit("text", cap(b["text"].strip()))
@@ -500,6 +532,7 @@ def codex_line(emit: Emit, root: str, ev: dict, state: dict):
         state["session"] = ev["thread_id"]
         return
     if t == "turn.completed":
+        # codex says its usage only here, when its one turn of `codex exec` ends: nothing to book while it runs
         state["usage"] = ev.get("usage") or {}
         return
     if t in ("error", "turn.failed"):
@@ -708,6 +741,8 @@ class OpenCodeRunner:
                 state["in"] += int(tok.get("input", 0))
                 state["out"] += int(tok.get("output", 0))
                 state["cost"] += float(part.get("cost") or 0)
+                # 0.18.17 opencode reports each model step's tokens as it ends: book them while the run goes on
+                emit("usage", "", tokens_in=state["in"], tokens_out=state["out"], cost_usd=round(state["cost"], 6))
             elif t == "error":
                 state["error"] = json.dumps(ev.get("error") or ev)[:400]
 

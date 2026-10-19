@@ -28,7 +28,7 @@ from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import db, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
-from .compiler import answer_problem, compile_workflow
+from .compiler import answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
 log = logging.getLogger(__name__)
@@ -388,7 +388,9 @@ class Engine:
             "status": status, "current": now.get("current"), "phase": now.get("phase") or "none", "ac": v.get("ac"),
             "acs": [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
                     for a in v.get("acs") or []],
-            "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0, "cap_usd": 0.0}, **(v.get("usage") or {})},
+            # 0.18.17 with the usage so far of the agents that still run (they book it only when they finish)
+            "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0, "cap_usd": 0.0},
+                      **running_usage(v.get("usage") or {}, ctx_now.running if running else {})},
             "checkpoints": n, "updated_at": row["updated_at"],
             # 0.17.3 the spec the flow works on (or was started from): the Wiki's spec status links the two
             "spec": v.get("spec") or None,

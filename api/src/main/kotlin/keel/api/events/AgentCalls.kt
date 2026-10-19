@@ -49,6 +49,21 @@ class AgentCalls(private val jdbc: JdbcTemplate) {
         }
     }
 
+    /**
+     * 0.18.17 agent.usage: the tokens a running call used so far (the engine sends them while the agent works). Only a
+     * running call takes them, so a late one never overwrites what agent.finished booked.
+     */
+    fun usage(e: EngineEvent, at: String) {
+        val d = e.data
+        val id = e.callId ?: return
+        ensure(id, e, at)
+        jdbc.update(
+            """UPDATE agent_calls SET tokens_in = ?, tokens_out = ?, tokens_cached = ?, cost_usd = MAX(COALESCE(cost_usd, 0), ?)
+               WHERE id = ? AND status = 'running'""",
+            d.long("tokens_in") ?: 0, d.long("tokens_out") ?: 0, d.long("tokens_cached") ?: 0, d.double("cost_usd") ?: 0.0, id,
+        )
+    }
+
     /** The run ended: its status, tokens, cost and result. Returns the call id (null when the event names none). */
     fun finish(e: EngineEvent, at: String): String? {
         val d = e.data

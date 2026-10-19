@@ -83,6 +83,10 @@ class ThreadContext:
     # v0.17.5 what failed agent calls used (an error, a turn limit, a stop): the next step that ends books it into
     # state.usage, so the Flow page, keel_status and keel_flows count it like the Budget page does. Memory only.
     unbooked: dict[str, Any] = field(default_factory=dict)
+    # 0.18.17 call id -> the usage so far of an agent that still runs (its runner reports it while it runs): the
+    # thread's view and the cap see it before agent.finished books it. Memory only.
+    running: dict[str, dict] = field(default_factory=dict)
+    running_warned: str | None = None                    # the step whose running usage already passed the cap (one warning)
     memory: Any = None                                   # AgentMemory: agent sessions and trails on /data
     # Unlocks granted through POST /threads/{id}/unlocks (stored in the engine DB; the next step merges them into the
     # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.
