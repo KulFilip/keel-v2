@@ -82,11 +82,11 @@
   {
    "id": "doctor",
    "kind": "parallel",
-   "name": "setup-doctor per failing rung",
+   "name": "setup-doctor for the failing rungs",
    "agent": "setup-doctor",
    "model": "default",
    "phase": "setup",
-   "from": "failed_rungs",
+   "from": "doctor_items",
    "markers": [
     "DIAGNOSIS"
    ]

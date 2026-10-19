@@ -21,7 +21,7 @@ steps:
     lanes:
       - { name: ladder, kind: code, sub: ladder_soft }
       - { name: knowledge, kind: agent, sub: librarian }
-  - { id: doctor, kind: parallel, name: setup-doctor per failing rung, agent: setup-doctor, model: default, from: failed_rungs, markers: [DIAGNOSIS], phase: setup }
+  - { id: doctor, kind: parallel, name: setup-doctor for the failing rungs, agent: setup-doctor, model: default, from: doctor_items, markers: [DIAGNOSIS], phase: setup }
   - { id: ladder_retry, kind: code, name: run the ladder again, action: ladder_retry, phase: setup }
   - { id: ladder_ok, kind: branch, name: green or a rung to decide, when: { marker: LADDER, in: [green, stuck] }, no: doctor, phase: setup }
   - { id: rung_gate, kind: gate, name: a rung keeps failing, phase: setup, when: { data: rung_question }, choices: { fix: rung_apply, exclude: rung_apply, accept: rung_apply } }

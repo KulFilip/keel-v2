@@ -222,6 +222,8 @@ function nowWords(job: Job | null, text?: string, steps?: JobStep[]): string {
   if (text?.trim()) return `✎ ${line(text)}`;
   const last = steps?.at(-1);
   if (last) {
+    // 0.18.15 a code step's job: its line already says what runs ("rung 4/12 · tests: $ npm test")
+    if ((last as { job?: string }).job === "code") return line(last.text) || "working…";
     if (last.kind === "tool") return `> ${last.tool ?? "tool"} ${line(last.text)}`.trim();
     if (last.kind === "edit") return `✎ edits ${last.path ?? ""}`.trim();
     if (last.kind === "thinking") return "thinking…";

@@ -11,6 +11,8 @@ export function eventLine(ev: EngineEvent): { k: string; text: string } {
     case "step.started": return { k: "phase", text: `${ev.step ?? "step"} started` };
     case "step.finished": return { k: "phase", text: `${ev.step ?? "step"} finished${d.status ? " · " + str(d.status) : ""}` };
     case "helper.started":
+    case "code.started": return { k: "agent", text: `▶ ${str(d.name) || "code step"} (keel runs it, no model)` };
+    case "code.finished": return { k: "agent", text: `${str(d.status) === "failed" ? "✗" : "✓"} code step ${str(d.status)}` };
     case "agent.started": return { k: "agent", text: `${str(d.agent)} start${d.model ? " · " + str(d.provider) + " " + str(d.model) : ""}${d.ac ? " · " + str(d.ac) : ""}` };
     case "helper.finished":
     case "agent.finished": return { k: "agent", text: `${str(d.agent) || "agent"} stop · ${str(d.status)}${d.result && typeof d.result === "string" ? " · " + d.result : ""}` };

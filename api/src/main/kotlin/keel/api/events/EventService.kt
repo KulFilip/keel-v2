@@ -124,6 +124,20 @@ class EventService(
                     notifications.create("failed", e.projectId, "$agent failed", d.str("result")?.take(200) ?: "The agent step did not finish.", "/jobs/$id")
                 }
             }
+            // 0.18.15 a code step (the setup ladder, a test suite, a commit) is a job too: stored like an agent's call,
+            // so the Flow page, Jobs, keel TUI and KeelBot see what runs; its own event names keep agent.* for agents.
+            // It starts too often to notify; a failed one does.
+            "code.started" -> {
+                calls.start(e, at, d.str("agent") ?: "keel", d.str("ac"))
+                upsertThread(e, "running", at)
+            }
+            "code.step" -> calls.step(e, at)
+            "code.finished" -> {
+                val id = calls.finish(e, at) ?: return
+                if (d.str("status") == "failed") {
+                    notifications.create("failed", e.projectId, "A code step failed", d.str("result")?.take(200) ?: "The step did not finish.", "/jobs/$id")
+                }
+            }
 
             "provider.usage" -> {
                 val provider = d.str("provider") ?: return

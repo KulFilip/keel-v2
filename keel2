@@ -428,6 +428,13 @@ cmd_stop() {
 }
 
 cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the next start without --safe
+  # 0.18.15 a restart (keel2 add, restart, a login change) keeps the image keel runs now: it used the local :latest,
+  # which can be an old download, so keel went back to an older version without a word. Only keel2 update
+  # (KEEL_TAKE_NEW_IMAGE=1) and an explicit KEEL_IMAGE pick another image.
+  if [ -z "${KEEL_IMAGE:-}" ] && [ "${KEEL_TAKE_NEW_IMAGE:-}" != 1 ] && container_exists; then
+    local running; running="$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || true)"
+    [ -n "$running" ] && IMAGE="$running"
+  fi
   local safe=() a
   for a in "$@"; do
     case "$a" in
@@ -658,7 +665,7 @@ cmd_update() {
   if container_exists && [ "$(label core)" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
   info "Getting the newest image ($IMAGE)…"
   docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
-  if container_exists && [ -n "$(label project)" ]; then cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
+  if container_exists && [ -n "$(label project)" ]; then KEEL_TAKE_NEW_IMAGE=1 cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
 }
 
 # keel2 token <claude|codex|copilot|anthropic|openai|github> [value]

@@ -79,6 +79,7 @@ class HelperService(
     private val mcp: McpService,
     private val skills: SkillService,
     private val flows: FlowService,
+    private val jobs: keel.api.jobs.JobService,
     private val workflows: WorkflowService,
     private val plugins: keel.api.plugins.PluginService,
     private val tasks: ObjectProvider<TaskSink>,
@@ -364,6 +365,10 @@ class HelperService(
             "acs" to t.path("acs").map { a -> mapOf("id" to a.path("id").asText(), "layer" to a.path("layer").asText(),
                 "title" to a.path("title").asText(), "status" to a.path("status").asText()) },
             "waiting" to waiting?.let { mapOf("title" to it.path("title").asText(), "detail" to it.path("detail").asText("").take(3000)) + askedOf(it) },
+            // 0.18.15 what runs now and what the latest agents and code steps ended with (a doctor's diagnosis, a
+            // ladder's failing rung): KeelBot could only see the step's name before
+            "current" to t.path("current").asText("").ifBlank { null },
+            "jobs" to t.path("thread_id").asText("").ifBlank { null }?.let { tid -> runCatching { jobs.recentOfThread(tid) }.getOrNull() },
         )
     }
 

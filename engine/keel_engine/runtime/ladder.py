@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -109,7 +110,8 @@ def save(root: str, rungs: list[dict]):
     (d / FILE).write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "rungs": rungs}, indent=2) + "\n")
 
 
-def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]], reuse: bool = False) -> tuple[bool, list[dict]]:
+def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]], reuse: bool = False,
+        progress: Callable[..., None] | None = None) -> tuple[bool, list[dict]]:
     """Run the ladder. `runner(root, cmd) -> (exit code, output)`. Returns (all required rungs passed, rungs).
     reuse (a fast init): a rung that passed last time with the same command passes again without running."""
     rungs = plan(root)
@@ -140,9 +142,17 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
         else:
             # a command from .keel/config.yml runs in its part's folder (backend.dir / frontend.dir), like keel v1
             rel = testcmd.dir_for_key(root, rung.get("key")) if rung.get("configured") else ""
+            # 0.18.15 each command shows live on the step's job: which rung, the command, then how it ended
+            label = f"rung {rung['n']}/{len(rungs)} · {rung['name']}"
+            if progress:
+                progress(f"{label}: $ {rung['cmd']}", tool="ladder", command=rung["cmd"])
+            t0 = time.monotonic()
             code, out = runner(str(Path(root) / rel) if rel else root, rung["cmd"])
             rung["status"] = "pass" if code == 0 else "fail"
             rung["detail"] = f"exit {code}" + (f": {out.strip()[-400:]}" if code else "")
+            if progress:
+                progress(f"{label}: {'passed' if code == 0 else f'failed (exit {code})'}", tool="ladder", command=rung["cmd"],
+                         ok=code == 0, ms=int((time.monotonic() - t0) * 1000), output=out.strip()[-4000:] or None)
         if rung["status"] == "fail":
             ok = False
     save(root, rungs)

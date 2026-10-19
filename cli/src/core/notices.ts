@@ -15,6 +15,10 @@ export function notice(ev: EngineEvent): string | null {
     case "gate.decided": return `${ev.step ?? "gate"} ${s(d.decision) === "reject" ? "sent back" : "approved"}${d.why ? ` — "${s(d.why)}"` : ""}${d.by ? ` (${s(d.by)})` : ""}`;
     case "thread.done": return "flow done · /next";
     case "thread.failed": return `flow failed${d.error ? ": " + s(d.error) : ""} · /resume or /timeline`;
+    // 0.18.15 a code step is a job too: its start, each command it runs and a failure show as short lines
+    case "code.step": return d.ok === false || (d.ok === undefined && d.command) ? `  ${d.ok === false ? "✗ " : ""}${s(d.text)}` : null;
+    case "code.started": return `▶ ${s(d.name) || ev.step || "code step"}`;
+    case "code.finished": return s(d.status) === "failed" ? `✗ ${ev.step || "code step"} failed${d.result ? `: ${s(d.result)}` : ""}` : null;
     case "agent.started": return `agent ${s(d.agent)} started${ev.step ? ` · ${ev.step}` : ""}${d.ac ? ` · ${s(d.ac)}` : ""}${d.model ? ` · ${s(d.provider)}/${s(d.model)}` : ""}${d.model && d.effort ? ` · ${s(d.effort)}` : ""}`;
     case "agent.finished": return s(d.status) && s(d.status) !== "done" ? `agent ${s(d.agent) || "agent"} ${s(d.status)}${ev.step ? ` · ${ev.step}` : ""}` : null;
     case "budget.warn": return `budget: ${s(d.text) || "the flow is near its cap"}`;

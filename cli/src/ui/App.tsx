@@ -31,6 +31,7 @@ import { fixRequest } from "../../../web/src/askFix";
 import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
+import { osc52, pickCopy } from "../core/clipboard";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
 
@@ -361,7 +362,19 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       else {
         stdout?.write(on ? MOUSE.on : MOUSE.off);
         setMouse(on);
-        push({ kind: "ok", text: on ? "the wheel scrolls keel TUI (hold Option or Fn to select text, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
+        push({ kind: "ok", text: on ? "the wheel scrolls keel TUI (to select text hold Option on a Mac, Shift on Linux or Windows; or /copy, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
+      }
+    }
+    if (reply.copy !== undefined) {
+      // 0.18.15 /copy: the n-th block from the end to the clipboard (OSC 52), also through docker exec and ssh
+      const blocks = items.flatMap((it) => (it.kind === "block" ? [it.b] : []));
+      const b = pickCopy(blocks, reply.copy);
+      if (!b) push({ kind: "error", text: reply.copy === 1 ? "Nothing to copy yet." : `There are not ${reply.copy} blocks to copy.` });
+      else {
+        stdout?.write(osc52(b.text));
+        const lines = b.text.split("\n").length;
+        push({ kind: "ok", text: `copied ${lines} line${lines === 1 ? "" : "s"} to your clipboard` });
+        push({ kind: "dim", text: "  Nothing arrived? Your terminal ignores clipboard requests (macOS Terminal does): /mouse off, then select the text." });
       }
     }
     if (reply.start) setItems((xs) => [...xs, { id: nextId.current++, kind: "start", s: core.snapshot }]);
@@ -386,7 +399,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (reply.mode) setMode(reply.mode);
     if (reply.quit) exit();
-  }, [core, exit, push, stdout, screen, mouse]);
+  }, [core, exit, push, stdout, screen, mouse, items]);
 
   const submit = useCallback(async (raw: string) => {
     const text = raw.replace(/\s+$/, "");

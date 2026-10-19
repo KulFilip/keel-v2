@@ -68,7 +68,7 @@ class EventHub(private val mapper: ObjectMapper) {
 
         /** Engine events the web listens to by their own name (web api.ts ENGINE_EVENT_TYPES). */
         val NAMED = setOf(
-            "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
+            "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished", "code.started", "code.step", "code.finished",
             "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
             "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
             // keel 0.18.2 live text: the answer as it is written (never stored, EventService)

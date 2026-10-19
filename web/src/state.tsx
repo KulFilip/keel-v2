@@ -324,7 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       setRecent((r) => [...r.slice(-299), ev]);
-      if ((ev.type === "agent.step" || ev.type === "helper.step") && ev.call_id) {
+      if ((ev.type === "agent.step" || ev.type === "code.step" || ev.type === "helper.step") && ev.call_id) {
         // a whole message arrived: the live text of that block is in it now
         if (["text", "answer"].includes(String((ev.data as { kind?: unknown }).kind))) {
           setLiveText((m) => {

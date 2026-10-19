@@ -244,6 +244,8 @@ def _module(a):
     flaky, ran = [], []
     for label, cmd, d in suites:
         cwd, _note = _cwd(a.root, d)
+        if callable(a.progress):
+            a.progress(f"{label}: $ {cmd}", tool="verify", command=cmd)
         r = run_suite(a.root, cmd, label, reruns, cwd)
         ran.append({"label": label, "command": cmd, "ok": r["ok"]})
         flaky += r["flaky"]

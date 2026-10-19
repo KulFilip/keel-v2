@@ -33,6 +33,8 @@ export type Pick = { title: string; choices: Choice[]; then: (value: string) => 
 export type Ask = { prompt: string; then: (text: string) => Promise<Reply> | Reply };
 export type PanelName = "flow" | "agents" | "inbox";
 export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; mouse?: boolean | "toggle"; panel?: PanelName | "off"; chat?: string;
+  /** 0.18.15 copy the n-th block from the end (1 = the last answer) to the person's clipboard (OSC 52) */
+  copy?: number;
   /** an agent of a flow (its job id) to follow on screen: its steps and the text it writes, live */
   follow?: string;
   /** the start box again (keel, the project, its flow, what waits): after a switch to another project */
@@ -913,6 +915,11 @@ const IMPLS: Impl[] = [
     },
   },
   { name: "clear", run: () => ({ blocks: [], clear: true }) },
+  { name: "copy", run: (_ctx, a) => {
+    const n = a.trim() ? Number(a.trim()) : 1;
+    if (!Number.isInteger(n) || n < 1) return fail("/copy copies the last answer; /copy 2 the block before it, and so on.");
+    return { blocks: [], copy: n };
+  } },
   { name: "mouse", run: (_ctx, a) => {
     const w = a.trim().toLowerCase();
     if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");

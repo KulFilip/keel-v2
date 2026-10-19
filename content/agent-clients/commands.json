@@ -298,6 +298,14 @@
       "group": "Screen"
     },
     {
+      "name": "copy",
+      "args": "[n]",
+      "summary": "copy the last answer (or the n-th block from the end) to your clipboard",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
       "name": "mouse",
       "args": "[on|off]",
       "summary": "the wheel scrolls keel TUI, or selects text as usual",

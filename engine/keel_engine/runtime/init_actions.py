@@ -113,6 +113,17 @@ async def _ladder_state(a: ActionInput, attempts: dict, step: str) -> ActionResu
                              "ask": "Find why this rung fails and fix what you safely can (a retry that changes nothing may "
                                     "run; never edit application code). End with DIAGNOSIS: fixable | needs-you | unknown."}
                             for x in failed]
+    # 0.18.15 ONE setup-doctor for all failing rungs, always the same item id: failing rungs often share one cause (a
+    # wrong host, port, env or tool), one agent finds it once instead of ten agents each exploring from zero, and the
+    # next round resumes the same agent's session (agent memory keys on the item), so it keeps what it learned.
+    data["doctor_items"] = [{
+        "id": "failing-rungs", "whole": True, "name": f"{len(failed)} failing rung{'s' if len(failed) != 1 else ''}",
+        "rungs": [{k: v for k, v in x.items() if k != "ask"} for x in data["failed_rungs"]],
+        "ask": "These setup ladder rungs fail. First look for a cause they share (one wrong host, port, environment "
+               "variable, folder or missing tool often breaks several rungs at once; inside keel's container "
+               "'localhost' is the container itself, the host is 'host.docker.internal'). Fix what you safely can "
+               "(the setup and the config, never application code), say per rung what you found, and end with "
+               "DIAGNOSIS: fixable | needs-you | unknown."}] if failed else []
     stuck = [x for x in failed if attempts.get(str(x["n"]), 0) >= limit]
     value = "green" if not failed else "stuck" if stuck else "retry"
     if stuck:

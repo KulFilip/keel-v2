@@ -53,7 +53,16 @@ class GitError(Exception):
 
 def _need_repo(root: str):
     if not git.is_repo(root):
-        raise GitError(400, "This project is not a git repository.", "Run git init in the project folder first.")
+        # 0.18.15 say which folder keel checked and what git said: "not a repository" was also shown for a folder keel
+        # cannot see (another path in its container) or one git refuses (dubious ownership), with .git right there
+        from pathlib import Path
+        if not root or not Path(root).is_dir():
+            raise GitError(400, f"keel cannot see the project folder {root or '(none)'}.",
+                           "keel runs in its own container: add the folder with keel2 add <folder> (or check the project's path).")
+        why = (git.git(root, "rev-parse", "--is-inside-work-tree").stderr or "").strip().splitlines()
+        raise GitError(400, f"{root} is not a git repository for keel" + (f": {why[-1]}" if why else "."),
+                       "dubious ownership: the folder belongs to another user; run git config --global --add safe.directory "
+                       f"{root}" if why and "dubious ownership" in why[-1] else "Run git init in the project folder first.")
 
 
 def base(root: str) -> str | None:

@@ -449,3 +449,15 @@ def test_the_effort_goes_with_each_turn_and_its_answer(client, repo):
     assert r.status_code == 200 and "effort" not in r.json()["model"]
     _, s = ask(client, s["id"], "And now?")
     assert "effort" not in s["messages"][-1]["data"]
+
+
+def test_keelbot_sees_the_flows_newest_jobs_and_what_they_ended_with():
+    """0.18.15 "what was the doctor's result?": KeelBot reads the step it is at and each job's result, not only names."""
+    from keel_plugin_keelbot.helper import _flow_block
+    text = _flow_block({"title": "Init this project", "status": "runs", "phase": "setup", "current": "ladder_retry",
+                        "jobs": [{"agent": "keel", "step": "ladder_retry", "status": "running"},
+                                 {"agent": "setup-doctor", "step": "doctor", "status": "done",
+                                  "result": "api_health_check uses localhost inside the container.\nDIAGNOSIS: needs-you"}]})
+    assert "The step it is at now: ladder_retry." in text
+    assert "setup-doctor at doctor: done" in text and "DIAGNOSIS: needs-you" in text
+    assert "agent \"keel\" is a code step" in text

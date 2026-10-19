@@ -218,6 +218,7 @@ export type McpServerSpec = { name: string; command: string; args: string[]; env
 
 export type EngineEventType =
   | "thread.started" | "step.started" | "step.finished" | "agent.started" | "agent.step" | "agent.finished"
+  | "code.started" | "code.step" | "code.finished"
   | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed"
   | "helper.started" | "helper.step" | "helper.finished" | "helper.permission" | "helper.permission.answered" | "helper.commit"
   /** v0.16.0 a write keel's MCP server made (api McpAudit) */
@@ -228,6 +229,7 @@ export type EngineEventType =
   | "helper.delta" | "agent.delta";
 export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
+  "code.started", "code.step", "code.finished",
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
   "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
   "mcp.call", "tui.call", "xal.call", "helper.delta", "agent.delta",

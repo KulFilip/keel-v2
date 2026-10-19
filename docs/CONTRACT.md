@@ -745,7 +745,7 @@ recipe = `docs/hunts/<run>/repro/<file>` + its body, symptoms (every member), ne
 ### init
 `discover → arch_detect (runtime/arch.py; low confidence and not fast → one arch-surveyor, ARCH marker) → questions →
 plan_gate → write_config → arch_set (architecture: {style, confidence, source} in .keel/config.yml) → lanes (ladder_soft ‖
-librarians) → doctor (one setup-doctor per failing rung) → ladder_retry → ... → rung_gate (only when a rung failed
+librarians) → doctor (one setup-doctor for all failing rungs, resuming its session each round) → ladder_retry → ... → rung_gate (only when a rung failed
 fix_attempts_per_rung times: fix | exclude → setup.ladder_exclude | accept → setup.not_checked) → rung_apply →
 knowledge_check → commit → audit_now (skip | hunt: start_flow hunt, semi, whole project) → hand_over`. `fast`: no knowledge
 sections by default, no surveyor, a rung that passed before with the same command is re-used.

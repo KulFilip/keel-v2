@@ -366,11 +366,11 @@ export class KeelCore {
       }
       return;
     }
-    if ((ev.type === "helper.step" || ev.type === "agent.step") && ev.call_id) {
+    if ((ev.type === "helper.step" || ev.type === "agent.step" || ev.type === "code.step") && ev.call_id) {
       const d = ev.data as Partial<JobStep>;
       const step: JobStep = { n: Number(d.n) || 0, at: ev.at, kind: String(d.kind ?? "text"), text: String(d.text ?? ""),
         tool: d.tool, server: d.server, path: d.path, ms: d.ms, ok: d.ok, ...(d.diff ? { diff: d.diff } : {}) };
-      if (ev.type === "agent.step") this.set({ lastStep: { ...this.snapshot.lastStep, [ev.call_id]: step } });
+      if (ev.type === "agent.step" || ev.type === "code.step") this.set({ lastStep: { ...this.snapshot.lastStep, [ev.call_id]: step } });
       if (ev.type === "agent.step" && (step.kind === "text" || step.kind === "answer") && ev.call_id in this.snapshot.liveText) {
         const { [ev.call_id]: _done, ...rest } = this.snapshot.liveText;
         this.set({ liveText: rest });
@@ -384,6 +384,11 @@ export class KeelCore {
         const whole = step.kind === "text" || step.kind === "answer";
         this.setChat({ steps: [...chat.steps, step].slice(-STEP_KEEP), ...(whole ? { stream: "" } : {}),
           wrote: chat.wrote + (whole && !chat.stream ? step.text.length : 0) });
+      }
+      // 0.18.15 a code step's commands (the ladder's rungs, a suite) show as lines too: keel is not silent while they run
+      if (ev.type === "code.step" && !(ev.project_id && this.pid && ev.project_id !== this.pid)) {
+        const text = notice(ev);
+        if (text) this.emit("notice", text, ev);
       }
       return;
     }

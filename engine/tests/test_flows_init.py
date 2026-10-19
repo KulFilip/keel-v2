@@ -53,13 +53,16 @@ def test_low_confidence_asks_the_arch_surveyor_and_its_answer_is_recorded(client
 def test_a_rung_that_keeps_failing_asks_fix_exclude_or_accept(client, repo, monkeypatch, choice):
     (Path(repo) / ".keel").mkdir(exist_ok=True)
     (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'false'\n  unit_tests: 'true'\n")
-    seen = answers(monkeypatch, {"setup-doctor": lambda r: f"rung {r.item['n']}: the compiler is missing.\nDIAGNOSIS: needs-you"})
+    seen = answers(monkeypatch, {"setup-doctor": lambda r: f"rung {r.item['rungs'][0]['n']}: the compiler is missing.\nDIAGNOSIS: needs-you"})
     tid = start(client, repo, workflow="init", title="keel init",
                 settings={**SETTINGS, "simulate_checks": False, "fix_attempts_per_rung": 2})
     s = to(client, tid, wait(client, tid), "rung_gate")
     assert s["waiting"]["step"] == "rung_gate" and s["waiting"]["choices"] == ["fix", "exclude", "accept"]
     doctors = [r for r in seen if r.agent == "setup-doctor"]
-    assert len(doctors) == 2 and all(r.item["n"] == 4 for r in doctors), "one doctor per failing rung, per round"
+    # 0.18.15 one doctor for all failing rungs per round, always the same item (so round 2 resumes its session)
+    assert len(doctors) == 2 and all(r.item["id"] == "failing-rungs" and [x["n"] for x in r.item["rungs"]] == [4]
+                                     for r in doctors), "one doctor for the failing rungs, per round"
+    assert "all of it is yours" in doctors[0].prompt
     assert "Rung 4 (Both apps compile) failed 2 time(s)" in s["waiting"]["detail"]
     if choice == "fix":
         (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'true'\n  unit_tests: 'true'\n")

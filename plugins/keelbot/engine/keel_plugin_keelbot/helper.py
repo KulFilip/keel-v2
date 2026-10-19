@@ -543,6 +543,16 @@ def _flow_block(flow: dict | None) -> str:
         lines.append(f"It waits for the person at a gate: {w['title']}.")
         if w.get("detail"):
             lines.append(f"The gate shows:\n{str(w['detail'])[:3000]}")
+    if flow.get("current"):
+        lines.append(f"The step it is at now: {flow['current']}.")
+    jobs = flow.get("jobs") or []
+    if jobs:
+        # 0.18.15 the newest agents and code steps (agent "keel") of this flow and what each ended with
+        lines.append("Its newest jobs (newest first; agent \"keel\" is a code step keel runs itself):")
+        for j in jobs[:8]:
+            head = f"- {j.get('agent') or '?'} at {j.get('step') or '?'}: {j.get('status') or '?'}"
+            res = str(j.get("result") or "").strip()
+            lines.append(head + (f"\n  ended with: {res[:1200]}" if res else ""))
     return "\n".join(lines)
 
 

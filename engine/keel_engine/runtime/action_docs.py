@@ -429,7 +429,7 @@ DOCS: dict[str, dict] = {
     "ladder_soft": {
         "summary": "Runs the setup ladder without stopping the flow; failing rungs go to the setup doctor (marker LADDER).",
         "steps": ["Runs every rung (see ladder) and writes the runbook (docs/RUNNING.md or .keel/RUNNING.md).",
-                  "Failing rungs become data.failed_rungs, one setup-doctor item each; marker LADDER = green | retry | "
+                  "Failing rungs become data.failed_rungs and one setup-doctor item for all of them (data.doctor_items); marker LADDER = green | retry | "
                   "stuck (stuck = a rung failed fix_attempts_per_rung times and the rung gate asks you)."],
     },
     "ladder_retry": {

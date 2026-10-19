@@ -84,6 +84,7 @@ class ActionInput:
     ident: str = ""                                    # commit: the scope in "fix(<ident>):" when no criterion names it
     params: dict = field(default_factory=dict)         # a part's step `with:` (plugins/db, plugins/git ...)
     event: object = None                               # an add-on action's own events: event(kind, data), kind "<addon>.*"
+    progress: object = None                            # 0.18.15 a code step's live job: progress(text, **fields) adds a step
 
     @property
     def key(self) -> str:
@@ -260,6 +261,8 @@ async def verify_release(a: ActionInput) -> ActionResult:
         out = "No test command found. Add commands to .keel/config.yml."
         return ActionResult(False, out, out)
     reruns = int((rules.load_config(a.root).get("loops") or {}).get("flaky_reruns", 1) or 0)
+    if callable(a.progress):
+        a.progress(f"release suite: $ {cmd}", tool="verify_release", command=cmd)
     r = await asyncio.to_thread(verdict_actions.run_suite, a.root, cmd, "release suite", reruns)
     await asyncio.to_thread(_release_verdict, a, r["ok"], cmd, r["out"], r["flaky"])
     upd = verdict_actions.flaky_update(a, r["flaky"])
@@ -567,7 +570,9 @@ async def ladder(a: ActionInput) -> ActionResult:
     def runner(root: str, cmd: str) -> tuple[int, str]:
         return testcmd.run(root, cmd, 900, command_env())
 
-    ok, rungs = await asyncio.to_thread(run_ladder.run, a.root, a.fake, runner, bool(a.settings.get("fast")))
+    # each rung shows live on the step's job (a.progress is safe to call from the ladder's thread)
+    progress = a.progress if callable(a.progress) else None
+    ok, rungs = await asyncio.to_thread(run_ladder.run, a.root, a.fake, runner, bool(a.settings.get("fast")), progress)
     lines = ["# Running this project", "", "Written by keel init. Every command below passed the run ladder.", ""]
     for r in rungs:
         if r["status"] == "pass" and r["n"] != 1:

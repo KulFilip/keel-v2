@@ -178,9 +178,10 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         if test_cmd:
             lines.append(f"The engine checks it with: {test_cmd}  (run it to confirm, then stop).")
     if item:
-        shown = {k: v for k, v in item.items() if k != "status"}
-        lines.append("Your item (work on this one only; other agents have the others):\n"
-                     + json.dumps(shown, indent=2, ensure_ascii=False, default=str)[:6000])
+        shown = {k: v for k, v in item.items() if k not in ("status", "whole")}
+        head = ("Your work (all of it is yours, no other agent shares it):\n" if item.get("whole")
+                else "Your item (work on this one only; other agents have the others):\n")
+        lines.append(head + json.dumps(shown, indent=2, ensure_ascii=False, default=str)[:6000])
     if index and not section and not item:
         lines.append(f"You are copy {index + 1} of a parallel step; take a different angle from the others.")
     if feedback and feedback.startswith("Answers to your questions:"):

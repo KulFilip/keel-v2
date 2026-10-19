@@ -1320,6 +1320,24 @@ class Compiler:
                            thread_id=self.ctx.thread_id, request=self.ctx.request)
 
     async def code_step(self, i: int, step: Step, state: FlowState):
+        """0.18.15 a code step is a job like an agent's (code.started → code.step per action and command →
+        code.finished; the api stores them as a job), so the Flow page, the Jobs list, keel TUI and KeelBot see what runs
+        now, not "starting…". Its own event names: whoever counts agent.* still counts agents only."""
+        job = _CodeJob(self.ctx, step, state)
+        job.start()
+        try:
+            out = await self._code_step_run(i, step, state, job)
+        except GraphBubbleUp:
+            job.progress("waits for a person")    # an interrupt (a question the step raised) is not a failure; the
+            job.finish("done")                    # step runs again on the answer, as a new job
+            raise
+        except BaseException:
+            job.finish("failed")
+            raise
+        job.finish("done" if job.ok else "failed")
+        return out
+
+    async def _code_step_run(self, i: int, step: Step, state: FlowState, job: "_CodeJob"):
         ac = _ac(state) if step.per_ac else None
         item = self._item(state, step)
         st = dict(state)
@@ -1342,7 +1360,14 @@ class Compiler:
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)
                     a.state["pr_auto"] = run_mode.is_auto_line(self._gate_line(i, st))
+                a.progress = job.progress
+                t0 = time.monotonic()
+                job.progress(f"▶ {action}", tool=action)
                 r = await run_action(action, a)
+                job.progress(r.note or action, tool=action, ok=bool(r.ok), ms=int((time.monotonic() - t0) * 1000),
+                             output=(r.detail or "")[-STEP_FIELD_MAX:] or None)
+                if not r.ok and not step.soft:
+                    job.ok = False
             if r.ask and r.ask.get("type") == "already-met" and ac:
                 return await self._already_met(i, step, st, ac, r, upd, actions[n + 1:])
             if r.ask:
@@ -2393,3 +2418,47 @@ def stronger(model: dict) -> dict:
 
 def compile_workflow(ctx: ThreadContext, checkpointer):
     return Compiler(ctx).build(checkpointer)
+
+
+class _CodeJob:
+    """0.18.15 a code step shown as a job: its own code.* events (stored as a job like an agent's), agent "keel", kind "code",
+    no model and no tokens. progress(text, ...) adds one live line (a command, a rung, an action's result)."""
+
+    def __init__(self, ctx, step: Step, state: FlowState):
+        self.ctx, self.step, self.state = ctx, step, state
+        self.call_id = uuid.uuid4().hex
+        self.n = 0
+        self.ok = True
+        self.t0 = time.monotonic()
+        self.last = ""
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = None
+
+    def start(self):
+        ac = (_ac(self.state) or {}).get("id") if self.step.per_ac else None
+        self.ctx.emit("code.started", step=self.step.id, call_id=self.call_id, data={
+            "agent": "keel", "kind": "code", "provider": "keel", "model": "code", "name": self.step.name,
+            "phase": self.state.get("phase"), "ac": ac, "action": ",".join(self.step.actions())})
+
+    def progress(self, text: str, **fields):
+        # many actions run in a worker thread (asyncio.to_thread): their lines go back to the event loop's thread
+        if self.loop is not None and not self.loop.is_closed():
+            try:
+                same = asyncio.get_running_loop() is self.loop
+            except RuntimeError:
+                same = False
+            if not same:
+                self.loop.call_soon_threadsafe(lambda: self.progress(text, **fields))
+                return
+        self.n += 1
+        self.last = str(text)
+        data = {"n": self.n, "kind": "tool", "job": "code", "text": str(text)[:STEP_FIELD_MAX]}
+        data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in fields.items() if v is not None})
+        self.ctx.emit("code.step", step=self.step.id, call_id=self.call_id, data=data)
+
+    def finish(self, status: str):
+        self.ctx.emit("code.finished", step=self.step.id, call_id=self.call_id, data={
+            "agent": "keel", "kind": "code", "status": status, "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0,
+            "ms": int((time.monotonic() - self.t0) * 1000), "result": self.last[:500]})

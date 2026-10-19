@@ -121,6 +121,18 @@ class JobService(private val jdbc: JdbcTemplate) {
         return (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) to args
     }
 
+    /** 0.18.15 a flow's newest jobs (agents and code steps) with the head of what each ended with: KeelBot reads them
+     *  to answer "what did the doctor find?" or "what runs now?" (it only saw the step's name before). */
+    fun recentOfThread(threadId: String, limit: Int = 8): List<Map<String, Any?>> = jdbc.query(
+        "SELECT agent, step, phase, status, started_at, ended_at, result FROM agent_calls WHERE thread_id = ? " +
+            "ORDER BY started_at DESC LIMIT ?",
+        { rs, _ ->
+            mapOf("agent" to rs.getString("agent"), "step" to rs.getString("step"), "phase" to rs.getString("phase"),
+                "status" to rs.getString("status"), "started_at" to rs.getString("started_at"), "ended_at" to rs.getString("ended_at"),
+                "result" to rs.getString("result")?.take(1500)).filterValues { it != null }
+        }, threadId, limit.coerceIn(1, 30),
+    )
+
     fun get(id: String): Job =
         jdbc.query("SELECT $cols FROM agent_calls WHERE id = ?", jobMapper, id).firstOrNull()
             ?: throw NotFound("No job $id")
