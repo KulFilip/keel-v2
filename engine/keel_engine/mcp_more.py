@@ -40,14 +40,19 @@ def _q(x: str) -> str:
 def flows(api: KeelApi, project: str | None = None, limit: int = 10) -> str:
     p = _project(api, project)
     rows = api.get(f"/projects/{p['id']}/runs", limit=max(1, min(int(limit or 10), 50))) or []
+    try:
+        from .mcp_flows import startable
+        can = "\n\n" + startable(api, p["id"])
+    except ApiError:
+        can = ""
     if not rows:
-        return f"no flow has run on {p['id']} yet."
+        return f"no flow has run on {p['id']} yet." + can
     return "\n".join(
         f"{r.get('thread_id')}  {r.get('workflow_id') or '?'} \"{r.get('title')}\" · {r.get('status')}"
         + (f" at {r['current']}" if r.get("current") else "") + f" · criteria {r.get('acs_done', 0)}/{r.get('acs_total', 0)}"
         + f" · {_n(r.get('tokens'))} tokens · ${float(r.get('cost_usd') or 0):.2f} · {r.get('where') or 'folder'}"
         + (f" · branch {r['branch']}" if r.get("branch") else "") + (f" · error: {r['error']}" if r.get("error") else "")
-        for r in rows)
+        for r in rows) + can
 
 
 def inbox(api: KeelApi, project: str | None = None) -> str:
@@ -64,6 +69,8 @@ def inbox(api: KeelApi, project: str | None = None) -> str:
             out.append('    choices (choice="<name>"):')
             out += ask_mod.choice_lines(i, "      ")
         out += ask_mod.question_lines(i.get("questions"), "    ")
+        if i.get("questions") or i.get("choices"):
+            out.append("    " + ask_mod.how_to_answer(i) + f" (thread_id={i.get('thread_id')!r}; ask_person=true asks in a form)")
         if i.get("detail"):
             out.append("    " + str(i["detail"])[:300].replace("\n", "\n    "))
     return "\n".join(out)

@@ -2351,3 +2351,30 @@ Plan: `docs/plans/0.17.5.md`.
   the choices as an enum of their labels, a why field) and sends the answer; a client without forms gets the question
   as text. KeelBot's ```keel-questions``` come back from `keel_keelbot_ask` as a hint to send the answers with
   `keel_keelbot_ask(chat, text="Answers to your questions: …")` (`clarify.answers_message`, the web card's format).
+
+## MCP catches up with the dashboard and keel TUI (feat/mcp-up)
+
+- **Any question gate, from its data.** The read tools show every waiting question from `questions` and `choice_info`
+  (a question with no options says "your words"); `keel_inbox` adds how to answer each item (its `thread_id`). Nothing
+  in the MCP server knows one gate: the feature interview's lens questions, per-finding security decisions, "ready to
+  ship?", the init doctor's rung choices and review-pr's share-sections pick all work from these shapes.
+- **Asking in a form.** `keel_approve_gate` and `keel_answer` with `decision: approve`, no `answers` and no `choice` on a
+  `kind: clarify` gate ask the person through elicitation when the client supports it (an enum per single question,
+  a list of an enum per "multiple" one, an own-words field each — the only field for a question without options —
+  the choices as an enum of their labels, a why field), then send `payload {answers, choice}` and `why`. A client
+  without forms gets the questions as text and nothing is sent. `ask_person: true` (now on both tools) asks for any
+  waiting gate.
+- **Flows.** `keel_start_flow` with no `type` lists every flow `GET /projects/{pid}/workflows` returns, one line each
+  (keel's own from a fixed table, others from the YAML's `about:` or first comment line) with the inputs its YAML
+  comments list (`Inputs` / `Options`, one `#   key  what` line each). It takes `title`, `request` (or `idea`), `ticket`,
+  `pr` and `inputs`, sent as the start body's `title`, `request` and `options` (`ticket`, `pr`, the inputs and
+  `started_via: "mcp"`); a flow with only a ticket or PR needs no request. `keel_flows` adds the same list after the runs.
+- **Projects (admin).** `keel_pause` (asks first) stops a running or waiting flow (`POST /threads/{tid}/stop`, every
+  finished step saved); `keel_resume` without `decision` goes on with a stopped or failed flow from its last checkpoint
+  (`POST /threads/{tid}/rewind`, as `keel_resume_flow`). keel has no separate cancel route: a paused flow never resumed
+  is cancelled, `keel_delete_run` takes it off the history. `keel_focus` reads `GET /api/ui/focus`, and with `project`
+  (and `chat`) switches the dashboard and keel TUI to it (`PUT /api/ui/focus {project, chat, by: "mcp", client}`; the
+  api needs the write token for it). `keel_add_project` is unchanged.
+- **KeelBot.** The server's instructions say how to answer questions and keel-questions cards and the failure rule;
+  `keel_keelbot_ask`'s hint for a keel-questions card adds the failure rule (never run the failed command again
+  unchanged, the person picks one of the ways forward).

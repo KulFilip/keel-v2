@@ -243,6 +243,10 @@ def _choice_lines(w: dict) -> list[str]:
     return ask_mod.choice_lines(w)
 
 
+def _choice_lines_at(w: dict, indent: str) -> list[str]:
+    return ask_mod.choice_lines(w, indent)
+
+
 def _waiting_lines(w: dict) -> list[str]:
     labels = w.get("labels") or {}
     if w.get("choices"):
@@ -345,7 +349,9 @@ def next_action(api: KeelApi, project: str | None = None) -> str:
         if kind == "clarify":
             n = len(w.get("questions") or [])
             line = "\n".join([f"waiting at {w.get('title')}: answer the {n} question(s), then send them (approve with answers).",
-                              *ask_mod.question_lines(w.get("questions"), "  ")])
+                              *ask_mod.question_lines(w.get("questions"), "  "),
+                              *(['  choices (choice="<name>"):', *_choice_lines_at(w, "    ")] if w.get("choices") else []),
+                              "  " + ask_mod.how_to_answer(w) + "; keel_answer(ask_person=true) asks the person in a form."])
         elif kind == "budget":
             line = f"waiting at {w.get('title')}: approve to go past the token cap, or reject to stop."
         elif w.get("choices"):
@@ -438,20 +444,26 @@ def dashboard(api: KeelApi, view: str = "flow", project: str | None = None) -> s
 
 # ---------------------------------------------------------------- write tools (only with --write)
 
-def start_flow(api: KeelApi, type: str, idea: str, project: str | None = None, sleep=time.sleep,
-               wait: float = START_WAIT, allow_fake: bool = False) -> str:
+def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | None = None, sleep=time.sleep,
+               wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
+               ticket: str | None = None, pr: str | None = None, inputs: dict | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
-    mode and records as a flow started in the web app. It runs until its first human gate, like any flow."""
-    idea = (idea or "").strip()
-    if not idea:
-        raise ApiError("idea is empty: say in a sentence or two what the flow should build or fix.")
+    mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
+    the flows the project can start, each with what it is for and its inputs."""
+    from . import mcp_flows
+
     p = _project(api, project)
-    known = [w.get("id") for w in api.get(f"/projects/{p['id']}/workflows") or [] if w.get("id")]
+    if not type:
+        return mcp_flows.startable(api, p["id"])
+    idea = (request or idea or "").strip()
+    if not idea and not (ticket or pr):
+        raise ApiError("the request is empty: say in a sentence or two what the flow should build or fix "
+                       "(or give the ticket / pr a flow like review-pr reads).")
+    known = [w.get("id") for w in mcp_flows.catalog(api, p["id"])]
     if known and type not in known:
-        raise ApiError(f'no flow type "{type}". keel has: {", ".join(known)}')
-    first = idea.splitlines()[0].strip()
-    title = first if len(first) <= 72 else first[:71].rstrip() + "…"
-    body = {"workflow_id": type, "title": title, "request": idea, "options": {"started_via": "mcp"}}
+        raise ApiError(f'no flow type "{type}".\n' + mcp_flows.startable(api, p["id"]))
+    body = mcp_flows.start_body(type, title, idea, ticket, pr, inputs)
+    title = body["title"]
     if allow_fake:
         body["allow_fake"] = True        # v0.17.5 like the web's "Run with the fake model anyway" box
     try:
@@ -495,9 +507,8 @@ def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: s
     if decision not in (w.get("options") or ["approve", "reject"]):
         return f"{w.get('title')} takes only: {', '.join(w.get('options') or [])}"
     payload: dict[str, Any] = {"answers": answers} if answers else {}
-    if w.get("kind") == "clarify" and not answers:
-        ids = ", ".join(q.get("id", "") for q in w.get("questions") or [])
-        return f"{w.get('title')}: pass answers, a map of question id to the chosen label(s) or your own words ({ids})."
+    if w.get("kind") == "clarify" and not answers and decision == "approve":
+        return "pass answers, a map of question id to the chosen label(s) or your own words.\n" + ask_mod.text_of(w)
     if choice:
         if w.get("choices") and choice not in w["choices"]:
             return f"{w.get('title')}: \"{choice}\" is not a choice here. Choose one of: {', '.join(w['choices'])}."
@@ -691,7 +702,7 @@ LEVELS = ("read", "write", "admin")
 RANK = {"read": 0, "write": 1, "admin": 2}
 # Tools that change something hard to undo: the client asks the person first (MCP elicitation), or with --yes not.
 # A part's acting tool says so itself (PartServer.act confirm=True: keel_git_push, keel_db_change, as in 0.16.1).
-CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
+CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_pause", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
            "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_workflow_create", "keel_rule_create", "keel_agent_create", "keel_agent_model",
            "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
@@ -699,6 +710,14 @@ CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_stop_flows", "keel_remove_
 CONFIRM |= {"keel_stack_create", "keel_stack_remove", "keel_stack_market_install"}
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
+
+
+# what every client reads first (the server's instructions): how to answer keel's questions, and the failure rule
+QUESTION_HINT = (" A waiting question (keel_status, keel_inbox, keel_next: questions with options, \"pick any\" ones, named "
+                 "choices with what each does) and KeelBot's keel-questions cards are the person's to answer: show the "
+                 "options, or with --write ask in a form (keel_answer ask_person=true), and send a label per question, a "
+                 "list for a pick-any one, or their own words. When something fails, do not run it again unchanged: say "
+                 "why in one line and offer the ways forward.")
 
 
 class Confirm(BaseModel):
@@ -786,6 +805,8 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.9 a new stack, one removed, one turned off or on, one from the marketplace
               "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
+              # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
+              "keel_pause", "keel_focus",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
 # the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
@@ -805,6 +826,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_models as mm
     from . import mcp_skills as sk
     from . import mcp_stacks as stk
+    from . import mcp_flows as flows_mod
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -816,7 +838,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
     rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
     srv = FastMCP("keel", instructions="keel v2: the flow on each project (phase, criteria, gates), what happened, what to do next, "
-                                         "and what each phase permits." + {"read": "", "write": " Write tools can decide gates, start, stop and resume flows, set a run mode, start agents and ask KeelBot.",
+                                         "and what each phase permits." + QUESTION_HINT + {"read": "", "write": " Write tools can decide gates, start, stop and resume flows, set a run mode, start agents and ask KeelBot.",
                                                                           "admin": " Write tools can decide gates, start, stop and resume flows, set a run mode, start agents and ask KeelBot; admin tools can also change projects and workflows."}[lvl],
                   log_level="WARNING")
 
@@ -864,6 +886,21 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             if res.action != "accept" or not getattr(res.data, "confirm", False):
                 return f"keel: not done — you said no to {what}."
         return await anyio.to_thread.run_sync(lambda: guard(fn, *a, **kw))
+
+    async def ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person):
+        """keel 0.19.x a waiting question asked as a form: with ask_person, or an approve of a question gate (kind
+        clarify) that has no answers yet. The answer, or the text to give back instead (no form, closed, nothing waits).
+        Written from the question's data (questions, choice_info), so any new question gate works without code here."""
+        w, tid = await anyio.to_thread.run_sync(lambda: guard_pair(more.waiting_of, api, project, thread_id))
+        if not w:
+            return f"keel: {tid}" if ask_person else (decision, why, answers, choice, thread_id)
+        if not (ask_person or ask_mod.needs_answers(w, decision, answers, choice)):
+            return decision, why, answers, choice, thread_id
+        got = await ask_mod.ask(ctx, w)
+        if isinstance(got, str):
+            return got
+        d, y, payload = got
+        return d, y or why, payload.get("answers"), payload.get("choice"), tid
 
     # ---------------------------------------------------------------- read
 
@@ -914,7 +951,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(ro)
     def keel_flows(project: str | None = None, limit: int = 10) -> str:
-        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch."""
+        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch; then every
+        flow it can start, one line each on what it is for and the inputs it reads (keel_start_flow starts one)."""
         return guard(more.flows, api, project, limit)
 
     @reg(ro)
@@ -976,28 +1014,46 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
                                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                                ctx: Context | None = None) -> str:
+                                ask_person: bool = False, ctx: Context | None = None) -> str:
         """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
         For questions pass `answers`: question id -> the chosen option label, a list of labels for a "pick any" question,
-        or your own words. For a gate with named choices pass `choice` (its name) and `why` when the choice needs a reason."""
+        or your own words. For a gate with named choices pass `choice` (its name) and `why` when the choice needs a reason.
+        An approve of questions without answers (or ask_person) asks the person in a form when this client can show one
+        (pick one, tick several, or own words), else gives the questions back as text."""
+        got = await ask_first(ctx, project, None, decision, why, answers, choice, ask_person)
+        if isinstance(got, str):
+            return got
+        decision, why, answers, choice, _ = got
         return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers, choice)
 
     @reg(rw)
-    async def keel_resume(decision: Literal["approve", "reject"], thread_id: str | None = None, project: str | None = None,
-                          why: str | None = None, payload: dict[str, Any] | None = None, ctx: Context | None = None) -> str:
-        """Resume a waiting flow thread as the dashboard does (POST /api/threads/{id}/resume with decision, why,
-        payload). thread_id defaults to the project's current flow."""
+    async def keel_resume(decision: Literal["approve", "reject"] | None = None, thread_id: str | None = None,
+                          project: str | None = None, why: str | None = None, payload: dict[str, Any] | None = None,
+                          ctx: Context | None = None) -> str:
+        """Resume a flow. A waiting one: as the dashboard decides a gate (POST /api/threads/{id}/resume with decision,
+        why, payload). A paused (stopped) or failed one, with no decision: go on from its last saved step, like
+        keel_resume_flow. thread_id defaults to the project's current flow."""
+        if decision is None:
+            return await act(ctx, "keel_resume", "resume the flow", tui.resume_flow, api, project, thread_id)
         return await act(ctx, "keel_resume", "resume the flow", resume, api, decision, thread_id, project, why, payload)
 
     @reg(rw)
-    async def keel_start_flow(type: str, idea: str, project: str | None = None, allow_fake: bool = False,
+    async def keel_start_flow(type: str | None = None, idea: str | None = None, project: str | None = None,
+                              allow_fake: bool = False, title: str | None = None, request: str | None = None,
+                              ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
                               ctx: Context | None = None) -> str:
-        """Start a keel flow on the project, as the dashboard's "Start a flow" does: type is the workflow id
-        (feature, change, fix, review, ...), idea says in your words what to build or fix (the first line is the
-        title). It runs under keel's guard, budget and records, and stops at its first human gate. allow_fake: start
-        it even though agents use the fake model (it writes example files), like the dashboard's checkbox."""
+        """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
+        start (quick, small, implement, change, feature, fix, spike, review-pr, ...), one line each on what it is for
+        and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out;
+        title: its name (default the request's first line); ticket / pr: the ticket key or pull request a flow like
+        review-pr reviews; inputs: any other input the flow lists (e.g. lens for review, scope for lint). It runs under
+        keel's guard, budget and records, and stops at its first human gate. allow_fake: start it even though agents
+        use the fake model (it writes example files), like the dashboard's checkbox."""
+        if not type:
+            from . import mcp_flows
+            return guard(mcp_flows.startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
-                         time.sleep, START_WAIT, allow_fake)
+                         time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
@@ -1006,18 +1062,14 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                           item_id: str | None = None, ask_person: bool = False, ctx: Context | None = None) -> str:
         """Answer what waits in keel's Inbox: a gate (approve or reject with why), questions (answers: id -> a label, a
         list of labels for a "pick any" question, or your own words), a named choice (choice, with why when it needs a
-        reason), or a task item (item_id). ask_person: keel asks the person the waiting question in a form through this
-        client (elicitation) and sends their answer; a client without forms gets the question as text."""
-        if ask_person and not item_id:
-            w, tid = await anyio.to_thread.run_sync(lambda: guard_pair(more.waiting_of, api, project, thread_id))
-            if not w:
-                return f"keel: {tid}"
-            got = await ask_mod.ask(ctx, w)
+        reason), or a task item (item_id). ask_person (or an approve of questions with no answers): keel asks the person
+        the waiting question in a form through this client (elicitation: pick one, tick several, own words, a named
+        choice with its reason) and sends their answer; a client without forms gets the question as text."""
+        if not item_id:
+            got = await ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person)
             if isinstance(got, str):
                 return got
-            decision, why, payload = got
-            answers, choice = payload.get("answers"), payload.get("choice")
-            thread_id = tid
+            decision, why, answers, choice, thread_id = got
         return await act(ctx, "keel_answer", "answer the Inbox", more.answer, api, decision, project, thread_id, why,
                          answers, choice, item_id)
 
@@ -1055,6 +1107,21 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     async def keel_remove_project(project: str, ctx: Context | None = None) -> str:
         """Take a project off keel's list; its history stays, and adding the folder again shows it again."""
         return await act(ctx, "keel_remove_project", f"remove the project {project}", more.remove_project, api, project)
+
+    @reg(rx)
+    async def keel_pause(project: str | None = None, thread_id: str | None = None, ctx: Context | None = None) -> str:
+        """Pause a running or waiting flow (default: the project's current one): keel stops it and every finished step
+        stays saved; keel_resume with no decision goes on from there. keel has no separate cancel: a paused flow that
+        is never resumed is cancelled, and keel_delete_run takes it off the history."""
+        return await act(ctx, "keel_pause", "pause the flow", flows_mod.pause, api, project, thread_id)
+
+    @reg(rw)
+    async def keel_focus(project: str | None = None, chat: str | None = None, ctx: Context | None = None) -> str:
+        """The project the dashboard and keel TUI look at (shared between them). No arguments: which one is in focus.
+        project: switch both to it; chat: also open this KeelBot chat there."""
+        if not project and not chat:
+            return guard(flows_mod.focus, api)
+        return await act(ctx, "keel_focus", f"switch keel to {project or 'this chat'}", flows_mod.focus, api, project, chat)
 
     @reg(ro)
     def keel_workflows(project: str | None = None, workflow: str | None = None) -> str:
@@ -1111,7 +1178,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """Ask KeelBot, keel's own assistant that knows the project, its flows and keel's rules: a new chat, or `chat` to go
         on. ask only reads; edit changes the project folder with no flow (a command that changes something asks the person
         in keel first); fix changes files under keel's rules while a flow waits; side works in its own worktree. Waits
-        up to `wait` seconds for the answer. Its buttons come back as the keel tools that do them."""
+        up to `wait` seconds for the answer. Its buttons come back as the keel tools that do them. A keel-questions card
+        in its answer (questions with options, "pick any" ones too) comes back with the answers message to send: ask the
+        person, then call this again with chat and that text (a label per question, a list joined with "; ", or their
+        own words). When a command fails KeelBot does not run it again unchanged: it says why in one line and offers 2
+        to 4 ways forward as such a card, the safe one recommended; the person picks, nobody retries blindly."""
         return await act(ctx, "keel_keelbot_ask", "ask KeelBot", tui.keelbot_ask, api, text, project, chat, mode, wait)
 
     @reg(ro)

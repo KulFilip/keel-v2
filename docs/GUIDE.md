@@ -393,8 +393,8 @@ keel has an MCP server with three levels; each includes the one below:
 | level | how | adds |
 |---|---|---|
 | read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules (`keel_rules`) |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox, start a flow, restore a spec, git / PR / CI / database writes |
-| admin | `keel2 mcp --admin` | stop and delete flows, add and remove projects, change workflows, install and change rules |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), restore a spec, git / PR / CI / database writes |
+| admin | `keel2 mcp --admin` | stop, pause (`keel_pause`; `keel_resume` goes on) and delete flows, add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), change workflows, install and change rules |
 
 ```bash
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
@@ -404,6 +404,10 @@ claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 Pushes, database changes, deletes and stops ask you first in the client; a client that cannot ask is refused unless
 you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. Everything the client changes shows
 on the flow's timeline as "via MCP · <client>: <tool>". keel's own agents always get the read level.
+
+When a flow asks you something (the interview, a decision per finding, "ready to ship?"), `keel_status` and
+`keel_inbox` show each question with its options and the recommended one. A client that can show forms asks you right
+there when you approve (`keel_answer`): pick one, tick several, or write your own words.
 
 | keel v1 MCP | keel v2 MCP |
 |---|---|

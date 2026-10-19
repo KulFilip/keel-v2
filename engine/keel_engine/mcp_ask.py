@@ -46,7 +46,8 @@ def question_lines(questions: list[dict] | None, indent: str = "          ") -> 
     """Each question with its id, why, and options (description, recommended); a multiple one says "pick any"."""
     out = []
     for q in questions or []:
-        out.append(f"{indent}{q.get('id')}: {q.get('question')}" + ("  (pick any)" if q.get("multiple") else "  (pick one)"))
+        how = "  (pick any)" if q.get("multiple") else "  (pick one)" if q.get("options") else "  (your words)"
+        out.append(f"{indent}{q.get('id')}: {q.get('question')}{how}")
         if q.get("why"):
             out.append(f"{indent}  why: {q['why']}")
         for o in q.get("options") or []:
@@ -65,6 +66,18 @@ def how_to_answer(w: dict) -> str:
     if any(c.get("why") == "required" for c in info_of(w)) or "reject" in (w.get("options") or []):
         parts.append('why="<reason>"')
     return "answer with keel_answer(" + ", ".join(parts or ["decision=\"approve\""]) + ")"
+
+
+def needs_answers(w: dict, decision: str, answers: dict | None, choice: str | None) -> bool:
+    """An approve of a question gate (kind clarify: the interview, per-finding decisions, a doctor's rung...) with no
+    answers yet: the tool asks the person (a form) or shows the questions, instead of sending an empty answer."""
+    return bool(decision == "approve" and not answers and not choice and w.get("questions") and w.get("kind") == "clarify")
+
+
+def text_of(w: dict) -> str:
+    """The waiting question as text: its questions, its choices and how to answer (a client without forms)."""
+    return "\n".join([f"{w.get('kind', 'gate')}: {w.get('title', '')}", *question_lines(w.get("questions"), "  "),
+                      *(["  choices:", *choice_lines(w, "    ")] if w.get("choices") else []), how_to_answer(w)])
 
 
 def picked(w: dict, decision: str, choice: str | None) -> dict | None:
@@ -102,7 +115,8 @@ def form(w: dict):
         elif labels:
             fields[f"q{n}"] = (str, Field(default=(recs or labels)[0], title=title, description=about,
                                           json_schema_extra={"enum": labels}))
-        fields[f"q{n}_own_words"] = (str, Field(default="", title=f"{title} (or in your own words)"))
+        fields[f"q{n}_own_words"] = (str, Field(default="", title=f"{title} (or in your own words)" if labels else title,
+                                                description="" if labels else about))
     info = info_of(w) if w.get("choices") else []
     by_label = {str(c.get("label") or c["name"]): c["name"] for c in info}
     if info:
@@ -153,12 +167,11 @@ async def ask(ctx, w: dict) -> tuple[str, str | None, dict] | str:
     """Asks the person the waiting question through the client: (decision, why, payload), or the text to show instead
     (the client cannot ask, the person declined, nothing to ask in a form)."""
     built = form(w)
-    text = "\n".join([f"{w.get('kind', 'gate')}: {w.get('title', '')}", *question_lines(w.get("questions"), "  "),
-                      *(["  choices:", *choice_lines(w, "    ")] if w.get("choices") else []), how_to_answer(w)])
+    text = text_of(w)
     if not built:
         return text
     if not can_elicit(ctx):
-        return "keel: this client cannot show a form, so here is the question as text.\n" + text
+        return "keel: this client cannot show a form, so here is the question as text: pass answers (and choice) to the tool.\n" + text
     model, to_answer = built
     detail = str(w.get("detail") or "").strip()
     res = await ctx.elicit(message=f"keel: {w.get('title', 'a question')}" + (f"\n\n{detail[:600]}" if detail else ""),

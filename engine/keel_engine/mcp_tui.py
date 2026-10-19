@@ -206,6 +206,9 @@ def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None
 
 # ---------------------------------------------------------------- KeelBot
 
+# KeelBot's failure rule (plugins/keelbot content/agents/helper.md "When something fails"), for the client too
+FAILURE_RULE = ("after a failure these are KeelBot's ways forward: the person picks one (the safe one is recommended); "
+                "never run the failed command again unchanged yourself, and never pick for the person.")
 FLOW_BLOCK = re.compile(r"```keel-(flow|start)\s*\n(.*?)\n```", re.S)
 SKILL_BLOCK = re.compile(r"```keel-skill\s*\n(.*?)\n```", re.S)
 STACK_BLOCK = re.compile(r"```keel-stack\s*\n(.*?)\n```", re.S)
@@ -222,7 +225,8 @@ def _buttons_hint(text: str, chat: str | None = None) -> str:
                        for q in asked}
         hints.append("questions (ask the person, then send their answers as the next message; the recommended ones "
                      f"are filled in here): keel_keelbot_ask(chat={chat!r}, text={clarify.answers_message(asked, recommended)!r})\n"
-                     + "\n".join(ask_mod.question_lines(asked, "    ")))
+                     + "\n".join(ask_mod.question_lines(asked, "    "))
+                     + "\n    " + FAILURE_RULE)
     for kind, body in FLOW_BLOCK.findall(text or ""):
         try:
             b = json.loads(body)
