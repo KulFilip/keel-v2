@@ -26,7 +26,20 @@ export function defaultPick(q: ClarifyQuestion): string[] {
     : [];
 }
 
-/** The answers to send: a typed answer wins over a clicked option (a `multiple` question: the typed words are added to
+/** keel 0.18.22 the picked option of a single question when it takes a reason (its `why`), else undefined: the typed
+ *  words are then that option's reason, not an answer of their own. */
+export function reasonOption(
+  q: ClarifyQuestion,
+  picked: string | string[] | undefined,
+): string | undefined {
+  if (q.multiple || picked === undefined) return undefined;
+  const label = Array.isArray(picked) ? picked[0] : picked;
+  const o = q.options.find((x) => x.label === label);
+  return o && (o.why === "required" || o.why === "optional") ? o.label : undefined;
+}
+
+/** The answers to send: a typed answer wins over a clicked option (but a clicked option that takes a reason sends
+ *  "<label>: <typed words>") (a `multiple` question: the typed words are added to
  *  the ticked ones, and an untouched one sends its recommended options, the ones it shows ticked); an unanswered
  *  question is left out (the engine then uses the recommended option and says so). */
 export function answersOf(
@@ -43,8 +56,10 @@ export function answersOf(
         p === undefined ? defaultPick(q) : Array.isArray(p) ? p : p ? [p] : [];
       const list = [...ticked, ...(t ? [t] : [])];
       if (list.length) out[q.id] = list;
-    } else if (t) out[q.id] = t;
-    else if (p) out[q.id] = Array.isArray(p) ? p[0] : p;
+    } else if (t) {
+      const r = reasonOption(q, p);
+      out[q.id] = r ? `${r}: ${t}` : t;
+    } else if (p) out[q.id] = Array.isArray(p) ? p[0] : p;
   }
   return out;
 }

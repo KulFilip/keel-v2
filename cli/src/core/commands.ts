@@ -204,7 +204,8 @@ async function decideItem(ctx: Ctx, item: InboxItem, decision: "approve" | "reje
 /** A question as keel shows it (a clarify gate's, or one KeelBot asks): options (the recommended first), and
  *  `multiple` when several may be picked (keel 0.18.9). */
 export type Question = { id: string; question: string; why?: string; multiple?: boolean;
-  options: { label: string; description?: string; recommended?: boolean }[] };
+  /** keel 0.18.22 `why`: the option takes a reason (a findings gate's "accept"); its answer is "<label>: <reason>" */
+  options: { label: string; description?: string; recommended?: boolean; why?: "required" | "optional" }[] };
 export type Answers = Record<string, string | string[]>;
 
 const OTHER = "\u0000other";
@@ -222,8 +223,15 @@ export function questionChain(qs: Question[], send: (answers: Answers) => Promis
     : questionChain(qs, send, k + 1, { ...answers, [q.id]: v });
   const own = (picked: string[]) => ({ blocks: [], ask: { prompt: q.question, then: (words: string) =>
     next(q.multiple ? [...picked, words.trim()].filter(Boolean) : words.trim()) } }) as Reply;
+  // keel 0.18.22 an option that takes a reason: ask for it (again while empty when it is needed), send "<label>: <reason>"
+  const reason = (o: Question["options"][number], again = false): Reply => ({
+    blocks: again ? [{ kind: "error", text: `${o.label} needs a reason.` }] : [],
+    ask: { prompt: o.why === "required" ? `Why ${o.label}? (needed)` : `Why ${o.label}? (optional: Enter sends without)`,
+      then: (words: string) => (o.why === "required" && !words.trim() ? reason(o, true)
+        : next(words.trim() ? `${o.label}: ${words.trim()}` : o.label)) } });
   const choices: Choice[] = [
-    ...opts.map((o) => ({ label: o.label + (o.recommended ? " (recommended)" : ""), value: o.label, hint: o.description })),
+    ...opts.map((o) => ({ label: o.label + (o.recommended ? " (recommended)" : "") + (o.why === "required" ? " · needs a reason" : ""),
+      value: o.label, hint: o.description })),
     { label: "Other… (my own words)", value: OTHER },
     ...(k > 0 && !onlyOne ? [{ label: "← Back", value: BACK, hint: "the question before" }] : []),
   ];
@@ -237,6 +245,8 @@ export function questionChain(qs: Question[], send: (answers: Answers) => Promis
         const real = picked.filter((x) => x !== OTHER);
         if (picked.includes(OTHER)) return own(real);
         if (!real.length) return questionChain(qs, send, k, answers, onlyOne);  // nothing ticked: ask again
+        const takes = !q.multiple ? opts.find((o) => o.label === real[0] && (o.why === "required" || o.why === "optional")) : undefined;
+        if (takes) return reason(takes);
         return next(q.multiple ? real : real[0]);
       },
     },
@@ -618,6 +628,14 @@ const IMPLS: Impl[] = [
           choices: rows.map((x) => ({ label: (x.label || x.name) + (x.default ? " (default)" : "") + (x.why === "required" ? " · needs a reason" : ""),
             value: x.name, hint: x.description || (x.label && x.label !== x.name ? x.name : undefined) })),
           then: (v) => answerChoice(ctx, t, rows.find((x) => x.name === v)!) } };
+      }
+      if (w.questions?.length) {
+        // keel 0.18.22 a gate that asks questions beside approve / reject (a findings gate: one per finding): the
+        // answers go with an approve; an unanswered one follows the approve (a finding: fix)
+        const qs = w.questions as Question[];
+        const pairs = [...arg.matchAll(/(\w[\w-]*)=("[^"]*"|\S+)/g)];
+        if (pairs.length) return actOnFlow(ctx, t, "approve", "", { answers: pairAnswers(qs, pairs.map((m) => [m[1], m[2]])) });
+        return questionChain(qs, (ans) => actOnFlow(ctx, t, "approve", "", { answers: ans }));
       }
       return text(`${w.title}: /approve or /reject <why>.`);
     },

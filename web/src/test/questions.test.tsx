@@ -327,4 +327,24 @@ describe("ClarifyForm", () => {
     );
     expect(screen.getByRole("status")).toHaveTextContent("2 of 2 answered");
   });
+
+  it("keel 0.18.22 a findings gate: an option that takes a reason keeps the typed words as its reason", async () => {
+    const user = userEvent.setup();
+    const FINDINGS: ClarifyQuestion[] = [
+      { id: "f1", question: "`a.py:1` no auth check", options: [
+        { label: "fix", recommended: true }, { label: "accept", why: "required" }, { label: "not a finding", why: "required" }] },
+      { id: "f2", question: "`b.py:2` weak hash", options: [
+        { label: "fix", recommended: true }, { label: "accept", why: "required" }, { label: "not a finding", why: "required" }] },
+    ];
+    render(<Form questions={FINDINGS} />);
+    await user.click(within(screen.getByRole("radiogroup", { name: "`a.py:1` no auth check" })).getByRole("radio", { name: /^fix/ }));
+    await user.click(within(screen.getByRole("radiogroup", { name: "`b.py:2` weak hash" })).getByRole("radio", { name: /not a finding/ }));
+    await user.type(screen.getByLabelText("Why “not a finding”: `b.py:2` weak hash"), "only a cache key");
+    expect(screen.getAllByRole("radio", { name: /not a finding.*needs a reason/ })).toHaveLength(2);
+    expect(within(screen.getByRole("radiogroup", { name: "`b.py:2` weak hash" })).getByRole("radio", { name: /not a finding/ }))
+      .toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("sent")).toHaveTextContent('{"f1":"fix","f2":"not a finding: only a cache key"}');
+    expect(answersOf(FINDINGS, { f1: "accept" }, { f1: "known, ticket 42" })).toEqual({ f1: "accept: known, ticket 42" });
+    expect(answersOf(FINDINGS, { f1: "fix" }, { f1: "own words" })).toEqual({ f1: "own words" });
+  });
 });

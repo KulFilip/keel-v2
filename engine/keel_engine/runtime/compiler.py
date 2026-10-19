@@ -37,7 +37,9 @@ from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
 from ..models.stream import DeltaThrottle
-from .findings import REVIEWERS, blocking, unique
+from .findings import REVIEWERS, blocking, nonblocking, unique
+from .findings import key as finding_key
+from . import finding_decisions
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
@@ -1100,6 +1102,15 @@ class Compiler:
             found = unique([{"lens": lens(n), "text": t}
                             for n, (res, _m, _tb) in enumerate(agent_results) for t in blocking(res.text)])
             upd["findings"] = found
+            nb = [{"step": step.id, "name": step.name, "lens": lens(n), "text": t}
+                  for n, (res, _m, _tb) in enumerate(agent_results) for t in nonblocking(res.text)]
+            if nb:
+                # 0.18.22 non-blocking findings do not stop the flow, but the final review lists them
+                data = dict(upd.get("data") or state.get("data") or {})
+                kept = list(data.get("nonblocking_findings") or [])
+                seen = {(x.get("step"), finding_key(x.get("text") or "")) for x in kept}
+                data["nonblocking_findings"] = kept + [x for x in nb if (x["step"], finding_key(x["text"])) not in seen]
+                upd["data"] = data
             if found:
                 upd["note"] += f" · {len(found)} blocking finding(s)"
                 key = self._rounds_key(step, loop_item)
@@ -1257,6 +1268,18 @@ class Compiler:
         rounds = dict(state.get("review_rounds") or {})
         key = self._rounds_key(review, item)
         done_rounds = rounds.get(key, 0)
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        data = dict(state.get("data") or {})
+        # 0.18.22 a finding the person already accepted or called not a finding for this review is not asked again
+        gone = {finding_key(t) for d in data.get("dismissed_findings") or []
+                if d.get("step") == review.id and d.get("item") == (item or {}).get("id") for t in d.get("findings") or []}
+        if gone and found:
+            fresh = [f for f in found if finding_key(f["text"]) not in gone]
+            if not fresh:
+                gates["log"].append(f"{review.name}: {len(found)} finding(s) dismissed before, not asked again")
+                return {"gates": gates, "findings": [],
+                        "note": f"{review.name}: {len(found)} finding(s) dismissed before"}, self.nav.after(i)
+            found = fresh
         listed = "\n".join(f"- [{f['lens']}] {f['text']}" for f in found)
         again = f" (fix round {done_rounds + 1})" if done_rounds else ""
         limit = review.rounds or (2 if review.back else None)
@@ -1266,38 +1289,75 @@ class Compiler:
                    f"Fix them: the implementer fixes these findings (payload route: review-fix, coverage-fix or red picks "
                    f"who and how), the tests run, the fix is committed, and the flow goes on from "
                    f"{review.redo or review.name}.")
+        # keel v1: the person decides each finding (fix / accept / not a finding / amend the spec), as questions
+        can_amend = "amend_entry" in self.nav.index and bool(state.get("spec"))
+        asked = finding_decisions.questions(found, can_amend)
+        each = ("Or decide each finding below: fix, accept (with a reason), not a finding (with a reason)"
+                + (", or amend spec (a spec amendment starts)" if can_amend else "")
+                + f". A finding you do not mark follows the button: {'Send back' if review.back else 'Fix them'} fixes it, "
+                  "Go on anyway accepts it with your reason.")
+        if len(found) > len(asked):
+            each += f" Only the first {len(asked)} are asked one by one."
         answer, extra = self._ask(state, {
             "step": fix.id, "kind": "gate", "title": f"{review.name}: {len(found)} blocking finding(s){again}" + (f" · {item['id']}" if item else ""),
             "detail": f"{listed}\n\n{fix_txt}\nGo on anyway: say why; the findings are kept as dismissed and shown "
-                      f"at the final review.{past}",
-            "options": OPTIONS, "labels": {"approve": "Send back" if review.back else "Fix them", "reject": "Go on anyway"}},
+                      f"at the final review.\n{each}{past}",
+            "options": OPTIONS, "labels": {"approve": "Send back" if review.back else "Fix them", "reject": "Go on anyway"},
+            "questions": asked},
             gate="findings" if done_rounds < (review.rounds or 2) else "rounds")
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         why = (answer.get("why") or "").strip()
-        if answer.get("decision") != "approve":
-            gates["log"].append(f"{review.name} findings accepted: {why}")
-            ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "reject", "why": why,
-                                                        "findings": [f["text"] for f in found]})
-            data = dict(state.get("data") or {})
+        decided = finding_decisions.read(asked, found, answer)
+        fixes = [d for d in decided if d["decision"] == finding_decisions.FIX]
+        amends = [d for d in decided if d["decision"] == finding_decisions.AMEND]
+        dropped = [d for d in decided if d["decision"] in finding_decisions.DISMISSED]
+        reasons = ""
+        if dropped:
             data["dismissed_findings"] = list(data.get("dismissed_findings") or []) + [{
-                "step": review.id, "name": review.name, "item": (item or {}).get("id"), "findings": [f["text"] for f in found],
-                "why": why}]
+                "step": review.id, "name": review.name, "item": (item or {}).get("id"), "lens": d["lens"],
+                "findings": [d["text"]], "decision": d["decision"], "why": d["reason"]} for d in dropped]
+            reasons = "; ".join(dict.fromkeys(f"{d['decision']}: {d['reason']}" if d["reason"] else d["decision"] for d in dropped))
+            plain = all(d["decision"] == finding_decisions.ACCEPT and d["reason"] == why for d in dropped)
+            gates["log"].append(f"{review.name} findings accepted: {why}" if plain and not (fixes or amends)
+                                else f"{review.name}: {len(dropped)} finding(s) accepted: {reasons}"[:600])
+        shown = [{"text": d["text"], "decision": d["decision"], "reason": d["reason"]} for d in decided]
+        if not fixes and not amends:
+            ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "reject", "why": why,
+                                                        "findings": [f["text"] for f in found], "decisions": shown})
             return {**extra, "gates": gates, "findings": [], "data": data,
-                    "note": f"{len(found)} finding(s) accepted: {why}"[:300]}, self.nav.after(i)
-        ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "approve", "why": why})
+                    "note": f"{len(found)} finding(s) accepted: {why or reasons}"[:300]}, self.nav.after(i)
+        ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "approve", "why": why,
+                                                    "decisions": shown})
+        if amends:
+            # the spec is wrong here: the amendment loop (amend_start reads the AMEND marker), the review comes again later
+            said = "; ".join(f"{d['text']}" + (f" ({d['reason']})" if d["reason"] else "") for d in amends)
+            mk = {k: dict(v) for k, v in (state.get("markers") or {}).items() if isinstance(v, dict)}
+            mk[review.id] = {**(mk.get(review.id) or {}), "AMEND": f"{review.name} finding: {said}"[:1800]}
+            gates["log"].append(f"{review.name}: {len(amends)} finding(s) to a spec amendment: {said}"[:600])
+            astate = {**state, **extra, "markers": mk, "data": data, "gates": gates}
+            r = await run_action("amend_start", self._action_input(astate, None))
+            return {**extra, "gates": gates, "findings": [], "data": data, "markers": mk, **r.update,
+                    "note": f"{review.name}: spec amendment for {len(amends)} finding(s)"
+                            + (f", {len(fixes)} to fix after it (the review runs again)" if fixes else "")}, \
+                self.nav.jump("amend_entry", i)
         if answer.get("auto"):
             gates["log"].append(f"{review.name} findings sent to fix: {why}")
+        listed = "\n".join(f"- [{d['lens']}] {d['text']}" + (f"\n  the user: {d['reason']}" if d["reason"] and d["reason"] != why else "")
+                           for d in fixes)
         feedback = f"Fix these blocking findings from {review.name}:\n{listed}" + (f"\n\nFrom the user: {why}" if why and not answer.get("auto") else "")
+        if dropped:
+            feedback += "\n\nLeave these as they are (the user decided): " + "; ".join(
+                f"{d['text']} ({d['decision']}" + (f": {d['reason']}" if d["reason"] else "") + ")" for d in dropped)
+        found = [{"lens": d["lens"], "text": d["text"]} for d in fixes]
         rounds[key] = done_rounds + 1
         if review.back:
-            return {**extra, "gates": gates, "review_rounds": rounds, "findings": [], "feedback": feedback,
+            return {**extra, "gates": gates, "review_rounds": rounds, "findings": [], "feedback": feedback, "data": data,
                     "note": f"sent back to {review.back} (round {rounds[key]})"}, self.nav.jump(review.back, i)
         route = str((answer.get("payload") or {}).get("route") or "review-fix")
         if route not in ROUTES:
             route = "review-fix"
         agent = "implementer" if route == "review-fix" else "test-author"
         fix = fix.model_copy(update={"phase": route, "agent": agent})
-        state = {**state, **extra, "phase": route, "feedback": feedback}
+        state = {**state, **extra, "phase": route, "feedback": feedback, "data": data}
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
         res, model, _tb = await self._run_agent(state, fix, agent, 0)
         refused = await asyncio.to_thread(guard.guard_diff, ctx.root, route, before, None, None, state.get("unlocks") or [],
@@ -1311,7 +1371,7 @@ class Compiler:
         step_tokens = dict(state.get("step_tokens") or {})
         step_tokens[review.id] = step_tokens.get(review.id, 0) + res.tokens_in + res.tokens_out + res.tokens_cached // 10
         upd = {**extra, "gates": gates, "usage": usage, "step_tokens": step_tokens, "review_rounds": rounds, "findings": [],
-               "feedback": None, "last_answer": (res.text or "")[:2000], "phase": route}
+               "feedback": None, "last_answer": (res.text or "")[:2000], "phase": route, "data": data}
         a = self._action_input(state, None)
         a.title = f"address {review.name} findings"
         a.emit = self._tool_emit(fix.id)

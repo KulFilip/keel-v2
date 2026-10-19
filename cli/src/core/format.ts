@@ -82,6 +82,14 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
     if (opts.includes("approve")) parts.push(cmd("/approve") + (labels.approve ? c.dim(` ("${labels.approve}")`) : ""));
     if (opts.includes("reject")) parts.push(cmd("/reject <why>") + (labels.reject ? c.dim(` ("${labels.reject}")`) : ""));
     out.push(`          answer: ${parts.join(" or ") || "-"}`);
+    if (w.questions?.length) {
+      // keel 0.18.22 a gate that asks beside approve / reject (a findings gate: one question per finding)
+      out.push(`          or decide each: ${cmd("/answer")} (one after the other; ${cmd("/answer f1=fix f2=\"accept: <why>\"")})`);
+      for (const q of w.questions) {
+        const choices = q.options.map((o) => o.label + (o.recommended ? c.ok(" (recommended)") : "") + (o.why === "required" ? c.dim(" +why") : "")).join(" / ");
+        out.push(`          ${c.dim(q.id + ":")} ${q.question}  [${choices}]`);
+      }
+    }
   }
   const detail = (w.detail ?? "").trim();
   if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + c.dim(l)));

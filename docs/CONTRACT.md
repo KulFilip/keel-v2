@@ -659,6 +659,16 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
   `route` = review-fix (implementer, verify_green + fix commit; default) | coverage-fix (test-author, verify_green +
   coverage commit) | red (test-author, red commit); after the fix the flow goes on from `redo`; past `rounds` the
   question says the limit is reached. "Go on anyway" keeps them in `data.dismissed_findings` (shown at the final review).
+  0.18.22 per finding: the question carries `questions` (runtime/clarify.py's shape), one per finding (`f1`, `f2`, ...,
+  at most 10) with the options `fix` (recommended), `accept` and `not a finding` (both `why: "required"`) and, in a
+  flow with the amendment loop, `amend spec`. Answer `payload.answers` `{f1: "fix", f2: "accept: <reason>"}`: the label,
+  or `<label>: <reason>`; own words naming no option count as accept with the words as the reason. A reason-needing
+  option without one (and without `why`) is refused (400). An unanswered finding follows the decision: approve = fix,
+  reject = accept with `why` (old clients work as before). Fix ones go to the fixer (the others named as "leave as
+  they are"); amend spec runs `amend_start` with the finding as the reason and goes to `amend_entry`; accepted and
+  not-a-finding ones go to `data.dismissed_findings`, one entry each: `{step, name, item, lens, findings: [text],
+  decision, why}`, and are not asked again when the review reports them again. Each review's "Non-blocking" items go
+  to `data.nonblocking_findings` `[{step, name, lens, text}]` (once per step and file:line).
 - **AC gate detail** (0.18.22): the criterion line, `RED: <sha> test(<AC>) ...` with its test files, `GREEN: <sha>
   feat(<AC>) ...` with its diffstat (commits since the flow started), `AC-REVIEW: pass|findings` and the ac-reviewer's
   answer word for word, `Board: done ... · now <AC> · todo ...`, and `Last step:`.

@@ -5,7 +5,7 @@
 // keel 0.18.13 the recommended options come first; a `multiple` question starts with its recommended options ticked
 // (until the person touches it); the number keys 1–4 pick an option of the question that has the focus.
 import type { ClarifyQuestion } from "../api";
-import { answersOf, byRecommended, defaultPick, type ClarifyAnswers } from "../questions";
+import { answersOf, byRecommended, defaultPick, reasonOption, type ClarifyAnswers } from "../questions";
 
 // the answers moved to questions.ts (keel2 and KeelBot read them too); these stay for older imports and the SDK
 export { answersOf, type ClarifyAnswers };
@@ -22,14 +22,16 @@ export function ClarifyForm({ questions, picked, typed, onPick, onType }: {
   return (
     <div className="clarify" data-testid="clarify-form">
       {questions.map((q, n) => {
-        const usesText = !q.multiple && !!String(typed[q.id] ?? "").trim();
         const p = q.id in picked ? picked[q.id] : undefined;
+        // keel 0.18.22 an option that takes a reason (a findings gate's "accept"): the text field is its reason
+        const reasonFor = reasonOption(q, p);
+        const usesText = !q.multiple && !reasonFor && !!String(typed[q.id] ?? "").trim();
         const ticked = p === undefined ? defaultPick(q) : Array.isArray(p) ? p : p ? [p] : [];
         const options = byRecommended(q.options);
         const press = (label: string) => {
           if (q.multiple) onPick(q.id, ticked.includes(label) ? ticked.filter((x) => x !== label) : [...ticked, label]);
           else {
-            onType(q.id, "");
+            if (!reasonOption(q, label)) onType(q.id, "");
             onPick(q.id, label);
           }
         };
@@ -55,13 +57,15 @@ export function ClarifyForm({ questions, picked, typed, onPick, onType }: {
                     aria-keyshortcuts={k < 4 ? String(k + 1) : undefined} onClick={() => press(o.label)}>
                     <b>{q.multiple ? (on ? "☑ " : "☐ ") : ""}{o.label}</b>
                     {o.recommended && <span className="clarify-rec">recommended</span>}
+                    {o.why === "required" && <span className="sub"> · needs a reason</span>}
                     {o.description && <span className="sub">{o.description}</span>}
                   </button>
                 );
               })}
             </div>
-            <input className="clarify-other" type="text" aria-label={`Your own answer to: ${q.question}`}
-              placeholder={q.multiple ? "and/or in your own words" : "or answer in your own words"} value={String(typed[q.id] ?? "")}
+            <input className="clarify-other" type="text" aria-label={reasonFor ? `Why “${reasonFor}”: ${q.question}` : `Your own answer to: ${q.question}`}
+              placeholder={reasonFor ? `why “${reasonFor}”${q.options.find((o) => o.label === reasonFor)?.why === "required" ? " (needed)" : ""}`
+                : q.multiple ? "and/or in your own words" : "or answer in your own words"} value={String(typed[q.id] ?? "")}
               onChange={(e) => onType(q.id, e.target.value)} />
           </fieldset>
         );

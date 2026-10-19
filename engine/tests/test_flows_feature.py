@@ -370,6 +370,72 @@ def test_the_ac_gate_shows_the_commits_the_review_and_the_board(client, repo, mo
     assert "Board: done AC-1 · now AC-2 · todo -" in s["waiting"]["detail"]
 
 
+TWO_FINDINGS = ("**Blocking**\n\n- `src/scores/ac_1.py:1` any user reads any rank.\n- `src/scores/ac_2.py:1` the error "
+                "names the table.\n\n**Non-blocking**\n- `src/scores/ac_1.py:2` the name could be clearer\n\nSECURITY: findings")
+
+
+def test_security_findings_are_decided_one_by_one(client, repo, monkeypatch):
+    """WP-F: one finding fixed, one dismissed as not a finding with its reason; non-blocking ones are kept."""
+    calls = []
+    real = fake_mod._plan
+
+    def plan(req):
+        if req.agent == "security-auditor":
+            calls.append(req)
+            return None, "", TWO_FINDINGS, {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "security__fix")
+    w = s["waiting"]
+    assert [q["id"] for q in w["questions"]] == ["f1", "f2"]
+    assert [o["label"] for o in w["questions"][0]["options"]] == ["fix", "accept", "not a finding", "amend spec"]
+    assert w["questions"][0]["options"][0]["recommended"] and w["questions"][0]["options"][1]["why"] == "required"
+    assert "decide each finding below" in w["detail"]
+    nb = values(client, tid)["data"]["nonblocking_findings"]
+    assert [x["text"] for x in nb] == ["`src/scores/ac_1.py:2` the name could be clearer"] and nb[0]["step"] == "security"
+    # a dismissal without a reason is refused before the flow resumes
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"answers": {"f2": "not a finding"}}})
+    assert r.status_code == 400 and "needs a reason" in r.text
+    s = decide(client, tid, payload={"answers": {"f1": "fix", "f2": "not a finding: the message is generic in prod"}})
+    assert len(calls) == 2, "the review runs again after the fix"
+    assert "fix(review): address security auditor + dependency triager findings" in log(repo)
+    v = values(client, tid)
+    dismissed = v["data"]["dismissed_findings"]
+    assert dismissed == [{"step": "security", "name": "security auditor + dependency triager", "item": None,
+                          "lens": "security auditor + dependency triager: security audit of the branch diff",
+                          "findings": ["`src/scores/ac_2.py:1` the error names the table."],
+                          "decision": "not a finding", "why": "the message is generic in prod"}]
+    assert any("1 finding(s) accepted: not a finding: the message is generic in prod" in x for x in s["gate_log"])
+    # the second review reports both again: the dismissed one is not asked again
+    assert s["waiting"]["step"] == "security__fix"
+    assert [q["question"] for q in s["waiting"]["questions"]] == ["`src/scores/ac_1.py:1` any user reads any rank."]
+    assert len(values(client, tid)["data"]["nonblocking_findings"]) == 1, "the same non-blocking one is kept once"
+    s = decide(client, tid, "reject", why="tracked in ticket 7")
+    assert s["waiting"]["step"] == "ship_final_review"
+    last = values(client, tid)["data"]["dismissed_findings"][-1]
+    assert last["decision"] == "accept" and last["why"] == "tracked in ticket 7"
+
+
+def test_a_security_finding_can_amend_the_spec(client, repo, monkeypatch):
+    """WP-F: "amend spec" starts the amendment loop with the finding as its reason."""
+    real = fake_mod._plan
+
+    def plan(req):
+        if req.agent == "security-auditor":
+            return None, "", TWO_FINDINGS, {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "security__fix")
+    s = decide(client, tid, payload={"answers": {"f1": "amend spec: only the owner may read a rank",
+                                                 "f2": "accept: generic in prod"}})
+    v = values(client, tid)
+    assert "any user reads any rank" in v["data"]["amend"]["reason"] and "only the owner" in v["data"]["amend"]["reason"]
+    assert v["data"]["dismissed_findings"][0]["decision"] == "accept"
+    assert s["waiting"]["step"] == "amend_gate"
+
+
 def test_the_dependency_triager_runs_after_verify_deps_found_something(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"dependency-triager": lambda r: "lodash 4.17.20: not reachable, dev-only.\nDEPS: clean"})
     script(monkeypatch, {"verify_deps": [ActionResult(False, "Dependencies: the web audit fails.", "lodash 4.17.20 high CVE-1")]})
