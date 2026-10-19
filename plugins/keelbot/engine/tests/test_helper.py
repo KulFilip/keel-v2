@@ -469,3 +469,207 @@ def test_ask_mode_says_how_to_switch_instead_of_trying_a_change():
     from keel_plugin_keelbot.helper import MODE_TEXT
     ask = MODE_TEXT["ask"]
     assert "do not try it" in ask and "/mode edit" in ask and "/mode side" in ask and "git checkout main" in ask
+
+
+# ------------------------------------------------------------------ P1-1 context meter (AC-1)
+
+def test_ac_1_a_session_with_a_known_model_returns_ctx_window_and_ctx_tokens(client, repo):
+    s = new_session(client, repo, model={"provider": "claude", "mode": "subscription", "model": "opus"})
+    assert s["ctx_window"] == 200_000                  # Claude Opus's default context window
+    assert s["ctx_tokens"] == 0                         # no turn yet: nothing in the window so far
+    got = client.get(f"/helper/sessions/{s['id']}").json()
+    assert got["ctx_window"] == 200_000 and got["ctx_tokens"] == 0
+
+
+# ------------------------------------------------------------------ P1-1 context meter (AC-2)
+
+def test_ac_2_after_a_turn_the_session_reports_the_last_turns_ctx_tokens_and_its_ratio(client, repo):
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    last = s["messages"][-1]["data"]                   # the fake model's own report of that turn's usage
+    turn_tokens = last["tokens_in"] + last["tokens_out"] + last["tokens_cached"]
+    assert s["ctx_tokens"] == turn_tokens
+    assert s["ctx_tokens"] / s["ctx_window"] == pytest.approx(turn_tokens / 200_000)
+    # a second turn: ctx_tokens still reflects only the *last* turn, not the session's running total
+    _, s = ask(client, s["id"], "And the tests?")
+    last2 = s["messages"][-1]["data"]
+    turn2_tokens = last2["tokens_in"] + last2["tokens_out"] + last2["tokens_cached"]
+    assert s["ctx_tokens"] == turn2_tokens
+    assert s["ctx_tokens"] != s["tokens_in"] + s["tokens_out"] + s["tokens_cached"]   # that sum is the two turns combined
+    assert s["ctx_tokens"] / s["ctx_window"] == pytest.approx(turn2_tokens / 200_000)
+
+
+# ------------------------------------------------------------------ P1-2 /compact (AC-1)
+
+@pytest.mark.asyncio
+async def test_ac_1_compact_summarises_keeps_every_row_and_starts_a_fresh_session(client, repo):
+    """helper.compact(sid): asks the model for a summary of the stored history, stores it as a note message, starts
+    a fresh engine_session and resets ctx_tokens to the summary's own size — never deleting a row."""
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    _, s = ask(client, s["id"], "And the tests?")
+    sid = s["id"]
+    before = helper.get(sid)
+    before_rows = before["messages"]
+    before_session = before["engine_session"]
+
+    await helper.compact(sid)
+
+    after = helper.get(sid)
+    after_rows = after["messages"]
+    # every earlier row is still there, unchanged, in the same order: compacting never deletes from helper_messages
+    assert after_rows[:len(before_rows)] == before_rows
+    # exactly one new row: the model's summary, stored as a note (never a user or helper turn)
+    assert len(after_rows) == len(before_rows) + 1
+    note = after_rows[-1]
+    assert note["role"] == "note"
+    assert note["text"].strip()
+    # no engine session to resume: the next turn starts a new one (a made-up id would "resume" nothing, with no
+    # transcript, and the model would lose the whole chat)
+    assert after["engine_session"] is None
+    # ctx_tokens resets to the summary's own size, not the size of the summary call (that read the whole old chat)
+    data = note["data"]
+    assert data["compact"] is True and after["ctx_tokens"] == data["after"] < data["tokens_in"] + data["after"]
+    # the next turn's history starts from the summary, then only what comes after it; nothing is lost
+    hist = helper.history(sid)
+    assert hist[0][0] == "user" and note["text"].strip() in hist[0][1] and len(hist) == 1
+    _, s = ask(client, sid, "Go on.")
+    hist = helper.history(sid)
+    assert note["text"].strip() in hist[0][1] and [r for r, _ in hist[1:]] == ["user", "assistant"]
+
+
+# ------------------------------------------------------------------ P1-2 /compact (AC-2)
+
+def test_ac_2_a_turn_above_85_percent_of_the_window_compacts_itself_before_it_runs(client, repo):
+    """A session whose ctx_tokens is already above 85% of its model's ctx_window compacts on its own, right before
+    the next turn runs — the person never has to ask for it."""
+    s = new_session(client, repo)
+    sid = s["id"]
+    before_session = helper.get(sid)["engine_session"]
+    helper.update(sid, ctx_tokens=int(s["ctx_window"] * 0.9))   # above the 85% threshold
+
+    _, s = ask(client, sid, "Where does it start?")
+
+    rows = s["messages"]
+    # a note (the summary) was stored before the user's own message for this turn
+    roles = [m["role"] for m in rows]
+    assert "note" in roles
+    assert roles.index("note") < roles.index("user")
+    # the turn compacted first: the note is a compact summary, and the window is far from full again
+    note = next(m for m in rows if m["role"] == "note")
+    assert note["data"]["compact"] is True and note["data"]["after"] < int(s["ctx_window"] * 0.9)
+
+
+def test_ac_2_a_turn_below_the_threshold_never_compacts(client, repo):
+    """The same session, well under 85%, keeps its own engine_session and stores no summary note."""
+    s = new_session(client, repo)
+    sid = s["id"]
+    before_session = helper.get(sid)["engine_session"]
+    helper.update(sid, ctx_tokens=int(s["ctx_window"] * 0.1))   # far under the threshold
+
+    _, s = ask(client, sid, "Where does it start?")
+
+    assert "note" not in [m["role"] for m in s["messages"]]
+    assert s["engine_session"] == before_session
+
+
+@pytest.mark.asyncio
+async def test_ac_2_the_compact_route_answers_before_and_after_tokens(client, repo):
+    """POST /helper/sessions/{sid}/compact compacts on request and answers the tokens it had before and after."""
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    _, s = ask(client, s["id"], "And the tests?")
+    sid = s["id"]
+    before_tokens = helper.get(sid)["ctx_tokens"]
+
+    r = client.post(f"/helper/sessions/{sid}/compact")
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["before"] == before_tokens
+    after = helper.get(sid)
+    assert body["after"] == after["ctx_tokens"]
+    # the route actually ran the compaction, it did not just report numbers
+    assert "note" in [m["role"] for m in after["messages"]]
+
+
+# ------------------------------------------------------------------ P1-3 sessions: picker (AC-1)
+
+def test_ac_1_the_session_list_has_each_chats_last_message_and_size_newest_first(client, repo):
+    """GET /helper/sessions: every chat with a short preview of its last message and how many messages it stores,
+    the chat with the latest activity first — what keel TUI's /chats picker shows and filters on."""
+    old = new_session(client, repo)
+    ask(client, old["id"], "Where does the package start?")
+    new = new_session(client, repo)
+    _, new = ask(client, new["id"], "And the tests? " + "word " * 60)
+    empty = new_session(client, repo)                 # nothing said yet
+    with helper.db.connect() as conn:                  # updated_at is to the second: set the order the test needs
+        for at, sid in (("2026-10-01T10:00:00Z", old["id"]), ("2026-10-02T10:00:00Z", new["id"]),
+                        ("2026-10-03T10:00:00Z", empty["id"])):
+            conn.execute("update helper_sessions set updated_at = ? where id = ?", (at, sid))
+
+    rows = client.get("/helper/sessions", params={"project": "demo"}).json()
+    assert [r["id"] for r in rows] == [empty["id"], new["id"], old["id"]]
+    by = {r["id"]: r for r in rows}
+    assert by[empty["id"]]["last_message"] == "" and by[empty["id"]]["message_count"] == 0
+    assert by[new["id"]]["message_count"] == len(new["messages"]) == 2
+    last = " ".join(new["messages"][-1]["text"].split())
+    preview = by[new["id"]]["last_message"]
+    assert len(preview) <= 80 and "\n" not in preview
+    assert preview == last or (preview.endswith("…") and last.startswith(preview[:-1].rstrip()))
+
+
+# ------------------------------------------------------------------ P1-3 sessions: /rename (AC-2)
+
+def test_ac_2_rename_through_the_patch_route_names_the_chat_in_the_session_list(client, repo):
+    """keel TUI's /rename sends the existing PATCH {title}: the chat keeps that name, its first turn does not
+    replace it with the question, and the session list (/chats) shows it."""
+    s = new_session(client, repo)
+    r = client.patch(f"/helper/sessions/{s['id']}", json={"title": "  Health endpoint work  "})
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "Health endpoint work"
+    _, s = ask(client, s["id"], "Where does the package start?")
+    assert s["title"] == "Health endpoint work"
+    rows = client.get("/helper/sessions", params={"project": "demo"}).json()
+    assert [(x["id"], x["title"]) for x in rows] == [(s["id"], "Health endpoint work")]
+    # renaming again, after the turn, works the same way
+    client.patch(f"/helper/sessions/{s['id']}", json={"title": "Health, done"})
+    assert client.get("/helper/sessions", params={"project": "demo"}).json()[0]["title"] == "Health, done"
+
+
+# ------------------------------------------------------------------ P1-3 sessions: /export (AC-3)
+
+@pytest.mark.asyncio
+async def test_ac_3_export_writes_every_message_as_markdown_and_leaves_the_session_unchanged(client, repo):
+    """POST /helper/sessions/{sid}/export writes the chat as Markdown into the project's .keel/chats/<sid>.md (every
+    stored message in order, each with its role and time) and answers the path; the session reads back the same."""
+    s = new_session(client, repo)
+    sid = s["id"]
+    client.patch(f"/helper/sessions/{sid}", json={"title": "Where things start"})
+    ask(client, sid, "Where does the package start?")
+    await helper.compact(sid)                          # a note too: every stored message, not only the turns
+    _, s = ask(client, sid, "And the tests?")
+    before = client.get(f"/helper/sessions/{sid}").json()["messages"]
+    assert [m["role"] for m in before] == ["user", "helper", "note", "user", "helper"]
+
+    r = client.post(f"/helper/sessions/{sid}/export")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    path = Path(body["path"])
+    assert path == Path(repo).resolve() / ".keel" / "chats" / f"{sid}.md" and body["messages"] == len(before)
+    md = path.read_text()
+    assert md.startswith("# Where things start\n")
+    heads = {"user": "user", "helper": "KeelBot", "note": "note"}
+    at = 0
+    for m in before:                                   # in order: each message's heading (role, time), then its text
+        head = f"## {m['n']}. {heads[m['role']]} · {m['at']}"
+        assert md.index(head, at) >= at
+        at = md.index(head, at) + len(head)
+        assert md.index(m["text"].strip(), at) >= at
+        at = md.index(m["text"].strip(), at)
+
+    # another reader (another computer) opens the chat afterwards: the very same messages, unchanged
+    assert client.get(f"/helper/sessions/{sid}").json()["messages"] == before
+    # exporting again overwrites the same file with the same content
+    assert client.post(f"/helper/sessions/{sid}/export").json()["path"] == str(path)
+    assert client.post("/helper/sessions/h_nope/export").status_code == 404

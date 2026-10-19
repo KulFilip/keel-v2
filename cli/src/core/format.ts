@@ -22,6 +22,14 @@ export const clock = (at?: string | null) => {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
+/** P1-3 how long ago: "just now", "5m ago", "3h ago", "2d ago" ("--" with no time). */
+export const age = (at?: string | null, now = Date.now()) => {
+  const t = at ? new Date(at).getTime() : NaN;
+  if (Number.isNaN(t)) return "--";
+  const m = Math.floor(Math.max(0, now - t) / 60_000);
+  return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 24 * 60 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / (24 * 60))}d ago`;
+};
+
 export const tokensOf = (u?: { tokens_in?: number; tokens_out?: number } | null) => Number(u?.tokens_in ?? 0) + Number(u?.tokens_out ?? 0);
 
 export function flowName(t: ThreadState, w: Workflow | null): string {

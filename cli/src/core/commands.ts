@@ -24,7 +24,13 @@ import { resolve } from "node:path";
 
 export type BlockKind = "text" | "markdown" | "diagram" | "error" | "notice" | "user" | "ok" | "dim";
 export type Block = { kind: BlockKind; text: string };
-export type Choice = { label: string; value: string; hint?: string };
+/** `search`: more text that typing in the picker matches besides the label (P1-3 /chats: the last message). */
+export type Choice = { label: string; value: string; hint?: string; search?: string };
+/** The choices a picker shows for what the person typed: the label or `search` contains it, in any case. */
+export const pickMatches = (choices: Choice[], filter: string): Choice[] => {
+  const f = filter.toLowerCase();
+  return f ? choices.filter((c) => c.label.toLowerCase().includes(f) || !!c.search?.toLowerCase().includes(f)) : choices;
+};
 /** Pick one of these; `then` runs with the chosen value. */
 /** `index`: the choice the cursor starts on (the current one), else the first. keel 0.18.9 `multi`: Space ticks
  *  choices, Enter sends them; `then` gets the ticked values as a JSON list. */
@@ -751,14 +757,49 @@ const IMPLS: Impl[] = [
     run: (ctx, a) => text(dashboardUrl(ctx, a.trim() || "flow") + "\nOpen it in your browser: the same keel, the same flows and chats."),
   },
   { name: "model", run: (ctx) => modelRun(ctx) },
+  {
+    // P1-2: summarise the open chat's stored history into a fresh engine session; every stored message stays.
+    name: "compact",
+    run: async (ctx) => {
+      if (!ctx.core.snapshot.chat.session) return text("nothing to compact: open a chat first.");
+      const r = await ctx.core.compact();
+      const tok = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+      return text(`compacted: ${tok(r.before)} → ${tok(r.after)} tokens, nothing lost`);
+    },
+  },
+  {
+    // P1-3: write the open chat as Markdown (every stored message, with role and time) into the project's .keel/chats/
+    name: "export",
+    run: async (ctx) => {
+      if (!ctx.core.snapshot.chat.session) return text("nothing to export: open a chat first (/chats).");
+      const r = await ctx.core.exportChat();
+      return ok(`exported ${r.messages} messages: ${r.path}`);
+    },
+  },
   { name: "effort", run: (ctx, a) => effortRun(ctx, a), complete: (ctx, a) => effortComplete(ctx, a) },
   {
+    // P1-3: name the open chat (the session's PATCH {title}); /chats lists it by that name
+    name: "rename",
+    run: (ctx, a) => {
+      if (!ctx.core.snapshot.chat.session) return text("nothing to rename: open a chat first (/chats).");
+      const go = async (name: string): Promise<Reply> => {
+        const title = name.trim().replace(/\s+/g, " ").slice(0, 120);
+        if (!title) return fail("A chat needs a name: /rename <name>.");
+        const s = await ctx.core.rename(title);
+        return ok(`renamed: "${s.title}"`);
+      };
+      return a.trim() ? go(a) : { blocks: [], ask: { prompt: "The chat's new name?", then: go } };
+    },
+  },
+  {
+    // P1-3: a picker, newest first, with each chat's last message, age and size; typing narrows it by title or last message
     name: "chats",
     run: async (ctx) => {
       const rows = await ctx.core.chats();
       if (!rows.length) return text("No chats yet: type a question.");
-      return { blocks: [], pick: { title: "Open which chat?", choices: rows.slice(0, 30).map((s: HelperSession) => ({ label: s.title || s.id, value: s.id,
-        hint: `${s.mode} · ${s.turns} turns · ${fmt.clock(s.updated_at)}` })),
+      return { blocks: [], pick: { title: "Open which chat? (type to filter)", choices: rows.slice(0, 50).map((s: HelperSession) => ({
+        label: s.title || s.id, value: s.id, search: s.last_message ?? "",
+        hint: [s.last_message ? fmt.cut(s.last_message, 40) : "", fmt.age(s.updated_at), s.message_count != null ? `${s.message_count} msgs` : `${s.turns} turns`].filter(Boolean).join(" · ") })),
         then: async (v) => {
           const s = await ctx.core.openChat(v);
           const blocks: Block[] = [{ kind: "dim", text: `chat "${s.title}" · ${s.mode} · ${s.turns} turns` }];

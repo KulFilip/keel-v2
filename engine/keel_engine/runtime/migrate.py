@@ -101,6 +101,9 @@ COLUMNS = [
     ("helper_sessions", "branch", "text"),
     ("helper_sessions", "base_sha", "text"),
     ("helper_sessions", "folder", "text"),
+    # P1-1 the context meter: the last turn's tokens_in + tokens_out + tokens_cached (what the model had in its window),
+    # not the session's running total
+    ("helper_sessions", "ctx_tokens", "integer not null default 0"),
 ]
 
 

@@ -29,6 +29,8 @@ export function stubKeel() {
       waiting, usage: { tokens_in: 12000, tokens_out: 3400, cost_usd: 0.42, premium_requests: 0, cap_tokens: 500000 }, checkpoints: 2, updated_at: AT,
     } as Record<string, unknown>,
     session: null as null | Record<string, unknown>,
+    // P1-3 the project's chats for /chats (with last_message and message_count); null: just the open one, if any
+    sessions: null as null | Record<string, unknown>[],
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
     messages: [] as Record<string, unknown>[],
@@ -103,8 +105,21 @@ export function stubKeel() {
       case "POST /api/projects/demo/helper/sessions/s1/turn":
         state.messages.push({ n: state.messages.length + 1, role: "user", text: body.text, data: {}, at: AT });
         return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
+      // P1-2 /compact: the engine's {before, after} token counts for the session it just summarised
+      case "POST /api/projects/demo/helper/sessions/s1/compact": return [200, { before: 48000, after: 6000 }];
+      // P1-3 /export: the engine wrote the chat as Markdown into the project's .keel/chats/<sid>.md
+      case "POST /api/projects/demo/helper/sessions/s1/export": return [200, { path: "/work/demo/.keel/chats/s1.md", messages: 2 }];
+      // P1-3 /rename: the existing PATCH {title} of a KeelBot session; the chats list shows the new name
+      case "PATCH /api/projects/demo/helper/sessions/s1": {
+        const title = String(body.title ?? "").trim();
+        if (title) {
+          state.session = { ...state.session, title };
+          state.sessions = state.sessions?.map((x) => (x.id === "s1" ? { ...x, title } : x)) ?? null;
+        }
+        return [200, state.session];
+      }
       case "GET /api/projects/demo/helper/sessions/s1": return [200, { ...state.session, messages: state.messages, busy: false }];
-      case "GET /api/projects/demo/helper/sessions": return [200, state.session ? [state.session] : []];
+      case "GET /api/projects/demo/helper/sessions": return [200, state.sessions ?? (state.session ? [state.session] : [])];
       // 0.18.5 a new workflow, rule pack or agent
       case "POST /api/projects/demo/workflows/check": {
         const bad = String(body.yaml).includes("kind: oops");

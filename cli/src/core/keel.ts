@@ -535,6 +535,28 @@ export class KeelCore {
     return kb.changes(pid, sid);
   }
 
+  /** Summarise the open chat's stored history into a fresh engine session: nothing in `helper_messages` is lost. */
+  async compact(): Promise<{ before: number; after: number }> {
+    const { pid, sid } = this.chatOf();
+    return post<{ before: number; after: number }>(
+      `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/compact`);
+  }
+
+  /** P1-3 Write the open chat as Markdown into the project's .keel/chats/<sid>.md; nothing stored changes. */
+  async exportChat(): Promise<{ path: string; messages: number }> {
+    const { pid, sid } = this.chatOf();
+    return post<{ path: string; messages: number }>(
+      `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/export`);
+  }
+
+  /** P1-3 Name the open chat: the session's existing PATCH {title}; the engine keeps it (a first turn no longer names it). */
+  async rename(title: string): Promise<HelperSession> {
+    const { pid, sid } = this.chatOf();
+    const next = await kb.patch(pid, sid, { title });
+    this.setChat({ session: { ...this.snapshot.chat.session!, ...next } });
+    return next;
+  }
+
   /** Keep one file, some, or (no paths) all: the dashboard's Done, with keel 0.18.3's `paths`. */
   async keep(paths?: string[], message = ""): Promise<HelperDone> {
     const { pid, sid } = this.chatOf();

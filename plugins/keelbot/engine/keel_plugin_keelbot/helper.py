@@ -67,6 +67,7 @@ RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session 
 TRANSCRIPT_CHARS = 6000                  # the conversation so far, for the engines that cannot continue a session
 HISTORY_TURNS = 12                       # earlier messages an API-key model gets
 TURN_TIMEOUT = 900
+COMPACT_RATIO = 0.85                     # ctx_tokens / ctx_window above this: compact before the next turn runs
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
     "ask": ("Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git). "
@@ -98,7 +99,7 @@ ASK_PATH = PART_ASK_PATH               # where the guard hook asks (it checks th
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
           "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
-          "worktree", "branch", "base_sha", "folder")
+          "worktree", "branch", "base_sha", "folder", "ctx_tokens")
 FOLDER_FIELDS = ("id", "project", "name", "created_at", "updated_at")
 FOLDER_NAME_MAX = 60
 
@@ -116,6 +117,7 @@ def _session(row) -> dict:
     s = dict(zip(FIELDS, row))
     s["model"] = db.loads(s.pop("model_json"), {})
     s["grants"] = db.loads(s.pop("grants_json"), [])
+    s["ctx_window"] = catalog.context_window(s["model"].get("provider", ""), s["model"].get("model", ""))
     return s
 
 
@@ -152,15 +154,34 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",
                      (sid, project, str(Path(root).resolve()), mode, title.strip()[:120] or "New chat",
                       json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]",
-                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base"), None))
+                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base"), None, 0))
     return get(sid)
 
 
 def list_sessions(project: str, limit: int = 200) -> list[dict]:
+    """The project's chats, the latest activity first. P1-3: each with `last_message` (a one-line preview of its last
+    user or KeelBot message, "" when none) and `message_count` (every stored message), for keel TUI's /chats picker."""
     with db.connect() as conn:
         rows = conn.execute(f"select {', '.join(FIELDS)} from helper_sessions where project = ? order by updated_at desc limit ?",
                             (project, limit)).fetchall()
-    return [_session(r) for r in rows]
+        sids = [r[0] for r in rows]
+        marks = ", ".join("?" * len(sids))
+        counts = dict(conn.execute(f"select session_id, count(*) from helper_messages where session_id in ({marks}) "
+                                   "group by session_id", sids).fetchall()) if sids else {}
+        lasts = dict(conn.execute(f"select m.session_id, m.text from helper_messages m where m.session_id in ({marks}) "
+                                  "and m.n = (select max(x.n) from helper_messages x where x.session_id = m.session_id "
+                                  "and x.role in ('user', 'helper'))", sids).fetchall()) if sids else {}
+    out = [_session(r) for r in rows]
+    for s in out:
+        s["message_count"] = int(counts.get(s["id"], 0))
+        s["last_message"] = preview(lasts.get(s["id"]) or "")
+    return out
+
+
+def preview(text: str, limit: int = 80) -> str:
+    """P1-3 a message as one short line: its words on one line, cut at a word with "…" (as a title is)."""
+    line = " ".join((text or "").split())
+    return short_title(line, limit) if line else ""
 
 
 def get(sid: str, messages: bool = True) -> dict:
@@ -179,7 +200,8 @@ def get(sid: str, messages: bool = True) -> dict:
 
 def update(sid: str, **fields) -> dict:
     allowed = {k: v for k, v in fields.items() if k in ("title", "model_json", "engine_session", "status", "error",
-                                                       "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase")}
+                                                       "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase",
+                                                       "ctx_tokens")}
     if allowed:
         sets = ", ".join(f"{k} = ?" for k in allowed)
         with db.connect() as conn:
@@ -319,11 +341,40 @@ def workdir(s: dict) -> str:
 
 
 def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
-    """Earlier messages as [(user|assistant, text)], oldest first."""
-    msgs = get(sid)["messages"]
-    out = [("user" if m["role"] == "user" else "assistant", m["text"]) for m in msgs
-           if m["role"] in ("user", "helper") and (before_n is None or m["n"] < before_n)]
+    """Earlier messages as [(user|assistant, text)], oldest first. After a /compact the history starts at the latest
+    summary (a note with data.compact): the summary first, then what was said after it. Every message stays stored."""
+    msgs = [m for m in get(sid)["messages"] if before_n is None or m["n"] < before_n]
+    last = max((i for i, m in enumerate(msgs) if m["role"] == "note" and (m.get("data") or {}).get("compact")), default=None)
+    out: list[tuple[str, str]] = []
+    if last is not None:
+        out.append(("user", "The conversation so far, summarised (the full chat is stored in keel):\n" + msgs[last]["text"]))
+        msgs = msgs[last + 1:]
+    out += [("user" if m["role"] == "user" else "assistant", m["text"]) for m in msgs if m["role"] in ("user", "helper")]
     return out
+
+
+# ------------------------------------------------------------------ P1-3 /export
+
+EXPORT_DIR = (".keel", "chats")
+EXPORT_ROLES = {"user": "user", "helper": "KeelBot", "note": "note"}
+
+
+def export(sid: str) -> dict:
+    """P1-3 Writes the chat as Markdown into its project's .keel/chats/<sid>.md (the project folder, a side session's
+    too): the title, then every stored message in order, each under "## <n>. <role> · <time>". It only reads the
+    session: nothing stored changes. Answers the file's path and how many messages it holds."""
+    s = get(sid)
+    msgs = s["messages"]
+    model = s.get("model") or {}
+    lines = [f"# {s['title']}", "",
+             f"KeelBot chat {sid} · {s['mode']} · {model.get('provider', '?')}/{model.get('model', '?')} · "
+             f"{len(msgs)} messages · exported {db.now()}", ""]
+    for m in msgs:
+        lines += [f"## {m['n']}. {EXPORT_ROLES.get(m['role'], m['role'])} · {m['at']}", "", (m["text"] or "").rstrip(), ""]
+    path = Path(s["root"]).joinpath(*EXPORT_DIR, f"{sid}.md")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return {"path": str(path), "messages": len(msgs)}
 
 
 # ------------------------------------------------------------------ Fix mode: the files KeelBot changed
@@ -596,6 +647,34 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     return "\n\n".join(parts)
 
 
+# ------------------------------------------------------------------ /compact
+
+async def compact(sid: str) -> dict:
+    """Asks the model to summarise the stored conversation, stores that summary as a note (never a user or helper
+    turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
+    Nothing in helper_messages is ever deleted; ctx_tokens resets to the summary's own size."""
+    s = get(sid, messages=False)
+    model = models.effective(s["model"])
+    hist = history(sid)
+    root = workdir(s)
+    prompt = "Summarise the conversation so far, for a fresh session that continues from this summary alone.\n\n" \
+             + _transcript(hist)
+    req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, None), prompt=prompt, root=root, phase="none",
+                       model=model, toolbox=ToolBox(root, "none", agent=AGENT, readonly=True), title=s["title"],
+                       step_name="compact", key=models.key_for(model["provider"], {}), history=hist)
+    res = await models.runner_for(model).run(req, lambda *_a, **_k: None)
+    tin, tout, cached = int(res.tokens_in), int(res.tokens_out), int(res.tokens_cached)
+    before = int(s.get("ctx_tokens") or 0)
+    summary = res.text or ""
+    after = max(tout, len(summary) // 4)          # what the next turn starts with: the summary, not the old chat
+    add_message(sid, "note", summary, data={"compact": True, "before": before, "after": after,
+                                            "tokens_in": tin, "tokens_out": tout, "tokens_cached": cached})
+    # no engine session: the next turn starts a new one and gets history() — the summary and what follows — as its
+    # transcript (a made-up session id would "resume" a session the engine never had, with no transcript at all)
+    update(sid, engine_session=None, ctx_tokens=after)
+    return get(sid, messages=False)
+
+
 # ------------------------------------------------------------------ turns
 
 class HelperRunner:
@@ -677,6 +756,8 @@ class HelperRunner:
             raise HelperError(409, "KeelBot is still answering in this session.", "Wait for the answer, or stop it.")
         if s["mode"] == "side" and not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
+        if s["ctx_window"] and s["ctx_tokens"] / s["ctx_window"] >= COMPACT_RATIO:
+            s = await compact(sid)
         if body.get("model"):
             s = set_model(sid, body["model"])
         question, command = plugins.expand(s["root"], text, body.get("plugins"))
@@ -860,7 +941,7 @@ class HelperRunner:
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
                tokens_in=cur["tokens_in"] + tin, tokens_out=cur["tokens_out"] + tout, tokens_cached=cur["tokens_cached"] + cached,
-               cost_usd=round(cur["cost_usd"] + cost, 6), turns=cur["turns"] + 1)
+               cost_usd=round(cur["cost_usd"] + cost, 6), turns=cur["turns"] + 1, ctx_tokens=tin + tout + cached)
         doc_history.after_step(doc_emit, root, docs_before, "keelbot", "KeelBot", None, "helper")
         ev("helper.finished", {"agent": AGENT, "status": status, "tokens_in": tin, "tokens_out": tout, "tokens_cached": cached,
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
