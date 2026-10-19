@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
 import { complete, follow, pickMatches, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
-import type { KeelCore, Snapshot } from "../core/keel";
+import type { KeelCore, PermissionQuestion, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
 import { applyLevel, makeTheme, type Theme } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
@@ -42,14 +42,15 @@ type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "bl
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
 export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boolean; chatBusy: boolean; answers: number };
 
-type Pending = { cmd: string; pick?: Pick; ask?: Ask };
+/** `qid`: the KeelBot permission question this pick shows (it goes when the question ends elsewhere) */
+type Pending = { cmd: string; pick?: Pick; ask?: Ask; qid?: string };
 
 const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbox" };
 /** a plugin's mode without the full screen (--inline, tests): this many rows */
 const INLINE_MODE_ROWS = 20;
 /** keel's panels, and a plugin's ("plugin:git") */
 type PanelId = PanelName | `plugin:${string}` | `job:${string}`;
-type Question = { id: string; command: string; title: string; path?: string | null };
+type Question = PermissionQuestion;
 /** A selection with the mouse: in the transcript (`line` is the transcript's line) or in the prompt (line 0); `moved`
  *  once it covers more than the pressed cell (a plain click selects nothing). */
 type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
@@ -103,6 +104,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [history, setHistory] = useState<string[]>([]);
   const [hIdx, setHIdx] = useState(-1);
   const [pending, setPending] = useState<Pending | null>(null);
+  const pendingRef = useRef<Pending | null>(null);
+  pendingRef.current = pending;
   const [pickIdx, setPickIdx] = useState(0);
   const [pickFilter, setPickFilter] = useState("");
   // keel 0.18.9 a pick of several: what is ticked (Space), sent with Enter
@@ -191,6 +194,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         if (questions.current.some((x) => x.id === q.id)) return;
         questions.current.push(q);
         setQTick((n) => n + 1);
+      }),
+      // keel 0.18.18 answered in the dashboard, or KeelBot's turn ended: its card goes (an answer here does nothing more)
+      core.on("questionGone", (id) => {
+        questions.current = questions.current.filter((x) => x.id !== id);
+        if (pendingRef.current?.qid === id) {
+          setPending(null);
+          push({ kind: "dim", text: "  KeelBot's question ended (answered elsewhere, or its answer ended)" });
+        }
       }),
       core.on("answer", (a) => {
         const d = a.message?.data;
@@ -318,17 +329,26 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (pending || !questions.current.length) return;
     const q = questions.current.shift()!;
-    setPending({ cmd: "KeelBot", pick: { title: `KeelBot asks to run: ${q.command}${q.path ? ` (${q.path})` : ""}?`,
-      choices: [{ label: "Allow once", value: "once" }, { label: "Allow in this chat", value: "always", hint: "this command, for the rest of the chat" },
-        { label: "Deny", value: "deny" }],
+    const deny = async (why: string) => {
+      await inboxApi.decide(q.id, "deny", why);
+      return { blocks: [{ kind: "dim" as const, text: `  refused: ${q.command}${why ? ` (${why})` : ""}` }] };
+    };
+    // keel 0.18.18 the warning (it throws work away, a flow works in this folder), what "in this chat" keeps (its
+    // family: git checkout *), a deny with the person's reason (KeelBot reads it), and Esc says no
+    setPending({ cmd: "KeelBot", qid: q.id, pick: { title: `KeelBot asks to run: ${q.command}${q.path ? ` (${q.path})` : ""}?${q.warning ? ` ⚠ ${q.warning}` : ""}`,
+      choices: [{ label: "Allow once", value: "once" },
+        ...(q.always !== "" ? [{ label: q.always && q.always !== q.command ? `Allow ${q.always} in this chat` : "Allow in this chat", value: "always",
+          hint: q.always && q.always !== q.command ? "this command and its kind, for the rest of the chat" : "this command, for the rest of the chat" }] : []),
+        { label: "Deny", value: "deny" },
+        { label: "Deny, and say why", value: "why", hint: "KeelBot reads your reason and goes on from it" }],
       then: async (v) => {
+        if (v === "why") return { blocks: [], ask: { prompt: `Why not ${q.command}? (KeelBot reads it)`, then: (why: string) => deny(why.trim()) } };
+        if (v === "deny") return deny("");
         await inboxApi.decide(q.id, v);
-        return { blocks: [{ kind: v === "deny" ? "dim" : "ok", text: v === "deny" ? `  refused: ${q.command}` : `allowed ${v === "always" ? "in this chat" : "once"}: ${q.command}` }] };
+        const kept = v === "always" && q.always && q.always !== q.command ? ` (${q.always})` : "";
+        return { blocks: [{ kind: "ok", text: `allowed ${v === "always" ? "in this chat" : "once"}: ${q.command}${kept}` }] };
       },
-      onCancel: async () => {
-        await inboxApi.decide(q.id, "deny", "The person closed the question without an answer.");
-        return { blocks: [{ kind: "dim", text: `  refused: ${q.command}` }] };
-      } } });
+      onCancel: () => deny("The person closed the question without an answer.") } });
     setPickIdx(0);
     setPickFilter("");
   }, [pending, qTick]);

@@ -252,6 +252,8 @@ export function stubKeel() {
         state.review.submitted = body;
         return [200, { posted: state.review.drafts.length, in_body: 0, event: body.event, url: "https://github.com/acme/shop/pull/7#review-1", view: reviewView(body.key) }];
       default:
+        // keel 0.18.18 any KeelBot permission question's answer
+        if (method === "POST" && /^\/api\/approvals\/[\w-]+\/decide$/.test(path)) return [200, { id: path.split("/")[3], decision: body.decision }];
         if (method === "GET" && path.startsWith("/api/skills/")) {
           const sid = path.slice("/api/skills/".length);
           return [200, { id: sid, kind: "debugging", stack: "any", source: "keel", version: "v2", tokens: 2300, agents: state.skillAgents[sid] ?? [],
