@@ -9,6 +9,8 @@ usage    15,400 tokens of 500,000 - $0.42
 == Spec: write and approve what to build ==  id=spec
   [x] outside docs needed?  (agent explorer)
   [x] research the outside docs  (agent web-researcher)
+  [x] interview  (agent explorer)
+  [x] your answers  (gate, you decide)
   [x] spec  (agent explorer)
   [x] areas to map  (code explore_areas)
   [x] one explorer per area  (parallel)
@@ -55,6 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \ [ ] the amendment again with your note  (code amend_with_note)
       \       then -> spec amendment
       \ [ ] stop the flow  (code amend_stop)
-      \       then -> end of the flow
-      \ [ ] spec amendment  (agent explorer)
-... 105 more (zoom with id=contract)
+... 107 more (zoom with id=contract)

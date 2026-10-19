@@ -41,6 +41,30 @@
    "keep": true
   },
   {
+   "id": "interview",
+   "kind": "agent",
+   "name": "interview",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "when": {
+    "state": "acs",
+    "absent": true
+   },
+   "instructions": "Interview the person before the spec is written; write no file. Read the request, the evidence handed over (if any), keel's memory of the project and only the code the request names. Go through these lenses: goal and users (who gains what; what \"user\" means), scope (what is in, what is out), edge cases (absent, empty, malformed, duplicate, limit, a later update, an old message still queued), validation and errors (what is refused, what the caller sees), security (who may read and change what, what must never be logged), data (new fields, migration, existing rows, message contracts), UX (empty, loading and error states), performance (a number, or none), rollout (deploy order between producer and consumer, old clients, feature flag), out of scope. Skip a lens the request, the code or the evidence already answers, or that does not apply. For each lens still open whose answer would change the criteria, ask one question: at most 6, most important first, each with 2 to 4 options (the recommended one first, \"recommended\": true, each saying what it costs), ending your answer with one ```keel-questions block (a JSON list of {\"id\", \"question\", \"why\", \"options\": [{\"label\", \"description\", \"recommended\"}]}; the person can also answer in their own words). When nothing is open, ask nothing and end with \"NO_QUESTIONS: <why, in one line>\". Always write first, in a short list, what each lens already says and where (request, file:line, URL). When the answers come back, write that list again with each answer in it. The web research on the outside docs this feature depends on (\"(nothing yet)\" when it did not need any): do not ask what it confirmed; ask about what it could not confirm when that would change the criteria.\n{{data.web_docs_text}}",
+   "asks": true,
+   "keep": true
+  },
+  {
+   "id": "interview_gate",
+   "kind": "gate",
+   "name": "your answers",
+   "phase": "spec",
+   "when": {
+    "state": "clarify.questions"
+   }
+  },
+  {
    "id": "spec",
    "kind": "agent",
    "name": "spec",
@@ -50,7 +74,7 @@
    "tools": [
     "mcp:keel:*"
    ],
-   "instructions": "Interview first, criteria second, code last: write the criteria from what was asked, not from the code that exists. Draw before you finish the list: a UI mockup with four states (default, empty, loading, error) for any [WEB] criterion, a request path (each hop marked + new or ~ changed) for any [API] one; a schema change gets its own Migration section. Fill Validation and security rules, Out of scope, and Smoke checks. Tag a journey that needs a browser [E2E] and a check that must also pass after a deploy [SMOKE]. When the criteria are listed above already (handed over by a change flow), do not ask questions: write the spec around them, keep their ids and words, and leave the finished ones finished. Outside docs (0.18.21): the web research below is what was confirmed about the third-party APIs, webhooks or libraries this feature depends on (\"(nothing yet)\" when it did not need any). A criterion about outside data names only what the research confirms and cites its URL. Do not invent a field name, format or limit it did not confirm: write each such detail as an open question in the spec's \"## Open questions\" section, with what a person must supply to settle it (a sample payload, a sandbox account, a docs page). The web research:\n{{data.web_docs_text}}"
+   "instructions": "Interview first, criteria second, code last: write the criteria from what was asked, not from the code that exists. Use keel's spec template (its path and sections are above): a Goal, User stories (\"As a <role>, I want <capability>, so that <benefit>\"), Findings (evidence) with a file:line or URL behind every claim and the paths the change touches traced (inbound, internal messages and their contract, persistence, outbound) with the tests that exist today, criteria \"AC-n [API|WEB] Given, when, then\" that cover absent, valid, malformed, a later update, an old message still queued and the docs, Test layers for every criterion, Validation and security rules, Edge cases, Risks and cost (files, migration, rolling deploy order, ambiguities to decide), Unverified and open questions for anything no source confirms, Out of scope, and a Definition of done. Draw before you finish the list: a UI mockup with four states (default, empty, loading, error) for any [WEB] criterion, a request path (each hop marked + new or ~ changed) for any [API] one; a schema change gets its own migration notes. Tag a journey that needs a browser [E2E] and a check that must also pass after a deploy [SMOKE]. Each interview answer becomes a sentence under Decisions; do not ask what the interview answered. When the criteria are listed above already (handed over by a change flow), do not ask questions: write the spec around them, keep their ids and words, and leave the finished ones finished. Outside docs (0.18.21): the web research below is what was confirmed about the third-party APIs, webhooks or libraries this feature depends on (\"(nothing yet)\" when it did not need any). A criterion about outside data names only what the research confirms and cites its URL. Do not invent a field name, format or limit it did not confirm: write each such detail under the spec's \"## Unverified and open questions\", with what a person must supply to settle it (a sample payload, a sandbox account, a docs page). The web research:\n{{data.web_docs_text}}\nThe interview (what each lens already says):\n{{data.interview_text}}\nThe person's answers:\n{{data.interview_answers}}"
   },
   {
    "id": "explore_areas",
@@ -1145,6 +1169,8 @@
    "preflight",
    "web_check",
    "web_docs",
+   "interview",
+   "interview_gate",
    "spec",
    "explore_areas",
    "explore",
@@ -1244,6 +1270,14 @@
      },
      {
       "step": "web_docs",
+      "side": []
+     },
+     {
+      "step": "interview",
+      "side": []
+     },
+     {
+      "step": "interview_gate",
       "side": []
      },
      {

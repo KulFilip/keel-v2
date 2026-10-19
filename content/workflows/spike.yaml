@@ -2,9 +2,12 @@ id: spike
 name: spike (keel)
 keel_rules: true
 version: 1
-# Research before building: frame the question, research what it needs from outside the repo on the web (0.18.20
+# Research before building: frame the question (0.18.21: with one round of questions about the decision when only
+# the person knows the answer), research what it needs from outside the repo on the web (0.18.20
 # web_docs: the web-researcher searches first and reads at least five sources), research each angle from evidence and
-# measurements, write the findings with data, sources and one recommendation, and let the person decide. Phase spec:
+# measurements, write the findings with data, sources and one recommendation (0.18.21: evidence with file:line or URL,
+# draft criteria, test layers, risks and cost, kept whole: the report adds each angle's answer word for word and seeds
+# the feature's evidence), and let the person decide. Phase spec:
 # agents may write notes and the spec, never code or tests. "spec" starts a feature flow from the findings (its spec
 # step writes the spec); "drop" ends here.
 steps:
@@ -16,12 +19,18 @@ steps:
     phase: spec
     collect: angles
     keep: true
+    asks: true
     instructions: >-
       Frame the spike: restate the question in one sentence, the decision it should make possible, and what data
       would settle it (numbers, limits, versions, compatibility, cost, effort). Name what the question needs from
       outside this repository (third-party APIs, libraries, SDKs, webhooks, vendor docs: exact field names, formats,
       versions, limits), or say it needs nothing from outside. Then list two to four distinct angles to research
-      (options, approaches or tools), each one researchable on its own. Do not research them yet.
+      (options, approaches or tools), each one researchable on its own. Do not research them yet. If the decision
+      depends on something only the person knows (a constraint, what is acceptable, a deadline, which systems may
+      change), ask it once: at most 3 questions, each with 2 to 4 options (the recommended one first), in one
+      ```keel-questions block after the angles (a JSON list of {"id", "question", "why", "options": [{"label",
+      "description", "recommended"}]}). When the answers come back, frame the spike again with them.
+  - { id: frame_questions, kind: gate, name: questions about the decision, phase: spec, when: { state: clarify.questions } }
   - id: web_docs
     kind: agent
     name: research the outside docs
@@ -52,8 +61,11 @@ steps:
       measurements you can take without changing anything (timings, counts, sizes, versions, a dry run). Edit nothing.
       Use the web research below for anything outside the repository, and cite its URLs; when your angle needs more
       from outside, read the web yourself (WebSearch and WebFetch when you have them, else a read-only `curl -sL <url>`)
-      and name each URL you used. Give numbers wherever you can and say how you got each one. Name the risks and what
-      the angle would cost to build. End with VERDICT: promising | possible | no.
+      and name each URL you used. Give numbers wherever you can and say how you got each one. Write your findings as a
+      list of claims, each with its file:line or URL; trace the paths your angle touches (inbound, internal messages
+      and their contract, persistence, outbound) and name the tests that exist for them; mark Unverified what no source
+      confirms, with what must be confirmed. Name the risks and what the angle would cost to build (files, migration,
+      deploy order). End with VERDICT: promising | possible | no.
 
       What the web research found:
 
@@ -65,12 +77,21 @@ steps:
     agent: investigator
     model: default
     phase: spec
+    keep: true
     markers: [RECOMMEND]
     instructions: >-
-      Write the spike's findings for the person who decides: the question; per angle what was found, with its data
-      and evidence; a comparison table (angle, verdict, the key numbers, risk, effort); what is confirmed and what is
-      not (a fact is confirmed only when a source says it: give its URL or file:line; anything else is unconfirmed,
-      with what a human should supply to settle it); a list of the sources with their URLs; open questions; and one
+      Write the spike's findings for the person who decides, and for the feature spec that may start from them (the
+      researchers' answers follow yours word for word in the report and the feature gets both, so carry their
+      evidence, never summarise it away). In this order: the question and the decision; Findings (evidence), a list
+      where every claim has its file:line or URL, with the paths the change touches traced (inbound, internal messages
+      and their contract, e.g. a schema with additionalProperties: false, and the old messages already queued at
+      deploy, persistence, outbound); the tests that exist today for those paths (or none); gaps that need a product
+      decision, called decisions, not facts; Unverified, each fact no source confirms with what must be confirmed and
+      by whom; a comparison table (angle, verdict, the key numbers, risk, effort); for the recommended angle, draft
+      acceptance criteria "AC-n [API|WEB] Given, when, then" that are testable and cover absent, valid, malformed, a
+      later update, an old queued message and the docs; Test layers per draft criterion (unit, functional,
+      integration, smoke, e2e, or why not); Risks and cost (files touched, migration or not, the rolling deploy order
+      between producer and consumer, ambiguities to decide); the sources with their URLs; open questions; and one
       recommendation with its reason. RECOMMEND is that recommendation on one line.
 
       The web research (sources and confidence):

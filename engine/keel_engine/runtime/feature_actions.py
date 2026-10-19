@@ -257,7 +257,7 @@ def spec_sync(a):
     plan = _section(text, "plan")
     if plan:
         lines += ["", "Plan (files per criterion, contract delta, test layer):", plan[:2500]]
-    lines += ["", spec_check.describe(spec_check.check(text, acs))]
+    lines += ["", spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data)))]
     answer = a.data.get("spec_gate_answer") or {}
     if a.step.startswith("spec_review") and answer.get("choice") == "review" and (a.state.get("last_answer") or "").strip():
         lines += ["", "Spec review (you asked for it), word for word:", a.state["last_answer"].strip()[:6000]]

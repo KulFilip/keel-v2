@@ -631,10 +631,15 @@ class Compiler:
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
-                                     pid=ctx.project_id or "", writes_spec=not step.keep)
+                                     pid=ctx.project_id or "", writes_spec=prompts.spec_writer(step))
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
+        if phase == "spec" and not item and not state.get("feedback") and (step.asks or prompts.spec_writer(step)):
+            # the parent flow's whole evidence (a spike's report) for the interview and the spec writer
+            evidence = prompts.evidence_block((state.get("data") or {}).get("seed"))
+            if evidence:
+                prompt = f"{prompt}\n\n{evidence}"
         started_from = (state.get("data") or {}).get("spec")
         if phase == "spec" and started_from and started_from == state.get("spec") and not state.get("feedback"):
             # 0.17.3 started from a spec (the Wiki): the agents change that file instead of writing another one
@@ -1054,8 +1059,8 @@ class Compiler:
         said = ((upd.get("markers") or {}).get(step.id) or {}) if step.markers else {}
         if said:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
-        # 0.18.21 a `keep` step's answer is text for the next steps, not the spec: no criteria are read from it
-        if state["phase"] in ("spec", "triage") and not state.get("acs") and not step.keep:
+        # 0.18.21 only the spec writer's answer holds criteria (a `keep` step's answer is text for the next steps)
+        if state["phase"] in ("spec", "triage") and not state.get("acs") and prompts.spec_writer(step):
             acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
             if not acs and ctx.request:
                 # 0.18.17 the agent wrote its criteria in another form ("1. ..."), but the request lists them as AC
@@ -1064,7 +1069,8 @@ class Compiler:
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
-                found = spec_check.check(await asyncio.to_thread(spec_check.read_spec, ctx.root, spec or state.get("spec")), acs)
+                found = spec_check.check(await asyncio.to_thread(spec_check.read_spec, ctx.root, spec or state.get("spec")), acs,
+                                         spec_check.outside_facts(ctx.request, state.get("data")))
                 if any(f["level"] == "fix" for f in found) and not state.get("spec_revisions") \
                         and ctx.settings.get("spec_check", not ctx.fake):
                     upd.update(spec_revisions=1, feedback=spec_check.revision_note(found), clarify={},
@@ -1086,12 +1092,13 @@ class Compiler:
                 upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS]} if asked else {}
             if spec:
                 upd["spec"] = spec
-        if step.asks and not (state["phase"] in ("spec", "triage") and not state.get("acs")):
+        if step.asks:
             # keel's clarify loop for any agent step: its keel-questions go to the next gate as buttons, the answers back
             # to this agent (at most clarify.MAX_ROUNDS rounds; then it must decide with the recommended options).
             rounds = int(state.get("clarify_rounds") or 0)
-            asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text)] if rounds < clarify.MAX_ROUNDS else []
-            upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS], "step": step.id} if asked else {}
+            asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text, clarify.STEP_QUESTIONS)] \
+                if rounds < clarify.MAX_ROUNDS else []
+            upd["clarify"] = {"questions": asked[:clarify.STEP_QUESTIONS], "step": step.id} if asked else {}
         if self._reviews(step):
             def lens(n: int) -> str:
                 if step.items_from and n in item_of:
@@ -1995,7 +2002,8 @@ class Compiler:
             return upd, self.nav.after(i)
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
-        no_criteria = not ac and step.phase in ("spec", "triage") and not acs
+        # only a flow with a step that writes the spec waits for criteria (a spike's gates have none, on purpose)
+        no_criteria = not ac and step.phase in ("spec", "triage") and not acs and self._writes_specs()
         clar = state.get("clarify") or {}
         # the spec's questions, or the questions of an agent step with `asks: true` (clar["step"])
         asked = clar.get("questions") if (no_criteria or clar.get("step")) else None
@@ -2038,7 +2046,8 @@ class Compiler:
             if state.get("spec"):
                 detail = f"Spec: {state['spec']}\n{detail}"
                 if step.phase in ("spec", "triage"):
-                    detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs))
+                    detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs,
+                                                                              spec_check.outside_facts(ctx.request, state.get("data"))))
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes and not no_criteria:
             detail = f"{detail}\n\nStatic checks on the last changed files:\n" + "\n".join(f"- {n}" for n in lint_notes)
@@ -2169,6 +2178,9 @@ class Compiler:
 
     @staticmethod
     def _holds(when: dict, values: list) -> bool:
+        if when.get("absent"):
+            # 0.18.21 `absent: true`: the value is not given (the feature's interview runs only without criteria)
+            return not any(v not in (None, "", [], {}) for v in values)
         return any(markers.matches(v, when) for v in values)
 
     @staticmethod
@@ -2366,6 +2378,10 @@ class Compiler:
             upd = {**upd, "data": data}
         return upd
 
+    def _writes_specs(self) -> bool:
+        """Does any agent step of this flow write a spec (prompts.spec_writer, in a spec or triage phase)?"""
+        return any(s.phase in ("spec", "triage") and prompts.spec_writer(s) for s in self.wf.steps)
+
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
         n = len(asked)
@@ -2380,7 +2396,8 @@ class Compiler:
         payload = answer.get("payload") or {}
         round_no = int(state.get("clarify_rounds") or 0) + 1
         auto = answer.get("why") if answer.get("auto") else ""
-        text = clarify.answers_text(asked, payload.get("answers"), "" if auto else (answer.get("why") or ""), round_no)
+        text = clarify.answers_text(asked, payload.get("answers"), "" if auto else (answer.get("why") or ""), round_no,
+                                    spec=not src)
         gates["log"].append(f"gate {step.id} answered the explorer's {n} question(s)" + (f": {auto}, the recommended options" if auto else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": text[:600],
                                                           "clarify": True})
@@ -2390,7 +2407,12 @@ class Compiler:
             # keep the answers for the add-on's records too (data.<gate>_clarify: questions and answers, every round)
             kept = list(((state.get("data") or {}).get(f"{step.id}_clarify")) or [])
             kept.append({"round": round_no, "questions": asked, "answers": dict(payload.get("answers") or {}), "note": answer.get("why") or ""})
-            upd["data"] = {**(state.get("data") or {}), f"{step.id}_clarify": kept}
+            # and the answers as text for the steps after it (data.<asking step>_answers: the feature's spec step reads the
+            # interview's), every round
+            now = clarify.answers_message(asked, payload.get("answers")) + (f"\nAlso, in the person's words: {answer['why']}"
+                                                                         if answer.get("why") and not auto else "")
+            said = "\n\n".join(x for x in (str((state.get("data") or {}).get(f"{src}_answers") or ""), now) if x)
+            upd["data"] = {**(state.get("data") or {}), f"{step.id}_clarify": kept, f"{src}_answers": said}
             target = self.nav.jump(src, i)
         else:
             target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))

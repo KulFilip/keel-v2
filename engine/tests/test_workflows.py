@@ -36,8 +36,9 @@ def test_feature_template_shape():
     assert t.step("ac_gate").back == "red" and t.step("spec_gate").back == "spec"
     assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
     main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]
-    assert main == ["preflight", "web_check", "web_docs", "spec", "explore_areas", "explore", "maps", "plan", "spec_sync", "spec_gate", "freeze", "options",
-                    "contract", "contract_diff", "contract_gate", "contract_commit", "integration", "integration_commit",
+    assert main == ["preflight", "web_check", "web_docs", "interview", "interview_gate", "spec", "explore_areas", "explore", "maps",
+                    "plan", "spec_sync", "spec_gate", "freeze", "options", "contract", "contract_diff", "contract_gate", "contract_commit",
+                    "integration", "integration_commit",
                     "integration_diff", "integration_gate", "security_deps", "security_scope", "security", "review_fix",
                     "review_fix_commit", "code_review", "e2e_scope", "e2e_needed", "e2e_tool", "e2e", "e2e_commit", "e2e_gate",
                     "smoke_scope", "smoke_needed", "smoke", "smoke_commit", "smoke_gate", "adr", "adr_commit", "close"]
@@ -134,7 +135,8 @@ def test_api_validate_and_estimate(client):
 def test_spike_researches_the_web_before_the_angles():
     """0.18.20 spike: frame → web_docs (web-researcher, CONFIDENCE) → one researcher per angle → findings with sources."""
     t = get_template("spike")
-    assert [s.id for s in t.steps] == ["frame", "web_docs", "research", "collect", "findings", "report", "decide", "hand_spec"]
+    assert [s.id for s in t.steps] == ["frame", "frame_questions", "web_docs", "research", "collect", "findings", "report", "decide",
+                                       "hand_spec"]
     frame, web, research, findings = t.step("frame"), t.step("web_docs"), t.step("research"), t.step("findings")
     assert frame.keep and frame.collect == "angles" and "outside this repository" in frame.instructions
     assert (web.kind, web.agent, web.phase, web.markers, web.keep) == ("agent", "web-researcher", "spec", ["CONFIDENCE"], True)
@@ -145,11 +147,12 @@ def test_spike_researches_the_web_before_the_angles():
 
 
 def test_feature_researches_the_web_only_when_it_needs_outside_docs():
-    """0.18.21 feature: web_check (explorer, WEB: yes | no) → web_docs (web-researcher) only on yes → the spec, which cites
-    what is confirmed and turns what is not into open questions."""
+    """0.18.21 feature: web_check (explorer, WEB: yes | no) → web_docs (web-researcher) only on yes → the interview → the
+    spec, which cites what is confirmed and turns what is not into open questions."""
     t = get_template("feature")
     ids = [s.id for s in t.steps]
-    assert ids[:4] == ["preflight", "web_check", "web_docs", "spec"]
+    assert ids[:6] == ["preflight", "web_check", "web_docs", "interview", "interview_gate", "spec"]
+    assert "{{data.web_docs_text}}" in t.step("interview").instructions
     check, web, spec = t.step("web_check"), t.step("web_docs"), t.step("spec")
     assert (check.kind, check.agent, check.phase, check.markers, check.keep) == ("agent", "explorer", "spec", ["WEB"], True)
     for must in ("third-party API", "webhook", "library", "WEB: yes", "WEB: no", "refactor"):

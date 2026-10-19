@@ -77,8 +77,9 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert git(repo, "branch", "--show-current").stdout.strip() == "feat/player-ranks"
     assert values(client, tid)["branch"] == "feat/player-ranks"
     names = [r.step_name for r in seen]
-    # 0.18.21 web_check first: "Player ranks" needs nothing from outside, so web_docs does not run
-    assert names == ["outside docs needed?", "spec", "one explorer per area", "one explorer per area", "plan under the criteria"]
+    # 0.18.21 web_check first: "Player ranks" needs nothing from outside, so web_docs does not run; then the interview
+    assert names == ["outside docs needed?", "interview", "spec", "one explorer per area", "one explorer per area",
+                     "plan under the criteria"]
     assert sorted(r.item["id"] for r in seen if r.item) == ["api", "data"]          # no [WEB] criterion: no web explorer
     plan = seen[-1]
     assert "MAP (api)" in plan.prompt and "MAP (data)" in plan.prompt and "ORDER: <one line>" in plan.prompt
@@ -198,12 +199,80 @@ def test_the_clarify_loop_still_runs_on_the_spec_gate_before_any_explorer(client
     tid = start(client, repo, acs=None)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate" and s["waiting"]["kind"] == "clarify"
-    assert [r.step_name for r in seen] == ["outside docs needed?", "spec"], "no explorer before the criteria are settled"
+    assert [r.step_name for r in seen] == ["outside docs needed?", "interview", "spec"], "no explorer before the criteria are settled"
     skipped = {e["step"] for e in client.bus.of(tid, "step.finished") if e["data"].get("skipped")}
     assert {"explore_areas", "explore", "maps", "plan"} <= skipped
     s = decide(client, tid, "approve", payload={"answers": {"who": "A name"}})
     assert s["waiting"]["step"] == "spec_gate" and s["waiting"].get("kind") != "clarify" and s["acs"]
     assert [r.step_name for r in seen].count("one explorer per area") == 2
+
+
+# ------------------------------------------------------------------ the interview (0.18.21, keel v1's lenses)
+
+LENS_QS = [{"id": lens, "question": f"{lens}: which one?", "why": "it changes the criteria",
+            "options": [{"label": f"{lens} A", "description": "cheap", "recommended": True}, {"label": f"{lens} B"}]}
+           for lens in ("scope", "edge-cases", "validation", "security", "data", "rollout", "ux")]
+
+
+def test_the_interview_asks_one_question_per_open_lens_and_the_answers_reach_the_spec(client, repo, monkeypatch):
+    block = "- goal and users: the request says players\n```keel-questions\n" + json.dumps(LENS_QS) + "\n```"
+    calls = []
+
+    def interview(req, real):
+        calls.append(req)
+        if len(calls) == 1:
+            return None, "", block, {}
+        return None, "", "- goal and users: players\n- scope: scope A (asked)\n- data: data B (asked)\nNO_QUESTIONS: answered", {}
+    seen = by_step(monkeypatch, {"interview": interview})
+    tid = start(client, repo, acs=None, request="Show each player's rank next to the top 10.")
+    s = wait(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "interview_gate" and w["kind"] == "clarify", w
+    assert [q["id"] for q in w["questions"]] == ["scope", "edge-cases", "validation", "security", "data", "rollout"]  # 6 at most
+    assert w["questions"][0]["options"][0]["recommended"]
+    assert [r.step_name for r in seen] == ["outside docs needed?", "interview"], "nothing is written before the person answers"
+    first = calls[0].prompt
+    assert "goal and users" in first and "rollout" in first and "out of scope" in first and "NO_QUESTIONS" in first
+    assert "Write the spec under" not in first, "the interview writes no spec"
+    s = decide(client, tid, "approve", why="ranks are public", payload={"answers": {"scope": "scope A", "data": "data B"}})
+    assert len(calls) == 2 and calls[1].feedback.startswith("Answers to your questions:")
+    assert "Now finish your step with these answers" in calls[1].feedback and "write the spec" not in calls[1].feedback
+    spec = next(r for r in seen if r.step_name == "spec")
+    assert "1. scope: which one?\n   → scope A" in spec.prompt and "→ data B" in spec.prompt
+    assert "→ (not answered: use the recommended one)" in spec.prompt
+    assert "in the person's words: ranks are public" in spec.prompt
+    assert "- scope: scope A (asked)" in spec.prompt                      # the interview's record
+    assert s["waiting"]["step"] == "spec_gate" and s["acs"]
+    assert any("answered the explorer's 6 question(s)" in x or "interview_gate answered" in x for x in s["gate_log"]), s["gate_log"]
+
+
+def test_a_request_that_answers_every_lens_skips_the_interview_gate(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo, acs=None)
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "spec_gate"
+    assert [r.step_name for r in seen][:3] == ["outside docs needed?", "interview", "spec"]
+    assert any(x.startswith("gate interview_gate approve: not asked") for x in s["gate_log"]), s["gate_log"]
+    spec = next(r for r in seen if r.step_name == "spec")
+    assert "NO_QUESTIONS: the request answers every lens" in spec.prompt and "The person's answers:\n(nothing yet)" in spec.prompt
+
+
+def test_handed_over_criteria_skip_the_interview(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo, acs=[{"id": "AC-1", "layer": "API", "title": "Given scores, when ranked, then ties share a rank"}])
+    wait(client, tid)
+    assert "interview" not in [r.step_name for r in seen]
+
+
+def test_the_spec_step_is_told_keels_template_and_its_sections(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    wait(client, start(client, repo, acs=None))
+    spec = next(r for r in seen if r.step_name == "spec").prompt
+    assert "templates/spec.md" in spec
+    for section in ("Goal", "User stories", "Findings (evidence)", "Acceptance criteria", "Test layers", "Edge cases",
+                    "Validation and security rules", "Risks and cost", "Unverified and open questions", "Out of scope",
+                    "Definition of done"):
+        assert section in spec, section
 
 
 # ------------------------------------------------------------------ the contract gate

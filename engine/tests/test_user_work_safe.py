@@ -79,7 +79,8 @@ def test_a_flow_that_waits_at_its_first_step_shows_that_step(client, repo, monke
     tid = start(client, repo)
     s = wait(client, tid)
     assert s["status"] == "waiting" and s["waiting"]["kind"] == "fix"
-    assert s["phase"] == "spec" and s["current"] == "spec"
+    # 0.18.21 the feature flow's first step is web_check (outside docs needed?), in the spec phase
+    assert s["phase"] == "spec" and s["current"] == "web_check"
     assert not (_P(repo) / ".keel" / "state.json").exists()        # keel writes no v1-format state file
 
 

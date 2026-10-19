@@ -357,8 +357,16 @@ class Engine:
             acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or ""),
                         **({"status": a["status"]} if a.get("status") else {})})
         child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
+        request = request.strip()
+        if len(request) > prompts.REQUEST_MAX:
+            # every agent of the flow reads the request; the whole evidence (data.seed) goes to the steps that write
+            # the spec (prompts.evidence_block). It was cut here, and a spike's file:line evidence never reached them.
+            request = (request[:prompts.REQUEST_MAX].rstrip() + f"\n\n[cut at {prompts.REQUEST_MAX} of {len(request)} "
+                       "characters: the steps that write the spec get the whole evidence]")
+        if isinstance(seed.get("evidence"), str):
+            seed = {**seed, "evidence": seed["evidence"][:prompts.EVIDENCE_MAX]}
         child.update(root=row["root"], workflow=wf, title=str(seed.get("title") or row["title"])[:200], acs=acs or None,
-                     request=request.strip()[:8000], parent=link, keys=self.keys.get(parent),
+                     request=request, parent=link, keys=self.keys.get(parent),
                      data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "needs_e2e", "no_gates") if k in seed}})
         return await self.start_thread(child)
 

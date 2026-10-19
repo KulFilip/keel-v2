@@ -181,3 +181,26 @@ def test_a_spec_the_answer_names_is_read(client, repo, monkeypatch):
     tid = start(client, repo, acs=None, title="Show how many visits each pet had")
     st = wait(client, tid)
     assert len(st["acs"]) == 3 and st["spec"] == ".keel/drafts/spec-visits.md", st
+
+
+def test_only_the_spec_writer_is_told_to_write_the_spec_from_the_template():
+    from keel_engine.workflows.templates import get_template
+    feature, spike = get_template("feature"), get_template("spike")
+    assert prompts.spec_writer(feature.step("spec")) and prompts.spec_writer(feature.step("spec_edit"))
+    assert not any(prompts.spec_writer(feature.step(s)) for s in ("interview", "explore"))
+    assert not any(prompts.spec_writer(s) for s in spike.steps if s.kind in ("agent", "parallel"))
+    writer = prompts.task_prompt(agent="explorer", phase="spec", step_name="spec", title="t", root="/r", ac=None, acs=[],
+                                 feedback=None)
+    other = prompts.task_prompt(agent="explorer", phase="spec", step_name="interview", title="t", root="/r", ac=None, acs=[],
+                                feedback=None, writes_spec=False)
+    assert "keel's spec template" in writer and "Test layers" in writer and "Definition of done" in writer
+    assert "Write the spec under" not in other and "spec template" not in other
+
+
+def test_the_seeds_evidence_block_is_whole_up_to_its_cap():
+    ev = "x" * (prompts.EVIDENCE_MAX + 50)
+    block = prompts.evidence_block({"evidence": ev})
+    assert f"cut at {prompts.EVIDENCE_MAX} characters" in block and block.endswith("x" * 100)
+    assert block.count("x") == prompts.EVIDENCE_MAX + block.split("\n\n", 1)[0].count("x")
+    assert prompts.evidence_block({}) == "" and prompts.evidence_block(None) == ""
+    assert "- a\n- b" in prompts.evidence_block({"evidence": ["a", "b"]})

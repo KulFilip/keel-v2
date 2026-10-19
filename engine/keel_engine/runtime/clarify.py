@@ -18,14 +18,16 @@ import json
 import re
 
 MAX_QUESTIONS = 4
+STEP_QUESTIONS = 6      # an agent step with `asks: true` (the feature's interview: one question per open lens)
 MAX_ROUNDS = 2          # after this many rounds the explorer must decide (recommended options) and write the spec
 
 BLOCK = re.compile(r"```[ \t]*keel-questions[ \t]*\n(.*?)\n[ \t]*```", re.S | re.I)
 PREFIX = "Answers to your questions:"
 
 
-def parse_questions(text: str) -> list[dict]:
-    """The valid questions in the last keel-questions block of a text; [] when there is none or it is broken."""
+def parse_questions(text: str, limit: int = MAX_QUESTIONS) -> list[dict]:
+    """The valid questions (at most `limit`) in the last keel-questions block of a text; [] when there is none or it is
+    broken."""
     blocks = BLOCK.findall(text or "")
     if not blocks:
         return []
@@ -51,7 +53,7 @@ def parse_questions(text: str) -> list[dict]:
         qid = re.sub(r"[^a-z0-9_-]+", "-", str(q.get("id") or f"q{i + 1}").lower()).strip("-") or f"q{i + 1}"
         out.append({"id": qid, "question": str(q["question"]).strip()[:300], "why": str(q.get("why") or "").strip()[:300],
                     "options": opts, **({"multiple": True} if q.get("multiple") is True else {})})
-        if len(out) == MAX_QUESTIONS:
+        if len(out) == limit:
             break
     ids = [q["id"] for q in out]
     for n, q in enumerate(out):                       # ids must be unique: they key the answers
@@ -73,8 +75,10 @@ def describe(questions: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def answers_text(questions: list[dict], answers: dict | None, note: str, round_no: int) -> str:
-    """What the explorer reads next. An unanswered question gets its recommended option, and says so."""
+def answers_text(questions: list[dict], answers: dict | None, note: str, round_no: int, spec: bool = True) -> str:
+    """What the explorer reads next. An unanswered question gets its recommended option, and says so. `spec`: the
+    asker writes the spec next (the spec step); else it finishes its own step (an `asks` step: the interview, a spike's
+    frame)."""
     answers = answers or {}
     lines = [PREFIX]
     for n, q in enumerate(questions, 1):
@@ -89,7 +93,11 @@ def answers_text(questions: list[dict], answers: dict | None, note: str, round_n
             lines.append(f"{n}. {q['question']}\n   → not answered: use {pick} and write it under Assumptions")
     if note.strip():
         lines.append(f"Also, in the user's words: {note.strip()}")
-    if round_no >= MAX_ROUNDS:
+    if not spec:
+        lines.append("Now finish your step with these answers." + (" This was the last round of questions: do not ask "
+                     "again, take the recommended option for anything still open and say so." if round_no >= MAX_ROUNDS
+                     else " Ask again only if an answer opens a new, bigger question."))
+    elif round_no >= MAX_ROUNDS:
         lines.append("This was the last round of questions. Do not ask again: decide what is still open "
                      "(recommended options), write it under Assumptions, and write the spec now.")
     else:

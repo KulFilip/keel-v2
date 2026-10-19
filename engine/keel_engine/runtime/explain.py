@@ -389,6 +389,8 @@ def when_text(when: dict) -> str:
         src = when.get("step")
         steps = ", ".join(src) if isinstance(src, list) else (src or "any earlier step")
         subject = f"marker {str(when.get('marker')).upper()} from {steps}" + (" (or any of its items)" if when.get("any") else "")
+    if when.get("absent"):
+        return f"{subject} is not set"
     if "equals" in when:
         return f"{subject} is {when['equals']}"
     if when.get("in"):
@@ -515,7 +517,7 @@ def task_prompt(wf: Workflow, i: int, phase: str, agent: str, root: str | None, 
         agent=agent, phase=phase, step_name=step.name, title=(ctx.title if ctx else "«the flow's title»"),
         root=root or "«the project folder»", ac=ac, acs=acs, feedback=None, index=0, spec=spec,
         unlocks=st.get("unlocks") or [], request=(ctx.request if ctx else "«what the user asked for»"),
-        knowledge=know, graph=graph, item=item)
+        knowledge=know, graph=graph, item=item, writes_spec=prompts.spec_writer(step))
     cur = {**st, "request": ctx.request if ctx else "", "item": item}
 
     def value(path: str):

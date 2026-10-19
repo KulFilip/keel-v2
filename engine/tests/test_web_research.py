@@ -175,8 +175,8 @@ def test_the_spikes_web_findings_reach_the_researchers_and_the_findings(client, 
 
 def test_a_step_that_keeps_its_answer_is_not_the_spec_writer(client, repo, monkeypatch):
     """0.18.21 fix: a `keep: true` step in the spec phase (the spike's frame and web_docs, feature's web steps) writes text
-    for the next steps, not the spec: its prompt does not ask for a spec or questions, and keel does not read criteria
-    from its answer."""
+    for the next steps, not the spec (prompts.spec_writer): its prompt does not ask for a spec or questions, and keel does
+    not read criteria from its answer, even when that answer lists some."""
     from conftest import start, wait
     from test_flows_base import values
 
@@ -196,8 +196,102 @@ def test_a_step_that_keeps_its_answer_is_not_the_spec_writer(client, repo, monke
     assert s["waiting"]["step"] == "decide"
     for r in seen[:2]:
         assert r.agent in ("explorer", "web-researcher")
-        assert "Write the spec under" not in r.prompt and "keel-questions" not in r.prompt, r.agent
+        assert "Write the spec under" not in r.prompt and "keel-questions block (max 4" not in r.prompt, r.agent
     assert not values(client, tid).get("acs")
+
+
+def test_the_spikes_agents_write_no_spec_and_its_gate_offers_spec_or_drop(client, repo, monkeypatch):
+    """The spike's agents (frame, web research, researchers, findings) are not spec writers: they were told to write a
+    spec under docs/specs/, and keel read criteria from the frame's answer, so the spike held criteria and a spec file
+    of its own before the person chose "spec"."""
+    from conftest import start, wait
+
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"], s["waiting"]
+    assert s["acs"] == [] and not s.get("spec")
+    assert [p.name for p in (Path(repo) / "docs" / "specs").glob("*.md")] in ([], ["README.md"])
+    assert seen and all("Write the spec under" not in r.prompt and "keel-questions block (max 4" not in r.prompt for r in seen)
+
+
+def test_a_long_findings_answer_reaches_the_report_whole(client, repo, monkeypatch):
+    """The report took the findings from last_answer, which is cut at 8 000 characters: a spike's findings lost their
+    end (the recommendation, the sources) on the decide gate and in the evidence a feature starts from."""
+    from conftest import start, wait
+
+    real = fake._plan
+    long = "## Findings (evidence)\n" + "\n".join(f"- claim {n}: src/app/Eta.kt:{n}" for n in range(900)) + "\nRECOMMEND: map the field"
+    assert len(long) > 20_000
+
+    def plan(req):
+        if req.agent == "investigator" and req.step_name.startswith("findings"):
+            return None, "", long, {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide"
+    assert "claim 899: src/app/Eta.kt:899" in s["waiting"]["detail"] and "RECOMMEND: map the field" in s["waiting"]["detail"]
+
+
+def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, repo, monkeypatch):
+    """The spike's report (findings + each angle's answer, word for word) seeds the feature flow's evidence. It went into
+    the child's request, which is cut at 8 000 characters: the spec step lost the angles' file:line evidence. The
+    request still carries its start; the steps that write the spec get the whole evidence (up to EVIDENCE_MAX)."""
+    import time
+    from conftest import decide, start, wait
+
+    real, seen = fake._plan, []
+    angle = "\n".join(f"- inbound ETA path hop {n}: src/webhook/EtaHandler.kt:{n}" for n in range(250))
+
+    def plan(req):
+        seen.append(req)
+        if req.agent == "investigator" and req.item:
+            return None, "", f"## Findings (evidence)\n{angle}\nANGLE-END {req.item['title']}\nVERDICT: promising", {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    decide(client, s["thread_id"], "approve", payload={"choice": "spec"})
+    deadline = time.time() + 30
+    while time.time() < deadline and not any(r.step_name == "spec" for r in seen):
+        time.sleep(0.05)
+    spec = next(r for r in seen if r.step_name == "spec")
+    request = spec.prompt.split("What the user asked for:\n", 1)[1]
+    assert "[cut at 8000 of" in request                     # every agent's request stays short
+    assert spec.prompt.count("src/webhook/EtaHandler.kt:249") >= 2       # both angles, whole, in the evidence block
+    assert all(f"ANGLE-END angles {n}" in spec.prompt for n in (1, 2, 3))
+    assert "Carry every claim with its file:line or URL into the spec's Findings (evidence)" in spec.prompt
+    red = [r for r in seen if r.agent == "test-author"]
+    assert all("Evidence handed over" not in r.prompt for r in red)
+
+
+def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_answers(client, repo, monkeypatch):
+    from conftest import decide, start, wait
+
+    qs = [{"id": "change", "question": "May the outbound webhook contract change?", "options": [
+        {"label": "Additive only", "recommended": True}, {"label": "A new version"}]}]
+    angles = "```json\n" + json.dumps([{"title": "map the field"}, {"title": "poll the API"}]) + "\n```"
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        if req.step_name == "frame the question":
+            first = sum(r.step_name == "frame the question" for r in seen) == 1
+            return None, "", f"Question: the ETA.\n{angles}" + (f"\n```keel-questions\n{json.dumps(qs)}\n```" if first else ""), {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    tid = start(client, repo, workflow="spike", title="ParcelPerform ETA")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "frame_questions" and s["waiting"]["kind"] == "clarify"
+    assert [q["id"] for q in s["waiting"]["questions"]] == ["change"]
+    s = decide(client, tid, "approve", payload={"answers": {"change": "Additive only"}})
+    frames = [r for r in seen if r.step_name == "frame the question"]
+    assert len(frames) == 2 and "→ Additive only" in frames[1].feedback
+    assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"]
 
 
 # ------------------------------------------------------------------ the feature flow (fake model)
@@ -226,11 +320,13 @@ def _feature(client, repo, monkeypatch, title, request=""):
 def test_a_feature_on_a_vendor_webhook_researches_the_web_before_the_spec(client, repo, monkeypatch):
     seen, skipped = _feature(client, repo, monkeypatch, "Show the ETA",
                              "Show the ETA field that the carrier's vendor webhook sends on each shipment update.")
-    assert [r.step_name for r in seen][:3] == ["outside docs needed?", "research the outside docs", "spec"]
+    assert [r.step_name for r in seen][:4] == ["outside docs needed?", "research the outside docs", "interview", "spec"]
     assert "web_docs" not in skipped
-    check, web, spec = seen[0], seen[1], seen[2]
+    check, web, interview, spec = seen[0], seen[1], seen[2], seen[3]
     assert check.agent == "explorer" and "Write the spec under" not in check.prompt
     assert web.agent == "web-researcher" and "Needs from outside: the payload fields" in web.prompt  # what web_check found
+    # the interview asks only what the research could not confirm
+    assert "https://docs.example.com/webhooks" in interview.prompt and "Write the spec under" not in interview.prompt
     # the confirmed facts reach the spec writer, with the rule for what is not confirmed
     assert "https://docs.example.com/webhooks" in spec.prompt and "CONFIDENCE: medium" in spec.prompt
     assert "open question" in spec.prompt and "Write the spec under" in spec.prompt
@@ -239,6 +335,6 @@ def test_a_feature_on_a_vendor_webhook_researches_the_web_before_the_spec(client
 def test_a_plain_refactor_does_not_research_the_web(client, repo, monkeypatch):
     seen, skipped = _feature(client, repo, monkeypatch, "Split the scores module",
                              "Refactor: split src/scores/__init__.py into ranking.py and io.py.")
-    assert [r.step_name for r in seen][:2] == ["outside docs needed?", "spec"]
+    assert [r.step_name for r in seen][:3] == ["outside docs needed?", "interview", "spec"]
     assert not any(r.agent == "web-researcher" for r in seen) and "web_docs" in skipped
-    assert "https://docs.example.com/webhooks" not in seen[1].prompt
+    assert "https://docs.example.com/webhooks" not in seen[2].prompt

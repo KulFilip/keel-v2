@@ -159,8 +159,8 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines += [f"- {a['id']} [{a.get('layer', 'API')}] {a.get('title', '')} ({a.get('status', 'todo')})" for a in acs]
     if ac:
         lines.append(f"Current criterion: {ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}")
-    # 0.18.21 a step that keeps its answer for the next steps (`keep: true`: the spike's frame, the web research) is not
-    # the spec writer: it gets no "write the spec" or "ask questions" lines
+    # 0.18.21 only the step that writes the spec (spec_writer: not a `keep` step such as the spike's frame or the web
+    # research, not the interview, not a fan-out) gets the "write the spec" and "ask questions" lines
     spec_phase = phase in ("spec", "triage") and writes_spec
     if spec_phase and feedback and spec:
         lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
@@ -183,7 +183,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
-    if phase in ("spec", "triage") and not stacks.has_web_layer(root):
+        if phase == "spec":
+            lines.append(spec_template_line())
+    if spec_phase and not stacks.has_web_layer(root):
         lines.append(NO_WEB)
     test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
     if phase == "red":
@@ -212,6 +214,49 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
     return "\n".join(lines)
+
+
+REQUEST_MAX = 8_000         # a started flow's request (start_flow's seed): every agent of that flow reads it
+EVIDENCE_MAX = 60_000       # the seed's evidence (a spike's report: findings + each angle's answer) for the spec writer
+
+
+def evidence_block(seed: dict | None) -> str:
+    """The evidence a parent flow handed over (a spike's findings and each angle's answer, a fix's diagnosis), whole up
+    to EVIDENCE_MAX, for the steps that write the spec (the interview and the spec step): the request only carries its
+    first REQUEST_MAX characters."""
+    ev = (seed or {}).get("evidence") if isinstance(seed, dict) else None
+    text = "\n".join(f"- {x}" for x in ev) if isinstance(ev, list) else str(ev or "")
+    text = text.strip()
+    if not text:
+        return ""
+    cut = len(text) > EVIDENCE_MAX
+    return ("Evidence handed over by the flow that started this one" + (f" (cut at {EVIDENCE_MAX} characters)" if cut else "")
+            + ". Read all of it. Carry every claim with its file:line or URL into the spec's Findings (evidence), keep "
+            "the paths it traced, the tests it named and its draft criteria, and put what it marks unconfirmed under "
+            "Unverified and open questions. Do not summarise it away.\n\n" + text[:EVIDENCE_MAX])
+
+
+def spec_template_line() -> str:
+    """keel's spec template (content/templates/spec.md, keel v1's spec with the evidence a spike brings) for the step
+    that writes the spec: its path and its sections, which keel's spec check asks for."""
+    from . import spec_check
+
+    required = ", ".join(n for n, _p, _w in spec_check.REQUIRED)
+    return (f"Write the spec from keel's spec template {spec_check.template_path()} (read it once; keep its front matter "
+            f"and headings, in this order: {', '.join(spec_check.SECTION_ORDER)}). keel's spec check sends a spec back "
+            f"without: {required}; and without Unverified and open questions when the work relies on facts from outside "
+            "the repository. Cite a file:line or URL for every finding, give every criterion its test layers (unit, "
+            "functional, integration, smoke, e2e, or why not), turn each interview answer into a sentence under Decisions, "
+            "and call a gap that needs a product choice a decision, not a fact. Cut UI mockup, Request path, Data and "
+            "migrations, Assumptions and Plan only when they have nothing to say (the plan step writes the Plan).")
+
+
+def spec_writer(step) -> bool:
+    """Does this agent step write the flow's spec (in a spec or triage phase)? A fan-out (one agent per item), a step
+    that asks the person first (`asks`), collects a list (`collect`) or keeps its answer as a document for the next
+    steps (`keep`) does something else there: the spike's frame, web research, researchers and findings, the feature's
+    interview. Those get no "write the spec" lines, and keel reads no criteria from their answers."""
+    return step.kind == "agent" and not (step.items_from or step.asks or step.collect or step.keep)
 
 
 # 0.18.12 a server-rendered app (Spring MVC + Thymeleaf) has no web tests of its own: its page tests are backend tests,
