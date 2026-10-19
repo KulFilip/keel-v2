@@ -654,7 +654,7 @@ def push_check(a: ActionInput) -> ActionResult:
     if not git.is_repo(a.root):
         return ActionResult(True, "Not a git repository.", update={"blockers": []})
     found = push_gates.push_blockers(a.root, a.base, project=a.key)
-    warned = push_gates.push_warnings(a.root, a.base)
+    warned = push_gates.push_warnings(a.root, a.base, project=a.key)
     notes = [f"{b['gate']}: {b['why']} (fix: {b['fix']})" for b in found] + [f"warning, {w['gate']}: {w['why']}" for w in warned]
     dirty = git.dirty(a.root)
     if dirty:

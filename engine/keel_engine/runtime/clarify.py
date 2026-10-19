@@ -10,6 +10,9 @@ The explorer cannot talk to the user during its run. It ends its answer with one
 keel 0.18.9: a question with "multiple": true takes several options (the person ticks each that applies); its answer
 comes back as a list.
 
+keel 0.18.22: an option keel itself offers may say it needs a reason ("why": "required", a findings gate's "accept"). Its
+answer is "<label>: <reason>" (split_answer reads it back; reason_problem refuses one without a reason).
+
 keel shows the questions on the spec gate, the user clicks, and the answers go back to the same explorer session.
 """
 from __future__ import annotations
@@ -71,6 +74,7 @@ def describe(questions: list[dict]) -> str:
             lines.append(f"   why it matters: {q['why']}")
         for o in q.get("options") or []:
             lines.append(f"   - {o['label']}{' (recommended)' if o.get('recommended') else ''}{' [pick any]' if q.get('multiple') else ''}"
+                         + (f" [say why: \"{o['label']}: <reason>\"]" if o.get("why") == "required" else "")
                          + (f": {o['description']}" if o.get("description") else ""))
     return "\n".join(lines)
 
@@ -116,3 +120,41 @@ def answers_message(questions: list[dict], answers: dict | None) -> str:
         given = "; ".join(str(x).strip() for x in raw if str(x).strip()) if isinstance(raw, list) else str(raw or "").strip()
         lines.append(f"{n}. {q['question']}\n   → {given or '(not answered: use the recommended one)'}")
     return "\n".join(lines)
+
+
+_SEP = re.compile(r"^\s*(?:[:\u2014\u2013-]|\()\s*")
+
+
+def split_answer(question: dict, raw) -> tuple[str | None, str]:
+    """(the option an answer picks, the words after it): "accept" -> ("accept", ""), "accept: known issue" ->
+    ("accept", "known issue"), "Not a finding - it is checked in X" -> ("not a finding", ...). Own words that name no
+    option -> (None, the words). Labels match without case; the longest label wins."""
+    text = str(raw or "").strip()
+    low = text.lower()
+    for label in sorted((str(o.get("label") or "") for o in question.get("options") or []), key=len, reverse=True):
+        if not label:
+            continue
+        if low == label.lower():
+            return label, ""
+        if low.startswith(label.lower()):
+            rest = text[len(label):]
+            m = _SEP.match(rest)
+            if m:
+                return label, rest[m.end():].strip().rstrip(")").strip()
+    return None, text
+
+
+def reason_problem(questions: list[dict] | None, answers: dict | None, why: str | None) -> str | None:
+    """The refusal for an answer that picks an option needing a reason ("why": "required") and gives none: not after the
+    label ("accept: <reason>") and not in the answer's own why. None when every such pick has its reason."""
+    if (why or "").strip():
+        return None
+    for q in questions or []:
+        raw = (answers or {}).get(q.get("id"))
+        if raw is None or isinstance(raw, list):
+            continue
+        label, said = split_answer(q, raw)
+        opt = next((o for o in q.get("options") or [] if o.get("label") == label), None)
+        if opt and opt.get("why") == "required" and not said:
+            return f'"{q.get("question")}": "{label}" needs a reason ("{label}: <reason>").'
+    return None

@@ -509,19 +509,29 @@ def _deps(a):
         record_verdict(a.key, "deps", None, {"reason": why, "manifests": changed}, root=a.root)
         return _result(None, f"Dependencies: {len(changed)} manifest(s) changed, but the check is not available: {why}.",
                        "\n".join(changed))
-    failed, ran = [], []
+    from . import security_actions
+
+    # 0.18.22 an audit that exits non-zero blocks only at or above security.deps.fail_on (default high); one whose
+    # output names no severity still blocks (keel cannot tell)
+    threshold = security_actions.fail_on(cfg)
+    failed, ran, below = [], [], []
     for lane, cmd, d in audits:
         cwd, _ = _cwd(a.root, d)
         code, out = _run(a.root, cmd, cwd, 600)
-        ran.append({"lane": lane, "command": cmd, "code": code})
-        if code != 0:
+        worst = security_actions.worst_severity(out) if code != 0 else None
+        ran.append({"lane": lane, "command": cmd, "code": code, **({"worst": worst} if code != 0 else {})})
+        if code != 0 and security_actions.blocks(worst, threshold):
             failed.append((lane, cmd, out))
+        elif code != 0:
+            below.append(f"{lane}: worst {worst}")
     ok = not failed
-    record_verdict(a.key, "deps", ok, {"manifests": changed, "audits": ran,
-                                       "summary": "audit passed" if ok else f"{failed[0][0]} audit failed"}, root=a.root)
+    under = f"; below fail_on {threshold}: {', '.join(below)}" if below else ""
+    record_verdict(a.key, "deps", ok, {"manifests": changed, "audits": ran, "fail_on": threshold,
+                                       "summary": ("audit passed" + under) if ok else f"{failed[0][0]} audit failed"}, root=a.root)
     if not ok:
-        return _result(False, f"Dependencies: the {failed[0][0]} audit fails.", f"$ {failed[0][1]}\n{_tail(failed[0][2])}")
-    return _result(True, f"Dependencies: {len(changed)} manifest(s) changed; {len(ran)} audit(s) passed.")
+        return _result(False, f"Dependencies: the {failed[0][0]} audit fails (fail_on {threshold}).",
+                       f"$ {failed[0][1]}\n{_tail(failed[0][2])}")
+    return _result(True, f"Dependencies: {len(changed)} manifest(s) changed; {len(ran)} audit(s) passed{under}.")
 
 
 # ------------------------------------------------------------------ audit

@@ -54,6 +54,50 @@ def _listed(text: str) -> list[str]:
     return out
 
 
+_NB_HEAD = re.compile(r"^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\s*non-?blocking\b[^:\n]*?(?:\*\*|__)?\s*:?\s*(?:\*\*|__)?\s*(.*)$", re.I)
+
+
+def nonblocking(text: str) -> list[str]:
+    """The non-blocking findings, one string per list item under a "Non-blocking" heading or label ([] when there is
+    none or it says none). They do not stop the flow; keel keeps them for the final review (data.nonblocking_findings)."""
+    items: list[str] = []
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    i = 0
+    while i < len(lines):
+        m = _NB_HEAD.match(lines[i])
+        i += 1
+        if not m:
+            continue
+        rest = m.group(1).strip().strip("*_").strip()
+        if rest and _NONE.match(rest):
+            continue
+        cur: list[str] | None = None
+        while i < len(lines):
+            line = lines[i]
+            if (_OTHER_HEAD.match(line) or _HEAD.match(line) or _VERDICT.match(line) or _OWN_VERDICT.match(line)) \
+                    and not _BULLET.match(line):
+                break
+            b = _BULLET.match(line)
+            if b:
+                if cur:
+                    items.append(" ".join(cur))
+                cur = [b.group(1).strip()]
+            elif line.strip() and cur is not None and line[:1].isspace():
+                cur.append(line.strip())
+            elif line.strip() and cur is not None:
+                break
+            i += 1
+        if cur:
+            items.append(" ".join(cur))
+    return [x for x in (re.sub(r"\s+", " ", x).strip() for x in items) if x and not _NONE.match(x)]
+
+
+def key(text: str) -> str:
+    """What makes two findings the same one: its file:line, else its words (unique() and the dismissed list)."""
+    m = _REF.search(text or "")
+    return m.group(1) if m else re.sub(r"\s+", " ", text or "").strip().lower()
+
+
 def unique(findings: list[dict]) -> list[dict]:
     """One finding per file:line (two lenses often report the same one)."""
     seen: set[str] = set()

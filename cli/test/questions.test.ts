@@ -311,3 +311,66 @@ describe("KeelBot's answer button (keel-flow answer)", () => {
     ]);
   });
 });
+
+const FINDINGS = {
+  step: "security__fix",
+  kind: "gate",
+  title: "security: 2 blocking finding(s)",
+  detail: "- [security] a.py:1 no auth\n- [security] b.py:2 weak hash",
+  options: ["approve", "reject"],
+  labels: { approve: "Fix them", reject: "Go on anyway" },
+  id: "q-find",
+  questions: ["a.py:1 no auth", "b.py:2 weak hash"].map((q, n) => ({
+    id: `f${n + 1}`,
+    question: q,
+    why: "from security",
+    options: [
+      { label: "fix", recommended: true },
+      { label: "accept", why: "required" },
+      { label: "not a finding", why: "required" },
+    ],
+  })),
+};
+
+describe("keel 0.18.22 a findings gate: one question per finding", () => {
+  it("the waiting lines show the questions beside approve / reject", () => {
+    const lines = fmt.waitingLines(FINDINGS as never).join("\n");
+    expect(lines).toContain("/approve");
+    expect(lines).toContain("or decide each: /answer");
+    expect(lines).toContain("f2: b.py:2 weak hash  [fix (recommended) / accept +why / not a finding +why]");
+  });
+
+  it("/answer id=value sends the answers with an approve", async () => {
+    const { ctx, acts } = await waitingOn(FINDINGS);
+    expect((await run(ctx, '/answer f1=fix f2="not a finding: cache key only"')).blocks[0].kind).toBe("ok");
+    expect(acts()[0].body).toEqual({
+      decision: "approve",
+      payload: { answers: { f1: "fix", f2: "not a finding: cache key only" } },
+      id: "q-find",
+    });
+  });
+
+  it("/answer alone goes through the findings; an option that needs a reason asks for it", async () => {
+    const { ctx, acts } = await waitingOn(FINDINGS);
+    let r: Reply = await run(ctx, "/answer");
+    expect(r.pick?.choices.map((c) => c.label)).toEqual([
+      "fix (recommended)",
+      "accept · needs a reason",
+      "not a finding · needs a reason",
+      "Other… (my own words)",
+    ]);
+    r = await r.pick!.then("fix");
+    r = await r.pick!.then("accept");
+    expect(r.ask?.prompt).toBe("Why accept? (needed)");
+    r = await r.ask!.then("  ");
+    expect(r.blocks[0]).toEqual({ kind: "error", text: "accept needs a reason." });
+    r = await r.ask!.then("tracked in ticket 7");
+    expect(r.pick?.title).toBe("Send these answers?");
+    r = await r.pick!.then("send");
+    expect(acts()[0].body).toEqual({
+      decision: "approve",
+      payload: { answers: { f1: "fix", f2: "accept: tracked in ticket 7" } },
+      id: "q-find",
+    });
+  });
+});

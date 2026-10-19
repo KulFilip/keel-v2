@@ -109,7 +109,7 @@ def test_push_blockers_deps_and_secrets(repo):
     write(repo, "requirements.txt", "httpx==0.27\n")
     commit_all(repo, "feat: oops")
     b = {x["gate"]: x for x in blockers.push_blockers(str(repo), base)}
-    assert set(b) == {"release", "secrets"}                 # deps and security cannot run in 0.4.0: warnings only
+    assert set(b) == {"release", "secrets"}                 # no deps or security verdict, not required: warnings only
     assert "src/scores/keys.py" in b["secrets"]["why"] and "AWS" in b["secrets"]["why"]
     w = {x["gate"]: x for x in blockers.push_warnings(str(repo), base)}
     assert set(w) == {"deps", "security"} and "not run" in w["deps"]["why"]

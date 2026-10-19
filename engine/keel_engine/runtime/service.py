@@ -28,6 +28,7 @@ from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import db, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
+from . import finding_decisions
 from .compiler import answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -496,7 +497,8 @@ class Engine:
             raise EngineError(409, "The flow is not waiting for a decision.")
         if decision not in ("approve", "reject"):
             raise EngineError(400, "decision must be approve or reject.")
-        problem = answer_problem(self._waiting(snap), decision, why, payload)
+        problem = answer_problem(self._waiting(snap), decision, why, payload) \
+            or finding_decisions.problem(self._waiting(snap), decision, why, payload)
         if problem:
             raise EngineError(400, *problem)
         await self._set_status(tid, "running")

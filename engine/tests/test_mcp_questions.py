@@ -173,3 +173,21 @@ def test_keelbots_questions_come_back_as_the_answers_message():
     assert "keel_keelbot_ask(chat='c-7'" in hint
     assert "Answers to your questions:\\n1. Which database?\\n   → postgres\\n2. Which parts?\\n   → api; web" in hint
     assert "- sqlite" in hint and "(pick any)" in hint
+
+
+def test_a_findings_gate_reason_option_takes_the_own_words_as_its_reason():
+    """0.18.22 per-finding decisions: "accept" needs a reason; the form's own words become "accept: <reason>"."""
+    from keel_engine.runtime import finding_decisions
+    qs = finding_decisions.questions([{"lens": "security", "text": "`a.py:1` no auth check"},
+                                      {"lens": "security", "text": "`b.py:2` weak hash"}], can_amend=False)
+    w = {"step": "security__fix", "kind": "gate", "title": "security: 2 blocking finding(s)", "options": ["approve", "reject"],
+         "questions": qs}
+    lines = "\n".join(mcp_ask.question_lines(qs))
+    assert "fix (recommended)" in lines and 'needs a reason: "accept: <reason>"' in lines
+    model, to_answer = mcp_ask.form(w)
+    schema = model.model_json_schema()["properties"]
+    assert schema["q1"]["enum"] == ["fix", "accept", "not a finding"] and schema["q1"]["default"] == "fix"
+    assert "your reason for accept / not a finding" in schema["q1_own_words"]["title"]
+    decision, _why, payload = to_answer(model(q1="fix", q2="not a finding", q2_own_words="md5 is only a cache key"))
+    assert decision == "approve"
+    assert payload["answers"] == {"f1": "fix", "f2": "not a finding: md5 is only a cache key"}

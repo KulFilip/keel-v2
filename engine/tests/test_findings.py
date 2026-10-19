@@ -80,3 +80,42 @@ def test_an_own_verdict_line_with_findings_stops_the_flow_with_its_list_items():
     assert blocking("Checked the routes and the queries.\nSECURITY: clean") == []
     assert blocking("lodash is reachable from upload.ts:4.\nDEPS: findings") == [
         "The reviewer reported findings: lodash is reachable from upload.ts:4."]
+
+
+def test_non_blocking_items_are_read_and_none_is_nothing():
+    from keel_engine.runtime.findings import key, nonblocking
+    assert nonblocking(ASSERTIONS) == ["`test/scores.test.js:92-95` — the null test is fine but could reset first."]
+    assert nonblocking(PERF) == ["`src/scores.js:26` — O(players × scores) per call."]
+    assert nonblocking("### Non-blocking\n- a nit\n- another\nCODE-REVIEW: pass") == ["a nit", "another"]
+    assert nonblocking("**Non-blocking:** none.") == [] and nonblocking("**Blocking**\n- x") == []
+    assert key("`a.py:3` bad") == key("a.py:3 — same place, other words") == "a.py:3"
+
+
+def test_split_answer_and_the_reason_check():
+    from keel_engine.runtime import clarify, finding_decisions
+    q = finding_decisions.questions([{"lens": "l", "text": "t"}], can_amend=True)[0]
+    assert clarify.split_answer(q, "Accept") == ("accept", "")
+    assert clarify.split_answer(q, "accept: ticket 4") == ("accept", "ticket 4")
+    assert clarify.split_answer(q, "not a finding - checked in X") == ("not a finding", "checked in X")
+    assert clarify.split_answer(q, "amend spec") == ("amend spec", "")
+    assert clarify.split_answer(q, "accepted it") == (None, "accepted it")
+    assert clarify.reason_problem([q], {"f1": "accept"}, None)
+    assert clarify.reason_problem([q], {"f1": "accept"}, "shared reason") is None
+    assert clarify.reason_problem([q], {"f1": "fix"}, None) is None
+    assert "needs a reason" in finding_decisions.problem({"questions": [q]}, "approve", "", {"answers": {"f1": "not a finding"}})[0]
+
+
+def test_unanswered_findings_follow_the_plain_decision():
+    """An old client: approve fixes all, reject accepts all with its why; own words accept with the words."""
+    from keel_engine.runtime import finding_decisions as fd
+    found = [{"lens": "l", "text": "a.py:1 x"}, {"lens": "l", "text": "b.py:2 y"}]
+    asked = fd.questions(found, can_amend=False)
+    assert [d["decision"] for d in fd.read(asked, found, {"decision": "approve"})] == ["fix", "fix"]
+    got = fd.read(asked, found, {"decision": "reject", "why": "known"})
+    assert [(d["decision"], d["reason"]) for d in got] == [("accept", "known"), ("accept", "known")]
+    got = fd.read(asked, found, {"decision": "approve", "payload": {"answers": {"f2": "we chose this on purpose"}}})
+    assert [(d["decision"], d["reason"]) for d in got] == [("fix", ""), ("accept", "we chose this on purpose")]
+    got = fd.read(asked, found, {"decision": "approve", "payload": {"answers": {"f1": "amend spec"}}})
+    assert got[0]["decision"] == "fix", "no amendment where the flow has none"
+    auto = fd.read(asked, found, {"decision": "approve", "auto": True, "payload": {"answers": {"f1": "accept: x"}}})
+    assert [d["decision"] for d in auto] == ["fix", "fix"]

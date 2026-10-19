@@ -110,7 +110,8 @@ export type ClarifyQuestion = {
   id: string;
   question: string;
   why?: string;
-  options: { label: string; description?: string; recommended?: boolean }[];
+  /** keel 0.18.22 `why`: the option takes a reason (a findings gate's "accept"); its answer is "<label>: <reason>" */
+  options: { label: string; description?: string; recommended?: boolean; why?: "required" | "optional" }[];
   /** keel 0.18.9 several options may be picked (the answer is a list) */
   multiple?: boolean;
 };

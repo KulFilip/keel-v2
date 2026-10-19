@@ -51,7 +51,8 @@ def question_lines(questions: list[dict] | None, indent: str = "          ") -> 
             out.append(f"{indent}  why: {q['why']}")
         for o in q.get("options") or []:
             out.append(f"{indent}  - {o.get('label', '')}" + (" (recommended)" if o.get("recommended") else "")
-                       + (f": {o['description']}" if o.get("description") else ""))
+                       + (f": {o['description']}" if o.get("description") else "")
+                       + (f'  [needs a reason: "{o.get("label")}: <reason>"]' if o.get("why") == "required" else ""))
     return out
 
 
@@ -102,7 +103,9 @@ def form(w: dict):
         elif labels:
             fields[f"q{n}"] = (str, Field(default=(recs or labels)[0], title=title, description=about,
                                           json_schema_extra={"enum": labels}))
-        fields[f"q{n}_own_words"] = (str, Field(default="", title=f"{title} (or in your own words)"))
+        needs = [str(o.get("label")) for o in q.get("options") or [] if o.get("why") == "required" and o.get("label")]
+        own_title = f"{title} (your reason for {' / '.join(needs)}, or your own words)" if needs else f"{title} (or in your own words)"
+        fields[f"q{n}_own_words"] = (str, Field(default="", title=own_title))
     info = info_of(w) if w.get("choices") else []
     by_label = {str(c.get("label") or c["name"]): c["name"] for c in info}
     if info:
@@ -130,7 +133,9 @@ def form(w: dict):
                 if val:
                     answers[q["id"]] = val
             elif own or val:
-                answers[q["id"]] = own or str(val)
+                # an option that needs a reason (a findings gate's "accept"): the own words are its reason
+                opt = next((o for o in q.get("options") or [] if o.get("label") == val), None)
+                answers[q["id"]] = f"{val}: {own}" if own and opt and opt.get("why") in ("required", "optional") else (own or str(val))
         payload: dict[str, Any] = {}
         if answers:
             payload["answers"] = answers
