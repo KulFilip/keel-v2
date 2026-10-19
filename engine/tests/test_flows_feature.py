@@ -313,6 +313,23 @@ def test_the_contract_gate_can_amend_the_spec(client, repo, monkeypatch):
     assert s["waiting"]["step"] == "contract_gate" and log(repo)[0].startswith("docs: amend: this breaks the mobile client")
 
 
+def test_the_contract_gate_lists_a_removed_field_under_breaks_callers(client, repo, monkeypatch):
+    import yaml
+    from test_contract_delta import OLD
+    write(repo, "docs/contract/openapi.yaml", yaml.safe_dump(OLD))
+    commit_all(repo, "chore: the contract")
+    gone = yaml.safe_load(yaml.safe_dump(OLD))
+    del gone["components"]["schemas"]["Rank"]["properties"]["score"]
+    by_step(monkeypatch, {"contract": lambda req, real: ("docs/contract/openapi.yaml", yaml.safe_dump(gone), "score is gone", {})})
+    tid = start(client, repo)
+    s = to_loop(client, tid, upto="options")
+    w = s["waiting"]
+    assert w["step"] == "contract_gate"
+    assert "Breaks callers (removed or narrowed):" in w["detail"] and "GET /ranks response 200.score: removed" in w["detail"]
+    started = [e["step"] for e in client.bus.of(tid, "step.started")]
+    assert started.index("contract_check") < started.index("contract_diff")
+
+
 def test_an_amendment_must_be_a_dated_block(client, repo, monkeypatch):
     calls = []
 

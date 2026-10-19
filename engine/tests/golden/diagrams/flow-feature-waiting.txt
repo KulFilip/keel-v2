@@ -36,7 +36,8 @@ usage    15,400 tokens of 500,000 - $0.42
   [ ] which optional phases run  (gate, you decide)
 == Contract: write the API surface the criteria change ==  id=contract
   [ ] contract  (agent contract-author)
-  [ ] the contract delta  (code show_diff)
+  [ ] codegen + fast check  (code contract_check)
+  [ ] the contract delta: new, changed, breaks callers  (code show_diff)
   [ ] contract delta  (gate, you decide)
         approve -> commit contract
         change -> contract  (loops back)
@@ -56,5 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \       then -> spec amendment
       \ [ ] stop the flow  (code amend_stop)
       \       then -> end of the flow
-      \ [ ] spec amendment  (agent explorer)
-... 119 more (zoom with id=contract)
+... 120 more (zoom with id=contract)

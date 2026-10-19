@@ -1,4 +1,4 @@
-workflow feature "feature (keel)" - 113 steps, 16 gates
+workflow feature "feature (keel)" - 114 steps, 16 gates
 
 == Preflight: check the repo and move to the flow's own branch ==  id=preflight
    #  preflight + own branch  (code preflight)
@@ -32,7 +32,8 @@ workflow feature "feature (keel)" - 113 steps, 16 gates
   [?] which optional phases run  (gate, you decide)
 == Contract: write the API surface the criteria change ==  id=contract
    o  contract  (agent contract-author)
-   #  the contract delta  (code show_diff)
+   #  codegen + fast check  (code contract_check)
+   #  the contract delta: new, changed, breaks callers  (code show_diff)
   [?] contract delta  (gate, you decide)
         approve -> commit contract
         change -> contract  (loops back)
@@ -56,5 +57,4 @@ workflow feature "feature (keel)" - 113 steps, 16 gates
       \  #  the amendment for the gate  (code spec_amendment)
       \       fails -> spec amendment  (loops back)
       \  <  did the spec change?  (branch)
-      \       yes -> spec amendment
-... 115 more (zoom with id=contract)
+... 116 more (zoom with id=contract)

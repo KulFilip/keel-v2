@@ -8,7 +8,9 @@
     amend_start        why the frozen spec needs an amendment: an agent's AMEND line, or the contract gate's note
     spec_amendment     the amendment gate's text: the dated block, why, and the criteria it touches (finished ones too)
     spec_amend_commit  approved: new criteria join, the ones it names (REOPEN) are open again, the spec is committed alone
-    show_diff          what the next gate shows: keel's uncommitted change (the contract), else the branch diff
+    contract_check     before the contract gate: commands.codegen, then the fast check (a failure goes back to the agent)
+    show_diff          what the next gate shows: keel's uncommitted change (the contract: new / changed / breaks callers
+                       per endpoint first), else the branch diff
     security_scope     the security fan-out: the auditor always, the dependency triager when verify deps found something
     e2e_scope          the spec's [E2E] criteria (or a hunt's needs_e2e) and whether commands.e2e is set
     e2e_unrun          no e2e tool: the specs are written but not run; recorded for the final review and the PR body
@@ -34,7 +36,7 @@ from pathlib import Path
 from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
-from . import prompts, spec_check, stacks, verdict_actions
+from . import contract_delta, prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
 from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
@@ -813,7 +815,11 @@ def show_diff(a):
                                                   "data": {**a.data, "contract": "no"}})
     if dirty:
         tracked = [f for f, xy in dirty.items() if "?" not in xy]
-        out = [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]
+        out = []
+        delta = contract_view(a, dirty) if a.phase == "contract" else None
+        if delta:
+            out += [*delta["lines"], ""]
+        out += [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]
         if tracked:
             out.append(git.git(a.root, "diff", "HEAD", "--", *tracked).stdout)
         for f in sorted(x for x, xy in dirty.items() if "?" in xy):
@@ -829,7 +835,68 @@ def show_diff(a):
     text = text.strip()
     if len(text) > 12000:
         text = text[:12000] + "\n… (cut; see the repository for the rest)"
+    if dirty and a.phase == "contract" and delta:
+        breaks = sum(len(d["breaks"]) for d in delta["files"].values() if d)
+        return _ok(f"contract delta: {breaks} change(s) that break callers" if breaks else "contract delta: nothing breaks callers",
+                   update={"show": text, "data": {**a.data, "contract_delta": delta["files"]}})
     return _ok(f"diff ready ({len(dirty)} uncommitted file(s))" if dirty else "branch diff ready", update={"show": text})
+
+
+def _contract_files(a, dirty: dict) -> list[str]:
+    cfg = rules.load_config(a.root)
+    named = str((cfg.get("contract") or {}).get("file") or "")
+    return sorted(f for f in dirty if f == named or rules.classify(cfg, f) == "contract"
+                  or (f.endswith((".yaml", ".yml", ".json")) and contract_delta.load(_text(a.root, f)) is not None))
+
+
+def _text(root: str, rel: str) -> str:
+    p = Path(root) / rel
+    return p.read_text(errors="replace") if p.is_file() else ""
+
+
+def contract_view(a, dirty: dict) -> dict | None:
+    """keel v1 phase 2: the contract delta endpoint by endpoint, new / changed / removed-or-narrowed ("breaks
+    callers"), for every changed contract file (OpenAPI YAML or JSON; another format gets the plain diff)."""
+    files = _contract_files(a, dirty)
+    if not files:
+        return None
+    lines, out = ["Contract delta, endpoint by endpoint (the removed or narrowed half breaks callers):"], {}
+    for f in files:
+        old_text = git.git(a.root, "show", f"HEAD:{f}").stdout if "?" not in dirty.get(f, "?") else ""
+        new_doc = contract_delta.load(_text(a.root, f))
+        if new_doc is None:
+            removed = sum(1 for line in git.git(a.root, "diff", "HEAD", "--", f).stdout.splitlines()
+                          if line.startswith("-") and not line.startswith("---"))
+            out[f] = None
+            lines += contract_delta.describe(f, None, removed)
+            continue
+        out[f] = contract_delta.classify(contract_delta.load(old_text), new_doc)
+        lines += contract_delta.describe(f, out[f])
+    return {"files": out, "lines": lines}
+
+
+def contract_check(a):
+    """keel v1 phase 2: "edit the contract file, regenerate both sides, then keel verify fast", before its gate. The
+    codegen command (commands.codegen) runs, then the fast check (api compile, web typecheck, contract lint); a
+    failure goes back to the contract agent with the output. Nothing to check when the agent changed nothing."""
+    mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
+    if not git.is_repo(a.root) or not [f for f in git.dirty(a.root) if f not in mine]:
+        return _ok("no contract change to check")
+    if a.fake:
+        return _ok("codegen and the fast check: simulated")
+    cmd = str((rules.load_config(a.root).get("commands") or {}).get("codegen") or "").strip()
+    notes = []
+    if cmd:
+        code, out = testcmd.run(a.root, cmd, 900, command_env())
+        if code != 0:
+            return _fail(f"Codegen failed on the new contract: {cmd}", f"$ {cmd}\n{verdict_actions._tail(out)}")
+        notes.append(f"codegen ran (`{cmd}`)")
+    else:
+        notes.append("no codegen command (commands.codegen): the generated sides were not refreshed")
+    r = verdict_actions._fast(a)
+    if not r.ok:
+        return _fail(f"The contract does not build: {r.note}", r.detail)
+    return _ok("; ".join([*notes, r.note]))
 
 
 # ------------------------------------------------------------------ security
@@ -1043,5 +1110,5 @@ ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": 
            "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow, "full_review": full_review, "ship_ready": ship_ready,
-           "ship_stop": ship_stop}
+           "ship_stop": ship_stop, "contract_check": contract_check}
 

@@ -37,7 +37,7 @@ def test_feature_template_shape():
     assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
     main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]
     assert main == ["preflight", "web_check", "web_docs", "spec", "explore_areas", "explore", "maps", "plan", "spec_sync", "spec_gate", "freeze", "options",
-                    "contract", "contract_diff", "contract_gate", "contract_commit", "integration", "integration_commit",
+                    "contract", "contract_check", "contract_diff", "contract_gate", "contract_commit", "integration", "integration_commit",
                     "integration_diff", "integration_gate", "security_deps", "security_scope", "security", "review_fix",
                     "review_fix_commit", "code_review", "full_review", "e2e_scope", "e2e_needed", "e2e_tool", "e2e", "e2e_commit", "e2e_gate",
                     "smoke_scope", "smoke_needed", "smoke", "smoke_commit", "smoke_gate", "ready_show", "ready_gate", "adr", "adr_commit", "close"]

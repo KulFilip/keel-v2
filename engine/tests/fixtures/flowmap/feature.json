@@ -154,9 +154,21 @@
    }
   },
   {
+   "id": "contract_check",
+   "kind": "code",
+   "name": "codegen + fast check",
+   "phase": "contract",
+   "action": "contract_check",
+   "when": {
+    "data": "contract",
+    "equals": "yes"
+   },
+   "rounds": 2
+  },
+  {
    "id": "contract_diff",
    "kind": "code",
-   "name": "the contract delta",
+   "name": "the contract delta: new, changed, breaks callers",
    "phase": "contract",
    "action": "show_diff",
    "when": {
@@ -1206,6 +1218,7 @@
    "freeze",
    "options",
    "contract",
+   "contract_check",
    "contract_diff",
    "contract_gate",
    "contract_commit",
@@ -1350,6 +1363,10 @@
     "nodes": [
      {
       "step": "contract",
+      "side": []
+     },
+     {
+      "step": "contract_check",
       "side": []
      },
      {

@@ -329,7 +329,18 @@ DOCS: dict[str, dict] = {
         "summary": "The amendment loop gate's stop: the flow stops here; the commits so far stay.",
     },
     "show_diff": {
-        "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff.",
+        "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff. For the "
+                   "contract: each OpenAPI operation as new, changed or breaking callers (removed or narrowed) first.",
+    },
+    "contract_check": {
+        "summary": "Before the contract gate: runs commands.codegen, then the fast check; a failure goes back to the "
+                   "contract agent.",
+        "steps": [
+            "Nothing changed: nothing to check.",
+            "Runs commands.codegen when it is set (else says the generated sides were not refreshed).",
+            "Runs the fast check (api compile, web typecheck, contract lint): a contract that does not build fails "
+            "here, before the gate, with the output for the contract agent (2 rounds).",
+        ],
     },
     "security_scope": {
         "summary": "Makes the security items: the auditor always, the dependency triager only when verify deps found "
