@@ -1,5 +1,5 @@
 # Runs the three test suites (keel's core and every plugin in plugins/), the keel-plugin tool's tests, and checks the
-# shell scripts on every push and pull request.
+# shell scripts on every push and pull request: only the parts a push changes (the job `changes`).
 name: ci
 on:
   push:
@@ -8,7 +8,39 @@ on:
 permissions:
   contents: read
 jobs:
+  # 0.18.17 which parts a push changes: each job below runs only when its part (or this file) changed, so a TUI fix
+  # does not wait for the engine or the Kotlin build. On a release branch the diff is since the last push there,
+  # so a release still checks everything it changes.
+  changes:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: read }
+    outputs:
+      engine: ${{ steps.f.outputs.engine }}
+      api: ${{ steps.f.outputs.api }}
+      product: ${{ steps.f.outputs.product }}
+      web: ${{ steps.f.outputs.web }}
+      cli: ${{ steps.f.outputs.cli }}
+      xal: ${{ steps.f.outputs.xal }}
+      plugin_tool: ${{ steps.f.outputs.plugin_tool }}
+      shell: ${{ steps.f.outputs.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            ci: &ci ['.github/workflows/ci.yml']
+            engine: [*ci, 'engine/**', 'content/**', 'plugins/**', 'product/engine/**', 'scripts/test-plugins.sh']
+            api: [*ci, 'api/**', 'plugins/*/api/**', 'content/**', 'engine/keel_engine/rules/**']
+            product: [*ci, 'product/**', 'api/**', 'engine/**']
+            web: [*ci, 'web/**', 'plugins/*/web/**', 'content/**', 'product/web/**']
+            cli: [*ci, 'cli/**', 'web/src/**', 'content/**']
+            xal: [*ci, 'clients/xal/**', 'web/src/components/events.ts']
+            plugin_tool: [*ci, 'tools/keel-plugin/**', 'plugins/**', 'content/workflows/**']
+            shell: [*ci, 'keel2', 'install.sh', 'scripts/**', 'docker/**', 'Dockerfile', 'engine/**', 'cli/**', 'web/**']
   scripts:
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +60,7 @@ jobs:
       - run: scripts/fetch-locked-plugins.sh --check plugins.lock
       # keel2 update / update --rollback in native mode, with fake releases (no network, no Java)
       - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
       - run: scripts/test-keel2-native.sh
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel-start, the supervisor loop (restart on exit 75, fallback to the last good plugins), with stub commands
@@ -51,6 +84,8 @@ jobs:
           ./keel2 remove "$repo"
           ./keel2 folders | grep -q "No added folders"
   keel-plugin:
+    needs: changes
+    if: needs.changes.outputs.plugin_tool == 'true'
     # tools/keel-plugin, the publishing tool (docs/plugins/13-step4-contract.md section 10): the signature test vector,
     # keygen/sign/verify, pack and lint (also against scripts/build-plugin.sh), the catalog index, the template, and
     # setup-signing-keys.sh --dry-run with a stand-in gh
@@ -58,11 +93,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
       - run: uv run --with pytest pytest -q
         working-directory: tools/keel-plugin
   # v0.16.1 native mode (keel2 start --native): build the release tarball, start keel without Docker on the fake model,
   # run a flow to its first gate, stop it, and check nothing is left running or written outside its folders
   native-smoke:
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -73,8 +111,9 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "21" }
       - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+        with: { node-version: "20", cache: npm, cache-dependency-path: "web/package-lock.json\ncli/package-lock.json" }
       - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
       - run: scripts/build-native.sh "$RUNNER_TEMP/dist"
       - name: start, a flow to its gate, stop
         env:
@@ -107,6 +146,8 @@ jobs:
           ! pgrep -f "$RUNNER_TEMP/k2" > /dev/null
           test ! -e "$HOME/.keel2"
   engine:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     # v0.10.0 the Database plugin's tests run against a real PostgreSQL and MySQL
     # (plugins/db/engine/tests/test_plugins_servers.py, in scripts/test-plugins.sh below)
@@ -127,6 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       # Like the image: projects run their tests with the system Python (keel keeps its own venv off their PATH),
@@ -137,6 +179,8 @@ jobs:
       # every plugin's engine tests (plugins/<name>/engine/tests), each with its own engine folder on PYTHONPATH
       - run: scripts/test-plugins.sh
   api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,12 +191,15 @@ jobs:
       - run: ./gradlew --no-daemon test pluginTest pluginJars
         working-directory: api
   product:
+    needs: changes
+    if: needs.changes.outputs.product == 'true'
     # keel Product, the plugin in product/ (beta): its engine part inside keel's engine (and its manifest, packed by
     # product/build-plugin.sh), its api part with keel's api and as a plugin jar (its web pages are tested in the web job)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21, cache: gradle }
       - run: git config --global user.name ci && git config --global user.email ci@localhost
@@ -161,6 +208,8 @@ jobs:
       - run: ./gradlew --no-daemon productTest productPluginJar
         working-directory: api
   cli:
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,6 +219,8 @@ jobs:
       - run: npm ci && npx tsc --noEmit && npm test -- --run && npm run build && node dist/keel-tui.mjs --version
         working-directory: cli
   xal-plugin:
+    needs: changes
+    if: needs.changes.outputs.xal == 'true'
     # keel as an xal plugin (clients/xal): no dependencies at run time, Node's own test runner on the .ts files
     runs-on: ubuntu-latest
     steps:
@@ -179,6 +230,8 @@ jobs:
       - run: node --test test/*.test.ts && npm install --no-save --no-audit --no-fund typescript@5.9.3 @types/node@24 && npx tsc --noEmit -p .
         working-directory: clients/xal
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
