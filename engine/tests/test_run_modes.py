@@ -147,17 +147,21 @@ def test_classify_names_each_pause():
 def test_auto_runs_the_feature_flow_to_done_and_logs_every_gate(client, repo):
     tid = start(client, repo, settings=mode_settings("auto"))
     s = wait(client, tid)
+    # keel v1 never skipped the final review: auto mode stops there, and only there
+    assert s["status"] == "waiting" and s["waiting"]["step"] == "ship_final_review", s
+    assert run_mode.TABLE["auto"]["final-review"] == "ask" and "final-review" not in run_mode.AUTO_KINDS
+    assert len(client.bus.of(tid, "gate.waiting")) == 1
+    s = decide(client, tid)
     assert s["status"] == "done", s
     assert s["run_mode"] == "auto"
     auto = [line for line in s["gate_log"] if "auto-approved (mode auto)" in line]
+    assert not any(line.startswith("gate ship_final_review") for line in auto)
     for gate in ("gate spec_gate approve", "gate contract_gate approve", "ac AC-1 approve",
-                 "ac AC-2 approve", "gate integration_gate approve", "gate ship_final_review approve",
-                 "gate ship_pr_gate approve"):
+                 "ac AC-2 approve", "gate integration_gate approve", "gate ship_pr_gate approve"):
         assert any(line.startswith(gate) for line in auto), (gate, s["gate_log"])
     # v0.17.5 the menus are answered by the spec gate's approval
     assert "gate options approve: chosen at spec_gate" in s["gate_log"] and "gate ship_plan approve: chosen at spec_gate" in s["gate_log"]
-    assert not client.bus.of(tid, "gate.waiting")
-    decided = client.bus.of(tid, "gate.decided")
+    decided = [e for e in client.bus.of(tid, "gate.decided") if e["step"] != "ship_final_review"]
     assert decided and all(e["data"]["why"] in ("auto-approved (mode auto)", "chosen at spec_gate")
                            or e["data"]["why"].startswith("not asked, ") for e in decided
                            if e["data"].get("gate") != "unlock")
@@ -208,6 +212,8 @@ def test_changing_the_mode_mid_run_keeps_the_waiting_question_for_the_user(clien
     assert client.bus.of(tid, "thread.mode")[-1]["data"] == {"mode": "auto", "from": "manual"}
     # the user's send-back wins over the new mode; every later gate is keel's
     s = decide(client, tid, "reject", why="say what a tie does")
+    assert s["status"] == "waiting" and s["waiting"]["step"] == "ship_final_review", "auto still stops at the final review"
+    s = decide(client, tid)
     assert s["status"] == "done", s
     log = s["gate_log"]
     assert log[0] == "gate spec_gate reject: say what a tie does"

@@ -11,7 +11,7 @@ import "./inbox.css";
 export const RUN_MODES: [RunMode, string, string][] = [
   ["manual", "Manual", "Stops at every gate."],
   ["important", "Important only", "Approves a criterion's AC gate by itself when its checks pass and its review is clean. Stops at the spec, contract, final review, PR gate and every problem."],
-  ["auto", "Auto", "Approves every gate keel can decide and logs each one. Still stops for money, new dependencies, secrets, a check that keeps failing and anything only you can answer. Never opens a PR or pushes."],
+  ["auto", "Auto", "Approves every gate keel can decide and logs each one. Still stops at the final review, and for money, new dependencies, secrets, a check that keeps failing and anything only you can answer. Never opens a PR or pushes."],
   ["readonly", "Read-only", "Stops at every gate. Agents may read and run checks, but cannot edit, write or commit anything."],
 ];
 
@@ -26,6 +26,7 @@ const SAFETY_KINDS = new Set(["fix", "budget", "usage", "dependency"]);
 /** Why this pause waits for a person in this run mode (null in manual, where every gate waits). */
 export function whyItWaits(mode: string | null | undefined, kind: string, title = ""): string | null {
   if (mode === "auto") {
+    if (/^final review/i.test(title)) return "Still stops here: the final review is always yours (whether this branch is ready to merge).";
     if (SAFETY_KINDS.has(kind) || /secret|keeps failing|still no|read-only/i.test(title)) {
       return "Still stops here: keel never decides money, new dependencies, secrets or a check that keeps failing by itself.";
     }

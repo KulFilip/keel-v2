@@ -6,6 +6,7 @@
     auto       approve every gate keel can decide by itself: a plain approve, the gate's default choice, the
                recommended answers to the explorer's questions. Each one is logged "auto-approved (mode auto)" in the
                gate log, so the final review's exceptions and the PR body list it. open_pr opens no PR in this mode.
+               The final review still stops (keel v1 never skipped it: a person decides whether to merge).
     readonly   stop at every gate like manual; agents may not edit, write or commit anything in any phase (the guard
                context's `readonly` flag, the ToolBox, the diff guard and the commit action all refuse)
 
@@ -31,8 +32,9 @@ ABOUT = {
     "manual": "Stops at every gate.",
     "important": "Approves a criterion's AC gate by itself when its checks passed and its review found nothing blocking. "
                  "Stops at the spec, the contract, the final review, the PR gate and every problem.",
-    "auto": "Approves every gate keel can decide by itself and logs each one. Still stops for money, new dependencies, "
-            "secrets, a check that keeps failing, and anything only you can answer. Never opens a PR or pushes.",
+    "auto": "Approves every gate keel can decide by itself and logs each one. Still stops at the final review, and for "
+            "money, new dependencies, secrets, a check that keeps failing, and anything only you can answer. Never opens a "
+            "PR or pushes.",
     "readonly": "Stops at every gate. Agents may read and run checks, but cannot edit, write or commit anything.",
 }
 
@@ -61,7 +63,9 @@ KINDS = {
     "note": "an answer only a person can give",
 }
 SAFETY = frozenset({"failure", "rounds", "rung", "budget", "dependency", "secrets", "readonly", "note"})
-AUTO_KINDS = frozenset(k for k in KINDS if k not in SAFETY)
+# Never decided by keel in any mode either: the whole picture before merging (keel v1 ship step 7, "never skipped").
+PERSON = frozenset({"final-review"})
+AUTO_KINDS = frozenset(k for k in KINDS if k not in SAFETY | PERSON)
 # How often keel may approve the very same question by itself before it asks (a loop it cannot see the end of).
 MAX_REPEATS = 3
 
@@ -70,7 +74,7 @@ TABLE: dict[str, dict[str, str]] = {
     "manual": {k: "ask" for k in KINDS},
     "readonly": {k: "ask" for k in KINDS},
     "important": {k: ("auto-if-clean" if k == "ac" else "ask") for k in KINDS},
-    "auto": {k: ("ask" if k in SAFETY else "auto") for k in KINDS},
+    "auto": {k: ("ask" if k in SAFETY | PERSON else "auto") for k in KINDS},
 }
 
 
