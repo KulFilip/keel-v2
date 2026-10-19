@@ -13,7 +13,7 @@ from typing import Callable
 
 from .. import rules
 from ..rules import checks as _checks  # noqa: F401  (rules.checks.added_text)
-from ..runtime import permissions, run_mode
+from ..runtime import permissions, repeats, run_mode
 from . import testcmd
 
 MAX_READ = 60_000
@@ -66,6 +66,12 @@ class ToolBox:
         self.confine = confine
         self.push_blockers: list[dict] = []   # runtime/blockers.py for_agents: the push gate for this run
         self.failed_command: dict | None = None   # the last shell command that failed (keel v1 post-failure)
+        # keel 0.18.18 KeelBot: who is read only, in its words (its Ask mode is no flow), and what to do instead
+        self.readonly_label = ""
+        self.readonly_note = ""
+        # keel 0.18.18 KeelBot: the folder of failed.json (runtime/repeats.py): the same failing command is refused
+        # while nothing changed; None: every command runs as often as asked (a flow's agents)
+        self.no_repeat: str | None = None
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -122,7 +128,8 @@ class ToolBox:
             return self._refuse("write_file", path, f"{path} is outside the project.")
         full, rel = r
         if self.readonly:
-            return self._refuse("write_file", rel, run_mode.READONLY_EDIT)
+            return self._refuse("write_file", rel, run_mode.relabel(run_mode.READONLY_EDIT, self.readonly_label,
+                                                                    self.readonly_note))
         v = rules.check_edit(self.phase, rel, self.cfg, exists=full.exists(), lane=self.lane, unlocks=self.unlocks)
         old = full.read_text(errors="replace") if full.is_file() else ""
         if v.ok:
@@ -138,7 +145,11 @@ class ToolBox:
     def run_command(self, command: str, timeout: int = 300) -> str:
         why = run_mode.readonly_bash(command) if self.readonly else None
         if why:
-            return self._refuse("run_command", "", why, command=command)
+            return self._refuse("run_command", "", run_mode.relabel(why, self.readonly_label, self.readonly_note),
+                                command=command)
+        again = repeats.refusal(self.no_repeat, self.root, command)
+        if again:
+            return self._refuse("run_command", "", again, command=command)
         v = rules.check_bash(self.phase, command, self.cfg,
                              exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks,
                              push_blockers=self.push_blockers)
@@ -152,6 +163,7 @@ class ToolBox:
         code, out = testcmd.run(self.root, command, timeout=timeout, env=command_env())
         if code != 0:
             self.failed_command = failed(command, out, code)
+            repeats.remember(self.no_repeat, self.root, command, out)
         return f"exit {code}\n{out[-8000:]}"
 
     def run_tests(self, ac: str | None = None) -> str:

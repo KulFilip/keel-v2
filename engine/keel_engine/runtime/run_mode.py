@@ -207,3 +207,14 @@ def readonly_bash(command: str) -> str | None:
 
 READONLY_EDIT = "This flow runs read-only (run mode readonly): agents may not edit or write any file."
 READONLY_MCP = "This flow runs read-only (run mode readonly): MCP tools that change things are refused."
+READONLY_WHO = "This flow runs read-only (run mode readonly)"
+
+
+def relabel(reason: str, label: str = "", note: str = "") -> str:
+    """A read-only refusal in the words of who is read only: KeelBot's Ask mode is no flow, and a model told "this flow
+    runs read-only" tried other ways around it, or offered to change a flow's run mode. `label` replaces the flow's
+    words at the start; `note` (what to do instead) goes after the reason."""
+    out = str(reason or "")
+    if label and out.startswith(READONLY_WHO):
+        out = label + out[len(READONLY_WHO):]
+    return f"{out} {note}".strip() if note else out

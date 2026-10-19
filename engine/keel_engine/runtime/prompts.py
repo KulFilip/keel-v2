@@ -67,13 +67,17 @@ def skill_paths(text: str) -> str:
     return re.sub(r"(?<![\w/])references/([\w.-]+\.md)", full, text)
 
 
-def system_prompt(agent: str, skills: dict[str, str] | None) -> str:
+COMMIT_LINE = "Commits are made by the engine after a check, never by you. Do not run git commit."
+
+
+def system_prompt(agent: str, skills: dict[str, str] | None, commits: str | None = None) -> str:
+    """The agent's role, its skills and keel's commit line (`commits`: another line in its place, KeelBot's Edit mode)."""
     parts = [role_text(agent)]
     extra = (skills or {}).get(agent)
     if extra:
         parts.append("## Skills\n\n" + skill_paths(extra) + "\n\nSkill files are under "
                      f"{config.v2_skills()}/; open them by that path, never search the disk for them.")
-    parts.append("Commits are made by the engine after a check, never by you. Do not run git commit.")
+    parts.append(COMMIT_LINE if commits is None else commits)
     return "\n\n".join(parts)
 
 

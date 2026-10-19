@@ -12,6 +12,12 @@ ask: {url, key, session} in KeelBot's Fix and side modes: a shell command that c
 OK (runtime/permissions.py asks at `url`, the full address; keel_engine/approvals.py waits); the key only asks, it
 cannot answer.
 
+readonly_label, readonly_note (keel 0.18.18, KeelBot's Ask mode): a read-only refusal in its own words, and what to do
+instead (runtime/run_mode.py relabel).
+
+no_repeat (keel 0.18.18, KeelBot): the same failing shell command is refused while nothing changed (runtime/repeats.py;
+the engine writes the failures into failed.json next to this file).
+
 push_blockers: [{gate, why, fix}] when the run started (runtime/blockers.py for_agents); while not empty the hook refuses
 an agent's `git push` / `gh pr create` (keel v1 gates.pushBlockers). keel's own push action is not an agent call.
 
@@ -146,7 +152,11 @@ def context_for(req) -> dict:
             "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict")),
             "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
             "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools(),
-            "push_blockers": list(getattr(tb, "push_blockers", None) or [])}
+            "push_blockers": list(getattr(tb, "push_blockers", None) or []),
+            # keel 0.18.18 KeelBot's only (absent for a flow's agents)
+            **{k: v for k, v in (("readonly_label", getattr(tb, "readonly_label", "")),
+                                 ("readonly_note", getattr(tb, "readonly_note", "")),
+                                 ("no_repeat", bool(getattr(tb, "no_repeat", None)))) if v}}
 
 
 def ensure(req, folder: str | None = None) -> str:

@@ -197,9 +197,13 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
 
     readonly = bool(ctx.get("readonly"))
 
+    def ro(reason: str) -> str:
+        # keel 0.18.18 KeelBot's Ask mode says it in its own words (it is no flow), and what to do instead
+        return run_mode.relabel(reason, ctx.get("readonly_label") or "", ctx.get("readonly_note") or "")
+
     def edit(path: str) -> str | None:
         if readonly:
-            return run_mode.READONLY_EDIT
+            return ro(run_mode.READONLY_EDIT)
         rel, full = _locate(root, path)
         if ctx.get("confine") and Path(rel).is_absolute():
             return f"{full} is outside {root}: this side session changes only its own copy of the project (its worktree)."
@@ -231,7 +235,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
     if keyed and tool != "Bash" and rules.keel_key_file(_locate(root, keyed)[1]):
         return "This is keel's own key folder: agents never read, search or change it."
     if readonly and tool in WRITE_TOOLS:
-        return run_mode.READONLY_EDIT
+        return ro(run_mode.READONLY_EDIT)
     if tool in WRITE_TOOLS:
         path = _path_arg(ti)
         return (edit(path) or content(path)) if path else None
@@ -246,7 +250,14 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return refused
         return already_read(ctx.get("_path"), rel, full, ti.get("offset"), ti.get("limit"))
     if tool == "Bash":
-        refused = knowledge(str(ti.get("command") or "")) or (run_mode.readonly_bash(str(ti.get("command") or "")) if readonly else None)
+        refused = knowledge(str(ti.get("command") or ""))
+        if not refused and readonly:
+            why = run_mode.readonly_bash(str(ti.get("command") or ""))
+            refused = ro(why) if why else None
+        if not refused and ctx.get("no_repeat") and ctx.get("_path"):
+            # keel 0.18.18 KeelBot: the same failing command, again, while nothing changed (runtime/repeats.py)
+            from .runtime import repeats
+            refused = repeats.refusal(Path(ctx["_path"]).parent, root, str(ti.get("command") or ""))
         if refused:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg,
@@ -264,7 +275,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         if plugin_read_tool(tool, ctx.get("read_tools")):
             return None
         if readonly and (WRITEISH.search(tool.split("__", 2)[-1]) or (re.search("serena", tool, re.I) and SERENA_EDIT.search(tool))):
-            return run_mode.READONLY_MCP
+            return ro(run_mode.READONLY_MCP)
         return check_mcp(tool, ti, phase, cfg, edit)
     return None
 
