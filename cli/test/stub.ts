@@ -107,6 +107,8 @@ export function stubKeel() {
         return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
       // P1-2 /compact: the engine's {before, after} token counts for the session it just summarised
       case "POST /api/projects/demo/helper/sessions/s1/compact": return [200, { before: 48000, after: 6000 }];
+      // P1-3 /export: the engine wrote the chat as Markdown into the project's .keel/chats/<sid>.md
+      case "POST /api/projects/demo/helper/sessions/s1/export": return [200, { path: "/work/demo/.keel/chats/s1.md", messages: 2 }];
       // P1-3 /rename: the existing PATCH {title} of a KeelBot session; the chats list shows the new name
       case "PATCH /api/projects/demo/helper/sessions/s1": {
         const title = String(body.title ?? "").trim();

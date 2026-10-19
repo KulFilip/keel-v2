@@ -635,3 +635,41 @@ def test_ac_2_rename_through_the_patch_route_names_the_chat_in_the_session_list(
     # renaming again, after the turn, works the same way
     client.patch(f"/helper/sessions/{s['id']}", json={"title": "Health, done"})
     assert client.get("/helper/sessions", params={"project": "demo"}).json()[0]["title"] == "Health, done"
+
+
+# ------------------------------------------------------------------ P1-3 sessions: /export (AC-3)
+
+@pytest.mark.asyncio
+async def test_ac_3_export_writes_every_message_as_markdown_and_leaves_the_session_unchanged(client, repo):
+    """POST /helper/sessions/{sid}/export writes the chat as Markdown into the project's .keel/chats/<sid>.md (every
+    stored message in order, each with its role and time) and answers the path; the session reads back the same."""
+    s = new_session(client, repo)
+    sid = s["id"]
+    client.patch(f"/helper/sessions/{sid}", json={"title": "Where things start"})
+    ask(client, sid, "Where does the package start?")
+    await helper.compact(sid)                          # a note too: every stored message, not only the turns
+    _, s = ask(client, sid, "And the tests?")
+    before = client.get(f"/helper/sessions/{sid}").json()["messages"]
+    assert [m["role"] for m in before] == ["user", "helper", "note", "user", "helper"]
+
+    r = client.post(f"/helper/sessions/{sid}/export")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    path = Path(body["path"])
+    assert path == Path(repo).resolve() / ".keel" / "chats" / f"{sid}.md" and body["messages"] == len(before)
+    md = path.read_text()
+    assert md.startswith("# Where things start\n")
+    heads = {"user": "user", "helper": "KeelBot", "note": "note"}
+    at = 0
+    for m in before:                                   # in order: each message's heading (role, time), then its text
+        head = f"## {m['n']}. {heads[m['role']]} · {m['at']}"
+        assert md.index(head, at) >= at
+        at = md.index(head, at) + len(head)
+        assert md.index(m["text"].strip(), at) >= at
+        at = md.index(m["text"].strip(), at)
+
+    # another reader (another computer) opens the chat afterwards: the very same messages, unchanged
+    assert client.get(f"/helper/sessions/{sid}").json()["messages"] == before
+    # exporting again overwrites the same file with the same content
+    assert client.post(f"/helper/sessions/{sid}/export").json()["path"] == str(path)
+    assert client.post("/helper/sessions/h_nope/export").status_code == 404

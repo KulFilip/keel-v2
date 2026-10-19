@@ -133,3 +133,22 @@ describe("/rename", () => {
     expect(stub.calls.find((x) => x.method === "PATCH")?.body).toEqual({ title: "Ports again" });
   });
 });
+
+describe("/export", () => {
+  it("AC-3 exports the open chat through the engine's export route and prints the file it wrote", async () => {
+    const { core: c, stub } = core();
+    await c.start();
+    await openS1(c, stub);
+    const r = await run({ core: c, width: 100 }, "/export");
+    expect(stub.calls.find((x) => x.method === "POST" && x.path === "/api/projects/demo/helper/sessions/s1/export")).toBeTruthy();
+    expect(r.blocks.map((b) => b.text).join("\n")).toContain("exported 2 messages: /work/demo/.keel/chats/s1.md");
+  });
+
+  it("AC-3 says there is nothing to export with no open chat", async () => {
+    const { core: c, stub } = core();
+    await c.start();
+    const r = await run({ core: c, width: 100 }, "/export");
+    expect(r.blocks.map((b) => b.text).join("\n")).toContain("nothing to export");
+    expect(stub.calls.some((x) => x.path.endsWith("/export"))).toBe(false);
+  });
+});
