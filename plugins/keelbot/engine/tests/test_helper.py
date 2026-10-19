@@ -469,3 +469,13 @@ def test_ask_mode_says_how_to_switch_instead_of_trying_a_change():
     from keel_plugin_keelbot.helper import MODE_TEXT
     ask = MODE_TEXT["ask"]
     assert "do not try it" in ask and "/mode edit" in ask and "/mode side" in ask and "git checkout main" in ask
+
+
+# ------------------------------------------------------------------ P1-1 context meter (AC-1)
+
+def test_ac_1_a_session_with_a_known_model_returns_ctx_window_and_ctx_tokens(client, repo):
+    s = new_session(client, repo, model={"provider": "claude", "mode": "subscription", "model": "opus"})
+    assert s["ctx_window"] == 200_000                  # Claude Opus's default context window
+    assert s["ctx_tokens"] == 0                         # no turn yet: nothing in the window so far
+    got = client.get(f"/helper/sessions/{s['id']}").json()
+    assert got["ctx_window"] == 200_000 and got["ctx_tokens"] == 0
