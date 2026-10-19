@@ -529,3 +529,57 @@ async def test_ac_1_compact_summarises_keeps_every_row_and_starts_a_fresh_sessio
     # ctx_tokens resets to the summary's own size, not the running total of everything it replaced
     data = note["data"]
     assert after["ctx_tokens"] == data["tokens_in"] + data["tokens_out"] + data["tokens_cached"]
+
+
+# ------------------------------------------------------------------ P1-2 /compact (AC-2)
+
+def test_ac_2_a_turn_above_85_percent_of_the_window_compacts_itself_before_it_runs(client, repo):
+    """A session whose ctx_tokens is already above 85% of its model's ctx_window compacts on its own, right before
+    the next turn runs — the person never has to ask for it."""
+    s = new_session(client, repo)
+    sid = s["id"]
+    before_session = helper.get(sid)["engine_session"]
+    helper.update(sid, ctx_tokens=int(s["ctx_window"] * 0.9))   # above the 85% threshold
+
+    _, s = ask(client, sid, "Where does it start?")
+
+    rows = s["messages"]
+    # a note (the summary) was stored before the user's own message for this turn
+    roles = [m["role"] for m in rows]
+    assert "note" in roles
+    assert roles.index("note") < roles.index("user")
+    # the compacted session moved to a fresh engine_session before the turn used it
+    assert s["engine_session"] != before_session
+
+
+def test_ac_2_a_turn_below_the_threshold_never_compacts(client, repo):
+    """The same session, well under 85%, keeps its own engine_session and stores no summary note."""
+    s = new_session(client, repo)
+    sid = s["id"]
+    before_session = helper.get(sid)["engine_session"]
+    helper.update(sid, ctx_tokens=int(s["ctx_window"] * 0.1))   # far under the threshold
+
+    _, s = ask(client, sid, "Where does it start?")
+
+    assert "note" not in [m["role"] for m in s["messages"]]
+    assert s["engine_session"] == before_session
+
+
+@pytest.mark.asyncio
+async def test_ac_2_the_compact_route_answers_before_and_after_tokens(client, repo):
+    """POST /helper/sessions/{sid}/compact compacts on request and answers the tokens it had before and after."""
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    _, s = ask(client, s["id"], "And the tests?")
+    sid = s["id"]
+    before_tokens = helper.get(sid)["ctx_tokens"]
+
+    r = client.post(f"/helper/sessions/{sid}/compact")
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["before"] == before_tokens
+    after = helper.get(sid)
+    assert body["after"] == after["ctx_tokens"]
+    # the route actually ran the compaction, it did not just report numbers
+    assert "note" in [m["role"] for m in after["messages"]]
