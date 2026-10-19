@@ -36,7 +36,7 @@ KEEL_WORKFLOWS = frozenset({"change", "cover", "diagnose", "feature", "fix", "hu
 KEEL_AGENTS = frozenset({"ac-reviewer", "arch-surveyor", "bulk-reader", "code-reviewer", "contract-author",
                          "dependency-triager", "e2e-author", "explorer", "hunter", "implementer", "investigator",
                          "lane-runner", "librarian", "prover", "reproducer", "reviewer", "security-auditor",
-                         "setup-doctor", "test-author"})
+                         "setup-doctor", "test-author", "web-researcher"})
 FRONT_NAME = re.compile(r"^name:\s*['\"]?([^'\"\s#]+)", re.M)
 WORKFLOW_ID = re.compile(r"^id:\s*['\"]?([^'\"\s#]+)", re.M)
 

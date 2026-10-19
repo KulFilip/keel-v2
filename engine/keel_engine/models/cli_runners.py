@@ -77,7 +77,8 @@ def protection(provider: str, mode: str | None = None) -> str:
 
 CLAUDE_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 # Taken out of the model's tool list, so it does not spend turns on calls that print mode refuses anyway:
-# no skills are installed for the agent, sub-agents would hide their tokens and edits, the web is not part of a step.
+# no skills are installed for the agent, sub-agents would hide their tokens and edits, the web is not part of a step
+# (0.18.20 except for an agent whose file names WebSearch/WebFetch: prompts.web_tools).
 CLAUDE_HIDDEN = ["Skill", "Task", "Agent", "WebFetch", "WebSearch", "ToolSearch",
                  "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "TaskOutput", "TaskStop"]
 
@@ -455,16 +456,18 @@ class ClaudeCLIRunner:
         turns = prompts.max_turns(req.agent, req.phase)
         if turns:
             argv += ["--max-turns", str(turns)]
-        allowed = list(CLAUDE_TOOLS)
+        # 0.18.20 the web tools the agent's file names (the web-researcher): in its prompt, allowed, not hidden
+        web = prompts.web_tools(req.agent)
+        allowed = list(CLAUDE_TOOLS) + web
         cfg_path, mcp_allowed = mcp.claude_mcp_config(req.mcp_specs, req.tools_allow, req.workdir)
         if cfg_path:
             argv += ["--mcp-config", cfg_path, "--strict-mcp-config"]
             allowed += mcp_allowed
         # --tools keeps only these built-in tools in the model's prompt (their descriptions are most of every turn's
         # fixed tokens); --allowedTools lets them run without asking. A read-only run gets no Edit or Write at all.
-        builtin = [t for t in CLAUDE_TOOLS if not (getattr(req.toolbox, "readonly", False) and t in ("Edit", "Write"))]
+        builtin = [t for t in CLAUDE_TOOLS if not (getattr(req.toolbox, "readonly", False) and t in ("Edit", "Write"))] + web
         argv += ["--tools", ",".join(builtin)]
-        argv += ["--allowedTools", ",".join(allowed), "--disallowedTools", ",".join(CLAUDE_HIDDEN)]
+        argv += ["--allowedTools", ",".join(allowed), "--disallowedTools", ",".join(t for t in CLAUDE_HIDDEN if t not in web)]
         if req.system:
             argv += ["--system-prompt", req.system]
         # keel's guard: its own PreToolUse hook (python -m keel_engine.hook) judges every edit, shell command, read and
@@ -715,7 +718,8 @@ class OpenCodeRunner:
         # keel's guard: a plugin generated for this run (in the run's scratch folder, loaded through OPENCODE_CONFIG_DIR)
         # hands each guarded call to the same hook Claude Code runs.
         scratch = guard_ctx.scratch(req)
-        conf = await asyncio.to_thread(write_opencode_plugin, Path(scratch) / "opencode", bool(getattr(req.toolbox, "readonly", False)))
+        conf = await asyncio.to_thread(write_opencode_plugin, Path(scratch) / "opencode", bool(getattr(req.toolbox, "readonly", False)),
+                                       bool(prompts.web_tools(req.agent)))
         state = {"text": [], "in": 0, "out": 0, "cost": 0.0}
         steps = Steps(emit, req.root)
         refusals: list[dict] = []
@@ -885,15 +889,17 @@ V1_ADAPTER = "keel's enforcement, for OpenCode."
 # OPENCODE_CONFIG_DIR into its config.
 OPENCODE_OFF = ["webfetch", "websearch", "codesearch", "todowrite", "todoread", "task", "skill"]
 OPENCODE_WRITES = ["write", "edit", "patch"]
+OPENCODE_WEB = ("webfetch", "websearch")
 
 
-def write_opencode_plugin(conf: Path, readonly: bool = False) -> str:
+def write_opencode_plugin(conf: Path, readonly: bool = False, web: bool = False) -> str:
     """Writes keel's guard plugin into `conf/plugins/` and the tools keel allows into `conf/opencode.json`; returns
-    `conf` (the run's OPENCODE_CONFIG_DIR)."""
+    `conf` (the run's OPENCODE_CONFIG_DIR). `web` (0.18.20, an agent whose file names WebSearch/WebFetch) keeps
+    opencode's webfetch and websearch on."""
     d = Path(conf) / "plugins"
     d.mkdir(parents=True, exist_ok=True)
     (d / "keel-guard.js").write_text(OPENCODE_PLUGIN.replace("__HOOK__", json.dumps(guard_ctx.hook_argv())))
-    off = OPENCODE_OFF + (OPENCODE_WRITES if readonly else [])
+    off = [t for t in OPENCODE_OFF if not (web and t in OPENCODE_WEB)] + (OPENCODE_WRITES if readonly else [])
     (Path(conf) / "opencode.json").write_text(json.dumps({"$schema": "https://opencode.ai/config.json",
                                                           "tools": {t: False for t in off}}, indent=2))
     return str(conf)

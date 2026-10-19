@@ -49,6 +49,21 @@ def max_turns(agent: str, phase: str | None = None) -> int | None:
     return max(n or 0, more) if more and n is not None else n
 
 
+# 0.18.20 the web tools an agent file may name in `tools:` (the web-researcher). They write nothing, so the runners give
+# them to that agent in any phase: Claude Code's own WebSearch and WebFetch, opencode's websearch and webfetch.
+WEB_TOOLS = ("WebSearch", "WebFetch")
+
+
+def web_tools(agent: str) -> list[str]:
+    """The web tools the agent's file names in its `tools:` front matter, in WEB_TOOLS order ([] for no file)."""
+    f = addons.agent_path(agent) if agent else None
+    if not f or not f.is_file():
+        return []
+    m = re.search(r"\A---\n.*?^tools:\s*(.+?)\s*$.*?\n---\n", f.read_text(), flags=re.S | re.M)
+    named = {t.strip().strip("[]'\"") for t in m.group(1).split(",")} if m else set()
+    return [t for t in WEB_TOOLS if t in named]
+
+
 def role_text(agent: str) -> str:
     return _agent_file(str(addons.agent_path(agent))) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
 

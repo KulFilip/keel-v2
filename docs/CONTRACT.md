@@ -1546,6 +1546,12 @@ in + out + cached ÷ 10):
   keel opens PRs itself), and each opencode run gets an `opencode.json` in its config folder that turns off the
   built-in tools a step never needs (web fetch and search, to-do lists, sub-tasks, skills; a read-only run also write,
   edit and patch).
+- 0.18.20 web research: an agent whose file names `WebSearch` / `WebFetch` in `tools:` (the built-in
+  **web-researcher**, `runtime/prompts.py` `web_tools`) gets them in any phase, because they write nothing: Claude
+  Code's `--tools` and `--allowedTools` list them and `--disallowedTools` leaves them out; opencode keeps `webfetch` and
+  `websearch` on. keel's hook never sees them (its matcher). Codex, Copilot and API-key mode have no web tools from
+  keel: the agent reads the web with a read-only `curl -sL` through its shell (DuckDuckGo's HTML search, raw GitHub
+  files), which the guard allows in every phase; in a read-only run `curl -o` / `wget` into a file is refused.
 - Where to look (`runtime/graph_hints.py`, an agent's `knowledge.hints`): keel looks up the names in a question or a
   step in the code graph itself (no model, no tool call) and lists the line ranges to read first, with who uses them
   and what they call. It saved no tokens in the same measurement (153k with, 150k without) and the answers named the

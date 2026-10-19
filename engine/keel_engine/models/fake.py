@@ -163,6 +163,13 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                           "of this session.\n\n## Where to look\n\n- **entry**: `run()` in src/scores/__init__.py:1\n"
                           "- the tests: tests/test_scores.py:3\n\n```python\ndef run(players: list[str]) -> dict:\n"
                           "    # rank the players, best first\n    return {\"ok\": True, \"count\": len(players)}\n```"), {}
+    if agent == "web-researcher":
+        # 0.18.20 the spike's web_docs step: sources with URLs, what was tried, what stays open
+        return None, "", ("CONFIRMED\n- The event carries `estimated_delivery` (ISO 8601): https://docs.example.com/webhooks "
+                          "\"estimated_delivery: the latest ETA\"\n\n| tried | result |\n|---|---|\n"
+                          "| search: example webhook eta | 3 hits |\n| https://docs.example.com/webhooks | found |\n\n"
+                          "Unconfirmed: whether it can be null; a sample payload from the sandbox would settle it.\n"
+                          "CONFIDENCE: medium"), {}
     if agent == "investigator":
         return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
                           "ROOT-CAUSE: confirmed"), {}

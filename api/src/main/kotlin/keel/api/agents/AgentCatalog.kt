@@ -173,6 +173,7 @@ class AgentCatalog(
             "librarian" to listOf("memory"),
             "reproducer" to listOf("bug-repro"),
             "investigator" to listOf("bug-investigate"),
+            "web-researcher" to listOf("spec"),
             "setup-doctor" to listOf("preflight"),
             "arch-surveyor" to listOf("preflight"),
             "hunter" to listOf("hunt-sweep"),

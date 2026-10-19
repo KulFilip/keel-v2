@@ -53,6 +53,7 @@ AGENT_DEFAULTS: dict[str, tuple[float, float, float]] = {
     "implementer": (31, 6, 0.35), "ac-reviewer": (18, 2, 0.0), "code-reviewer": (60, 5, 0.1),
     "security-auditor": (45, 4, 0.0), "e2e-author": (35, 6, 0.3), "reviewer": (30, 3, 0.0),
     "librarian": (20, 3, 0.0), "reproducer": (30, 4, 0.3), "investigator": (70, 6, 0.2),
+    "web-researcher": (60, 5, 0.1),     # 0.18.20 fetched pages are most of its input
 }
 FALLBACK_AGENT = (20, 3, 0.1)
 
