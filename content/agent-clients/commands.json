@@ -244,6 +244,13 @@
       "group": "KeelBot"
     },
     {
+      "name": "export",
+      "summary": "write the open chat as Markdown into the project's .keel/chats/<id>.md: every message, with role and time",
+      "writes": true,
+      "local": false,
+      "group": "KeelBot"
+    },
+    {
       "name": "compact",
       "summary": "summarise the open chat into a fresh session: every stored message stays",
       "writes": true,

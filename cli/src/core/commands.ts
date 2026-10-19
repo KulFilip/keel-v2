@@ -767,6 +767,15 @@ const IMPLS: Impl[] = [
       return text(`compacted: ${tok(r.before)} → ${tok(r.after)} tokens, nothing lost`);
     },
   },
+  {
+    // P1-3: write the open chat as Markdown (every stored message, with role and time) into the project's .keel/chats/
+    name: "export",
+    run: async (ctx) => {
+      if (!ctx.core.snapshot.chat.session) return text("nothing to export: open a chat first (/chats).");
+      const r = await ctx.core.exportChat();
+      return ok(`exported ${r.messages} messages: ${r.path}`);
+    },
+  },
   { name: "effort", run: (ctx, a) => effortRun(ctx, a), complete: (ctx, a) => effortComplete(ctx, a) },
   {
     // P1-3: name the open chat (the session's PATCH {title}); /chats lists it by that name

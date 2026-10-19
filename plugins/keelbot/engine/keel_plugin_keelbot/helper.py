@@ -353,6 +353,30 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     return out
 
 
+# ------------------------------------------------------------------ P1-3 /export
+
+EXPORT_DIR = (".keel", "chats")
+EXPORT_ROLES = {"user": "user", "helper": "KeelBot", "note": "note"}
+
+
+def export(sid: str) -> dict:
+    """P1-3 Writes the chat as Markdown into its project's .keel/chats/<sid>.md (the project folder, a side session's
+    too): the title, then every stored message in order, each under "## <n>. <role> · <time>". It only reads the
+    session: nothing stored changes. Answers the file's path and how many messages it holds."""
+    s = get(sid)
+    msgs = s["messages"]
+    model = s.get("model") or {}
+    lines = [f"# {s['title']}", "",
+             f"KeelBot chat {sid} · {s['mode']} · {model.get('provider', '?')}/{model.get('model', '?')} · "
+             f"{len(msgs)} messages · exported {db.now()}", ""]
+    for m in msgs:
+        lines += [f"## {m['n']}. {EXPORT_ROLES.get(m['role'], m['role'])} · {m['at']}", "", (m["text"] or "").rstrip(), ""]
+    path = Path(s["root"]).joinpath(*EXPORT_DIR, f"{sid}.md")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return {"path": str(path), "messages": len(msgs)}
+
+
 # ------------------------------------------------------------------ Fix mode: the files KeelBot changed
 
 def _head_bytes(root: str, rel: str) -> bytes | None:

@@ -542,6 +542,13 @@ export class KeelCore {
       `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/compact`);
   }
 
+  /** P1-3 Write the open chat as Markdown into the project's .keel/chats/<sid>.md; nothing stored changes. */
+  async exportChat(): Promise<{ path: string; messages: number }> {
+    const { pid, sid } = this.chatOf();
+    return post<{ path: string; messages: number }>(
+      `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/export`);
+  }
+
   /** P1-3 Name the open chat: the session's existing PATCH {title}; the engine keeps it (a first turn no longer names it). */
   async rename(title: string): Promise<HelperSession> {
     const { pid, sid } = this.chatOf();
