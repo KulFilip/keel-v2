@@ -3,12 +3,14 @@ exit and branch, plus the engine pieces they added: gate choices, waived gates, 
 attempts + back, `when` over several steps / any item, an item's own agent, step instructions, escalate_model."""
 
 import json
+import sys
 from pathlib import Path
 
 from conftest import decide, start, wait
 from test_flows_base import answers, values, wf
 from test_flows_cover_ship import script, ship_plan, skip_all_but_reviews
 from test_v02 import commit_all, configure, git, log, write
+from keel_engine.models import fake as fake_mod
 from keel_engine.runtime import actions as actions_mod
 from keel_engine.runtime.compiler import stronger
 from keel_engine.workflows.templates import get_template
@@ -178,14 +180,15 @@ def test_fix_happy_path_commits_test_then_fix_and_ships(client, repo, monkeypatc
     script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="fix", title="Average of one score is wrong")
     s = wait(client, tid)
-    assert s["waiting"]["step"] == "gate_r" and s["waiting"]["choices"] == ["investigate", "stop"]
+    assert s["waiting"]["step"] == "gate_r" and s["waiting"]["choices"] == ["investigate", "reject", "stop"]
     s = decide(client, tid)
     assert s["waiting"]["step"] == "gate_f" and "ROOT-CAUSE: 3 confirmed" in s["waiting"]["detail"]
+    assert s["waiting"]["choices"] == ["fix", "investigate", "feature", "reject"]
     assert len([r for r in seen if r.agent == "investigator" and r.item]) == 3
     s, body = through_ship(client, tid, decide(client, tid))
     assert s["status"] == "done" and "# Average of one score is wrong" in body
-    subjects = [x for x in log(repo) if "(BUG)" in x]
-    assert subjects[0].startswith("fix(BUG)") and subjects[1].startswith("test(BUG)")
+    subjects = [x for x in log(repo) if "(BUG-1)" in x]
+    assert subjects[0].startswith("fix(BUG-1)") and subjects[1].startswith("test(BUG-1)")
     assert not any(r.agent == "e2e-author" for r in seen)
     fix = next(r for r in seen if r.agent == "implementer")
     assert "The approved plan" in fix.prompt and "ROOT-CAUSE" in fix.prompt
@@ -197,7 +200,7 @@ def test_fix_not_reproducible_hands_over_to_diagnose(client, repo, monkeypatch):
     assert s["status"] == "done"
     kid = child(client, s, "diagnose")
     assert "sometimes the total is 0" in request_of(client, kid)
-    assert not any(x.startswith("test(BUG)") for x in log(repo))
+    assert not any(x.startswith("test(BUG") for x in log(repo))
 
 
 def test_fix_gate_r_send_back_and_stop(client, repo, monkeypatch):
@@ -207,7 +210,7 @@ def test_fix_gate_r_send_back_and_stop(client, repo, monkeypatch):
     s = decide(client, tid, "reject", why="reproduce with two scores")
     assert s["waiting"]["step"] == "gate_r" and "reproduce with two scores" in [r for r in seen if r.agent == "reproducer"][-1].prompt
     s = decide(client, tid, "approve", payload={"choice": "stop"})
-    assert s["status"] == "done" and log(repo)[0].startswith("test(BUG)")
+    assert s["status"] == "done" and log(repo)[0].startswith("test(BUG-1)")
     assert not any(r.agent == "investigator" for r in seen)
 
 
@@ -250,14 +253,14 @@ def test_fix_gate_f_send_back_and_missing_requirement(client, repo, monkeypatch)
     assert s["waiting"]["step"] == "gate_f"
     assert "smaller change please" in [r for r in seen if r.step_name == "fix plan"][-1].prompt
     s = decide(client, tid, "approve", payload={"choice": "feature"})
-    assert s["status"] == "done" and not any(x.startswith("fix(BUG)") for x in log(repo))
+    assert s["status"] == "done" and not any(x.startswith("fix(BUG") for x in log(repo))
     child(client, s, "feature")
 
 
-def test_fix_that_fails_twice_resets_and_reproduces_again(client, repo, monkeypatch):
-    seen = answers(monkeypatch, {})
+def fails_in_bug_fix(monkeypatch, n):
+    """verify_green fails n times in the bug-fix phase (the fix commit's check), then runs for real."""
     real = actions_mod.verify_green
-    fails = {"n": 2}
+    fails = {"n": n}
 
     async def verify_green(a):
         if a.phase == "bug-fix" and fails["n"]:
@@ -265,17 +268,212 @@ def test_fix_that_fails_twice_resets_and_reproduces_again(client, repo, monkeypa
             return actions_mod.ActionResult(False, "the bug test still fails", "AssertionError")
         return await real(a)
     monkeypatch.setattr(actions_mod, "verify_green", verify_green)
+
+
+def test_fix_first_failure_goes_back_to_investigate(client, repo, monkeypatch):
+    """keel v1 fix.md: the first failed fix means the cause was wrong: back to the investigation and Gate F, not
+    another try of the same fix."""
+    seen = answers(monkeypatch, {})
+    fails_in_bug_fix(monkeypatch, 1)
+    tid = start(client, repo, workflow="fix", title="Average is wrong")
+    wait(client, tid)
+    decide(client, tid)                                  # Gate R
+    s = decide(client, tid)                              # Gate F: fix; the fix fails once
+    assert s["waiting"]["step"] == "gate_f", s
+    agents = [r.agent for r in seen]
+    assert agents.count("implementer") == 1 and agents.count("reproducer") == 1
+    again = [r for r in seen if r.step_name == "hypotheses"]
+    assert len(again) == 2 and "the bug test still fails" in again[-1].prompt
+    s = decide(client, tid)
+    assert s["waiting"]["step"] == "ship_plan"
+    assert [x for x in log(repo) if x.startswith(("test(BUG-1)", "fix(BUG-1)"))] == \
+        ["fix(BUG-1): Average is wrong", "test(BUG-1): Average is wrong"]
+
+
+def test_fix_reset_carries_what_was_learned(client, repo, monkeypatch):
+    """The second failed fix resets (keel's uncommitted changes go back, the reproducing test stays committed) and the
+    investigation starts again with what was learned; nobody reproduces the bug a second time."""
+    seen = answers(monkeypatch, {"investigator": lambda r: HYPS if r.step_name == "hypotheses" else
+                                 ("ROOT-CAUSE: unconfirmed" if (r.item or {}).get("title") == "race" else
+                                  "Root cause: the counter is read too early.\nROOT-CAUSE: confirmed")})
+    fails_in_bug_fix(monkeypatch, 2)
+    tid = start(client, repo, workflow="fix", title="Average is wrong")
+    wait(client, tid)
+    decide(client, tid)                                  # Gate R
+    decide(client, tid)                                  # Gate F; the first fix fails: investigate again
+    s = decide(client, tid)                              # Gate F again; the second fix fails: reset
+    assert s["waiting"]["step"] == "gate_f", s
+    agents = [r.agent for r in seen]
+    assert agents.count("implementer") == 2 and agents.count("reproducer") == 1
+    assert not (Path(repo) / "src/scores/fix_average_is_wrong.py").exists()      # the failed fix was put back
+    learned = values(client, tid)["data"]["learned"]
+    assert "Reset 1" in learned and "the plan's root cause did not hold: the counter is read too early" in learned
+    assert "ruled out by the investigators: race" in learned and "the bug test still fails" in learned
+    hyp = [r for r in seen if r.step_name == "hypotheses"][-1]
+    assert "What earlier fix attempts ruled out" in hyp.prompt and "Reset 1" in hyp.prompt
+    assert sum(x.startswith("test(BUG-1)") for x in log(repo)) == 1
+    s = decide(client, tid)
+    assert s["waiting"]["step"] == "ship_plan"
+
+
+def test_fix_commit_body_has_the_root_cause(client, repo, monkeypatch):
+    answers(monkeypatch, {})
     tid = start(client, repo, workflow="fix", title="Average is wrong")
     wait(client, tid)
     decide(client, tid)
     s = decide(client, tid)
-    assert s["waiting"]["step"] == "gate_r", s          # two failed fixes: reset, reproduce, Gate R again
-    assert [r.agent for r in seen].count("implementer") == 2 and [r.agent for r in seen].count("reproducer") == 2
-    assert "the bug test still fails" in [r for r in seen if r.agent == "reproducer"][-1].prompt
-    assert not (Path(repo) / "src/scores/fix_average_is_wrong.py").exists()      # the failed fix was put back
-    s = decide(client, tid)
-    s = decide(client, tid)
     assert s["waiting"]["step"] == "ship_plan"
+    sha = git(repo, "log", "--format=%H", "--grep=fix(BUG-1)", "--fixed-strings").stdout.split()[0]
+    body = git(repo, "log", "-1", "--format=%B", sha).stdout
+    assert body.startswith("fix(BUG-1): Average is wrong")
+    assert "Root cause: ROOT CAUSE: the counter" not in body
+    assert "Root cause: the counter is read before it is written (src/scores/__init__.py:1)." in body
+
+
+# ------------------------------------------------------------------ fix: the bug's own test is the evidence
+
+def real_checks(repo, web=False):
+    """The demo with real test commands: the AC command filters by the criterion's key (pytest -k bug_1)."""
+    py = sys.executable
+    cfg = (f"version: 4\ncommands:\n  api_test_ac: \"{py} -m pytest -q tests -k {{AC_KEY}}\"\n"
+           f"  api_test_module: \"{py} -m pytest -q tests\"\n")
+    if web:
+        cfg += (f"  web_test_ac: \"{py} -m pytest -q . -k {{AC_KEY}}\"\n  web_test_module: \"{py} -m pytest -q .\"\n"
+                "frontend: {dir: web}\n")
+        write(repo, "web/README.md", "the web app\n")
+    configure(repo, cfg)
+    return {**SETTINGS, "simulate_checks": False}
+
+
+def reproducer_writes(monkeypatch, *files):
+    """The fake reproducer writes files[n] on its n-th run (the last one repeats): (path, content, answer)."""
+    real = fake_mod._plan
+    seen, runs = [], {"n": 0}
+
+    def plan(req):
+        seen.append(req)
+        if req.agent == "reproducer":
+            path, content, answer = files[min(runs["n"], len(files) - 1)]
+            runs["n"] += 1
+            return path, content, answer, {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+    return seen
+
+
+RED_BUG1 = ("tests/test_bug_1_average.py", "from scores import average\n\n\ndef test_bug_1_average_of_one():\n"
+            "    assert average([5]) == 6\n", "It fails.\nLAYER: API\nREPRO: confirmed")
+
+
+def test_fix_red_runs_only_the_bug_test(client, repo, monkeypatch):
+    reproducer_writes(monkeypatch, RED_BUG1)
+    write(repo, "tests/test_old.py", "def test_old_broken():\n    assert 1 == 2\n")     # red before the flow
+    settings = real_checks(repo)
+    s = wait(client, start(client, repo, workflow="fix", title="Average of one score is wrong", settings=settings))
+    assert s["waiting"]["step"] == "gate_r", s
+    note = [e["data"]["note"] for e in client.bus.of(s["thread_id"], "step.finished") if e["step"] == "verify_repro"][-1]
+    assert "BUG-1: red confirmed (tests/test_bug_1_average.py::test_bug_1_average_of_one)" in note
+    detail = s["waiting"]["detail"]
+    assert "-k bug_1" in detail and "deselected" in detail and "test_old_broken" not in detail
+    assert log(repo)[0] == "test(BUG-1): Average of one score is wrong"
+
+
+def test_fix_preexisting_red_suite_is_not_a_reproduction(client, repo, monkeypatch):
+    """A suite that was red before the flow is not a reproduction: the failing test must be the bug's own test."""
+    passing = ("tests/test_bug_1_average.py", "def test_bug_1_average_of_one():\n    assert True\n",
+               "It fails.\nREPRO: confirmed")
+    reproducer_writes(monkeypatch, passing)
+    write(repo, "tests/test_old.py", "def test_old_broken():\n    assert 1 == 2\n")
+    py = sys.executable
+    # the AC command does not filter: it runs the whole suite, where only the old test fails
+    configure(repo, f"version: 4\ncommands:\n  api_test_ac: \"{py} -m pytest -q tests\"\n")
+    s = wait(client, start(client, repo, workflow="fix", title="Average of one score is wrong",
+                           settings={**SETTINGS, "simulate_checks": False, "fix_attempts": 1}))
+    assert s["waiting"]["kind"] == "fix" and "verify red + commit keeps failing" in s["waiting"]["title"], s
+    assert "not BUG-1's: tests/test_old.py::test_old_broken" in s["waiting"]["detail"]
+    assert "A test that was failing before is not a reproduction" in s["waiting"]["detail"]
+    assert not any(x.startswith("test(BUG") for x in log(repo))
+
+
+def test_fix_web_layer_repro_runs_the_web_test(client, repo, monkeypatch):
+    web = ("web/test_bug_1_page.py", "def test_bug_1_save_button():\n    assert 'saved' == 'nothing'\n",
+           "It fails.\nREPRO: confirmed")
+    reproducer_writes(monkeypatch, web)
+    settings = real_checks(repo, web=True)
+    tid = start(client, repo, workflow="fix", title="The save button on the scores page does nothing", settings=settings)
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "gate_r", s
+    detail = s["waiting"]["detail"]
+    assert "BUG-1 [WEB] is reproduced" in detail and "cd web && " in detail and "-k bug_1" in detail
+    assert "web/test_bug_1_page.py::test_bug_1_save_button" in detail
+    assert values(client, tid)["acs"][0]["layer"] == "WEB"
+    # the reproducer's LAYER line wins over keel's guess (an API-sounding report, a web test)
+    web2 = ("web/test_bug_2_total.py", "def test_bug_2_total():\n    assert 1 == 2\n", "It fails.\nLAYER: WEB\nREPRO: confirmed")
+    reproducer_writes(monkeypatch, web2)
+    s = wait(client, start(client, repo, workflow="fix", title="Total is off by one", settings=settings))
+    assert "BUG-2 [WEB] is reproduced" in s["waiting"]["detail"] and "cd web && " in s["waiting"]["detail"], s
+
+
+def test_fix_intake_numbers_the_bug_after_the_history(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {})
+    git(repo, "commit", "--allow-empty", "-q", "-m", "fix(BUG-7): an old bug")
+    tid = start(client, repo, workflow="fix", title="Average is wrong")
+    s = wait(client, tid)
+    v = values(client, tid)
+    assert [(x["id"], x["layer"]) for x in v["acs"]] == [("BUG-8", "API")] and v["ac"] == "BUG-8", s
+    repro = next(r for r in seen if r.agent == "reproducer")
+    assert "name it after the bug's id BUG-8" in repro.prompt and "- BUG-8 [API] Average is wrong" in repro.prompt
+    assert log(repo)[0] == "test(BUG-8): Average is wrong"
+
+
+# ------------------------------------------------------------------ fix: Gate R and Gate F
+
+def test_fix_gate_r_shows_the_failing_test_and_output(client, repo, monkeypatch):
+    reproducer_writes(monkeypatch, RED_BUG1)
+    s = wait(client, start(client, repo, workflow="fix", title="Average of one score is wrong", settings=real_checks(repo)))
+    w = s["waiting"]
+    assert w["step"] == "gate_r", s
+    assert "Reproducing test: tests/test_bug_1_average.py::test_bug_1_average_of_one" in w["detail"]
+    assert "Command: " in w["detail"] and "assert 5.0 == 6" in w["detail"]
+    info = {c["name"]: c for c in w["choice_info"]}
+    assert list(info) == ["investigate", "reject", "stop"] and info["investigate"]["default"]
+    assert (info["reject"]["label"], info["reject"]["why"]) == ("Reproduce differently", "required")
+    assert info["stop"]["label"] == "Stop here"
+
+
+def test_fix_gate_r_reject_replaces_the_red_commit(client, repo, monkeypatch):
+    first = ("tests/test_bug_1_first.py", "def test_bug_1_first():\n    assert 1 == 2\n", "REPRO: confirmed")
+    second = ("tests/test_bug_1_second.py", "def test_bug_1_second():\n    assert 2 == 3\n", "REPRO: confirmed")
+    seen = reproducer_writes(monkeypatch, first, second)
+    tid = start(client, repo, workflow="fix", title="Average is wrong")
+    wait(client, tid)
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "reject"})
+    assert r.status_code == 400 and "Say why" in r.text              # reproduce differently needs a note
+    s = decide(client, tid, "reject", why="use two scores")
+    assert s["waiting"]["step"] == "gate_r", s
+    assert [x for x in log(repo) if x.startswith("test(BUG")] == ["test(BUG-1): Average is wrong"]
+    assert not (Path(repo) / "tests/test_bug_1_first.py").exists() and (Path(repo) / "tests/test_bug_1_second.py").exists()
+    files = git(repo, "show", "--name-only", "--format=", "HEAD").stdout.split()
+    assert files == ["tests/test_bug_1_second.py"]
+    again = [r for r in seen if r.agent == "reproducer"][-1].prompt
+    assert "use two scores" in again and "rejected at Gate R" in again and "tests/test_bug_1_first.py" in again
+    assert "tests/test_bug_1_second.py::test_bug_1_second" in s["waiting"]["detail"]
+
+
+def test_fix_gate_f_investigate_more_goes_back_to_hypotheses(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {})
+    tid = start(client, repo, workflow="fix", title="Average is wrong")
+    wait(client, tid)
+    s = decide(client, tid)
+    info = {c["name"]: c for c in s["waiting"]["choice_info"]}
+    assert info["investigate"]["label"] == "Investigate more" and info["reject"]["label"] == "Change the approach"
+    assert info["fix"]["default"]
+    s = decide(client, tid, "approve", why="check the cache too", payload={"choice": "investigate"})
+    assert s["waiting"]["step"] == "gate_f", s
+    hyps = [r for r in seen if r.step_name == "hypotheses"]
+    assert len(hyps) == 2 and "check the cache too" in hyps[-1].prompt
+    assert len([r for r in seen if r.agent == "investigator" and r.item]) == 6
+    assert not any(r.agent == "implementer" for r in seen)
 
 
 def test_fix_no_gates_waives_both_gates_and_says_so(client, repo, monkeypatch):
@@ -303,7 +501,7 @@ def test_fix_from_a_hunt_seed_writes_the_regression_e2e(client, repo, monkeypatc
     decide(client, kid)
     s = decide(client, kid)
     assert s["waiting"]["step"] == "ship_plan"
-    assert any(r.agent == "e2e-author" for r in seen) and log(repo)[0].startswith("e2e(BUG)")
+    assert any(r.agent == "e2e-author" for r in seen) and log(repo)[0].startswith("e2e(BUG-1)")
 
 
 def test_fix_plan_can_ask_for_the_e2e(client, repo, monkeypatch):

@@ -17,9 +17,10 @@
    "model": "default",
    "phase": "bug-repro",
    "markers": [
-    "REPRO"
+    "REPRO",
+    "LAYER"
    ],
-   "instructions": "Work from the symptom (and the reproduction recipe, when there is one) alone. Write the smallest failing test at the lowest layer that shows it. Never weaken an assertion until something goes red."
+   "instructions": "Work from the symptom (and the reproduction recipe, when there is one) alone. Write the smallest failing test at the lowest layer that shows it, and name it after the bug's id {{data.bug.id}} so keel can run it alone. Never weaken an assertion until something goes red. LAYER: WEB when your test is a web (frontend) test, else API."
   },
   {
    "id": "reproduced",
@@ -46,23 +47,11 @@
    "kind": "gate",
    "name": "gate R",
    "phase": "gate-r",
-   "back": "repro",
    "lock": true,
-   "choices": [
-    "investigate",
-    "stop"
-   ]
-  },
-  {
-   "id": "stop_r",
-   "kind": "branch",
-   "name": "stop at gate R",
-   "phase": "gate-r",
-   "no": "hypotheses",
-   "when": {
-    "marker": "CHOICE",
-    "equals": "stop",
-    "step": "gate_r"
+   "choices": {
+    "investigate": "hypotheses",
+    "reject": "drop_red",
+    "stop": "keep_test"
    }
   },
   {
@@ -73,6 +62,14 @@
    "then": "end"
   },
   {
+   "id": "drop_red",
+   "kind": "code",
+   "name": "drop the rejected test and reproduce again",
+   "phase": "bug-repro",
+   "action": "bug_drop_red",
+   "then": "repro"
+  },
+  {
    "id": "hypotheses",
    "kind": "agent",
    "name": "hypotheses",
@@ -80,7 +77,7 @@
    "model": "default",
    "phase": "bug-investigate",
    "collect": "hypotheses",
-   "instructions": "The failing test is committed (the test(BUG) commit). List two to four distinct plausible causes, each one testable on its own. Do not investigate them yet."
+   "instructions": "The failing test is committed (the test({{data.bug.id}}) commit). List two to four distinct plausible causes, each one testable on its own. Do not investigate them yet. What earlier fix attempts ruled out (do not list those again): {{data.learned}}"
   },
   {
    "id": "investigate",
@@ -94,7 +91,7 @@
    "markers": [
     "ROOT-CAUSE"
    ],
-   "instructions": "Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed."
+   "instructions": "Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed. What earlier fix attempts ruled out: {{data.learned}}"
   },
   {
    "id": "findings",
@@ -126,37 +123,26 @@
    "markers": [
     "E2E"
    ],
-   "instructions": "Write the fix plan for Gate F: the root cause, the evidence for it, the files to change, the approach, the risk, one alternative, and whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible across both apps or invisible to a unit test, else no). Fix the cause narrowly; no refactoring. The investigators' answers:\n{{data.report}}"
+   "instructions": "Write the fix plan for Gate F. Start with a \"Root cause:\" line (one or two sentences: it goes into the fix commit's body), then the evidence for it, the files to change, the approach, the risk, one alternative, and whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible across both apps or invisible to a unit test, else no). Fix the cause narrowly; no refactoring. The investigators' answers:\n{{data.report}}"
   },
   {
    "id": "plan_report",
    "kind": "code",
    "name": "plan for gate F",
    "phase": "bug-investigate",
-   "action": "report"
+   "action": "report+bug_plan"
   },
   {
    "id": "gate_f",
    "kind": "gate",
    "name": "gate F",
    "phase": "gate-f",
-   "back": "plan",
    "lock": true,
-   "choices": [
-    "fix",
-    "feature"
-   ]
-  },
-  {
-   "id": "missing_requirement",
-   "kind": "branch",
-   "name": "a missing requirement",
-   "phase": "gate-f",
-   "no": "fix",
-   "when": {
-    "marker": "CHOICE",
-    "equals": "feature",
-    "step": "gate_f"
+   "choices": {
+    "fix": "fix",
+    "investigate": "hypotheses",
+    "feature": "hand_feature",
+    "reject": "plan"
    }
   },
   {
@@ -187,6 +173,7 @@
    "name": "verify + commit",
    "phase": "bug-fix",
    "action": "verify_green+commit",
+   "back": "hypotheses",
    "lock": true,
    "rounds": 1,
    "after_rounds": "reset"
@@ -610,10 +597,10 @@
   {
    "id": "reset",
    "kind": "code",
-   "name": "reset and reproduce again",
+   "name": "reset and investigate again",
    "phase": "reset",
-   "action": "reset",
-   "then": "repro"
+   "action": "bug_reset",
+   "then": "hypotheses"
   }
  ],
  "expect": {
@@ -623,7 +610,6 @@
    "reproduced",
    "verify_repro",
    "gate_r",
-   "stop_r",
    "hypotheses",
    "investigate",
    "findings",
@@ -631,7 +617,6 @@
    "plan",
    "plan_report",
    "gate_f",
-   "missing_requirement",
    "fix",
    "verify_fix",
    "e2e_needed",
@@ -715,22 +700,10 @@
     "nodes": [
      {
       "step": "gate_r",
-      "side": []
-     },
-     {
-      "if": "stop_r",
-      "cond": "you chose stop at gate R",
-      "side": [],
-      "yes": {
-       "nodes": [
-        {
-         "step": "keep_test",
-         "side": []
-        }
-       ],
-       "side": true
-      },
-      "no": "go"
+      "side": [
+       "keep_test",
+       "drop_red"
+      ]
      }
     ]
    },
@@ -785,22 +758,9 @@
     "nodes": [
      {
       "step": "gate_f",
-      "side": []
-     },
-     {
-      "if": "missing_requirement",
-      "cond": "you chose feature at gate F",
-      "side": [],
-      "yes": {
-       "nodes": [
-        {
-         "step": "hand_feature",
-         "side": []
-        }
-       ],
-       "side": true
-      },
-      "no": "go"
+      "side": [
+       "hand_feature"
+      ]
      }
     ]
    },
@@ -1063,10 +1023,11 @@
   ],
   "orphans": [],
   "parent_of": {
+   "drop_red": "gate_r",
    "escalate": "confirmed",
    "escalated": "confirmed",
-   "hand_feature": "missing_requirement",
-   "keep_test": "stop_r",
+   "hand_feature": "gate_f",
+   "keep_test": "gate_r",
    "reset": "verify_fix",
    "to_diagnose": "reproduced"
   }

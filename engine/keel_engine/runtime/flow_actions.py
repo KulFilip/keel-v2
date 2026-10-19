@@ -3,7 +3,8 @@
     review_scope        review: the lens argument and the base ref → one item per reviewer (data.review_lenses)
     report              the answers of the flow's fan-out steps verbatim, plus a tally; shown at the next gate
     investigation_note  diagnose: docs/investigations/<date>-<slug>.md with every hypothesis, committed
-    bug_intake          fix: no_gates (gates.bug_gates: false) waives Gate R and F; needs_e2e from a seed
+    bug_intake          fix: the bug's id BUG-<n> as the flow's criterion (runtime/bug.py); no_gates (gates.bug_gates:
+                        false) waives Gate R and F; needs_e2e from a seed
     reset               fix: put back what keel's agents left uncommitted (never the user's own files)
     change_size         change: inline ACs as CHG-<n>.<m>, the size keel recommends, shown at the scope gate
     change_start        change: a small change runs with one gate at the end; staying small against advice is recorded
@@ -18,7 +19,7 @@ from pathlib import Path
 
 from .. import rules
 from ..tools import git
-from . import verdict_actions
+from . import bug, verdict_actions
 
 LENSES = ["correctness", "security", "performance", "architecture", "assertions"]
 # How often one gate may be sent back in a row before keel asks (settings.sendback_limit). 0.18.12: a fix question that
@@ -252,16 +253,19 @@ def investigation_note(a):
 # ------------------------------------------------------------------ fix
 
 def bug_intake(a):
-    """The bug report: keel v1 --no-gates (data.no_gates, or gates.bug_gates: false in .keel/config.yml) waives Gate R
-    and Gate F, recorded in the gate log and the PR body. A hunt seed's needs_e2e makes the regression e2e mandatory."""
+    """The bug report: keel v1 `keel state ac BUG-<n> --current`: the bug's id is the flow's criterion, so its test, its
+    commits (test(BUG-<n>), fix(BUG-<n>)) and trace --strict name it. keel v1 --no-gates (data.no_gates, or
+    gates.bug_gates: false in .keel/config.yml) waives Gate R and Gate F, recorded in the gate log and the PR body. A
+    hunt seed's needs_e2e makes the regression e2e mandatory."""
     cfg = rules.load_config(a.root)
     why = None
     if a.data.get("no_gates"):
         why = "no_gates option"
     elif (cfg.get("gates") or {}).get("bug_gates") is False:
         why = "gates.bug_gates: false"
-    update: dict = {"markers": _markers(a, {"E2E": "yes" if a.data.get("needs_e2e") else "no"})}
-    notes = ["bug report noted"]
+    update: dict = {"markers": _markers(a, {"E2E": "yes" if a.data.get("needs_e2e") else "no"}), **bug.register(a)}
+    found = bug.of(update["acs"]) or {}
+    notes = [f"bug report noted as {found.get('id')} [{found.get('layer', 'API')}]"]
     if why:
         gates = dict(a.state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         gates["skipped"] = {**(gates.get("skipped") or {}), "gate-r": f"bug gates waived ({why})",
@@ -353,4 +357,5 @@ def change_start(a):
 
 
 ACTIONS = {"review_scope": review_scope, "report": report, "investigation_note": investigation_note,
-           "bug_intake": bug_intake, "reset": reset, "change_size": change_size, "change_start": change_start}
+           "bug_intake": bug_intake, "reset": reset, "change_size": change_size, "change_start": change_start,
+           "bug_plan": bug.bug_plan, "bug_drop_red": bug.bug_drop_red, "bug_reset": bug.bug_reset}

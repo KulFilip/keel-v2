@@ -141,7 +141,7 @@ def test_fix_flow_and_init_flow(client, repo):
     tid = start(client, repo, workflow="fix", title="Average of one score is wrong")
     s, gates = run_to_done(client, tid, wait(client, tid))
     assert s["status"] == "done" and [g for g, _ in gates][:3] == ["gate_r", "gate_f", "ship_plan"]
-    assert any(line.startswith("fix(BUG)") for line in git_log(repo))
+    assert any(line.startswith("fix(BUG-1)") for line in git_log(repo))
 
     tid = start(client, repo, workflow="init", title="Set up keel")
     s, gates = run_to_done(client, tid, wait(client, tid))

@@ -1,4 +1,4 @@
-workflow fix "fix (keel)" - 56 steps, 7 gates
+workflow fix "fix (keel)" - 55 steps, 7 gates
 
 == Bug report: take in the bug report ==  id=bug-report
    #  bug report  (code bug_intake)
@@ -13,13 +13,13 @@ workflow fix "fix (keel)" - 56 steps, 7 gates
    #  verify red + commit  (code verify_red+commit)
 == Gate R: you confirm the bug is reproduced ==  id=gate-r
   [?] gate R  (gate, you decide)
-        choices: investigate / stop
-        send back -> bug-repro  (loops back)
-   <  stop at gate R  (branch) if you chose stop at gate R?
-      yes: side path
-      |   #  stop; the reproducing test stays on the branch  (code)
-      |        then -> end of the flow
-      no: go on
+        investigate -> hypotheses
+        reject -> drop the rejected test and reproduce again
+        stop -> stop; the reproducing test stays on the branch
+      \  #  stop; the reproducing test stays on the branch  (code)
+      \       then -> end of the flow
+      \  #  drop the rejected test and reproduce again  (code bug_drop_red)
+      \       then -> bug-repro  (loops back)
 == Investigate: find the root cause from evidence ==  id=bug-investigate
    o  hypotheses  (agent investigator)
    =  one investigator per hypothesis  (parallel)
@@ -33,23 +33,23 @@ workflow fix "fix (keel)" - 56 steps, 7 gates
       |   #  escalate the investigator's model once  (code escalate_model)
       |        then -> one investigator per hypothesis  (loops back)
    o  fix plan  (agent investigator)
-   #  plan for gate F  (code report)
+   #  plan for gate F  (code report+bug_plan)
 == Gate F: you approve the fix plan ==  id=gate-f
   [?] gate F  (gate, you decide)
-        choices: fix / feature
-        send back -> fix plan  (loops back)
-   <  a missing requirement  (branch) if you chose feature at gate F?
-      yes: side path
-      |   #  start the feature flow with the evidence  (code start_flow)
-      |        starts the feature flow
-      |        then -> end of the flow
-      no: go on
+        fix -> bug-fix
+        investigate -> hypotheses  (loops back)
+        feature -> start the feature flow with the evidence
+        reject -> fix plan  (loops back)
+      \  #  start the feature flow with the evidence  (code start_flow)
+      \       starts the feature flow
+      \       then -> end of the flow
 == Fix: fix the bug while the tests stay frozen ==  id=bug-fix
    o  bug-fix  (agent implementer)
    #  verify + commit  (code verify_green+commit)
-        after 1 round -> reset and reproduce again
-      \  #  reset and reproduce again  (code reset)
-      \       then -> bug-repro  (loops back)
+        fails -> hypotheses  (loops back)
+        after 1 round -> reset and investigate again
+      \  #  reset and investigate again  (code bug_reset)
+      \       then -> hypotheses  (loops back)
    <  regression e2e needed  (branch) if bug report or fix plan says E2E = yes?
       yes:
       |   o  regression e2e  (agent e2e-author)

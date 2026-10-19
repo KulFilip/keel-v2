@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
@@ -28,6 +28,7 @@ from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
 from . import choices as choices_mod
+from . import bug as bug_mod
 from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
 from . import tools as tool_runner
 from . import ladder as run_ladder
@@ -189,6 +190,8 @@ def cannot_run(a: ActionInput, cmd: str, out: str, what: str) -> ActionResult:
 
 
 async def verify_red(a: ActionInput) -> ActionResult:
+    if not a.ac and bug_mod.of(a.acs):
+        return await verify_bug_red(a, bug_mod.current(a))
     ac_id = (a.ac or {}).get("id") or "the bug"
     if a.fake:
         out = f"FAILED tests for {ac_id}\nAssertionError: expected '{ac_id} done' but was None"
@@ -228,9 +231,81 @@ async def verify_red(a: ActionInput) -> ActionResult:
                         {"acs": _with_ac_status(a.acs, (a.ac or {}).get("id"), "red")})
 
 
+async def verify_bug_red(a: ActionInput, bug: dict) -> ActionResult:
+    """The bug flow's red check (keel v1 `keel state repro-done`): only the bug's own test runs (BUG-<n>, in its layer:
+    a WEB reproducer runs the web test command), it must fail on an assertion, and the failure must be that test's: a
+    test that was failing before the flow started is not a reproduction. Gate R shows the test, the command and the
+    failure (`show`), and data.bug.test keeps file::name for the PR body."""
+    bid = bug["id"]
+    files = await asyncio.to_thread(bug_mod.changed_tests, a.root)
+    if a.fake:
+        out = f"AssertionError: {bid} still shows the symptom (simulated)"
+        cmd = f"(simulated) the {bug.get('layer', 'API')} test command for {bid}"
+        code = 1
+    else:
+        cmd, code, out = await _tests(replace(a, ac=bug))
+        if cmd is None:
+            return ActionResult(False, out, out)
+        if testcmd.cannot_run(code, out):
+            return cannot_run(a, cmd, out, "red")
+    hint = testcmd.name_hint(a.root, bid)
+    if not a.fake and (testcmd.ran_no_tests(out) or (code == 5 and "deselected" in out)):
+        return ActionResult(False, f"No test for {bid} ran, so the bug is not reproduced.",
+                            f"$ {cmd}\n{tail(out, 3000)}\nWrite a failing test whose name carries {bid}. {hint}")
+    if code == 0:
+        return ActionResult(False, f"The test for {bid} passes, so it does not reproduce the bug.",
+                            f"$ {cmd}\n{tail(out, 3000)}\nThe test must fail today with the symptom the report describes.")
+    failing = verdict_actions.failed_tests(out)
+    if failing and not any(bug_mod.named(n, bid) for n in failing):
+        return ActionResult(False, f"The failing test(s) are not {bid}'s: {', '.join(failing[:5])}. A test that was failing "
+                            "before is not a reproduction.",
+                            f"$ {cmd}\n{tail(out, 3000)}\nWrite a test named after {bid} that fails with the symptom. {hint}")
+    kind = rules.classify_failure(out)
+    if kind["kind"] == "setup":
+        return ActionResult(False, f"The test for {bid} fails from a setup problem, not an assertion (matched \"{kind['matched']}\").",
+                            f"$ {cmd}\n{tail(out, 3000)}")
+    test = bug_mod.find_test(a.root, bid, out, files)
+    sim = " (simulated)" if a.fake else ""
+    show = (f"{bid} [{bug.get('layer', 'API')}] is reproduced{sim}.\n\nReproducing test: {bug_mod.shown_test(test)}\n"
+            f"Command: {cmd}\n\nThe failure:\n{tail(out, 2500)}\n\n"
+            "investigate: this is the bug, find its cause. reject: not this bug; the test and its commit are dropped and "
+            "the reproducer writes a new one with your note. stop: stop here; the reproducing test stays on the branch.")
+    info = {**(a.data.get("bug") or {}), "id": bid, "layer": bug.get("layer", "API"),
+            "test": {**test, "command": cmd, "output": tail(out, 1500)}}
+    acs = [dict(x, status="red", layer=bug.get("layer", x.get("layer", "API"))) if x["id"] == bid else dict(x) for x in a.acs]
+    return ActionResult(True, f"{bid}: red confirmed ({bug_mod.shown_test(test)}){sim}.", f"$ {cmd}\n{tail(out, 3000)}",
+                        {"acs": acs, "show": show, "data": {**a.data, "bug": info}})
+
+
+async def _bug_green(a: ActionInput, bug: dict) -> ActionResult:
+    """The bug flow's fix check: the bug's own test passes, then the whole suite (keel v1 green-done + the module suite:
+    a fix that breaks other behaviour is a second bug)."""
+    bid = bug["id"]
+    cmd, code, out = await _tests(replace(a, ac=bug))
+    if cmd is None:
+        return ActionResult(False, out, out)
+    if testcmd.cannot_run(code, out):
+        return cannot_run(a, cmd, out, "green")
+    if testcmd.ran_no_tests(out) or (code == 5 and "deselected" in out):
+        return ActionResult(False, f"No test for {bid} ran, so the fix cannot be checked.", f"$ {cmd}\n{tail(out, 3000)}")
+    if code != 0:
+        return ActionResult(False, f"The test for {bid} still fails.", f"$ {cmd}\n{tail(out, 3000)}")
+    whole = await _whole_suite_green(a)
+    if not whole.ok:
+        return whole
+    acs = [dict(x, status="done") if x["id"] == bid else dict(x) for x in a.acs]
+    return ActionResult(True, f"{bid}: green; {whole.note}", f"$ {cmd}\n{tail(out, 1000)}\n{whole.detail}", {**whole.update, "acs": acs})
+
+
 async def verify_green(a: ActionInput) -> ActionResult:
     ac_id = (a.ac or {}).get("id")
     label = ac_id or "the suite"
+    bug = bug_mod.current(a) if not ac_id else None
+    if bug and a.fake:
+        return ActionResult(True, f"{bug['id']}: green (simulated).", "1 passed",
+                            {"acs": [dict(x, status="done") if x["id"] == bug["id"] else dict(x) for x in a.acs]})
+    if bug:
+        return await _bug_green(a, bug)
     if a.fake:
         return ActionResult(True, f"{label}: green (simulated).", "1 passed",
                             {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
@@ -461,11 +536,16 @@ def commit(a: ActionInput) -> ActionResult:
     rule = rules.COMMIT_RULES[ctype]
     bug = ctype in ("fix", "red") or (ctype == "e2e" and a.flow == "fix")
     named = "ci" if a.flow == "ci-fix" else {"review-fix": "review", "integration": "integration"}.get(a.phase)
-    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or a.ident or named or ("BUG" if bug else ""))
+    found = bug_mod.of(a.acs) if bug else None
+    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or a.ident or named or
+                                          (((found or {}).get("id") or "BUG") if bug else ""))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"
     message, body = commit_message(rules.commit_prefix(ctype, ident), subject)
+    if found and ctype == "fix" and a.phase == "bug-fix":
+        # keel v1 fix.md: the root cause goes in the body, not just the subject
+        body = "\n\n".join(x for x in (body, bug_mod.commit_body(a)) if x)
     extra = ["-m", body] if body else []
     ident, trailer = commit_args(a.root, a.settings, cfg)
     r = git.git(a.root, *ident, "commit", "-q", "-m", message, *extra, *trailer)

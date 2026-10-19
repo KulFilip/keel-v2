@@ -1,6 +1,10 @@
 # The bug flow: reproduce with a failing test, Gate R, investigate in parallel, Gate F (the plan unlocks production
 # code), fix, an optional regression e2e, then ship (its steps are included, ids ship_*).
 #
+# The bug's id BUG-<n> is the flow's criterion (bug_intake): the reproducing test is named after it, only that test
+# decides red (verify_red) and it must pass after the fix with the whole suite (verify_green); the commits are
+# test(BUG-<n>) and fix(BUG-<n>) (with the root cause in the body), so trace --strict and the PR body name it.
+#
 # Inputs (StartThread.data / a start_flow seed):
 #   no_gates            waives both gates and says so in the PR body (or gates.bug_gates: false in .keel/config.yml)
 #   recipe, symptoms    from diagnose or hunt; they go to the reproducer
@@ -30,10 +34,11 @@ steps:
     phase: bug-repro
     agent: reproducer
     model: default
-    markers: [REPRO]
+    markers: [REPRO, LAYER]
     instructions: >-
       Work from the symptom (and the reproduction recipe, when there is one) alone. Write the smallest failing test at
-      the lowest layer that shows it. Never weaken an assertion until something goes red.
+      the lowest layer that shows it, and name it after the bug's id {{data.bug.id}} so keel can run it alone. Never
+      weaken an assertion until something goes red. LAYER: WEB when your test is a web (frontend) test, else API.
 
   - id: reproduced
     kind: branch
@@ -54,29 +59,27 @@ steps:
 
   # ---- 2. Gate R: is this the bug? --------------------------------------------------------------------------------
 
+  # It shows the reproducing test (file::name), the command and the failure. reject (reproduce differently) drops the
+  # rejected test with its commit, so the next test replaces it instead of stacking a second one.
   - id: gate_r
     kind: gate
     name: gate R
     phase: gate-r
-    choices: [investigate, stop]
-    back: repro
+    choices: { investigate: hypotheses, reject: drop_red, stop: keep_test }
     lock: true
-
-  - id: stop_r
-    kind: branch
-    name: stop at gate R
-    phase: gate-r
-    when:
-      marker: CHOICE
-      equals: stop
-      step: gate_r
-    "no": hypotheses
 
   - id: keep_test
     kind: code
     name: stop; the reproducing test stays on the branch
     phase: gate-r
     then: end
+
+  - id: drop_red
+    kind: code
+    name: drop the rejected test and reproduce again
+    phase: bug-repro
+    action: bug_drop_red
+    then: repro
 
   # ---- 3. Investigate: hypotheses, one investigator each, the findings -------------------------------------------
 
@@ -88,8 +91,9 @@ steps:
     model: default
     collect: hypotheses
     instructions: >-
-      The failing test is committed (the test(BUG) commit). List two to four distinct plausible causes, each one
-      testable on its own. Do not investigate them yet.
+      The failing test is committed (the test({{data.bug.id}}) commit). List two to four distinct plausible causes,
+      each one testable on its own. Do not investigate them yet. What earlier fix attempts ruled out (do not list
+      those again): {{data.learned}}
 
   - id: investigate
     kind: parallel
@@ -102,7 +106,8 @@ steps:
     markers: [ROOT-CAUSE]
     instructions: >-
       Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only
-      queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed.
+      queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed. What earlier fix attempts
+      ruled out: {{data.learned}}
 
   - id: findings
     kind: code
@@ -129,10 +134,10 @@ steps:
     model: default
     markers: [E2E]
     instructions: >-
-      Write the fix plan for Gate F: the root cause, the evidence for it, the files to change, the approach, the risk,
-      one alternative, and whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible
-      across both apps or invisible to a unit test, else no). Fix the cause narrowly; no refactoring. The investigators'
-      answers:
+      Write the fix plan for Gate F. Start with a "Root cause:" line (one or two sentences: it goes into the fix
+      commit's body), then the evidence for it, the files to change, the approach, the risk, one alternative, and
+      whether a regression end-to-end test is needed (E2E: yes when the bug was user-visible across both apps or
+      invisible to a unit test, else no). Fix the cause narrowly; no refactoring. The investigators' answers:
 
       {{data.report}}
 
@@ -140,27 +145,18 @@ steps:
     kind: code
     name: plan for gate F
     phase: bug-investigate
-    action: report
+    action: report+bug_plan
 
   # ---- 4. Gate F: the plan unlocks production code (or it is a missing requirement) -------------------------------
 
+  # fix: the plan is right. investigate: the cause is not proven yet, new hypotheses (with your note). feature: a
+  # missing requirement. reject: change the approach, the plan is written again with your note.
   - id: gate_f
     kind: gate
     name: gate F
     phase: gate-f
-    choices: [fix, feature]
-    back: plan
+    choices: { fix: fix, investigate: hypotheses, feature: hand_feature, reject: plan }
     lock: true
-
-  - id: missing_requirement
-    kind: branch
-    name: a missing requirement
-    phase: gate-f
-    when:
-      marker: CHOICE
-      equals: feature
-      step: gate_f
-    "no": fix
 
   - id: hand_feature
     kind: code
@@ -187,7 +183,8 @@ steps:
 
       {{data.report}}
 
-  # Fails twice: no third try in the same context. Reset (keel's uncommitted changes go back) and reproduce again.
+  # keel v1 fix.md: the first failure means the cause was wrong, so it goes back to the investigation (and Gate F); the
+  # second resets (keel's uncommitted changes go back, what was learned is kept) and investigates again.
   - id: verify_fix
     kind: code
     name: verify + commit
@@ -195,6 +192,7 @@ steps:
     action: verify_green+commit
     lock: true
     rounds: 1
+    back: hypotheses
     after_rounds: reset
 
   # ---- 6. Regression e2e, when the plan (or the request) says it is needed ----------------------------------------
@@ -273,7 +271,7 @@ steps:
 
   - id: reset
     kind: code
-    name: reset and reproduce again
+    name: reset and investigate again
     phase: reset
-    action: reset
-    then: repro
+    action: bug_reset
+    then: hypotheses
