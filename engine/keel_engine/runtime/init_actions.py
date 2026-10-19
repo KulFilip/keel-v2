@@ -221,9 +221,13 @@ def _rung_report(a: ActionInput) -> ActionResult:
     return ActionResult(True, note, update={"data": data})
 
 
-# A fix keel never runs, even when the person chose apply_fix: it deletes data or history (the doctor is told so too).
-DESTRUCTIVE = re.compile(r"\brm\s+-[a-z]*[rf]|\bgit\s+(reset|clean|checkout|push)\b|\bdocker\s+(system|volume|image)\s+(prune|rm)\b"
-                         r"|\bdocker\s+compose\s+down\s+.*-v\b|\bmkfs\b|\bdd\s+if=|\bdrop\s+(database|table)\b|\bsudo\b", re.I)
+# A fix keel never runs, even when the person chose apply_fix: the guard's destructive commands (rules.DESTRUCTIVE, every
+# phase), and on top of them for a setup fix any rm -f, git reset / clean / checkout / push (the doctor is told so too).
+SETUP_ONLY = re.compile(r"\brm\s+-[a-z]*f|\bgit\s+(reset|clean|checkout|push)\b", re.I)
+
+
+def _destructive(cmd: str) -> bool:
+    return bool(rules.destructive(cmd) or SETUP_ONLY.search(cmd))
 
 
 def _apply_fix(a: ActionInput, cmds: list[str]) -> str:
@@ -235,7 +239,7 @@ def _apply_fix(a: ActionInput, cmds: list[str]) -> str:
     cfg = rules.load_config(a.root)
     out = []
     for cmd in cmds:
-        if DESTRUCTIVE.search(cmd):
+        if _destructive(cmd):
             out.append(f"$ {cmd}\nrefused: keel does not run a command that deletes data or history; run it yourself "
                        "if you are sure, then choose retry")
             break

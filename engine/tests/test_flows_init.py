@@ -104,8 +104,8 @@ def test_a_rung_without_a_proposed_command_offers_no_apply_and_a_destructive_fix
     assert "DIAGNOSIS: needs-you" in s["waiting"]["detail"]
     assert init_actions.fix_commands("x\n```keel-fix\n# start it\n$ docker compose up -d db\n\nnpm ci\n```") == \
         ["docker compose up -d db", "npm ci"]
-    assert init_actions.DESTRUCTIVE.search("rm -rf node_modules") and init_actions.DESTRUCTIVE.search("git reset --hard")
-    assert not init_actions.DESTRUCTIVE.search("docker compose up -d")
+    assert init_actions._destructive("rm -rf node_modules") and init_actions._destructive("git reset --hard")
+    assert not init_actions._destructive("docker compose up -d")
 
 
 def test_audit_now_can_start_a_hunt(client, repo, monkeypatch):
