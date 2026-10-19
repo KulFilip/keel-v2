@@ -201,20 +201,56 @@ def dependency_name(line: str) -> str:
 
 # ---------------------------------------------------------------- escalation (lib/cli.js triggers)
 
+# The flows a commit checks the triggers in (keel v1 small.md: on every commit of a small change). quick and small
+# are v2's own small flows: a migration, the contract or auth stops them the same way.
+ESCALATING_FLOWS = ("change", "quick", "small")
+_LOGGED = re.compile(r"^escalation-(override|suggest) \[([^\]]*)\]")
+
+
 def triggers(cfg: dict, files: list[str]) -> list[dict]:
+    """Each trigger the files trip: {id, must, why}. must asks escalate-or-override; a suggest one is a note."""
     change = cfg.get("change") or {}
     out = []
     buckets = [classify(cfg, f) for f in files]
     if "contract" in buckets:
-        out.append({"must": True, "why": "the API contract changed"})
+        out.append({"id": "contract", "must": True, "why": "the API contract changed"})
     if "migration" in buckets:
-        out.append({"must": True, "why": "a migration was added or changed"})
+        out.append({"id": "migration", "must": True, "why": "a migration was added or changed"})
     if any(match_glob(f, change.get("auth_paths") or []) for f in files):
-        out.append({"must": True, "why": "auth or security code changed"})
+        out.append({"id": "auth", "must": True, "why": "auth or security code changed"})
     if any(b.startswith("api") for b in buckets) and any(b.startswith("web") for b in buckets):
-        out.append({"must": False, "why": "both apps changed"})
+        out.append({"id": "both-apps", "must": False, "why": "both apps changed"})
     limit = int(change.get("size_limits_files") or 10)
     if len(files) > limit:
         # keel v1 only advises on size; the v2 contract lists size among the escalation triggers.
-        out.append({"must": True, "why": f"{len(files)} files changed (limit {limit})"})
+        out.append({"id": "size", "must": True, "why": f"{len(files)} files changed (limit {limit})"})
     return out
+
+
+def logged(gates_log: list[str], kind: str) -> set[str]:
+    """The trigger ids the gate log already holds as `escalation-<kind> [id, id]: ...` lines."""
+    out: set[str] = set()
+    for line in gates_log or []:
+        m = _LOGGED.match(str(line))
+        if m and m.group(1) == kind:
+            out |= {x.strip() for x in m.group(2).split(",") if x.strip()}
+    return out
+
+
+def escalation(cfg: dict, files: list[str], gates_log: list[str]) -> tuple[list[dict], list[dict]]:
+    """(must triggers to ask about, suggest triggers to note) for one commit. An override silences only the triggers it
+    was given for (keel v1 escalate.md), not every later one; a suggest trigger is noted once."""
+    found = triggers(cfg, files)
+    over, noted = logged(gates_log, "override"), logged(gates_log, "suggest")
+    return ([t for t in found if t["must"] and t["id"] not in over],
+            [t for t in found if not t["must"] and t["id"] not in noted])
+
+
+def override_line(ids: list[str], why: str) -> str:
+    return f"escalation-override [{', '.join(ids)}]: {why}"
+
+
+def suggest_lines(suggest: list[dict]) -> list[str]:
+    # "no gate here" puts the line in the final review and the PR body beside the other gates nobody was asked at
+    return [f"escalation-suggest [{t['id']}]: {t['why']} (no gate here: a suggest trigger, shown once, it does not block)"
+            for t in suggest]

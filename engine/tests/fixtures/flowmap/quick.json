@@ -16,7 +16,7 @@
    "agent": "implementer",
    "model": "default",
    "phase": "ac",
-   "instructions": "Make the requested change with the least code, and only in the files it needs. Add a test that proves it, or change the test that covers it; if the change cannot be tested (a text, a doc, a comment), say so in one line and add none. Run the tests you touched. Do not refactor, rename or tidy anything else. When it is bigger than a small change (a new page, a migration, the API contract, several parts), stop and say so: it needs the small or the feature flow."
+   "instructions": "Test first: write the test that proves the requested change (or change the test that covers it) and run it; it must fail, for the reason the change fixes, before you touch the code. Then make the change with the least code, only in the files it needs, and run the tests you touched again. If the change cannot be tested (a text, a doc, a comment), add no test and end with one line \"UNTESTABLE: <why>\". Do not refactor, rename or tidy anything else. When it is bigger than a small change (a new page, a migration, the API contract, several parts), stop and say so: it needs the small or the feature flow."
   },
   {
    "id": "verify",
@@ -33,7 +33,7 @@
    "kind": "code",
    "name": "the diff for your look",
    "phase": "ac",
-   "action": "show_diff"
+   "action": "show_diff+test_check"
   },
   {
    "id": "look",

@@ -37,6 +37,7 @@ from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
 from ..models.stream import DeltaThrottle
+from ..rules import checks as rule_checks
 from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
@@ -1780,7 +1781,8 @@ class Compiler:
                         "note": "escalated: start a feature flow for this work"}, END
             return {**upd, **r2.update, "gates": gates, "status": "done", "ac": None,
                     "note": f"escalated: {r2.note}"[:300]}, END
-        gates["log"].append(f"escalation-override: {why or q['why']}")
+        # 0.19.x the override names its triggers: it silences those, not a different one a later commit trips
+        gates["log"].append(rule_checks.override_line(q.get("ids") or [], why or q["why"]))
         return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
 
     async def _ladder(self, count: int, i: int, step: Step, state: FlowState, target: str, feedback: str) -> tuple[str, dict, str]:
@@ -1912,7 +1914,7 @@ class Compiler:
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
         lp = self.nav.loop_of(i)
         ladder = bool(step.per_ac and lp and lp.per_ac and ac and target and not step.after_rounds)
-        if target and count <= attempts:
+        if target and count <= attempts and not r.final:
             retries[key] = count
             if ladder:
                 fb, more, did = await self._ladder(count, i, step, {**state, **upd}, target, feedback)

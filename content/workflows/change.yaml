@@ -7,7 +7,9 @@ version: 1
 # touches the contract, a migration or auth, needs more criteria, or rests on outside docs the repo does not hold (0.18.21:
 # the feature flow researches those on the web) → a feature flow with the inline criteria.
 # A commit that trips an escalation trigger asks again: escalate (feature flow, commits kept) or stay small with a
-# reason (recorded as escalation-override, shown in the PR body).
+# reason (recorded as escalation-override [trigger], shown in the PR body); the reason covers only the triggers it was
+# given for, a different one later asks again. A suggest trigger (both apps changed) is noted once at the end gate and
+# in the final review; it does not block.
 steps:
   - id: triage
     kind: agent
@@ -46,8 +48,9 @@ steps:
     instructions: >-
       Make the change. Nothing observable may change: do not touch existing tests, the contract or migrations. If the
       change needs an existing test edited, it is not trivial: stop and say so.
-  # keel refuses a "trivial" commit that edits an existing test: then it was not trivial, so triage again.
-  - { id: trivial_commit, kind: code, name: verify + trivial commit, action: verify_green+commit, lock: true, phase: trivial, rounds: 1, after_rounds: not_trivial, then: ship_plan }
+  # keel refuses a "trivial" commit that edits an existing test: then it was not trivial, so triage again at once. A
+  # red suite is only a failed try: two more rounds with the implementer before the work is put back and triaged again.
+  - { id: trivial_commit, kind: code, name: verify + trivial commit, action: verify_green+commit, lock: true, phase: trivial, rounds: 2, after_rounds: not_trivial, then: ship_plan }
   - { id: small, kind: code, name: small change, action: change_start, phase: small-change, rounds: 1, back: triage }
   - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true }
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }

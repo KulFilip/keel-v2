@@ -8,7 +8,8 @@ from pathlib import Path
 from conftest import decide, start, wait
 from test_flows_base import answers, values, wf
 from test_flows_cover_ship import script, ship_plan, skip_all_but_reviews
-from test_v02 import commit_all, configure, git, log, write
+from test_v02 import ai, commit_all, configure, git, log, write
+from keel_engine.models import fake as fake_mod
 from keel_engine.runtime import actions as actions_mod
 from keel_engine.runtime.compiler import stronger
 from keel_engine.workflows.templates import get_template
@@ -37,6 +38,10 @@ def through_ship(client, tid, s):
     assert s["waiting"]["step"] == "ship_pr_gate", s
     body = s["waiting"]["detail"]
     return decide(client, tid), body
+
+
+def fake_plan():
+    return fake_mod._plan
 
 
 def child(client, s, workflow):
@@ -350,16 +355,82 @@ def test_change_trivial_that_is_not_trivial_goes_back_to_triage(client, repo, mo
 
     def commit(a):
         if a.phase == "trivial":
-            return actions_mod.ActionResult(False, "This is not a trivial change: it edits existing tests.", "tests/test_scores.py")
+            return actions_mod.ActionResult(False, "This is not a trivial change: it edits existing tests.", "tests/test_scores.py",
+                                            final=True)
         return real(a)
     monkeypatch.setattr(actions_mod, "commit", commit)
     tid = start(client, repo, workflow="change", title="Rename the helper")
     wait(client, tid)
     s = decide(client, tid, "approve", payload={"choice": "trivial"})
     assert s["waiting"]["step"] == "scope_gate", s
-    assert [r.agent for r in seen] == ["explorer", "implementer", "implementer", "explorer"]
+    # the refusal is final: no second try in the same place, straight back to triage
+    assert [r.agent for r in seen] == ["explorer", "implementer", "explorer"]
     assert "edits existing tests" in seen[-1].prompt
     assert git(repo, "status", "--porcelain").stdout.strip() == ""      # the trivial agent's edit was put back
+
+
+def test_change_trivial_red_suite_retries_before_retriage(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {"explorer": lambda r: "A rename; no test could notice.\nSIZE: trivial"})
+    script(monkeypatch, ship_plan())
+    real = actions_mod.verify_green
+    left = {"n": 2}
+
+    async def verify_green(a):
+        if a.phase == "trivial" and left["n"]:
+            left["n"] -= 1
+            return actions_mod.ActionResult(False, "1 test fails: test_rank", "AssertionError")
+        return await real(a)
+    monkeypatch.setattr(actions_mod, "verify_green", verify_green)
+    tid = start(client, repo, workflow="change", title="Rename the helper")
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload={"choice": "trivial"})
+    # a red suite is a failed try, not "not trivial": two more rounds with the implementer, the work is kept
+    assert s["waiting"]["step"] == "ship_plan", s
+    assert [r.agent for r in seen] == ["explorer", "implementer", "implementer", "implementer"]
+    assert "1 test fails: test_rank" in seen[-1].prompt and "refactor: Rename the helper" in log(repo)
+
+
+def test_change_override_is_per_trigger(client, repo, monkeypatch):
+    configure(repo, "change: {auth_paths: ['src/scores/**']}\n")
+    real = fake_plan()
+
+    def plan(req):
+        if req.agent == "implementer" and (req.ac or {}).get("id") == "CHG-1.2":
+            return "db/migration/V9__ranks.sql", "alter table scores add column rank int;\n", "GREEN: CHG-1.2 passes.", {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+    tid = start(client, repo, workflow="change", title="Tweak ranks")
+    wait(client, tid)
+    s = decide(client, tid)
+    assert s["waiting"]["title"] == "Escalate to a feature flow?" and "auth" in s["waiting"]["detail"], s
+    s = decide(client, tid, "reject", why="it is a one-line helper")
+    assert "escalation-override [auth]: it is a one-line helper" in s["gate_log"]
+    # CHG-1.2 adds a migration: the auth override does not cover it, so keel asks again (auth stays silenced)
+    for _ in range(6):
+        if s["waiting"]["title"] == "Escalate to a feature flow?":
+            break
+        s = decide(client, tid)
+    assert s["waiting"]["title"] == "Escalate to a feature flow?", s
+    assert "migration" in s["waiting"]["detail"] and "auth" not in s["waiting"]["detail"]
+
+
+def test_change_suggest_trigger_shown_not_blocking(repo):
+    from keel_engine.rules import checks
+    from keel_engine.runtime.actions import commit
+    write(repo, "apps/api/src/Rank.kt", "class Rank\n")
+    write(repo, "apps/web/src/Rank.tsx", "export const Rank = 1;\n")
+    gates = {"mode": "end", "log": [], "skipped": {}}
+    a = ai(repo, "trivial", flow="change", state={"gates": gates})
+    r = commit(a)
+    assert r.ok and "suggest: both apps changed (not blocking)" in r.note, r
+    line = r.update["gates"]["log"][-1]
+    assert line.startswith("escalation-suggest [both-apps]: both apps changed") and "no gate here" in line
+    # shown once: the next commit that changes both apps again says nothing more
+    write(repo, "apps/api/src/Rank.kt", "class Rank2\n")
+    write(repo, "apps/web/src/Rank.tsx", "export const Rank = 2;\n")
+    r2 = commit(ai(repo, "trivial", flow="change", gates_log=r.update["gates"]["log"], state={"gates": r.update["gates"]}))
+    assert r2.ok and "suggest" not in r2.note and "gates" not in r2.update
+    assert checks.escalation({}, ["apps/api/a.kt"], [])[1] == []
 
 
 def test_change_choosing_feature_hands_the_inline_criteria_over(client, repo, monkeypatch):

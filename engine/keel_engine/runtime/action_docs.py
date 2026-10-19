@@ -331,6 +331,10 @@ DOCS: dict[str, dict] = {
     "show_diff": {
         "summary": "Prepares the diff the next gate shows: keel's uncommitted change, else the branch diff.",
     },
+    "test_check": {
+        "summary": "quick: the change comes with a test, or the agent's UNTESTABLE: line says why not; neither leads "
+                   "the look gate's diff with a warning (the person decides, nothing is refused).",
+    },
     "security_scope": {
         "summary": "Makes the security items: the auditor always, the dependency triager only when verify deps found "
                    "something.",
@@ -419,10 +423,6 @@ DOCS: dict[str, dict] = {
             "an older commit is flagged stale with the files changed since.",
         ],
     },
-    # ---------------------------------------------------------------- init (init_actions.py)
-    "arch_detect": {
-        "summary": "Detects the architecture style; low confidence asks the arch-surveyor (not in fast mode).",
-        "steps": ["Scores the folder layout and imports for hexagonal, DDD, layered, MVC and feature-sliced styles.",
     "hunt_preview": {
         "summary": "hunt-next: what take would hand over (top group, severity, symptoms, a stale verdict) for the next gate; "
                    "nothing is marked.",
@@ -434,6 +434,10 @@ DOCS: dict[str, dict] = {
         "summary": "Before the provers: checks the stack's health (starts commands.services once when it is down); "
                    "still down, the stack gate asks recheck, prove anyway or stop.",
     },
+    # ---------------------------------------------------------------- init (init_actions.py)
+    "arch_detect": {
+        "summary": "Detects the architecture style; low confidence asks the arch-surveyor (not in fast mode).",
+        "steps": ["Scores the folder layout and imports for hexagonal, DDD, layered, MVC and feature-sliced styles.",
                   "Low confidence (and not fast): one arch-surveyor item, which ends with ARCH: <style> <confidence>."],
     },
     "arch_set": {
