@@ -421,6 +421,102 @@ def test_no_e2e_criteria_no_e2e_and_smoke_checks_run_with_their_gate(client, rep
     assert s["waiting"]["step"] == "smoke_gate" and len([r for r in seen if r.phase == "smoke"]) == 2
 
 
+def test_e2e_and_smoke_criteria_are_criteria_but_not_built_in_the_loop(client, repo, monkeypatch):
+    """[E2E] and [SMOKE] are criteria: on the spec gate and the final trace, never a RED/GREEN round of their own; the
+    e2e and smoke commits say which criteria they cover, and passing them finishes those criteria."""
+    configure(repo, "version: 4\ncommands:\n  e2e: \"true\"\n")
+    spec_with(monkeypatch, "- **AC-3** [E2E] Given two players, when the board opens, then both ranks show.",
+              "- **AC-4** [SMOKE] the health check answers UP")
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = wait(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "spec_gate" and "- AC-3 [E2E] Given two players" in w["detail"] and "- AC-4 [SMOKE]" in w["detail"]
+    assert [a["id"] for a in values(client, tid)["acs"]] == ["AC-1", "AC-2", "AC-3", "AC-4"]
+    s = to(client, tid, s, "ship_final_review", SHIP)
+    red = {r.ac["id"] for r in seen if r.phase == "red"}
+    assert red == {"AC-1", "AC-2"}, "the loop builds only the [API] criteria"
+    assert {r.ac["id"] for r in seen if r.agent == "ac-reviewer"} == {"AC-1", "AC-2"}
+    e2e = git(repo, "log", "--format=%s%n%b", "--grep=^e2e:", "-1").stdout
+    assert "Covers: AC-3" in e2e and "AC-3" in (Path(repo) / "e2e/test_player_ranks_e2e.py").read_text()
+    smoke = git(repo, "log", "--format=%s%n%b", "--grep=^test(smoke)", "-1").stdout
+    assert "Covers: AC-4" in smoke
+    assert {a["id"]: a["status"] for a in values(client, tid)["acs"]} == {"AC-1": "done", "AC-2": "done", "AC-3": "done", "AC-4": "done"}
+    detail = s["waiting"]["detail"]
+    assert "| AC-3 | E2E | done |" in detail and "test file e2e/test_player_ranks_e2e.py" in detail and "| AC-4 | SMOKE |" in detail
+
+
+def test_parse_acs_reads_e2e_and_smoke_tags():
+    from keel_engine.runtime import prompts
+    acs = prompts.parse_acs("- **AC-1** [API] the list answers\n- **AC-2:** [E2E] the journey works end to end\n"
+                            "- AC-3 - [smoke] the health check answers UP\n- AC-4 [DOCS] not a layer keel knows\n")
+    assert [(a["id"], a["layer"]) for a in acs] == [("AC-1", "API"), ("AC-2", "E2E"), ("AC-3", "SMOKE")]
+    from keel_engine import rules
+    assert [rules.in_ac_loop(a) for a in acs] == [True, False, False]
+    # an [E2E] criterion last in the build order never holds the "end" gate of the loop
+    assert rules.gate_due("end", acs, "AC-1")["due"] is True
+
+
+PLANNED = """# Ranks
+
+## Acceptance criteria
+
+- **AC-1** [API] the list answers with ranks
+- **AC-10** [API] ties share a rank
+
+## Plan
+
+ORDER: AC-10, AC-1
+
+| AC | files | test layer |
+|---|---|---|
+| AC-1 | src/scores/ranks.py | unit, tests/test_ranks.py |
+| AC-10 | src/scores/ties.py | unit |
+
+### AC-1
+- reuse the scorer in src/scores/__init__.py:12
+
+- AC-1 depends on: AC-10
+
+## Out of scope
+
+- paging (AC-1 shows every player)
+"""
+
+
+def test_red_and_green_prompts_carry_the_criterion_s_plan_row(tmp_path):
+    from keel_engine.runtime import prompts
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/ranks.md").write_text(PLANNED)
+    row = prompts.plan_row(PLANNED, "AC-1")
+    assert "| AC-1 | src/scores/ranks.py |" in row and "reuse the scorer" in row and "AC-1 depends on: AC-10" in row
+    assert "ties.py" not in row and "ORDER" not in row and "paging" not in row
+    assert prompts.plan_row(PLANNED, "AC-7") == "" and prompts.plan_row("# no plan", "AC-1") == ""
+    ac = {"id": "AC-1", "layer": "API", "title": "the list answers with ranks", "depends_on": ["AC-10"]}
+    for agent, phase in (("test-author", "red"), ("implementer", "green")):
+        p = prompts.task_prompt(agent=agent, phase=phase, step_name=phase, title="t", root=str(tmp_path), ac=ac,
+                                acs=[ac], feedback=None, spec="docs/ranks.md")
+        assert "The plan for AC-1" in p and "src/scores/ranks.py" in p and "Built after: AC-10" in p, agent
+    p = prompts.task_prompt(agent="ac-reviewer", phase="gate", step_name="AC review", title="t", root=str(tmp_path),
+                            ac=ac, acs=[ac], feedback=None, spec="docs/ranks.md")
+    assert "The plan for AC-1" not in p
+
+
+def test_the_ac_reviewer_prompt_names_the_red_and_green_shas(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    to(client, tid, wait(client, tid), "ac_gate", SHIP)
+    review = [r for r in seen if r.agent == "ac-reviewer"][0]
+    aid = review.ac["id"]
+    red = git(repo, "log", "--format=%H", f"--grep=test({aid})", "-F", "-1").stdout.strip()
+    green = git(repo, "log", "--format=%H", f"--grep=feat({aid})", "-F", "-1").stdout.strip()
+    assert red and green
+    assert f"RED commit of {aid}: {red}" in review.prompt and f"GREEN commit of {aid}: {green}" in review.prompt
+    assert f"git show {red} and git show {green}" in review.prompt
+    from keel_engine.runtime import prompts
+    assert "none found" in prompts.review_commits("AC-9", None)
+
+
 # ------------------------------------------------------------------ the options menu and waived gates
 
 def test_the_options_menu_skips_security_with_a_reason(client, repo, monkeypatch):

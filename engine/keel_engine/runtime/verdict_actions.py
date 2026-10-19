@@ -576,25 +576,75 @@ def _audit(a):
 
 # ------------------------------------------------------------------ trace
 
-def trace_rows(root: str, acs: list[dict], base: str | None = None) -> list[dict]:
-    """AC -> test commit (test(AC-n)) -> implementation commit (feat(AC-n) / fix(AC-n)), from the commit subjects."""
+def _branch_log(root: str, base: str | None) -> list[tuple[str, str, str]]:
+    """(sha, subject, body) of the branch's commits, newest first."""
     rng = [f"{base}..HEAD"] if base else ["--max-count=500"]
-    log = [l.partition("\t") for l in git.git(root, "log", *rng, "--format=%H%x09%s").stdout.splitlines() if l.strip()]
+    out = git.git(root, "log", *rng, "--format=%H%x1f%s%x1f%b%x1e").stdout or ""
+    rows = []
+    for entry in out.split("\x1e"):
+        parts = entry.strip("\n").split("\x1f")
+        if parts and parts[0].strip():
+            rows.append((parts[0].strip(), parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else ""))
+    return rows
+
+
+def ac_commits(root: str, ac_id: str, base: str | None = None) -> dict:
+    """{"red": sha, "green": sha} of one criterion: its newest test(AC-n) and feat(AC-n) / fix(AC-n) commits (None when
+    there is none). The AC reviewer is given these two (content/agents/ac-reviewer.md)."""
+    if not ac_id or not git.is_repo(root):
+        return {"red": None, "green": None}
+    log = _branch_log(root, base)
+    return {"red": next((sha for sha, s, _b in log if f"test({ac_id})" in s), None),
+            "green": next((sha for sha, s, _b in log if f"feat({ac_id})" in s or f"fix({ac_id})" in s), None)}
+
+
+OWN_STEP_LAYERS = {"E2E": "e2e", "SMOKE": "smoke"}     # criteria built by their own step, not by RED/GREEN
+
+
+def _named_test(root: str, folder: str | None, ac_id: str) -> str | None:
+    """The first tracked file under the e2e (or smoke) folder that names this criterion id."""
+    if not folder:
+        return None
+    r = git.git(root, "grep", "-l", "-w", "-F", "-e", ac_id, "--", folder.rstrip("/") + "/")
+    return next((f.strip() for f in (r.stdout or "").splitlines() if f.strip()), None)
+
+
+def trace_rows(root: str, acs: list[dict], base: str | None = None) -> list[dict]:
+    """AC -> test commit (test(AC-n)) -> implementation commit (feat(AC-n) / fix(AC-n)), from the commit subjects.
+    An [E2E] or [SMOKE] criterion: the e2e / smoke commit whose "Covers:" line names it, and the test file under the
+    e2e / smoke folder that names its id (that file is what makes it complete)."""
+    log = _branch_log(root, base)
+    cfg = None
     rows = []
     for ac in acs or []:
         aid = ac["id"]
-        red = next((sha for sha, _, s in log if f"test({aid})" in s), None)
-        green = next((sha for sha, _, s in log if f"feat({aid})" in s or f"fix({aid})" in s), None)
+        layer = str(ac.get("layer") or "API").upper()
+        row = {"id": aid, "layer": ac.get("layer", "API"), "title": ac.get("title", ""), "status": ac.get("status", "todo")}
+        if layer in OWN_STEP_LAYERS:
+            cfg = cfg or rules.load_config(root)
+            named = re.compile(rf"(?m)^Covers:.*(?<![\w-]){re.escape(aid)}(?![\w.-])")
+            sha = next((sha for sha, _s, body in log if named.search(body)), None)
+            test = _named_test(root, (cfg.get(OWN_STEP_LAYERS[layer]) or {}).get("dir"), aid)
+            # a smoke check is often a plain script with no id in it: its smoke commit's Covers: line is enough
+            done = bool(test) or (layer == "SMOKE" and bool(sha))
+            rows.append({**row, "test": sha[:7] if sha else None, "commit": None, "file": test, "complete": done})
+            continue
+        red = next((sha for sha, s, _b in log if f"test({aid})" in s), None)
+        green = next((sha for sha, s, _b in log if f"feat({aid})" in s or f"fix({aid})" in s), None)
         met = ac.get("status") == "already-met"
-        rows.append({"id": aid, "layer": ac.get("layer", "API"), "title": ac.get("title", ""), "status": ac.get("status", "todo"),
-                     "test": red[:7] if red else None, "commit": green[:7] if green else None,
+        rows.append({**row, "test": red[:7] if red else None, "commit": green[:7] if green else None,
                      "complete": bool(red) and (bool(green) or met)})
     return rows
 
 
 def trace_table(rows: list[dict]) -> str:
     out = ["| AC | layer | status | test commit | implementation |", "|---|---|---|---|---|"]
-    out += [f"| {r['id']} | {r['layer']} | {r['status']} | {r['test'] or '—'} | {r['commit'] or '—'} |" for r in rows]
+    for r in rows:
+        if str(r.get("layer") or "").upper() in OWN_STEP_LAYERS:
+            impl = f"test file {r['file']}" if r.get("file") else "no test names it"
+        else:
+            impl = r["commit"] or "—"
+        out.append(f"| {r['id']} | {r['layer']} | {r['status']} | {r['test'] or '—'} | {impl} |")
     return "\n".join(out)
 
 
@@ -611,8 +661,12 @@ def _trace(a, strict: bool):
         return _result(None, "Trace: this flow has no acceptance criteria to trace.")
     cfg = rules.load_config(a.root)
     rows = trace_rows(a.root, a.acs, base_ref(a.root, cfg, a.base))
-    untested = [r["id"] for r in rows if not r["test"] and r["status"] != "already-met"]
-    unbuilt = [r["id"] for r in rows if r["test"] and not r["commit"] and r["status"] != "already-met"]
+    own = [r for r in rows if str(r.get("layer") or "").upper() in OWN_STEP_LAYERS]
+    loop = [r for r in rows if r not in own]
+    untested = [r["id"] for r in loop if not r["test"] and r["status"] != "already-met"]
+    # an [E2E] criterion is tested when a test under the e2e folder names its id ([SMOKE]: or its smoke commit does)
+    untested += [r["id"] for r in own if not r["complete"]]
+    unbuilt = [r["id"] for r in loop if r["test"] and not r["commit"] and r["status"] != "already-met"]
     ok = not untested if strict else True
     summary = (f"{len(rows) - len(untested)}/{len(rows)} AC(s) have a test commit"
                + (f"; no test commit: {', '.join(untested)}" if untested else "")

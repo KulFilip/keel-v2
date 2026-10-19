@@ -467,6 +467,10 @@ def commit(a: ActionInput) -> ActionResult:
         subject = "keel init"
     message, body = commit_message(rules.commit_prefix(ctype, ident), subject)
     extra = ["-m", body] if body else []
+    scope = a.data.get(a.phase) if a.phase in ("e2e", "smoke") else None
+    if isinstance(scope, dict) and scope.get("covers"):
+        # the [E2E] / [SMOKE] criteria these tests cover: the trace finds them here (verdict_actions.trace_rows)
+        extra += ["-m", "Covers: " + ", ".join(scope["covers"])]
     ident, trailer = commit_args(a.root, a.settings, cfg)
     r = git.git(a.root, *ident, "commit", "-q", "-m", message, *extra, *trailer)
     if r.returncode != 0:

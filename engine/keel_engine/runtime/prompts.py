@@ -10,7 +10,7 @@ from ..tools import testcmd
 from functools import lru_cache
 
 from .. import addons, config, extensions, rules
-from . import agent_knowledge, stacks
+from . import agent_knowledge, spec_check, stacks
 
 # Roles for agents that have no file in content/agents.
 BUILTIN_ROLES = {
@@ -106,7 +106,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
                 section: str | None = None, unlocks: list[dict] | None = None, request: str = "",
                 knowledge: dict | None = None, graph: bool = False, item: dict | None = None, pid: str = "",
-                writes_spec: bool = True) -> str:
+                writes_spec: bool = True, ac_commits: dict | None = None) -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
@@ -186,6 +186,17 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     if phase in ("spec", "triage") and not stacks.has_web_layer(root):
         lines.append(NO_WEB)
     test_cmd = testcmd.shown(*testcmd.located(root, ac["id"], ac.get("layer", "API"))) if ac and testcmd.command_for(root, ac["id"], ac.get("layer", "API")) else None
+    if ac and phase in ("red", "green"):
+        # the plan's row for this criterion (files, test layer, what it depends on): the agent does not re-read the plan
+        row = plan_row(spec_check.read_spec(root, spec), ac["id"])
+        deps = [d for d in ac.get("depends_on") or [] if d]
+        if row or deps:
+            what = ("for the test layer and where its tests go (the tests still describe behaviour, not the files named "
+                    "there)" if phase == "red" else "for the files to change and the pattern to follow")
+            lines.append(f"The plan for {ac['id']} ({what}):\n" + (row or "(no row of its own in the plan)")
+                         + (f"\nBuilt after: {', '.join(deps)}" if deps else ""))
+    if agent == "ac-reviewer" and ac:
+        lines.append(review_commits(ac["id"], ac_commits))
     if phase == "red":
         lines.append("Write the failing test for the current criterion only. "
                      + testcmd.name_hint(root, (ac or {}).get("id", "AC-1")) + " Do not write production code.")
@@ -193,7 +204,8 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
             lines.append(f"The engine runs it with: {test_cmd}  (run it once yourself to see it fail for the right reason).")
     if phase == "green":
         lines.append("Write the minimum production code that makes the current criterion's test pass. Tests are frozen.")
-        later = [a["id"] for a in acs or [] if ac and a.get("status") in (None, "todo") and a["id"] != ac["id"]]
+        later = [a["id"] for a in acs or [] if ac and a.get("status") in (None, "todo") and a["id"] != ac["id"]
+                 and rules.in_ac_loop(a)]
         if later:
             lines.append(f"Do not build behaviour for later criteria ({', '.join(later)}): each gets its own failing test "
                          "first. Edge cases they name (ties, empty input, errors) are not this step's job unless this "
@@ -211,6 +223,60 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines.append(feedback)
     elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
+    return "\n".join(lines)
+
+
+PLAN_ROW_MAX = 1500
+
+
+def _names(line: str, ac_id: str) -> bool:
+    return re.search(rf"(?<![\w-]){re.escape(ac_id)}(?![\w.-])", line, re.I) is not None
+
+
+def plan_row(text: str, ac_id: str) -> str:
+    """The lines of the spec's Plan section about one criterion: a heading that names it and the lines under it, a list
+    item or table row that names it (with its indented follow-up lines). "" when the plan says nothing about it."""
+    # the Plan section with its own sub-headings (### AC-1 ...), up to the next heading of its level or higher
+    m = re.search(r"(?im)^(#{1,3})\s+plan\b.*$", text or "")
+    if not m:
+        return ""
+    rest = (text or "")[m.end():]
+    end = re.search(rf"(?m)^#{{1,{len(m.group(1))}}}\s", rest)
+    plan = re.sub(r"```.*?(```|\Z)", "", rest[:end.start()] if end else rest, flags=re.S)
+    out, keep, item = [], False, False
+    for line in plan.splitlines():
+        stripped = line.strip()
+        if re.match(r"#{1,6}\s", stripped):
+            keep, item = _names(stripped, ac_id), False
+            if keep:
+                out.append(stripped)
+            continue
+        if keep:
+            out.append(line.rstrip())
+            continue
+        top = not line.startswith((" ", "\t"))
+        if re.match(r"\**order\b", stripped, re.I):
+            continue        # the build order names every criterion; it is not this one's row
+        if top and stripped:
+            item = _names(stripped, ac_id)
+            if item:
+                out.append(stripped)
+        elif item and stripped:
+            out.append(line.rstrip())
+        elif not stripped:
+            item = False
+    row = "\n".join(x for x in out if x.strip()).strip()
+    return row if len(row) <= PLAN_ROW_MAX else row[:PLAN_ROW_MAX].rstrip() + " …"
+
+
+def review_commits(ac_id: str, commits: dict | None) -> str:
+    """The AC reviewer's two commits (content/agents/ac-reviewer.md: "the prompt names the AC and the two shas")."""
+    red, green = (commits or {}).get("red"), (commits or {}).get("green")
+    lines = [f"RED commit of {ac_id}: {red or 'none found (no test(' + ac_id + ') commit on this branch)'}",
+             f"GREEN commit of {ac_id}: {green or 'none found (no feat(' + ac_id + ') or fix(' + ac_id + ') commit on this branch)'}"]
+    shown = " and ".join(f"git show {x}" for x in (red, green) if x)
+    if shown:
+        lines.append(f"Read them with {shown}; stay inside these two commits.")
     return "\n".join(lines)
 
 
@@ -248,7 +314,9 @@ def _shown(v) -> str:
 
 
 # 0.18.17 "**AC-1:** [API]" and "AC-1 - [WEB]" too: a plan with a colon after the id had no criteria for keel
-AC_LINE = re.compile(r"\b(AC-\d+)\b[*:.)\s\u2013\u2014-]*\[(API|WEB)\]\s*(.+)", re.I)
+# [E2E] and [SMOKE] are criteria too (keel v1 layer tags): on the spec gate and in the trace, built by the
+# e2e and smoke steps, not by the per-criterion RED/GREEN loop (rules.in_ac_loop)
+AC_LINE = re.compile(r"\b(AC-\d+)\b[*:.)\s\u2013\u2014-]*\[(API|WEB|E2E|SMOKE)\]\s*(.+)", re.I)
 
 
 PLACEHOLDER = re.compile(r"^\s*<[^>]*>\s*$|what must be true|^\s*(tbd|todo|\.\.\.|…)\s*$", re.I)

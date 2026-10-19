@@ -30,6 +30,11 @@ STUCK = "stuck:"
 CHOICE_LINE = re.compile(r"^- (\w+):")
 
 
+def ac_commits(root: str, ac_id: str, base: str | None = None) -> dict:
+    """One criterion's newest RED and GREEN commits, {"red": sha, "green": sha} (verdict_actions.ac_commits)."""
+    return verdict_actions.ac_commits(root, ac_id, base)
+
+
 def sendback_limit(settings: dict | None) -> int:
     try:
         return int((settings or {}).get("sendback_limit") or SENDBACK_LIMIT)
