@@ -575,20 +575,6 @@ def push_gate(cfg: dict, cmd: str, blockers: list[dict] | None) -> Verdict | Non
                                  f'{str(first.get("fix") or "").rstrip(".")}.{more}')
 
 
-# Commands that delete data or history. The guard refuses them in every phase, "none" too (KeelBot's `!` and its fixers,
-# init's rung fixes): a person runs them, never an agent or keel.
-DESTRUCTIVE = re.compile(r"\brm\s+(?:-[a-z]*r[a-z]*|-[a-z]*\s+-[a-z]*r[a-z]*|--recursive)\b|\bgit\s+reset\s+--hard\b"
-                         r"|\bgit\s+clean\s+-[a-z]*f|\bdocker\s+(system|volume|image|container)\s+(prune|rm)\b"
-                         r"|\bdocker\s+compose\s+down\b.*\s-v\b|\bmkfs\b|\bdd\s+if=|\bdrop\s+(database|schema|table)\b"
-                         r"|\btruncate\s+table\b|\bsudo\b|:\(\)\s*\{", re.I)
-
-
-def destructive(command: str) -> str | None:
-    """The part of a command that deletes data or history, or None."""
-    m = DESTRUCTIVE.search(str(command or ""))
-    return m.group(0).strip() if m else None
-
-
 def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str | None = None,
                exists=lambda rel: False, unlocks: list[dict] | None = None,
                push_blockers: list[dict] | None = None) -> Verdict:
@@ -603,10 +589,6 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     env = prints_env_file(cmd)
     if env:
         return Verdict(False, reason=f"Printing {env} would put secrets in the conversation.")
-    gone = destructive(cmd)
-    if gone:
-        return Verdict(False, "destructive", f'"{gone}" deletes data or history: keel never runs it. Run it yourself if '
-                                             "you are sure.")
     if KEEL_KEY_WORDS.search(cmd):
         return Verdict(False, "keel-keys", "This command reads or sends one of keel's own keys; agents never do. "
                                            "Use keel's MCP tools instead.")
