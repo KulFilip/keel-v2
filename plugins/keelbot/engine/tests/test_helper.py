@@ -479,3 +479,21 @@ def test_ac_1_a_session_with_a_known_model_returns_ctx_window_and_ctx_tokens(cli
     assert s["ctx_tokens"] == 0                         # no turn yet: nothing in the window so far
     got = client.get(f"/helper/sessions/{s['id']}").json()
     assert got["ctx_window"] == 200_000 and got["ctx_tokens"] == 0
+
+
+# ------------------------------------------------------------------ P1-1 context meter (AC-2)
+
+def test_ac_2_after_a_turn_the_session_reports_the_last_turns_ctx_tokens_and_its_ratio(client, repo):
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    last = s["messages"][-1]["data"]                   # the fake model's own report of that turn's usage
+    turn_tokens = last["tokens_in"] + last["tokens_out"] + last["tokens_cached"]
+    assert s["ctx_tokens"] == turn_tokens
+    assert s["ctx_tokens"] / s["ctx_window"] == pytest.approx(turn_tokens / 200_000)
+    # a second turn: ctx_tokens still reflects only the *last* turn, not the session's running total
+    _, s = ask(client, s["id"], "And the tests?")
+    last2 = s["messages"][-1]["data"]
+    turn2_tokens = last2["tokens_in"] + last2["tokens_out"] + last2["tokens_cached"]
+    assert s["ctx_tokens"] == turn2_tokens
+    assert s["ctx_tokens"] != s["tokens_in"] + s["tokens_out"] + s["tokens_cached"]   # that sum is the two turns combined
+    assert s["ctx_tokens"] / s["ctx_window"] == pytest.approx(turn2_tokens / 200_000)
