@@ -37,6 +37,25 @@ def test_answers_are_read_from_free_text(tmp_path):
     assert "docker-compose.yml exists" in init_gates.questions(str(tmp_path))
 
 
+def test_numbered_answers_are_read_per_question(tmp_path):
+    # 0.18.17 a word counts only in its own part: "later" in part 3 is not runs_on, "3 none" means no sections
+    root = str(tmp_path)
+    a = init_gates.answers(root, "1 this machine · 2 none · 3 none (the knowledge base is refreshed later)")
+    assert a["runs_on"] == "this machine" and a["services"] == "none" and a["knowledge_sections"] == []
+    a = init_gates.answers(root, "1. decide later; 2. I run them myself; 3. conventions, data")
+    assert a["runs_on"] == "decide later" and a["services"] == "I run them myself"
+    assert a["knowledge_sections"] == ["conventions", "data"]
+    a = init_gates.answers(root, "1 dev container\n3 none")
+    assert a["runs_on"] == "dev container" and a["services"] == "none" and a["knowledge_sections"] == []
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    a = init_gates.answers(root, "2 use it · 3 domain")
+    assert a["runs_on"] == "this machine" and a["services"] == "use docker-compose.yml" and a["knowledge_sections"] == ["domain"]
+    # an old unnumbered answer is still read as a whole
+    a = init_gates.answers(root, "this machine, conventions only, sections are refreshed later")
+    assert a["runs_on"] == "this machine" and a["knowledge_sections"] == ["conventions"]
+    assert init_gates.answers(root, "no sections")["knowledge_sections"] == []
+
+
 def test_init_starts_one_librarian_per_chosen_section(client, repo, monkeypatch):
     from keel_engine.models import fake as fake_mod
     real = fake_mod._plan
