@@ -59,6 +59,11 @@ def _need_repo(root: str):
         if not root or not Path(root).is_dir():
             raise GitError(400, f"keel cannot see the project folder {root or '(none)'}.",
                            "keel runs in its own container: add the folder with keel2 add <folder> (or check the project's path).")
+        # 0.18.17 a worktree (or submodule) whose repository is outside the folder keel's container mounts
+        hint = git.unseen_gitdir_hint(root)
+        if hint:
+            raise GitError(400, f"{root} is not a git repository for keel: {hint}.",
+                           "keel2 0.18.17 mounts a worktree's repository too: keel2 restart, or keel2 add the main repository.")
         why = (git.git(root, "rev-parse", "--is-inside-work-tree").stderr or "").strip().splitlines()
         raise GitError(400, f"{root} is not a git repository for keel" + (f": {why[-1]}" if why else "."),
                        "dubious ownership: the folder belongs to another user; run git config --global --add safe.directory "

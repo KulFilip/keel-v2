@@ -53,6 +53,8 @@ jobs:
       - run: shellcheck -S error scripts/test-keel2-auth.sh && bash scripts/test-keel2-auth.sh
       # v0.18.12 keel2 token: a pipe, one piece, refused with a reason (fake docker and curl, fake tokens)
       - run: shellcheck -S error scripts/test-keel2-token.sh && bash scripts/test-keel2-token.sh
+      # v0.18.17 keel2 mounts a git worktree's repository too, at the same path (fake docker and curl)
+      - run: shellcheck -S error scripts/test-keel2-worktree.sh && bash scripts/test-keel2-worktree.sh
       # the plugin publishing scripts (docs/plugins/14-publishing.md), and step 5's: the plugin repos and plugins.lock
       - run: shellcheck -S error docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
       - run: shellcheck -S error docs/plugins/tools/split-plugin.sh scripts/build-plugin-repo.sh scripts/fetch-locked-plugins.sh scripts/update-plugins-lock.sh

@@ -119,3 +119,29 @@ def test_a_fast_ladder_reuses_rungs_that_passed_with_the_same_command(repo):
     calls.clear()
     ok, rungs = ladder.run(str(repo), False, runner, reuse=True)
     assert ok and calls == [] and "re-used" in next(r for r in rungs if r["n"] == 4)["detail"]
+
+
+def test_a_rung_says_when_the_folder_is_a_worktree_keel_cannot_see(tmp_path):
+    # 0.18.17 inside keel's container a worktree's .git file points at a repository that is not mounted
+    from keel_engine.tools import git
+
+    root = tmp_path / "wt"
+    (root / ".keel").mkdir(parents=True)
+    (root / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'git status'\n")
+    gone = tmp_path / "main" / ".git" / "worktrees" / "wt"
+    (root / ".git").write_text(f"gitdir: {gone}\n")
+    want = (f"this folder is a git worktree; keel cannot see its repository at {gone}; "
+            "run keel2 add <main repo> or keel2 restart with keel2 0.18.17")
+    assert git.unseen_gitdir_hint(str(root)) == want
+
+    def runner(_root, cmd):
+        return 128, f"fatal: not a git repository: {gone}"
+    ok, rungs = ladder.run(str(root), False, runner)
+    rung = next(r for r in rungs if r["n"] == 4)
+    assert not ok and rung["status"] == "fail" and rung["detail"].endswith(want)
+    # the repository is there (keel2 mounted it): no hint
+    gone.mkdir(parents=True)
+    assert git.unseen_gitdir_hint(str(root)) is None
+    (root / ".git").unlink()
+    (root / ".git").mkdir()
+    assert git.unseen_gitdir_hint(str(root)) is None

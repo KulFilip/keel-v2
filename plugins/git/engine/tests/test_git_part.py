@@ -202,3 +202,17 @@ def test_the_packed_content_is_where_the_engine_reads_it(packed):
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          env={**os.environ, "PYTHONPATH": str(folder / "engine")}, check=True).stdout.split()
     assert out == [str((folder / "content").resolve()), "True"]
+
+
+def test_a_worktree_keel_cannot_see_says_so(tmp_path):
+    # 0.18.17 a worktree's .git file points at a repository outside keel's container: say that, not just "not a repo"
+    from keel_plugin_git import core
+
+    root = tmp_path / "wt"
+    root.mkdir()
+    gone = tmp_path / "main" / ".git" / "worktrees" / "wt"
+    (root / ".git").write_text(f"gitdir: {gone}\n")
+    with pytest.raises(core.GitError) as e:
+        core._need_repo(str(root))
+    assert f"this folder is a git worktree; keel cannot see its repository at {gone}" in str(e.value)
+    assert "keel2 restart" in e.value.hint
