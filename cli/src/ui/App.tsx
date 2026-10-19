@@ -227,11 +227,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         turnStart.current = null;
         if (buttons.length) void askButtons(buttons);
         setAnswers((n) => n + 1);
-        // Fix and Side: the files KeelBot changed, with their diffs, and how to keep or undo them
+        // Edit, Fix and Side: the files THIS answer changed, with their diffs, and how to keep or undo them. Never the
+        // folder's other uncommitted files (the person's, what keel init left): the answer's data names its own files
+        // (0.18.20), and an answer that changed none (or an engine that does not say) shows no block at all.
         const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
-        if (mode === "fix" || mode === "side" || mode === "edit") {
-          void core.changes().then((ch) => {
-            setChanged(core.snapshot.chat.session?.id ?? "", ch.map((c) => c.path));
+        const files = Array.isArray(d?.files) ? d.files : [];
+        if ((mode === "fix" || mode === "side" || mode === "edit") && typeof d?.turn === "number" && files.length) {
+          const sid = core.snapshot.chat.session?.id ?? "";
+          void core.changes().then((all) => setChanged(sid, all.map((c) => c.path))).catch(() => undefined);   // /keep's Tab
+          void core.changes(d.turn).then((ch) => {
             if (!ch.length) return;
             const p = look.current.paint;
             push({ kind: "text", text: `${p.bold(p.warn(`${ch.length} file(s) changed`))} ${p.dim("· not kept yet")}\n${fmt.changesText(ch, p, 16)}\n`

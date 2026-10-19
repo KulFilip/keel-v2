@@ -275,7 +275,11 @@ async def post_helper_answer(qid: str, body: HelperAnswer, request: Request):
 
 
 @router.get("/helper/sessions/{sid}/changes")
-async def get_helper_changes(sid: str):
+async def get_helper_changes(sid: str, turn: int | None = None):
+    """Every file KeelBot changed in this chat that is not kept or undone; `turn` (0.18.20): only the files the answer
+    to that user message changed, against what they were before it."""
+    if turn is not None:
+        return await asyncio.to_thread(helper_call, helper.turn_changes, sid, turn)
     return await asyncio.to_thread(helper_call, helper.changes, sid)
 
 

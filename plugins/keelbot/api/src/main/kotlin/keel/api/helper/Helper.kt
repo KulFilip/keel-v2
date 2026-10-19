@@ -268,9 +268,11 @@ class HelperService(
 
     // ---- Fix mode: KeelBot's changes, Undo, Done, and the permission cards -----------------------------
 
-    fun changes(pid: String, sid: String): JsonNode {
+    /** Every file KeelBot changed in this chat (not kept or undone); `turn` (0.18.20): only the files the answer to that
+     *  user message changed (keel TUI's block after an answer). */
+    fun changes(pid: String, sid: String, turn: Int? = null): JsonNode {
         get(pid, sid)
-        return engine.get("/helper/sessions/$sid/changes")
+        return engine.get("/helper/sessions/$sid/changes" + (turn?.let { "?turn=$it" } ?: ""))
     }
 
     fun undo(pid: String, sid: String, body: HelperUndo): JsonNode {
@@ -539,7 +541,8 @@ class HelperController(private val helper: HelperService) {
     fun prompts(@PathVariable pid: String, @RequestParam(defaultValue = "50") limit: Int): JsonNode = helper.prompts(pid, limit)
 
     @GetMapping("/sessions/{sid}/changes")
-    fun changes(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.changes(pid, sid)
+    fun changes(@PathVariable pid: String, @PathVariable sid: String, @RequestParam(required = false) turn: Int?): JsonNode =
+        helper.changes(pid, sid, turn)
 
     @PostMapping("/sessions/{sid}/undo")
     fun undo(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperUndo?): JsonNode =

@@ -561,9 +561,10 @@ export class KeelCore {
     return { pid, sid: s.id };
   }
 
-  async changes(): Promise<HelperChange[]> {
+  /** Every file KeelBot changed in this chat (not kept or undone yet); `turn`: only the files that answer changed. */
+  async changes(turn?: number): Promise<HelperChange[]> {
     const { pid, sid } = this.chatOf();
-    return kb.changes(pid, sid);
+    return kb.changes(pid, sid, turn);
   }
 
   /** Summarise the open chat's stored history into a fresh engine session: nothing in `helper_messages` is lost. */

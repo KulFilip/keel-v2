@@ -38,6 +38,8 @@ export function stubKeel() {
     run: { exit: 0, output: "README.md\nsrc\n", refused: null } as { exit: number | null; output: string; refused: string | null },
     sessions: null as null | Record<string, unknown>[],
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
+    // 0.18.20 one answer's own files (GET …/changes?turn=n), by the turn's user message n
+    turnChanges: {} as Record<number, { path: string; status: string; added: number; removed: number; diff: string }[]>,
     // 0.18.19 the files the engine says /undo (or /redo) of a whole answer put back
     turnFiles: ["src/app.ts", "src/b.ts", "README.md"] as string[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
@@ -215,7 +217,8 @@ export function stubKeel() {
       case "GET /api/projects/demo/repo/files": return [200, { files: ["src/app.ts", "src/score.ts", "README.md", "web/src/App.tsx"], truncated: false }];
       case "GET /api/projects/demo/graph/search": return [200, { available: true, results: query.get("q") === "Sco"
         ? [{ id: "class:ScoreService", name: "ScoreService", kind: "class", file: "src/score.ts", line: 3, unit: "score", group: "" }] : [] }];
-      case "GET /api/projects/demo/helper/sessions/s1/changes": return [200, state.changes];
+      case "GET /api/projects/demo/helper/sessions/s1/changes":
+        return [200, query.has("turn") ? state.turnChanges[Number(query.get("turn"))] ?? [] : state.changes];
       case "POST /api/projects/demo/helper/sessions/s1/undo":
         state.changes = body?.path ? state.changes.filter((c) => c.path !== body.path) : [];
         return [200, state.changes];
@@ -293,8 +296,8 @@ export function stubKeel() {
   };
 
   /** KeelBot's answer arrives (the stub's engine stored it). */
-  const answer = (text: string) => state.messages.push({ n: state.messages.length + 1, role: "helper", text, call_id: "call-9",
-    data: { provider: "fake", model: "fake", tokens_in: 1200, tokens_out: 300 }, at: AT });
+  const answer = (text: string, data: Record<string, unknown> = {}) => state.messages.push({ n: state.messages.length + 1, role: "helper", text,
+    call_id: "call-9", data: { provider: "fake", model: "fake", tokens_in: 1200, tokens_out: 300, ...data }, at: AT });
 
   const handle = (method: string, url: string, body: unknown, headers: Record<string, string>) => {
     const u = new URL(url, "http://stub");

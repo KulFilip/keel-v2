@@ -749,6 +749,8 @@ export type HelperMessage = {
   call_id?: string | null;
   data: { status?: string; provider?: string; model?: string; effort?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
     cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection; sha?: string; files?: string[];
+    /** 0.18.20 an answer: its turn (the user message's n); `files` is then what this answer changed ([] for none) */
+    turn?: number;
     /** 0.18.19 part of an answer /undo took back (kept, shown dim); final: a newer message came, /redo cannot bring it back */
     reverted?: boolean; final?: boolean };
   at: string;
