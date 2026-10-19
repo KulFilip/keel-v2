@@ -2,7 +2,9 @@ id: feature
 name: feature (keel)
 keel_rules: true
 version: 2
-# The spec flow, ported from keel v1 skills/feature. Preflight and the flow's own branch; the interview (the explorer's
+# The spec flow, ported from keel v1 skills/feature. Preflight and the flow's own branch; 0.18.21 web research when the
+# feature depends on outside docs (web_check: an explorer answers WEB: yes | no; web_docs: the web-researcher, only on
+# yes; the spec cites what it confirmed and turns the rest into open questions); the interview (the explorer's
 # questions as buttons on the spec gate) and the numbered criteria; only then one explorer per area (api, web, data) and
 # the plan under the criteria; the spec gate (approve freezes and commits the spec; edit, rewrite, review, order and
 # reject come back to it); the contract and its gate; the test-first loop per criterion, where an agent that finds the
@@ -15,6 +17,41 @@ version: 2
 # Deferred: lanes in their own worktrees, spike mode.
 steps:
   - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  # 0.18.21 does the spec need facts from outside the repository? keep: data.web_check_text (what it needs)
+  - id: web_check
+    kind: agent
+    name: outside docs needed?
+    agent: explorer
+    model: default
+    phase: spec
+    keep: true
+    markers: [WEB]
+    instructions: >-
+      Do not write the spec and do not ask questions: decide only whether the spec needs facts from outside this
+      repository. Read the request and grep the code it touches (a few files, edit nothing). WEB is yes when the request
+      or that code depends on a third-party API, webhook, library or standard (a protocol, a file format) whose details
+      the criteria need (field names, payload formats, enum values, versions, limits, auth) and the repository does not
+      hold them (no client, DTO, fixture, recorded payload or vendored doc settles them). WEB is no for work inside this
+      code (a refactor, a rename, a page, a rule on data the repository already has), and when the request already
+      carries web research with source URLs (a spike's findings). On yes, list the exact outside facts the criteria
+      need, one per line, with the vendor or library and what the repository already shows (file:line). At most 15
+      lines. End with exactly one line: WEB: yes, or WEB: no.
+  - id: web_docs
+    kind: agent
+    name: research the outside docs
+    agent: web-researcher
+    model: default
+    phase: spec
+    keep: true
+    markers: [CONFIDENCE]
+    when: { marker: WEB, equals: "yes", step: web_check }
+    instructions: >-
+      Research what this feature's spec needs from outside the repository: the third-party APIs, webhooks, libraries or
+      standards the request depends on (field names, payload formats, versions, limits). Search first, then fetch the
+      best sources; never conclude from one failed URL. Edit nothing. What the spec needs from outside, as the explorer
+      found it:
+
+      {{data.web_check_text}}
   - id: spec
     kind: agent
     name: spec
@@ -30,6 +67,13 @@ steps:
       needs a browser [E2E] and a check that must also pass after a deploy [SMOKE]. When the criteria are listed above
       already (handed over by a change flow), do not ask questions: write the spec around them, keep their ids and
       words, and leave the finished ones finished.
+      Outside docs (0.18.21): the web research below is what was confirmed about the third-party APIs, webhooks or
+      libraries this feature depends on ("(nothing yet)" when it did not need any). A criterion about outside data names
+      only what the research confirms and cites its URL. Do not invent a field name, format or limit it did not confirm:
+      write each such detail as an open question in the spec's "## Open questions" section, with what a person must
+      supply to settle it (a sample payload, a sandbox account, a docs page). The web research:
+
+      {{data.web_docs_text}}
   - { id: explore_areas, kind: code, name: areas to map, action: explore_areas, phase: spec, when: { state: acs } }
   - id: explore
     kind: parallel
@@ -246,7 +290,11 @@ steps:
     instructions: >-
       An adversarial read of the spec before it is approved (not of any code): criteria that are vague, untestable
       from outside, overlapping, or missing (an empty state, an error, an authorization rule, a limit); drawings that
-      disagree with the criteria; a plan whose order breaks a dependency. Do not edit anything. Spec: {{spec}}
+      disagree with the criteria; a plan whose order breaks a dependency; a field name, format or limit of an outside
+      API that the web research did not confirm (0.18.21: it belongs under Open questions). Do not edit anything.
+      Spec: {{spec}}
+
+      The web research: {{data.web_docs_text}}
   - { id: spec_review_sync, kind: code, name: criteria + plan + the review for the gate, action: spec_sync, then: spec_gate, phase: spec }
   - { id: spec_restart, kind: code, name: the interview starts again, action: spec_restart, then: spec, phase: spec }
   - { id: contract_undo, kind: code, name: put the contract draft back, action: reset+amend_start, then: amend, phase: contract }

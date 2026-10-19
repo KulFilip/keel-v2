@@ -77,7 +77,8 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert git(repo, "branch", "--show-current").stdout.strip() == "feat/player-ranks"
     assert values(client, tid)["branch"] == "feat/player-ranks"
     names = [r.step_name for r in seen]
-    assert names == ["spec", "one explorer per area", "one explorer per area", "plan under the criteria"]
+    # 0.18.21 web_check first: "Player ranks" needs nothing from outside, so web_docs does not run
+    assert names == ["outside docs needed?", "spec", "one explorer per area", "one explorer per area", "plan under the criteria"]
     assert sorted(r.item["id"] for r in seen if r.item) == ["api", "data"]          # no [WEB] criterion: no web explorer
     plan = seen[-1]
     assert "MAP (api)" in plan.prompt and "MAP (data)" in plan.prompt and "ORDER: <one line>" in plan.prompt
@@ -197,7 +198,7 @@ def test_the_clarify_loop_still_runs_on_the_spec_gate_before_any_explorer(client
     tid = start(client, repo, acs=None)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate" and s["waiting"]["kind"] == "clarify"
-    assert [r.step_name for r in seen] == ["spec"], "no explorer before the criteria are settled"
+    assert [r.step_name for r in seen] == ["outside docs needed?", "spec"], "no explorer before the criteria are settled"
     skipped = {e["step"] for e in client.bus.of(tid, "step.finished") if e["data"].get("skipped")}
     assert {"explore_areas", "explore", "maps", "plan"} <= skipped
     s = decide(client, tid, "approve", payload={"answers": {"who": "A name"}})

@@ -12,7 +12,7 @@
    "markers": [
     "SIZE"
    ],
-   "instructions": "Triage this change with one question: could a test notice a difference? No \u2192 trivial (refactor, rename, formatting, docs, a dependency bump with no effect, a UI typo): write no criteria. Yes \u2192 does it touch the contract, a migration or auth, or need more than three criteria? Then it is a feature. Otherwise it is small: one to three criteria. A trivial change may add new test files but never edit an existing test, so a change that must edit one (a rename the tests call, say) is small, not trivial. Say the size, the reason and the files you expect to touch. SIZE is trivial, small or feature."
+   "instructions": "Triage this change with one question: could a test notice a difference? No \u2192 trivial (refactor, rename, formatting, docs, a dependency bump with no effect, a UI typo): write no criteria. Yes \u2192 does it touch the contract, a migration or auth, need more than three criteria, or rest on details of a third-party API, webhook or library that this repository does not hold (field names, payload formats, limits)? Then it is a feature (0.18.21: the feature flow researches them on the web before its spec). Otherwise it is small: one to three criteria. A trivial change may add new test files but never edit an existing test, so a change that must edit one (a rename the tests call, say) is small, not trivial. Say the size, the reason and the files you expect to touch. SIZE is trivial, small or feature."
   },
   {
    "id": "size",

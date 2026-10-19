@@ -198,3 +198,47 @@ def test_a_step_that_keeps_its_answer_is_not_the_spec_writer(client, repo, monke
         assert r.agent in ("explorer", "web-researcher")
         assert "Write the spec under" not in r.prompt and "keel-questions" not in r.prompt, r.agent
     assert not values(client, tid).get("acs")
+
+
+# ------------------------------------------------------------------ the feature flow (fake model)
+
+def test_web_is_a_registered_marker():
+    assert markers.REGISTRY["WEB"] == ("yes", "no")
+    assert markers.parse("needs the vendor's payload\nWEB: Yes — the webhook", ["WEB"]) == {"WEB": "yes"}
+
+
+def _feature(client, repo, monkeypatch, title, request=""):
+    from conftest import start, wait
+
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    tid = start(client, repo, title=title, request=request)
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "spec_gate", s
+    skipped = {e["step"] for e in client.bus.of(tid, "step.finished") if e["data"].get("skipped")}
+    return seen, skipped
+
+
+def test_a_feature_on_a_vendor_webhook_researches_the_web_before_the_spec(client, repo, monkeypatch):
+    seen, skipped = _feature(client, repo, monkeypatch, "Show the ETA",
+                             "Show the ETA field that the carrier's vendor webhook sends on each shipment update.")
+    assert [r.step_name for r in seen][:3] == ["outside docs needed?", "research the outside docs", "spec"]
+    assert "web_docs" not in skipped
+    check, web, spec = seen[0], seen[1], seen[2]
+    assert check.agent == "explorer" and "Write the spec under" not in check.prompt
+    assert web.agent == "web-researcher" and "Needs from outside: the payload fields" in web.prompt  # what web_check found
+    # the confirmed facts reach the spec writer, with the rule for what is not confirmed
+    assert "https://docs.example.com/webhooks" in spec.prompt and "CONFIDENCE: medium" in spec.prompt
+    assert "open question" in spec.prompt and "Write the spec under" in spec.prompt
+
+
+def test_a_plain_refactor_does_not_research_the_web(client, repo, monkeypatch):
+    seen, skipped = _feature(client, repo, monkeypatch, "Split the scores module",
+                             "Refactor: split src/scores/__init__.py into ranking.py and io.py.")
+    assert [r.step_name for r in seen][:2] == ["outside docs needed?", "spec"]
+    assert not any(r.agent == "web-researcher" for r in seen) and "web_docs" in skipped
+    assert "https://docs.example.com/webhooks" not in seen[1].prompt

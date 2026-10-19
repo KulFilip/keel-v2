@@ -27,7 +27,7 @@ from keel_engine import addons, extensions, formats
 
 # One line per keel template (docs/GUIDE.md "Flows in detail"): what it is for.
 ABOUT = {
-    "feature": "a new feature with a spec: spec (questions) → plan → contract → per criterion a failing test, the code "
+    "feature": "a new feature with a spec: web research when it depends on outside docs → spec (questions) → plan → contract → per criterion a failing test, the code "
                "and a review (you approve each) → security, full review, e2e, smoke → ship",
     "change": "a small change without a spec: trivial (one commit) or 1–3 criteria with tests; too big → hands over to "
               "feature",

@@ -100,6 +100,14 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         block = ("\n## Amendments\n\n### 2026-01-01 — AC-1\nWas: the main case works.\nNow: the main case works for ties too.\n"
                  "Why: the test showed ties.\n")
         return path, old.rstrip() + "\n" + block, "Amendment written.\nREOPEN: none\nCONTRACT: no", {}
+    if agent == "explorer" and req.step_name.startswith("outside docs"):
+        # 0.18.21 feature's web_check: outside docs are needed when the request names a vendor, a webhook, an SDK or a
+        # third-party API (the step's own instructions name them too, so only the title and the request count)
+        asked = title + " " + (req.prompt or "").split("What the user asked for:\n", 1)[-1].split("\n", 1)[0] \
+            if "What the user asked for:" in (req.prompt or "") else title
+        if re.search(r"webhook|vendor|third-party|\bsdk\b", asked, re.I):
+            return None, "", "Needs from outside: the payload fields of the webhook the request names.\nWEB: yes", {}
+        return None, "", "Nothing from outside: the work stays inside this code.\nWEB: no", {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)
         path = f"{specs}/{slug(title)}.md"

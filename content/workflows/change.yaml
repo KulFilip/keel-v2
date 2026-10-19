@@ -4,7 +4,8 @@ keel_rules: true
 version: 1
 # Work without a spec. Triage asks one question: could a test notice a difference? No → trivial (one refactor commit).
 # Yes → small (1 to change.max_inline_acs criteria, CHG-<n>.<m>, the test-first loop, one gate at the end) unless it
-# touches the contract, a migration or auth, or needs more criteria → a feature flow with the inline criteria.
+# touches the contract, a migration or auth, needs more criteria, or rests on outside docs the repo does not hold (0.18.21:
+# the feature flow researches those on the web) → a feature flow with the inline criteria.
 # A commit that trips an escalation trigger asks again: escalate (feature flow, commits kept) or stay small with a
 # reason (recorded as escalation-override, shown in the PR body).
 steps:
@@ -18,7 +19,9 @@ steps:
     instructions: >-
       Triage this change with one question: could a test notice a difference? No → trivial (refactor, rename,
       formatting, docs, a dependency bump with no effect, a UI typo): write no criteria. Yes → does it touch the
-      contract, a migration or auth, or need more than three criteria? Then it is a feature. Otherwise it is small: one
+      contract, a migration or auth, need more than three criteria, or rest on details of a third-party API, webhook or
+      library that this repository does not hold (field names, payload formats, limits)? Then it is a feature (0.18.21:
+      the feature flow researches them on the web before its spec). Otherwise it is small: one
       to three criteria. A trivial change may add new test files but never edit an existing test, so a change that must
       edit one (a rename the tests call, say) is small, not trivial. Say the size, the reason and the files you expect to
       touch. SIZE is trivial, small or feature.

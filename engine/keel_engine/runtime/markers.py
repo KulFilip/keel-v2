@@ -9,6 +9,7 @@
     SECURITY: clean | findings                 (security-auditor)
     DEPS: clean | findings                     (dependency-triager)
     CONFIDENCE: high | medium | low            (web-researcher, 0.18.20)
+    WEB: yes | no                              (feature's web_check, 0.18.21: does the spec need outside docs?)
     AMEND: <what the frozen spec gets wrong>   (feature: test-author / implementer, only when the spec is wrong)
     BLOCKED: <tooling | needs AC-x>: <what>    (feature: test-author / implementer, only when they cannot go on;
                                                 the implementer's `GREEN-RESULT: stalled` counts as BLOCKED too)
@@ -36,6 +37,7 @@ REGISTRY: dict[str, tuple[str, ...]] = {
     "SECURITY": ("clean", "findings"),
     "DEPS": ("clean", "findings"),
     "CONFIDENCE": ("high", "medium", "low"),
+    "WEB": ("yes", "no"),
     "AMEND": (),
     "BLOCKED": (),
 }

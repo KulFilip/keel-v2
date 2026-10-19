@@ -698,7 +698,8 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   start_flow diagnose → plan (E2E marker) → Gate F `choices: [fix, feature]` → implementer → verify + `fix(BUG)` (`rounds: 1`,
   then `after_rounds: reset`: keel's uncommitted edits go back, reproduce again) → regression e2e when E2E yes (seed or
   plan) → `ship` include.
-- **change**: triage (SIZE marker, inline ACs) → `change_size` (ids `CHG-<n>.<m>`, > change.max_inline_acs → feature) →
+- **change**: triage (SIZE marker, inline ACs; 0.18.21: a change that rests on outside docs the repo does not hold is a
+  feature, whose flow researches them on the web) → `change_size` (ids `CHG-<n>.<m>`, > change.max_inline_acs → feature) →
   scope gate `choices: [small, trivial, feature]` → feature: start_flow feature with the inline ACs; trivial: implementer +
   verify + `refactor:` commit (refused → reset, triage again); small: `change_start` (gate mode end; small against a feature
   recommendation logs `escalation-override: <why>`) → AC loop → `ship` include. A commit's escalation trigger, approved, now
@@ -770,7 +771,11 @@ api: GET /api/projects/{pid}/hunts, GET /api/projects/{pid}/hunts/{run}, POST /a
 `ship` include; feature keeps no copies.
 
 `preflight` (test command, own branch `feat/<slug>` when on the base branch, else stays: handed-over commits stay; data.no_gates
-waives the integration/e2e/smoke gates) → `spec` (explorer: the interview; clarify questions on `spec_gate`) → only once there are
+waives the integration/e2e/smoke gates) → 0.18.21 `web_check` (explorer, `keep`: `data.web_check_text`, marker WEB: yes | no: does
+the request or the code it touches depend on a third-party API, webhook, library or standard whose details the repo does not
+hold?) → `web_docs` only when WEB is yes (`when: {marker: WEB, equals: "yes", step: web_check}`; web-researcher, `keep`:
+`data.web_docs_text`, CONFIDENCE) → `spec` (explorer: the interview; `{{data.web_docs_text}}` in its prompt: criteria about
+outside data cite what is confirmed, an unconfirmed detail becomes an open question; clarify questions on `spec_gate`) → only once there are
 criteria (`when: {state: acs}`): `explore_areas` → `explore` (one explorer per area: api, web, data) → `maps` (report) → `plan`
 (appends `## Plan`, marker ORDER) → `spec_sync` (criteria re-read from the spec, ORDER applied, the gate text) → `spec_gate`
 (locked; exits approve → `freeze` | edit, rewrite → `spec_edit` | review → `spec_review` (reviewer, phase review, shown on the

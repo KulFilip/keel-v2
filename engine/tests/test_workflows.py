@@ -36,7 +36,7 @@ def test_feature_template_shape():
     assert t.step("ac_gate").back == "red" and t.step("spec_gate").back == "spec"
     assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
     main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]
-    assert main == ["preflight", "spec", "explore_areas", "explore", "maps", "plan", "spec_sync", "spec_gate", "freeze", "options",
+    assert main == ["preflight", "web_check", "web_docs", "spec", "explore_areas", "explore", "maps", "plan", "spec_sync", "spec_gate", "freeze", "options",
                     "contract", "contract_diff", "contract_gate", "contract_commit", "integration", "integration_commit",
                     "integration_diff", "integration_gate", "security_deps", "security_scope", "security", "review_fix",
                     "review_fix_commit", "code_review", "e2e_scope", "e2e_needed", "e2e_tool", "e2e", "e2e_commit", "e2e_gate",
@@ -142,3 +142,28 @@ def test_spike_researches_the_web_before_the_angles():
     assert "{{data.web_docs_text}}" in research.instructions and "curl -sL" in research.instructions
     assert "{{data.web_docs_text}}" in findings.instructions and "{{data.report}}" in findings.instructions
     assert "URL" in findings.instructions and "confirmed" in findings.instructions
+
+
+def test_feature_researches_the_web_only_when_it_needs_outside_docs():
+    """0.18.21 feature: web_check (explorer, WEB: yes | no) → web_docs (web-researcher) only on yes → the spec, which cites
+    what is confirmed and turns what is not into open questions."""
+    t = get_template("feature")
+    ids = [s.id for s in t.steps]
+    assert ids[:4] == ["preflight", "web_check", "web_docs", "spec"]
+    check, web, spec = t.step("web_check"), t.step("web_docs"), t.step("spec")
+    assert (check.kind, check.agent, check.phase, check.markers, check.keep) == ("agent", "explorer", "spec", ["WEB"], True)
+    for must in ("third-party API", "webhook", "library", "WEB: yes", "WEB: no", "refactor"):
+        assert must in check.instructions, must
+    assert (web.kind, web.agent, web.phase, web.markers, web.keep) == ("agent", "web-researcher", "spec", ["CONFIDENCE"], True)
+    assert web.when == {"marker": "WEB", "equals": "yes", "step": "web_check"}
+    assert "{{data.web_check_text}}" in web.instructions and "one failed URL" in web.instructions
+    assert "{{data.web_docs_text}}" in spec.instructions and "open question" in spec.instructions
+    assert "URL" in spec.instructions and "invent" in spec.instructions
+
+
+def test_a_change_that_rests_on_outside_docs_is_a_feature():
+    """0.18.21 change: no web step of its own (triage writes the criteria in the same answer); a change whose criteria
+    rest on outside docs the repository does not hold is triaged as a feature, whose flow researches them."""
+    t = get_template("change")
+    assert not any(s.agent == "web-researcher" for s in t.steps)
+    assert "third-party API" in t.step("triage").instructions and "researches them on the web" in t.step("triage").instructions
