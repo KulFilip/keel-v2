@@ -62,10 +62,8 @@ describe("lines", () => {
     expect(isMouse("hello")).toBe(false);
   });
 
-  it("the command line: full screen by default and the mouse off (copying just works); --mouse turns the wheel on", () => {
-    expect(parseArgs([], {})).toMatchObject({ inline: false, mouse: false });
-    expect(parseArgs(["--mouse"], {})).toMatchObject({ mouse: true });
-    expect(parseArgs([], { KEEL_TUI_MOUSE: "1" })).toMatchObject({ mouse: true });
+  it("the command line: full screen and the wheel by default, --inline and --no-mouse turn them off", () => {
+    expect(parseArgs([], {})).toMatchObject({ inline: false, mouse: true });
     expect(parseArgs(["--inline", "--no-mouse"], {})).toMatchObject({ inline: true, mouse: false });
     expect(parseArgs([], { KEEL_TUI_INLINE: "1", KEEL_TUI_MOUSE: "0" })).toMatchObject({ inline: true, mouse: false });
     expect(parseArgs(["--rows", "30"], {})).toMatchObject({ rows: 30 });
