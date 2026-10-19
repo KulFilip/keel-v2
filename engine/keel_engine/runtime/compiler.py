@@ -559,6 +559,10 @@ class Compiler:
         # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.
         mem = ctx.memory
         key = memory_mod.attempt_key(step.id, ac or item, agent, index, section)
+        if agent in REVIEWERS:
+            # 0.18.17 a reviewer remembers one commit only: after a fix commit it continued its old session ("use what
+            # you already know") and repeated the fixed findings word for word. A new HEAD is a new review.
+            key += "|" + ((await asyncio.to_thread(git.head, root)) or "")[:12]
         prev = await mem.get(key) if mem and know["memory"] else None
         same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == root)
         can_resume = model.get("mode") != "api" and model["provider"] in RESUMABLE
@@ -858,6 +862,12 @@ class Compiler:
 
         done = ctx.done_calls
         attempt = f"{step.id}|{(ac or loop_item or {}).get('id', '')}"
+        if self._reviews(step):
+            # 0.18.17 the finished calls a "try again" keeps belong to one HEAD: after a fix commit they are stale
+            head = ((await asyncio.to_thread(git.head, ctx.root)) or "")[:12]
+            for old in [k for k in done if k.startswith(attempt + "|") and not k.startswith(f"{attempt}|{head}|")]:
+                del done[old]
+            attempt += f"|{head}"
         # `batch: N`: at most N agents of this step run at the same time; the step is still one node.
         # "$data.x" reads the number from the state when the step runs.
         batch = self._seed_value(step.batch, state, None) if isinstance(step.batch, str) else step.batch
@@ -974,6 +984,10 @@ class Compiler:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
             acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
+            if not acs and ctx.request:
+                # 0.18.17 the agent wrote its criteria in another form ("1. ..."), but the request lists them as AC
+                # lines: those are the person's own criteria, not "no acceptance criteria yet"
+                acs = prompts.parse_acs(ctx.request)
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.

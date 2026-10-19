@@ -156,7 +156,7 @@ def detected(root: str, ac: str | None = None) -> str | None:
 # A run that executed no test at all, or rejected its own options, proves nothing either way.
 NO_TESTS = re.compile(r"(^|\n)\s*(ℹ|#)\s*tests 0\b|no tests? (found|ran)|collected 0 items|no test files found|"
                       # Maven Surefire and Gradle: a -Dtest / --tests filter that matched nothing
-                      r"no tests were executed|no tests matching pattern|no tests to run|no tests found for given includes|"
+                      r"no tests (?:were )?executed|no tests matching pattern|no tests to run|no tests found for given includes|"
                       r"0 passed.*0 failed|bad option|unknown (option|argument)|unrecognized (option|argument)", re.I)
 
 

@@ -56,3 +56,26 @@ def test_go_on_anyway_needs_a_reason_and_is_logged(client, repo, monkeypatch):
     assert len(calls) == 1, "no second review when the findings are accepted"
     assert any("security auditor + dependency triager findings accepted: known limitation" in x for x in s["gate_log"])
     assert s["waiting"]["step"] != "security__fix"
+
+
+def test_a_review_after_the_fix_commit_reviews_the_new_head_not_its_old_answer(client, repo, monkeypatch):
+    # 0.18.17 the review after a fix commit continued its old session ("use what you already know") and repeated
+    # the findings word for word; a new HEAD gives the reviewer a fresh look.
+    from keel_engine.models import fake as fake_mod
+    real = fake_mod._plan
+    prompts = []
+
+    def plan(req):
+        if req.agent == "security-auditor":
+            prompts.append(req.prompt)
+            if len(prompts) == 1:
+                return None, "", "**Blocking**\n\n- `src/scores/ac_1.py:2` returns a constant, not the rank.", {}
+            return None, "", "**Blocking:** none.", {}
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", plan)
+    tid = start(client, repo)
+    _to(client, tid, wait(client, tid), "security__fix")
+    decide(client, tid, "approve")
+    assert len(prompts) == 2
+    assert "returns a constant" not in prompts[1].split("Fix these blocking findings")[0]
+    assert "Your last try on this step" not in prompts[1] and "earlier conversation" not in prompts[1]

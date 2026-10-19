@@ -224,7 +224,8 @@ def _shown(v) -> str:
     return (v if isinstance(v, str) else json.dumps(v, indent=2, ensure_ascii=False, default=str))[:12000]
 
 
-AC_LINE = re.compile(r"\b(AC-\d+)\b\**\s*\[(API|WEB)\]\s*(.+)", re.I)
+# 0.18.17 "**AC-1:** [API]" and "AC-1 - [WEB]" too: a plan with a colon after the id had no criteria for keel
+AC_LINE = re.compile(r"\b(AC-\d+)\b[*:.)\s\u2013\u2014-]*\[(API|WEB)\]\s*(.+)", re.I)
 
 
 PLACEHOLDER = re.compile(r"^\s*<[^>]*>\s*$|what must be true|^\s*(tbd|todo|\.\.\.|…)\s*$", re.I)

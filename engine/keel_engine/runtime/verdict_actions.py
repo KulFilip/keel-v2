@@ -144,9 +144,23 @@ def failed_tests(output: str) -> list[str]:
     return seen[:20]
 
 
+# 0.18.17 a suite that ran no test proves nothing: `npx vitest run` exits 0 with "No test files found" and a flow
+# ended done with no frontend test at all.
+NO_TESTS_HINT = ("keel: no test ran, so this suite is not green. Write the tests, or fix the test command "
+                 "(commands.*_test_module in .keel/config.yml, backend.dir / frontend.dir) so it finds them.")
+
+
+def ran_no_tests(cmd: str, code: int, out: str) -> bool:
+    """vitest/jest "No test files found", phpunit "No tests executed!", pytest "no tests ran" or its exit code 5."""
+    return testcmd.ran_no_tests(out) or (code == 5 and "pytest" in cmd)
+
+
 def run_suite(root: str, cmd: str, label: str, reruns: int = 1, cwd: str | None = None) -> dict:
-    """Run a suite; a failing run runs once more. Fail then pass = flaky: it passes, with the tests that failed."""
+    """Run a suite; a failing run runs once more. Fail then pass = flaky: it passes, with the tests that failed.
+    A run with no test fails at once ("no_tests"): a rerun finds none either."""
     code, out = _run(root, cmd, cwd)
+    if ran_no_tests(cmd, code, out):
+        return {"ok": False, "code": code, "out": f"{out}\n{NO_TESTS_HINT}", "flaky": [], "no_tests": True}
     if code == 0 or reruns < 1:
         return {"ok": code == 0, "code": code, "out": out, "flaky": []}
     code2, out2 = _run(root, cmd, cwd)
@@ -252,7 +266,8 @@ def _module(a):
         if not r["ok"]:
             record_verdict(a.key, "module", False, {"suites": ran, "summary": f"{label} failed",
                                                    "failed": failed_tests(r["out"])}, root=a.root)
-            return _result(False, f"The {label} fails.", f"$ {cmd}\n{_tail(r['out'])}", flaky_update(a, flaky))
+            what = "ran no test" if r.get("no_tests") else "fails"
+            return _result(False, f"The {label} {what}.", f"$ {cmd}\n{_tail(r['out'])}", flaky_update(a, flaky))
     record_verdict(a.key, "module", True, {"suites": ran, "flaky": flaky,
                                           "summary": f"{len(ran)} suite(s) passed" + (" (flaky)" if flaky else "")}, root=a.root)
     return _result(True, f"Module suites: {len(ran)} green.{_flaky_note(flaky)}", update=flaky_update(a, flaky))

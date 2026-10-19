@@ -16,7 +16,7 @@
    "agent": "explorer",
    "model": "default",
    "phase": "triage",
-   "instructions": "Read the request and the code it touches. Write a short plan: 3 to 5 lines on what changes and where, then 1 to 3 numbered acceptance criteria, each one a test can prove. Ask a question only when the request leaves the result open. When it needs more than 3 criteria, a migration, the API contract or auth, say so: it needs the feature flow."
+   "instructions": "Read the request and the code it touches. Write a short plan: 3 to 5 lines on what changes and where, then 1 to 3 acceptance criteria, each one a test can prove, one per line in exactly this form (keel reads only these lines; [API] for a backend test, [WEB] for a frontend one): \"- **AC-1** [API] <what must be true>\". When the request already lists criteria as AC lines, use them with their ids. Ask a question only when the request leaves the result open. When it needs more than 3 criteria, a migration, the API contract or auth, say so: it needs the feature flow."
   },
   {
    "id": "plan_gate",
