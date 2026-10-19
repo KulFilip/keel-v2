@@ -121,7 +121,9 @@ def test_a_chats_question_waits_in_core_and_always_stays_with_the_chat(client, r
     assert client.post(f"/approvals/{q['id']}", json={"decision": "always"}).json()["decision"] == "always"
     t.join(10)
     assert got == {"decision": "allow", "why": ""}
-    assert client.get(f"/helper/sessions/{s['id']}").json()["grants"] == ["npm install left-pad"]
+    # keel 0.18.18 "always" keeps the command's family (permissions.always_pattern), shown on the card first
+    assert q["always"] == "npm install *"
+    assert client.get(f"/helper/sessions/{s['id']}").json()["grants"] == ["npm install *"]
     # its panel's own events, next to core's
     types = [e["type"] for e in client.bus.recent if e["type"].startswith(("approval.", "helper.permission"))]
     assert types == ["approval.asked", "helper.permission", "helper.permission.answered", "approval.answered"]

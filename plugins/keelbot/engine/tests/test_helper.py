@@ -286,7 +286,7 @@ def test_a_permission_card_waits_for_the_person(client, repo):
     assert got == {"decision": "allow", "why": ""}
     again = client.post("/helper/permissions/ask", json={"session": s["id"], "key": "k1", "command": "npm install left-pad"}).json()
     assert again == {"decision": "allow"}                                                       # "always" remembered
-    assert client.get(f"/helper/sessions/{s['id']}").json()["grants"] == ["npm install left-pad"]
+    assert client.get(f"/helper/sessions/{s['id']}").json()["grants"] == ["npm install *"]       # its family (0.18.18)
     # a deny carries the person's reason
     t = threading.Thread(target=lambda: got.update(client.post("/helper/permissions/ask", json={
         "session": s["id"], "key": "k1", "command": "git push"}).json()))
@@ -296,7 +296,9 @@ def test_a_permission_card_waits_for_the_person(client, repo):
     q = client.get("/helper/permissions").json()[0]
     client.post(f"/helper/permissions/{q['id']}", json={"decision": "deny", "why": "keel pushes, not you"})
     t.join(10)
-    assert got == {"decision": "deny", "why": "keel pushes, not you"}
+    # the person's reason, and to go on from it (keel 0.18.18 said_no)
+    assert got["decision"] == "deny" and got["why"].startswith("The person said no to this command: keel pushes, not you")
+    assert "Do not run it again" in got["why"]
     assert client.post(f"/helper/permissions/{q['id']}", json={"decision": "once"}).status_code == 404
 
 
