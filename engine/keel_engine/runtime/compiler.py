@@ -78,6 +78,7 @@ USAGE_EVERY = 15.0               # 0.18.17 seconds between two agent.usage event
 
 
 
+_COUNT = {3: "three", 4: "four"}   # init's questions: "three questions", "four questions" (with the layout)
 KEEP_MAX = 60_000       # `keep: true`: the most of an agent's answer the flow keeps for its next steps
 
 
@@ -878,7 +879,9 @@ class Compiler:
             for lane in step.lanes:
                 if lane.kind == "agent":
                     who = lane.sub or step.agent or ""
-                    chosen = (state.get("init") or {}).get("knowledge_sections")
+                    init = state.get("init") or {}
+                    # 0.18.22 write_sections: the ones written this run (a section that exists is kept, not rebuilt)
+                    chosen = init.get("write_sections") if "write_sections" in init else init.get("knowledge_sections")
                     if who == "librarian" and isinstance(chosen, list):
                         # init: one librarian per section the user chose, each told its section (none: no librarian).
                         for sec in chosen:
@@ -2403,7 +2406,8 @@ class Compiler:
         root, fast = self.ctx.root, bool(self.ctx.settings.get("fast"))
         asked = init_gates.clarify_questions(root, fast=fast)
         answer, extra = self._ask(state, {
-            "step": step.id, "kind": "clarify", "title": "three questions", "detail": clarify.describe(asked),
+            "step": step.id, "kind": "clarify", "title": f"{_COUNT.get(len(asked), len(asked))} questions",
+            "detail": clarify.describe(asked),
             "questions": asked, "options": OPTIONS, "labels": {"approve": "Use these answers", "reject": "Use my answers"}},
             gate="clarify")
         why = (answer.get("why") or "").strip()
@@ -2419,7 +2423,7 @@ class Compiler:
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve",
                                                           "why": said if said != "defaults" else "defaults"})
         return {"gates": gates, **extra, "init": init,
-                "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k != "said")[:300]}
+                "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k not in ("said", "write_sections"))[:300]}
 
     async def branch_step(self, i: int, step: Step, state: FlowState):
         yes = True

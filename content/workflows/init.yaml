@@ -3,10 +3,29 @@ name: init (keel)
 keel_rules: true
 version: 1
 # Options (StartThread.settings): fast (no knowledge base unless the user names sections, a rung that passed before
-# with the same command is re-used, no arch-surveyor), fix_attempts_per_rung (setup-doctor rounds before a failing
-# rung asks: fix it / exclude it / accept it as not checked; default setup.fix_attempts_per_rung or 3).
+# with the same command is re-used, no arch-surveyor).
+# A failing rung: one read-only setup-doctor diagnoses it and proposes a fix, then the rung gate shows the DIAGNOSIS
+# and the fix: apply_fix (keel runs the proposed commands) / retry / skip (setup.not_checked) / stop. A rung gate, the
+# git question and audit_now are only ever answered by a person (run_mode: SAFETY kinds rung and note).
 steps:
-  - { id: discover, kind: agent, name: discover, agent: explorer, model: default, phase: setup }
+  - { id: git_check, kind: code, name: is this a git repository, action: git_check, phase: setup }
+  - { id: git_repo, kind: gate, name: not a git repository, phase: setup, when: { data: git_question },
+      choices: { init: git_init, retry: git_check, go_on: discover, stop: end } }
+  - { id: git_init, kind: code, name: git init and the first commit, action: git_init, phase: setup }
+  - { id: git_ready, kind: branch, name: a git repository with a commit, when: { data: git_ready }, no: git_repo, phase: setup }
+  - id: discover
+    kind: agent
+    name: discover
+    agent: explorer
+    model: default
+    phase: setup
+    keep: true
+    instructions: >-
+      Map this project for keel's setup and for the librarians who write its knowledge base next: the backend and
+      frontend (language, framework, build tool, their folders), the API contract if any, the compose file and its
+      services with their ports, the names (never the values) of the environment variables the app reads, the test
+      setup, and the main modules with the files that are their entry points (file:line). At most 60 lines, plain
+      bullets, no prose; end the map with the line MAP-END. Change nothing.
   - { id: arch_detect, kind: code, name: detect the architecture, action: arch_detect, phase: setup }
   - { id: arch_survey, kind: parallel, name: arch-surveyor (low confidence only), agent: arch-surveyor, model: default, from: arch_items, cap: 1, markers: [ARCH], phase: setup }
   - { id: questions, kind: gate, name: questions, back: discover, phase: setup }
@@ -18,17 +37,23 @@ steps:
     name: ladder + knowledge
     parallel: 3
     phase: setup
+    instructions: >-
+      The explorer's map of this project (where to start reading; check each claim in the code before you cite it,
+      and read only what your section needs):
+
+      {{data.discover_text}}
     lanes:
       - { name: ladder, kind: code, sub: ladder_soft }
       - { name: knowledge, kind: agent, sub: librarian }
   - { id: doctor, kind: parallel, name: setup-doctor for the failing rungs, agent: setup-doctor, model: default, from: doctor_items, markers: [DIAGNOSIS], phase: setup }
-  - { id: ladder_retry, kind: code, name: run the ladder again, action: ladder_retry, phase: setup }
-  - { id: ladder_ok, kind: branch, name: green or a rung to decide, when: { marker: LADDER, in: [green, stuck] }, no: doctor, phase: setup }
-  - { id: rung_gate, kind: gate, name: a rung keeps failing, phase: setup, when: { data: rung_question }, choices: { fix: rung_apply, exclude: rung_apply, accept: rung_apply } }
+  - { id: rung_report, kind: code, name: the doctor's diagnosis, action: rung_report, phase: setup }
+  - { id: rung_gate, kind: gate, name: a setup rung fails, phase: setup, when: { data: rung_question },
+      choices: { apply_fix: rung_apply, retry: rung_apply, skip: rung_apply, stop: end } }
   - { id: rung_apply, kind: code, name: apply the rung decision, action: rung_apply, phase: setup }
   - { id: ladder_done, kind: branch, name: ladder green, when: { marker: LADDER, equals: green }, no: doctor, phase: setup }
   - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: setup }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: setup }
+  - { id: summary, kind: code, name: hand-over summary, action: init_summary, phase: setup }
   - { id: audit_now, kind: gate, name: audit now, phase: setup, choices: { skip: hand_over, hunt: start_hunt } }
   - { id: start_hunt, kind: code, name: start a bug hunt, action: start_flow, flow: hunt, seed: { title: Bug hunt after init, mode: semi, scope: all }, then: end, phase: setup }
   - { id: hand_over, kind: gate, name: hand over, phase: setup }

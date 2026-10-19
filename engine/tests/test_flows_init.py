@@ -49,33 +49,63 @@ def test_low_confidence_asks_the_arch_surveyor_and_its_answer_is_recorded(client
     assert config(repo)["architecture"] == {"style": "hexagonal", "confidence": "medium", "source": "surveyed"}
 
 
-@pytest.mark.parametrize("choice", ["exclude", "accept", "fix"])
-def test_a_rung_that_keeps_failing_asks_fix_exclude_or_accept(client, repo, monkeypatch, choice):
+FLAG = "__pycache__/built.flag"     # git ignores it: the setup commit refuses any other new file in the repo
+DOCTOR = (f"Rung 4 runs `test -f {FLAG}` and the file is missing: nothing built it yet. Evidence: ls shows no "
+          f"{FLAG}. The fix changes repo files (one ignored file).\n```keel-fix\nmkdir -p __pycache__\ntouch {FLAG}\n```\n"
+          "DIAGNOSIS: fixable")
+
+
+@pytest.mark.parametrize("choice", ["apply_fix", "retry", "skip", "stop"])
+def test_a_failing_rung_shows_the_doctors_diagnosis_and_asks(client, repo, monkeypatch, choice):
+    # 0.18.22 the setup-doctor is read-only: it proposes, the rung gate shows its DIAGNOSIS and fix at once and asks
+    # apply_fix (keel runs the proposed commands) / retry / skip (not checked) / stop
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text(f"commands:\n  api_compile: 'test -f {FLAG}'\n  unit_tests: 'true'\n")
+    seen = answers(monkeypatch, {"setup-doctor": lambda r: DOCTOR})
+    tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "simulate_checks": False})
+    s = to(client, tid, wait(client, tid), "rung_gate")
+    w = s["waiting"]
+    assert w["step"] == "rung_gate" and w["choices"] == ["apply_fix", "retry", "skip", "stop"]
+    assert [c["name"] for c in w["choice_info"]] == ["apply_fix", "retry", "skip", "stop"] and w["choice_info"][0]["default"]
+    assert all(c["description"] for c in w["choice_info"])
+    doctors = [r for r in seen if r.agent == "setup-doctor"]
+    assert len(doctors) == 1 and doctors[0].item["id"] == "failing-rungs" and [x["n"] for x in doctors[0].item["rungs"]] == [4]
+    assert "You change nothing" in doctors[0].prompt and "keel-fix" in doctors[0].prompt
+    assert "Rung 4 (Both apps compile) failed" in w["detail"] and f"$ test -f {FLAG}" in w["detail"]
+    assert "DIAGNOSIS: fixable" in w["detail"] and "nothing built it yet" in w["detail"]
+    assert f"$ mkdir -p __pycache__\n$ touch {FLAG}" in w["detail"] and "```" not in w["detail"]
+    if choice == "retry":
+        (Path(repo) / "__pycache__").mkdir(exist_ok=True)
+        (Path(repo) / FLAG).write_text("")
+    s = decide(client, tid, "approve", why="checked it", payload={"choice": choice})
+    assert any(line.startswith(f"gate rung_gate {choice}") for line in s["gate_log"])
+    if choice == "stop":
+        assert s["status"] != "waiting" and not (Path(repo) / FLAG).exists()
+        return
+    assert s["waiting"]["step"] == "audit_now", (s["waiting"]["title"], s["waiting"]["detail"])
+    rung4 = next(r for r in s["ladder"] if r["n"] == 4)
+    if choice == "skip":
+        assert config(repo)["setup"]["not_checked"] == [4]
+        assert rung4["status"] == "skipped" and "not checked" in rung4["detail"]
+        assert "## Not checked" in (Path(repo) / "docs" / "RUNNING.md").read_text()
+    else:
+        assert rung4["status"] == "pass" and (Path(repo) / FLAG).exists()
+
+
+def test_a_rung_without_a_proposed_command_offers_no_apply_and_a_destructive_fix_is_refused(client, repo, monkeypatch):
+    from keel_engine.runtime import init_actions
+
     (Path(repo) / ".keel").mkdir(exist_ok=True)
     (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'false'\n  unit_tests: 'true'\n")
-    seen = answers(monkeypatch, {"setup-doctor": lambda r: f"rung {r.item['rungs'][0]['n']}: the compiler is missing.\nDIAGNOSIS: needs-you"})
-    tid = start(client, repo, workflow="init", title="keel init",
-                settings={**SETTINGS, "simulate_checks": False, "fix_attempts_per_rung": 2})
+    answers(monkeypatch, {"setup-doctor": lambda r: "No JDK on this machine.\nDIAGNOSIS: needs-you"})
+    tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "simulate_checks": False})
     s = to(client, tid, wait(client, tid), "rung_gate")
-    assert s["waiting"]["step"] == "rung_gate" and s["waiting"]["choices"] == ["fix", "exclude", "accept"]
-    doctors = [r for r in seen if r.agent == "setup-doctor"]
-    # 0.18.15 one doctor for all failing rungs per round, always the same item (so round 2 resumes its session)
-    assert len(doctors) == 2 and all(r.item["id"] == "failing-rungs" and [x["n"] for x in r.item["rungs"]] == [4]
-                                     for r in doctors), "one doctor for the failing rungs, per round"
-    assert "all of it is yours" in doctors[0].prompt
-    assert "Rung 4 (Both apps compile) failed 2 time(s)" in s["waiting"]["detail"]
-    if choice == "fix":
-        (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'true'\n  unit_tests: 'true'\n")
-    s = decide(client, tid, "approve", why="the build machine has no JDK", payload={"choice": choice})
-    assert s["waiting"]["step"] == "audit_now", s
-    rung4 = next(r for r in s["ladder"] if r["n"] == 4)
-    if choice == "fix":
-        assert rung4["status"] == "pass"
-    else:
-        key = "ladder_exclude" if choice == "exclude" else "not_checked"
-        assert config(repo)["setup"][key] == [4]
-        assert rung4["status"] == "skipped" and ("excluded" if choice == "exclude" else "not checked") in rung4["detail"]
-    assert any(line.startswith(f"gate rung_gate {choice}") for line in s["gate_log"])
+    assert s["waiting"]["choices"] == ["retry", "skip", "stop"] and "proposed no command" in s["waiting"]["detail"]
+    assert "DIAGNOSIS: needs-you" in s["waiting"]["detail"]
+    assert init_actions.fix_commands("x\n```keel-fix\n# start it\n$ docker compose up -d db\n\nnpm ci\n```") == \
+        ["docker compose up -d db", "npm ci"]
+    assert init_actions.DESTRUCTIVE.search("rm -rf node_modules") and init_actions.DESTRUCTIVE.search("git reset --hard")
+    assert not init_actions.DESTRUCTIVE.search("docker compose up -d")
 
 
 def test_audit_now_can_start_a_hunt(client, repo, monkeypatch):
@@ -145,3 +175,65 @@ def test_a_rung_says_when_the_folder_is_a_worktree_keel_cannot_see(tmp_path):
     (root / ".git").unlink()
     (root / ".git").mkdir()
     assert git.unseen_gitdir_hint(str(root)) is None
+
+
+def test_not_a_git_repository_asks_first(client, repo, monkeypatch):
+    # keel v1's blocking question: without git, init commits nothing and verdicts carry no commit
+    import shutil
+
+    shutil.rmtree(Path(repo) / ".git")
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "run_mode": "auto"})
+    s = wait(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "git_repo" and w["choices"] == ["init", "retry", "go_on", "stop"]
+    assert "not a git repository" in w["detail"] and "src" in w["detail"]
+    assert [c["label"] for c in w["choice_info"]] == ["Make the first commit", "I did it, check again", "Go on without git",
+                                                     "Stop init"]
+    # a file that looks like a secret: no first commit, the gate asks again and names it
+    (Path(repo) / ".env").write_text("TOKEN=x\n")
+    s = decide(client, tid, "approve", payload={"choice": "init"})
+    assert s["waiting"]["step"] == "git_repo" and ".env" in s["waiting"]["detail"] and "did not make the first commit" in s["waiting"]["detail"]
+    (Path(repo) / ".env").unlink()
+    s = decide(client, tid, "approve", payload={"choice": "init"})
+    assert (Path(repo) / ".git").is_dir()
+    s = to(client, tid, s, "audit_now")
+    log = subprocess.run(["git", "log", "--format=%s"], cwd=repo, capture_output=True, text=True).stdout.splitlines()
+    assert log[-1] == "chore: initial commit" and "chore(setup): keel init" in log[0]
+
+
+def test_going_on_without_git_says_so_at_the_hand_over(client, repo, monkeypatch):
+    import shutil
+
+    shutil.rmtree(Path(repo) / ".git")
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "fast": True})
+    s = wait(client, tid)
+    s = decide(client, tid, "approve", payload={"choice": "go_on"})
+    s = to(client, tid, s, "audit_now")
+    s = decide(client, tid, "approve", payload={"choice": "skip"})
+    w = s["waiting"]
+    assert w["step"] == "hand_over"
+    assert not (Path(repo) / ".git").exists()
+    assert "not a git repository with a commit, so nothing was committed" in w["detail"]
+    assert "fast init" in w["detail"] and "Start the stack" in w["detail"]
+
+
+def test_the_explorers_map_reaches_the_librarians_and_the_hand_over_says_what_next(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {"explorer": lambda r: "- backend: python, src/scores (src/scores/__init__.py:1)\nMAP-END"})
+    tid = start(client, repo, workflow="init", title="keel init", settings=SETTINGS)
+    s = wait(client, tid)
+    s = to(client, tid, s, "questions")
+    s = decide(client, tid, payload={"answers": {"knowledge": ["conventions"]}})
+    s = to(client, tid, s, "audit_now")
+    explorer = next(r for r in seen if r.agent == "explorer")
+    assert "At most 60 lines" in explorer.prompt and "MAP-END" in explorer.prompt
+    librarians = [r for r in seen if r.agent == "librarian"]
+    assert [r.section for r in librarians] == ["conventions"]
+    assert "backend: python, src/scores" in librarians[0].prompt and "The explorer's map" in librarians[0].prompt
+    s = decide(client, tid, "approve", payload={"choice": "skip"})
+    w = s["waiting"]
+    assert w["step"] == "hand_over"
+    assert "Setup ladder:" in w["detail"] and "Knowledge: wrote conventions" in w["detail"]
+    assert "Not checked:" in w["detail"] and "- feature:" in w["detail"] and "- fix:" in w["detail"]
+    assert "fast init" not in w["detail"]

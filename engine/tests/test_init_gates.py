@@ -13,9 +13,10 @@ def test_questions_plan_and_answers_reach_the_config(client, repo):
     while s["status"] == "waiting" and s["waiting"]["step"] != "questions":
         s = decide(client, tid)
     w = s["waiting"]
-    assert w["title"] == "three questions" and "1. Where does the app run" in w["detail"] and "3. Which knowledge sections" in w["detail"]
+    assert w["title"] == "four questions" and "1. Where does the app run" in w["detail"] and "3. Which knowledge sections" in w["detail"]
     # 0.19.0 a clarify form with fixed ids; an old client's typed answer (send back with words) still works
-    assert w["kind"] == "clarify" and [q["id"] for q in w["questions"]] == ["run", "services", "knowledge"]
+    # 0.18.22 the layout is asked too while the config names none
+    assert w["kind"] == "clarify" and [q["id"] for q in w["questions"]] == ["run", "services", "knowledge", "layout"]
     assert w["labels"] == {"approve": "Use these answers", "reject": "Use my answers"}
     s = decide(client, tid, "reject", why="1 dev container, 3 conventions and data")
     w = s["waiting"]
@@ -161,3 +162,80 @@ def test_detection_uses_the_projects_own_stack_pack(tmp_path):
     assert testcmd.detected(root) == "make test" and testcmd.detected(root, "AC-2") == "make test T='AC-2'"
     assert testcmd.config_commands(root) == {"api_test_ac": "make test T='{AC}'", "api_test_module": "make test"}
     assert "test command: make test" in init_gates.plan(root, init_gates.defaults(root))
+
+
+def test_a_rerun_keeps_the_sections_that_exist(tmp_path):
+    # 0.18.22 keel v1: confirming again adds; a section that exists is kept, not rebuilt, unless it is ticked
+    root = str(tmp_path)
+    (tmp_path / ".keel").mkdir()
+    (tmp_path / ".keel" / "config.yml").write_text("layout: keel\ninit:\n  knowledge_sections: [conventions, data]\n")
+    (tmp_path / ".keel" / "knowledge").mkdir()
+    (tmp_path / ".keel" / "knowledge" / "conventions.md").write_text("# conventions\n")
+    d = init_gates.defaults(root)
+    assert d["write_sections"] == ["data"] and d["knowledge_sections"] == ["conventions", "data"]
+    qs = {q["id"]: q for q in init_gates.clarify_questions(root)}
+    know = {o["label"]: o for o in qs["knowledge"]["options"]}
+    assert not know["conventions"]["recommended"] and "kept" in know["conventions"]["description"]
+    assert [o for o in know if know[o]["recommended"]] == ["data"]
+    assert "layout" not in qs, "the config names a layout: not asked again"
+    a = init_gates.from_answers(root, {"knowledge": ["domain"]})
+    assert a["write_sections"] == ["domain"] and a["knowledge_sections"] == ["domain", "conventions"]
+    a = init_gates.from_answers(root, {"knowledge": ["conventions"]})
+    assert a["write_sections"] == ["conventions"], "ticked: written again"
+    assert init_gates.answers(root, "3 none")["write_sections"] == [] and \
+        init_gates.answers(root, "3 none")["knowledge_sections"] == ["conventions"]
+    text = init_gates.plan(root, init_gates.defaults(root))
+    assert "Write the knowledge sections data" in text and "Kept as they are (they exist): conventions" in text
+    assert "only its init: block is written" in text
+    # every section there and chosen before: a re-run writes none
+    (tmp_path / ".keel" / "knowledge" / "data.md").write_text("# data\n")
+    assert init_gates.defaults(root)["write_sections"] == []
+
+
+def test_a_rerun_records_the_new_answers_in_the_config(tmp_path):
+    from keel_engine.runtime import actions
+
+    (tmp_path / ".keel").mkdir()
+    f = tmp_path / ".keel" / "config.yml"
+    f.write_text("# mine\nversion: 4\ncommands:\n  unit_tests: make test\ninit:\n  knowledge_sections: [conventions]\n")
+    a = actions.ActionInput(root=str(tmp_path), phase="setup", title="init", ac=None, acs=[], fake=True, flow="init",
+                            init={"runs_on": "this machine", "services": "none", "knowledge_sections": ["conventions", "data"],
+                                  "write_sections": ["data"], "said": "x"})
+    r = actions.write_config(a)
+    cfg = yaml.safe_load(f.read_text())
+    assert "init: block" in r.note and f.read_text().startswith("# mine\n")
+    assert cfg["init"] == {"runs_on": "this machine", "services": "none", "knowledge_sections": ["conventions", "data"]}
+    assert cfg["commands"] == {"unit_tests": "make test"}
+    assert "left as it is" in actions.write_config(a).note
+
+
+def test_the_layout_is_asked_and_written(tmp_path):
+    from keel_engine.runtime import actions
+
+    root = str(tmp_path)
+    qs = {q["id"]: q for q in init_gates.clarify_questions(root)}
+    opts = qs["layout"]["options"]
+    assert [o["label"] for o in opts] == ["keel", "repo"] and opts[0]["recommended"] and all(o["description"] for o in opts)
+    a = init_gates.from_answers(root, {"layout": "repo"})
+    assert a["layout"] == "repo"
+    assert init_gates.answers(root, "1 this machine · 4 repo")["layout"] == "repo"
+    text = init_gates.plan(root, a)
+    assert "Layout: repo — keel's files go in docs/" in text and "under docs/knowledge/" in text
+    act = actions.ActionInput(root=root, phase="setup", title="init", ac=None, acs=[], fake=True, flow="init", init=a)
+    actions.write_config(act)
+    cfg = yaml.safe_load((tmp_path / ".keel" / "config.yml").read_text())
+    assert cfg["layout"] == "repo" and "layout" not in cfg["init"] and "write_sections" not in cfg["init"]
+
+
+def test_the_plan_shows_ports_env_names_and_every_rung(tmp_path):
+    root = str(tmp_path)
+    (tmp_path / "compose.yml").write_text(
+        "services:\n  db:\n    image: postgres\n    ports: ['5433:5432']\n    environment:\n      POSTGRES_PASSWORD: secret\n"
+        "  api:\n    build: .\n    environment: [API_KEY=abc, PORT]\n")
+    (tmp_path / ".env.example").write_text("# comment\nDATABASE_URL=postgres://u:p@h/db\nexport STRIPE_KEY=sk_live_x\n")
+    text = init_gates.plan(root, init_gates.defaults(root))
+    assert "db (5433:5432)" in text and "api (no published port)" in text
+    assert "DATABASE_URL, STRIPE_KEY, POSTGRES_PASSWORD, API_KEY, PORT" in text
+    assert "secret" not in text and "sk_live" not in text and "abc" not in text, "names only, never values"
+    assert " 1. Toolchain: $ check: git" in text and "12. Hook self-test" in text and "8. Services up and healthy: skipped" in text
+    assert "Nothing is deployed, published or deleted." in text

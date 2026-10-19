@@ -426,21 +426,38 @@ DOCS: dict[str, dict] = {
         "steps": ["Takes the surveyor's ARCH line (style and confidence) when there is one, else the detection.",
                   "A style already set by hand in .keel/config.yml is left as it is."],
     },
+    "git_check": {
+        "summary": "Not a git repository: the git_repo gate asks init / go on without git / stop (data.git_question).",
+    },
+    "git_init": {
+        "summary": "Runs git init in the project folder when the git_repo gate's answer was init.",
+    },
     "ladder_soft": {
         "summary": "Runs the setup ladder without stopping the flow; failing rungs go to the setup doctor (marker LADDER).",
         "steps": ["Runs every rung (see ladder) and writes the runbook (docs/RUNNING.md or .keel/RUNNING.md).",
-                  "Failing rungs become data.failed_rungs and one setup-doctor item for all of them (data.doctor_items); marker LADDER = green | retry | "
-                  "stuck (stuck = a rung failed fix_attempts_per_rung times and the rung gate asks you)."],
+                  "Failing rungs become data.failed_rungs, one read-only setup-doctor item for all of them "
+                  "(data.doctor_items) and the rung question; marker LADDER = green | failing."],
     },
     "ladder_retry": {
-        "summary": "Runs the ladder again after the doctor's fixes; a rung that keeps failing asks you.",
+        "summary": "Runs the ladder again (flows written before 0.18.22; init now asks after each doctor round).",
         "steps": ["Counts one more attempt for every failing rung, then runs the ladder again like ladder_soft."],
     },
+    "rung_report": {
+        "summary": "Builds the rung gate's text from the setup doctor's answer: the failing rungs, the DIAGNOSIS, the "
+                   "proposed fix and the commands apply_fix would run.",
+        "steps": ["The commands come from the doctor's keel-fix block (data.rung_fix); without one the gate offers no apply_fix.",
+                  "The text is data.rung_gate_detail, with what the last applied fix did."],
+    },
     "rung_apply": {
-        "summary": "Applies your answer for a stuck rung: fix (run again), exclude (setup.ladder_exclude) or accept "
+        "summary": "Applies your answer for a failing rung: apply_fix (run the proposed commands), retry, or skip "
                    "(setup.not_checked).",
-        "steps": ["fix: the rung's attempts start at 0 again; exclude / accept: the rung number is added to .keel/config.yml.",
-                  "Then the ladder runs again."],
+        "steps": ["apply_fix: each command is checked by the setup phase's command rules, then run; the first failure stops.",
+                  "skip: the rung number is added to setup.not_checked in .keel/config.yml.",
+                  "Then the ladder runs again; a rung that still fails goes back to the setup doctor."],
+    },
+    "init_summary": {
+        "summary": "Writes the hand-over's text: rungs passed / not checked, knowledge sections written or kept, what "
+                   "was not checked (behaviour, a fast init's stack), and the flows to start next.",
     },
 }
 

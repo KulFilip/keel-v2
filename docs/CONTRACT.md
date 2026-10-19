@@ -725,7 +725,7 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
 - **`batch: "$data.path"`** reads the concurrency when the step runs. A fan-out with `collect` tags each collected entry with
   `from_item` (the id of the item whose agent gave it).
 - A code step's `back` may also point forward (hunt: a refused close goes back to the triage gate).
-- Code actions get `settings` (the thread's) and `thread_id`. StartThread.settings gains `fast`, `fix_attempts_per_rung`,
+- Code actions get `settings` (the thread's) and `thread_id`. StartThread.settings gains `fast`,
   `hunt_mode` (auto|semi), `hunt_scope` (all|diff|paths), `hunt_lenses`, `hunt_run`; a parent's `start_flow` seed may carry
   `mode`, `scope`, `lenses`, `fast`, `run` instead.
 
@@ -749,12 +749,20 @@ recipe = `docs/hunts/<run>/repro/<file>` + its body, symptoms (every member), ne
 → `close_gate` (fixed|accepted|wontfix|later; a note is required, else it asks again) → `close`.
 
 ### init
-`discover → arch_detect (runtime/arch.py; low confidence and not fast → one arch-surveyor, ARCH marker) → questions →
-plan_gate → write_config → arch_set (architecture: {style, confidence, source} in .keel/config.yml) → lanes (ladder_soft ‖
-librarians) → doctor (one setup-doctor for all failing rungs, resuming its session each round) → ladder_retry → ... → rung_gate (only when a rung failed
-fix_attempts_per_rung times: fix | exclude → setup.ladder_exclude | accept → setup.not_checked) → rung_apply →
-knowledge_check → commit → audit_now (skip | hunt: start_flow hunt, semi, whole project) → hand_over`. `fast`: no knowledge
-sections by default, no surveyor, a rung that passed before with the same command is re-used.
+`git_check → git_repo gate (only when the folder is not a git repository or has no commit: init = git init and the first
+commit, refused for files that look like secrets or dependency folders | retry | go_on | stop) → git_init → discover
+(explorer, keep: true: its ≤60-line map is data.discover_text) → arch_detect (runtime/arch.py; low confidence and not fast →
+one arch-surveyor, ARCH marker) → questions (run, services, knowledge, and layout while the config names none) →
+plan_gate (the config block, every ladder rung with its command, compose services with their ports, environment variable
+names, the layout) → write_config (an existing config gets only its init: block) → arch_set (architecture: {style,
+confidence, source} in .keel/config.yml) → lanes (ladder_soft ‖ one librarian per section written this run, each given the
+explorer's map) → doctor (one read-only setup-doctor for all failing rungs, resuming its session each round; it proposes,
+a keel-fix block holds the commands) → rung_report → rung_gate (when a rung fails: the DIAGNOSIS and the fix; apply_fix
+runs the shown commands | retry | skip → setup.not_checked | stop) → rung_apply → ... → knowledge_check → commit →
+summary (data.hand_over_detail) → audit_now (skip | hunt: start_flow hunt, semi, whole project; only a person answers it)
+→ hand_over (rungs, sections written and kept, what was not checked, what next)`. `fast`: no knowledge sections by
+default, no surveyor, a rung that passed before with the same command is re-used. A re-run keeps the sections that exist
+(`init.write_sections` is what this run writes; `init.knowledge_sections` in the config is the whole selection).
 
 ### Engine DB + API
 Tables `hunt_runs`, `hunt_candidates`, `hunt_groups`, `hunt_recipes` (runtime/migrate.py).
@@ -910,7 +918,7 @@ The caller logs an automatic answer like any other, so the gate log reads `gate 
 | `contract`, `final-review`, `pr` | contract gate, `report: verdicts`, the gate after a `pr` step | ask | ask | approve | ask |
 | `choice`, `skip-menu`, `gate` | named choices (default = first / `recommend`), skip menus (run everything), any other gate | ask | ask | approve | ask |
 | `findings`, `already-met`, `escalate` | review findings within `rounds or 2`, a test that passes before code, a change-flow escalation | ask | ask | approve | ask |
-| **safety**: `failure`, `rounds`, `rung`, `budget`, `dependency`, `secrets`, `readonly`, `note` | step failed / keeps failing, loop past its rounds (branch, findings past their limit), init rung_gate, token cap and plan windows, new dependency, a secret staged for commit, a read-only commit, hunt-next close_gate | ask | ask | ask | ask |
+| **safety**: `failure`, `rounds`, `rung`, `budget`, `dependency`, `secrets`, `readonly`, `note` | step failed / keeps failing, loop past its rounds (branch, findings past their limit), init rung_gate, token cap and plan windows, new dependency, a secret staged for commit, a read-only commit, hunt-next close_gate, init audit_now and git_repo | ask | ask | ask | ask |
 
 - keel approves the very same question (same `waiting.id`) by itself at most `MAX_REPEATS` (3) times in a run, then asks.
 - **Secrets stop every mode**: the commit's secret scan now asks (`kind: fix`, "A secret is staged for commit", labels

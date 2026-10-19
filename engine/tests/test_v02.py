@@ -172,7 +172,7 @@ def test_ladder_real_mode_runs_and_marks_fixing(repo):
 
 
 def test_ladder_failure_pauses_init_with_waiting_rungs(client, repo):
-    # v0.4.0: a failing rung gets a setup-doctor, then asks (fix / exclude / accept) after fix_attempts_per_rung rounds
+    # v0.4.0: a failing rung gets a setup-doctor; 0.18.22 the rung gate then asks at once with its diagnosis
     configure(repo, "commands:\n  api_compile: 'false'\n  unit_tests: 'true'\n")
     tid = start(client, repo, workflow="init", title="Set up keel",
                 settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "simulate_checks": False,
@@ -181,7 +181,7 @@ def test_ladder_failure_pauses_init_with_waiting_rungs(client, repo):
     while s["status"] == "waiting" and s["waiting"]["step"] in ("questions", "plan_gate"):
         s = decide(client, tid)
     assert s["status"] == "waiting" and s["waiting"]["step"] == "rung_gate", s
-    assert s["waiting"]["choices"] == ["fix", "exclude", "accept"] and "Rung 4" in s["waiting"]["detail"]
+    assert s["waiting"]["choices"][-3:] == ["retry", "skip", "stop"] and "Rung 4" in s["waiting"]["detail"]
     st = {r["n"]: r["status"] for r in s["ladder"]}
     assert st[4] == "fail" and st[6] == "waiting" and st[1] == "pass"
 

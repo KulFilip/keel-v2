@@ -28,7 +28,7 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
 # the hunt and hunt-next flows (runtime/hunt_actions.py) and init's extra steps (runtime/init_actions.py)
 FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
                 "hunt_commit", "hunt_close", "hunt_take", "arch_detect", "arch_set", "ladder_soft", "ladder_retry",
-                "rung_apply"}
+                "rung_apply", "rung_report", "git_check", "git_init", "init_summary"}
 END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 

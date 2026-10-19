@@ -593,14 +593,30 @@ def _detect(root: str) -> dict:
     return cfg
 
 
+INIT_RUN_ONLY = ("said", "write_sections", "layout")   # init answers that are not kept in the config's init: block
+
+
 def write_config(a: ActionInput) -> ActionResult:
     f = Path(a.root) / ".keel" / "config.yml"
+    stored = {k: v for k, v in (a.init or {}).items() if k not in INIT_RUN_ONLY}
     if f.exists():
-        return ActionResult(True, ".keel/config.yml already exists; left as it is.")
+        # 0.18.22 a re-run records the new answers (init: block only; the rest of the file is left as it is)
+        text = f.read_text()
+        cfg = yaml.safe_load(text) or {}
+        if not a.init or not isinstance(cfg, dict) or cfg.get("init") == stored:
+            return ActionResult(True, ".keel/config.yml already exists; left as it is.")
+        head = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
+        cfg["init"] = stored
+        f.write_text(head + yaml.safe_dump(cfg, sort_keys=False))
+        return ActionResult(True, ".keel/config.yml exists; its init: block now has your answers.", f.read_text())
     f.parent.mkdir(parents=True, exist_ok=True)
     cfg = _detect(a.root)
+    if (a.init or {}).get("layout") in layout.LAYOUTS:
+        cfg["layout"] = a.init["layout"]
+        if cfg["layout"] != "repo":
+            cfg.pop("specs", None)
     if a.init:
-        cfg["init"] = {k: v for k, v in a.init.items() if k != "said"}
+        cfg["init"] = stored
     f.write_text("# Written by keel v2 init. Edit freely.\n"
                  "# layout: where keel keeps its files: keel (.keel/, out of git), repo (docs/, committed) or external.\n"
                  + yaml.safe_dump(cfg, sort_keys=False))
@@ -619,6 +635,10 @@ async def ladder(a: ActionInput) -> ActionResult:
     for r in rungs:
         if r["status"] == "pass" and r["n"] != 1:
             lines += [f"## {r['n']}. {r['name']}", "", *tool_runner.fenced(r["cmd"]), ""]
+    unchecked = [r for r in rungs if r["status"] == "skipped" and "setup." in str(r.get("detail") or "")]
+    if unchecked:
+        # keel v1 writes a rung the user accepted (or left out) into the runbook as not checked
+        lines += ["## Not checked", "", *[f"- {r['n']}. {r['name']}: {r.get('detail')}" for r in unchecked], ""]
     f = Path(a.root) / layout.resolve(a.root).runbook
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lines))
