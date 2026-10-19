@@ -581,16 +581,37 @@ def changes(sid: str) -> list[dict]:
     for rel, existed, content in rows:
         f = Path(root) / rel
         now = f.read_bytes() if f.is_file() else None
-        before = content if existed else None
-        if now == before:
-            continue
-        status = "added" if before is None else "deleted" if now is None else "modified"
-        diff = "".join(difflib.unified_diff(_text(before).splitlines(keepends=True), _text(now).splitlines(keepends=True),
-                                            fromfile=f"a/{rel}" if before is not None else "/dev/null",
-                                            tofile=f"b/{rel}" if now is not None else "/dev/null"))
-        plus = sum(1 for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
-        minus = sum(1 for ln in diff.splitlines() if ln.startswith("-") and not ln.startswith("---"))
-        out.append({"path": rel, "status": status, "added": plus, "removed": minus, "diff": diff[:DIFF_MAX]})
+        entry = _change(rel, content if existed else None, now)
+        if entry:
+            out.append(entry)
+    return out
+
+
+def _change(rel: str, before: bytes | None, now: bytes | None) -> dict | None:
+    """One changed file as the panel and keel TUI show it: path, status, +/- lines, diff (None when it is the same)."""
+    if now == before:
+        return None
+    status = "added" if before is None else "deleted" if now is None else "modified"
+    diff = "".join(difflib.unified_diff(_text(before).splitlines(keepends=True), _text(now).splitlines(keepends=True),
+                                        fromfile=f"a/{rel}" if before is not None else "/dev/null",
+                                        tofile=f"b/{rel}" if now is not None else "/dev/null"))
+    plus = sum(1 for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+    minus = sum(1 for ln in diff.splitlines() if ln.startswith("-") and not ln.startswith("---"))
+    return {"path": rel, "status": status, "added": plus, "removed": minus, "diff": diff[:DIFF_MAX]}
+
+
+def turn_changes(sid: str, n: int) -> list[dict]:
+    """0.18.20 The files one answer changed (the turn whose user message is `n`), each as it was before that turn
+    against how the turn left it: keel TUI's block after an answer. Never the folder's other uncommitted files (the
+    person's own, what keel init left): only what record_turn saw this turn change. [] for a turn that changed none."""
+    get(sid, messages=False)                       # 404 for an unknown chat
+    with db.connect() as conn:
+        rows = _turn_files(conn, sid, n)
+    out = []
+    for rel, bx, b, ax, a, _kept in rows:
+        entry = _change(rel, b if bx else None, a if ax else None)
+        if entry:
+            out.append(entry)
     return out
 
 
@@ -1608,9 +1629,10 @@ class HelperRunner:
                                       flow.get("run_mode") == "readonly"):
                 emit("guard", f"Put back {r['path']}: {r['reason']}", path=r["path"], ok=False)
             remember_originals(sid, root, before)
+        turn_files: list[str] = []
         if mode != "ask":
             try:                                               # 0.18.19 this turn's files, for /undo of the whole answer
-                record_turn(sid, n, root, before)
+                turn_files = record_turn(sid, n, root, before)
             except Exception:  # noqa: BLE001  (a record for /undo: never the turn's failure)
                 log.warning("KeelBot could not record turn %s of %s for /undo", n, sid, exc_info=True)
         used = getattr(res, "__dict__", {}) if res else {}
@@ -1634,6 +1656,8 @@ class HelperRunner:
                     data={"status": status, "mode": mode, "provider": provider, "model": model.get("model"),
                           **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
+                          # 0.18.20 the files this answer changed (keel TUI lists only these after it), and its turn
+                          "turn": n, "files": turn_files,
                           **({"failed": failures[-10:]} if failures else {})})
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
@@ -1642,7 +1666,7 @@ class HelperRunner:
         doc_history.after_step(doc_emit, root, docs_before, "keelbot", "KeelBot", None, "helper")
         ev("helper.finished", {"agent": AGENT, "status": status, "tokens_in": tin, "tokens_out": tout, "tokens_cached": cached,
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
-                               "result": answer[:2000], "session": sid, "n": n})
+                               "result": answer[:2000], "session": sid, "n": n, "files": turn_files})
         self.tasks.pop(sid, None)
 
 

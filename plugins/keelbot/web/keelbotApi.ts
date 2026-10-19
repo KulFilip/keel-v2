@@ -101,9 +101,10 @@ export const kb = {
     post<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/stop`),
   commands: (pid: string) =>
     get<HelperCommand[]>(`/projects/${e(pid)}/helper/commands`),
-  changes: (pid: string, sid: string) =>
+  /** every file KeelBot changed in this chat; `turn` (0.18.20): only what the answer to that user message changed */
+  changes: (pid: string, sid: string, turn?: number) =>
     get<HelperChange[]>(
-      `/projects/${e(pid)}/helper/sessions/${e(sid)}/changes`,
+      `/projects/${e(pid)}/helper/sessions/${e(sid)}/changes${turn != null ? `?turn=${turn}` : ""}`,
     ),
   undo: (pid: string, sid: string, path?: string) =>
     post<HelperChange[]>(

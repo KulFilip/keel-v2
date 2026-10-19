@@ -151,7 +151,8 @@ describe("Fix mode", () => {
     expect(f).toMatch(/\* edit src\/app\.ts +✓/);
     expect(f).toContain("   3 -const limit = 10;");
     expect(f).toContain("   3 +const limit = 100;");
-    t.stub.answer("Raised the limit to 100.");
+    t.stub.state.turnChanges = { 1: t.stub.state.changes };     // 0.18.20 this answer's own files
+    t.stub.answer("Raised the limit to 100.", { turn: 1, files: ["src/app.ts", "notes.md"] });
     t.core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "s1", project_id: "demo", at: "x", data: {} }) });
     await waitFor(() => t.frame().includes("2 file(s) changed"));
     f = t.frame();

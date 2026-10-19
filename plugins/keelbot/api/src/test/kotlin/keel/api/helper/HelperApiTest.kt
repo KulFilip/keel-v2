@@ -256,6 +256,9 @@ class HelperApiTest : ApiTest() {
         assertThat(flow["unlocks"].isArray).isTrue()
 
         assertThat(get("/api/projects/$pid/helper/sessions/$sid/changes").json()[0]["path"].asText()).isEqualTo("src/a.kt")
+        // 0.18.20 one answer's files (keel TUI's block after it): the turn goes on to the engine
+        get("/api/projects/$pid/helper/sessions/$sid/changes?turn=3").andExpect(status().isOk)
+        assertThat(engine.calls.last { it.path == "/helper/sessions/$sid/changes" }.query).isEqualTo("turn=3")
         post("/api/projects/$pid/helper/sessions/$sid/undo", mapOf("path" to "src/a.kt")).andExpect(status().isOk)
         assertThat(engine.lastBody("/helper/sessions/$sid/undo")!!["path"].asText()).isEqualTo("src/a.kt")
         val done = post("/api/projects/$pid/helper/sessions/$sid/done", mapOf("message" to " Limit is 100 ")).andExpect(status().isOk).json()
