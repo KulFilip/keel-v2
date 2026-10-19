@@ -104,7 +104,7 @@ def test_fake_model_writes_the_spec_where_the_layout_says(tmp_path):
     from keel_engine.models.fake import _canned
 
     r = _repo(tmp_path / "p", {".keel/config.yml": "layout: keel\n"})
-    req = AgentRequest(agent="explorer", system="", prompt="go", root=str(r), phase="spec", model={"provider": "fake"},
+    req = AgentRequest(agent="explorer", system="", prompt="Write the spec under .keel/specs/", root=str(r), phase="spec", model={"provider": "fake"},
                        toolbox=None, title="Player scores")
     path, _text, _answer, data = _canned(req)
     assert path.startswith(".keel/specs/") and data["spec"] == path
