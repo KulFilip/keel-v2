@@ -733,7 +733,8 @@ def test_a_command_that_changes_something_waits_for_the_persons_ok_as_keelbots_o
     assert client.get(f"/helper/sessions/{s['id']}").json()["busy"] is True        # no turn starts meanwhile
     client.post(f"/helper/permissions/{q['id']}", json={"decision": "deny", "why": "not now"})
     t.join(10)
-    assert got["refused"] == "not now" and got["exit"] is None
+    # 0.18.18 the reason comes back inside the "go on from what they said" guidance (KeelBot recover)
+    assert "not now" in got["refused"] and "Do not run it again" in got["refused"] and got["exit"] is None
     assert not (Path(repo) / "made-by-bang.txt").exists()
     # allowed once: it runs
     t = threading.Thread(target=lambda: got.update(client.post(f"/helper/sessions/{s['id']}/run",
