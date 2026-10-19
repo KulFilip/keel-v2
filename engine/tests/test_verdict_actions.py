@@ -183,6 +183,25 @@ def test_verify_module_and_fast(proj, tmp_path):
     assert not r.ok and "broken" in r.detail
 
 
+
+@pytest.mark.parametrize("out", ["No test files found, exiting with code 0", "No tests found, exiting with code 0",
+                                 "No tests executed!", "no tests ran in 0.01s"])
+def test_a_suite_that_ran_no_test_is_not_green(proj, out):
+    # 0.18.17 `npx vitest run` exits 0 with "No test files found": an implement flow ended done with no frontend test
+    config(proj, f"commands: {{api_test_module: \"echo '{out}'\"}}\nbackend: {{dir: ''}}\n")
+    for action in ("verify_release", "verify_module", "verify_green"):
+        r = run(action, ai(proj))
+        assert not r.ok, (action, r.note)
+        assert "ran no test" in r.note and "write the tests" in r.detail.lower(), (action, r.note, r.detail)
+    assert verdicts.latest("p1", "release")["ok"] is False
+
+
+def test_pytest_exit_5_is_no_tests(proj):
+    config(proj, "commands: {api_test_module: 'echo running pytest; exit 5'}\nbackend: {dir: ''}\n")
+    r = run("verify_release", ai(proj))
+    assert not r.ok and "ran no test" in r.note
+
+
 # ------------------------------------------------------------------ trace, audit
 
 def test_trace_from_commit_subjects(proj):

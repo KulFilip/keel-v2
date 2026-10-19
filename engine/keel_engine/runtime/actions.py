@@ -234,6 +234,11 @@ async def verify_green(a: ActionInput) -> ActionResult:
     if ac_id and testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
+    if not ac_id and verdict_actions.ran_no_tests(cmd, code, out):
+        # 0.18.17 the whole suite with no test is not green (vitest exits 0 with "No test files found")
+        await asyncio.to_thread(_release_verdict, a, False, cmd, out)
+        return ActionResult(False, "The suite ran no test, so it is not green.",
+                            f"$ {cmd}\n{tail(out, 3000)}\n{verdict_actions.NO_TESTS_HINT}")
     if code != 0:
         return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
     if not ac_id:
@@ -267,7 +272,8 @@ async def verify_release(a: ActionInput) -> ActionResult:
     await asyncio.to_thread(_release_verdict, a, r["ok"], cmd, r["out"], r["flaky"])
     upd = verdict_actions.flaky_update(a, r["flaky"])
     if not r["ok"]:
-        return ActionResult(False, "The release suite fails.", f"$ {cmd}\n{tail(r['out'], 3000)}")
+        what = "ran no test" if r.get("no_tests") else "fails"
+        return ActionResult(False, f"The release suite {what}.", f"$ {cmd}\n{tail(r['out'], 3000)}")
     return ActionResult(True, "Release suite: green; verdict recorded for this commit." + verdict_actions._flaky_note(r["flaky"]),
                         f"$ {cmd}\n{tail(r['out'], 1500)}", upd)
 
