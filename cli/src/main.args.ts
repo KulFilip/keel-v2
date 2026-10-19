@@ -13,7 +13,8 @@ options
   --project <id>       the project (KEEL_PROJECT; default: the one this folder is in, else the first)
   --cwd <dir>          the folder that picks the project (KEEL_TUI_CWD, default this one)
   --inline             no full screen: the transcript goes into the terminal's scrollback (KEEL_TUI_INLINE=1)
-  --no-mouse           the wheel stays the terminal's (select text as usual; PgUp / PgDn scroll) (KEEL_TUI_MOUSE=0)
+  --no-mouse           the mouse stays the terminal's (its own selection; PgUp / PgDn scroll) (KEEL_TUI_MOUSE=0);
+                       with the mouse on, the wheel scrolls and selecting text copies it
   --width <n>          columns for -c and --script (default 100)
   --rows <n>           --script on a full screen of n rows (default: inline)
   --profile            time the start, each api call, the live events and each frame, and the memory; on exit a summary

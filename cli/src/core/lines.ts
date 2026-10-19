@@ -143,8 +143,9 @@ export function wheel(chunk: string): number {
 /** A chunk that is only the mouse's reports (clicks and the wheel): the prompt never takes them as text. */
 export const isMouse = (chunk: string) => /^(\x1b?\[<\d+;\d+;\d+[Mm])+$/.test(chunk);
 
-/** The wheel's reports (DECSET 1000 and 1006, SGR), and the terminal's own screen for the app (1049). */
-export const MOUSE = { on: "\x1b[?1000h\x1b[?1006h", off: "\x1b[?1006l\x1b[?1000l" };
+/** The mouse's reports: the buttons and the wheel (DECSET 1000), a drag with a button held (1002, to select text), in
+ *  SGR form (1006); and the terminal's own screen for the app (1049). */
+export const MOUSE = { on: "\x1b[?1000h\x1b[?1002h\x1b[?1006h", off: "\x1b[?1006l\x1b[?1002l\x1b[?1000l" };
 export const SCREEN = { on: "\x1b[?1049h\x1b[H\x1b[2J", off: "\x1b[?1049l" };
 
 /** Ink's frame, painted over the last one instead of erased and drawn again (that erase is what flashes in many

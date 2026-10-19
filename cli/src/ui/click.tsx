@@ -55,13 +55,3 @@ export function Clickable({ act, children, flexDirection = "column" }: { act: ()
   useEffect(() => clicks?.add({ el: () => ref.current, act: () => latest.current() }), [clicks]);
   return <Box ref={ref} flexDirection={flexDirection}>{children}</Box>;
 }
-
-/** The clicks in a chunk of input: a press of the left button (SGR: ESC [ < 0 ; col ; row M), 0-based. */
-export function leftClicks(chunk: string): { col: number; row: number }[] {
-  const out: { col: number; row: number }[] = [];
-  for (const m of chunk.matchAll(/\x1b?\[<(\d+);(\d+);(\d+)([Mm])/g)) {
-    const b = Number(m[1]);
-    if (m[4] === "M" && (b & 0b11100011) === 0) out.push({ col: Number(m[2]) - 1, row: Number(m[3]) - 1 });
-  }
-  return out;
-}

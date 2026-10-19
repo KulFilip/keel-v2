@@ -25,13 +25,14 @@ import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
 import { modelCatalog } from "../core/effort";
-import { Clickable, ClicksProvider, leftClicks, makeClicks } from "./click";
+import { Clickable, ClicksProvider, makeClicks, placeOf } from "./click";
 import { answersMessage, blockedByChanges, buttonWords, elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { fixRequest } from "../../../web/src/askFix";
 import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
 import { blockLines, headerLine, isMouse, MOUSE, startLines, view, wheel, wrap } from "../core/lines";
 import { osc52, pickCopy } from "../core/clipboard";
+import { colsOn, highlight, mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../core/select";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
 
@@ -49,6 +50,11 @@ const INLINE_MODE_ROWS = 20;
 /** keel's panels, and a plugin's ("plugin:git") */
 type PanelId = PanelName | `plugin:${string}` | `job:${string}`;
 type Question = { id: string; command: string; title: string; path?: string | null };
+/** A selection with the mouse: in the transcript (`line` is the transcript's line) or in the prompt (line 0); `moved`
+ *  once it covers more than the pressed cell (a plain click selects nothing). */
+type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
+/** two presses on the same cell within this many ms: a double-click (the word under it) */
+const DOUBLE_MS = 400;
 
 /** keel TUI in keel's colours (the theme: the dashboard's palette, NO_COLOR, KEEL_TUI_THEME). */
 export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean }) {
@@ -124,6 +130,23 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [viewH, setViewH] = useState(Math.max(3, height - 8));
   const viewRef = useRef<DOMElement>(null);
   const [mouse, setMouse] = useState(mouseAtStart);
+  // select with the mouse and it is copied: the selection, and "copied N characters" for a few seconds
+  const [sel, setSelState] = useState<Sel | null>(null);
+  const selRef = useRef<Sel | null>(null);
+  const setSel = (x: Sel | null) => {
+    selRef.current = x;
+    setSelState(x);
+  };
+  const [flash, setFlashState] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setFlash = (x: string | null) => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = x ? setTimeout(() => setFlashState(null), 4000) : null;
+    setFlashState(x);
+  };
+  useEffect(() => () => void (flashTimer.current && clearTimeout(flashTimer.current)), []);
+  const promptRef = useRef<DOMElement>(null);
+  const lastPress = useRef({ t: 0, col: -1, row: -1 });
   const nextId = useRef(1);
   // 0.18.6 a plugin's mode (core/modes.ts): it takes the screen between keel's header and the status line until Esc
   const [mode, setMode] = useState<ModeSession | null>(null);
@@ -354,6 +377,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       if (!screen) stdout?.write("\x1b[2J\x1b[3J\x1b[H");
       setItems([{ id: nextId.current++, kind: "start", s: core.snapshot }]);
       setOffset(0);
+      setSel(null);
       setEpoch((e) => e + 1);
     }
     if (reply.mouse !== undefined) {
@@ -362,7 +386,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       else {
         stdout?.write(on ? MOUSE.on : MOUSE.off);
         setMouse(on);
-        push({ kind: "ok", text: on ? "the wheel scrolls keel TUI (to select text hold Option on a Mac, Shift on Linux or Windows; or /copy, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
+        push({ kind: "ok", text: on ? "the wheel scrolls keel TUI; select text with the mouse and it is copied (Shift, or Option on a Mac, gives the terminal's own selection; or /copy, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
       }
     }
     if (reply.copy !== undefined) {
@@ -554,6 +578,66 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const h = measureElement(modeRef.current).height;
     if (h > 0 && h !== modeH) setModeH(h);
   });
+  // select with the mouse: where a cell of the screen is in the transcript shown (after scrolling) or in the prompt
+  const shownRef = useRef({ above: 0, count: 0 });
+  const linesRef = useRef<string[]>([]);
+  linesRef.current = lines;
+  const lineRef = useRef("");
+  lineRef.current = line;
+  /** The transcript's or the prompt's cell at a column and row of the screen; with `keep`, a cell outside it is moved
+   *  to its nearest edge (a drag past the transcript's top or bottom, or off the prompt's line). */
+  const cellAt = (col: number, row: number, keep?: Sel["area"]): { area: Sel["area"]; at: Point } | null => {
+    const vp = viewRef.current && placeOf(viewRef.current);
+    const { above, count } = shownRef.current;
+    if (vp && count && keep !== "prompt") {
+      const i = row - (vp.top + vp.height - count);      // the lines sit at the bottom of the transcript's area
+      const c = Math.max(0, col - vp.left);
+      if (i >= 0 && i < count && col >= vp.left && col < vp.left + vp.width) return { area: "view", at: { line: above + i, col: c } };
+      if (keep === "view") return { area: "view", at: i < 0 ? { line: above, col: 0 } : i >= count ? { line: above + count - 1, col: 1e6 } : { line: above + i, col: c } };
+    }
+    const pp = promptRef.current && placeOf(promptRef.current);
+    // the prompt's text starts after its border, its padding and "› "
+    if (pp && lineRef.current && (keep === "prompt" || row === pp.top + 1)) return { area: "prompt", at: { line: 0, col: Math.max(0, col - pp.left - 4) } };
+    return null;
+  };
+  const onMouse = useCallback((e: MouseEv) => {
+    if (e.kind === "press") {
+      const hit = cellAt(e.col, e.row);
+      if (!hit) {
+        setSel(null);
+        clicks.hit(e.col, e.row)?.act();
+        return;
+      }
+      const lp = lastPress.current;
+      const now = Date.now();
+      lastPress.current = { t: now, col: e.col, row: e.row };
+      if (now - lp.t < DOUBLE_MS && lp.col === e.col && lp.row === e.row) {
+        // a double-click: the word under it
+        const text = hit.area === "view" ? linesRef.current[hit.at.line] ?? "" : lineRef.current;
+        const w = wordAt(plain(text), hit.at.col);
+        if (w) return setSel({ area: hit.area, a: { line: hit.at.line, col: w[0] }, b: { line: hit.at.line, col: w[1] }, moved: true });
+      }
+      setSel({ area: hit.area, a: hit.at, b: hit.at, moved: false });
+      return;
+    }
+    const cur = selRef.current;
+    if (!cur) return;
+    if (e.kind === "drag") {
+      const hit = cellAt(e.col, e.row, cur.area);
+      if (!hit) return;
+      const moved = cur.moved || hit.at.line !== cur.a.line || hit.at.col !== cur.a.col;
+      if (moved !== cur.moved || hit.at.line !== cur.b.line || hit.at.col !== cur.b.col) setSel({ ...cur, b: hit.at, moved });
+      return;
+    }
+    // the release: what is selected goes to the clipboard at once; a plain click selects nothing
+    if (!cur.moved) return setSel(null);
+    const text = selectedText(cur.area === "view" ? linesRef.current : [lineRef.current], cur.a, cur.b);
+    if (!text.trim()) return setSel(null);
+    stdout?.write(osc52(text));
+    const n = [...text].length;
+    setFlash(`copied ${n} character${n === 1 ? "" : "s"}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clicks, stdout]);
   // the wheel, Home and End: read from the raw input (Ink gives no key for them)
   const { internal_eventEmitter: rawInput } = useStdin() as unknown as { internal_eventEmitter?: NodeJS.EventEmitter };
   useEffect(() => {
@@ -563,7 +647,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       const n = wheel(s);
       if (n && mode) return mode.wheel(n * 3);
       if (n) return scroll(n * 3);
-      for (const c of leftClicks(s)) clicks.hit(c.col, c.row)?.act();
+      for (const e of mouseEvents(s)) onMouse(e);
       const end = /^\x1b(\[(F|4~|8~)|OF)$/.test(s);
       const home = /^\x1b(\[(H|1~|7~)|OH)$/.test(s);
       if (mode && (end || home)) void mode.press(end ? "end" : "home");
@@ -572,11 +656,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     };
     rawInput.on("input", on);
     return () => void rawInput.off("input", on);
-  }, [rawInput, screen, scroll, clicks, mode]);
+  }, [rawInput, screen, scroll, clicks, mode, onMouse]);
 
   useInput((input, key) => {
     // the mouse's reports are read below, from the raw input; never typed into the prompt
     if (isMouse(input) || isMouse("\x1b" + input)) return;
+    // a key ends what the mouse selected, and the "copied" notice
+    if (selRef.current) setSel(null);
+    if (flash) setFlash(null);
     // a plugin's mode has the keys (Ctrl+C still quits; a question KeelBot asks meanwhile is answered first)
     if (mode && !pending?.pick && !(key.ctrl && input === "c")) {
       const name = keyName(input, key);
@@ -758,6 +845,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   if (screen) {
     const v = view(lines, viewH, offset);
+    shownRef.current = { above: v.above, count: v.shown.length };
+    const marked = (k: number) => (sel?.moved && sel.area === "view" ? colsOn(k, sel.a, sel.b) : null);
     const liveRows = Math.max(3, Math.floor(height / 3));
     const writingLines = writing ? wrap(renderMarkdown(writing.slice(-3000), t.paint, width - 2), width - 2).slice(-liveRows) : [];
     return (
@@ -767,7 +856,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         <Text color={t.color("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
         <Box ref={viewRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden" justifyContent="flex-end">
           {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
-          {v.shown.map((l, i) => <Text key={v.above + i} wrap="truncate-end">{l || " "}</Text>)}
+          {v.shown.map((l, i) => {
+            const m = marked(v.above + i);
+            return <Text key={v.above + i} wrap="truncate-end">{(m ? highlight(l, m[0], m[1]) : l) || " "}</Text>;
+          })}
         </Box>
         {v.below > 0 && (
           <Text color={t.color("accent")} wrap="truncate-end">
@@ -841,8 +933,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         ) : (
           <Box flexDirection="column">
             {pending?.ask && <Text color={t.color("accent")} bold>{pending.ask.prompt}<Text color={t.color("dim")} bold={false}> (Esc cancels)</Text></Text>}
-            {footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
-            <Box borderStyle="round" borderColor={border} paddingX={1} marginTop={footer && !chat.busy ? 0 : 1}>
+            {/* "copied N characters" takes the row the footer (or the prompt's air above it) had: nothing moves */}
+            {flash ? <Box marginTop={footer && !chat.busy ? 1 : 0}><Text wrap="truncate-end" color={t.color("dim")}>{" " + flash}</Text></Box>
+              : footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
+            <Box ref={promptRef} borderStyle="round" borderColor={border} paddingX={1} marginTop={flash || (footer && !chat.busy) ? 0 : 1}>
               <Text>
                 <Text color={t.color("accent")} bold>{"› "}</Text>
                 {line ? <>{inputText(line.slice(0, cursor))}<Text inverse>{line[cursor] ?? " "}</Text>{inputText(line.slice(cursor + 1))}</>
