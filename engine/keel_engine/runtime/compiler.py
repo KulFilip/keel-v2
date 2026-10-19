@@ -631,7 +631,7 @@ class Compiler:
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
-                                     pid=ctx.project_id or "")
+                                     pid=ctx.project_id or "", writes_spec=not step.keep)
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
@@ -1054,7 +1054,8 @@ class Compiler:
         said = ((upd.get("markers") or {}).get(step.id) or {}) if step.markers else {}
         if said:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
-        if state["phase"] in ("spec", "triage") and not state.get("acs"):
+        # 0.18.21 a `keep` step's answer is text for the next steps, not the spec: no criteria are read from it
+        if state["phase"] in ("spec", "triage") and not state.get("acs") and not step.keep:
             acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
             if not acs and ctx.request:
                 # 0.18.17 the agent wrote its criteria in another form ("1. ..."), but the request lists them as AC

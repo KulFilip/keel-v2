@@ -171,3 +171,30 @@ def test_the_spikes_web_findings_reach_the_researchers_and_the_findings(client, 
     assert len(research) == 2 and all("https://developers.example.com/webhooks" in r.prompt for r in research)
     findings = next(r for r in seen if r.step_name.startswith("findings"))
     assert "https://developers.example.com/webhooks" in findings.prompt and "VERDICT: promising" in findings.prompt
+
+
+def test_a_step_that_keeps_its_answer_is_not_the_spec_writer(client, repo, monkeypatch):
+    """0.18.21 fix: a `keep: true` step in the spec phase (the spike's frame and web_docs, feature's web steps) writes text
+    for the next steps, not the spec: its prompt does not ask for a spec or questions, and keel does not read criteria
+    from its answer."""
+    from conftest import start, wait
+    from test_flows_base import values
+
+    frame = ("Question: which ETA field?\n- **AC-1** [API] the ETA is shown\n"
+             "```json\n" + json.dumps([{"title": "map the field"}]) + "\n```")
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        text = {"explorer": frame, "web-researcher": "Nothing outside.\nCONFIDENCE: high"}.get(req.agent)
+        if req.agent == "investigator":
+            text = "RECOMMEND: map it" if req.step_name.startswith("findings") else "VERDICT: promising"
+        return (None, "", text, {}) if text else real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    tid = start(client, repo, workflow="spike", title="ETA field")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "decide"
+    for r in seen[:2]:
+        assert r.agent in ("explorer", "web-researcher")
+        assert "Write the spec under" not in r.prompt and "keel-questions" not in r.prompt, r.agent
+    assert not values(client, tid).get("acs")

@@ -105,7 +105,8 @@ def _allowed(phase: str) -> str:
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
                 section: str | None = None, unlocks: list[dict] | None = None, request: str = "",
-                knowledge: dict | None = None, graph: bool = False, item: dict | None = None, pid: str = "") -> str:
+                knowledge: dict | None = None, graph: bool = False, item: dict | None = None, pid: str = "",
+                writes_spec: bool = True) -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
@@ -158,10 +159,13 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines += [f"- {a['id']} [{a.get('layer', 'API')}] {a.get('title', '')} ({a.get('status', 'todo')})" for a in acs]
     if ac:
         lines.append(f"Current criterion: {ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}")
-    if phase in ("spec", "triage") and feedback and spec:
+    # 0.18.21 a step that keeps its answer for the next steps (`keep: true`: the spike's frame, the web research) is not
+    # the spec writer: it gets no "write the spec" or "ask questions" lines
+    spec_phase = phase in ("spec", "triage") and writes_spec
+    if spec_phase and feedback and spec:
         lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
                      "file to answer the note. Read only what the note needs; do not explore the project again.")
-    if phase in ("spec", "triage") and not acs:
+    if spec_phase and not acs:
         lines.append(f"Keep the reading short: the request, the README, {kdir or lay.knowledge}/ if it exists, and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
                      "a spec that exists beats a perfect map of the code.")
