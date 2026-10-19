@@ -56,6 +56,27 @@ def test_garbage_never_crashes_and_gives_nothing_it_cannot_read():
     assert usage.LATEST["claude"]["source"] == "last run"
 
 
+def test_the_weekly_window_comes_from_unified_windows_not_the_stale_top_level_number():
+    # 0.18.17 recorded shape (claude 2.1): a weekly warning fired at 25% and its status rides along on later events;
+    # unifiedWindows has the weekly window now (57%, what the Claude plan page said). The card showed 0.25.
+    got = {w["window"]: w for w in usage.claude_windows(_info(8))}
+    assert got["seven_day"]["used_pct"] == 0.57 and got["seven_day"]["status"] == "allowed_warning"
+    assert got["five_hour"]["used_pct"] == 0.09 and "status" not in got["five_hour"]
+    assert usage.headline("claude", got["seven_day"], now=1792670400 - 3600) == "Claude weekly window 57% used, resets in 1h"
+    # a refusal still counts the window as full for the pause rule, whatever number rides along
+    [r] = usage.claude_windows(_info(9))
+    assert (r["used_pct"], r["status"]) == (1.0, "rejected")
+    usage.record("claude", usage.claude_windows(_info(8)), "last run", at=1792660000)
+    assert usage.fullest("claude", now=1792660000)["used_pct"] == 0.57
+
+
+def test_a_stream_keeps_the_newest_unified_number_over_an_earlier_line():
+    s = ClaudeStream(lambda *a, **k: None, "/tmp")
+    s.line(_lines()[0])            # weekly 5%
+    s.line(_lines()[8])            # weekly 57% (with the old 25% warning on top)
+    assert {w["window"]: w["used_pct"] for w in s.windows}["seven_day"] == 0.57
+
+
 async def test_a_claude_run_returns_its_windows(tmp_path, monkeypatch, repo):
     monkeypatch.setenv("KEEL_CLAUDE_BIN", _claude(tmp_path, [json.loads(_lines()[0]), RESULT]))
     res = await ClaudeCLIRunner().run(_req(repo), lambda *a, **k: None)

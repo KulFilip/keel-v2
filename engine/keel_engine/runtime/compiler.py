@@ -74,6 +74,7 @@ ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is f
 # Where a review fix goes (findings_step, payload.route) and the actions that follow the fixing agent.
 ROUTES = {"review-fix": ("verify_green", "commit"), "coverage-fix": ("verify_green", "commit"), "red": ("commit",)}
 STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
+USAGE_EVERY = 15.0               # 0.18.17 seconds between two agent.usage events of one running call (the usage so far)
 
 
 
@@ -110,8 +111,12 @@ async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, mem
             raise
         spent = dict(exc.usage or {})
     emit("text", "The agent used all its turns: keel continues its own session (\"continue\").")
+
+    def emit_on(kind: str, text: str = "", **extra):
+        # 0.18.17 the continued run counts its usage from 0: the call's usage so far includes the cut-off run's
+        emit(kind, text, **(add_usage(dict(extra), spent) if kind == "usage" else extra))
     try:
-        res = await runner.run(dataclasses.replace(req, prompt=CONTINUE, session=sid, resume=True), emit)
+        res = await runner.run(dataclasses.replace(req, prompt=CONTINUE, session=sid, resume=True), emit_on)
     except ModelError as exc:
         exc.usage = add_usage(dict(exc.usage or {}), spent)
         raise
@@ -120,6 +125,28 @@ async def run_or_continue(runner, req: AgentRequest, emit, can_resume: bool, mem
     res.tokens_cached += int(spent.get("tokens_cached", 0))
     res.cost_usd += float(spent.get("cost_usd", 0.0))
     return res
+
+
+def _usage_fields(u: dict) -> dict:
+    """An agent event's usage fields (agent.usage, agent.finished) from a usage dict."""
+    return {"tokens_in": int(u.get("tokens_in", 0)), "tokens_out": int(u.get("tokens_out", 0)),
+            "tokens_cached": int(u.get("tokens_cached", 0)), "cost_usd": round(float(u.get("cost_usd", 0.0)), 6)}
+
+
+def running_usage(usage: dict, running: dict) -> dict:
+    """0.18.17 a flow's usage with the usage so far of the agents that still run (ThreadContext.running)."""
+    out = dict(usage)
+    for u in list(running.values()):
+        add_usage(out, u)
+    return out
+
+
+def raised_cap(used: int, cap: int, first: int) -> int:
+    """0.18.17 the token cap after "Token cap reached" is approved: what the flow used plus the largest of the cap now,
+    the flow's first cap and half of what it used. One approval bought only one cap more (used + cap): with the 500,000
+    default a big flow asked a person every 500k (500k, 1.03M, 1.53M, ...); half the use so far makes the gates come
+    further apart as the flow grows, and an approval never buys less than before."""
+    return int(used + max(cap, first, used // 2, 1))
 
 
 def budget_tokens(usage: dict) -> int:
@@ -574,9 +601,21 @@ class Compiler:
         # the agent's text as it writes it: agent.delta events (the text so far, every 80 ms; never stored)
         live_text = DeltaThrottle(lambda d: ctx.emit("agent.delta", step=step.id, call_id=call_id, data=d))
 
+        usage_sent = {"at": 0.0}
+
         def emit(kind: str, text: str = "", **extra):
             if kind == "delta":
                 live_text.add(str(text))
+                return
+            if kind == "usage":
+                # 0.18.17 the run's usage so far (runners that learn it while they run): kept for the thread's view and
+                # the cap, and sent as agent.usage at most every USAGE_EVERY seconds; agent.finished still books the total
+                ctx.running[call_id] = {k: extra[k] for k in ("tokens_in", "tokens_out", "tokens_cached", "cost_usd") if extra.get(k)}
+                now = time.monotonic()
+                if now - usage_sent["at"] >= USAGE_EVERY:
+                    usage_sent["at"] = now
+                    ctx.emit("agent.usage", step=step.id, call_id=call_id, data={"agent": agent, **_usage_fields(ctx.running[call_id])})
+                    self._running_cap(state, step)
                 return
             live_text.reset()
             counter["n"] += 1
@@ -630,14 +669,18 @@ class Compiler:
                 res = await run_or_continue(models.runner_for(model), req, emit, can_resume,
                                             lambda: mem.get(key) if mem else None)
             except asyncio.CancelledError:
-                ctx.emit("agent.finished", step=step.id, call_id=call_id, data={"agent": agent, "status": "stopped", "tokens_in": 0,
-                                                                                "tokens_out": 0, "cost_usd": 0, "premium_requests": 0})
+                # 0.18.17 a stopped run used what it reported so far (it booked 0 before)
+                so_far = dict(ctx.running.get(call_id) or {})
+                add_usage(ctx.unbooked, so_far)
+                ctx.emit("agent.finished", step=step.id, call_id=call_id, data={"agent": agent, "status": "stopped",
+                                                                                **_usage_fields(so_far), "premium_requests": 0})
                 raise
             except Exception as exc:
                 emit("error", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}", ok=False)
                 if mem:
                     await mem.finish(key, "failed", str(exc))
-                used = getattr(exc, "usage", None) or {}
+                # 0.18.17 an error that carries no usage still used what the run reported so far
+                used = getattr(exc, "usage", None) or dict(ctx.running.get(call_id) or {})
                 add_usage(ctx.unbooked, used)
                 # A failed run still used tokens (a turn limit after 30 turns is not free): the job and the budget count them.
                 ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
@@ -646,6 +689,7 @@ class Compiler:
                     "premium_requests": 0, "result": str(exc)[:500]})
                 raise
             finally:
+                ctx.running.pop(call_id, None)
                 for g in live:
                     ctx.guards.remove(g)
                 extensions.close_call(plugin_key)
@@ -670,6 +714,27 @@ class Compiler:
         if entry and entry["at"] >= since:
             self.ctx.emit("provider.usage", step=step.id, data={"provider": provider, "windows": entry["windows"],
                                                                 "source": entry["source"], "at": provider_usage.iso(entry["at"])})
+
+    def _first_cap(self) -> int:
+        """The token cap the flow started with (initial_state): the settings' (or start request's) cap_tokens, else the
+        workflow's budget.max_tokens."""
+        b = self.wf.budget
+        return int(self.ctx.settings.get("cap_tokens") or (b.max_tokens if b and b.max_tokens else 0) or 0)
+
+    def _running_cap(self, state: FlowState, step: Step) -> None:
+        """0.18.17 while agents run: the flow's tokens with what they used so far (state.usage holds only finished
+        calls). Past the token cap, budget.warn says so once per step (a running CLI cannot be paused); _budget asks
+        before the next step, which then counts this step's whole usage."""
+        ctx = self.ctx
+        cap = int((state.get("usage") or {}).get("cap_tokens") or 0)
+        if not cap or ctx.running_warned == step.id:
+            return
+        used = budget_tokens(running_usage(state.get("usage") or {}, ctx.running))
+        if used >= cap:
+            ctx.running_warned = step.id
+            ctx.emit("budget.warn", step=step.id, data={
+                "used": used, "cap": cap, "pct": round(used * 100 / cap), "running": True,
+                "detail": f"This flow has used {used:,} of {cap:,} tokens while {step.name} still runs. keel asks before the next step."})
 
     async def _provider_window(self, state: FlowState, step: Step) -> dict:
         """Before a subscription agent: warn when its plan window is nearly used (settings.usage_warn, default 0.80) and
@@ -763,8 +828,14 @@ class Compiler:
             return {"status": "stopped", "note": f"{what} cap reached; flow stopped"}
         limit_txt = (f"{step_used:,} of {step_cap:,} tokens for this step" if over_step
                      else f"{used:,} of {cap:,} tokens" if over_cap else f"${cost:,.2f} of ${cap_usd:,.2f}")
+        new_cap = raised_cap(used, cap, self._first_cap()) if over_cap else 0
+        new_usd = round(cost + max(cap_usd, 0.01), 4) if over_usd else 0.0
+        after = [f"the flow's cap goes up to {new_cap:,} tokens" if over_cap else "",
+                 f"its cost cap to ${new_usd:,.2f}" if over_usd else "",
+                 f"this step gets another {step_cap:,} tokens" if over_step else ""]
         answer, extra = self._ask(state, {"step": step.id, "kind": "budget", "title": "Token cap reached" if what == "token" else "Cost cap reached",
-                                          "detail": f"This flow has used {limit_txt}. Approve to continue past the cap, reject to stop.",
+                                          "detail": f"This flow has used {limit_txt}. Approve to continue: "
+                                                    f"{', '.join(a for a in after if a)}. Reject to stop.",
                                           "options": OPTIONS})
         if (answer or {}).get("decision") != "approve":
             ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
@@ -772,10 +843,10 @@ class Compiler:
         payload = (answer or {}).get("payload") or {}
         upd: dict = {"warned": False, **extra}
         if over_cap:
-            usage["cap_tokens"] = int(payload.get("cap_tokens") or (used + max(cap, 1)))
+            usage["cap_tokens"] = int(payload.get("cap_tokens") or new_cap)
             upd["usage"] = usage
         if over_usd:
-            usage["cap_usd"] = round(float(payload.get("cap_usd") or (cost + max(cap_usd, 0.01))), 4)
+            usage["cap_usd"] = round(float(payload.get("cap_usd") or new_usd), 4)
             upd["usage"] = usage
         if over_step:
             st = dict(state.get("step_tokens") or {})
@@ -787,6 +858,7 @@ class Compiler:
 
     async def agent_step(self, i: int, step: Step, state: FlowState):
         ctx = self.ctx
+        ctx.running_warned = None
         upd = self._budget(state, step)
         if upd.get("status") == "stopped":
             return upd, END
