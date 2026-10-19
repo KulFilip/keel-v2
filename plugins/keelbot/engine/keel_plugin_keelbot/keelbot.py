@@ -38,7 +38,7 @@ ABOUT = {
     "implement": "the usual order, not test-first: the code → its tests → keel runs them; pass → one commit and done, "
                  "fail → a fix and the tests again; no gate",
     "fix": "a bug you can describe: reproduce it as a failing test → find the cause → fix → regression test → ship",
-    "spike": "research before building: 2–4 angles researched in parallel → findings with data and one recommendation → spec (a feature flow) or drop",
+    "spike": "research before building: frame → web research of outside docs (search first, 5+ sources) → 2–4 angles researched in parallel → findings with data, sources and one recommendation → spec (a feature flow) or drop",
     "diagnose": "a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hands over to fix or feature",
     "review": "read-only review of the branch, one reviewer per lens (code, security, performance, ...); a report",
     "lint": "run the project's formatters and linters, fix the findings without changing behaviour, one commit",

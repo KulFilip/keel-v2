@@ -142,3 +142,32 @@ def test_a_read_only_run_refuses_a_download_into_a_file(cmd):
 def test_a_read_only_run_still_reads_the_web(cmd):
     from keel_engine.runtime import run_mode
     assert run_mode.readonly_bash(cmd) is None
+
+
+# ------------------------------------------------------------------ the spike flow (fake model)
+
+def test_the_spikes_web_findings_reach_the_researchers_and_the_findings(client, repo, monkeypatch):
+    from conftest import start, wait
+
+    frame = ("Question: what is ParcelPerform's ETA field called in the webhook?\nOutside the repo: the webhook payload.\n"
+             "```json\n" + json.dumps([{"title": "map the field from the webhook"}, {"title": "poll the API"}]) + "\n```")
+    web = ("CONFIRMED\n- `estimated_delivery_date`: https://developers.example.com/webhooks \"the latest ETA\"\n"
+           "| tried | result |\n|---|---|\n| search: parcelperform webhook eta | 4 hits |\n\nCONFIDENCE: medium")
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        text = {"explorer": frame, "web-researcher": web}.get(req.agent)
+        if req.agent == "investigator":
+            text = "RECOMMEND: map the field" if req.step_name.startswith("findings") else "Measured.\nVERDICT: promising"
+        return (None, "", text, {}) if text else real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide"
+    assert [r.agent for r in seen][:2] == ["explorer", "web-researcher"]
+    researcher = next(r for r in seen if r.agent == "web-researcher")
+    assert "what is ParcelPerform's ETA field called" in researcher.prompt      # it reads the frame's question and angles
+    research = [r for r in seen if r.agent == "investigator" and r.item]
+    assert len(research) == 2 and all("https://developers.example.com/webhooks" in r.prompt for r in research)
+    findings = next(r for r in seen if r.step_name.startswith("findings"))
+    assert "https://developers.example.com/webhooks" in findings.prompt and "VERDICT: promising" in findings.prompt

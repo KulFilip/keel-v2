@@ -129,3 +129,16 @@ def test_api_validate_and_estimate(client):
     assert not r["ok"]
     e = client.post("/workflows/estimate", json={"yaml": good, "acs": 3}).json()
     assert e["tokens"] > 0 and set(e["by_provider"]) == {"fake", "claude", "codex", "copilot"}
+
+
+def test_spike_researches_the_web_before_the_angles():
+    """0.18.20 spike: frame → web_docs (web-researcher, CONFIDENCE) → one researcher per angle → findings with sources."""
+    t = get_template("spike")
+    assert [s.id for s in t.steps] == ["frame", "web_docs", "research", "collect", "findings", "report", "decide", "hand_spec"]
+    frame, web, research, findings = t.step("frame"), t.step("web_docs"), t.step("research"), t.step("findings")
+    assert frame.keep and frame.collect == "angles" and "outside this repository" in frame.instructions
+    assert (web.kind, web.agent, web.phase, web.markers, web.keep) == ("agent", "web-researcher", "spec", ["CONFIDENCE"], True)
+    assert "{{data.frame_text}}" in web.instructions and "one failed URL" in web.instructions
+    assert "{{data.web_docs_text}}" in research.instructions and "curl -sL" in research.instructions
+    assert "{{data.web_docs_text}}" in findings.instructions and "{{data.report}}" in findings.instructions
+    assert "URL" in findings.instructions and "confirmed" in findings.instructions

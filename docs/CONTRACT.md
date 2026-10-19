@@ -686,6 +686,11 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   (ROOT-CAUSE) → `report` → investigator ranks + RECIPE/KIND → `report` → gate `choices: [fix, feature, unresolved]`:
   start_flow fix (seed recipe + symptoms, never the cause), start_flow feature (seed evidence), or `investigation_note`
   (`docs/investigations/<date>-<slug>.md`, every hypothesis kept, committed `docs: investigation note …`).
+- **spike** (phase `spec`): explorer frames the question, what it needs from outside the repo and `angles` (`keep`:
+  `data.frame_text`) → 0.18.20 `web_docs`: the web-researcher reads the frame and researches the outside docs (search
+  first, at least five sources; `keep`: `data.web_docs_text`, CONFIDENCE) → one investigator per angle (VERDICT; the web
+  findings in its prompt, it may read the web with `curl -sL`) → `report` → investigator writes the findings (confirmed
+  vs not, sources with URLs, RECOMMEND) → `report` → gate `choices: [spec, drop]`.
 - **fix**: `bug_intake` (data.no_gates or `gates.bug_gates: false` → `gates.skipped["gate-r"|"gate-f"]`: those gates approve
   themselves and the PR body lists them; data.needs_e2e → marker E2E) → reproducer (REPRO; not-reproducible → start_flow
   diagnose) → verify red + `test(BUG)` → Gate R `choices: [investigate, stop]` → hypotheses → investigators in parallel → no

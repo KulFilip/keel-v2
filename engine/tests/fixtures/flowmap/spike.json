@@ -10,7 +10,21 @@
    "model": "default",
    "phase": "spec",
    "collect": "angles",
-   "instructions": "Frame the spike: restate the question in one sentence, the decision it should make possible, and what data would settle it (numbers, limits, versions, compatibility, cost, effort). Then list two to four distinct angles to research (options, approaches or tools), each one researchable on its own. Do not research them yet."
+   "instructions": "Frame the spike: restate the question in one sentence, the decision it should make possible, and what data would settle it (numbers, limits, versions, compatibility, cost, effort). Name what the question needs from outside this repository (third-party APIs, libraries, SDKs, webhooks, vendor docs: exact field names, formats, versions, limits), or say it needs nothing from outside. Then list two to four distinct angles to research (options, approaches or tools), each one researchable on its own. Do not research them yet.",
+   "keep": true
+  },
+  {
+   "id": "web_docs",
+   "kind": "agent",
+   "name": "research the outside docs",
+   "agent": "web-researcher",
+   "model": "default",
+   "phase": "spec",
+   "markers": [
+    "CONFIDENCE"
+   ],
+   "instructions": "Research what this spike needs from outside the repository: the third-party APIs, libraries, SDKs, webhooks and their docs that the question and its angles depend on (field names, payload formats, versions, limits). Search first, then fetch the best sources; never conclude from one failed URL. Edit nothing. If the question needs nothing from outside the repository, say so in one line and end with CONFIDENCE: high. The framing, with its question and angles:\n{{data.frame_text}}",
+   "keep": true
   },
   {
    "id": "research",
@@ -24,7 +38,7 @@
    "markers": [
     "VERDICT"
    ],
-   "instructions": "Research only the angle in your item, from evidence: the code (file:line), its dependencies and docs, and measurements you can take without changing anything (timings, counts, sizes, versions, a dry run). Edit nothing. Give numbers wherever you can and say how you got each one. Name the risks and what the angle would cost to build. End with VERDICT: promising | possible | no."
+   "instructions": "Research only the angle in your item, from evidence: the code (file:line), its dependencies and docs, and measurements you can take without changing anything (timings, counts, sizes, versions, a dry run). Edit nothing. Use the web research below for anything outside the repository, and cite its URLs; when your angle needs more from outside, read the web yourself (WebSearch and WebFetch when you have them, else a read-only `curl -sL <url>`) and name each URL you used. Give numbers wherever you can and say how you got each one. Name the risks and what the angle would cost to build. End with VERDICT: promising | possible | no.\nWhat the web research found:\n{{data.web_docs_text}}"
   },
   {
    "id": "collect",
@@ -43,7 +57,7 @@
    "markers": [
     "RECOMMEND"
    ],
-   "instructions": "Write the spike's findings for the person who decides: the question; per angle what was found, with its data and evidence; a comparison table (angle, verdict, the key numbers, risk, effort); open questions; and one recommendation with its reason. RECOMMEND is that recommendation on one line. The researchers' answers:\n{{data.report}}"
+   "instructions": "Write the spike's findings for the person who decides: the question; per angle what was found, with its data and evidence; a comparison table (angle, verdict, the key numbers, risk, effort); what is confirmed and what is not (a fact is confirmed only when a source says it: give its URL or file:line; anything else is unconfirmed, with what a human should supply to settle it); a list of the sources with their URLs; open questions; and one recommendation with its reason. RECOMMEND is that recommendation on one line.\nThe web research (sources and confidence):\n{{data.web_docs_text}}\nThe researchers' answers:\n{{data.report}}"
   },
   {
    "id": "report",
@@ -81,6 +95,7 @@
  "expect": {
   "main": [
    "frame",
+   "web_docs",
    "research",
    "collect",
    "findings",
@@ -95,6 +110,10 @@
     "nodes": [
      {
       "step": "frame",
+      "side": []
+     },
+     {
+      "step": "web_docs",
       "side": []
      },
      {
