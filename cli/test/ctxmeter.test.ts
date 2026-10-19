@@ -10,13 +10,12 @@ const makeCore = () => {
   return new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
 };
 
-/** sets the open chat's session to carry the given context-window fill (ctx_tokens/ctx_window, not yet on
- *  HelperSession — that is this ticket's own job to add). */
+/** sets the open chat's session to carry the given context-window fill (ctx_tokens/ctx_window). */
 const openChatWith = (core: KeelCore, ctx: { ctx_tokens: number; ctx_window: number }) => {
   core.snapshot = { ...core.snapshot, chat: { ...core.snapshot.chat,
-    session: { id: "h1", project: "demo", root: "/work/demo", mode: "ask", title: "chat", model: { provider: "anthropic", model: "claude-opus" },
+    session: { id: "h1", project: "demo", root: "/work/demo", mode: "ask", title: "chat", model: { provider: "claude", mode: "api", model: "claude-opus" },
       status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0, turns: 1, created_at: "x", updated_at: "x",
-      ...ctx } as unknown as KeelCore["snapshot"]["chat"]["session"] } };
+      ...ctx } } };
 };
 
 describe("AC-3 the status line's context meter", () => {

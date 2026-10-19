@@ -759,6 +759,9 @@ export type HelperSession = {
   messages?: HelperMessage[]; busy?: boolean;
   /** v0.15.2 the folder it is in (one of KeelBot's chat folders, plugins/keelbot), or none */
   folder?: string | null;
+  /** P1-1 how full the model's context window is after the last turn: the last turn's tokens_in + tokens_out +
+   *  tokens_cached, and the model's window size (engine/keel_engine/models/catalog.py's context_window). */
+  ctx_tokens?: number; ctx_window?: number;
 };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };

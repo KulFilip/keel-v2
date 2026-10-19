@@ -337,7 +337,7 @@ export function statusSegments(s: Snapshot): Seg[] {
     role: s.inbox.length ? "gate" : "dim", bold: s.inbox.length > 0 });
   if (t) segs.push({ text: `${fmt.short(fmt.tokensOf(t.usage))} tokens`, role: "dim" });
   // P1-1 the open KeelBot chat's context meter: how full its model's window is after the last turn
-  const session = s.chat.session as unknown as { ctx_tokens?: number; ctx_window?: number } | null;
+  const session = s.chat.session;
   if (session && session.ctx_window) {
     const pct = Math.round(((session.ctx_tokens ?? 0) / session.ctx_window) * 100);
     segs.push({ text: `ctx ${pct}%`, role: pct >= 85 ? "bad" : pct >= 70 ? "warn" : "dim" });
