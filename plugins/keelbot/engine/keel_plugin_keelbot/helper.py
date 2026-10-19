@@ -653,6 +653,53 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
 
 
 SHELL_OUTPUT_MAX = 8000
+IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+IMAGE_MAX = 10 * 1024 * 1024
+IMAGES_MAX = 8
+
+
+def sees_images(model: dict) -> bool:
+    """0.18.18 Claude Code (the claude CLI) reads an image file with its Read tool and sees it. keel's other runners
+    give the model text only: an API-key model's read_file reads text, the other CLIs get no picture."""
+    return model.get("provider") == "claude" and model.get("mode", "api") != "api"
+
+
+def attach_images(s: dict, model: dict, paths: list[str]) -> dict:
+    """0.18.18 The images the person names with a turn (keel TUI: a path ending .png/.jpg/.jpeg/.gif/.webp, an
+    @mention of one, a pasted one): each a file of the chat's folder (its worktree, or the project folder), relative
+    or absolute. Answers {images: their full paths, once, for a model that sees images; skipped: [{path, why}]}."""
+    roots = [Path(r).resolve() for r in dict.fromkeys(x for x in (workdir(s), s.get("root")) if x)]
+    ok: list[str] = []
+    skipped: list[dict] = []
+    for raw in list(dict.fromkeys(str(p).strip() for p in paths or [] if str(p).strip()))[:IMAGES_MAX * 2]:
+        p = Path(raw).expanduser()
+        full = (p if p.is_absolute() else roots[0] / p).resolve()
+        if not any(full == r or r in full.parents for r in roots):
+            why = "it is outside the project folder (keel reads only the project's files): copy it into the project"
+        elif full.suffix.lower() not in IMAGE_EXT:
+            why = f"it is not an image KeelBot can send ({', '.join(IMAGE_EXT)})"
+        elif not full.is_file():
+            why = "it does not exist in the project folder"
+        elif full.stat().st_size > IMAGE_MAX:
+            why = f"it is larger than {IMAGE_MAX // (1024 * 1024)} MB"
+        elif not sees_images(model):
+            why = (f"the model {model.get('provider', '?')}/{model.get('model', '?')} cannot see images here: only "
+                   "Claude Code (the claude CLI) does; /model picks it")
+        elif len(ok) >= IMAGES_MAX:
+            why = f"at most {IMAGES_MAX} images go with one question"
+        else:
+            if str(full) not in ok:
+                ok.append(str(full))
+            continue
+        skipped.append({"path": raw, "why": why})
+    return {"images": ok, "skipped": skipped}
+
+
+def _images_block(images: list[str] | None) -> str:
+    if not images:
+        return ""
+    return ("The person attached these images. Look at each with your Read tool (it shows you the picture) before "
+            "you answer:\n" + "\n".join(f"- {i}" for i in images))
 
 
 def _shell_block(shell: dict | None) -> str:
@@ -667,7 +714,8 @@ def _shell_block(shell: dict | None) -> str:
 
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
-                 branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None) -> str:
+                 branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None,
+                 images: list[str] | None = None) -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
     parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), where]
     block = agent_knowledge.prompt_block(root, know, graph)
@@ -680,7 +728,7 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     if ctx:
         parts.append("Read these when they help: " + ", ".join(ctx))
     for extra in (_flow_block(flow), keelbot.keel_block(keel, question), transcript,
-                  _pointing(mentions or [], selection, open_file), _shell_block(shell)):
+                  _pointing(mentions or [], selection, open_file), _shell_block(shell), _images_block(images)):
         if extra:
             parts.append(extra)
     parts.append(f"Question: {question.strip()}")
@@ -843,15 +891,20 @@ class HelperRunner:
         if body.get("model"):
             s = set_model(sid, body["model"])
         question, command = plugins.expand(s["root"], text, body.get("plugins"))
+        # 0.18.18 the images the person named: the ones the model can see go with the turn, the others say why not
+        att = attach_images(s, models.effective(s["model"]), list(body.get("images") or []))
+        body["images_ok"] = att["images"]
         n = add_message(sid, "user", text, data={k: v for k, v in {"command": command, "mentions": body.get("mentions"),
                                                                     "selection": body.get("selection"),
-                                                                    "shell": body.get("shell")}.items() if v})
+                                                                    "shell": body.get("shell"), "images": att["images"],
+                                                                    "images_skipped": att["skipped"]}.items() if v})
         if s["title"] == "New chat" and s["turns"] == 0:
             update(sid, title=short_title(text))
         call_id = uuid.uuid4().hex
         update(sid, status="running", error=None)
         self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
-        return {"session": sid, "call_id": call_id, "n": n, "command": command}
+        return {"session": sid, "call_id": call_id, "n": n, "command": command, "images": att["images"],
+                "images_skipped": att["skipped"]}
 
     async def stop(self, sid: str) -> dict:
         self._drop_questions(sid, "The person stopped KeelBot.")
@@ -970,7 +1023,7 @@ class HelperRunner:
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
-                                  shell=body.get("shell"))
+                                  shell=body.get("shell"), images=body.get("images_ok"))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills")), prompt=prompt,
                                    root=root, phase=phase, model=model, toolbox=toolbox, title=s["title"], step_name="helper",

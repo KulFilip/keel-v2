@@ -112,7 +112,7 @@ describe("paste", () => {
     expect(isPaste("x".repeat(500))).toBe(true);
   });
 
-  it("in the prompt: the placeholder shows, KeelBot gets the whole text, an image gets a clear note", async () => {
+  it("in the prompt: the placeholder shows, KeelBot gets the whole text, an image goes as an image", async () => {
     const t = setup();
     await waitFor(() => t.probe.started);
     await t.type("explain ");
@@ -123,9 +123,10 @@ describe("paste", () => {
     expect(t.frame()).toContain("[image err.png #2]");
     await t.enter();
     await waitFor(() => t.stub.calls.some((c) => c.path.endsWith("/turn")));
-    const body = t.stub.calls.find((c) => c.path.endsWith("/turn"))!.body as { text: string };
+    const body = t.stub.calls.find((c) => c.path.endsWith("/turn"))!.body as { text: string; images?: string[] };
     expect(body.text).toBe("explain \ndef a():\n    return 1\n\ndef b():\n    return 2\n\n and (an image at /tmp/err.png)");
-    expect(t.frame()).toContain("KeelBot takes no images yet: it gets the path of err.png");
+    // 0.18.18 the pasted image goes with the turn as an image; the engine says whether the model can see it
+    expect(body.images).toEqual(["/tmp/err.png"]);
     t.r.unmount();
   });
 });

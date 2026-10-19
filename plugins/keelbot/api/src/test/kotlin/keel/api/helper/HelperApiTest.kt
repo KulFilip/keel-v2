@@ -79,6 +79,19 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `the images the person names go on to the engine with the turn`() {
+        // 0.18.18 keel TUI sends the image files a prompt names; the engine sends those the model can see
+        val (pid, _) = newProject("helper-images")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("title" to "Look")).json()["id"].asText()
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "what is wrong here?",
+            "images" to listOf(" docs/shot.png ", "docs/shot.png", ""))).andExpect(status().isOk)
+        val sent = engine.lastBody("/helper/sessions/$sid/turn")!!
+        assertThat(sent["images"].map { it.asText() }).containsExactly("docs/shot.png")
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "and now?")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid/turn")!!.has("images")).isFalse()
+    }
+
+    @Test
     fun `the prompt history is the engine's, for this project only`() {
         // 0.18.18 keel TUI's ↑ / ↓ walk the person's earlier prompts of the project, newest first, from keel
         val (pid, _) = newProject("helper-prompts")

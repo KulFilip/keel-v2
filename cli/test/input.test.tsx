@@ -12,6 +12,7 @@ import { makeTheme } from "../src/core/theme";
 import { stripAnsi } from "../src/script";
 import { isNewline, moveRow, promptRows, PROMPT_ROWS } from "../src/core/prompt";
 import { findEditor } from "../src/core/editor";
+import { imagesIn } from "../src/core/mentions";
 import { stubKeel, tick, waitFor } from "./stub";
 
 const UP = "\x1b[A";
@@ -263,6 +264,28 @@ describe("!command", () => {
     await a.key("\r", 200);
     await waitFor(() => a.frame().includes("dropped"), 3000);
     expect(a.core.shell).toBeNull();
+    a.r.unmount();
+  });
+});
+
+describe("images with a question", () => {
+  it("finds the image files a prompt names: a path ending .png .jpg .jpeg .gif .webp, or an @mention of one", () => {
+    expect(imagesIn("what is wrong in docs/shot.png and @ui/B.JPG? not notes.txt or x.pngs")).toEqual(["docs/shot.png", "ui/B.JPG"]);
+    expect(imagesIn("see '/tmp/a b/c.webp' and (an image at ./d.gif)")).toEqual(["/tmp/a b/c.webp", "./d.gif"]);
+    expect(imagesIn("no picture here")).toEqual([]);
+  });
+
+  it("sends them with the turn and says which went and which did not, and why", async () => {
+    const a = await app((s) => (s.state.turnImages = { images: ["/work/demo/docs/shot.png"],
+      images_skipped: [{ path: "far.png", why: "it is outside the project folder" }] }));
+    a.stub.answer("I see a red button.");
+    await a.key("what is wrong in docs/shot.png and far.png?", 60);
+    await a.key("\r", 300);
+    await waitFor(() => a.stub.calls.some((c) => c.path.endsWith("/s1/turn")));
+    const turn = a.stub.calls.find((c) => c.path.endsWith("/s1/turn"))!;
+    expect((turn.body as { images?: string[] }).images).toEqual(["docs/shot.png", "far.png"]);
+    await waitFor(() => a.frame().includes("with the image shot.png"), 3000);
+    expect(a.frame()).toContain("not sent: far.png: it is outside the project folder");
     a.r.unmount();
   });
 });

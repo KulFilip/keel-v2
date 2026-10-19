@@ -110,6 +110,7 @@ class HelperTurn(BaseModel):
     selection: dict[str, Any] | None = None     # {path, from, to, text}
     open_file: str | None = None
     shell: dict[str, Any] | None = None         # 0.18.18 {command, exit, output}: a `!command` the person ran before
+    images: list[str] = Field(default_factory=list, max_length=16)   # 0.18.18 image files of the project the person named
     timeout: int | None = Field(default=None, ge=30, le=3600)
 
 

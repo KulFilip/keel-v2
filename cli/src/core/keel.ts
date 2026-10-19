@@ -510,12 +510,12 @@ export class KeelCore {
 
   /** Ask KeelBot: the answer streams as `chat.steps`, and arrives with the "answer" event. `mentions`: what the person
    *  pointed at with @ (files, symbols, criteria). */
-  async send(text: string, mentions: HelperMention[] = []): Promise<HelperSession> {
+  async send(text: string, mentions: HelperMention[] = [], images: string[] = []): Promise<HelperSession> {
     const pid = this.pid;
     if (!pid) throw new Error("no project: /project picks one");
     setCommand("KeelBot");                                   // the timeline: "via keel TUI · KeelBot"
     try {
-      return await this.sendTurn(pid, text, mentions);
+      return await this.sendTurn(pid, text, mentions, images);
     } finally {
       setCommand("");
     }
@@ -611,7 +611,10 @@ export class KeelCore {
     return s;
   }
 
-  private async sendTurn(pid: string, text: string, mentions: HelperMention[] = []): Promise<HelperSession> {
+  /** 0.18.18 what the engine said of the last turn's images: the ones sent (full paths), the others with why not */
+  turnImages: { images: string[]; skipped: { path: string; why: string }[] } = { images: [], skipped: [] };
+
+  private async sendTurn(pid: string, text: string, mentions: HelperMention[] = [], images: string[] = []): Promise<HelperSession> {
     const s = await this.ensureChat(pid, text);
     // its helper.started may arrive before the turn's answer: it is this app's own, not one from the dashboard
     this.sending = true;
@@ -619,8 +622,10 @@ export class KeelCore {
     try {
       // 0.18.18 the last `!command`'s output goes with this question, once
       const body = { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}),
-        ...(this.shell ? { shell: this.shell } : {}) };
+        ...(this.shell ? { shell: this.shell } : {}), ...(images.length ? { images } : {}) };
       t = await kb.turn(pid, s.id, body);
+      const ti = t as typeof t & { images?: string[]; images_skipped?: { path: string; why: string }[] };
+      this.turnImages = { images: ti.images ?? [], skipped: ti.images_skipped ?? [] };
       this.shell = null;
     } finally {
       this.sending = false;

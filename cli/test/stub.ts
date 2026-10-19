@@ -32,6 +32,8 @@ export function stubKeel() {
     // P1-3 the project's chats for /chats (with last_message and message_count); null: just the open one, if any
     // 0.18.18 the person's earlier prompts of the project, newest first (GET …/helper/prompts, keel TUI's ↑ / ↓)
     prompts: [] as string[],
+    // 0.18.18 what the engine says of the images a turn named: the ones sent, and the others with why not
+    turnImages: { images: [] as string[], images_skipped: [] as { path: string; why: string }[] },
     // 0.18.18 what keel's guarded run answers for keel TUI's `!command` (POST …/helper/sessions/s1/run)
     run: { exit: 0, output: "README.md\nsrc\n", refused: null } as { exit: number | null; output: string; refused: string | null },
     sessions: null as null | Record<string, unknown>[],
@@ -110,7 +112,7 @@ export function stubKeel() {
         return [200, state.session];
       case "POST /api/projects/demo/helper/sessions/s1/turn":
         state.messages.push({ n: state.messages.length + 1, role: "user", text: body.text, data: {}, at: AT });
-        return [200, { session: "s1", call_id: "call-9", n: state.messages.length }];
+        return [200, { session: "s1", call_id: "call-9", n: state.messages.length, ...state.turnImages }];
       // P1-2 /compact: the engine's {before, after} token counts for the session it just summarised
       case "POST /api/projects/demo/helper/sessions/s1/compact": return [200, { before: 48000, after: 6000 }];
       // P1-3 /export: the engine wrote the chat as Markdown into the project's .keel/chats/<sid>.md

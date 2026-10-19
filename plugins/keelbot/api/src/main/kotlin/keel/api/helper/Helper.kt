@@ -68,6 +68,8 @@ data class HelperTurn(
     val selection: HelperSelection? = null,
     val openFile: String? = null,
     val shell: HelperShell? = null,
+    /** 0.18.18 image files of the project the person named (keel TUI); the engine sends those the model can see. */
+    val images: List<String> = emptyList(),
 )
 
 /**
@@ -226,6 +228,7 @@ class HelperService(
             "mentions" to body.mentions.filter { it.value.isNotBlank() }.take(30),
             "selection" to body.selection?.takeIf { it.path.isNotBlank() && it.text.isNotBlank() }?.let { it.copy(text = it.text.take(8000)) },
             "open_file" to body.openFile?.takeIf { it.isNotBlank() },
+            "images" to body.images.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 1000 }.distinct().take(16).takeIf { it.isNotEmpty() },
             "shell" to body.shell?.takeIf { it.command.isNotBlank() }?.let { it.copy(command = it.command.take(2000), output = it.output.takeLast(8000)) },
         ).filterValues { it != null }
         return engine.post("/helper/sessions/$sid/turn", payload)

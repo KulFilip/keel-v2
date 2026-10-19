@@ -759,3 +759,50 @@ def test_the_output_of_the_persons_command_goes_into_the_next_turns_prompt():
                             shell={"command": "npm test", "exit": 1, "output": "1 failed: test_rank"})
     assert "The person ran `npm test` in the project folder (exit 1)" in p and "1 failed: test_rank" in p
     assert p.index("1 failed") < p.index("Question: why does it fail?")
+
+
+# ------------------------------------------------------------------ 0.18.18 images with a turn
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+CLAUDE = {"provider": "claude", "mode": "cli", "model": "claude-sonnet-4-5"}
+
+
+def test_images_of_the_project_go_to_a_model_that_can_see_them_and_others_say_why_not(repo, tmp_path):
+    """helper.attach_images: an image file of the chat's folder (relative or absolute) goes to Claude Code, which reads
+    it with its Read tool; one outside the folder, missing, not a picture, too big, or for a model that cannot see
+    images, does not go, with the reason in words."""
+    root = Path(repo).resolve()
+    (root / "docs").mkdir(exist_ok=True)
+    (root / "docs" / "shot.png").write_bytes(PNG)
+    (root / "notes.txt").write_text("hi")
+    (tmp_path / "outside.png").write_bytes(PNG)
+    s = {"root": str(root), "worktree": None}
+    got = helper.attach_images(s, CLAUDE, ["docs/shot.png", str(root / "docs" / "shot.png"), "missing.png",
+                                          str(tmp_path / "outside.png"), "notes.txt"])
+    assert got["images"] == [str(root / "docs" / "shot.png")]                 # once
+    why = {x["path"]: x["why"] for x in got["skipped"]}
+    assert "does not exist" in why["missing.png"]
+    assert "outside the project folder" in why[str(tmp_path / "outside.png")]
+    assert "not an image" in why["notes.txt"]
+    fake = helper.attach_images(s, FAKE, ["docs/shot.png"])
+    assert fake["images"] == [] and "cannot see images" in fake["skipped"][0]["why"]
+    api = helper.attach_images(s, {"provider": "anthropic", "mode": "api", "model": "claude-sonnet-4-5"}, ["docs/shot.png"])
+    assert api["images"] == [] and "cannot see images" in api["skipped"][0]["why"]
+
+
+def test_the_prompt_asks_the_model_to_look_at_the_attached_images():
+    p = helper.build_prompt(mode="ask", root="/r", question="what is wrong on this screen?",
+                            know={"sections": [], "code_graph": False, "memory": False}, graph=False, flow=None,
+                            mentions=None, selection=None, open_file=None, transcript="", images=["/r/docs/shot.png"])
+    assert "The person attached these images" in p and "- /r/docs/shot.png" in p and "Read tool" in p
+    assert p.index("/r/docs/shot.png") < p.index("Question:")
+
+
+def test_a_turn_answers_which_images_went_with_it_and_which_did_not(client, repo):
+    (Path(repo) / "shot.png").write_bytes(PNG)
+    s = new_session(client, repo)                                          # the fake model: it cannot see images
+    r = client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "look at shot.png", "images": ["shot.png"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["images"] == [] and r.json()["images_skipped"][0]["path"] == "shot.png"
+    s = wait_idle(client, s["id"])
+    assert s["messages"][0]["data"]["images_skipped"][0]["path"] == "shot.png"

@@ -4,7 +4,8 @@
 //   @ScoreService     a symbol of the code graph (GET …/graph/search)
 //   @AC-2             a criterion of the project's flow
 //   a paste of many lines → "[pasted 120 lines #1]" in the prompt; the whole text goes to KeelBot
-//   an image (a pasted path to a .png …) → "[image shot.png #2]"; KeelBot takes no images yet, so it gets the path
+//   an image (a pasted path to a .png …) → "[image shot.png #2]"; 0.18.18 it goes with the turn as an image (imagesIn
+//   finds the ones a prompt names too); the engine says which the model can see
 
 import { kb } from "../../../plugins/keelbot/web/keelbotApi";
 import type { HelperMention } from "./sdk";
@@ -101,6 +102,20 @@ export class Mentions {
     }
     return out.filter((x, i, all) => all.findIndex((y) => y.kind === x.kind && y.value === x.value) === i);
   }
+}
+
+// ------------------------------------------------------------------ 0.18.18 images
+
+/** The image files a prompt names, in order, once each: a path ending .png .jpg .jpeg .gif .webp (in quotes when it has
+ *  spaces) or an @mention of one. The engine decides which go (the project's files, a model that sees images). */
+export function imagesIn(text: string): string[] {
+  const re = /(["'])([^"'\n]+?\.(?:png|jpe?g|gif|webp))\1|(?:^|[\s(])@?([^\s"'()@]+?\.(?:png|jpe?g|gif|webp))(?=[\s),.;:!?]|$)/gi;
+  const out: string[] = [];
+  for (const m of text.matchAll(re)) {
+    const p = m[2] ?? m[3];
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ paste

@@ -17,7 +17,7 @@ import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
 import { modelText } from "../core/effort";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
-import { isPaste, Pastes, typingMention } from "../core/mentions";
+import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
 import { COMMANDS, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
@@ -433,13 +433,18 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     if (reply.chat) {
       try {
         // the pastes behind their placeholders go whole; what the person pointed at with @ goes as mentions
-        const { text: full, images } = pastes.current.expand(reply.chat);
+        const { text: full, images: pasted } = pastes.current.expand(reply.chat);
         const mentions = core.mentions.mentionsIn(reply.chat);
-        if (images.length) push({ kind: "dim", text: `  KeelBot takes no images yet: it gets the path of ${images.map((i) => i.name).join(", ")}` });
+        // 0.18.18 the images: pasted ones and the image files the prompt names go with the turn (the engine says which)
+        const images = [...new Set([...pasted.map((i) => i.text), ...imagesIn(reply.chat.replace(/\[(pasted \d+ lines|image [^\]#]+) #\d+\]/g, " "))])];
         if (mentions.length) push({ kind: "dim", text: `  with ${mentions.map((m) => `@${m.value}`).join(" ")}` });
         if (core.shell) push({ kind: "dim", text: `  with the output of !${core.shell.command}` });
         pastes.current.clear();
-        await core.send(full, mentions);
+        await core.send(full, mentions, images);
+        const ti = core.turnImages;
+        const name = (p: string) => p.split("/").pop() || p;
+        if (ti.images.length) push({ kind: "dim", text: `  with the image${ti.images.length === 1 ? "" : "s"} ${ti.images.map(name).join(", ")}` });
+        for (const x of ti.skipped) push({ kind: "dim", text: `  not sent: ${x.path}: ${x.why}` });
       } catch (e) {
         push({ kind: "error", text: e instanceof Error ? e.message : String(e) });
       }
