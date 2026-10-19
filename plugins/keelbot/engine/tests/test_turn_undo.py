@@ -180,6 +180,17 @@ def test_ask_mode_has_nothing_to_undo(client, repo):
     assert redo_turn(client, s["id"], 400)["error"].startswith("Ask mode changes nothing")
 
 
+def test_an_edit_chat_switched_to_ask_can_still_undo_its_answer(client, repo, model):
+    s = new_session(client, repo, mode="edit")
+    model.plans = [{"src/scores/a.py": "A = 1\n"}]
+    ask(client, s["id"], "add a")
+    assert client.patch(f"/helper/sessions/{s['id']}", json={"mode": "ask"}).status_code == 200
+    assert undo_turn(client, s["id"])["files"] == ["src/scores/a.py"]
+    assert read(repo, "src/scores/a.py") is None
+    assert redo_turn(client, s["id"])["files"] == ["src/scores/a.py"]
+    assert read(repo, "src/scores/a.py") == "A = 1\n"
+
+
 def test_an_answer_with_no_file_change_is_undone_too(client, repo, model):
     s = new_session(client, repo, mode="edit")
     model.plans = [{}]
