@@ -98,7 +98,7 @@ ASK_PATH = PART_ASK_PATH               # where the guard hook asks (it checks th
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
           "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
-          "worktree", "branch", "base_sha", "folder")
+          "worktree", "branch", "base_sha", "folder", "ctx_tokens")
 FOLDER_FIELDS = ("id", "project", "name", "created_at", "updated_at")
 FOLDER_NAME_MAX = 60
 
@@ -117,7 +117,6 @@ def _session(row) -> dict:
     s["model"] = db.loads(s.pop("model_json"), {})
     s["grants"] = db.loads(s.pop("grants_json"), [])
     s["ctx_window"] = catalog.context_window(s["model"].get("provider", ""), s["model"].get("model", ""))
-    s["ctx_tokens"] = s["tokens_in"] + s["tokens_out"] + s["tokens_cached"]
     return s
 
 
@@ -154,7 +153,7 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",
                      (sid, project, str(Path(root).resolve()), mode, title.strip()[:120] or "New chat",
                       json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]",
-                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base"), None))
+                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base"), None, 0))
     return get(sid)
 
 
@@ -181,7 +180,8 @@ def get(sid: str, messages: bool = True) -> dict:
 
 def update(sid: str, **fields) -> dict:
     allowed = {k: v for k, v in fields.items() if k in ("title", "model_json", "engine_session", "status", "error",
-                                                       "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase")}
+                                                       "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase",
+                                                       "ctx_tokens")}
     if allowed:
         sets = ", ".join(f"{k} = ?" for k in allowed)
         with db.connect() as conn:
@@ -862,7 +862,7 @@ class HelperRunner:
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
                tokens_in=cur["tokens_in"] + tin, tokens_out=cur["tokens_out"] + tout, tokens_cached=cur["tokens_cached"] + cached,
-               cost_usd=round(cur["cost_usd"] + cost, 6), turns=cur["turns"] + 1)
+               cost_usd=round(cur["cost_usd"] + cost, 6), turns=cur["turns"] + 1, ctx_tokens=tin + tout + cached)
         doc_history.after_step(doc_emit, root, docs_before, "keelbot", "KeelBot", None, "helper")
         ev("helper.finished", {"agent": AGENT, "status": status, "tokens_in": tin, "tokens_out": tout, "tokens_cached": cached,
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
