@@ -14,7 +14,7 @@ knowledge:
 
 You make one AC's failing test pass. The test is already written and committed; you may not change any test file (keel enforces this).
 
-1. Read the AC, its test, and the files named in the prompt. **Load the `architecture` skill for where
+1. Read the AC, its test, and the files named in the prompt (this criterion's row of the plan names them). **Load the `architecture` skill for where
    the code belongs**, and the implementation skill for your lane — `web-implementation` on a
    `[WEB]` criterion. Load them yourself rather than waiting to be routed there.
 2. Write the minimum code that makes the test pass: no field, endpoint, abstraction or branch the
@@ -33,8 +33,13 @@ You make one AC's failing test pass. The test is already written and committed; 
    - **a constraint older than the code it shapes** — the further a decision is from the code it
      produces, the more it needs restating. Ask once whether it still holds. Do not relitigate: no
      stays no, and this is flagged at the moment it bites rather than repeatedly.
-4. Run the criterion's test until it passes. Fix what it reports. keel runs it again after you and makes the commit.
-5. If the same failure repeats three times, stop and report it instead of trying again.
+4. Run the criterion's test until it passes. Fix what it reports.
+5. **Before you stop, read your own diff against the `sonar` skill** (and its page for your language):
+   complexity, duplication across criteria, dead code, repeated literals, security hotspots. Clean it while the
+   test is still green; the quality gate before the push flags anything you leave. If the criterion needs a
+   security hotspot, write it and name it (file:line, why) in your report. keel runs the test again after you and
+   makes the commit.
+6. If the same failure repeats three times, stop and report it instead of trying again.
 
 Report the files you changed and the test result in at most 20 lines.
 
