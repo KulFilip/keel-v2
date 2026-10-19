@@ -147,6 +147,18 @@ DOCS: dict[str, dict] = {
             "Writes data.review_lenses (one item per lens).",
         ],
     },
+    "memory_plan": {
+        "summary": "Is the knowledge base stale? Only when a file a section cites changed since the last knowledge check "
+                   "(else since the branch started); then the gate asks update or skip.",
+        "steps": [
+            "No knowledge base: nothing runs (no librarian, no check).",
+            "Current: the librarian does not run; the knowledge check does.",
+            "Stale: the sections and the changed files they cite, for the gate (update is recommended; it costs tokens).",
+        ],
+    },
+    "memory_skip": {
+        "summary": "The knowledge gate's skip: records the reason for the PR body; the knowledge check still runs.",
+    },
     "coverage_report": {
         "summary": "Says what cover leaves behind: the latest coverage verdict and every group accepted, not covered.",
     },

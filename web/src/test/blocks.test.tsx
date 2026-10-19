@@ -67,7 +67,7 @@ describe("flow map model (real templates)", () => {
 
   it("folds an included flow into one block, nested includes inside it", () => {
     const ship = nodes(map.sections).find((n) => n.t === "include" && n.flow === "ship") as Extract<Node, { t: "include" }>;
-    expect(ship.count).toBe(30);
+    expect(ship.count).toBe(35);
     expect(ship.ids).toContain("ship_verify");
     const cover = nodes(ship.body).find((n) => n.t === "include") as Extract<Node, { t: "include" }>;
     expect(cover.path).toBe("ship/cover");
@@ -156,7 +156,7 @@ describe("Blocks (read only and live)", () => {
     render(<Blocks steps={feature.steps} onOpenStep={() => {}} />);
     expect(performance.now() - t0).toBeLessThan(1500);
     expect(screen.queryByText("verify fast + module", { selector: ".sb-name" })).not.toBeInTheDocument();
-    const ship = screen.getByRole("button", { name: /^ship: 30 blocks from the ship workflow/ });
+    const ship = screen.getByRole("button", { name: /^ship: 35 blocks from the ship workflow/ });
     expect(ship).toHaveAttribute("aria-expanded", "false");
     await user.click(ship);
     expect(screen.getByText("verify fast + module", { selector: ".sb-name" })).toBeInTheDocument();

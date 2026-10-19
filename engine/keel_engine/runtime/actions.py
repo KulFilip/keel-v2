@@ -38,7 +38,8 @@ VERDICT_ACTIONS = {
     "verify_deps": verdict_actions.verify_deps, "audit": verdict_actions.audit, "trace": verdict_actions.trace,
     "trace_strict": lambda a: verdict_actions.trace(a, strict=True), "arch": verdict_actions.arch,
     "pr": verdict_actions.pr, "open_pr": verdict_actions.open_pr,
-    "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report, **lint_actions.ACTIONS,
+    "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report, "memory_plan": ship.memory_plan,
+    "memory_skip": ship.memory_skip, **lint_actions.ACTIONS,
 }
 
 

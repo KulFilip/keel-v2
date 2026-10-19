@@ -79,7 +79,7 @@ def test_cover_and_ship_templates_validate_and_ship_includes_cover():
     assert feature.step("ship_verify").included_from == "ship" and feature.step("ship_cover_decide").included_from == "ship/cover"
     assert feature.step("red").included_from is None
     assert [(u["name"], u["band"]) for u in ship.skip_units(sh.steps, 0)] == [
-        ("lint", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
+        ("doc_updates", "optional"), ("lint", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
         ("spec_walk", "optional")]
 
 
@@ -326,7 +326,7 @@ def test_ship_end_to_end_with_skips_a_verify_fix_and_a_routed_review_fix(client,
     s = decide(client, tid, "approve", payload={"skip": {"release": "no browser surface", "spec_walk": "a three-line change"},
                                                 "lenses": ["correctness", "security"]})
     # verify failed once: the implementer fixed it (review-fix), then verify passed; release and spec_walk were skipped
-    fixers = [r for r in seen if r.agent == "implementer"]
+    fixers = [r for r in seen if r.agent == "implementer" and r.phase != "close"]
     assert len(fixers) == 1 and fixers[0].phase == "review-fix" and "api compile failed" in fixers[0].prompt
     assert "verify_release" not in calls
     assert finished(client, tid, "release")[-1]["skipped"] is True
@@ -349,7 +349,9 @@ def test_ship_end_to_end_with_skips_a_verify_fix_and_a_routed_review_fix(client,
     s = decide(client, tid, "approve")
     assert s["status"] == "done", s
     assert "No GitHub token" in finished(client, tid, "open_pr")[-1]["note"]
-    assert any(r.agent == "librarian" for r in seen)
+    # the demo has no knowledge base: no librarian, no knowledge question; the docs step ran first (it changed nothing)
+    assert not any(r.agent == "librarian" for r in seen) and values(client, tid)["data"]["memory_choice"]["choice"] == "none"
+    assert [r.phase for r in seen if r.agent == "implementer"][0] == "close"
     v = values(client, tid)
     assert [x["step"] for x in v["data"]["ship_skipped"]] == ["release", "spec_walk"]
     assert any(line.startswith("gate plan skip release (deferred)") for line in s["gate_log"])
@@ -366,7 +368,7 @@ def test_ship_verify_gets_two_fix_rounds_then_asks(client, repo, monkeypatch):
     wait(client, tid)
     s = decide(client, tid, "approve")
     assert s["waiting"]["kind"] == "fix" and s["waiting"]["title"] == "verify fast + module keeps failing"
-    assert len([r for r in seen if r.agent == "implementer"]) == 2
+    assert len([r for r in seen if r.agent == "implementer" and r.phase != "close"]) == 2
 
 
 def test_ship_review_findings_past_the_limit_are_dismissed_and_shown(client, repo, monkeypatch):
@@ -394,7 +396,7 @@ def test_ship_final_review_send_back_goes_to_the_implementer_and_runs_again(clie
     s = decide(client, tid, "approve", payload={"skip": {"reviewers": "tiny", **skip_all_but_reviews()}})
     assert s["waiting"]["step"] == "final_review" and not [r for r in seen if r.agent == "reviewer"]
     s = decide(client, tid, "reject", why="rename the endpoint to /ranks")
-    fixers = [r for r in seen if r.agent == "implementer"]
+    fixers = [r for r in seen if r.agent == "implementer" and r.phase != "close"]
     assert len(fixers) == 1 and "rename the endpoint to /ranks" in fixers[0].prompt
     assert calls.count("verify_fast") == 2 and s["waiting"]["step"] == "final_review"
 
@@ -508,3 +510,76 @@ def test_final_report_shows_the_spec_amendments_reviews_security_and_files_to_op
         assert want in text, want
     assert text.index("`src/app.py`") < text.index("`src/small.py`")
     assert text.index("## Exceptions") < text.index("## The spec")
+
+
+def _knowledge_branch(repo, change_cited: bool):
+    from test_v02 import commit_all, git, write
+    write(repo, "docs/knowledge/architecture.md", "# Architecture\n\nThe code starts in `src/scores/__init__.py:1`.\n")
+    commit_all(repo, "docs: knowledge")
+    git(repo, "checkout", "-q", "-b", "feat/x")
+    write(repo, "src/scores/__init__.py" if change_cited else "src/scores/other.py", "def run():\n    return 1\n")
+    commit_all(repo, "feat: a change")
+
+
+SKIP_ALL = {"skip": {"reviewers": "r", "doc_updates": "d", **{"release": "r", "cover": "c", "deps": "d", "spec_walk": "s"}}}
+
+
+def test_the_knowledge_update_is_asked_when_a_cited_file_changed_and_a_skip_reason_reaches_the_pr(client, repo, monkeypatch):
+    _knowledge_branch(repo, change_cited=True)
+    seen = answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
+    tid = start(client, repo, workflow="ship")
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload=SKIP_ALL)
+    assert s["waiting"]["step"] == "final_review"
+    s = decide(client, tid, "approve")
+    w = s["waiting"]
+    assert w["step"] == "memory_gate" and w["choices"] == ["update", "skip"]
+    assert "- architecture: cites `src/scores/__init__.py`" in w["detail"] and "it costs tokens" in w["detail"]
+    assert [c["name"] for c in w["choice_info"] if c["default"]] == ["update"]
+    assert next(c for c in w["choice_info"] if c["name"] == "skip")["why"] == "required"
+    s = decide(client, tid, "approve", payload={"choice": "skip"}, why="a rename only, nothing to learn")
+    assert s["waiting"]["step"] == "pr_gate" and not any(r.agent == "librarian" for r in seen)
+    assert "## Knowledge base\n\nskipped: a rename only, nothing to learn" in s["waiting"]["detail"]
+    assert "memory_check" in [e["step"] for e in client.bus.of(tid, "step.finished") if not e["data"].get("skipped")]
+
+
+def test_the_knowledge_update_runs_only_on_update_and_not_at_all_when_current(client, repo, monkeypatch):
+    _knowledge_branch(repo, change_cited=True)
+    seen = answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
+    tid = start(client, repo, workflow="ship")
+    wait(client, tid)
+    decide(client, tid, "approve", payload=SKIP_ALL)
+    decide(client, tid, "approve")
+    s = decide(client, tid, "approve", payload={"choice": "update"})
+    lib = [r for r in seen if r.agent == "librarian"]
+    assert len(lib) == 1 and "src/scores/__init__.py" in lib[0].prompt and "only the claims that cite" in lib[0].prompt
+    assert s["waiting"]["step"] == "pr_gate" and "## Knowledge base\n\nupdated: architecture" in s["waiting"]["detail"]
+
+
+def test_a_current_knowledge_base_is_not_asked_about(client, repo, monkeypatch):
+    _knowledge_branch(repo, change_cited=False)
+    seen = answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
+    tid = start(client, repo, workflow="ship")
+    wait(client, tid)
+    decide(client, tid, "approve", payload=SKIP_ALL)
+    s = decide(client, tid, "approve")
+    assert s["waiting"]["step"] == "pr_gate" and not any(r.agent == "librarian" for r in seen)
+    assert "current: no file a section cites changed" in s["waiting"]["detail"]
+
+
+def test_the_docs_step_is_optional_and_shown_at_the_final_review(client, repo, monkeypatch):
+    answers(monkeypatch, {"implementer": lambda r: "README.md: the new rank command.\nCHANGELOG.md: one entry."})
+    script(monkeypatch, ship_plan())
+    tid = start(client, repo, workflow="ship")
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload={"skip": {"reviewers": "r", **skip_all_but_reviews()}})
+    assert s["waiting"]["step"] == "final_review"
+    assert "## Docs this change made wrong (edited before verify)" in s["waiting"]["detail"]
+    assert "README.md: the new rank command." in s["waiting"]["detail"]
+    tid = start(client, repo, workflow="ship")
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload=SKIP_ALL)
+    assert "skipped: doc_updates (optional): d" in s["waiting"]["detail"] and "## Docs this change" not in s["waiting"]["detail"]

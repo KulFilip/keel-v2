@@ -158,7 +158,8 @@ def test_auto_runs_the_feature_flow_to_done_and_logs_every_gate(client, repo):
     assert "gate options approve: chosen at spec_gate" in s["gate_log"] and "gate ship_plan approve: chosen at spec_gate" in s["gate_log"]
     assert not client.bus.of(tid, "gate.waiting")
     decided = client.bus.of(tid, "gate.decided")
-    assert decided and all(e["data"]["why"] in ("auto-approved (mode auto)", "chosen at spec_gate") for e in decided
+    assert decided and all(e["data"]["why"] in ("auto-approved (mode auto)", "chosen at spec_gate")
+                           or e["data"]["why"].startswith("not asked, ") for e in decided
                            if e["data"].get("gate") != "unlock")
     v = values(client, tid)
     # the PR body lists the gates keel approved by itself; open_pr opened nothing

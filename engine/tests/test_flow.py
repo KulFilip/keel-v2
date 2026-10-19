@@ -173,7 +173,8 @@ def test_feature_flow_leaves_nothing_uncommitted(client, repo):
     assert s["status"] == "done", s
     log = git_log(repo)
     assert any(m.startswith("docs: spec and plan") for m in log), log
-    assert any(m.startswith("docs(memory)") for m in log), log
+    # the demo has no knowledge base: ship asks nothing about it and makes no docs(memory) commit
+    assert not any(m.startswith("docs(memory)") for m in log), log
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
     assert [l for l in dirty.splitlines() if ".keel/" not in l] == []
 

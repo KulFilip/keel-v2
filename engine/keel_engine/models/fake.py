@@ -139,6 +139,8 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return "src/scores/lint_fixed.py", "# lint: fixed\n", "Fixed what the static checks reported; behaviour unchanged.", {}
     if agent == "implementer" and phase == "bug-fix":
         return f"src/scores/fix_{key_of(title)}.py", 'def run():\n    return "fixed"\n', "Fixed at the root cause.", {}
+    if agent == "implementer" and phase == "close":
+        return None, "", "Nothing in the docs is wrong for this change: no edit.", {}
     if agent == "implementer":
         return f"src/scores/{k}.py", f'def run():\n    return "{ac_id} done"\n', f"GREEN: {ac_id} passes.", {}
     if agent == "e2e-author":

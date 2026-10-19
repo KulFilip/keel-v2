@@ -147,6 +147,39 @@ def check(root: str, only: list[str] | None = None) -> dict:
     return {"pass": not problems, "problems": problems, "sections": sections, "selected": chosen, "unanswered": unanswered}
 
 
+def cited_files(root: str, name: str, files: list[str] | None = None) -> list[str]:
+    """The files a section cites (shorthand citations resolved), each once."""
+    f = section_file(root, name)
+    if not f.is_file():
+        return []
+    files = files if files is not None else (git.tracked(root) if git.is_repo(root) else None)
+    out = [resolve(root, c["rel"], files)[0] for c in citations(f.read_text(errors="replace"))]
+    return list(dict.fromkeys(x for x in out if x))
+
+
+def stale(root: str, since: str | None) -> list[dict]:
+    """keel v1 `memory show`: the sections whose cited files changed since `since` (a commit; the knowledge check's,
+    else the branch's start), committed or not: [{name, files}]. A commit that touches no cited file leaves a section
+    current; the knowledge pages themselves do not count."""
+    if not git.is_repo(root):
+        return []
+    changed = set(git.dirty(root))
+    if since:
+        r = git.git(root, "diff", "--name-only", f"{since}..HEAD")
+        changed |= {x.strip() for x in r.stdout.splitlines() if x.strip()} if r.returncode == 0 else set()
+    kdirs = layout.resolve(root).knowledge_dirs
+    changed = {f for f in changed if not any(f == d or f.startswith(d.rstrip("/") + "/") for d in kdirs)}
+    if not changed:
+        return []
+    files = git.tracked(root)
+    out = []
+    for n in built(root):
+        hit = sorted(set(cited_files(root, n, files)) & changed)
+        if hit:
+            out.append({"name": n, "files": hit})
+    return out
+
+
 def content_hash(root: str) -> str:
     """What the knowledge base says now: a verdict for the same text is current at any later commit."""
     h = hashlib.sha1()

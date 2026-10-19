@@ -112,3 +112,27 @@ def test_stop_at_the_knowledge_question_ends_the_flow_done_not_failed(client, re
     assert s["status"] == "done" and "error" not in s, s
     assert s["warnings"] and not client.bus.of(tid, "thread.failed")
     assert client.bus.of(tid, "thread.done")[-1]["data"]["title"].startswith("stopped with a warning")
+
+
+def test_a_section_is_stale_only_when_a_file_it_cites_changed(tmp_path):
+    from test_v02 import commit_all, git, write
+    from keel_engine.runtime import knowledge
+    root = tmp_path / "k"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    write(root, "src/a.py", "A = 1\n")
+    write(root, "src/deep/b.py", "B = 1\n")
+    write(root, "docs/knowledge/architecture.md", "# A\n\nStarts in `src/a.py:1`.\n")
+    write(root, "docs/knowledge/data.md", "# D\n\nShorthand `b.py:1`.\n")
+    commit_all(root, "init")
+    since = git(root, "rev-parse", "HEAD").stdout.strip()
+    write(root, "src/c.py", "C = 1\n")
+    write(root, "docs/knowledge/architecture.md", "# A\n\nStarts in `src/a.py:1`. Edited.\n")
+    commit_all(root, "a commit that touches no cited file")
+    assert knowledge.stale(str(root), since) == []
+    write(root, "src/deep/b.py", "B = 2\n")                    # uncommitted counts too; the shorthand resolves
+    assert knowledge.stale(str(root), since) == [{"name": "data", "files": ["src/deep/b.py"]}]
+    commit_all(root, "b")
+    write(root, "src/a.py", "A = 2\n")
+    assert [s["name"] for s in knowledge.stale(str(root), since)] == ["architecture", "data"]
+    assert knowledge.cited_files(str(root), "data") == ["src/deep/b.py"]

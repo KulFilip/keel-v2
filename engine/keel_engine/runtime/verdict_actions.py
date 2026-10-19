@@ -819,6 +819,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     if ship_skipped:
         out += ["## Ship steps skipped", ""] + [f"- {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in ship_skipped
                                                 if isinstance(s, dict)] + [""]
+    out += memory_section(data)
     unlocks = [u for u in state.get("unlocks") or [] if u.get("by") != "settings" or u.get("reason")]
     if unlocks:
         out += ["## Unlocks used", ""] + [f"- `{u.get('path')}` in {u.get('phase')}: {u.get('reason') or 'no reason given'}"
@@ -832,6 +833,17 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     out += extensions.pr_body_sections(thread_id)      # the parts' sections: KeelBot's commits at a gate
     out += ["---", "_Prepared by keel._"]
     return "\n".join(out)
+
+
+def memory_section(data: dict) -> list[str]:
+    """The PR body's knowledge-base line: updated (which sections), skipped (why), current, or none (ship's memory_plan)."""
+    m = data.get("memory_choice") if isinstance(data.get("memory_choice"), dict) else None
+    if not m:
+        return []
+    said = {"update": "updated: " + ", ".join(m.get("sections") or []) if m.get("sections") else "updated",
+            "skip": f"skipped: {m.get('reason') or 'no reason given'}",
+            "current": "current: no file a section cites changed", "none": "none: the project has no knowledge base"}
+    return ["## Knowledge base", "", said.get(m.get("choice"), str(m.get("choice"))), ""]
 
 
 def lint_section(project: str) -> list[str]:

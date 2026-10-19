@@ -74,6 +74,9 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("feature:amend_gate", "context"): ("Add what was missing", OPTIONAL, "tell keel what it was missing; the block is written again"),
     ("feature:amend_gate", "change"): ("Change the amendment", OPTIONAL, "the block is close but wrong; say how"),
     ("feature:amend_gate", "rebuild"): ("Rebuild from here", OPTIONAL, "the spec itself is wrong; a new feature flow starts"),
+    # ship
+    ("ship:memory_gate", "update"): ("Update it", NONE, "a librarian updates the stale sections (it costs tokens)"),
+    ("ship:memory_gate", "skip"): ("Skip it", REQUIRED, "keep the knowledge base as it is; the reason goes in the PR body"),
     # fix and diagnose
     ("fix:gate_r", "investigate"): ("Yes, investigate", NONE, "this is the bug: find its cause"),
     ("fix:gate_r", "stop"): ("Stop here", NONE, "stop; the reproducing test stays on the branch"),

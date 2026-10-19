@@ -17,7 +17,7 @@ import re
 
 from .. import extensions, rules
 from ..tools import git
-from . import blockers, run_mode, verdict_actions, verdicts
+from . import blockers, knowledge, run_mode, verdict_actions, verdicts
 
 DEFAULT_LENSES = ["correctness", "security", "performance"]
 BANDS = {
@@ -118,6 +118,65 @@ def _coverage_report(a):
     lines = [f"- {x.get('key') or x.get('id')}: {x.get('reason') or 'no reason given'}" for x in accepted]
     note = head + (f" {len(accepted)} group(s) accepted, not covered." if accepted else "")
     return _result(True, note, "\n".join(["Accepted, not covered:", *lines]) if lines else "")
+
+
+# ------------------------------------------------------------------ the knowledge update: asked, not assumed
+
+async def memory_plan(a):
+    return await asyncio.to_thread(_memory_plan, a)
+
+
+MEMORY_CHOICES = [
+    "- update: update the stale sections (recommended: a file they cite changed). A librarian re-reads the cited code "
+    "and rewrites only the claims that cite the changed files: it costs tokens",
+    "- skip: keep the knowledge base as it is this time; say why (the PR body records it, and the knowledge check still runs)",
+]
+
+
+def _memory_plan(a):
+    """keel v1 ship step 8: the knowledge base is optional and the person's call. No knowledge base: nothing runs. Nothing
+    stale (no file a section cites changed since the last knowledge check, else since the branch started): the
+    librarian does not run, the check does. Stale: the gate asks update / skip (update recommended), with the sections
+    and the files that made them stale. data.memory_plan {state, ask, run, check, text}; data.memory_choice for the PR."""
+    sel = knowledge.selection(a.root)
+    if sel is None:
+        plan = {"state": "none", "ask": "no", "run": "no", "check": "no", "text": ""}
+        choice = {"choice": "none", "reason": "the project has no knowledge base"}
+        return _result(True, "No knowledge base: nothing to update (the knowledge refresh flow builds one).",
+                       update={"data": {**a.data, "memory_plan": plan, "memory_choice": choice}})
+    v = verdicts.latest(a.key, "memory")
+    cfg = rules.load_config(a.root)
+    since = (v or {}).get("commit") if v and v.get("ok") else None
+    since = since or (verdict_actions.base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None)
+    found = knowledge.stale(a.root, since)
+    missing = [n for n in sel if not knowledge.section_file(a.root, n).is_file()]
+    if not found and not missing:
+        plan = {"state": "current", "ask": "no", "run": "no", "check": "yes", "text": ""}
+        return _result(True, "Knowledge base current: no file a section cites changed; the librarian does not run.",
+                       update={"data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "current"}}})
+    lines = [f"- {s['name']}: cites {', '.join(f'`{f}`' for f in s['files'][:8])}" + (" …" if len(s["files"]) > 8 else "")
+             for s in found] + [f"- {n}: chosen at init, not written yet" for n in missing]
+    names = [s["name"] for s in found] + missing
+    text = "\n".join(lines)
+    show = "\n".join([f"The knowledge base is stale: {len(names)} section(s) cite files this branch changed"
+                      + (f" since the last knowledge check ({str(since)[:7]})" if since else "") + ".", "", *lines, "",
+                      "Choose one (approve with payload {\"choice\": \"<name>\"}; a plain approve updates):", *MEMORY_CHOICES])
+    plan = {"state": "stale", "ask": "yes", "run": "yes", "check": "yes", "text": text, "sections": names}
+    return _result(True, f"Knowledge base stale: {', '.join(names)}.",
+                   update={"show": show, "data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "update", "sections": names}}})
+
+
+async def memory_skip(a):
+    return await asyncio.to_thread(_memory_skip, a)
+
+
+def _memory_skip(a):
+    """The knowledge gate's skip: the reason goes to data.memory_choice (the PR body prints it); the check still runs."""
+    ans = next((v for k, v in a.data.items() if k.endswith("memory_gate_answer") and isinstance(v, dict)), {})
+    why = str(ans.get("why") or "").strip() or "no reason given"
+    plan = {**(a.data.get("memory_plan") or {}), "run": "no"}
+    return _result(True, f"Knowledge update skipped: {why}",
+                   update={"data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "skip", "reason": why}}})
 
 
 # ------------------------------------------------------------------ the opening skip menu
@@ -333,6 +392,9 @@ def _reviews_part(root: str, cfg: dict, state: dict) -> list[str]:
     walk = next((str(v) for k, v in data.items() if k.endswith("spec_walk_text") and str(v or "").strip()), "")
     if walk:
         out += ["## Spec walk: behaviour no criterion asks for", "", verdict_actions._tail(walk.strip(), 2500), ""]
+    docs = next((str(v) for k, v in data.items() if k.endswith("doc_updates_text") and str(v or "").strip()), "")
+    if docs:
+        out += ["## Docs this change made wrong (edited before verify)", "", verdict_actions._tail(docs.strip(), 1500), ""]
     nb = verdict_actions.nonblocking_lines(data)
     if nb:
         out += [f"## Non-blocking findings, not fixed ({len(nb)})", "", *nb, ""]
