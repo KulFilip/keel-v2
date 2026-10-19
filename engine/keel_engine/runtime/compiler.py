@@ -837,7 +837,21 @@ class Compiler:
         ac = _ac(state) if step.per_ac else None
 
         async def lane(action: str) -> ActionResult:
-            r = await run_action(action, self._action_input(state, ac))
+            # 0.18.16 a code lane (init's setup ladder) is a live job too, like a code step
+            job = _CodeJob(self.ctx, step, state, name=f"{step.name}: {action}", actions=[action])
+            job.start()
+            a = self._action_input(state, ac)
+            a.step, a.progress = step.id, job.progress
+            t0 = time.monotonic()
+            job.progress(f"▶ {action}", tool=action)
+            try:
+                r = await run_action(action, a)
+            except BaseException:
+                job.finish("failed")
+                raise
+            job.progress(r.note or action, tool=action, ok=bool(r.ok), ms=int((time.monotonic() - t0) * 1000),
+                         output=(r.detail or "")[-STEP_FIELD_MAX:] or None)
+            job.finish("done" if r.ok else "failed")
             if not r.ok:
                 raise LaneFailed(f"{action}: {r.note}\n{r.detail}")
             return r
@@ -2427,8 +2441,9 @@ class _CodeJob:
     """0.18.15 a code step shown as a job: its own code.* events (stored as a job like an agent's), agent "keel", kind "code",
     no model and no tokens. progress(text, ...) adds one live line (a command, a rung, an action's result)."""
 
-    def __init__(self, ctx, step: Step, state: FlowState):
+    def __init__(self, ctx, step: Step, state: FlowState, name: str | None = None, actions: list[str] | None = None):
         self.ctx, self.step, self.state = ctx, step, state
+        self.name, self.actions = name or step.name, actions
         self.call_id = uuid.uuid4().hex
         self.n = 0
         self.ok = True
@@ -2442,8 +2457,8 @@ class _CodeJob:
     def start(self):
         ac = (_ac(self.state) or {}).get("id") if self.step.per_ac else None
         self.ctx.emit("code.started", step=self.step.id, call_id=self.call_id, data={
-            "agent": "keel", "kind": "code", "provider": "keel", "model": "code", "name": self.step.name,
-            "phase": self.state.get("phase"), "ac": ac, "action": ",".join(self.step.actions())})
+            "agent": "keel", "kind": "code", "provider": "keel", "model": "code", "name": self.name,
+            "phase": self.state.get("phase"), "ac": ac, "action": ",".join(self.actions or self.step.actions())})
 
     def progress(self, text: str, **fields):
         # many actions run in a worker thread (asyncio.to_thread): their lines go back to the event loop's thread

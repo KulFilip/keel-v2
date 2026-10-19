@@ -55,3 +55,14 @@ def test_code_jobs_leave_the_agent_events_to_agents(client, repo, monkeypatch):
     to(client, tid, decide(client, tid), "audit_now")
     assert client.bus.of(tid, "code.started")
     assert all((e.get("data") or {}).get("agent") != "keel" for e in client.bus.of(tid, "agent.started"))
+
+
+def test_the_ladder_lane_of_init_is_a_live_job_too(client, repo, monkeypatch):
+    """0.18.16 init runs its setup ladder as a lane next to the librarians; it was invisible while it ran."""
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="init", title="keel init", settings=SETTINGS)
+    to(client, tid, wait(client, tid), "questions")
+    to(client, tid, decide(client, tid), "plan_gate")
+    to(client, tid, decide(client, tid), "audit_now")
+    names = [(e.get("data") or {}).get("name", "") for e in client.bus.of(tid, "code.started")]
+    assert any(n.endswith(": ladder_soft") for n in names), names
