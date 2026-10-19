@@ -497,3 +497,35 @@ def test_ac_2_after_a_turn_the_session_reports_the_last_turns_ctx_tokens_and_its
     assert s["ctx_tokens"] == turn2_tokens
     assert s["ctx_tokens"] != s["tokens_in"] + s["tokens_out"] + s["tokens_cached"]   # that sum is the two turns combined
     assert s["ctx_tokens"] / s["ctx_window"] == pytest.approx(turn2_tokens / 200_000)
+
+
+# ------------------------------------------------------------------ P1-2 /compact (AC-1)
+
+@pytest.mark.asyncio
+async def test_ac_1_compact_summarises_keeps_every_row_and_starts_a_fresh_session(client, repo):
+    """helper.compact(sid): asks the model for a summary of the stored history, stores it as a note message, starts
+    a fresh engine_session and resets ctx_tokens to the summary's own size — never deleting a row."""
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    _, s = ask(client, s["id"], "And the tests?")
+    sid = s["id"]
+    before = helper.get(sid)
+    before_rows = before["messages"]
+    before_session = before["engine_session"]
+
+    await helper.compact(sid)
+
+    after = helper.get(sid)
+    after_rows = after["messages"]
+    # every earlier row is still there, unchanged, in the same order: compacting never deletes from helper_messages
+    assert after_rows[:len(before_rows)] == before_rows
+    # exactly one new row: the model's summary, stored as a note (never a user or helper turn)
+    assert len(after_rows) == len(before_rows) + 1
+    note = after_rows[-1]
+    assert note["role"] == "note"
+    assert note["text"].strip()
+    # a fresh engine_session: the next turn continues the model on a new session, not the summarised one
+    assert after["engine_session"] and after["engine_session"] != before_session
+    # ctx_tokens resets to the summary's own size, not the running total of everything it replaced
+    data = note["data"]
+    assert after["ctx_tokens"] == data["tokens_in"] + data["tokens_out"] + data["tokens_cached"]
