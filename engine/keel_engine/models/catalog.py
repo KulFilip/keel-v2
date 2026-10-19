@@ -61,6 +61,22 @@ FALLBACK_AGENT = (20, 3, 0.1)
 CLAUDE_API_IDS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-4-5"}
 
 
+# provider:model -> context window size, in tokens. Defaults: `provider:*` for a provider's unlisted models.
+CONTEXT_WINDOWS: dict[str, int] = {
+    "claude:opus": 200_000,
+    "claude:sonnet": 200_000,
+    "claude:haiku": 200_000,
+    "claude:*": 200_000,
+    "codex:*": 200_000,
+    "copilot:*": 200_000,
+}
+
+
+def context_window(provider: str, model: str) -> int:
+    table = CONTEXT_WINDOWS
+    return table.get(f"{provider}:{model}") or table.get(f"{provider}:*") or 200_000
+
+
 def provider_of(model_id: str) -> str | None:
     for provider, items in MODELS.items():
         if any(m["id"] == model_id for m in items):

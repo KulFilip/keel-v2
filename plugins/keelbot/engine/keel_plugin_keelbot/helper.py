@@ -116,6 +116,8 @@ def _session(row) -> dict:
     s = dict(zip(FIELDS, row))
     s["model"] = db.loads(s.pop("model_json"), {})
     s["grants"] = db.loads(s.pop("grants_json"), [])
+    s["ctx_window"] = catalog.context_window(s["model"].get("provider", ""), s["model"].get("model", ""))
+    s["ctx_tokens"] = s["tokens_in"] + s["tokens_out"] + s["tokens_cached"]
     return s
 
 
