@@ -7,7 +7,8 @@ Verdicts come from the engine DB (runtime/verdicts.py), written by the code step
 verify_release / a whole-suite verify_green (release), verify_coverage (coverage). The workflow gates only apply
 once the project adopted keel (.keel/config.yml exists); the secrets check always applies.
 
-keel 0.4.0 has no dependency or security scanner: those gates say "not run" as a warning, and block only when
+The deps and security gates read the verdicts of the security phase (verify_deps, the security audit and the dependency
+triage: runtime/security_actions.py). Without a verdict they say "not run" as a warning. Either way they block only when
 .keel/config.yml marks them required (`security: {required: true}` or `required: [deps, security]`).
 """
 
@@ -20,7 +21,7 @@ from ..rules import checks
 from ..tools import git
 from . import knowledge, verdicts
 
-NOT_AVAILABLE = "not run (no dependency or security scanner in keel 0.4.0)"
+NOT_AVAILABLE = "not run on this branch (the feature flow's security phase writes it)"
 
 
 def _short(s) -> str:
@@ -61,24 +62,45 @@ def _required(cfg: dict, gate: str) -> bool:
     return req is True or (isinstance(req, list) and gate in req)
 
 
-def _scanner_gates(root: str, base: str | None, cfg: dict) -> list[dict]:
-    """The gates keel 0.4.0 cannot run: deps (when a manifest changed) and the security review, each with `required`."""
+def _scanner_gates(root: str, base: str | None, cfg: dict, key: str | None = None) -> list[dict]:
+    """The deps gate (when a manifest changed) and the security review, each with `required`. With a fresh passing
+    verdict (verify_deps or the dependency triage; the security audit) there is no gate; a failing or stale one says so."""
     sec = cfg.get("security") or {}
     if sec.get("enabled") is False:
         return []
     out = []
+    key = key or root
+    head, tree = git.head(root) or "", git.head_tree(root)
     pipelines = sec.get("pipelines") or ["code", "deps"]
     if "deps" in pipelines:
         changed = manifests_changed(root, base)
         if changed:
-            out.append({"gate": "deps", "why": f"{len(changed)} manifest/lockfile changed; vulnerability check {NOT_AVAILABLE}",
-                        "fix": "check the new or changed dependencies yourself, or set security.required: false in .keel/config.yml",
-                        "required": _required(cfg, "deps")})
+            g = _from_verdict("deps", verdicts.latest(key, "deps"), head, tree,
+                              f"{len(changed)} manifest/lockfile changed; vulnerability check {NOT_AVAILABLE}",
+                              "check the new or changed dependencies yourself, or set security.required: false in .keel/config.yml")
+            if g:
+                out.append({**g, "required": _required(cfg, "deps")})
     if "code" in pipelines:
-        out.append({"gate": "security", "why": f"security review {NOT_AVAILABLE}",
-                    "fix": "review the branch diff for security yourself, or set security.required: false in .keel/config.yml",
-                    "required": _required(cfg, "security")})
+        g = _from_verdict("security", verdicts.latest(key, "security"), head, tree, f"security review {NOT_AVAILABLE}",
+                          "review the branch diff for security yourself, or set security.required: false in .keel/config.yml")
+        if g:
+            out.append({**g, "required": _required(cfg, "security")})
     return out
+
+
+def _from_verdict(gate: str, v: dict | None, head: str, tree: str | None, missing: str, fix_missing: str) -> dict | None:
+    """A scanner gate from its latest verdict: None when it passed on this code."""
+    detail = (v or {}).get("detail") or {}
+    if not v or detail.get("available") is False:
+        return {"gate": gate, "why": missing, "fix": fix_missing}
+    run = "run the feature flow's security phase again on this commit"
+    if not verdicts.fresh(v, head, tree):
+        return {"gate": gate, "why": f"the {gate} verdict is for {_short(v.get('commit')) or 'other files'}, not {_short(head)}",
+                "fix": run}
+    if not v.get("ok"):
+        return {"gate": gate, "why": detail.get("summary") or f"the {gate} check failed",
+                "fix": "fix or decide the findings (the security phase's findings gate), then run it again"}
+    return None
 
 
 def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None = None, project: str | None = None) -> list[dict]:
@@ -106,7 +128,7 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
         _verdict(out, "coverage", verdicts.latest(key, "coverage"), head, tree,
                  "run the coverage command on this commit (the flow's verify_coverage step)",
                  "add tests until commands.coverage passes", "no coverage verdict for this commit", "below the threshold")
-    out += [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg) if g["required"]]
+    out += [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg, key) if g["required"]]
     kdirs = [d for d in layout.resolve(root).knowledge_dirs if (Path(root) / d).is_dir()]
     if kdirs:
         v = verdicts.latest(key, "memory")
@@ -135,9 +157,9 @@ def for_agents(root: str, base: str | None = None, project: str | None = None) -
         return []
 
 
-def push_warnings(root: str, base: str | None = None) -> list[dict]:
-    """Gates keel cannot run in this version and the project does not require: told, not enforced."""
+def push_warnings(root: str, base: str | None = None, project: str | None = None) -> list[dict]:
+    """The deps and security gates the project does not require (not run, stale or failing): told, not enforced."""
     if not git.is_repo(root) or not (Path(root) / ".keel" / "config.yml").is_file():
         return []
     cfg = rules.load_config(root)
-    return [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg) if not g["required"]]
+    return [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg, project) if not g["required"]]

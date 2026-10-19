@@ -669,6 +669,12 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
   not-a-finding ones go to `data.dismissed_findings`, one entry each: `{step, name, item, lens, findings: [text],
   decision, why}`, and are not asked again when the review reports them again. Each review's "Non-blocking" items go
   to `data.nonblocking_findings` `[{step, name, lens, text}]` (once per step and file:line).
+- **Security verdicts** (0.18.22): the security step writes verdict `security` (ok = no blocking finding; the findings
+  gate writes ok with `detail.accepted` when every finding was accepted); a dependency triage with nothing reachable
+  turns a failed `deps` verdict into ok with `detail.cleared` `[{advisory, reason}]` (also `data.deps_triage`). The
+  push gate's deps/security entries read these verdicts (missing: "not run on this branch"; stale; failing summary).
+  `verify_deps` blocks only when an audit's worst severity is at or above `security.deps.fail_on` (default high;
+  an output with no readable severity blocks).
 - **AC gate detail** (0.18.22): the criterion line, `RED: <sha> test(<AC>) ...` with its test files, `GREEN: <sha>
   feat(<AC>) ...` with its diffstat (commits since the flow started), `AC-REVIEW: pass|findings` and the ac-reviewer's
   answer word for word, `Board: done ... · now <AC> · todo ...`, and `Last step:`.

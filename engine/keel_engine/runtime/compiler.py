@@ -39,7 +39,7 @@ from ..models.base import AgentRequest, AgentResult, ModelError
 from ..models.stream import DeltaThrottle
 from .findings import REVIEWERS, blocking, nonblocking, unique
 from .findings import key as finding_key
-from . import finding_decisions
+from . import finding_decisions, security_actions
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
@@ -1111,6 +1111,15 @@ class Compiler:
                 seen = {(x.get("step"), finding_key(x.get("text") or "")) for x in kept}
                 data["nonblocking_findings"] = kept + [x for x in nb if (x["step"], finding_key(x["text"])) not in seen]
                 upd["data"] = data
+            sec = [((item_of.get(n) or {"agent": step.agent}), res.text or "") for n, (res, _m, _tb) in enumerate(agent_results)
+                   if ((item_of.get(n) or {}).get("agent") or step.agent) in ("security-auditor", "dependency-triager")]
+            if sec:
+                # 0.18.22 the security phase writes its verdicts (the push gate reads them); the triage may clear deps
+                got, said = await asyncio.to_thread(security_actions.after_review, ctx.project_id or ctx.root, ctx.root, sec)
+                if got:
+                    upd["data"] = {**(upd.get("data") or state.get("data") or {}), **got}
+                if said:
+                    upd["note"] += f" · {said}"
             if found:
                 upd["note"] += f" · {len(found)} blocking finding(s)"
                 key = self._rounds_key(step, loop_item)
@@ -1277,6 +1286,9 @@ class Compiler:
             fresh = [f for f in found if finding_key(f["text"]) not in gone]
             if not fresh:
                 gates["log"].append(f"{review.name}: {len(found)} finding(s) dismissed before, not asked again")
+                if (review.agent or "") == "security-auditor":
+                    await asyncio.to_thread(security_actions.accepted, ctx.project_id or ctx.root, ctx.root,
+                                            [{"text": f["text"], "decision": "dismissed before", "reason": ""} for f in found])
                 return {"gates": gates, "findings": [],
                         "note": f"{review.name}: {len(found)} finding(s) dismissed before"}, self.nav.after(i)
             found = fresh
@@ -1321,6 +1333,8 @@ class Compiler:
                                 else f"{review.name}: {len(dropped)} finding(s) accepted: {reasons}"[:600])
         shown = [{"text": d["text"], "decision": d["decision"], "reason": d["reason"]} for d in decided]
         if not fixes and not amends:
+            if (review.agent or "") == "security-auditor":
+                await asyncio.to_thread(security_actions.accepted, ctx.project_id or ctx.root, ctx.root, dropped)
             ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "reject", "why": why,
                                                         "findings": [f["text"] for f in found], "decisions": shown})
             return {**extra, "gates": gates, "findings": [], "data": data,
