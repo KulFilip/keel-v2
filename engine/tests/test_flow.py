@@ -90,20 +90,21 @@ def test_rewind_continues_from_checkpoint(client, repo):
 
 
 def test_budget_cap_pauses_and_can_continue(client, repo):
-    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 180_000, "on_cap": "pause"})
+    # 0.18.21 web_check, the interview, the spec, two explorers and the plan come before the spec gate
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 240_000, "on_cap": "pause"})
     s = wait(client, tid)
-    assert s["waiting"]["step"] == "spec_gate"      # spec (44k), two explorers and the plan: about 176k
-    s = to_loop(client, tid, s)     # the contract (18k) pushes past 180k; red is not started
+    assert s["waiting"]["step"] == "spec_gate"
+    s = to_loop(client, tid, s)     # the contract pushes past the cap; red is not started
     assert s["status"] == "waiting" and s["waiting"]["kind"] == "budget", s
-    assert s["usage"]["tokens_in"] + s["usage"]["tokens_out"] >= 180_000
+    assert s["usage"]["tokens_in"] + s["usage"]["tokens_out"] >= 240_000
     assert client.bus.of(tid, "budget.warn")
     s = decide(client, tid, "approve")
-    assert s["usage"]["cap_tokens"] > 180_000
+    assert s["usage"]["cap_tokens"] > 240_000
     assert s["status"] in ("waiting", "done")
 
 
 def test_budget_stop(client, repo):
-    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 180_000, "on_cap": "stop"})
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 240_000, "on_cap": "stop"})
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate"
     s = to_loop(client, tid, s)
