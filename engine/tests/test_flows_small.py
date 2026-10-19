@@ -123,3 +123,38 @@ def test_quick_runs_every_module_suite_not_only_the_backend(tmp_path):
         "commands:\n  api_test_module: \"echo api 3 passed\"\n  web_test_module: \"echo web 2 passed\"\nfrontend: {dir: web}\n")
     r = asyncio.run(actions_mod.verify_green(a))
     assert r.ok and "api 3 passed" in r.detail and "web 2 passed" in r.detail, r.detail
+
+
+PLAN_WITHOUT_AC_LINES = ("Plan:\n- add a visits count to the pet list response\n- show it on the pets page\n\n"
+                         "Acceptance criteria:\n1. The pet list returns each pet's visit count.\n"
+                         "2. The pets page shows the count next to the name.")
+
+
+def test_small_takes_the_criteria_lines_of_the_request_when_the_plan_has_none(client, repo, monkeypatch):
+    # 0.18.17 the plan gate said "no acceptance criteria yet" although the request listed them as AC lines
+    answers(monkeypatch, {"explorer": lambda r: PLAN_WITHOUT_AC_LINES})
+    request = ("Show the visits per pet.\nAC-1 [API] The pet list returns each pet's visit count\n"
+               "AC-2 [WEB] The pets page shows the count next to the name")
+    tid = start(client, repo, workflow="small", title="Show the visits per pet", request=request)
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "plan_gate" and "no acceptance criteria" not in s["waiting"]["title"], s["waiting"]
+    assert [(a["id"], a["layer"]) for a in s["acs"]] == [("AC-1", "API"), ("AC-2", "WEB")] or \
+        [a["id"] for a in s["acs"]] == ["AC-1", "AC-2"], s["acs"]
+    assert s["acs"][0]["title"] == "The pet list returns each pet's visit count"
+
+
+def test_small_plan_prompt_asks_for_the_ac_lines_keel_reads(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {"explorer": lambda r: PLAN_WITHOUT_AC_LINES})
+    tid = start(client, repo, workflow="small", title="Show the visits per pet")
+    s = wait(client, tid)
+    assert "no acceptance criteria yet" in s["waiting"]["title"]          # no AC lines anywhere: nothing to approve
+    plan = next(r for r in seen if r.agent == "explorer").prompt
+    assert "numbered acceptance criteria" not in plan
+    assert "- **AC-1** [API]" in plan and "[WEB]" in plan.split("a short plan")[-1]
+
+
+def test_criteria_lines_with_a_colon_or_a_dash_after_the_id_are_read():
+    from keel_engine.runtime import prompts
+    text = "- **AC-1:** [API] The list returns visits\nAC-2 - [WEB] The page shows them\nAC-3 [API] Plain one"
+    assert [(a["id"], a["layer"], a["title"]) for a in prompts.parse_acs(text)] == [
+        ("AC-1", "API", "The list returns visits"), ("AC-2", "WEB", "The page shows them"), ("AC-3", "API", "Plain one")]

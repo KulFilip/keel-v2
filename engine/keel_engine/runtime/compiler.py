@@ -984,6 +984,10 @@ class Compiler:
             upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
             acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
+            if not acs and ctx.request:
+                # 0.18.17 the agent wrote its criteria in another form ("1. ..."), but the request lists them as AC
+                # lines: those are the person's own criteria, not "no acceptance criteria yet"
+                acs = prompts.parse_acs(ctx.request)
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
