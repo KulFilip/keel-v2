@@ -8,6 +8,8 @@ version: 1
 # reason: data.coverage_accepted, printed in the final review and the PR body) -> write -> review (assertions lens,
 # BLOCKING: yes sends it back to the writer, 2 rounds) -> coverage commit (refuses added production lines and
 # .keel/config.yml) -> measure again; at most 2 rounds, then keel asks. Every measure writes the sha-stamped verdict.
+# The decide gate shows each group's code (uncovered lines marked) and says when it is on a security path. With only
+# commands.coverage (no coverage.reports) a failing measure has no groups: no_reports asks at once (go on / stop).
 # ship includes these steps (kind: include, flow: cover).
 steps:
   - { id: measure, kind: code, name: measure coverage, action: verify_coverage, phase: coverage-fix, soft: true, lock: true }
@@ -15,10 +17,25 @@ steps:
   - { id: measure_failed, kind: gate, name: coverage could not be measured, phase: coverage-fix, when: { data: coverage_error },
       choices: { try_again: measure, go_on: report } }
   - { id: needs_work, kind: branch, name: coverage fails, when: { marker: RESULT, step: measure, equals: fail }, no: report, phase: coverage-fix }
+  # only commands.coverage, no coverage.reports: no groups to decide, so keel asks at once
+  - { id: no_reports, kind: gate, name: cover needs coverage.reports, phase: coverage-fix, when: { data: coverage_no_reports },
+      choices: { go_on: report, stop: end } }
   - { id: decide, kind: gate, name: decide test / delete / accept, for_each: coverage_groups, phase: coverage-fix, lock: true,
       choices: [test, delete, accept], on_skip: { choice: accept, record: coverage_accepted } }
   - { id: write, kind: agent, name: "cover the group: write the test, or delete the unreachable lines", agent: test-author, model: default, phase: coverage-fix, per_item: true }
-  - { id: review, kind: agent, name: "review the coverage test: assertions lens", agent: reviewer, model: default, phase: coverage-fix, per_item: true, back: write, rounds: 2, lock: true }
+  - id: review
+    kind: agent
+    name: "review the coverage test: assertions lens"
+    agent: reviewer
+    model: default
+    phase: coverage-fix
+    per_item: true
+    back: write
+    rounds: 2
+    lock: true
+    instructions: >-
+      When the item's decision is delete: is the deleted code really unreachable? Look for callers, routes, reflection,
+      configuration, scheduled jobs and event handlers that reach it; if anything can, that is blocking.
   - { id: commit, kind: code, name: coverage commit, action: commit, phase: coverage-fix, per_item: true, back: write, lock: true }
   - { id: remeasure, kind: code, name: measure again, action: verify_coverage, phase: coverage-fix, soft: true, lock: true }
   - { id: covered, kind: branch, name: coverage passes, when: { marker: RESULT, step: remeasure, equals: pass }, no: decide, rounds: 2, phase: coverage-fix }

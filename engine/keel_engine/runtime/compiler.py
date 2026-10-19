@@ -2314,9 +2314,11 @@ class Compiler:
         lp = self.nav.loop_of(i)
         on_skip = step.on_skip or {}
         skip_choice = on_skip.get("choice")
-        about = item.get("title") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")}, ensure_ascii=False,
-                                                default=str)[:600]
-        detail = (f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\nChoose one: {' | '.join(step.choices)} "
+        about = item.get("title") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status", "show")},
+                                                ensure_ascii=False, default=str)[:600]
+        # 0.18.22 what the item wants the person to see (cover: the uncovered code lines), not only its name
+        shown = f"\n\n{item['show']}" if isinstance(item.get("show"), str) and item["show"].strip() else ""
+        detail = (f"{item['id']}: {about}{shown}\nLast step: {state.get('note', '')}\n\nChoose one: {' | '.join(step.choices)} "
                   f"(approve with payload {{\"choice\": \"<one>\"}}; plain approve = {step.choices[0]})."
                   + (f" {skip_choice} needs a reason (why): it is recorded and shown at the final review and in the PR body."
                      if skip_choice else ""))

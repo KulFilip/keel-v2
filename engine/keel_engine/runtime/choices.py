@@ -80,6 +80,8 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     # cover
     ("cover:measure_failed", "try_again"): ("Measure again", NONE, "run the coverage command again"),
     ("cover:measure_failed", "go_on"): ("Go on without it", NONE, "go on to the coverage verdict without a measurement"),
+    ("cover:no_reports", "go_on"): ("Go on", NONE, "go on to the coverage verdict; it stays failing"),
+    ("cover:no_reports", "stop"): ("Stop the flow", OPTIONAL, "end here and configure coverage.reports first"),
     ("cover:decide", "test"): ("Write a test", OPTIONAL, "a test covers the group"),
     ("cover:decide", "delete"): ("Delete the lines", OPTIONAL, "the lines cannot be reached: delete them"),
     ("cover:decide", "accept"): ("Accept as uncovered", REQUIRED,

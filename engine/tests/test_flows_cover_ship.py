@@ -447,3 +447,48 @@ def test_final_report_lists_exceptions_before_the_verdicts(tmp_path):
                  "coverage accepted, not covered: `a.py:3-4`: defensive", "blocking finding dismissed (ship review): x.py:1 N+1 — why: batch job",
                  "flaky: release suite: t1", "| release | pass | suite green |", "| coverage | not run | — |"):
         assert want in text, want
+
+
+def test_a_coverage_group_carries_its_code_and_the_security_path_in_words(tmp_path):
+    # 0.18.22 the decide gate showed only "file:3-4": the person chose test / delete / accept without seeing the code
+    root = lcov_repo(tmp_path)
+    (root / ".keel/config.yml").write_text("version: 4\ncoverage:\n  reports: {web: build/lcov.info}\n  changed_lines: 90\n"
+                                           "security:\n  coverage_paths: ['src/**']\n")
+    m = verdict_actions.measure(str(root), verdict_actions.rules.load_config(str(root)), "main")
+    g = {x["key"]: x for x in m["groups"]}["src/list.ts:2-3"]
+    assert g["critical"] and g["title"].endswith("· security path")
+    assert "  1 | l1\n> 2 | l2\n> 3 | l3\n  4 | l4" in g["show"]
+    assert "100% is needed" in g["show"]
+    many = verdict_actions.excerpt(str(root), "src/list.ts", list(range(5, 30)))
+    assert len(many.splitlines()) == verdict_actions.EXCERPT_MOST + 1 and "more uncovered line(s) up to 29" in many
+
+
+def test_the_decide_gate_shows_the_code_and_a_delete_is_reviewed_for_reachability(client, repo, monkeypatch):
+    def with_code(a):
+        g = groups("src/a.py:3-4")
+        g[0]["show"] = "Uncovered (marked >) in src/a.py:\n> 3 | if x:\n> 4 |     return 1"
+        return ActionResult(False, "Coverage: api: changed lines 50.0% < 80%", "", {"data": {**a.data, "coverage_groups": g}})
+    seen = answers(monkeypatch, {"reviewer": lambda r: CLEAN})
+    script(monkeypatch, {"verify_coverage": [with_code, cov_pass]})
+    tid = start(client, repo, workflow="cover")
+    s = wait(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "decide" and "> 4 |     return 1" in w["detail"] and "{" not in w["detail"].split("Last step")[0]
+    s = decide(client, tid, "approve", payload={"choice": "delete"})
+    review = next(r for r in seen if r.agent == "reviewer")
+    assert "really unreachable" in review.prompt and review.item["decision"] == "delete"
+
+
+def test_cover_without_coverage_reports_asks_at_once(client, repo, monkeypatch):
+    # only commands.coverage: a failing command has no groups; it measured twice with nothing to decide, then asked
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text("version: 4\ncommands:\n  coverage: 'exit 3'\n")
+    calls = script(monkeypatch, {})
+    tid = start(client, repo, workflow="cover", settings={**SETTINGS, "simulate_checks": False})
+    s = wait(client, tid)
+    w = s["waiting"]
+    assert w["step"] == "no_reports" and w["choices"] == ["go_on", "stop"], w
+    assert "coverage.reports" in w["detail"] and "exit 3" in w["detail"]
+    assert calls.count("verify_coverage") == 1
+    s = decide(client, tid, "approve", payload={"choice": "stop"})
+    assert s["status"] != "waiting" and calls.count("verify_coverage") == 1

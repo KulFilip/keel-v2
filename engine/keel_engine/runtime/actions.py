@@ -346,8 +346,17 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
                             {"command": cmd, "tree": tree, "summary": None if code == 0 else f"`{cmd}` exited {code}",
                              "output": tail(out, 1500)}, head)
     if code != 0:
-        return ActionResult(False, f"Coverage is below what `{cmd}` accepts.", f"$ {cmd}\n{tail(out, 3000)}")
-    return ActionResult(True, "Coverage: passed; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}")
+        # 0.18.22 without coverage.reports there are no uncovered groups to work on: the cover loop asks at once
+        # (data.coverage_no_reports) instead of measuring twice with nothing to decide in between
+        why = (f"`{cmd}` failed (exit {code}), and without coverage.reports keel cannot see which lines are uncovered, "
+               "so there is nothing to decide per group. To let cover write the missing tests, name the report files in "
+               ".keel/config.yml, for example:\n\ncoverage:\n  reports:\n    api: build/reports/jacoco/test/jacocoTestReport.xml\n"
+               "    web: coverage/lcov.info\n\ngo_on: go on to the coverage verdict (it stays failing).\n"
+               "stop: end the flow here and configure coverage.reports first.")
+        return ActionResult(False, f"Coverage is below what `{cmd}` accepts.", f"$ {cmd}\n{tail(out, 3000)}",
+                            {"data": {**a.data, "coverage_groups": [], "coverage_no_reports": f"{why}\n\n$ {cmd}\n{tail(out, 1500)}"}})
+    return ActionResult(True, "Coverage: passed; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}",
+                        {"data": {**a.data, "coverage_no_reports": None}} if a.data.get("coverage_no_reports") else {})
 
 
 def _refuse(a: ActionInput, note: str, detail: str, **extra) -> ActionResult:

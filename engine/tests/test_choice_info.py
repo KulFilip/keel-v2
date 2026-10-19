@@ -61,6 +61,7 @@ def test_choice_info_keeps_the_order_marks_one_default_and_knows_the_flow():
     ("init:rung_gate", ["apply_fix", "retry", "skip", "stop"], "apply_fix", {"apply_fix": ("Apply the fix", "none"),
                                                                            "skip": ("Skip, not checked", "optional")}),
     ("init:git_repo", ["init", "retry", "go_on", "stop"], "init", {"init": ("Make the first commit", "none")}),
+    ("cover:no_reports", ["go_on", "stop"], "go_on", {"go_on": ("Go on", "none")}),
     ("init:audit_now", ["skip", "hunt"], "skip", {"skip": ("Hand over now", "none"), "hunt": ("Start a bug hunt", "none")}),
     ("hunt:confirm_lenses", ["confirm", "stop"], "confirm", {"confirm": ("Run these lenses", "optional")}),
     ("hunt:triage", ["take", "close", "stop"], "take", {"close": ("Close a finding", "required"), "take": ("Take the top group", "none")}),
