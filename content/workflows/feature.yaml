@@ -10,7 +10,8 @@ version: 2
 # reject come back to it); the contract and its gate; the test-first loop per criterion, where an agent that finds the
 # frozen spec wrong stops with AMEND and the spec gets a dated amendment with its own gate; integration and its gate;
 # security (auditor + dependency triager, shown only when they report something); the full-diff review (2 rounds);
-# e2e (asks when no e2e command is set) and smoke with their gates; ship (its steps are included, ids ship_*); an ADR
+# e2e (asks when no e2e command is set) and smoke with their gates; "ready to ship?" (ship / diff / wrong -> an
+# amendment / stop, with the criteria, the full-diff review, security and e2e/smoke in front); ship (its steps are included, ids ship_*); an ADR
 # when a decision had a real alternative; close.
 # Inputs (StartThread.data / a start_flow seed): acs (inline criteria from change; finished ones stay finished, no
 # interview), evidence (fix, diagnose: added to the request), needs_e2e (hunt), no_gates (waives the optional gates).
@@ -210,6 +211,8 @@ steps:
     instructions: >-
       Read the spec's criteria and scope, then the whole branch diff against the base branch. Report only what needs
       the whole diff in view.
+  # its verdict and sha: ship drops its correctness lens when this passed and no production file changed since
+  - { id: full_review, kind: code, name: the full-diff review's verdict, action: full_review, phase: gate }
   - { id: e2e_scope, kind: code, name: e2e criteria + tool, action: e2e_scope, phase: e2e, skippable: optional, group: e2e }
   - { id: e2e_needed, kind: branch, name: e2e criteria, when: { marker: E2E, equals: "yes", step: e2e_scope }, no: smoke_scope, phase: e2e, skippable: optional, group: e2e }
   - id: e2e_tool
@@ -238,7 +241,7 @@ steps:
   - { id: e2e_commit, kind: code, name: verify e2e + commit, action: verify_e2e+commit, phase: e2e, rounds: 2, skippable: optional, group: e2e }
   - { id: e2e_gate, kind: gate, name: e2e, back: e2e, phase: e2e, skippable: optional, group: e2e }
   - { id: smoke_scope, kind: code, name: smoke checks, action: smoke_scope, phase: smoke, skippable: optional, group: smoke }
-  - { id: smoke_needed, kind: branch, name: smoke checks, when: { marker: SMOKE, equals: "yes", step: smoke_scope }, no: ship_plan, phase: smoke, skippable: optional, group: smoke }
+  - { id: smoke_needed, kind: branch, name: smoke checks, when: { marker: SMOKE, equals: "yes", step: smoke_scope }, no: ready_show, phase: smoke, skippable: optional, group: smoke }
   - id: smoke
     kind: agent
     name: smoke
@@ -255,6 +258,14 @@ steps:
       {{data.smoke.checks}}
   - { id: smoke_commit, kind: code, name: run smoke + commit, action: verify_smoke+commit, phase: smoke, rounds: 2, skippable: optional, group: smoke }
   - { id: smoke_gate, kind: gate, name: smoke, back: smoke, phase: smoke, skippable: optional, group: smoke }
+  # keel v1 phase 8: ask before ship, with the state in front (ship runs without stopping until its final review)
+  - { id: ready_show, kind: code, name: the state before ship, action: ship_ready, phase: ship }
+  - id: ready_gate
+    kind: gate
+    name: ready to ship?
+    lock: true
+    phase: ship
+    choices: { ship: ship_plan, diff: ready_diff, wrong: ready_amend, stop: ready_stop }
   - { id: ship, kind: include, name: ship, flow: ship }
   - id: adr
     kind: agent
@@ -350,3 +361,6 @@ steps:
     phase: spec
     seed: { title: $title, evidence: $data.amend.reason }
   - { id: e2e_unrun, kind: code, name: e2e specs without a tool, action: e2e_unrun, then: e2e, phase: e2e }
+  - { id: ready_diff, kind: code, name: the branch diff before ship, action: ship_ready, then: ready_gate, phase: ship }
+  - { id: ready_amend, kind: code, name: to the amendment, action: amend_start, then: amend_entry, phase: spec }
+  - { id: ready_stop, kind: code, name: stop before ship, action: ship_stop, then: end, phase: ship }

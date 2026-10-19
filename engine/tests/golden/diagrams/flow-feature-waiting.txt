@@ -57,4 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \ [ ] stop the flow  (code amend_stop)
       \       then -> end of the flow
       \ [ ] spec amendment  (agent explorer)
-... 105 more (zoom with id=contract)
+... 119 more (zoom with id=contract)

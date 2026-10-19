@@ -447,3 +447,64 @@ def test_final_report_lists_exceptions_before_the_verdicts(tmp_path):
                  "coverage accepted, not covered: `a.py:3-4`: defensive", "blocking finding dismissed (ship review): x.py:1 N+1 — why: batch job",
                  "flaky: release suite: t1", "| release | pass | suite green |", "| coverage | not run | — |"):
         assert want in text, want
+
+
+def _lens_repo(tmp_path):
+    from test_v02 import commit_all, git, write
+    root = tmp_path / "p"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    write(root, ".keel/config.yml", "version: 4\n")
+    write(root, "src/app.py", "X = 1\n")
+    commit_all(root, "init")
+    return root, git, write, commit_all
+
+
+def test_correctness_lens_dropped_when_the_full_review_passed_and_no_production_file_changed(tmp_path):
+    root, git, write, commit_all = _lens_repo(tmp_path)
+    sha = git(root, "rev-parse", "HEAD").stdout.strip()
+    a = ActionInput(root=str(root), project="p", phase="ship", title="t", ac=None, acs=[], fake=True, flow="ship",
+                    data={"full_review": {"verdict": "pass", "sha": sha}})
+    write(root, "docs/notes.md", "a doc\n")
+    write(root, "tests/test_app.py", "def test(): pass\n")
+    commit_all(root, "docs and tests only")
+    r = asyncio.run(run_action("review_lenses", a))
+    assert [x["id"] for x in r.update["data"]["review_lenses"]] == ["security", "performance"]
+    assert "correctness lens dropped" in r.note and sha[:7] in r.update["data"]["lens_dropped"]
+    write(root, "src/app.py", "X = 2\n")
+    commit_all(root, "a production change")
+    r = asyncio.run(run_action("review_lenses", a))
+    assert [x["id"] for x in r.update["data"]["review_lenses"]][0] == "correctness" and "lens_dropped" not in r.update["data"]
+    a.data = {"full_review": {"verdict": "findings accepted", "sha": git(root, "rev-parse", "HEAD").stdout.strip()}}
+    assert [x["id"] for x in asyncio.run(run_action("review_lenses", a)).update["data"]["review_lenses"]][0] == "correctness"
+    a.data = {"full_review": {"verdict": "pass", "sha": git(root, "rev-parse", "HEAD").stdout.strip()}, "lenses_chosen": ["correctness"]}
+    assert [x["id"] for x in asyncio.run(run_action("review_lenses", a)).update["data"]["review_lenses"]] == ["correctness"]
+
+
+def test_final_report_shows_the_spec_amendments_reviews_security_and_files_to_open(tmp_path):
+    root, git, write, commit_all = _lens_repo(tmp_path)
+    base = git(root, "rev-parse", "HEAD").stdout.strip()
+    write(root, "docs/specs/rank.md", "# Rank\n\n## Goal\n\nPlayers see their rank.\n\n## Acceptance criteria\n\n"
+          "- **AC-1** [API] rank\n\n## Amendments\n\n### 2026-10-01 — AC-1\n\nWas: rank by score\nNow: rank by wins\nWhy: measured\n")
+    write(root, "src/app.py", "X = 1\nY = 2\nZ = 3\n")
+    write(root, "src/small.py", "S = 1\n")
+    commit_all(root, "feat")
+    state = {"spec": "docs/specs/rank.md", "base_head": base, "acs": [{"id": "AC-1", "layer": "API", "title": "rank", "status": "done"}],
+             "gates": {"log": []},
+             "data": {"full_review": {"verdict": "pass", "sha": base}, "lens_dropped": "correctness lens dropped: because",
+                      "ship_spec_walk_text": "An extra endpoint GET /debug implements no criterion.",
+                      "security_results": [{"item": "audit", "title": "security audit", "text": "SECURITY: clean"},
+                                           {"item": "deps", "title": "dependency triage", "text": "- lodash: not reachable (dev only)\nDEPS: clean"}],
+                      "nonblocking_findings": [{"lens": "performance", "text": "a.py:3 could cache"}, "plain note"],
+                      "dismissed_findings": [{"step": "review", "name": "ship review",
+                                              "findings": [{"text": "x.py:1 N+1", "why": "batch job", "decision": "accept"}]}]}}
+    text = ship.final_report(str(root), "pf2", state, "Rank")
+    for want in ("## The spec", "Players see their rank.", "- AC-1 [API] rank (done)", "Amendments (1)", "Was: rank by score",
+                 "## Security: clean", "triaged unreachable: lodash: not reachable (dev only)",
+                 f"- verdict: pass at {base[:7]}", "correctness lens dropped: because", "GET /debug implements no criterion",
+                 "- performance: a.py:3 could cache", "- plain note",
+                 "blocking finding dismissed (ship review, accept): x.py:1 N+1 — why: batch job",
+                 "Files a reviewer should open", "`src/app.py` (+2 -0)"):
+        assert want in text, want
+    assert text.index("`src/app.py`") < text.index("`src/small.py`")
+    assert text.index("## Exceptions") < text.index("## The spec")

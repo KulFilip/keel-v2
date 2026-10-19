@@ -103,7 +103,7 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert "new file docs/contract/player-ranks.md" in w["detail"] and "contract: Player ranks" not in log(repo)
     s, gates = gates_until_done(client, tid, decide(client, tid))
     assert s["status"] == "done"
-    assert gates == ["ac_gate", "ac_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
+    assert gates == ["ac_gate", "ac_gate", "integration_gate", "ready_gate", "ship_final_review", "ship_pr_gate"]
     started = [e["step"] for e in client.bus.of(tid, "step.started")]
     assert {"security", "code_review", "adr", "close"} <= set(started) and "review_fix" not in [
         e["step"] for e in client.bus.of(tid, "step.started") if not e["data"].get("skipped")]
@@ -350,7 +350,7 @@ def test_security_is_not_shown_when_clean_and_asks_when_it_finds_something(clien
     assert [r.item["id"] for r in calls] == ["audit"], "no dependency changed: no triager"
     s = decide(client, tid)
     assert len(calls) == 2 and "fix(review): address security auditor + dependency triager findings" in log(repo)
-    assert s["waiting"]["step"] == "ship_final_review", "clean the second time: nothing shown"
+    assert s["waiting"]["step"] == "ready_gate", "clean the second time: nothing shown"
 
 
 def test_the_dependency_triager_runs_after_verify_deps_found_something(client, repo, monkeypatch):
@@ -373,8 +373,39 @@ def test_the_full_diff_review_sends_findings_back_twice_then_asks(client, repo, 
     assert len([r for r in seen if r.agent == "code-reviewer"]) == 3
     assert "the limit is 2" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="the duplication is deliberate")
-    assert s["waiting"]["step"] == "ship_final_review"
+    assert s["waiting"]["step"] == "ready_gate"
     assert values(client, tid)["data"]["dismissed_findings"][0]["why"] == "the duplication is deliberate"
+
+
+# ------------------------------------------------------------------ "ready to ship?"
+
+def test_ready_to_ship_shows_the_state_and_can_show_the_diff_or_stop(client, repo, monkeypatch):
+    by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "ready_gate")
+    w = s["waiting"]
+    assert w["choices"] == ["ship", "diff", "wrong", "stop"]
+    assert [c["name"] for c in w["choice_info"] if c["default"]] == ["ship"]
+    assert next(c for c in w["choice_info"] if c["name"] == "wrong")["why"] == "required"
+    for want in ("Criteria: 2/2 done", "Full-diff review: pass at", "Security: clean", "E2E: nothing to do",
+                 "Smoke: nothing to do", "- ship: ship it (recommended)"):
+        assert want in w["detail"], want
+    assert values(client, tid)["data"]["full_review"]["verdict"] == "pass"
+    s = decide(client, tid, payload={"choice": "diff"})
+    assert s["waiting"]["step"] == "ready_gate" and "Branch diff since the flow started" in s["waiting"]["detail"]
+    assert "Criteria: 2/2 done" in s["waiting"]["detail"]
+    s = decide(client, tid, payload={"choice": "stop"}, why="not this sprint")
+    assert s["status"] == "stopped" and "Stopped before ship: not this sprint" in s.get("error", s.get("note", ""))
+    started = [e["step"] for e in client.bus.of(tid, "step.started")]
+    assert "ship_verify" not in started
+
+
+def test_ready_to_ship_wrong_starts_an_amendment(client, repo, monkeypatch):
+    by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "ready_gate")
+    s = decide(client, tid, payload={"choice": "wrong"}, why="ranks must be per season")
+    assert s["waiting"]["step"] == "amend_gate" and "ready-to-ship gate: ranks must be per season" in s["waiting"]["detail"]
 
 
 # ------------------------------------------------------------------ e2e and smoke

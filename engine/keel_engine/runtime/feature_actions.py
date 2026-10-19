@@ -15,6 +15,9 @@
     verify_e2e         runs commands.e2e (a failure runs once more: flaky), unless the specs are not to be run
     smoke_scope        the spec's [SMOKE] criteria or its Smoke checks section
     verify_smoke       runs smoke/*.sh and commands.smoke_e2e
+    full_review        after code_review: its verdict and sha (data.full_review; ship drops correctness on it)
+    ship_ready         "ready to ship?": criteria, full review, security, e2e/smoke, open items; ship / diff / wrong / stop
+    ship_stop          the ready-to-ship gate's stop
     close_flow         the closing line: criteria done, ADRs written
 
 The step ids these actions read are the feature workflow's: the plan's ORDER marker (any step), the dependency check's
@@ -351,6 +354,11 @@ def amend_start(a):
     if said:
         frm, text = said[-1]
         reason = f"{ac + ' · ' if ac else ''}{frm}: {text}"
+    elif a.step.startswith("ready_"):
+        # the "ready to ship?" gate's wrong: the person names what is not right; the spec gets an amendment
+        frm = "ready_gate"
+        why = ((a.data.get("ready_gate_answer") or {}).get("why") or "").strip()
+        reason = f"ready-to-ship gate: {why or 'something is not right before ship'}"
     else:
         frm = "contract"
         why = ((a.data.get("contract_gate_answer") or {}).get("why") or "").strip()
@@ -928,6 +936,92 @@ def verify_smoke(a):
     return _ok(f"Smoke: {len(cmds)} check(s) passed." + ("" if extra else " (commands.smoke_e2e is not set: no @smoke test ran)"))
 
 
+# ------------------------------------------------------------------ the full-diff review and "ready to ship?"
+
+def full_review(a):
+    """After the full-diff review (code_review): its verdict and the sha it read, in data.full_review. "pass" when it
+    ended clean; "findings accepted" when the person let findings through (a new dismissed_findings entry for it).
+    Ship drops its correctness lens when this passed and no production file changed since the sha (ship._lenses)."""
+    prev = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
+    dismissed = len([d for d in a.data.get("dismissed_findings") or [] if isinstance(d, dict)
+                     and str(d.get("step") or "").endswith("code_review")])
+    verdict = "findings accepted" if dismissed > int(prev.get("dismissed") or 0) else "pass"
+    sha = git.head(a.root) if git.is_repo(a.root) else None
+    full = {"verdict": verdict, "sha": sha, "dismissed": dismissed}
+    return _ok(f"full-diff review: {verdict}" + (f" at {sha[:7]}" if sha else ""), update={"data": {**a.data, "full_review": full}})
+
+
+def _phase_result(a, name: str) -> str:
+    """What e2e or smoke did in this flow, in a few words: skipped (why), nothing to do, written not run, ran."""
+    skip = next((s for s in a.data.get("ship_skipped") or [] if isinstance(s, dict) and s.get("step") == name), None)
+    if skip:
+        return f"skipped: {skip.get('reason') or 'no reason given'}"
+    waived = (_gates(a).get("skipped") or {}).get(name)
+    mk = ((a.state.get("markers") or {}).get(f"{name}_scope") or {}).get("E2E" if name == "e2e" else "SMOKE")
+    if mk == "no":
+        return "nothing to do: the spec has no " + ("[E2E] criteria" if name == "e2e" else "smoke checks")
+    if name == "e2e":
+        e2e = a.data.get("e2e") or {}
+        if not e2e:
+            return "not run"
+        out = f"{len(e2e.get('criteria') or [])} criteria, " + (f"run with `{e2e['command']}`" if e2e.get("run") and e2e.get("command")
+                                                                else "written, not run (no e2e command)")
+    else:
+        checks = (a.data.get("smoke") or {}).get("checks")
+        out = f"{len(checks)} check(s) written and run" if checks else "not run"
+    return out + (f" (gate waived: {waived})" if waived else "")
+
+
+SHIP_CHOICES = [
+    "- ship: ship it (recommended): ship runs its whole sequence now (verify, release, coverage, deps, audit, trace, the "
+    "review lenses, the spec walk) and stops next at the final review",
+    "- diff: show me the branch diff first: it is shown here, then this question comes again",
+    "- wrong: something is not right: say what in your note; the spec gets a dated amendment (its gate shows it) and the "
+    "criteria it reopens are built again",
+    "- stop: stop here: the branch and its commits stay as they are; nothing is pushed",
+]
+
+
+def ship_ready(a):
+    """keel v1 feature phase 8, "ask before you start it": the state in front of the person (criteria done, the
+    full-diff review's verdict, what security found, what e2e and smoke cover, what is still open), then ship / diff /
+    wrong / stop. A step id ending in _diff adds the branch diff (the gate's diff choice)."""
+    acs = a.acs
+    done = [x for x in acs if x.get("status") in DONE]
+    full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
+    sec, sec_lines = verdict_actions.security_summary(a.state)
+    lines = ["Ready to ship? Everything after this runs without stopping until the final review.", "",
+             f"Criteria: {len(done)}/{len(acs)} done", *_criteria_lines(acs), "",
+             "Full-diff review: " + (f"{full.get('verdict')} at {str(full.get('sha') or '?')[:7]}" if full else "not run"),
+             f"Security: {sec}", *sec_lines,
+             f"E2E: {_phase_result(a, 'e2e')}", f"Smoke: {_phase_result(a, 'smoke')}"]
+    open_ = [f"- {x['id']} is not done ({x.get('status') or 'todo'})" for x in acs if x.get("status") not in DONE]
+    open_ += verdict_actions.dismissed_lines(a.data)
+    open_ += [f"- skipped: {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in a.data.get("ship_skipped") or []
+              if isinstance(s, dict)]
+    open_ += [f"- flaky: {f.get('label')}" for f in a.state.get("flaky") or []]
+    open_ += [f"- warning: {w.get('text')}" for w in a.data.get("warnings") or [] if isinstance(w, dict)]
+    lines += ["", "Still open:" if open_ else "Still open: nothing.", *open_[:30]]
+    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"}; a plain approve ships):", *SHIP_CHOICES]
+    if a.step.endswith("_diff") and git.is_repo(a.root):
+        base = a.base or "HEAD"
+        stat = git.git(a.root, "diff", "--stat", f"{base}..HEAD").stdout.strip()
+        diff = git.git(a.root, "diff", f"{base}..HEAD").stdout
+        text = f"Branch diff since the flow started ({base[:7]}..HEAD):\n{stat or 'no change'}\n\n{diff}".strip()
+        if len(text) > 12000:
+            text = text[:12000] + "\n… (cut; see the repository for the rest)"
+        lines += ["", text]
+    return _ok(f"ready to ship? {len(done)}/{len(acs)} criteria done; security {sec}", update={"show": "\n".join(lines)})
+
+
+def ship_stop(a):
+    """The "ready to ship?" gate's stop: the flow stops before ship; the branch and its commits stay."""
+    from .actions import ActionResult
+
+    why = str((a.data.get("ready_gate_answer") or {}).get("why") or "").strip()
+    return ActionResult(False, "Stopped before ship" + (f": {why}" if why else "; the branch and its commits stay."), stop=True)
+
+
 # ------------------------------------------------------------------ close
 
 def close_flow(a):
@@ -948,5 +1042,6 @@ ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": 
            "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note, "stuck": stuck,
            "amend_stop": amend_stop, "show_diff": show_diff, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
-           "verify_smoke": verify_smoke, "close_flow": close_flow}
+           "verify_smoke": verify_smoke, "close_flow": close_flow, "full_review": full_review, "ship_ready": ship_ready,
+           "ship_stop": ship_stop}
 

@@ -436,6 +436,13 @@
    "rounds": 2
   },
   {
+   "id": "full_review",
+   "kind": "code",
+   "name": "the full-diff review's verdict",
+   "phase": "gate",
+   "action": "full_review"
+  },
+  {
    "id": "e2e_scope",
    "kind": "code",
    "name": "e2e criteria + tool",
@@ -522,7 +529,7 @@
    "kind": "branch",
    "name": "smoke checks",
    "phase": "smoke",
-   "no": "ship_plan",
+   "no": "ready_show",
    "when": {
     "marker": "SMOKE",
     "equals": "yes",
@@ -560,6 +567,26 @@
    "back": "smoke",
    "skippable": "optional",
    "group": "smoke"
+  },
+  {
+   "id": "ready_show",
+   "kind": "code",
+   "name": "the state before ship",
+   "phase": "ship",
+   "action": "ship_ready"
+  },
+  {
+   "id": "ready_gate",
+   "kind": "gate",
+   "name": "ready to ship?",
+   "phase": "ship",
+   "lock": true,
+   "choices": {
+    "ship": "ship_plan",
+    "diff": "ready_diff",
+    "wrong": "ready_amend",
+    "stop": "ready_stop"
+   }
   },
   {
    "id": "ship_plan",
@@ -1138,6 +1165,30 @@
    "phase": "e2e",
    "action": "e2e_unrun",
    "then": "e2e"
+  },
+  {
+   "id": "ready_diff",
+   "kind": "code",
+   "name": "the branch diff before ship",
+   "phase": "ship",
+   "action": "ship_ready",
+   "then": "ready_gate"
+  },
+  {
+   "id": "ready_amend",
+   "kind": "code",
+   "name": "to the amendment",
+   "phase": "spec",
+   "action": "amend_start",
+   "then": "amend_entry"
+  },
+  {
+   "id": "ready_stop",
+   "kind": "code",
+   "name": "stop before ship",
+   "phase": "ship",
+   "action": "ship_stop",
+   "then": "end"
   }
  ],
  "expect": {
@@ -1178,6 +1229,7 @@
    "review_fix",
    "review_fix_commit",
    "code_review",
+   "full_review",
    "e2e_scope",
    "e2e_needed",
    "e2e_tool",
@@ -1189,6 +1241,8 @@
    "smoke",
    "smoke_commit",
    "smoke_gate",
+   "ready_show",
+   "ready_gate",
    "ship_plan",
    "ship_verify_fix",
    "ship_verify_fix_commit",
@@ -1489,6 +1543,10 @@
      {
       "step": "code_review",
       "side": []
+     },
+     {
+      "step": "full_review",
+      "side": []
      }
     ]
    },
@@ -1561,6 +1619,24 @@
        "side": false
       },
       "no": "go"
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ship",
+    "nodes": [
+     {
+      "step": "ready_show",
+      "side": []
+     },
+     {
+      "step": "ready_gate",
+      "side": [
+       "ready_diff",
+       "ready_amend",
+       "ready_stop"
+      ]
      }
     ]
    },
@@ -1815,6 +1891,9 @@
    "e2e_unrun": "e2e_tool",
    "green_stuck": "green_blocked",
    "green_to_amend": "green_amend",
+   "ready_amend": "ready_gate",
+   "ready_diff": "ready_gate",
+   "ready_stop": "ready_gate",
    "rebuild": "contract_gate",
    "red_stuck": "red_blocked",
    "red_to_amend": "red_amend",

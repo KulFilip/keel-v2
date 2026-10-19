@@ -354,6 +354,25 @@ DOCS: dict[str, dict] = {
     "verify_smoke": {
         "summary": "Runs every smoke/*.sh, then commands.smoke_e2e; the first failure stops.",
     },
+    "full_review": {
+        "summary": "After the full-diff review: records its verdict (pass, or findings accepted) and the sha it read; ship "
+                   "drops its correctness lens when it passed and no production file changed since.",
+    },
+    "ship_ready": {
+        "summary": "Prepares the \"ready to ship?\" gate: criteria done, the full-diff review, security, e2e and smoke, "
+                   "what is still open, and the choices ship / diff / wrong / stop.",
+        "steps": [
+            "Lists the criteria with their status and how many are done.",
+            "Says the full-diff review's verdict and sha, what security found (or that it was skipped), and what e2e and "
+            "smoke did (ran, written but not run, nothing to do, skipped).",
+            "Lists what is still open: unfinished criteria, findings let through with why, skipped steps, flaky tests, "
+            "warnings.",
+            "From the diff choice (a step id ending in _diff) it adds the branch diff, then the gate asks again.",
+        ],
+    },
+    "ship_stop": {
+        "summary": "The \"ready to ship?\" gate's stop: the flow stops before ship; the branch and its commits stay.",
+    },
     "close_flow": {
         "summary": "Says what shipped in one line (criteria done, the ADRs this flow added).",
     },

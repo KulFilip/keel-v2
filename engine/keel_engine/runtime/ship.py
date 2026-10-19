@@ -13,6 +13,7 @@ A skipped step is recorded in state.data.ship_skipped ([{step, band, reason}]); 
 from __future__ import annotations
 
 import asyncio
+import re
 
 from .. import extensions, rules
 from ..tools import git
@@ -24,6 +25,26 @@ BANDS = {
     "optional": "Optional: nothing downstream demands it; skipping is a real choice with a real cost",
 }
 VERDICT_ROWS = ["fast", "module", "lint", "release", "coverage", "deps", "audit", "trace", "arch", "memory"]
+# Production code: the buckets keel's rules know, plus any other file that is not a test, a doc or keel's own.
+PROD_BUCKETS = {"api-main", "web-src", "migration"}
+_TESTISH = re.compile(r"(^|/)(tests?|__tests__|e2e|smoke|specs?)/|(^|/)test_[^/]*$|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
+_DOCISH = re.compile(r"\.(md|txt|rst|adoc)$|^docs/|^\.keel/|^\.claude/|^\.github/")
+
+
+def is_production(cfg: dict, path: str) -> bool:
+    bucket = rules.classify(cfg, path)
+    if bucket in PROD_BUCKETS:
+        return True
+    return bucket == "other" and not _TESTISH.search(path) and not _DOCISH.search(path)
+
+
+def production_changed(root: str, cfg: dict, sha: str) -> list[str] | None:
+    """The production files changed since `sha` (committed or not); None when the sha is unknown here."""
+    r = git.git(root, "diff", "--name-only", f"{sha}..HEAD")
+    if r.returncode != 0:
+        return None
+    files = {f.strip() for f in r.stdout.splitlines() if f.strip()} | set(git.dirty(root))
+    return sorted(f for f in files if is_production(cfg, f))
 
 
 def _result(ok, note, detail="", update=None):
@@ -54,8 +75,28 @@ def _lenses(a):
     for lens in lenses:
         if lens and lens not in seen:
             seen.append(lens)
+    data = {k: v for k, v in a.data.items() if k != "lens_dropped"}
+    dropped = "" if isinstance(chosen, list) and chosen else _drop_correctness(a, cfg, seen)
+    if dropped:
+        seen = [x for x in seen if x != "correctness"]
+        data["lens_dropped"] = dropped
     items = [{"id": lens, "title": f"{lens} lens"} for lens in seen]
-    return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}.", update={"data": {**a.data, "review_lenses": items}})
+    return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}." + (f" {dropped}." if dropped else ""),
+                   update={"data": {**data, "review_lenses": items}})
+
+
+def _drop_correctness(a, cfg: dict, lenses: list[str]) -> str:
+    """keel v1 ship step 5: the correctness lens is dropped when the full-diff review (data.full_review, written after
+    the feature flow's code_review) passed and no production file changed since its sha: it read the same code for the
+    same thing. Any production change since (an integration commit, a fix) and the lens runs. Returns why, or ""."""
+    full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
+    sha = str(full.get("sha") or "")
+    if "correctness" not in lenses or full.get("verdict") != "pass" or not sha or not git.is_repo(a.root):
+        return ""
+    changed = production_changed(a.root, cfg, sha)
+    if changed is None or changed:
+        return ""
+    return f"correctness lens dropped: the full-diff review passed at {sha[:7]} and no production file changed since"
 
 
 async def coverage_report(a):
@@ -197,9 +238,7 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     for x in data.get("coverage_accepted") or []:
         if isinstance(x, dict):
             exc.append(f"- coverage accepted, not covered: `{x.get('key') or x.get('id')}`: {x.get('reason') or 'no reason given'}")
-    for d in data.get("dismissed_findings") or []:
-        for f in d.get("findings") or []:
-            exc.append(f"- blocking finding dismissed ({d.get('name') or d.get('step')}): {f} — why: {d.get('why') or 'no reason given'}")
+    exc += verdict_actions.dismissed_lines(data)
     for line in gates.get("log") or []:
         if "no gate here" in line or "accepted:" in line or " go on after " in line:
             exc.append(f"- gate: {line}")
@@ -225,11 +264,13 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     out = [f"# Final review: {title}", ""]
     out += [f"## Exceptions ({len(exc)})", ""] + (exc or ["None: nothing skipped, accepted, dismissed or blocking."]) + [""]
     out += ["The knowledge update and its check run after you approve.", ""]
+    out += _spec_part(root, state)
     out += [f"## Verdicts for HEAD {str(head or 'not a git repository')[:7]}", "", "| check | result | summary |", "|---|---|---|"]
     for kind in VERDICT_ROWS:
         res, summary = _mark(verdicts.latest(key, kind), head, tree)
         out.append(f"| {kind} | {res} | {summary} |")
     out.append("")
+    out += _reviews_part(root, cfg, state)
     rounds = state.get("review_rounds") or {}
     if rounds:
         out += ["## Review fix rounds", ""] + [f"- {k}: {v}" for k, v in rounds.items()] + [""]
@@ -243,6 +284,66 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
         stat = git.git(root, "diff", "--stat", f"{base}...HEAD").stdout.strip()
         if stat:
             out += ["## Diff", "", "```", verdict_actions._tail(stat, 2500), "```", ""]
+        files = files_to_open(root, cfg, base)
+        if files:
+            out += ["Files a reviewer should open (the largest production changes):", ""] + [f"- `{f}` (+{a} -{d})" for f, a, d in files] + [""]
     out += ["Approve: final approve (the knowledge base is updated next, then the PR body). "
             "Reject with what to change: the implementer makes the change and ship runs again from verify."]
     return "\n".join(out)
+
+
+def _spec_part(root: str, state: dict) -> list[str]:
+    """keel v1 ship step 7, "the spec": its goal, the criteria, and every amendment with its Was: line (a criterion
+    agreed late reads like one agreed at the start unless it is said)."""
+    from . import feature_actions
+
+    spec = state.get("spec")
+    text = feature_actions._read(root, spec) if spec else ""
+    acs = state.get("acs") or []
+    if not text and not acs:
+        return []
+    out = ["## The spec", ""]
+    goal = feature_actions._section(text, "goal", "context", "request", "summary", "problem").strip() if text else ""
+    if goal:
+        out += ["Goal:", goal[:800], ""]
+    if acs:
+        done = sum(1 for x in acs if x.get("status") in feature_actions.DONE)
+        out += [f"Criteria ({done}/{len(acs)} done):", *[f"- {x['id']} [{x.get('layer', 'API')}] {x.get('title', '')} ({x.get('status') or 'todo'})"
+                                                         for x in acs], ""]
+    blocks = feature_actions._amendment_blocks(text) if text else []
+    if blocks:
+        out += [f"Amendments ({len(blocks)}), each with what it was:", ""]
+        for b in blocks:
+            out += [b[:1500], ""]
+    return out
+
+
+def _reviews_part(root: str, cfg: dict, state: dict) -> list[str]:
+    """Security, the full-diff review (verdict, sha, whether the correctness lens was dropped because of it), the spec
+    walk (behaviour no criterion asks for), and the findings nobody fixed: non-blocking ones and dismissed ones."""
+    data = state.get("data") or {}
+    out: list[str] = []
+    res, lines = verdict_actions.security_summary(state)
+    out += [f"## Security: {res}", "", *lines, ""]
+    full = data.get("full_review") if isinstance(data.get("full_review"), dict) else {}
+    if full:
+        out += ["## Full-diff review", "", f"- verdict: {full.get('verdict')} at {str(full.get('sha') or '?')[:7]}"]
+        out.append(f"- {data['lens_dropped']}" if data.get("lens_dropped") else "- the correctness lens ran at ship (not dropped)")
+        out.append("")
+    walk = next((str(v) for k, v in data.items() if k.endswith("spec_walk_text") and str(v or "").strip()), "")
+    if walk:
+        out += ["## Spec walk: behaviour no criterion asks for", "", verdict_actions._tail(walk.strip(), 2500), ""]
+    nb = verdict_actions.nonblocking_lines(data)
+    if nb:
+        out += [f"## Non-blocking findings, not fixed ({len(nb)})", "", *nb, ""]
+    return out
+
+
+def files_to_open(root: str, cfg: dict, base: str, n: int = 8) -> list[tuple[str, int, int]]:
+    """The production files with the most changed lines since base: what a reviewer should actually open."""
+    rows = []
+    for line in git.git(root, "diff", "--numstat", f"{base}...HEAD").stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and is_production(cfg, parts[2]):
+            rows.append((parts[2], int(parts[0]), int(parts[1])))
+    return sorted(rows, key=lambda r: -(r[1] + r[2]))[:n]

@@ -176,7 +176,7 @@ def test_important_stops_at_the_big_gates_and_approves_clean_ac_gates(client, re
     s, seen = gates_until_done(client, tid, wait(client, tid))
     assert s["status"] == "done", s
     # v0.17.5 7 stops before (options and ship_plan were their own stops), 5 now
-    assert seen == ["spec_gate", "contract_gate", "integration_gate", "ship_final_review", "ship_pr_gate"]
+    assert seen == ["spec_gate", "contract_gate", "integration_gate", "ready_gate", "ship_final_review", "ship_pr_gate"]
     assert "ac AC-1 approve: auto-approved (mode important)" in s["gate_log"]
     assert "ac AC-2 approve: auto-approved (mode important)" in s["gate_log"]
     assert not any("auto-approved" in line for line in s["gate_log"] if line.startswith("gate "))
