@@ -17,6 +17,7 @@ import asyncio
 from .. import extensions, rules
 from ..tools import git
 from . import blockers, run_mode, verdict_actions, verdicts
+from . import bug
 
 DEFAULT_LENSES = ["correctness", "security", "performance"]
 BANDS = {
@@ -225,6 +226,7 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     out = [f"# Final review: {title}", ""]
     out += [f"## Exceptions ({len(exc)})", ""] + (exc or ["None: nothing skipped, accepted, dismissed or blocking."]) + [""]
     out += ["The knowledge update and its check run after you approve.", ""]
+    out += bug.section(state)           # a bug flow: symptom, root cause, reproducing test, hunt findings it closes
     out += [f"## Verdicts for HEAD {str(head or 'not a git repository')[:7]}", "", "| check | result | summary |", "|---|---|---|"]
     for kind in VERDICT_ROWS:
         res, summary = _mark(verdicts.latest(key, kind), head, tree)

@@ -420,6 +420,9 @@
    "agent": "reviewer",
    "model": "default",
    "phase": "ship",
+   "when": {
+    "state": "spec"
+   },
    "rounds": 2,
    "redo": "ship_verify",
    "skippable": "optional",

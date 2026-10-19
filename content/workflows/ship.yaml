@@ -10,6 +10,7 @@ version: 1
 # the PR gate is approved and with a GitHub token.
 # lint (v0.4.1): the stacks' and the project's check tools on the branch diff, fixers left out; soft (a failure is shown
 # at the final review and in the PR body, the lint flow fixes it); optional.
+# spec_walk runs only when the flow has a spec (a fix or a small change has none: its walk had nothing to walk against).
 # Other flows end with these steps: `- { id: ship, kind: include, name: ship, flow: ship }`.
 steps:
   - { id: plan, kind: gate, name: which ship steps run, phase: ship, skip_menu: true, lock: true }
@@ -26,7 +27,7 @@ steps:
   - { id: review, kind: parallel, name: "ship review, one lens each", agent: reviewer, model: default, from: review_lenses, phase: ship,
       rounds: 2, redo: verify, skippable: optional, group: reviewers }
   - { id: spec_walk, kind: agent, name: "walk the diff against the spec: name behaviour no criterion asks for", agent: reviewer, model: default,
-      phase: ship, rounds: 2, redo: verify, skippable: optional }
+      phase: ship, rounds: 2, redo: verify, skippable: optional, when: { state: spec } }
   - { id: final_review, kind: gate, name: final review, phase: final-review, report: verdicts, back: verify_fix, lock: true }
   - { id: memory, kind: agent, name: knowledge update, agent: librarian, model: default, phase: memory }
   - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: memory }

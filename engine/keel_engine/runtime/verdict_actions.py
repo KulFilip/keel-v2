@@ -31,6 +31,7 @@ from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import run_mode as run_modes
 from . import tools, verdicts
+from . import bug
 
 GAP = 8               # uncovered lines closer than this belong to one group (one test can cover them)
 TEST_FILE = checks.TEST_FILE
@@ -718,6 +719,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
             if base and git.is_repo(root) else ""
         out += ["## Summary", ""] + ([request.strip()[:1500], ""] if request.strip() else []) \
             + (["Commits:", commits[:3000], ""] if commits else [])
+    out += bug.section(state)           # a bug flow: symptom, root cause, reproducing test, hunt findings it closes
     if rows:
         out += ["## Acceptance criteria", "", trace_table(rows), ""]
     out += ["## Coverage", ""]
