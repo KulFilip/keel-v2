@@ -126,3 +126,19 @@ def test_a_read_only_curl_passes_the_guard_in_the_spec_phase(cmd, tmp_path):
     assert hook.decide("Bash", {"command": cmd}, ctx) is None
     # and in a read-only run (no file changes, but reading the web is no change)
     assert hook.decide("Bash", {"command": cmd}, {**ctx, "readonly": True}) is None
+
+
+@pytest.mark.parametrize("cmd", ["curl -sL -o page.html https://example.com", "curl -sLO https://example.com/a.zip",
+                                 "curl -s --output x.json https://example.com", "curl -sL --remote-name https://e.com/f",
+                                 "wget https://example.com/a.zip", "wget -q -O spec.yaml https://example.com/spec.yaml"])
+def test_a_read_only_run_refuses_a_download_into_a_file(cmd):
+    # 0.18.20 fix: run mode readonly let `curl -o` and `wget` write files (only redirects and rm/mv/... were caught)
+    from keel_engine.runtime import run_mode
+    assert run_mode.readonly_bash(cmd)
+
+
+@pytest.mark.parametrize("cmd", [*CURLS, "wget -qO- https://example.com", "wget -O - https://example.com",
+                                 "curl -sL -o /dev/null -w '%{http_code}' https://example.com"])
+def test_a_read_only_run_still_reads_the_web(cmd):
+    from keel_engine.runtime import run_mode
+    assert run_mode.readonly_bash(cmd) is None

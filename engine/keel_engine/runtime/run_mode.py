@@ -188,6 +188,45 @@ _MUTATING = re.compile(
 _REDIRECT = re.compile(r"(?<![0-9&])>{1,2}\s*([^\s;&|>]+)")
 
 
+_SEGMENTS = re.compile(r"\|\||&&|[;|&\n]")
+
+
+def _download_target(words: list[str]) -> str | None:
+    """The file a `curl` or `wget` call writes (curl -o/-O/--output, wget without -O -), else None. "-" and /dev/...
+    are no file."""
+    while words and (words[0] in ("sudo", "env", "command") or re.fullmatch(r"\w+=\S*", words[0])):
+        words = words[1:]
+    if not words:
+        return None
+    tool = words[0].rsplit("/", 1)[-1]
+    if tool not in ("curl", "wget"):
+        return None
+    args, out = words[1:], None
+    for i, a in enumerate(args):
+        nxt = args[i + 1] if i + 1 < len(args) else ""
+        if tool == "curl":
+            if a in ("--output",) or (a.startswith("-") and not a.startswith("--") and a.endswith("o")):
+                out = nxt
+            elif a.startswith("--output="):
+                out = a.split("=", 1)[1]
+            elif re.fullmatch(r"-[A-Za-z]*o(.+)", a) and not a.startswith("--"):
+                out = re.fullmatch(r"-[A-Za-z]*?o(.+)", a).group(1)
+            elif a in ("--remote-name", "--remote-name-all") or (re.fullmatch(r"-[A-Za-z]*O[A-Za-z]*", a)):
+                out = "(the remote file name)"
+        else:
+            if a == "-O" or a == "--output-document" or (re.fullmatch(r"-[A-Za-z]*O", a)):
+                out = nxt
+            elif a.startswith("--output-document="):
+                out = a.split("=", 1)[1]
+            elif re.fullmatch(r"-[A-Za-z]*O(.+)", a):
+                out = re.fullmatch(r"-[A-Za-z]*?O(.+)", a).group(1)
+    if tool == "wget" and out is None and "--spider" not in args:
+        out = "(the remote file name)"
+    if out is None or out == "-" or out.startswith("/dev/"):
+        return None
+    return out
+
+
 def readonly_bash(command: str) -> str | None:
     """The reason a shell command is refused in a read-only run (it changes files or git), else None.
 
@@ -198,6 +237,17 @@ def readonly_bash(command: str) -> str | None:
         t = target.strip("\"'")
         if t and not t.startswith("/dev/"):
             return f"This flow runs read-only (run mode readonly): the shell may not write {t}."
+    # 0.18.20 a download into a file is a write too (`curl -o`, `curl -O`, `wget` without `-O -`); reading the web is not
+    import shlex
+    for seg in _SEGMENTS.split(cmd):
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            words = seg.split()
+        target = _download_target(words)
+        if target:
+            return (f"This flow runs read-only (run mode readonly): the download would write {target}. "
+                    "Read the page to the output instead (curl -sL <url>, wget -qO- <url>).")
     m = _MUTATING.search(cmd)
     if m:
         return (f"This flow runs read-only (run mode readonly): \"{m.group(0).strip()}\" changes files or git. "
