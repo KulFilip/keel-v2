@@ -3,12 +3,53 @@
  "name": "init (keel)",
  "steps": [
   {
+   "id": "git_check",
+   "kind": "code",
+   "name": "is this a git repository",
+   "phase": "setup",
+   "action": "git_check"
+  },
+  {
+   "id": "git_repo",
+   "kind": "gate",
+   "name": "not a git repository",
+   "phase": "setup",
+   "when": {
+    "data": "git_question"
+   },
+   "choices": {
+    "init": "git_init",
+    "retry": "git_check",
+    "go_on": "discover",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "git_init",
+   "kind": "code",
+   "name": "git init and the first commit",
+   "phase": "setup",
+   "action": "git_init"
+  },
+  {
+   "id": "git_ready",
+   "kind": "branch",
+   "name": "a git repository with a commit",
+   "phase": "setup",
+   "no": "git_repo",
+   "when": {
+    "data": "git_ready"
+   }
+  },
+  {
    "id": "discover",
    "kind": "agent",
    "name": "discover",
    "agent": "explorer",
    "model": "default",
-   "phase": "setup"
+   "phase": "setup",
+   "instructions": "Map this project for keel's setup and for the librarians who write its knowledge base next: the backend and frontend (language, framework, build tool, their folders), the API contract if any, the compose file and its services with their ports, the names (never the values) of the environment variables the app reads, the test setup, and the main modules with the files that are their entry points (file:line). At most 60 lines, plain bullets, no prose; end the map with the line MAP-END. Change nothing.",
+   "keep": true
   },
   {
    "id": "arch_detect",
@@ -77,7 +118,8 @@
      "sub": "librarian",
      "kind": "agent"
     }
-   ]
+   ],
+   "instructions": "The explorer's map of this project (where to start reading; check each claim in the code before you cite it, and read only what your section needs):\n{{data.discover_text}}"
   },
   {
    "id": "doctor",
@@ -92,38 +134,25 @@
    ]
   },
   {
-   "id": "ladder_retry",
+   "id": "rung_report",
    "kind": "code",
-   "name": "run the ladder again",
+   "name": "the doctor's diagnosis",
    "phase": "setup",
-   "action": "ladder_retry"
-  },
-  {
-   "id": "ladder_ok",
-   "kind": "branch",
-   "name": "green or a rung to decide",
-   "phase": "setup",
-   "no": "doctor",
-   "when": {
-    "marker": "LADDER",
-    "in": [
-     "green",
-     "stuck"
-    ]
-   }
+   "action": "rung_report"
   },
   {
    "id": "rung_gate",
    "kind": "gate",
-   "name": "a rung keeps failing",
+   "name": "a setup rung fails",
    "phase": "setup",
    "when": {
     "data": "rung_question"
    },
    "choices": {
-    "fix": "rung_apply",
-    "exclude": "rung_apply",
-    "accept": "rung_apply"
+    "apply_fix": "rung_apply",
+    "retry": "rung_apply",
+    "skip": "rung_apply",
+    "stop": "end"
    }
   },
   {
@@ -160,6 +189,13 @@
    "lock": true
   },
   {
+   "id": "summary",
+   "kind": "code",
+   "name": "hand-over summary",
+   "phase": "setup",
+   "action": "init_summary"
+  },
+  {
    "id": "audit_now",
    "kind": "gate",
    "name": "audit now",
@@ -192,6 +228,10 @@
  ],
  "expect": {
   "main": [
+   "git_check",
+   "git_repo",
+   "git_init",
+   "git_ready",
    "discover",
    "arch_detect",
    "arch_survey",
@@ -201,13 +241,13 @@
    "arch_set",
    "lanes",
    "doctor",
-   "ladder_retry",
-   "ladder_ok",
+   "rung_report",
    "rung_gate",
    "rung_apply",
    "ladder_done",
    "memory_check",
    "commit",
+   "summary",
    "audit_now",
    "hand_over"
   ],
@@ -216,6 +256,22 @@
     "kind": "phase",
     "phase": "setup",
     "nodes": [
+     {
+      "step": "git_check",
+      "side": []
+     },
+     {
+      "step": "git_repo",
+      "side": []
+     },
+     {
+      "step": "git_init",
+      "side": []
+     },
+     {
+      "step": "git_ready",
+      "side": []
+     },
      {
       "step": "discover",
       "side": []
@@ -253,11 +309,7 @@
       "side": []
      },
      {
-      "step": "ladder_retry",
-      "side": []
-     },
-     {
-      "step": "ladder_ok",
+      "step": "rung_report",
       "side": []
      },
      {
@@ -278,6 +330,10 @@
      },
      {
       "step": "commit",
+      "side": []
+     },
+     {
+      "step": "summary",
       "side": []
      },
      {

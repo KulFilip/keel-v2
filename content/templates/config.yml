@@ -107,7 +107,6 @@ gates:
 setup:
   ladder: []                  # e.g. [toolchain, dependencies, compile, unit-tests]
   max_parallel: 4             # rungs of one level at a time
-  fix_attempts_per_rung: 3    # after this many failures the rung becomes a blocking question
   runbook: docs/RUNNING.md
 
 # The hunt flow proposes these lenses and asks you to confirm the set before anything fans out.

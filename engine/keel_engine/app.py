@@ -91,7 +91,7 @@ class Settings(BaseModel):
     provider_windows: list[dict[str, Any]] | None = None          # the api's latest plan windows: [{provider, window, used_pct, resets_at, ...}]
     # flow options (a parent flow's start_flow seed can give the same keys)
     fast: bool | None = None                    # init: no knowledge base unless named, re-use passed rungs; hunt: fast lenses
-    fix_attempts_per_rung: int | None = Field(default=None, ge=1, le=10)   # init: setup-doctor rounds before a rung asks
+    fix_attempts_per_rung: int | None = Field(default=None, ge=1, le=10)   # unused since 0.18.22: the rung gate asks after each doctor round
     hunt_mode: Literal["auto", "semi"] | None = None   # hunt: semi stops after the sweep and after the provers
     hunt_scope: str | None = None               # hunt: all | diff | <path,path>
     hunt_lenses: list[str] | None = None        # hunt: the lenses to propose (default: hunt.lenses in .keel/config.yml)

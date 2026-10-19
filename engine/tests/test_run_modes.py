@@ -138,6 +138,10 @@ def test_classify_names_each_pause():
     assert run_mode.classify({}, fix["gate_r"], flow="fix") == "choice"
     init = {s.id: s for s in get_template("init").steps}
     assert run_mode.classify({}, init["rung_gate"], flow="init") == "rung"
+    # 0.18.22 keel v1: only a person answers "audit now?" and "not a git repository"
+    assert run_mode.classify({}, init["audit_now"], flow="init") == "note"
+    assert run_mode.classify({}, init["git_repo"], flow="init") == "note"
+    assert run_mode.classify({}, init["hand_over"], flow="init") == "gate"
     # hunt-next has no close gate any more: the child flow's end closes the group (hunt.child_finished); its one gate is
     # the preview (take | pick | stop), a choice a run mode may answer
     nxt = {s.id: s for s in get_template("hunt-next").steps}
@@ -146,6 +150,15 @@ def test_classify_names_each_pause():
 
 
 # ------------------------------------------------------------------ whole flows in each mode
+
+def test_auto_mode_init_stops_at_audit_now(client, repo):
+    # 0.18.22 auto approves the questions and the plan, but "audit now?" waits for a person (it took skip before)
+    tid = start(client, repo, workflow="init", title="keel init", settings=mode_settings("auto"))
+    s = wait(client, tid)
+    assert s["status"] == "waiting" and s["waiting"]["step"] == "audit_now", s.get("waiting")
+    assert any("questions" in line and "auto" in line for line in s["gate_log"]) and \
+        not any(line.startswith("gate audit_now") for line in s["gate_log"])
+
 
 def test_auto_runs_the_feature_flow_to_done_and_logs_every_gate(client, repo):
     tid = start(client, repo, settings=mode_settings("auto"))

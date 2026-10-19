@@ -47,6 +47,19 @@
    }
   },
   {
+   "id": "no_reports",
+   "kind": "gate",
+   "name": "cover needs coverage.reports",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_no_reports"
+   },
+   "choices": {
+    "go_on": "report",
+    "stop": "end"
+   }
+  },
+  {
    "id": "decide",
    "kind": "gate",
    "name": "decide test / delete / accept",
@@ -83,6 +96,7 @@
    "back": "write",
    "lock": true,
    "per_item": true,
+   "instructions": "When the item's decision is delete: is the deleted code really unreachable? Look for callers, routes, reflection, configuration, scheduled jobs and event handlers that reach it; if anything can, that is blocking.",
    "rounds": 2
   },
   {
@@ -131,6 +145,7 @@
    "measured",
    "measure_failed",
    "needs_work",
+   "no_reports",
    "decide",
    "write",
    "review",
@@ -169,6 +184,10 @@
       "side": [],
       "yes": {
        "nodes": [
+        {
+         "step": "no_reports",
+         "side": []
+        },
         {
          "loop": "decide",
          "body": [

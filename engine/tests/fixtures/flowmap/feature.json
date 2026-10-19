@@ -701,6 +701,22 @@
    "included_from": "ship/cover"
   },
   {
+   "id": "ship_cover_no_reports",
+   "kind": "gate",
+   "name": "cover needs coverage.reports",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_no_reports"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": {
+    "go_on": "ship_cover_report",
+    "stop": "end"
+   },
+   "included_from": "ship/cover"
+  },
+  {
    "id": "ship_cover_decide",
    "kind": "gate",
    "name": "decide test / delete / accept",
@@ -743,6 +759,7 @@
    "back": "ship_cover_write",
    "lock": true,
    "per_item": true,
+   "instructions": "When the item's decision is delete: is the deleted code really unreachable? Look for callers, routes, reflection, configuration, scheduled jobs and event handlers that reach it; if anything can, that is blocking.",
    "rounds": 2,
    "skippable": "deferred",
    "group": "cover",
@@ -1225,6 +1242,7 @@
    "ship_cover_measured",
    "ship_cover_measure_failed",
    "ship_cover_needs_work",
+   "ship_cover_no_reports",
    "ship_cover_decide",
    "ship_cover_write",
    "ship_cover_review",
@@ -1604,7 +1622,7 @@
     "nodes": [
      {
       "include": "ship",
-      "count": 30,
+      "count": 31,
       "body": [
        {
         "kind": "phase",
@@ -1654,7 +1672,7 @@
         "nodes": [
          {
           "include": "ship/cover",
-          "count": 11,
+          "count": 12,
           "body": [
            {
             "kind": "phase",
@@ -1685,6 +1703,10 @@
               "side": [],
               "yes": {
                "nodes": [
+                {
+                 "step": "ship_cover_no_reports",
+                 "side": []
+                },
                 {
                  "loop": "ship_cover_decide",
                  "body": [

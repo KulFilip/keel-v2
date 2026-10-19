@@ -1,9 +1,13 @@
 """keel init's two pauses with real content: the three questions (keel v1 skills/init step 2) and the setup plan.
 
 The questions are asked once, with the defaults keel detected. Since 0.19.0 they are a clarify form (clarify_questions:
-ids run, services, knowledge; the defaults are the recommended options) and the answers map to the config with
-from_answers; an old client's typed answer still goes through the keyword parser (answers). The result is written to
-.keel/config.yml (init:), where the librarians read the chosen sections.
+ids run, services, knowledge, and layout while the config names none; the defaults are the recommended options) and
+the answers map to the config with from_answers; an old client's typed answer still goes through the keyword parser
+(answers). The result is written to .keel/config.yml (init:), where the librarians read the chosen sections.
+
+A re-run keeps what exists (keel v1: confirming again adds): a knowledge section that is there already is not
+recommended and not rebuilt unless it is ticked. init's `knowledge_sections` is the whole selection (kept + written),
+`write_sections` the ones the librarians write this run (not stored in the config).
 """
 from __future__ import annotations
 
@@ -36,11 +40,59 @@ def existing_sections(root: str) -> list[str]:
     return [s for s in SECTIONS if section_file(root, s).is_file()]
 
 
+LAYOUTS = {"keel": "keel's files (specs, knowledge, runbook) stay in .keel/, out of git: nothing to commit, but only "
+                   "this clone has them",
+           "repo": "keel's files go in docs/ and are committed with the code: the team shares and reviews them"}
+
+
+def layout_asked(root: str) -> bool:
+    """The layout question is asked while .keel/config.yml names no layout (and .keel is not a link: external)."""
+    from .. import layout
+
+    return str(layout.raw_config(root).get("layout") or "") not in layout.LAYOUTS and not (Path(root) / ".keel").is_symlink()
+
+
+def default_layout(root: str) -> str:
+    from .. import layout
+
+    r = Path(root)
+    return layout.default_name(r, (r / ".keel").is_symlink(), layout.raw_config(r))
+
+
+def _previous_choice(root: str) -> list[str] | None:
+    """The sections an earlier init chose (.keel/config.yml init.knowledge_sections), None when there was none."""
+    from .. import layout
+
+    chosen = (layout.raw_config(root).get("init") or {}).get("knowledge_sections")
+    return [s for s in SECTIONS if s in chosen] if isinstance(chosen, list) else None
+
+
+def to_write(root: str, fast: bool = False) -> list[str]:
+    """The sections keel writes when the user says nothing: none in a fast init; else the ones still missing (of an
+    earlier init's choice, when there was one). A section that exists is kept, not rebuilt."""
+    if fast:
+        return []
+    have = set(existing_sections(root))
+    before = _previous_choice(root)
+    return [s for s in (before if before is not None and have else SECTIONS) if s not in have]
+
+
+def with_kept(root: str, a: dict) -> dict:
+    """knowledge_sections = the sections that exist (kept) plus the ones written now; write_sections = written now."""
+    write = [s for s in SECTIONS if s in (a.get("knowledge_sections") or [])]
+    have = existing_sections(root)
+    return {**a, "write_sections": write, "knowledge_sections": [s for s in SECTIONS if s in write or s in have]}
+
+
 def defaults(root: str, fast: bool = False) -> dict:
-    """keel's answers when the user gives none. A fast init writes no knowledge base unless the user names sections."""
-    return {"runs_on": "dev container" if (Path(root) / ".devcontainer").is_dir() else "this machine",
-            "services": f"use {compose_file(root)}" if compose_file(root) else "none",
-            "knowledge_sections": [] if fast else list(SECTIONS)}
+    """keel's answers when the user gives none. A fast init writes no knowledge base unless the user names sections;
+    a re-run writes only the sections still missing."""
+    d = {"runs_on": "dev container" if (Path(root) / ".devcontainer").is_dir() else "this machine",
+         "services": f"use {compose_file(root)}" if compose_file(root) else "none",
+         "knowledge_sections": to_write(root, fast)}
+    if layout_asked(root):
+        d["layout"] = default_layout(root)
+    return with_kept(root, d)
 
 
 RUNS_ON = {"this machine": "the app and its tools run on this computer",
@@ -69,24 +121,32 @@ def clarify_questions(root: str, fast: bool = False) -> list[dict]:
                                  "recommended": False},
                                 {"label": "generate a compose file", "description": "keel writes one for the services it finds",
                                  "recommended": False}]}
-    return [
+    out = [
         {"id": "run", "question": "Where does the app run while you develop?",
          "why": "keel runs the build, the tests and the services there.",
          "options": [{"label": k, "description": v, "recommended": d["runs_on"] == k} for k, v in RUNS_ON.items()]},
         services,
         {"id": "knowledge", "question": "Which knowledge sections should keel write?",
          "why": "More sections cost more tokens now and make the agents better later"
-                + (" (a fast init writes none unless you tick some; conventions and data help agents most)." if fast else "."),
-         "options": [{"label": sec, "description": SECTION_HELP[sec] + (" (exists)" if sec in have else ""),
-                      "recommended": sec in d["knowledge_sections"]} for sec in SECTIONS],
+                + (" (a fast init writes none unless you tick some; conventions and data help agents most)." if fast else ".")
+                + (" Sections that exist are kept as they are; tick one only to write it again." if have else ""),
+         "options": [{"label": sec, "description": SECTION_HELP[sec] + (" (exists: kept; tick to write it again)" if sec in have else ""),
+                      "recommended": sec in d["write_sections"]} for sec in SECTIONS],
          "multiple": True},
     ]
+    if "layout" in d:
+        out.append({"id": "layout", "question": "Where should keel keep its files (specs, knowledge, runbook)?",
+                    "why": "It decides whether the team sees keel's files in git; changing it later means moving them.",
+                    "options": [{"label": k, "description": v, "recommended": d["layout"] == k}
+                                for k, v in sorted(LAYOUTS.items(), key=lambda kv: kv[0] != d["layout"])]})
+    return out
 
 
 def from_answers(root: str, given: dict | None, fast: bool = False) -> dict:
     """The init config from the clarify form's answers ({id: label | [labels] | own words}). A question not answered
     keeps keel's default; own words are read like a typed answer (the keyword parser)."""
     a = defaults(root, fast)
+    a["knowledge_sections"] = a.pop("write_sections")
     given = given if isinstance(given, dict) else {}
     said: list[str] = []
     run = given.get("run")
@@ -123,15 +183,34 @@ def from_answers(root: str, given: dict | None, fast: bool = False) -> dict:
             a["knowledge_sections"] = [] if re.search(r"\b(no|none)\b", k.lower()) else \
                 answers(root, k, fast)["knowledge_sections"]
             said.append(k.strip())
+    lay = given.get("layout")
+    if isinstance(lay, list):
+        lay = lay[0] if lay else None
+    if "layout" in a and isinstance(lay, str) and lay.strip():
+        picked = _layout(lay.strip().lower())
+        if picked:
+            a["layout"] = picked
+        else:
+            said.append(lay.strip())
     if said:
         a["said"] = "; ".join(said)[:500]
-    return a
+    return with_kept(root, a)
+
+
+def _layout(t: str) -> str | None:
+    if t in LAYOUTS:
+        return t
+    if "repo" in t or "docs" in t or "commit" in t or "in git" in t:
+        return "repo"
+    if "keel" in t or "out of git" in t or "hidden" in t:
+        return "keel"
+    return None
 
 
 def questions(root: str, fast: bool = False) -> str:
     d = defaults(root, fast)
     have = existing_sections(root)
-    lines = ["Three questions before keel sets this project up. Approve to use the defaults (in brackets), or answer "
+    lines = [("Four" if "layout" in d else "Three") + " questions before keel sets this project up. Approve to use the defaults (in brackets), or answer "
              "in your own words with “Use my answers”, for example: “1 dev container · 2 I run them myself · "
              "3 conventions, data”.", "",
              f"1. Where does the app run while you develop?  this machine / dev container / decide later   [{d['runs_on']}]"]
@@ -144,14 +223,16 @@ def questions(root: str, fast: bool = False) -> str:
                  + ("[none: this is a fast init; name the ones you want, conventions and data help agents most]" if fast
                     else "[all five]"))
     for s in SECTIONS:
-        lines.append(f"   - {s}: {SECTION_HELP[s]}" + ("  (exists)" if s in have else ""))
+        lines.append(f"   - {s}: {SECTION_HELP[s]}" + ("  (exists: kept unless you name it)" if s in have else ""))
+    if "layout" in d:
+        lines.append(f"4. Where should keel keep its files?  keel (.keel/, out of git) / repo (docs/, committed)   [{d['layout']}]")
     return "\n".join(lines)
 
 
 # 0.18.17 a numbered answer ("1 this machine · 2 none · 3 none (… refreshed later)") is read per question: a part
 # starts with its number after the start or a separator (· ; , or a new line) and runs to the next number. Matching the
 # whole text let "later" in part 3 make runs_on "decide later", and "3 none" did not clear the sections.
-_PART = re.compile(r"(?:^|[·;,\n])\s*([123])(?:\s*[.):]\s*|\s+)")
+_PART = re.compile(r"(?:^|[·;,\n])\s*([1234])(?:\s*[.):]\s*|\s+)")
 
 
 def _parts(t: str) -> dict[str, str] | None:
@@ -196,9 +277,10 @@ def answers(root: str, text: str | None, fast: bool = False) -> dict:
     """The defaults, changed by what the user wrote (free text: words are matched, not a strict format). A numbered
     answer ("1 … · 2 … · 3 …") is matched per question; an unnumbered one as a whole."""
     a = defaults(root, fast)
+    a["knowledge_sections"] = a.pop("write_sections")
     t = (text or "").lower()
     if not t.strip():
-        return a
+        return with_kept(root, a)
     parts = _parts(t)
     run_t, srv_t, sec_t = (parts.get("1", ""), parts.get("2", ""), parts.get("3", "")) if parts else (t, t, t)
     if run := _runs_on(run_t):
@@ -213,8 +295,11 @@ def answers(root: str, text: str | None, fast: bool = False) -> dict:
         a["knowledge_sections"] = named
     elif parts is not None and re.match(r"\s*all\b", sec_t):
         a["knowledge_sections"] = list(SECTIONS)
+    lay_t = (parts or {}).get("4") or next(iter(re.findall(r"layout:?\s*(\w+)", t)), "")
+    if "layout" in a and lay_t and _layout(lay_t):
+        a["layout"] = _layout(lay_t)
     a["said"] = text.strip()[:500]
-    return a
+    return with_kept(root, a)
 
 
 def _plan_commands(root: str, cfg_exists: bool) -> tuple[dict, str]:
@@ -232,29 +317,101 @@ def _plan_commands(root: str, cfg_exists: bool) -> tuple[dict, str]:
     return testcmd.config_commands(root), testcmd.detected_dir(root)
 
 
+ENV_FILES = (".env.example", ".env.sample", ".env.template", ".env.dist", "example.env")
+_ENV_NAME = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
+
+
+def compose_facts(root: str) -> dict:
+    """What the compose file says, without values: {services: {name: [ports]}, env: [variable names]}."""
+    comp = compose_file(root)
+    if not comp:
+        return {"services": {}, "env": []}
+    try:
+        data = yaml.safe_load((Path(root) / comp).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return {"services": {}, "env": []}
+    services, env = {}, []
+    for name, svc in ((data.get("services") or {}) if isinstance(data, dict) else {}).items():
+        if not isinstance(svc, dict):
+            continue
+        ports = []
+        for p in svc.get("ports") or []:
+            if isinstance(p, dict):
+                p = f"{p.get('published', '')}:{p.get('target', '')}".strip(":")
+            ports.append(str(p))
+        services[str(name)] = ports
+        e = svc.get("environment") or {}
+        names = list(e) if isinstance(e, dict) else [str(x).split("=", 1)[0] for x in e if isinstance(x, str)]
+        env += [n for n in names if n not in env]
+    return {"services": services, "env": env}
+
+
+def env_names(root: str) -> tuple[str | None, list[str]]:
+    """The environment variable NAMES of the first example env file (values are never read out)."""
+    for f in ENV_FILES:
+        p = Path(root) / f
+        if p.is_file():
+            try:
+                lines = p.read_text(errors="replace").splitlines()
+            except OSError:
+                return f, []
+            return f, list(dict.fromkeys(m.group(1) for line in lines if (m := _ENV_NAME.match(line))))
+    return None, []
+
+
 def plan(root: str, init: dict) -> str:
+    from .. import layout
+    from . import ladder
+
     cfg_exists = (Path(root) / ".keel" / "config.yml").is_file()
     cmds, cmd_dir = _plan_commands(root, cfg_exists)
-    secs = init.get("knowledge_sections") or []
-    from .. import layout
-
-    lay = layout.resolve(root)
+    write = init.get("write_sections") if "write_sections" in init else (init.get("knowledge_sections") or [])
+    kept = [s for s in existing_sections(root) if s not in (write or [])]
+    lay_name = init.get("layout") if init.get("layout") in layout.LAYOUTS else None
+    lay = layout.resolve(root, {**layout.raw_config(root), "layout": lay_name}) if lay_name else layout.resolve(root)
+    stored = {k: v for k, v in init.items() if k not in ("said", "write_sections", "layout")}
     lines = ["keel will do this, in this order. Approve to start; send back to change it.", "",
-             f"1. Write .keel/config.yml" + (" — it exists, so it is left as it is" if cfg_exists else ":"),]
-    if not cfg_exists:
+             f"Layout: {lay.name} — " + (LAYOUTS.get(lay.name) or "keel's files sit behind the .keel link, outside the clone") + ".", ""]
+    if cfg_exists:
+        lines.append("1. Update .keel/config.yml: it exists, so only its init: block is written (your answers below); "
+                     "everything else is left as it is.")
+        lines += ["   " + l for l in yaml.safe_dump({"init": stored}, sort_keys=False).splitlines()]
+    else:
+        lines.append("1. Write .keel/config.yml:")
         block = {"version": 4, "layout": lay.name, **({"backend": {"dir": cmd_dir}} if cmd_dir else {}),
-                 **({"commands": cmds} if cmds else {}),
-                 "init": {k: v for k, v in init.items() if k != "said"}}
+                 **({"commands": cmds} if cmds else {}), "init": stored}
         lines += ["   " + l for l in yaml.safe_dump(block, sort_keys=False).splitlines()]
-    lines += [f"2. Run the setup ladder (install, build, tests, services up) and write {lay.runbook} with every "
-              "command that passed.",
+    lines += [f"2. Run the setup ladder and write {lay.runbook} with every command that passed. Each rung must pass "
+              "before the next runs; a failing rung goes to the setup doctor, then asks you.",
               f"   test command: {testcmd.shown(cmds['api_test_module'], cmd_dir) if cmds.get('api_test_module') else 'none found — the ladder will say so'}",
-              f"   one criterion: {testcmd.shown(cmds['api_test_ac'], cmd_dir) if cmds.get('api_test_ac') else '-'}",
-              f"   services: {init.get('services')}",
-              (f"3. Write the knowledge sections {', '.join(secs)} under {lay.knowledge}/ (one librarian each, every claim "
-               "with a file:line citation), at the same time as the ladder." if secs else
-               "3. No knowledge sections (you chose none)."),
-              f"4. Check that every citation in {lay.knowledge}/ points at a real line.",
+              f"   one criterion: {testcmd.shown(cmds['api_test_ac'], cmd_dir) if cmds.get('api_test_ac') else '-'}"]
+    try:
+        rungs = ladder.plan(root)
+    except Exception:       # noqa: BLE001 - the plan is text; a broken config must not hide the gate
+        rungs = []
+    for r in rungs:
+        what = f"$ {r['cmd']}" if r.get("cmd") and r["status"] != "skipped" else f"skipped: {r.get('detail') or 'no command'}"
+        lines.append(f"   {r['n']:>2}. {r['name']}: {what}")
+    lines.append(f"   services: {init.get('services')}")
+    facts = compose_facts(root)
+    if facts["services"]:
+        lines.append("   compose services and ports: " + "; ".join(
+            f"{n} ({', '.join(p) if p else 'no published port'})" for n, p in facts["services"].items()))
+    env_file, names = env_names(root)
+    env = list(dict.fromkeys([*names, *facts["env"]]))
+    if env:
+        lines.append(f"   environment variables the app reads (names only{', from ' + env_file if env_file else ''}"
+                     f"{' and the compose file' if facts['env'] else ''}): " + ", ".join(env[:40])
+                     + (f" … and {len(env) - 40} more" if len(env) > 40 else ""))
+    else:
+        lines.append("   environment variables: no .env.example and no environment in a compose file")
+    lines.append(f"3. Write the knowledge sections {', '.join(write)} under {lay.knowledge}/ (one librarian each, every claim "
+                 "with a file:line citation), at the same time as the ladder." if write else
+                 "3. Write no knowledge section" + (" (you chose none)." if not kept else "."))
+    if kept:
+        lines.append(f"   Kept as they are (they exist): {', '.join(kept)}.")
+    lines += [f"4. Check that every citation in {lay.knowledge}/ points at a real line.",
               ("5. Commit it all as chore(setup): keel init. Nothing is pushed." if not lay.hidden else
-               f"5. Record it (layout {lay.name}: keel's files stay out of git, so there is no commit). Nothing is pushed.")]
+               f"5. Record it (layout {lay.name}: keel's files stay out of git, so there is no commit). Nothing is pushed."),
+              "Nothing is deployed, published or deleted."]
     return "\n".join(lines)

@@ -349,8 +349,17 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
                             {"command": cmd, "tree": tree, "summary": None if code == 0 else f"`{cmd}` exited {code}",
                              "output": tail(out, 1500)}, head)
     if code != 0:
-        return ActionResult(False, f"Coverage is below what `{cmd}` accepts.", f"$ {cmd}\n{tail(out, 3000)}")
-    return ActionResult(True, "Coverage: passed; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}")
+        # 0.18.22 without coverage.reports there are no uncovered groups to work on: the cover loop asks at once
+        # (data.coverage_no_reports) instead of measuring twice with nothing to decide in between
+        why = (f"`{cmd}` failed (exit {code}), and without coverage.reports keel cannot see which lines are uncovered, "
+               "so there is nothing to decide per group. To let cover write the missing tests, name the report files in "
+               ".keel/config.yml, for example:\n\ncoverage:\n  reports:\n    api: build/reports/jacoco/test/jacocoTestReport.xml\n"
+               "    web: coverage/lcov.info\n\ngo_on: go on to the coverage verdict (it stays failing).\n"
+               "stop: end the flow here and configure coverage.reports first.")
+        return ActionResult(False, f"Coverage is below what `{cmd}` accepts.", f"$ {cmd}\n{tail(out, 3000)}",
+                            {"data": {**a.data, "coverage_groups": [], "coverage_no_reports": f"{why}\n\n$ {cmd}\n{tail(out, 1500)}"}})
+    return ActionResult(True, "Coverage: passed; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}",
+                        {"data": {**a.data, "coverage_no_reports": None}} if a.data.get("coverage_no_reports") else {})
 
 
 def _refuse(a: ActionInput, note: str, detail: str, **extra) -> ActionResult:
@@ -603,14 +612,30 @@ def _detect(root: str) -> dict:
     return cfg
 
 
+INIT_RUN_ONLY = ("said", "write_sections", "layout")   # init answers that are not kept in the config's init: block
+
+
 def write_config(a: ActionInput) -> ActionResult:
     f = Path(a.root) / ".keel" / "config.yml"
+    stored = {k: v for k, v in (a.init or {}).items() if k not in INIT_RUN_ONLY}
     if f.exists():
-        return ActionResult(True, ".keel/config.yml already exists; left as it is.")
+        # 0.18.22 a re-run records the new answers (init: block only; the rest of the file is left as it is)
+        text = f.read_text()
+        cfg = yaml.safe_load(text) or {}
+        if not a.init or not isinstance(cfg, dict) or cfg.get("init") == stored:
+            return ActionResult(True, ".keel/config.yml already exists; left as it is.")
+        head = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
+        cfg["init"] = stored
+        f.write_text(head + yaml.safe_dump(cfg, sort_keys=False))
+        return ActionResult(True, ".keel/config.yml exists; its init: block now has your answers.", f.read_text())
     f.parent.mkdir(parents=True, exist_ok=True)
     cfg = _detect(a.root)
+    if (a.init or {}).get("layout") in layout.LAYOUTS:
+        cfg["layout"] = a.init["layout"]
+        if cfg["layout"] != "repo":
+            cfg.pop("specs", None)
     if a.init:
-        cfg["init"] = {k: v for k, v in a.init.items() if k != "said"}
+        cfg["init"] = stored
     f.write_text("# Written by keel v2 init. Edit freely.\n"
                  "# layout: where keel keeps its files: keel (.keel/, out of git), repo (docs/, committed) or external.\n"
                  + yaml.safe_dump(cfg, sort_keys=False))
@@ -629,6 +654,10 @@ async def ladder(a: ActionInput) -> ActionResult:
     for r in rungs:
         if r["status"] == "pass" and r["n"] != 1:
             lines += [f"## {r['n']}. {r['name']}", "", *tool_runner.fenced(r["cmd"]), ""]
+    unchecked = [r for r in rungs if r["status"] == "skipped" and "setup." in str(r.get("detail") or "")]
+    if unchecked:
+        # keel v1 writes a rung the user accepted (or left out) into the runbook as not checked
+        lines += ["## Not checked", "", *[f"- {r['n']}. {r['name']}: {r.get('detail')}" for r in unchecked], ""]
     f = Path(a.root) / layout.resolve(a.root).runbook
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lines))

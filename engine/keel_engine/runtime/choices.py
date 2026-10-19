@@ -80,6 +80,8 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     # cover
     ("cover:measure_failed", "try_again"): ("Measure again", NONE, "run the coverage command again"),
     ("cover:measure_failed", "go_on"): ("Go on without it", NONE, "go on to the coverage verdict without a measurement"),
+    ("cover:no_reports", "go_on"): ("Go on", NONE, "go on to the coverage verdict; it stays failing"),
+    ("cover:no_reports", "stop"): ("Stop the flow", OPTIONAL, "end here and configure coverage.reports first"),
     ("cover:decide", "test"): ("Write a test", OPTIONAL, "a test covers the group"),
     ("cover:decide", "delete"): ("Delete the lines", OPTIONAL, "the lines cannot be reached: delete them"),
     ("cover:decide", "accept"): ("Accept as uncovered", REQUIRED,
@@ -91,9 +93,14 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("change:scope_gate", "trivial"): ("Trivial change", NONE, "one refactor commit; existing tests stay untouched"),
     ("change:scope_gate", "feature"): ("Make it a feature", NONE, "hand the criteria to a feature flow"),
     # init
-    ("init:rung_gate", "fix"): ("I fixed it, run again", OPTIONAL, "you fixed it (or want more doctor rounds); the ladder runs again"),
-    ("init:rung_gate", "exclude"): ("Leave this rung out", OPTIONAL, "leave this rung out of the ladder (setup.ladder_exclude)"),
-    ("init:rung_gate", "accept"): ("Keep it, not checked", OPTIONAL, "keep it, marked as not checked (setup.not_checked)"),
+    ("init:git_repo", "init"): ("Make the first commit", NONE, "git init (if needed) and commit the project as it is now"),
+    ("init:git_repo", "retry"): ("I did it, check again", NONE, "you made the repository and its first commit; keel looks again"),
+    ("init:git_repo", "go_on"): ("Go on without git", OPTIONAL, "nothing is committed and verdicts carry no commit"),
+    ("init:git_repo", "stop"): ("Stop init", OPTIONAL, "end init here (open the right folder first)"),
+    ("init:rung_gate", "apply_fix"): ("Apply the fix", NONE, "keel runs the doctor's proposed commands, then the ladder again"),
+    ("init:rung_gate", "retry"): ("I fixed it, run again", OPTIONAL, "you fixed it (or it was a passing problem); the ladder runs again"),
+    ("init:rung_gate", "skip"): ("Skip, not checked", OPTIONAL, "keep the rung, marked as not checked (setup.not_checked); the ladder goes on"),
+    ("init:rung_gate", "stop"): ("Stop init", OPTIONAL, "end init here; no knowledge check and no commit"),
     ("init:audit_now", "skip"): ("Hand over now", NONE, "hand over now; nothing checked behaviour"),
     ("init:audit_now", "hunt"): ("Start a bug hunt", NONE, "start a bug hunt now (semi mode, whole project); it changes no code"),
     # review-pr: nothing reaches the author unless the person shares and then posts

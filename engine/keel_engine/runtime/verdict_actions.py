@@ -358,6 +358,40 @@ def group(uncovered: list[str], gap: int = GAP) -> list[dict]:
     return sorted(items, key=lambda x: (-len(x["lines"]), x["file"]))
 
 
+EXCERPT_MOST = 10
+
+
+def excerpt(root: str, rel: str, lines: list[int], most: int = EXCERPT_MOST) -> str:
+    """The code of an uncovered group: its lines with one line around, at most `most` lines, the uncovered ones marked
+    with ">" ("" when the file cannot be read)."""
+    try:
+        text = (Path(root) / rel).read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    if not text or not lines:
+        return ""
+    marked = set(lines)
+    start = max(1, min(lines) - 1)
+    end = min(len(text), max(lines) + 1, start + most - 1)
+    width = len(str(end))
+    out = [f"{'>' if n in marked else ' '} {n:>{width}} | {text[n - 1]}" for n in range(start, end + 1)]
+    if max(lines) > end:
+        out.append(f"  … {sum(1 for n in lines if n > end)} more uncovered line(s) up to {max(lines)}")
+    return "\n".join(out)
+
+
+def group_text(root: str, rel: str, lines: list[int], critical: bool) -> str:
+    """What the decide gate shows for one group: the code (uncovered lines marked) and, on a security path, why it
+    matters."""
+    code = excerpt(root, rel, lines)
+    parts = [f"Uncovered (marked >) in {rel}:\n{code}" if code else f"{rel}: lines {', '.join(map(str, lines[:20]))} (the file "
+             "could not be read)"]
+    if critical:
+        parts.append("Security path (security.coverage_paths): every line here must be covered, 100% is needed; "
+                     "accept leaves the coverage gate failing.")
+    return "\n\n".join(parts)
+
+
 def _pct(n: int, d: int) -> float | None:
     return round(n * 1000 / d) / 10 if d else None
 
@@ -443,9 +477,12 @@ def measure(root: str, cfg: dict, base: str | None) -> dict:
         if r.get("error"):
             continue
         for it in group(r["uncovered"]):
-            groups.append({**it, "id": it["key"], "app": r["app"], "critical": bool(critical) and rules.match_glob(it["file"], critical),
+            crit = bool(critical) and rules.match_glob(it["file"], critical)
+            groups.append({**it, "id": it["key"], "app": r["app"], "critical": crit,
                            "title": f"{it['file']}:{it['lines'][0]}" + (f"-{it['lines'][-1]}" if len(it["lines"]) > 1 else "")
-                                    + f" ({len(it['lines'])} line{'s' if len(it['lines']) > 1 else ''})"})
+                                    + f" ({len(it['lines'])} line{'s' if len(it['lines']) > 1 else ''})"
+                                    + (" · security path" if crit else ""),
+                           "show": group_text(root, it["file"], it["lines"], crit)})
     groups.sort(key=lambda x: not x["critical"])     # security paths first: one line there fails the gate
     ok = not problems and bool(results)
     summary = "; ".join(f"{r['app']} changed {'n/a' if r['changed_pct'] is None else str(r['changed_pct']) + '%'}, "

@@ -58,7 +58,7 @@ KINDS = {
     "dependency": "a new dependency",
     "secrets": "a secret staged for commit",
     "readonly": "a commit in a read-only run",
-    "note": "an answer only a person can give",
+    "note": "an answer only a person can give (closing a hunt finding, init's audit now and git questions)",
 }
 SAFETY = frozenset({"failure", "rounds", "rung", "budget", "dependency", "secrets", "readonly", "note"})
 AUTO_KINDS = frozenset(k for k in KINDS if k not in SAFETY)
@@ -107,6 +107,8 @@ def classify(question: dict, step=None, *, flow: str = "", prev_actions: list[st
         return "gate"
     if flow == "init" and step.id == "rung_gate":
         return "rung"
+    if flow == "init" and step.id in ("audit_now", "git_repo"):
+        return "note"        # keel v1: only a person decides whether to hunt now, and whether to run git init
     if step.id == "amend_loop":
         return "rounds"      # v0.17.4 the amendment loop guard: only the person decides how it goes on
     if step.skip_menu:
