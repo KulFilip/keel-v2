@@ -443,8 +443,15 @@ export type KeelMap = {
 };
 export type MapResponse = KeelMap | { missing: string };
 
+/** One wiki page in the menu. id, title and status are in every keel; the rest came with the wiki's order (a keel
+ *  before it leaves them out). kind: overview | knowledge | spec | decision | runbook | workflow; number: the number in
+ *  the file name ("101"); label: the title without it; updated: the file's time; also: the same file in other folders. */
+export type WikiItem = {
+  id: string; title: string; status?: string | null;
+  kind?: string | null; path?: string | null; number?: string | null; label?: string | null; updated?: string | null; also?: string[] | null;
+};
 export type WikiTree = {
-  sections: { id: string; title: string; items: { id: string; title: string; status?: string }[] }[];
+  sections: { id: string; title: string; items: WikiItem[] }[];
   /** v0.15.8 an external layout whose folder keel cannot see: what to do */
   notice?: string | null;
   /** v0.15.8 where keel keeps the project's files: repo | keel | external */
