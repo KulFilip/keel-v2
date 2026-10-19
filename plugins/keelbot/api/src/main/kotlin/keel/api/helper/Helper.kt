@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Paths
 
@@ -189,6 +190,12 @@ class HelperService(
     fun export(pid: String, sid: String): JsonNode {
         get(pid, sid)
         return engine.post("/helper/sessions/$sid/export", emptyMap<String, Any>())
+    }
+
+    /** 0.18.18 The person's earlier prompts in this project's chats, newest first, each once: keel TUI's ↑ / ↓. */
+    fun prompts(pid: String, limit: Int = 200): JsonNode {
+        projects.require(pid)
+        return engine.get("/helper/prompts?project=$pid&limit=${limit.coerceIn(1, 500)}")
     }
 
     fun turn(pid: String, sid: String, body: HelperTurn): JsonNode {
@@ -480,6 +487,9 @@ class HelperController(private val helper: HelperService) {
 
     @GetMapping("/commands")
     fun commands(@PathVariable pid: String): JsonNode = helper.commands(pid)
+
+    @GetMapping("/prompts")
+    fun prompts(@PathVariable pid: String, @RequestParam(defaultValue = "200") limit: Int): JsonNode = helper.prompts(pid, limit)
 
     @GetMapping("/sessions/{sid}/changes")
     fun changes(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.changes(pid, sid)

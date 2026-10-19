@@ -549,6 +549,14 @@ export class KeelCore {
       `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/export`);
   }
 
+  /** 0.18.18 The person's earlier prompts in this project's KeelBot chats, newest first, each once: keel keeps them
+   *  (the stored user messages), so ↑ / ↓ find them after a restart and on another computer. [] with no project. */
+  async prompts(): Promise<string[]> {
+    const pid = this.pid;
+    if (!pid) return [];
+    return get<string[]>(`/projects/${encodeURIComponent(pid)}/helper/prompts`);
+  }
+
   /** P1-3 Name the open chat: the session's existing PATCH {title}; the engine keeps it (a first turn no longer names it). */
   async rename(title: string): Promise<HelperSession> {
     const { pid, sid } = this.chatOf();

@@ -6,6 +6,7 @@ its own routes (keel_engine/extensions.py mount). The runner is app.state.helper
     /helper/sessions/{sid}/turn | stop       one answer (it returns at once; helper.* events follow), stop it
     /helper/sessions/{sid}/compact           summarises the chat so far into a fresh engine_session, on request
     /helper/sessions/{sid}/export            P1-3 writes the chat as Markdown into the project's .keel/chats/<sid>.md
+    /helper/prompts?project=                 0.18.18 what the person asked in the project's chats, newest first (keel TUI's ↑)
     /helper/sessions/{sid}/changes | undo    Fix and side: the files KeelBot changed, put one or all back
     /helper/sessions/{sid}/done              the checks, then keel's commit of KeelBot's files
     /helper/sessions/{sid}/handover|release  a side session's branch, handed over to a task or a change flow
@@ -222,6 +223,12 @@ async def post_helper_compact(sid: str, request: Request):
 async def post_helper_export(sid: str):
     """P1-3 Writes the chat as Markdown into the project's .keel/chats/<sid>.md; answers {path, messages}."""
     return await asyncio.to_thread(helper_call, helper.export, sid)
+
+
+@router.get("/helper/prompts")
+async def get_helper_prompts(project: str, limit: int = 200):
+    """0.18.18 The person's earlier prompts in this project's chats, newest first, each once (keel TUI's ↑ / ↓)."""
+    return await asyncio.to_thread(helper.prompts, project, limit)
 
 
 @router.post("/helper/permissions/ask")

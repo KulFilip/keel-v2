@@ -353,6 +353,32 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     return out
 
 
+# ------------------------------------------------------------------ 0.18.18 prompt history
+
+PROMPTS_MAX = 500
+
+
+def prompts(project: str, limit: int = 200) -> list[str]:
+    """0.18.18 What the person asked in this project's chats, newest first, each text once (at its newest place): keel
+    TUI's ↑ / ↓ walk it, so the history survives a restart and is the same on another computer. Only the person's
+    own messages (role user), never KeelBot's answers or notes."""
+    limit = max(1, min(int(limit or 200), PROMPTS_MAX))
+    out: list[str] = []
+    seen: set[str] = set()
+    with db.connect() as conn:
+        rows = conn.execute("select m.text from helper_messages m join helper_sessions s on s.id = m.session_id "
+                            "where s.project = ? and m.role = 'user' order by m.at desc, m.rowid desc limit ?",
+                            (project, limit * 4))
+        for (text,) in rows:
+            t = (text or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                out.append(t)
+                if len(out) >= limit:
+                    break
+    return out
+
+
 # ------------------------------------------------------------------ P1-3 /export
 
 EXPORT_DIR = (".keel", "chats")

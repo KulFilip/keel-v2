@@ -354,7 +354,7 @@
     },
     {
       "key": "Up / Down",
-      "does": "the history, or the completion to take"
+      "does": "in an empty prompt: your earlier prompts of this project, newest first (kept by keel); Esc or typing leaves them; or the completion to take"
     },
     {
       "key": "Ctrl+F",

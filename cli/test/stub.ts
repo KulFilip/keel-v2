@@ -30,6 +30,8 @@ export function stubKeel() {
     } as Record<string, unknown>,
     session: null as null | Record<string, unknown>,
     // P1-3 the project's chats for /chats (with last_message and message_count); null: just the open one, if any
+    // 0.18.18 the person's earlier prompts of the project, newest first (GET …/helper/prompts, keel TUI's ↑ / ↓)
+    prompts: [] as string[],
     sessions: null as null | Record<string, unknown>[],
     changes: [] as { path: string; status: string; added: number; removed: number; diff: string }[],
     plugins: { plugins: [] as unknown[], problems: [] as unknown[] },
@@ -97,6 +99,7 @@ export function stubKeel() {
         if (body.decision === "reject" && !body.why) return [400, { error: "why is missing" }];
         state.thread = { ...state.thread, status: "running", current: "red", phase: "red", waiting: undefined };
         return [200, state.thread];
+      case "GET /api/projects/demo/helper/prompts": return [200, state.prompts];
       case "GET /api/projects/demo/helper/commands": return [200, [{ name: "gate", description: "explain the gate", plugin: "keelbot", source: "keel" }]];
       case "POST /api/projects/demo/helper/sessions":
         state.session = { id: "s1", project: "demo", root: "/work/demo", mode: body.mode ?? "ask", title: body.title ?? "", model: body.model ?? { provider: "fake", mode: "api", model: "fake" },

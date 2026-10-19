@@ -60,6 +60,17 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `the prompt history is the engine's, for this project only`() {
+        // 0.18.18 keel TUI's ↑ / ↓ walk the person's earlier prompts of the project, newest first, from keel
+        val (pid, _) = newProject("helper-prompts")
+        val r = get("/api/projects/$pid/helper/prompts?limit=50").andExpect(status().isOk).json()
+        assertThat(r.map { it.asText() }).containsExactly("And the tests?", "Where does it start?")
+        val q = engine.calls.last { it.path == "/helper/prompts" }.query!!
+        assertThat(q).contains("project=$pid").contains("limit=50")
+        get("/api/projects/nope-no-such/helper/prompts").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `a turn carries the knowledge, MCP, what the person points at and the waiting flow`() {
         val (pid, _) = newProject("helper-turn")
         val sid = post("/api/projects/$pid/helper/sessions").json()["id"].asText()

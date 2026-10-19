@@ -100,6 +100,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [started, setStarted] = useState(false);
   const [line, setLine] = useState("");
   const [cursor, setCursor] = useState(0);
+  // 0.18.18 the person's earlier prompts, newest first: keel's (the project's KeelBot chats), with what was sent here
+  // since on top; hIdx: the one shown while ↑ / ↓ walk them (-1: not walking)
   const [history, setHistory] = useState<string[]>([]);
   const [hIdx, setHIdx] = useState(-1);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -329,6 +331,19 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     setPickFilter("");
   }, [pending, qTick]);
 
+  // 0.18.18 the prompt history comes from keel (it survives a restart, it is the same on another computer)
+  const pidNow = snap.project?.id ?? null;
+  useEffect(() => {
+    if (!started || !pidNow) return;
+    let alive = true;
+    void core.prompts().then((ps) => {
+      if (!alive) return;
+      setHistory((h) => [...new Set([...h.filter((x) => !ps.includes(x)), ...ps])].slice(0, 500));
+      setHIdx(-1);
+    }).catch(() => undefined);
+    return () => void (alive = false);
+  }, [core, started, pidNow]);
+
   // what keel's plugins add: their commands
   useEffect(() => {
     const taken = new Set(COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
@@ -337,7 +352,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   // @mentions: the project's files, the code graph's symbols and the flow's criteria, as the person types
   useEffect(() => {
-    const tm = line.startsWith("/") ? null : typingMention(line.slice(0, cursor));
+    const tm = line.startsWith("/") || hIdx >= 0 ? null : typingMention(line.slice(0, cursor));
     if (!tm) return;
     let alive = true;
     const timer = setTimeout(() => {
@@ -353,7 +368,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       alive = false;
       clearTimeout(timer);
     };
-  }, [core, line, cursor]);
+  }, [core, line, cursor, hIdx]);
 
   useEffect(() => {
     if (!mode) return;
@@ -443,7 +458,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     if (!text.trim()) return;
     setOffset(0);
     push({ kind: "user", text });
-    setHistory((h) => (h[h.length - 1] === text ? h : [...h, text].slice(-200)));
+    setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, 500));
     setHIdx(-1);
     const name = text.startsWith("/") ? text.split(/\s+/)[0] : "";
     if (name) setRunning(name);
@@ -467,6 +482,13 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   }, [handle, pending, push]);
 
   const filtered = pending?.pick ? pickMatches(pending.pick.choices, pickFilter) : [];
+
+  /** A prompt from the history, as it is: no completions open (they would take ↑ / ↓). */
+  const showPrompt = (t: string) => {
+    setLine(t);
+    setCursor(t.length);
+    setComps([]);
+  };
 
   const setText = (t: string, c = t.length) => {
     setLine(t);
@@ -741,6 +763,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (key.escape) {
       if (comps.length) setComps([]);
+      else if (hIdx >= 0) {
+        // 0.18.18 Esc leaves the history: the prompt is empty again
+        setHIdx(-1);
+        setText("");
+      }
       else if (pending?.ask) {
         push({ kind: "dim", text: "  cancelled" });
         setPending(null);
@@ -769,14 +796,16 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         setCompIdx((i) => (key.upArrow ? Math.max(0, i - 1) : Math.min(Math.min(comps.length, 8) - 1, i + 1)));
         return;
       }
-      if (!history.length) return;
-      const i = key.upArrow ? (hIdx < 0 ? history.length - 1 : Math.max(0, hIdx - 1)) : hIdx < 0 ? -1 : hIdx + 1;
-      if (i < 0 || i >= history.length) {
+      // 0.18.18 only an empty prompt, or the earlier prompt shown as it is, walks the history: ↑ older, ↓ newer
+      const walking = hIdx >= 0 && line === history[hIdx];
+      if (!walking && line) return;
+      const i = key.upArrow ? Math.min(history.length - 1, hIdx + 1) : hIdx - 1;
+      if (i < 0) {
         setHIdx(-1);
-        setText("");
-      } else {
+        if (walking) showPrompt("");
+      } else if (history[i] !== undefined) {
         setHIdx(i);
-        setText(history[i]);
+        showPrompt(history[i]);
       }
       return;
     }
@@ -797,13 +826,18 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       return;
     }
     if (key.backspace || key.delete) {
+      setHIdx(-1);
       if (cursor > 0) setText(line.slice(0, cursor - 1) + line.slice(cursor), cursor - 1);
       return;
     }
     if (key.leftArrow) return setCursor((c) => Math.max(0, c - 1));
     if (key.rightArrow) return setCursor((c) => Math.min(line.length, c + 1));
-    if (key.ctrl && input === "u") return setText("");
+    if (key.ctrl && input === "u") {
+      setHIdx(-1);
+      return setText("");
+    }
     if (key.ctrl || key.meta || !input) return;
+    setHIdx(-1);                      // 0.18.18 typing leaves the history: the prompt is the person's own now
     // a paste: many lines or a long text behind "[pasted N lines #1]", an image path as "[image x.png #2]"
     const add = isPaste(input) ? pastes.current.add(input).insert : input.replace(/\r\n?|\n/g, " ");
     setText(line.slice(0, cursor) + add + line.slice(cursor), cursor + add.length);

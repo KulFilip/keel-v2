@@ -673,3 +673,24 @@ async def test_ac_3_export_writes_every_message_as_markdown_and_leaves_the_sessi
     # exporting again overwrites the same file with the same content
     assert client.post(f"/helper/sessions/{sid}/export").json()["path"] == str(path)
     assert client.post("/helper/sessions/h_nope/export").status_code == 404
+
+
+# ------------------------------------------------------------------ 0.18.18 prompt history (keel TUI's ↑ / ↓)
+
+def test_the_prompt_history_is_the_projects_own_user_messages_newest_first_once_each(client, repo):
+    """GET /helper/prompts?project= answers what the person asked in this project's chats, newest first, each text
+    once (its newest place): keel TUI walks it with ↑ / ↓, so it survives a restart and another computer."""
+    a = new_session(client, repo)["id"]
+    ask(client, a, "Where does the package start?")
+    b = new_session(client, repo)["id"]
+    ask(client, b, "And the tests?")
+    ask(client, a, "Where does the package start?")       # asked again: it moves to the top, once
+    ask(client, a, "line one\nline two")                  # a prompt of several lines comes back whole
+    other = client.post("/helper/sessions", json={"project_id": "elsewhere", "root": str(repo), "model": FAKE}).json()["id"]
+    ask(client, other, "Not this project's")
+    r = client.get("/helper/prompts", params={"project": "demo"})
+    assert r.status_code == 200, r.text
+    assert r.json() == ["line one\nline two", "Where does the package start?", "And the tests?"]
+    # KeelBot's answers and notes are never prompts; the limit cuts the oldest
+    assert client.get("/helper/prompts", params={"project": "demo", "limit": 1}).json() == ["line one\nline two"]
+    assert client.get("/helper/prompts", params={"project": "nobody"}).json() == []

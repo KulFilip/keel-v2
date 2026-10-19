@@ -222,6 +222,8 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.matches(Regex("/helper/sessions/[^/]+/(handover|release)")) -> 200 to helperHandover
         path.matches(Regex("/helper/sessions/[^/]+/done")) -> 200 to mapOf("ok" to true, "sha" to "abc1234", "message" to "green: helper: x",
             "files" to listOf("src/a.kt"))
+        // 0.18.18 the person's earlier prompts of a project, newest first (keel TUI's ↑ / ↓)
+        path == "/helper/prompts" -> 200 to (if (query?.contains("project=") != true) emptyList() else listOf("And the tests?", "Where does it start?"))
         path == "/helper/commands" -> 200 to listOf(mapOf("name" to "explain", "description" to "Explain", "plugin" to "core", "source" to "keel"))
         path.matches(Regex("/helper/sessions/[^/]+/turn")) -> {
             val id = path.split('/')[3]
