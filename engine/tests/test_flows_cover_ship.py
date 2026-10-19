@@ -583,3 +583,28 @@ def test_the_docs_step_is_optional_and_shown_at_the_final_review(client, repo, m
     wait(client, tid)
     s = decide(client, tid, "approve", payload=SKIP_ALL)
     assert "skipped: doc_updates (optional): d" in s["waiting"]["detail"] and "## Docs this change" not in s["waiting"]["detail"]
+
+
+def test_ship_lens_reviewers_get_the_diff_scope(tmp_path):
+    root, git, write, commit_all = _lens_repo(tmp_path)
+    git(root, "checkout", "-q", "-b", "feat/x")
+    write(root, "src/app.py", "X = 2\n")
+    commit_all(root, "feat")
+    a = ActionInput(root=str(root), project="p", phase="ship", title="t", ac=None, acs=[], fake=True, flow="ship",
+                    state={"spec": "docs/specs/x.md"})
+    items = asyncio.run(run_action("review_lenses", a)).update["data"]["review_lenses"]
+    assert items[0] == {"id": "correctness", "title": "correctness lens", "lens": "correctness", "scope": "git diff main...HEAD",
+                        "base": "main", "files": ["src/app.py"], "spec": "docs/specs/x.md"}
+
+
+def test_the_pr_body_and_the_final_review_carry_security_and_dismissed_findings(tmp_path):
+    state = {"gates": {"log": []}, "data": {
+        "security_results": [{"item": "audit", "title": "security audit", "text": "- `a.py:1` IDOR. Blocking.\nSECURITY: findings"}],
+        "dismissed_findings": [{"step": "security", "name": "security", "findings": ["a.py:1 IDOR"], "why": "admin-only route"}]}}
+    body = verdict_actions.pr_body(str(tmp_path), "pf3", state, "Rank", None)
+    assert "## Security: findings" in body and "- security audit: 1 blocking finding(s)" in body
+    assert "let through: a.py:1 IDOR — why: admin-only route" in body
+    assert "## Blocking findings let through" in body and "blocking finding dismissed (security): a.py:1 IDOR" in body
+    text = ship.final_report(str(tmp_path), "pf3", state, "Rank")
+    assert "| security | findings | security audit: 1 blocking finding(s) |" in text
+    assert "## Security: not run" in verdict_actions.pr_body(str(tmp_path), "pf3", {"data": {}}, "Rank", None)

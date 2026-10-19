@@ -80,9 +80,27 @@ def _lenses(a):
     if dropped:
         seen = [x for x in seen if x != "correctness"]
         data["lens_dropped"] = dropped
-    items = [{"id": lens, "title": f"{lens} lens"} for lens in seen]
+    scope = _lens_scope(a, cfg)
+    items = [{"id": lens, "title": f"{lens} lens", "lens": lens, **scope} for lens in seen]
     return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}." + (f" {dropped}." if dropped else ""),
                    update={"data": {**data, "review_lenses": items}})
+
+
+def _lens_scope(a, cfg: dict) -> dict:
+    """What each ship reviewer reads (as the review flow's items: review_scope): the branch diff against its base, the
+    files it touches, and the spec. Without it a reviewer guesses the base."""
+    if not git.is_repo(a.root):
+        return {}
+    base = verdict_actions.base_ref(a.root, cfg, a.base)
+    if not base:
+        return {}
+    files = [f for f in git.git(a.root, "diff", "--name-only", f"{base}...HEAD").stdout.splitlines() if f.strip()]
+    out = {"scope": f"git diff {base}...HEAD", "base": base, "files": files[:60]}
+    if len(files) > 60:
+        out["files_more"] = len(files) - 60
+    if a.state.get("spec"):
+        out["spec"] = a.state["spec"]
+    return out
 
 
 def _drop_correctness(a, cfg: dict, lenses: list[str]) -> str:
@@ -355,6 +373,8 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     for kind in VERDICT_ROWS:
         res, summary = _mark(verdicts.latest(key, kind), head, tree)
         out.append(f"| {kind} | {res} | {summary} |")
+    sec, sec_lines = verdict_actions.security_summary(state)
+    out.append(f"| security | {sec} | {'; '.join(x.strip(' -') for x in sec_lines if not x.startswith('  '))[:200] or '—'} |")
     out.append("")
     out += _reviews_part(root, cfg, state)
     rounds = state.get("review_rounds") or {}

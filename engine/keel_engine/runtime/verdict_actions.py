@@ -819,6 +819,10 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     if ship_skipped:
         out += ["## Ship steps skipped", ""] + [f"- {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in ship_skipped
                                                 if isinstance(s, dict)] + [""]
+    out += security_section(state)
+    dismissed = dismissed_lines(data)
+    if dismissed:
+        out += ["## Blocking findings let through", ""] + dismissed + [""]
     out += memory_section(data)
     unlocks = [u for u in state.get("unlocks") or [] if u.get("by") != "settings" or u.get("reason")]
     if unlocks:
@@ -833,6 +837,12 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     out += extensions.pr_body_sections(thread_id)      # the parts' sections: KeelBot's commits at a gate
     out += ["---", "_Prepared by keel._"]
     return "\n".join(out)
+
+
+def security_section(state: dict) -> list[str]:
+    """The PR body's security result (the feature flow's auditor and dependency triage), or that it did not run."""
+    res, lines = security_summary(state)
+    return [f"## Security: {res}", "", *lines, ""]
 
 
 def memory_section(data: dict) -> list[str]:
