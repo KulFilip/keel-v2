@@ -211,6 +211,26 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     return "\n".join(lines)
 
 
+REQUEST_MAX = 8_000         # a started flow's request (start_flow's seed): every agent of that flow reads it
+EVIDENCE_MAX = 60_000       # the seed's evidence (a spike's report: findings + each angle's answer) for the spec writer
+
+
+def evidence_block(seed: dict | None) -> str:
+    """The evidence a parent flow handed over (a spike's findings and each angle's answer, a fix's diagnosis), whole up
+    to EVIDENCE_MAX, for the steps that write the spec (the interview and the spec step): the request only carries its
+    first REQUEST_MAX characters."""
+    ev = (seed or {}).get("evidence") if isinstance(seed, dict) else None
+    text = "\n".join(f"- {x}" for x in ev) if isinstance(ev, list) else str(ev or "")
+    text = text.strip()
+    if not text:
+        return ""
+    cut = len(text) > EVIDENCE_MAX
+    return ("Evidence handed over by the flow that started this one" + (f" (cut at {EVIDENCE_MAX} characters)" if cut else "")
+            + ". Read all of it. Carry every claim with its file:line or URL into the spec's Findings (evidence), keep "
+            "the paths it traced, the tests it named and its draft criteria, and put what it marks unconfirmed under "
+            "Unverified and open questions. Do not summarise it away.\n\n" + text[:EVIDENCE_MAX])
+
+
 def spec_writer(step) -> bool:
     """Does this agent step write the flow's spec (in a spec or triage phase)? A fan-out (one agent per item), a step
     that asks the person first (`asks`), collects a list (`collect`) or keeps its answer as a document for the next

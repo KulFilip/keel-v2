@@ -209,3 +209,34 @@ def test_a_long_findings_answer_reaches_the_report_whole(client, repo, monkeypat
     s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
     assert s["waiting"]["step"] == "decide"
     assert "claim 899: src/app/Eta.kt:899" in s["waiting"]["detail"] and "RECOMMEND: map the field" in s["waiting"]["detail"]
+
+
+def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, repo, monkeypatch):
+    """The spike's report (findings + each angle's answer, word for word) seeds the feature flow's evidence. It went into
+    the child's request, which is cut at 8 000 characters: the spec step lost the angles' file:line evidence. The
+    request still carries its start; the steps that write the spec get the whole evidence (up to EVIDENCE_MAX)."""
+    import time
+    from conftest import decide, start, wait
+
+    real, seen = fake._plan, []
+    angle = "\n".join(f"- inbound ETA path hop {n}: src/webhook/EtaHandler.kt:{n}" for n in range(250))
+
+    def plan(req):
+        seen.append(req)
+        if req.agent == "investigator" and req.item:
+            return None, "", f"## Findings (evidence)\n{angle}\nANGLE-END {req.item['title']}\nVERDICT: promising", {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    decide(client, s["thread_id"], "approve", payload={"choice": "spec"})
+    deadline = time.time() + 30
+    while time.time() < deadline and not any(r.step_name == "spec" for r in seen):
+        time.sleep(0.05)
+    spec = next(r for r in seen if r.step_name == "spec")
+    request = spec.prompt.split("What the user asked for:\n", 1)[1]
+    assert "[cut at 8000 of" in request                     # every agent's request stays short
+    assert spec.prompt.count("src/webhook/EtaHandler.kt:249") >= 2       # both angles, whole, in the evidence block
+    assert all(f"ANGLE-END angles {n}" in spec.prompt for n in (1, 2, 3))
+    assert "Carry every claim with its file:line or URL into the spec's Findings (evidence)" in spec.prompt
+    red = [r for r in seen if r.agent == "test-author"]
+    assert all("Evidence handed over" not in r.prompt for r in red)

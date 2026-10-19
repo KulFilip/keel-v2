@@ -635,6 +635,11 @@ class Compiler:
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
+        if phase == "spec" and not item and not state.get("feedback") and (step.asks or prompts.spec_writer(step)):
+            # the parent flow's whole evidence (a spike's report) for the interview and the spec writer
+            evidence = prompts.evidence_block((state.get("data") or {}).get("seed"))
+            if evidence:
+                prompt = f"{prompt}\n\n{evidence}"
         started_from = (state.get("data") or {}).get("spec")
         if phase == "spec" and started_from and started_from == state.get("spec") and not state.get("feedback"):
             # 0.17.3 started from a spec (the Wiki): the agents change that file instead of writing another one
