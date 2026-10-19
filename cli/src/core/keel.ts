@@ -542,6 +542,14 @@ export class KeelCore {
       `/projects/${encodeURIComponent(pid)}/helper/sessions/${encodeURIComponent(sid)}/compact`);
   }
 
+  /** P1-3 Name the open chat: the session's existing PATCH {title}; the engine keeps it (a first turn no longer names it). */
+  async rename(title: string): Promise<HelperSession> {
+    const { pid, sid } = this.chatOf();
+    const next = await kb.patch(pid, sid, { title });
+    this.setChat({ session: { ...this.snapshot.chat.session!, ...next } });
+    return next;
+  }
+
   /** Keep one file, some, or (no paths) all: the dashboard's Done, with keel 0.18.3's `paths`. */
   async keep(paths?: string[], message = ""): Promise<HelperDone> {
     const { pid, sid } = this.chatOf();

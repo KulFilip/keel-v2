@@ -769,6 +769,20 @@ const IMPLS: Impl[] = [
   },
   { name: "effort", run: (ctx, a) => effortRun(ctx, a), complete: (ctx, a) => effortComplete(ctx, a) },
   {
+    // P1-3: name the open chat (the session's PATCH {title}); /chats lists it by that name
+    name: "rename",
+    run: (ctx, a) => {
+      if (!ctx.core.snapshot.chat.session) return text("nothing to rename: open a chat first (/chats).");
+      const go = async (name: string): Promise<Reply> => {
+        const title = name.trim().replace(/\s+/g, " ").slice(0, 120);
+        if (!title) return fail("A chat needs a name: /rename <name>.");
+        const s = await ctx.core.rename(title);
+        return ok(`renamed: "${s.title}"`);
+      };
+      return a.trim() ? go(a) : { blocks: [], ask: { prompt: "The chat's new name?", then: go } };
+    },
+  },
+  {
     // P1-3: a picker, newest first, with each chat's last message, age and size; typing narrows it by title or last message
     name: "chats",
     run: async (ctx) => {
