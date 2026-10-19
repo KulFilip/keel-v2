@@ -229,6 +229,39 @@ def test_trace_from_commit_subjects(proj):
     assert run("trace", ai(proj)).ok and "no acceptance criteria" in run("trace", ai(proj)).note
 
 
+def test_trace_strict_fails_when_an_e2e_criterion_has_no_e2e_test_naming_it(proj):
+    """[E2E] and [SMOKE] criteria are traced by their own step's commit (its Covers: line) and the test that names them."""
+    from keel_engine.runtime.verdict_actions import ac_commits
+    for msg, f in (("test(AC-1): rank", "tests/test_a.py"), ("feat(AC-1): rank", "src/a.py")):
+        write(proj, f, "x\n")
+        commit(proj, msg)
+    write(proj, "e2e/board.spec.ts", "test('AC-30 the board opens @e2e', async () => {})\n")
+    git(proj, "add", "-A")
+    git(proj, "commit", "-q", "-m", "e2e: Rank players", "-m", "Covers: AC-3, AC-30")
+    write(proj, "smoke/health.sh", "curl -fsS $API_URL/health\n")
+    git(proj, "add", "-A")
+    git(proj, "commit", "-q", "-m", "test(smoke): Rank players", "-m", "Covers: AC-4")
+    acs = [{"id": "AC-1", "layer": "API", "title": "rank", "status": "done"},
+           {"id": "AC-3", "layer": "E2E", "title": "the journey", "status": "done"},
+           {"id": "AC-30", "layer": "E2E", "title": "the board", "status": "done"},
+           {"id": "AC-4", "layer": "SMOKE", "title": "health answers", "status": "done"}]
+    r = run("trace_strict", ai(proj, acs=acs))
+    rows = {x["id"]: x for x in r.update["data"]["trace"]}
+    # AC-3 has the e2e commit but no test names it (AC-30's test does not count for AC-3)
+    assert not r.ok and "no test commit: AC-3" in r.note and "AC-30" not in r.note.split("no test commit:")[1]
+    assert rows["AC-30"]["complete"] and rows["AC-30"]["file"] == "e2e/board.spec.ts" and rows["AC-30"]["test"]
+    assert rows["AC-3"]["test"] and not rows["AC-3"]["complete"]
+    assert rows["AC-4"]["complete"], "a smoke script with no id counts through its commit's Covers: line"
+    assert "| AC-30 | E2E | done |" in r.detail and "test file e2e/board.spec.ts" in r.detail
+    assert "| AC-3 | E2E | done |" in r.detail and "no test names it" in r.detail
+    write(proj, "e2e/journey.spec.ts", "test('AC-3 the journey @e2e', async () => {})\n")
+    commit(proj, "e2e: the journey")
+    assert run("trace_strict", ai(proj, acs=acs)).ok
+    shas = ac_commits(str(proj), "AC-1")
+    assert shas["red"] and shas["green"] and shas["red"] != shas["green"]
+    assert ac_commits(str(proj), "AC-9") == {"red": None, "green": None}
+
+
 def test_audit_finds_mixed_commits_skips_and_unlocks_without_reason(proj):
     write(proj, "tests/test_a.py", "def test_a():\n    pass\n")
     write(proj, "src/main/kotlin/A.kt", "class A\n")

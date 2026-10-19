@@ -211,15 +211,19 @@ def explore_areas(a):
     """One explorer per area once the criteria are settled (keel v1: criteria first, explorers second): api for [API]
     criteria (or when there is no [WEB] one), web for [WEB] ones, data always. Each item names its criteria."""
     open_ = [x for x in a.acs if x.get("status") not in DONE] or list(a.acs)
-    lines = {layer: [f"{x['id']} [{x.get('layer', 'API')}] {x.get('title', '')}" for x in open_ if x.get("layer", "API") == layer]
-             for layer in ("API", "WEB")}
+    lines = {layer: [f"{x['id']} [{x.get('layer', 'API')}] {x.get('title', '')}" for x in open_
+                     if str(x.get("layer") or "API").upper() == layer] for layer in ("API", "WEB", "E2E", "SMOKE")}
     every = lines["API"] + lines["WEB"]
+    # [E2E] and [SMOKE] criteria get no explorer of their own (their tests come after integration): the frontend's
+    # explorer maps where they would live, else the server side's
+    journeys = lines["E2E"] + lines["SMOKE"]
     items = []
     if lines["API"] or not lines["WEB"]:
-        items.append({"id": "api", "title": "api: the server side", "area": "api", "criteria": lines["API"] or every})
+        items.append({"id": "api", "title": "api: the server side", "area": "api",
+                      "criteria": (lines["API"] or every) + ([] if lines["WEB"] else journeys)})
     if lines["WEB"]:
-        items.append({"id": "web", "title": "web: the frontend", "area": "web", "criteria": lines["WEB"]})
-    items.append({"id": "data", "title": "data: tables, migrations and data shape", "area": "data", "criteria": every})
+        items.append({"id": "web", "title": "web: the frontend", "area": "web", "criteria": lines["WEB"] + journeys})
+    items.append({"id": "data", "title": "data: tables, migrations and data shape", "area": "data", "criteria": every or journeys})
     return _ok("explorers for " + ", ".join(i["id"] for i in items), update={"data": {**a.data, "explore_areas": items}})
 
 
@@ -848,17 +852,31 @@ def _tagged(text: str, layer: str) -> list[str]:
             for m in re.finditer(LAYER_LINE.format(layer=layer), text)]
 
 
+def _layer_ids(a, text: str, layer: str) -> list[str]:
+    """The ids of the flow's criteria in this layer ([E2E], [SMOKE]), then any other id the spec tags so."""
+    ids = [x["id"] for x in a.acs if str(x.get("layer") or "").upper() == layer]
+    return list(dict.fromkeys(ids + [m.group(1) for m in re.finditer(LAYER_LINE.format(layer=layer),
+                                                                      re.sub(r"```.*?(```|\Z)", "", text or "", flags=re.S))]))
+
+
+def _covered(a, ids: list[str]) -> list[dict]:
+    """The flow's criteria with these ids done: their e2e or smoke tests ran and passed."""
+    return [dict(x, status="done") if x["id"] in ids and x.get("status") not in DONE else x for x in a.acs]
+
+
 def e2e_scope(a):
     """keel v1 phase 7: the [E2E] criteria (a hunt's needs_e2e adds the journey that broke). Before delegating, is
     commands.e2e set? Without it the gate asks (keel v1 e2e-tool-missing): either way the specs are written."""
     cfg = rules.load_config(a.root)
-    crit = _tagged(_read(a.root, spec_path(a)), "E2E")
+    text = _read(a.root, spec_path(a))
+    crit = _tagged(text, "E2E")
+    ids = _layer_ids(a, text, "E2E")
     if not crit and a.data.get("needs_e2e"):
         crit = [f"the journey that broke: {a.title}"]
     cmd = str((cfg.get("commands") or {}).get("e2e") or "").strip()
     note = (f"Run them with: {cmd}" if cmd else
             "No e2e command is configured: write the specs, do not run them, and say so in your answer.")
-    data = {**a.data, "e2e": {"criteria": crit, "command": cmd or None, "run": bool(cmd), "note": note},
+    data = {**a.data, "e2e": {"criteria": crit, "ids": ids, "command": cmd or None, "run": bool(cmd), "note": note},
             "e2e_tool_detail": "No e2e command is configured (commands.e2e in .keel/config.yml), so the E2E specs cannot "
                                "run here.\n\nCriteria:\n" + "\n".join(f"- {c}" for c in crit) +
                                "\n\nChoose one (approve with payload {\"choice\": \"<name>\"}):\n"
@@ -883,16 +901,21 @@ def e2e_unrun(a):
 def verify_e2e(a):
     """keel v1 `keel verify e2e`: the E2E command, a failure runs once more (fail then pass = flaky, a warning)."""
     e2e = a.data.get("e2e") or {}
+    ids = list(e2e.get("ids") or [])
     said = str(((a.state.get("markers") or {}).get("*") or {}).get("E2E-RESULT") or "")
+    # the commit after this one says which criteria it covers (actions.commit: a "Covers:" line)
+    covers = {"data": {**a.data, "e2e": {**e2e, "covers": ids}}}
     if not e2e.get("run") or not e2e.get("command"):
-        return _ok("E2E specs written; not run (no e2e command).")
+        # written, not run: the criteria stay open (an unrun test must not read as a passing one)
+        return _ok("E2E specs written; not run (no e2e command).", update=covers)
     if a.fake:
-        return _ok("E2E: passed (simulated).")
+        return _ok("E2E: passed (simulated).", update={**covers, "acs": _covered(a, ids)})
     r = verdict_actions.run_suite(a.root, e2e["command"], "e2e", 1)
     if not r["ok"]:
         return _fail("The E2E specs fail.", f"$ {e2e['command']}\n{verdict_actions._tail(r['out'])}" +
                      (f"\nThe e2e author said E2E-RESULT: {said}." if said else ""))
-    return _ok("E2E: passed." + verdict_actions._flaky_note(r["flaky"]), update=verdict_actions.flaky_update(a, r["flaky"]))
+    return _ok("E2E: passed." + verdict_actions._flaky_note(r["flaky"]),
+               update={**covers, "acs": _covered(a, ids), **verdict_actions.flaky_update(a, r["flaky"])})
 
 
 def smoke_scope(a):
@@ -902,15 +925,19 @@ def smoke_scope(a):
     section = _section(text, "smoke")
     if not checks and section and not re.fullmatch(r"(?is)\s*(none|n/?a|-|tbd)?\.?\s*", section):
         checks = [line.strip("-* ").strip() for line in section.splitlines() if line.strip()][:10]
-    return _ok(f"smoke: {len(checks)} check(s)", update={"data": {**a.data, "smoke": {"checks": checks}},
+    ids = _layer_ids(a, text, "SMOKE")
+    return _ok(f"smoke: {len(checks)} check(s)", update={"data": {**a.data, "smoke": {"checks": checks, "ids": ids}},
                                                           "markers": _markers(a, {"SMOKE": "yes" if checks else "no"})})
 
 
 def verify_smoke(a):
     """keel v1 `keel smoke`: every smoke/*.sh (BASE_URL and API_URL from e2e.web_url / e2e.api_url), then
-    commands.smoke_e2e; the first failure stops."""
+    commands.smoke_e2e; the first failure stops. Passed: the [SMOKE] criteria are done."""
+    smoke = a.data.get("smoke") or {}
+    ids = list(smoke.get("ids") or [])
+    passed = {"data": {**a.data, "smoke": {**smoke, "covers": ids}}, "acs": _covered(a, ids)}
     if a.fake:
-        return _ok("Smoke: passed (simulated).")
+        return _ok("Smoke: passed (simulated).", update=passed)
     cfg = rules.load_config(a.root)
     env = command_env()
     urls = cfg.get("e2e") if isinstance(cfg.get("e2e"), dict) else {}
@@ -925,7 +952,8 @@ def verify_smoke(a):
         code, out = testcmd.run(a.root, cmd, 300, env)
         if code != 0:
             return _fail(f"Smoke check failed: {cmd}", f"$ {cmd}\n{verdict_actions._tail(out)}")
-    return _ok(f"Smoke: {len(cmds)} check(s) passed." + ("" if extra else " (commands.smoke_e2e is not set: no @smoke test ran)"))
+    return _ok(f"Smoke: {len(cmds)} check(s) passed." + ("" if extra else " (commands.smoke_e2e is not set: no @smoke test ran)"),
+               update=passed)
 
 
 # ------------------------------------------------------------------ close

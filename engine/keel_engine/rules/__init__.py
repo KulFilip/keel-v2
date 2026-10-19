@@ -722,6 +722,15 @@ def red_reject(output: str) -> bool:
 
 # ---------------------------------------------------------------- gates
 
+LOOP_LAYERS = ("API", "WEB")      # the layers the per-criterion RED/GREEN loop builds; [E2E] and [SMOKE] have their own steps
+
+
+def in_ac_loop(ac: dict | None) -> bool:
+    """Is this criterion built in the per-criterion loop (RED, GREEN, AC gate)? [E2E] and [SMOKE] criteria are not: the
+    e2e and smoke steps write their tests after integration."""
+    return str((ac or {}).get("layer") or "API").upper() in LOOP_LAYERS
+
+
 def ac_lane(ac: dict | None) -> str:
     return "web" if str((ac or {}).get("layer") or "API").upper() == "WEB" else "api"
 
@@ -737,8 +746,9 @@ def gate_due(mode: str, acs: list[dict], ac_id: str, skipped: dict | None = None
     if sk:
         return {"due": False, "why": f"gates are skipped for this {'flow' if sk == 'flow' else 'lane'}"}
     mode = mode or "every-ac"
-    # An already-met AC has no gate of its own (its approval was the question), so it never holds the lane's last gate.
-    acs = [a for a in acs if a.get("status") != "already-met" or a.get("id") == ac_id]
+    # An already-met AC has no gate of its own (its approval was the question), so it never holds the lane's last gate;
+    # neither does an [E2E] or [SMOKE] criterion (never in the per-criterion loop).
+    acs = [a for a in acs if (a.get("status") != "already-met" and in_ac_loop(a)) or a.get("id") == ac_id]
     # v0.17.4 the flow's build order (the plan's ORDER), not the ids sorted: the lane's last criterion is the last one built
     ids = [a["id"] for a in acs]
     if mode == "every-ac":

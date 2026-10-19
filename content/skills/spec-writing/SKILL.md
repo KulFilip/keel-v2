@@ -55,7 +55,10 @@ One per line (wrap long lines with a 2-space indent), exactly this shape:
 - **AC-001** [API] Given <state>, when <action>, then <what an outside observer sees>.
 ```
 
-- Ids `AC-001`, `AC-002`, … in one sequence. The tag is `[API]` or `[WEB]` and **routes the work**: tag by where the assertion lives.
+- Ids `AC-001`, `AC-002`, … in one sequence. The tag is `[API]`, `[WEB]`, `[E2E]` or `[SMOKE]` and **routes the work**: tag by where the assertion lives.
+  `[API]` and `[WEB]` criteria are built one by one (failing test, then code). `[E2E]` (a journey through the running app)
+  and `[SMOKE]` (a quick check that also runs after a deploy) get their tests in the e2e and smoke steps, after the
+  others are built: use them only for what a lower layer cannot check.
 - The *then* is observable from outside: a status code, a stored value, text on screen. "Validates the URL" is not; "returns 422 naming the url field" is.
 - One assertion concept per criterion; "and" between two outcomes usually means two criteria.
 - **Behaviours, not work steps.** "Imports are updated" or "behaviour stays the same" are steps. A small change needs one to three criteria.

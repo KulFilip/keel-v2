@@ -151,7 +151,9 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     if agent == "implementer" and phase == "integration":
         return None, "", "Nothing to wire: the criteria already call the real code.", {}
     if agent == "e2e-author" and phase == "smoke":
-        return f"smoke/{slug(title)}.sh", "#!/usr/bin/env bash\nset -e\necho smoke ok\n", "Smoke check written.", {}
+        ids = " ".join(dict.fromkeys(re.findall(r"\b(AC-\d+) \[SMOKE\]", req.prompt or "")))
+        return f"smoke/{slug(title)}.sh", "#!/usr/bin/env bash\n" + (f"# {ids}\n" if ids else "") + "set -e\necho smoke ok\n", \
+            "Smoke check written.", {}
     if agent == "implementer" and phase == "lint-fix":
         return "src/scores/lint_fixed.py", "# lint: fixed\n", "Fixed what the static checks reported; behaviour unchanged.", {}
     if agent == "implementer" and phase == "bug-fix":
@@ -159,7 +161,9 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     if agent == "implementer":
         return f"src/scores/{k}.py", f'def run():\n    return "{ac_id} done"\n', f"GREEN: {ac_id} passes.", {}
     if agent == "e2e-author":
-        return f"e2e/test_{key_of(title)}_e2e.py", f'"""E2E for {title}."""\n\n\ndef test_flow():\n    assert True\n', \
+        # the criterion ids in the test, as the step asks (the trace finds an [E2E] criterion's test by its id)
+        ids = " ".join(dict.fromkeys(re.findall(r"\b(AC-\d+) \[E2E\]", req.prompt or "")))
+        return f"e2e/test_{key_of(title)}_e2e.py", f'"""E2E for {title}.{" " + ids if ids else ""}"""\n\n\ndef test_flow():\n    assert True\n', \
             "E2E spec written and passing.\nE2E-RESULT: pass", {}
     if agent == "librarian":
         section = req.section or (SECTIONS[req.index % len(SECTIONS)] if phase in ("setup", "memory") else "architecture")

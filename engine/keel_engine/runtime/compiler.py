@@ -404,6 +404,8 @@ class Compiler:
             if state.get("status") in ("stopped", "failed"):
                 return Command(goto=END)
             items = get_list(state, lp.key)
+            if lp.per_ac:
+                items = [a for a in items if rules.in_ac_loop(a)]     # [E2E]/[SMOKE]: built by the e2e and smoke steps
             nxt = next((a for a in items if a.get("status") not in finished), None)
             if not nxt:
                 return Command(update={cursor: None}, goto=self.nav.after_loop(lp))
@@ -631,7 +633,9 @@ class Compiler:
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
-                                     pid=ctx.project_id or "", writes_spec=prompts.spec_writer(step))
+                                     pid=ctx.project_id or "", writes_spec=prompts.spec_writer(step),
+                                     ac_commits=flow_actions.ac_commits(root, ac["id"], state.get("base_head"))
+                                     if ac and agent == "ac-reviewer" else None)
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"

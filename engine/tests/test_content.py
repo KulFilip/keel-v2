@@ -158,3 +158,18 @@ def test_engine_version_matches_the_keel2_script():
     from keel_engine import config
     keel2 = (Path(__file__).resolve().parents[2] / "keel2").read_text()
     assert config.VERSION.split()[0] == re.search(r'^KEEL2_VERSION="([^"]+)"', keel2, re.M).group(1)
+
+
+def test_the_red_and_green_agents_keep_keel_v1_s_quality_rules():
+    """keel v1's test-author and implementer checked their own work against Sonar's rules before they stopped."""
+    author = (CONTENT / "agents" / "test-author.md").read_text()
+    assert "every test asserts, no sleeps, no skips, and shared setup in a fixture or builder" in author
+    assert "`sonar` skill" in author
+    impl = (CONTENT / "agents" / "implementer.md").read_text()
+    assert "read your own diff against the `sonar` skill" in impl
+    assert all(w in impl for w in ("complexity", "duplication", "dead code"))
+    sonar = CONTENT / "skills" / "sonar"
+    assert front_matter(sonar / "SKILL.md")["name"] == "sonar"
+    assert {f.name for f in (sonar / "references").iterdir()} == {"kotlin.md", "php.md", "python.md", "typescript.md"}
+    for page in ("kotlin.md", "php.md", "python.md", "typescript.md"):
+        assert f"references/{page.removesuffix('.md')}" in (sonar / "SKILL.md").read_text() or page in (sonar / "SKILL.md").read_text()
