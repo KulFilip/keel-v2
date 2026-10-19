@@ -461,3 +461,11 @@ def test_keelbot_sees_the_flows_newest_jobs_and_what_they_ended_with():
     assert "The step it is at now: ladder_retry." in text
     assert "setup-doctor at doctor: done" in text and "DIAGNOSIS: needs-you" in text
     assert "agent \"keel\" is a code step" in text
+
+
+def test_ask_mode_says_how_to_switch_instead_of_trying_a_change():
+    """0.18.16 a person asked again and again for `git checkout main` in Ask mode; KeelBot kept trying instead of saying
+    that Ask is read only and how to switch."""
+    from keel_plugin_keelbot.helper import MODE_TEXT
+    ask = MODE_TEXT["ask"]
+    assert "do not try it" in ask and "/mode edit" in ask and "/mode side" in ask and "git checkout main" in ask

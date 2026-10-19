@@ -69,7 +69,13 @@ HISTORY_TURNS = 12                       # earlier messages an API-key model get
 TURN_TIMEOUT = 900
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
-    "ask": "Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git).",
+    "ask": ("Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git). "
+            "When the person asks for a change (edit a file, git checkout or switch a branch, install, build, commit), do "
+            "not try it and do not try other ways around it: say in one line that Ask mode is read only, and how to go "
+            "on: in keel TUI `/mode edit` (works in the project folder; a command that changes something waits for "
+            "their OK) or `/mode side` (its own copy on its own branch), in the dashboard the chat's mode menu; then "
+            "they ask again. Give the exact command they asked for too (for example `git checkout main`), so they can "
+            "run it themselves."),
     "fix": ("Mode: Fix at a gate. The flow waits for the person at a gate, and the person asked you to change something. "
             "Edit only what the request needs, with the smallest change; keel's guard refuses files the flow's phase "
             "({phase}) does not allow. Reading, searching and running the tests need no OK; any other command that changes "
