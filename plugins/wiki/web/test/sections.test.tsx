@@ -104,7 +104,7 @@ describe("Wiki menu sections", () => {
     await user.click(specs);
     expect(specs).toHaveAttribute("aria-expanded", "false");
     expect(list).not.toBeVisible();
-    expect(specs).toHaveTextContent("5 pages");
+    expect(specs).toHaveAccessibleName(/^Specs 5 pages$/);
     expect(within(n).queryByRole("link", { name: /^Scores/ })).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(["specs"]);
 
@@ -114,7 +114,7 @@ describe("Wiki menu sections", () => {
     await user.keyboard(" ");
     expect(specs).toHaveAttribute("aria-expanded", "false");
     await user.click(section(n, "Workflows"));
-    expect(section(n, "Workflows")).toHaveTextContent("2 pages");
+    expect(section(n, "Workflows")).toHaveAccessibleName(/2 pages/);
     expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(["specs", "workflows"]);
 
     // remembered: the page opens again with the same sections closed
@@ -123,7 +123,7 @@ describe("Wiki menu sections", () => {
     const again = await nav();
     expect(section(again, "Specs")).toHaveAttribute("aria-expanded", "false");
     expect(section(again, "Workflows")).toHaveAttribute("aria-expanded", "false");
-    expect(section(again, "Knowledge base")).toHaveAttribute("aria-expanded", "true");
+    expect(section(again, "Architecture & knowledge")).toHaveAttribute("aria-expanded", "true");
   });
 
   it("keeps the open page's section open, even when it was closed", async () => {
@@ -133,7 +133,7 @@ describe("Wiki menu sections", () => {
     location.hash = "#/wiki/kb%3Aarchitecture";
     render(<App />);
     const n = await nav();
-    const kb = section(n, "Knowledge base");
+    const kb = section(n, "Architecture & knowledge");
     expect(kb).toHaveAttribute("aria-expanded", "true");
     expect(kb).toHaveAttribute("aria-disabled", "true");
     await user.click(kb);

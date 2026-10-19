@@ -342,7 +342,8 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .wtree a { padding: 5px 10px; border-radius: 6px; color: var(--dim); text-decoration: none; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .wtree a:hover { background: var(--panel-2); color: var(--fg); }
 .wtree a[aria-current="page"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
-.wh { margin: 0 0 6px; font-size: 20px; letter-spacing: -.01em; text-transform: capitalize; }
+.wh { margin: 0 0 6px; font-size: 20px; letter-spacing: -.01em; }
+.wh::first-letter { text-transform: uppercase; }
 .wdoc { max-width: 68ch; line-height: 1.65; }
 .wdoc ul { padding-left: 20px; }
 .cite { font: 11.5px var(--f-mono); color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 0 5px; white-space: nowrap; }

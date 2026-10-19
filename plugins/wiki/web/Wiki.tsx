@@ -4,14 +4,18 @@
 // the plugin's api part (/wiki, /wiki/page); "Refresh stale" is keel's (the Code page shows it too).
 // 0.17.3 (docs/plugins/24-wiki-sections-spec-status.md): each menu section opens and closes (kept per project), and a
 // spec shows which flow built it (a pill in the menu, a Build status box on its page with Resume or Start).
+// The wiki's order (nav.ts): the menu is grouped by kind (Overview, Architecture & knowledge, Specs by build status,
+// Decisions, Workflows) with counts, a stable order and readable titles; a page shows where it is (a breadcrumb) and,
+// when long, what is on it.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Async, DocHistoryPanel, EmptyState, ErrorBox, Loading, Markdown, PageHead, Pill, RefreshStaleButton, ResumeRow, SearchBox, Skeleton,
   StartFlowDrawer, StepInfoDrawer,
   agoText, get, go, hashForScreen, kfmt, plural, tokensByStep, useApp, useLoad, useNarrow, useRoute,
   type Estimate, type PillTone, type SpecState, type SpecStatus, type WikiPage as WikiPageData, type WikiTree, type Workflow,
 } from "@keel/web-sdk";
+import { buildNav, filterNav, firstPage, groupCount, groupItems, placeOf, type NavGroup, type NavItem } from "./nav";
 import { WorkflowMap } from "./WorkflowMap";
 
 const e = encodeURIComponent;
@@ -80,50 +84,103 @@ function useClosed(pid: string) {
 }
 
 type MenuProps = {
-  tree: WikiTree; cur: string; q: string; closed: string[]; toggle: (id: string) => void;
-  specs: Map<string, SpecStatus>; prefix: string; onPick?: () => void;
+  /** every group of the menu (the place of the open page is found here), and the ones the search keeps */
+  groups: NavGroup[]; shown: NavGroup[]; cur: string; q: string; closed: string[]; toggle: (id: string) => void;
+  prefix: string; onPick?: () => void;
 };
 
-/** The sections and their pages (the side menu, and the phone's dropdown). A section's title opens and closes it; the
- *  section of the open page is always open; while searching, every section with a match shows its matches. */
-function Sections({ tree, cur, q, closed, toggle, specs, prefix, onPick }: MenuProps) {
-  const needle = q.trim().toLowerCase();
+/** A page in the menu: its number, its title and what state it is in (a spec's build status, a knowledge section that
+ *  is stale, being written or not written yet, a file that is also in another folder). */
+function MenuLink({ item, cur, onPick }: { item: NavItem; cur: string; onPick?: () => void }) {
+  const st = item.spec;
+  return (
+    <a href={`#/wiki/${encodeURIComponent(item.id)}`} aria-current={cur === item.id ? "page" : undefined} onClick={onPick}
+      className={item.status === "missing" ? "wt-missing" : undefined} title={item.path ?? undefined}>
+      <span className="wt-t">{item.number && <span className="wt-num">{item.number}</span>}{item.title}</span>
+      {st ? <span className={`wk-sp wk-sp-${st.state}`}>{SPEC[st.state][1]}</span>
+        : item.status === "writing" ? <span className="adot" />
+        : item.status === "missing" ? <span className="sub wk-miss">not written</span>
+        : item.status === "stale" ? <span className="sub amber">stale</span> : null}
+      {item.also.length > 0 && <span className="sub wk-miss" title={`Also in ${item.also.join(", ")}`}>×{item.also.length + 1}</span>}
+    </a>
+  );
+}
+
+/** The groups and their pages (the side menu, and the phone's dropdown). A group's title opens and closes it and shows
+ *  how many pages it has; the group of the open page is always open; while searching, every group with a match shows
+ *  its matches. Specs are split by build status (In progress, Stopped, Not built yet, Done). */
+function Sections({ groups, shown, cur, q, closed, toggle, prefix, onPick }: MenuProps) {
+  const searching = !!q.trim();
+  const here = placeOf(groups, cur)?.group.id;
   return (
     <nav className="wtree" aria-label="Wiki pages">
-      {tree.sections.map((s) => {
-        const items = s.items.filter((i) => !needle || i.title.toLowerCase().includes(needle) || i.id.toLowerCase().includes(needle));
-        if (!items.length && needle) return null;
-        const pinned = s.items.some((i) => i.id === cur);
-        const open = pinned || !!needle || !closed.includes(s.id);
-        const list = `${prefix}-${s.id}`;
+      {searching && !shown.length && <span className="sub" style={{ padding: "6px 10px" }}>No page matches “{q.trim()}”.</span>}
+      {shown.map((g) => {
+        const pinned = g.id === here;
+        const open = pinned || searching || !closed.includes(g.id);
+        const list = `${prefix}-${g.id}`;
+        const n = groupCount(g);
         return (
-          <div key={s.id} className="wt-sec">
+          <div key={g.id} className="wt-sec">
             <button type="button" className="wt-h" aria-expanded={open} aria-controls={list}
               aria-disabled={pinned ? true : undefined}
-              title={pinned ? "The open page is in this section, so it stays open" : open ? `Close ${s.title}` : `Open ${s.title}`}
-              onClick={() => { if (!pinned && !needle) toggle(s.id); }}>
-              <span><span className="wt-car" aria-hidden="true">{open ? "▾" : "▸"}</span>{s.title}</span>
-              {!open && <span className="sub">{plural(s.items.length, "page")}</span>}
+              title={pinned ? "The open page is in this group, so it stays open" : open ? `Close ${g.title}` : `Open ${g.title}`}
+              onClick={() => { if (!pinned && !searching) toggle(g.id); }}>
+              <span><span className="wt-car" aria-hidden="true">{open ? "▾" : "▸"}</span>{g.title}</span>
+              <span className="wt-n" aria-label={plural(n, "page")}>{n}</span>
             </button>
             <div id={list} className="wt-list" hidden={!open}>
-              {items.map((i) => {
-                const st = specs.get(i.id);
-                return (
-                  <a key={i.id} href={`#/wiki/${encodeURIComponent(i.id)}`} aria-current={cur === i.id ? "page" : undefined} onClick={onPick}>
-                    {i.title}
-                    {st ? <span className={`wk-sp wk-sp-${st.state}`}>{SPEC[st.state][1]}</span>
-                      : i.status === "writing" ? <span className="adot" />
-                      : i.status === "missing" ? <span className="sub wk-miss">not written</span>
-                      : i.status === "stale" ? <span className="sub amber">stale</span> : null}
-                  </a>
-                );
-              })}
-              {!items.length && <span className="sub" style={{ padding: "2px 10px" }}>none yet</span>}
+              {g.parts.map((p) => (
+                <div key={p.id} className="wt-part" role={p.title ? "group" : undefined} aria-label={p.title ? `${g.title}: ${p.title}` : undefined}>
+                  {p.title && <span className="wt-sub">{p.title} <span className="wt-n">{p.items.length}</span></span>}
+                  {p.items.map((i) => <MenuLink key={i.id} item={i} cur={cur} onPick={onPick} />)}
+                </div>
+              ))}
             </div>
           </div>
         );
       })}
     </nav>
+  );
+}
+
+/** "Wiki › Specs › In progress": where the open page is in the menu. */
+function Crumbs({ groups, cur }: { groups: NavGroup[]; cur: string }) {
+  const at = placeOf(groups, cur);
+  if (!at) return null;
+  return (
+    <nav className="wk-crumbs" aria-label="Breadcrumb">
+      <a href="#/wiki">Wiki</a>
+      <span aria-hidden="true">›</span>
+      <span>{at.group.title}</span>
+      {at.part.title && <><span aria-hidden="true">›</span><span>{at.part.title}</span></>}
+    </nav>
+  );
+}
+
+/** "On this page": the headings of a long page (three or more), each one scrolls to its place. The links stay
+ *  buttons: the hash holds the page id (#/wiki/kb:architecture), so an anchor would change the page. */
+function Toc({ doc, text }: { doc: RefObject<HTMLDivElement | null>; text: string }) {
+  const [heads, setHeads] = useState<{ level: number; text: string; el: HTMLElement }[]>([]);
+  useEffect(() => {
+    const els = [...(doc.current?.querySelectorAll<HTMLElement>("h1, h2, h3") ?? [])];
+    // the page's own title (a "# " first line) is the page heading already
+    const body = els.length && els[0].tagName === "H1" && els.filter((e) => e.tagName === "H1").length === 1 ? els.slice(1) : els;
+    setHeads(body.map((el) => ({ level: Number(el.tagName[1]), text: el.textContent ?? "", el })).filter((h) => h.text.trim()));
+  }, [doc, text]);
+  if (heads.length < 3) return null;
+  const top = Math.min(...heads.map((h) => h.level));
+  return (
+    <details className="wk-toc" open>
+      <summary>On this page <span className="wt-n">{heads.length}</span></summary>
+      <ul aria-label="On this page">
+        {heads.map((h, i) => (
+          <li key={i} style={{ paddingLeft: (h.level - top) * 12 }}>
+            <button type="button" className="linkbtn" onClick={() => h.el.scrollIntoView({ behavior: "smooth", block: "start" })}>{h.text}</button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -168,8 +225,9 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
 /** What the spec page knows of its build status: the list's entry, or that the list is loading or failed. */
 type SpecInfo = { status: SpecStatus | null; loading: boolean; failed: boolean; reload: () => Promise<void> };
 
-function Page({ pid, id, spec }: { pid: string; id: string; spec?: SpecInfo }) {
+function Page({ pid, id, spec, item }: { pid: string; id: string; spec?: SpecInfo; item?: NavItem }) {
   const page = useLoad(`wikipage:${pid}:${id}`, () => wikiApi.wikiPage(pid, id));
+  const doc = useRef<HTMLDivElement>(null);
   if (page.error) return <ErrorBox error={page.error} onRetry={() => void page.reload()} />;
   if (!page.data) return <Loading />;
   const p = page.data;
@@ -189,7 +247,11 @@ function Page({ pid, id, spec }: { pid: string; id: string; spec?: SpecInfo }) {
       {id.startsWith("spec:") && spec && (
         <SpecBuild pid={pid} path={id.slice(5)} title={p.title} acs={typeof meta.acs === "number" ? meta.acs : undefined} info={spec} />
       )}
-      <div className="wdoc">{p.markdown ? <Markdown text={p.markdown} /> : <p className="sub">This page is empty.</p>}</div>
+      {item && item.also.length > 0 && (
+        <p className="hint">The same file is also in {item.also.map((a, i) => <span key={a}>{i ? ", " : ""}<span className="mono">{a}</span></span>)}: the menu shows it once, from <span className="mono">{item.path ?? id.replace(/^\w+:/, "")}</span>.</p>
+      )}
+      {p.markdown && <Toc doc={doc} text={p.markdown} />}
+      <div className="wdoc" ref={doc}>{p.markdown ? <Markdown text={p.markdown} /> : <p className="sub">This page is empty.</p>}</div>
       {typeof meta.path === "string" && /^(spec|kb|adr):/.test(id) && <DocHistoryPanel pid={pid} path={meta.path} onRestored={() => void page.reload()} />}
       {id.startsWith("kb:") && <p className="hint">Every claim cites <span className="mono">file:line</span>. <span className="mono">memory check</span> opens each citation; a broken one fails the check.</p>}
     </>
@@ -275,10 +337,10 @@ function SpecBuild({ pid, path, title, acs, info }: { pid: string; path: string;
 
 /** On a phone: the menu as one dropdown ("Page: …") whose panel has the same sections, open and close, and pills. */
 function PagePicker(props: MenuProps) {
-  const { tree, cur } = props;
+  const { groups, cur } = props;
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
-  const title = tree.sections.flatMap((s) => s.items).find((i) => i.id === cur)?.title;
+  const title = placeOf(groups, cur)?.item.title;
   return (
     <div className="wk-pick" onKeyDown={(ev) => {
       if (ev.key === "Escape" && open) {
@@ -303,35 +365,37 @@ export function WikiPage({ pid }: { pid: string }) {
   const { arg } = useRoute();
   const tree = useLoad(`wiki:${pid}`, () => wikiApi.wiki(pid));
   const status = useLoad(`specstatus:${pid}`, () => wikiApi.specStatus(pid));
-  const specs = new Map((status.data ?? []).map((x) => [x.spec, x]));
+  const specs = useMemo(() => new Map((status.data ?? []).map((x) => [x.spec, x])), [status.data]);
+  const groups = useMemo(() => (tree.data ? buildNav(tree.data, specs) : []), [tree.data, specs]);
   const { closed, toggle } = useClosed(pid);
   const [q, setQ] = useState("");
+  const shown = useMemo(() => filterNav(groups, q), [groups, q]);
   const narrow = useNarrow(900);
-  const first = tree.data?.sections.flatMap((s) => s.items)[0]?.id;
-  const cur = arg ?? first ?? "";
-  const stale = (tree.data?.sections ?? []).flatMap((s) => s.items).filter((i) => i.status === "stale" && i.id.startsWith("kb:")).map((i) => i.id.slice(3));
+  const cur = arg ?? firstPage(groups) ?? "";
+  const stale = groups.flatMap(groupItems).filter((i) => i.status === "stale" && i.id.startsWith("kb:")).map((i) => i.id.slice(3));
+  const place = placeOf(groups, cur);
   return (
     <>
       <PageHead title="Wiki"
-        sub={`What keel knows about ${project?.name ?? pid}: the knowledge base the librarians write, a page for every workflow, the setup runbook and decisions.`}
+        sub={`What keel knows about ${project?.name ?? pid}: an overview, the knowledge base the librarians write, the specs by build status, the decisions and a page for every workflow.`}
         actions={<RefreshStaleButton pid={pid} sections={stale} className="btn" />} />
       {tree.data?.notice && <div className="errbox" role="alert" style={{ marginBottom: 16 }}><b>keel cannot see this project's own files:</b> {tree.data.notice}</div>}
       {tree.data?.layout === "repo" && <p className="hint">keel keeps this project's files in <span className="mono">docs/</span> (layout repo), committed with your code. New projects use <span className="mono">.keel/</span>.</p>}
       {tree.error ? <ErrorBox error={tree.error} onRetry={() => void tree.reload()} /> : !tree.data ? <div className="panel"><Skeleton lines={6} label="Loading the wiki" /></div> : (() => {
-        const t = tree.data;
-        if (!t.sections.some((s) => s.items.length)) {
+        if (!groups.length) {
           return <div className="panel"><EmptyState title="The wiki is empty" action={<a className="btn" href="#/flow">Open Flow</a>}>The init flow writes the knowledge base, and every workflow gets a page here. Start init from the Flow page.</EmptyState></div>;
         }
-        const menu = { tree: t, cur, q, closed, toggle, specs };
+        const menu = { groups, shown, cur, q, closed, toggle };
         return (
           <div className="wiki-grid">
-            <div>
+            <div className="wk-side">
               <div className="wk-search"><SearchBox value={q} onChange={setQ} label="Search the wiki" /></div>
               {narrow ? <PagePicker {...menu} prefix="wkp" /> : <Sections {...menu} prefix="wks" />}
             </div>
             <article className="panel"><div className="panel-body">
+              <Crumbs groups={groups} cur={cur} />
               {!cur ? <span className="sub">Pick a page.</span> : cur.startsWith("wf:") ? <WorkflowPage key={cur} pid={pid} wid={cur.slice(3)} /> : (
-                <Page key={cur} pid={pid} id={cur}
+                <Page key={cur} pid={pid} id={cur} item={place?.item}
                   spec={{ status: specs.get(cur) ?? null, loading: !status.data && !status.error, failed: !!status.error, reload: status.reload }} />
               )}
             </div></article>

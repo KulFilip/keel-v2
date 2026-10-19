@@ -2,7 +2,6 @@ package keel.api.wiki
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import keel.api.knowledge.KnowledgeService
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -38,7 +37,6 @@ data class SpecStatus(
 @Service
 class SpecStatusService(
     private val projects: ProjectService,
-    private val knowledge: KnowledgeService,
     private val wiki: WikiService,
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
@@ -50,7 +48,7 @@ class SpecStatusService(
 
     fun status(pid: String): List<SpecStatus> {
         val root = projects.root(pid)
-        val specs = knowledge.specFiles(root)
+        val specs = wiki.specFiles(root)          // a folder's README.md is not a spec
         if (specs.isEmpty()) return emptyList()
         val wanted = specs.toSet()
         val byPath = linkedMapOf<String, MutableSet<String>>()

@@ -269,6 +269,24 @@ button.wt-h[aria-disabled="true"]:hover { background: none; color: var(--faint);
 .wk-pick-list { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 4px; max-height: 60vh; overflow: auto; }
 .wk-pick-list[hidden] { display: none; }
 .wk-pick-list .wtree { position: static; flex-direction: column; flex-wrap: nowrap; }
+/* the wiki's order: the side column scrolls on its own, groups show counts, specs have status parts, a page has a
+   breadcrumb and "On this page" */
+.wk-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); max-height: calc(100vh - var(--bar-h, 0px) - 24px); display: flex; flex-direction: column; min-height: 0; }
+.wk-side .wtree { position: static; overflow-y: auto; min-height: 0; padding-bottom: 8px; }
+.wt-n { font-size: 10.5px; font-weight: 600; color: var(--faint); background: var(--panel-2); border-radius: 999px; padding: 0 6px; line-height: 16px; letter-spacing: 0; text-transform: none; flex: none; }
+.wt-part { display: flex; flex-direction: column; gap: 1px; }
+.wt-sub { font-size: 11px; color: var(--faint); padding: 6px 10px 2px 22px; display: flex; align-items: center; gap: 6px; }
+.wtree a .wt-t { min-width: 0; overflow-wrap: anywhere; }
+.wt-num { font: 11px var(--f-mono); color: var(--faint); margin-right: 6px; }
+.wtree a.wt-missing { color: var(--faint); }
+.wk-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); margin-bottom: 6px; }
+.wk-crumbs a { color: var(--accent); text-decoration: none; }
+.wk-toc { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 4px 0 14px; max-width: 68ch; }
+.wk-toc summary { cursor: pointer; font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.wk-toc ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.wk-toc .linkbtn { font-weight: 400; color: var(--dim); font-size: 13px; }
+.wk-toc .linkbtn:hover { color: var(--accent); }
+@media (max-width: 900px) { .wk-side { position: static; max-height: none; } }
 .bd-out { color: var(--bad); font-weight: 600; }
 .hint.bd-next { margin: 0; padding: 10px 16px 12px; border-top: 1px solid var(--border); }
 

@@ -20,7 +20,21 @@ import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.Path
 
-data class WikiItem(val id: String, val title: String, val status: String? = null)
+/**
+ * One page of the wiki. id, title and status are what every keel client reads; the rest (wiki order, docs/plugins)
+ * helps a client group and sort the menu, and an old client ignores it:
+ *   kind     overview | knowledge | spec | decision | runbook | workflow
+ *   path     the file the page is read from (knowledge, specs, decisions)
+ *   number   the number in the file name ("101" for SPEC-101-x.md, "0001" for 0001-x.md), for a stable order
+ *   label    the title without that number ("Wave fallback" for "SPEC-101: Wave fallback")
+ *   updated  when the file last changed (ISO)
+ *   also     the same file in another of keel's folders (a mixed project's docs/specs and .keel/specs): shown once
+ */
+data class WikiItem(
+    val id: String, val title: String, val status: String? = null,
+    val kind: String? = null, val path: String? = null, val number: String? = null, val label: String? = null,
+    val updated: String? = null, val also: List<String>? = null,
+)
 data class WikiSection(val id: String, val title: String, val items: List<WikiItem>)
 /** notice: a problem with where keel's files are (an external layout whose folder keel cannot see); layout: its name. */
 data class Wiki(val sections: List<WikiSection>, val notice: String? = null, val layout: String? = null)
@@ -41,22 +55,52 @@ class WikiService(
 ) {
     fun wiki(pid: String): Wiki {
         val root = projects.root(pid)
-        val kb = knowledge.knowledge(root).map { WikiItem("kb:${it.id}", it.id.replaceFirstChar { c -> c.uppercase() }, it.status) }
-        val wfs = workflows.list(pid).map { WikiItem("wf:${it.id}", it.name) }
         val lay = Layout.resolve(root)
-        val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)) }.map { WikiItem("adr:${it.fileName}", title(it)) }.distinctBy { it.id }
-        val specs = knowledge.specFiles(root, lay).map { WikiItem("spec:$it", title(root.resolve(it))) }
+        val sections = knowledge.knowledge(root)
+        val kb = sections.map { k ->
+            val rel = lay.knowledgeFile(root, k.id)
+            val written = k.status != "missing"
+            val heading = if (written) heading(root.resolve(rel)) else null
+            WikiItem("kb:${k.id}", k.id.replaceFirstChar { c -> c.uppercase() }, k.status, kind = "knowledge",
+                path = rel.takeIf { written }, label = heading ?: humanize(k.id), updated = if (written) mtime(root.resolve(rel)) else null)
+        }
+        // the knowledge folder's index.md ("What an agent needs to know about …") is the wiki's overview
+        val overview = lay.knowledgeDirs.map { "$it/index.md" }.firstOrNull { regular(root.resolve(it)) }?.let { rel ->
+            val f = root.resolve(rel)
+            listOf(WikiItem("kb:index", title(f), "written", kind = "overview", path = rel, label = title(f), updated = mtime(f)))
+        }.orEmpty()
+        val wfs = workflows.list(pid).map { WikiItem("wf:${it.id}", it.name, kind = "workflow", label = it.name) }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)).filterNot { isIndex(it) }.map { "$d/${it.fileName}" } }
+            .distinctBy { it.substringAfterLast('/') }
+            .map { rel -> doc("adr:${rel.substringAfterLast('/')}", "decision", root, rel) }
+            .sortedWith(ORDER)
+        val specs = specFiles(root, lay).groupBy { it.substringAfterLast('/') }.values
+            .map { same -> doc("spec:${same[0]}", "spec", root, same[0]).copy(also = same.drop(1).ifEmpty { null }) }
+            .sortedWith(ORDER)
         return Wiki(
             listOf(
                 WikiSection("specs", "Specs", specs),
-                WikiSection("knowledge", "Knowledge", kb),
+                WikiSection("knowledge", "Knowledge", overview + kb),
                 WikiSection("workflows", "Workflows", wfs),
-                WikiSection("runbook", "Runbook", listOf(WikiItem("runbook", "How to run this project"))),
+                WikiSection("runbook", "Runbook", listOf(WikiItem("runbook", "How to run this project", kind = "runbook", label = "How to run this project"))),
                 WikiSection("decisions", "Decisions", adrs),
             ),
             lay.missing,
             lay.name,
         )
+    }
+
+    /** The project's spec files without a folder's README.md or index.md (a list of the specs, not a spec). */
+    internal fun specFiles(root: Path, lay: Layout = Layout.resolve(root)): List<String> =
+        knowledge.specFiles(root, lay).filterNot { isIndex(Path.of(it)) }
+
+    private fun doc(id: String, kind: String, root: Path, rel: String): WikiItem {
+        val f = root.resolve(rel)
+        val name = f.fileName.toString().removeSuffix(".md")
+        val title = title(f)
+        val number = NUMBER.find(name)?.groupValues?.get(1)
+        return WikiItem(id, title, kind = kind, path = rel, number = number, label = label(title, number), updated = mtime(f))
     }
 
     fun page(pid: String, id: String): WikiPage {
@@ -68,8 +112,8 @@ class WikiService(
                 val rel = Layout.resolve(root).knowledgeFile(root, name)
                 val f = root.resolve(rel)
                 val section = knowledge.knowledge(root).firstOrNull { it.id == name }
-                if (!Files.isRegularFile(f) || Files.isSymbolicLink(f)) {
-                    WikiPage(id, name, "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
+                if (!regular(f)) {
+                    WikiPage(id, humanize(name), "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
                 } else {
                     WikiPage(id, title(f), Files.readString(f), mapOf(
                         "path" to rel, "status" to section?.status, "words" to section?.words,
@@ -92,6 +136,7 @@ class WikiService(
             }
             id.startsWith("spec:") -> {
                 val rel = id.removePrefix("spec:")
+                // every spec file, a folder's README too: an old link still opens
                 if (rel.split('/').any { it == ".." } || rel !in knowledge.specFiles(root)) throw NotFound("No spec called $rel", "Ids look like spec:.keel/specs/<file>.md.")
                 val f = root.resolve(rel)
                 WikiPage(id, title(f), Files.readString(f), mapOf("path" to rel, "acs" to countAcs(f), "updated" to mtime(f)))
@@ -178,9 +223,36 @@ class WikiService(
 
     private fun mtime(p: Path): String? = runCatching { Time.iso(Files.getLastModifiedTime(p).toMillis()) }.getOrNull()
 
-    internal fun title(f: Path): String = runCatching {
-        Files.readAllLines(f).firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()
-    }.getOrNull() ?: f.fileName.toString().removeSuffix(".md")
+    /** The file's first "# " heading, else its name in words ("v1.1.0-plugin-substrate" → "V1.1.0 plugin substrate"). */
+    internal fun title(f: Path): String = heading(f) ?: humanize(f.fileName.toString().removeSuffix(".md"))
+
+    private fun heading(f: Path): String? = runCatching {
+        Files.readAllLines(f).firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()?.ifBlank { null }
+    }.getOrNull()
+
+    private fun regular(f: Path) = Files.isRegularFile(f) && !Files.isSymbolicLink(f)
+
+    companion object {
+        /** The number a spec or decision file starts with: SPEC-101-x, ADR_0002-x, 001-x, 0004 (not v1.1.0-x). */
+        val NUMBER = Regex("^(?:(?:spec|adr)[\\s_-]*)?(\\d+)(?![.\\d])", RegexOption.IGNORE_CASE)
+
+        /** Numbered first, by number; then the rest by title. */
+        val ORDER: Comparator<WikiItem> = compareBy<WikiItem>({ it.number == null }, { it.number?.toBigInteger() })
+            .thenComparing({ it.label ?: it.title }, String.CASE_INSENSITIVE_ORDER)
+
+        fun isIndex(f: Path): Boolean = f.fileName.toString().lowercase().let { it == "readme.md" || it == "index.md" }
+
+        /** "kebab_case-name" → "Kebab case name". */
+        fun humanize(name: String): String =
+            name.replace(Regex("[-_]+"), " ").trim().replaceFirstChar { it.uppercase() }.ifBlank { name }
+
+        /** The title without its leading number: "SPEC-101: Wave fallback", "ADR 0001 — Use X", "001 — Quotas" → the words. */
+        fun label(title: String, number: String?): String {
+            if (number == null) return title
+            val m = Regex("^(?:(?:spec|adr)[\\s_-]*)?(\\d+)\\s*[:.\u2014\u2013-]\\s*(.+)$", RegexOption.IGNORE_CASE).find(title.trim()) ?: return title
+            return if (m.groupValues[1].toBigInteger() == number.toBigInteger()) m.groupValues[2].trim() else title
+        }
+    }
 }
 
 /** The Wiki page's reads: its table of contents and one page (kb:<section>, spec:<path>, wf:<id>, runbook, adr:<file>). */

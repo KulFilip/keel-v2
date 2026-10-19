@@ -35,6 +35,7 @@ export type {
   SpecFlow,
   SpecState,
   SpecStatus,
+  WikiItem,
   WikiPage,
   WikiTree,
   Workflow,
