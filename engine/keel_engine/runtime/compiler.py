@@ -55,6 +55,7 @@ from . import flow_actions
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
+from . import suite_failure
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 
@@ -465,6 +466,11 @@ class Compiler:
                 while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].skippable and ship_mod.unit_of(self.wf.steps[j + 1]) == unit:
                     j += 1
                 return f"{unit} skipped: {skip.get('reason') or 'no reason given'}", self.nav.after(j)
+        if step.per_ac and step.kind in ("agent", "parallel") and (step.agent or "") == "ac-reviewer" \
+                and self._met_by_person(state, _ac(state)):
+            # 0.18.28 a person approved "already passes" with the test in front of them: listed for the full-diff review
+            return (f"{state.get('ac')}: already met (a person approved it); not reviewed per AC, the full-diff review "
+                    "reads its test", self.nav.after(i))
         if step.retry_only and not (state.get("last_failure") or state.get("feedback")):
             return f"{step.name}: nothing was sent back; not needed", self.nav.after(i)
         if step.when and step.kind in ("agent", "parallel", "code"):
@@ -489,6 +495,11 @@ class Compiler:
             nxt = next((a for a in items if a.get("status") not in finished), None)
             if not nxt:
                 return Command(update={cursor: None}, goto=self.nav.after_loop(lp))
+            reopen = (state.get("data") or {}).get("reopen") if lp.per_ac else None
+            if reopen and any(a["id"] == reopen.get("ac") for a in items) and reopen.get("to") in self.nav.index:
+                # 0.18.28 a criterion sent back from integration: it goes on at its green, not at its red (its test passes)
+                data = {k: v for k, v in (state.get("data") or {}).items() if k != "reopen"}
+                return Command(update={cursor: reopen["ac"], "retries": {}, "data": data}, goto=reopen["to"])
             if lp.per_ac:
                 # v0.17.5 a criterion waits for the ones it depends on (the plan's depends_on): the first unfinished one
                 # whose dependencies are finished; when none is (a cycle, or one that is not in the list), list order.
@@ -720,6 +731,22 @@ class Compiler:
                                      pid=ctx.project_id or "", writes_spec=prompts.spec_writer(step),
                                      ac_commits=flow_actions.ac_commits(root, ac["id"], state.get("base_head"))
                                      if ac and agent == "ac-reviewer" else None)
+        met = [a for a in state.get("acs") or [] if a.get("status") == ALREADY_MET]
+        if agent == "ac-reviewer" and ac and ac.get("status") == ALREADY_MET:
+            # 0.18.28 "already passes", approved by the run mode: the test is all there is to review
+            prompt += (f"\n\n{ac['id']} passed before any code was written for it (\"already passes\"), so there is no "
+                       "GREEN commit: review its test only. Focus on what lets a passing test lie or break others: "
+                       "isolation (it depends on another test's data or order), cleanup (it writes to the database, files "
+                       "or a cache and leaves them behind, also on a second connection or a committed transaction), and "
+                       "assertions (it asserts something that was true before the criterion, or nothing at all).")
+        if agent == "code-reviewer" and met:
+            seen = (state.get("data") or {}).get("already_met") or {}
+            prompt += ("\n\nNot reviewed per AC: these criteria passed before any code was written (\"already passes\"), so "
+                       "their tests had no GREEN to prove them. Review each test here: isolation, cleanup of what it "
+                       "writes (database rows, files), and whether its assertions prove the criterion.\n"
+                       + "\n".join(f"- {a['id']} {a.get('title', '')}"
+                                   + (" (approved by the run mode; the ac-reviewer read its test)" if (seen.get(a["id"]) or {}).get("auto")
+                                      else " (approved by a person; no per-AC review)") for a in met))
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
@@ -1685,9 +1712,14 @@ class Compiler:
                 notes.append(r.note)
                 break
             if not r.ok:
-                for k in ("blockers", "ladder"):
+                for k in ("blockers", "ladder", "suite_failure", "data"):
                     if k in r.update:
                         upd[k] = r.update[k]
+                if r.update.get("unlocks"):
+                    # 0.18.28 a check that opens files for the step it sends back to (a criterion's own test, after it
+                    # broke tests outside it)
+                    upd["unlocks"] = merge_unlocks(list(st.get("unlocks") or []),
+                                                   normalize_unlocks(r.update["unlocks"], st.get("phase") or "none", "keel"))
                 if action in KNOWLEDGE_CHECKS:
                     return await self._knowledge_failed(i, step, st, r, upd)
                 return await self._check_failed(i, step, st, ac or item, r, upd)
@@ -1829,10 +1861,32 @@ class Compiler:
             upd.update(res.update)
             notes.append(res.note)
         acs = _set_ac(st.get("acs") or [], ac["id"], ALREADY_MET)
-        upd.update(acs=acs, gates=gates, retries=retries, feedback=None, last_failure=None,
+        # 0.18.28 never skipped silently: who said "already passes" (a person, or the run mode) decides whether the
+        # ac-reviewer still reads the test; the tests outside it run either way, and the full-diff review lists it
+        data = dict(upd.get("data") or st.get("data") or {})
+        data["already_met"] = {**(data.get("already_met") or {}), ac["id"]: {"auto": bool(answer.get("auto")), "why": why}}
+        upd.update(acs=acs, gates=gates, retries=retries, feedback=None, last_failure=None, data=data,
                    stall={"fingerprint": None, "count": 0, "step": 0},
                    note=" · ".join([f"{ac['id']} marked as already met" + (f": {why}" if why else ""), *notes[1:]]))
+        after = self._after_green_step(i)
+        if after is not None:
+            return upd, self.wf.steps[after].id
         return upd, AC_END if step.per_ac and self.nav.last is not None else self.nav.after(i)
+
+    def _after_green_step(self, i: int) -> int | None:
+        """0.18.28 the check of the tests outside a criterion (verify_after_green) in the same loop after step i."""
+        lp = self.nav.loop_of(i)
+        if not lp:
+            return None
+        return next((j for j in range(i + 1, lp.last + 1) if "verify_after_green" in self.wf.steps[j].actions()), None)
+
+    @staticmethod
+    def _met_by_person(state: FlowState, ac: dict | None) -> bool:
+        """An already-met criterion a person approved at "already passes" (not the run mode)."""
+        if not ac or ac.get("status") != ALREADY_MET:
+            return False
+        seen = ((state.get("data") or {}).get("already_met") or {}).get(ac["id"])
+        return bool(seen) and not seen.get("auto")
 
     def _stuck_question(self, step: Step, ac: dict, r: ActionResult, rounds: int, attempts: int) -> dict:
         """The question after the stall ladder: retry with a note / skip the criterion / edit the spec / stop."""
@@ -2089,6 +2143,20 @@ class Compiler:
         return out, self.nav.after(i)
 
     async def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
+        found = upd.get("suite_failure")
+        if found and not ac:
+            # 0.18.28 the whole suite fails in a flow with criteria (integration, a review fix): with a likely cause
+            # (a test that passes alone, a criterion's test that writes to the DB and never cleans up) the person
+            # chooses now, since the agent here cannot change tests; else the agent tries first, then the choices
+            key = f"{step.id}:None"
+            count = int((state.get("retries") or {}).get(key, 0)) + 1
+            attempts = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
+            target = self.nav.jump(step.back, i) if step.back else self.nav.retry_target(i)
+            if not (found.get("pollution") or found.get("likely_ac")) and target and count <= attempts:
+                retries = {**(state.get("retries") or {}), key: count}
+                return {**upd, "retries": retries, "last_failure": r.note[:300], "note": r.note,
+                        "feedback": f"{r.note}\n{r.detail[-6000:]}".strip()}, target
+            return await self._suite_answer(i, step, state, r, upd, found)
         key = f"{step.id}:{(ac or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         count = retries.get(key, 0) + 1
@@ -2098,7 +2166,7 @@ class Compiler:
             stall["count"] = stall.get("count", 0) + 1
         else:
             stall = {"fingerprint": fp, "count": 1, "step": 0}
-        feedback = f"{r.note}\n{r.detail[-2000:]}".strip()
+        feedback = f"{r.note}\n{r.detail[-4000:]}".strip()
         limit = rules.load_config(self.ctx.root).get("loops", {}).get("stall_repeats", 3)
         if stall["count"] >= limit:
             stall["step"] = min(stall.get("step", 0) + 1, len(rules.LADDER))
@@ -2151,17 +2219,124 @@ class Compiler:
             base["feedback"] = f"{feedback}\n\nFrom the user: {why}"
         return {**base, "retries": retries}, target or step.id
 
+    def _suite_question(self, step: Step, state: FlowState, r: ActionResult, found: dict) -> dict:
+        """0.18.28 the whole suite fails and the agent cannot fix it: the ways out, the recommended first."""
+        ac_id = found.get("likely_ac")
+        acs = {a["id"] for a in state.get("acs") or []}
+        names: list[str] = []
+        info: list[dict] = []
+        why_ac = "; ".join(found.get("evidence") or [])[:500]
+        if ac_id and ac_id in acs:
+            names.append("send_back_ac")
+            info.append({"name": "send_back_ac", "label": f"Send back to {ac_id}", "why": choices_mod.OPTIONAL,
+                         "description": f"{ac_id}'s test is the likely cause ({why_ac or 'it writes to the database'}): {ac_id} "
+                                        "opens again at green with this failure and your note, and its test files may change"})
+        if extensions.hooks("flow_fix"):
+            names.append("keelbot_fix")
+            info.append({"name": "keelbot_fix", "label": "Let KeelBot fix it", "why": choices_mod.OPTIONAL,
+                         "description": "KeelBot gets the failure and the suspects in an Edit chat (it may change tests), "
+                                        "then keel checks the suite again"})
+        names.append("retry")
+        info.append({"name": "retry", "label": "Check again", "why": choices_mod.NONE,
+                     "description": "run the suite again (after you fixed it yourself)"})
+        names.append("stop")
+        info.append({"name": "stop", "label": "Stop the flow", "why": choices_mod.OPTIONAL,
+                     "description": "stop here; the commits so far stay"})
+        info = [{**c, "default": k == 0} for k, c in enumerate(info)]
+        lines = [f"{step.name}: the whole suite fails, and the agent here cannot change tests.", "", r.note, "",
+                 suite_failure.describe(found) or "", "", r.detail[-3000:], "", "Choose one:",
+                 *[f"- {c['name']}: {c['description']}" for c in info],
+                 "", f"A plain send-back with a reason takes {names[0]} with your reason."]
+        q = {"step": step.id, "kind": "fix", "type": "suite", "title": f"{step.name}: the suite fails"
+             + (f" (likely {ac_id}'s test)" if "send_back_ac" in names else ""),
+             "detail": "\n".join(x for x in lines if x is not None), "options": OPTIONS, "choices": names,
+             "choice_info": info, "reject_choice": names[0]}
+        q["plain"] = choices_mod.plain_effects(q)
+        return q
+
+    async def _suite_answer(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict, found: dict):
+        """0.18.28 the answer to the suite question: send the likely criterion back to its green (its test may change),
+        let KeelBot fix it in an Edit chat and check again, check again, or stop. A plain send-back takes the first way
+        out with its reason (never a silent failure); approve takes the recommended one."""
+        q = self._suite_question(step, state, r, found)
+        tries, limit = flow_actions.stuck_tries(state, step.id), flow_actions.sendback_limit(self.ctx.settings)
+        if tries >= limit:
+            q["choices"] = [c for c in q["choices"] if c in ("retry", "stop")]
+            q["choice_info"] = choices_mod.keep(q["choice_info"], q["choices"])
+            q["reject_choice"] = "stop"
+            q["detail"] = flow_actions.limit_note(tries, limit, step.name) + "\n\n" + q["detail"]
+            q["plain"] = choices_mod.plain_effects(q)
+        answer, extra = self._ask(state, q, gate="failure")
+        upd = {**upd, **extra}
+        why = (answer.get("why") or "").strip()
+        payload = answer.get("payload") or {}
+        choice = str(payload.get("choice") or (q["choices"][0] if answer.get("decision") == "approve" else q["reject_choice"]))
+        if choice not in q["choices"]:
+            choice = q["reject_choice"]
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates["log"].append(f"suite {step.id} {choice}" + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": answer.get("decision"),
+                                                          "choice": choice, "why": why})
+        base = {**upd, "gates": gates, "retries": {**(state.get("retries") or {}), f"{step.id}:None": 0},
+                "stall": {"fingerprint": None, "count": 0, "step": 0}, "suite_failure": None}
+        if choice in ("send_back_ac", "keelbot_fix", "retry"):
+            base.update(flow_actions.stuck_counted({**state, **base}, step.id, tries + 1))
+        said = f"\n\nFrom the person: {why}" if why else ""
+        failure = f"{r.note}\n\n{suite_failure.describe(found)}\n\n{r.detail[-3000:]}".strip()
+        if choice == "send_back_ac":
+            ac_id = found["likely_ac"]
+            lp = next((lp for lp in self.nav.loops if lp.per_ac), None)
+            files = [s["file"] for s in found.get("suspects") or [] if ac_id in s.get("acs", [])]
+            opened = normalize_unlocks([{"path": f, "phase": "green", "reason": f"{ac_id}'s test broke the suite"} for f in files],
+                                       "green", "keel")
+            data = {**(state.get("data") or {}), "reopen": {"ac": ac_id, "to": "green", "from": step.id}}
+            note = (f"{ac_id}'s test is the likely cause of the suite failure at {step.name}. Fix it so the whole suite "
+                    f"passes, not only {ac_id}'s own test: a test that writes to the database must clean up after itself "
+                    "(a rollback, or delete what it wrote in tearDown), also on a second connection. Its test files are "
+                    f"open to change now.\n\n{failure}{said}")
+            return {**base, "acs": _set_ac(state.get("acs") or [], ac_id, "todo"), "data": data, "feedback": note,
+                    "last_failure": r.note[:300], "unlocks": merge_unlocks(list(state.get("unlocks") or []), opened),
+                    "note": f"{step.name}: sent back to {ac_id} (its test is the likely cause)"}, \
+                self.nav.begin(lp) if lp else step.id
+        if choice == "keelbot_fix":
+            text = (f"keel's flow \"{self.ctx.title}\" stopped at {step.name}: the whole suite fails. Fix the cause (a test "
+                    "may change: a missing cleanup or rollback is the usual one), run the suite to check, and say what you "
+                    f"changed. Do not commit; keel checks the suite again and commits.\n\n{failure}{said}")
+            fixed = await self._keelbot_fix(step, state, text)
+            return {**base, "note": f"{step.name}: KeelBot {fixed}; checked again", "feedback": None}, step.id
+        if choice == "retry":
+            return {**base, "note": f"{step.name}: checked again", "feedback": None}, step.id
+        return {**base, "status": "stopped", "error": r.note + (f" ({why})" if why else ""),
+                "note": f"stopped: {q['title']}"[:300]}, END
+
+    async def _keelbot_fix(self, step: Step, state: FlowState, text: str) -> str:
+        """0.18.28 a KeelBot Edit turn in the flow's folder (the KeelBot part's flow_fix hook), waited for; what it did."""
+        model = self._model(state, step, "implementer")
+        for who, fn in extensions.hooks("flow_fix"):
+            try:
+                got = await fn(project=self.ctx.project_id or "", root=self.ctx.root, model=model, keys=dict(self.ctx.keys),
+                               text=text, thread=self.ctx.thread_id, title=f"Fix: {step.name}")
+            except Exception as exc:  # noqa: BLE001 - the suite is checked again either way
+                log.warning("flow_fix of %s failed: %s", who, exc)
+                return f"could not run ({str(exc)[:160]})"
+            self.ctx.emit("keelbot.fix", step=step.id, data={k: got.get(k) for k in ("session", "status") if got})
+            return f"answered in chat {str((got or {}).get('session') or '')[:8]} ({(got or {}).get('status') or 'done'})"
+        return "is not available here"
+
     async def gate_step(self, i: int, step: Step, state: FlowState):
         ctx = self.ctx
         ac = _ac(state) if step.per_ac else None
         item = self._item(state, step)
         acs = state.get("acs") or []
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        if ac and self._met_by_person(state, ac):
+            gates["log"].append(f"ac {ac['id']} approve: already met, approved at \"already passes\"")
+            return {"gates": gates, "note": f"{ac['id']}: already met (approved at \"already passes\")"}, self.nav.after(i)
         if ac:
             due = rules.gate_due(gates.get("mode", "every-ac"), acs, ac["id"], gates.get("skipped"), rules.ac_lane(ac))
             if not due["due"]:
                 gates["log"].append(f"ac {ac['id']} approve: no gate here ({due['why']})")
-                return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}",
+                return {"gates": gates, "acs": _set_ac(acs, ac["id"], ALREADY_MET if ac.get("status") == ALREADY_MET else "done"), "note": f"no gate: {due['why']}",
                         **flow_actions.stuck_counted(state, ac["id"], None)}, self.nav.after(i)
         if step.when:
             label, values = self._when(state, step.when)
@@ -2224,6 +2399,12 @@ class Compiler:
             detail = await asyncio.to_thread(flow_actions.ac_evidence, ctx.root, ac, acs,
                                              state.get("last_answer") if reviewed else None, state.get("note", ""),
                                              state.get("base_head"))
+            ag = ((state.get("data") or {}).get("after_green") or {}).get(ac["id"])
+            if ag:
+                # 0.18.28 what ran outside the criterion's own filter after its green
+                ran = {"suite": "the whole suite", "changed": "the branch's test files", "none": "nothing"}.get(ag.get("ran"), ag.get("ran"))
+                detail += "\n\n" + md.section("Outside this criterion", f"{ran} ({ag.get('why')}): "
+                                                + ("passed" if ag.get("ok") else "failed: " + ", ".join(ag.get("failing") or [])))
         elif item:
             about = item.get("title") or item.get("summary") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")},
                                                                           ensure_ascii=False, default=str)[:600]
@@ -2307,7 +2488,7 @@ class Compiler:
             upd["acs"] = acs
         if decision == "approve":
             if ac:
-                upd["acs"] = _set_ac(acs, ac["id"], "done")
+                upd["acs"] = _set_ac(acs, ac["id"], ALREADY_MET if ac.get("status") == ALREADY_MET else "done")
             upd["note"] = f"{step.name} approved" + (f" [{choice}]" if choice else "") + (f": {why}" if why else "")
             if choice:
                 upd["markers"] = self._choice_markers(state, step, choice, why)

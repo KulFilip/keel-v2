@@ -56,6 +56,9 @@ steps:
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
   - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
+  # 0.18.28 the tests outside this criterion's own filter (checks.after_green: none | changed | suite; default changed,
+  # with the whole suite every checks.suite_every criteria and at each lane's end); a failure goes back to green
+  - { id: ac_suite, kind: code, name: the tests outside this criterion, action: verify_after_green, back: green, phase: green, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
   - { id: ship, kind: include, name: ship, flow: ship }
   - { id: finish, kind: code, name: done, then: end, phase: close }

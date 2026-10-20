@@ -101,6 +101,8 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await verify_red(a)
     if action == "verify_green":
         return await verify_green(a)
+    if action == "verify_after_green":
+        return await verify_after_green(a)
     if action == "verify_release":
         return await verify_release(a)
     if action == "verify_coverage":
@@ -325,9 +327,37 @@ async def verify_green(a: ActionInput) -> ActionResult:
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
     if code != 0:
-        return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
+        return ActionResult(False, f"{label} does not pass yet.",
+                            await failure_detail(a, cmd, code, out, (a.ac or {}).get("layer", "API"), ac_id))
     return ActionResult(True, f"{label}: green.", f"$ {cmd}\n{tail(out, 1500)}",
                         {"acs": _with_ac_status(a.acs, ac_id, "green")})
+
+
+async def failure_detail(a: ActionInput, shown_cmd: str, code: int, out: str, layer: str = "API", ac_id: str | None = None) -> str:
+    """0.18.28 what a failing test run shows: the failing tests with their messages first (the runner's own report),
+    then the end of the output. A run that printed nothing (phpunit exit 2, "Exit code 2 with no output") runs once more
+    with a JUnit report, so the agent and the gate name the failing tests."""
+    from . import suite_failure
+
+    report = suite_failure.excerpt(out)
+    extra = ""
+    if not (out or "").strip() or not (report or suite_failure.failing(out)):
+        cmd, rel = testcmd.located(a.root, ac_id, layer)
+        cases, again = (await asyncio.to_thread(suite_failure.rerun_for_output, str(Path(a.root) / rel) if rel else a.root,
+                                                cmd, command_env())) if cmd else ([], "")
+        lines = [suite_failure.empty_note(shown_cmd, code)] if not (out or "").strip() else []
+        if cases:
+            lines += ["The JUnit report names these failures:", *[f"- {c['name']}: {c['message'][:600]}" for c in cases]]
+        elif again.strip() and not (out or "").strip():
+            lines += ["The second run printed:", tail(again, 2500)]
+        extra = "\n".join(lines)
+    parts = [f"$ {shown_cmd}", f"exit {code}"]
+    if report:
+        parts += ["The failures:", report]
+    if extra:
+        parts.append(extra)
+    parts.append("The end of the output:\n" + (tail(out, 2500) if (out or "").strip() else "(nothing)"))
+    return "\n".join(parts)
 
 
 async def _whole_suite_green(a: ActionInput) -> ActionResult:
@@ -346,13 +376,141 @@ async def _whole_suite_green(a: ActionInput) -> ActionResult:
             return ActionResult(False, f"The {what} suite ran no test, so it is not green.",
                                 f"$ {cmd}\n{tail(out, 3000)}\n{verdict_actions.NO_TESTS_HINT}")
         if code != 0:
-            return ActionResult(False, f"The {what} suite does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
+            detail = await failure_detail(a, cmd, code, out, layer)
+            upd = {}
+            if a.acs and not a.fake and not bug_mod.of(a.acs):
+                # 0.18.28 who is the likely cause: failing tests that pass alone, the branch's tests that write to the DB
+                from . import suite_failure
+
+                found = await asyncio.to_thread(suite_failure.analyse, a.root, a.base, out, command_env(), layer, a.acs)
+                upd = {"suite_failure": {**found, "layer": layer, "command": cmd}}
+                said = suite_failure.describe(found)
+                if said:
+                    detail = f"{detail}\n\n{said}"
+            return ActionResult(False, f"The {what} suite does not pass yet.", detail, upd)
         ran.append(cmd)
         shown.append(f"$ {cmd}\n{tail(out, 1500 // len(layers))}")
     # The whole suite green on these files is the release verdict for the commit made from them.
     await asyncio.to_thread(_release_verdict, a, True, " && ".join(ran), "\n".join(shown))
     return ActionResult(True, "the suite: green." if len(ran) == 1 else f"the suite: green ({len(ran)} module suites).",
                         "\n".join(shown))
+
+
+AFTER_GREEN = ("none", "changed", "suite")
+SUITE_EVERY = 3
+
+
+def after_green_plan(a: ActionInput) -> tuple[str, str]:
+    """(what to run, why) after a criterion's green: "none", "changed" (the branch's test files) or "suite" (every module
+    suite). checks.after_green in .keel/config.yml: none | changed (default) | suite; with changed the whole suite still
+    runs every checks.suite_every criteria (default 3) and at the end of each lane."""
+    checks_cfg = rules.load_config(a.root).get("checks") or {}
+    mode = str(checks_cfg.get("after_green") or "changed").strip().lower()
+    mode = mode if mode in AFTER_GREEN else "changed"
+    if mode != "changed":
+        return mode, f"checks.after_green: {mode}"
+    try:
+        every = max(1, int(checks_cfg.get("suite_every") or SUITE_EVERY))
+    except (TypeError, ValueError):
+        every = SUITE_EVERY
+    ac_id = (a.ac or {}).get("id")
+    loop = [x for x in a.acs if str(x.get("layer") or "API").upper() in ("API", "WEB")]
+    done = sum(1 for x in loop if x.get("status") in ("done", "already-met") or x.get("id") == ac_id)
+    lane = rules.ac_lane(a.ac) if a.ac else None
+    open_in_lane = [x for x in loop if x.get("id") != ac_id and x.get("status") not in ("done", "already-met")
+                    and rules.ac_lane(x) == lane]
+    if not open_in_lane:
+        return "suite", f"the last criterion of the {lane or 'api'} lane"
+    if done % every == 0:
+        return "suite", f"every {every} criteria (checks.suite_every)"
+    return "changed", "the test files this flow touched"
+
+
+def _paths_command(root: str, layer: str, files: list[str]) -> tuple[str | None, str]:
+    """(a command that runs these test files, its folder): commands.<api|web>_test_paths with {PATHS}, else the module
+    command for a runner that takes paths (pytest, vitest, jest, mocha), else (None, "")."""
+    import shlex
+
+    cmds = rules.load_config(root).get("commands") or {}
+    rel = testcmd.part_dir(root, "frontend" if layer == "WEB" else "backend")
+    mine = [f[len(rel) + 1:] if rel and f.startswith(rel + "/") else f for f in files]
+    paths = " ".join(shlex.quote(f) for f in mine)
+    key = "web_test_paths" if layer == "WEB" else "api_test_paths"
+    if cmds.get(key):
+        return str(cmds[key]).replace("{PATHS}", paths), rel
+    module, mrel = testcmd.located(root, None, layer)
+    if module and re.search(r"\b(pytest|vitest|jest|mocha)\b", module):
+        return f"{module} {paths}", mrel
+    return None, ""
+
+
+async def verify_after_green(a: ActionInput) -> ActionResult:
+    """0.18.28 after a criterion's green (or "already passes"): the tests outside its own filter. Each AC's check ran
+    only --filter 'AC-00x', so a test that broke other tests (AC-008's committed row) stayed hidden until integration ran
+    the whole suite. A failure goes back to the criterion's green with the failing tests and output; its own test files
+    are unlocked there, since the fix may be in the test (a missing cleanup)."""
+    ac_id = (a.ac or {}).get("id") or "the criterion"
+    plan, why = after_green_plan(a)
+    data = dict(a.data or {})
+    seen = dict(data.get("after_green") or {})
+    if plan == "none" or a.fake:
+        note = f"{ac_id}: tests outside it not run ({why})" if plan == "none" else f"{ac_id}: the tests outside it pass (simulated, {why})."
+        seen[ac_id] = {"ok": True, "ran": "none" if plan == "none" else plan, "why": why}
+        return ActionResult(True, note, "", {"data": {**data, "after_green": seen}})
+    layers = _module_layers(a.root)
+    shown, failed = [], None
+    for layer in layers:
+        if plan == "changed":
+            files = [f for f in verdict_actions.branch_files(a.root, a.base)
+                     if _is_test_file(f, layer, len(layers) == 1) and (Path(a.root) / f).is_file()]
+            if not files:
+                continue
+            cmd, rel = _paths_command(a.root, layer, files)
+            if not cmd:
+                cmd, rel = testcmd.located(a.root, None, layer)       # no paths command: the module suite
+        else:
+            cmd, rel = testcmd.located(a.root, None, layer)
+        if not cmd:
+            continue
+        code, out = await asyncio.to_thread(testcmd.run, str(Path(a.root) / rel) if rel else a.root, cmd, 1800, command_env())
+        show = testcmd.shown(cmd, rel)
+        if testcmd.cannot_run(code, out):
+            return cannot_run(a, show, out, "the tests outside it")
+        if code != 0:
+            failed = (layer, show, code, out)
+            break
+        shown.append(f"$ {show}\n{tail(out, 600)}")
+    if failed:
+        from . import suite_failure
+
+        layer, show, code, out = failed
+        names = suite_failure.failing(out)
+        mine = {ac_id.lower(), testcmd.ac_id(ac_id).lower()}
+        outside = [n for n in names if not any(m in n.lower() for m in mine)] or names
+        detail = await failure_detail(a, show, code, out, layer)
+        sus = [s for s in await asyncio.to_thread(suite_failure.suspects, a.root, a.base) if ac_id in s["acs"]]
+        unlocks = [{"path": s["file"], "phase": "green", "by": "keel", "reason": f"{ac_id} broke tests outside it"} for s in sus]
+        if sus:
+            detail += "\n\n" + suite_failure.describe({"suspects": sus}) + ("\nIts test files are open to change in green: the "
+                                                                            "fix may be the test's cleanup.")
+        seen[ac_id] = {"ok": False, "ran": plan, "why": why, "failing": outside[:10]}
+        note = f"{ac_id}'s change broke tests outside it: " + (", ".join(outside[:5]) or f"the {layer.lower()} suite fails")
+        return ActionResult(False, note[:600], detail, {"data": {**data, "after_green": seen}, "unlocks": unlocks})
+    seen[ac_id] = {"ok": True, "ran": plan, "why": why}
+    ran = "the whole suite" if plan == "suite" else "the branch's test files"
+    return ActionResult(True, f"{ac_id}: {ran} pass{'es' if plan == 'suite' else ''} too ({why}).", "\n".join(shown),
+                        {"data": {**data, "after_green": seen}})
+
+
+def _is_test_file(path: str, layer: str, any_layer: bool = False) -> bool:
+    from .suite_failure import TEST_FILE
+
+    if not TEST_FILE.search(path):
+        return False
+    if any_layer:
+        return True
+    web = re.search(r"\.(tsx?|jsx?|vue|svelte)$", path) is not None
+    return web if layer == "WEB" else not web
 
 
 def _release_verdict(a: ActionInput, ok: bool, cmd: str, out: str, flaky: list | None = None) -> dict:

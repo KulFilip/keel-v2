@@ -38,6 +38,9 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
                     mcp_specs(agent, root) -> [spec]            MCP servers it hands to an agent call or KeelBot turn
                     pr_body_sections(thread_id) -> [line]       lines for the PR body and the final review
                     index_available() -> bool                   it can build the project's code index (scan status)
+                    flow_fix(project, root, model, keys, text, thread, title) -> {session, status, answer}
+                                                                0.18.28 async: a flow's suite gate asks the part to fix
+                                                                it (KeelBot: an Edit chat, waited for)
 
 The value of actions, params, docs, router, errors or keelbot may be a function without arguments that returns it: the
 registry calls it once, on first use. So a part's module stays light (the guard's hook reads every part's read_tools

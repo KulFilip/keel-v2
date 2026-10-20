@@ -250,6 +250,9 @@ steps:
       nothing. End with exactly one line: REFACTOR: done, or REFACTOR: none.
   - { id: refactor_commit, kind: code, name: verify + refactor commit, action: verify_green+commit, phase: refactor, per_ac: true,
       when: { marker: REFACTOR, equals: done, step: refactor }, skippable: optional, group: refactor }
+  # 0.18.28 the tests outside this criterion's own filter (checks.after_green: none | changed | suite; default changed,
+  # with the whole suite every checks.suite_every criteria and at each lane's end); a failure goes back to green
+  - { id: ac_suite, kind: code, name: the tests outside this criterion, action: verify_after_green, back: green, phase: green, per_ac: true }
   - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
   - id: integration

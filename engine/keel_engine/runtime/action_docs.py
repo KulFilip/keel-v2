@@ -47,7 +47,25 @@ DOCS: dict[str, dict] = {
             "Exit code not 0: fails, \"does not pass yet\"; the output goes back to the agent before it.",
             "Exit 0: green. A whole-suite pass also writes the release verdict for this commit.",
             "In the bug flow: the bug's own test first (it must pass now), then the whole suite.",
+            "0.18.28 a failure shows the failing tests and their messages first; a run that printed nothing runs once "
+            "more with a JUnit report (phpunit --log-junit, pytest --junitxml) to name them.",
+            "0.18.28 a whole-suite failure in a flow with criteria also says who is the likely cause: each failing test "
+            "run on its own (passes alone = polluted by another test), and the branch's tests that write to the "
+            "database without a rollback or cleanup, with their criterion (runtime/suite_failure.py).",
             "Simulated runs pass with \"1 passed\" and write no verdict.",
+        ],
+    },
+    "verify_after_green": {
+        "summary": "0.18.28 after a criterion's green (or \"already passes\"): the tests outside its own filter.",
+        "steps": [
+            "checks.after_green in .keel/config.yml: none, changed (default) or suite.",
+            "changed: the branch's test files (commands.api_test_paths / web_test_paths with {PATHS}, else the runner "
+            "with the paths for pytest, vitest, jest, mocha, else the module suite); and the whole suite every "
+            "checks.suite_every criteria (default 3) and at the end of each lane.",
+            "suite: every module suite after every criterion.",
+            "A failure says \"AC-n's change broke tests outside it: ...\" with the failing tests and the output, and "
+            "goes back to the criterion's green (the step's back); the criterion's own test files are unlocked there.",
+            "The AC gate shows what ran (data.after_green). Simulated runs pass.",
         ],
     },
     "verify_release": {
