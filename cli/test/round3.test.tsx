@@ -228,6 +228,7 @@ describe("plugins in keel TUI", () => {
     expect(t.stub.calls.some((c) => c.path.endsWith("/git/push"))).toBe(false);          // nothing before the yes
     t.r.stdin.write("\r");
     await waitFor(() => t.stub.calls.some((c) => c.path.endsWith("/git/push") && c.method === "POST"));
+    await waitFor(() => t.frame().includes("pushed: true") && !t.probe.busy);             // the prompt takes keys again
     await t.type("/help");
     await t.enter();
     expect(t.frame()).toMatch(/Plugins\n {2}\/git <status\|log\|diff \[path\]> +the branch, its commits, its diff/);

@@ -33,7 +33,7 @@ describe("/project", () => {
     await tick(60);
     t.r.stdin.write("\r");
     await waitFor(() => t.core.snapshot.project?.id === "alpha", 3000);
-    expect(t.probe.pick).toBe(false);
+    await waitFor(() => !t.probe.pick);            // the picker closes on the render after the switch
     t.r.unmount();
   });
 
