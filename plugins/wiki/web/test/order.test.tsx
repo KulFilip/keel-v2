@@ -366,7 +366,8 @@ describe("the Wiki page in order", () => {
     ).toBeInTheDocument();
     const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
     expect(crumbs).toHaveTextContent("Wiki›Overview");
-    const toc = screen.getByRole("list", { name: "On this page" });
+    // the list reads the rendered headings in an effect, after the page is on screen
+    const toc = await screen.findByRole("list", { name: "On this page" });
     expect(
       within(toc)
         .getAllByRole("button")

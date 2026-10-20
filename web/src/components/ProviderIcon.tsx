@@ -2,6 +2,8 @@
 // simple shape in the company's colour, drawn inline: a hint that is easy to tell apart, not the company's real logo.
 // The colours live in styles/models.css, so the marks read well in the light and the dark theme.
 
+import type { JSX } from "react";
+
 export type Brand = "anthropic" | "openai" | "github" | "google" | "openrouter" | "local" | "fake" | "other";
 
 const BRANDS: [RegExp, Brand][] = [

@@ -2,7 +2,7 @@
 // folders shown as one (src/main/kotlin), each folder with how many of its files you viewed, each file with its viewed
 // box, status, comments and +/− lines.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type JSX } from "react";
 import { FileIcon, Icon } from "@keel/web-sdk";
 import type { ChangedFile } from "./reviewApi";
 

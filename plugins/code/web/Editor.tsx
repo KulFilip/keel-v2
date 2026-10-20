@@ -85,7 +85,7 @@ const hovered = (el: HTMLElement) => {
  * to the last one is selected); `whole` is what a copy of that selection gives (a long file only renders the rows on
  * screen, so the copy gives the whole file from here).
  */
-export function useSelectAll(box: RefObject<HTMLElement>, rows: string, whole?: () => string) {
+export function useSelectAll(box: RefObject<HTMLElement | null>, rows: string, whole?: () => string) {
   const wholeRef = useRef(whole);
   wholeRef.current = whole;
   useEffect(() => {

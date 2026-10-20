@@ -4,7 +4,7 @@
 // The parts add to it through slots: side views (code.activity: Review, Database, and Git's panel in Source control),
 // tab kinds (code.tab: a table, a review file, a branch) and the assistant's column (assistant: KeelBot, ⌘I).
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type PointerEvent as RPointerEvent } from "react";
 import {
   ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, isTyping, keyLabel, modalOpen, openLauncher, parseHash, readKeymap, slotItems, SLOTS, useApp,
   useLoad, useNarrow, useRoute, useSlot, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem,

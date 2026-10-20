@@ -341,7 +341,7 @@ function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, vi
   onJump?: () => void;
   /** the agent call at work in this flow (its block shows what it does now) */
   job?: Job | null;
-  waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle>; onOpen: (id: string) => void; selected: string | null;
+  waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle | null>; onOpen: (id: string) => void; selected: string | null;
   /** v0.15.4 an earlier run: the page does not scroll to its last block (its banner stays in view) */
   still?: boolean;
 }) {

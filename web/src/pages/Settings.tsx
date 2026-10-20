@@ -226,7 +226,7 @@ export function SettingsPage({ pid }: { pid: string }) {
   // the parts' sections come after keel's own (their keys are the parts' settings)
   const extra = useSlot<SettingsSectionItem>(SLOTS.settingsSection);
   const sections: Sec[] = [...SECTIONS, ...extra.map((x) => ({ id: x.id, title: x.title, sub: x.sub, rows: x.rows as Row[] }))];
-  const timer = useRef<number>();
+  const timer = useRef<number>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const isProj = scope === "project" && !!pid;
   const name = project?.name ?? pid;

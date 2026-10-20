@@ -119,7 +119,8 @@ describe("StepView", () => {
     const { container } = render(<App />);
     const outcome = await screen.findByRole("region", { name: "Outcome" });
     expect(within(outcome).getByText("done")).toBeInTheDocument();
-    expect(within(outcome).getByText("PASS").tagName).toBe("B");
+    // the card can show before the first read of the steps answers (React 19 renders it a tick earlier)
+    expect((await within(outcome).findByText("PASS")).tagName).toBe("B");
     expect(within(outcome).getAllByRole("listitem")).toHaveLength(2);
     expect(container.querySelector('[data-kind="tool"] .tool-out pre')!.textContent).toBe("RED 4be12d9\nGREEN a81c3f0");
     expect(within(outcome).getByRole("button", { name: /Show the last change to api\/src\/main\/kotlin\/scores\/ScoreController.kt/ })).toBeInTheDocument();

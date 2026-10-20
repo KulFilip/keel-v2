@@ -156,10 +156,16 @@ let inflight: Promise<void> | null = null;
 const subscribers = new Set<() => void>();
 
 function fetchFeatures(): Promise<void> {
+  // a read from before resetFeatures() (tests) changes nothing: it would start the plugins with the reset importer
+  const gen = generation;
   inflight ??= api.features().then(
-    (f) => { cache = f; failed = false; void startPlugins(f); },
-    () => { failed = true; },
+    (f) => {
+      if (gen !== generation) return;
+      cache = f; failed = false; void startPlugins(f);
+    },
+    () => { if (gen === generation) failed = true; },
   ).finally(() => {
+    if (gen !== generation) return;
     inflight = null;
     subscribers.forEach((s) => s());
   });
