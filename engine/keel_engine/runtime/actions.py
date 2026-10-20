@@ -697,6 +697,22 @@ INIT_RUN_ONLY = ("said", "write_sections", "layout")   # init answers that are n
 
 
 def write_config(a: ActionInput) -> ActionResult:
+    """.keel/config.yml from the approved plan, and (keel 0.18.22) the setup: block the plan proposed for a project stack
+    of a language keel's image lacks (runtime/stack_setup.py)."""
+    from . import stack_setup
+
+    r = _write_config(a)
+    try:
+        added = stack_setup.write_proposals(a.root)
+    except OSError as exc:
+        return ActionResult(r.ok, f"{r.note} Could not add the setup: block to a stack: {exc}", r.detail, r.update)
+    if not added:
+        return r
+    stack_setup.SYSTEM.request(a.root)          # install what the new block lists (in keel's container)
+    return ActionResult(r.ok, f"{r.note} Added a setup: block to {', '.join(added)}.", r.detail, r.update)
+
+
+def _write_config(a: ActionInput) -> ActionResult:
     f = Path(a.root) / ".keel" / "config.yml"
     stored = {k: v for k, v in (a.init or {}).items() if k not in INIT_RUN_ONLY}
     if f.exists():

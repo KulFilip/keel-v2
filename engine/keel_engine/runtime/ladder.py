@@ -52,7 +52,29 @@ def _toolchain(root: str) -> list[str]:
         need.append("node")
     if (r / "pyproject.toml").exists() or (r / "setup.py").exists():
         need.append("python3")
+    # keel 0.18.22 the runtimes the project's stacks name in setup.apt (php for php8.3-cli, go for golang-go)
+    need += [t["program"] for t in _stack_tools(root) if t["program"] not in need]
     return need
+
+
+def _stack_tools(root: str) -> list[dict]:
+    from . import stack_setup
+
+    try:
+        return stack_setup.toolchain(root)
+    except Exception:       # noqa: BLE001 - an unreadable stack never hides the rest of the toolchain check
+        return []
+
+
+def _missing(root: str, missing: list[str]) -> str:
+    """Rung 1's detail: what is missing, and for a stack's runtime what keel does about it (keel installs it at start,
+    or the person installs it in native mode) instead of a bare name."""
+    from . import stack_setup
+
+    by = {t["program"]: t for t in _stack_tools(root)}
+    lines = ["missing: " + ", ".join(missing)]
+    lines += [stack_setup.toolchain_problem(by[m]) for m in missing if m in by]
+    return "\n".join(lines)
 
 
 def plan(root: str) -> list[dict]:
@@ -130,7 +152,7 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
             save(root, rungs)
         if rung["n"] == 1:
             missing = [t for t in _toolchain(root) if not simulate and not shutil.which(t)]
-            rung["status"], rung["detail"] = ("fail", "missing: " + ", ".join(missing)) if missing else ("pass", "found")
+            rung["status"], rung["detail"] = ("fail", _missing(root, missing)) if missing else ("pass", "found")
         elif (rung["n"], rung["cmd"]) in passed_before and rung["n"] != 12:
             rung["status"], rung["detail"] = "pass", "passed before with this command (fast init re-used it)"
         elif rung["n"] == 12:

@@ -359,6 +359,30 @@ def env_names(root: str) -> tuple[str | None, list[str]]:
     return None, []
 
 
+def setup_proposal_lines(root: str) -> list[str]:
+    """keel 0.18.22 the plan's lines for each project stack of a language keel's image lacks (PHP, Go, Ruby, Rust) with no
+    setup: block: the block write_config adds to its file once the plan is approved (runtime/stack_setup.py)."""
+    from . import stack_setup
+
+    try:
+        found = stack_setup.proposals(root)
+    except Exception:       # noqa: BLE001 - the plan is text; a stack that does not read must not hide the gate
+        return []
+    out = []
+    for p in found:
+        rel = p["file"]
+        try:
+            rel = str(Path(p["file"]).resolve().relative_to(Path(root).resolve()))
+        except ValueError:
+            pass
+        label = stack_setup.LANGS[p["language"]]["label"]
+        out.append(f"   Add a setup: block to the stack {p['stack']} ({rel}): {label} is not in keel's image, so keel "
+                   "installs these packages at start (again after an update, from its cache)"
+                   + (" and runs each_worktree in each new flow worktree" if p["setup"].get("each_worktree") else "") + ":")
+        out += ["     " + ln for ln in yaml.safe_dump({"setup": p["setup"]}, sort_keys=False).splitlines()]
+    return out
+
+
 def plan(root: str, init: dict) -> str:
     from .. import layout
     from . import ladder
@@ -381,6 +405,7 @@ def plan(root: str, init: dict) -> str:
         block = {"version": 4, "layout": lay.name, **({"backend": {"dir": cmd_dir}} if cmd_dir else {}),
                  **({"commands": cmds} if cmds else {}), "init": stored}
         lines += ["   " + l for l in yaml.safe_dump(block, sort_keys=False).splitlines()]
+    lines += setup_proposal_lines(root)
     lines += [f"2. Run the setup ladder and write {lay.runbook} with every command that passed. Each rung must pass "
               "before the next runs; a failing rung goes to the setup doctor, then asks you.",
               f"   test command: {testcmd.shown(cmds['api_test_module'], cmd_dir) if cmds.get('api_test_module') else 'none found — the ladder will say so'}",
