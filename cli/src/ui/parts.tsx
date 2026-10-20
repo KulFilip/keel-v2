@@ -12,10 +12,10 @@ import { renderMarkdown } from "../core/markdown";
 import { colorDiagram } from "../core/colorize";
 import * as fmt from "../core/format";
 import { VERSION } from "../core/version";
-import { noticeRole } from "../core/lines";
+import { noteText, noticeRole, textBlock } from "../core/lines";
 
 export { noticeRole };
-import { useTheme } from "./theme";
+import { useTheme, type RoleProps } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import { Clickable } from "./click";
 
@@ -23,41 +23,41 @@ import { Clickable } from "./click";
 export type PanelActs = { agent: (jobId: string) => void; waiting: () => void; flow: () => void; inbox: (n: number) => void };
 
 export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
-  const { color, paint } = useTheme();
+  const { color, look, paint } = useTheme();
   const p = s.project;
   const t = s.flow?.thread ?? null;
-  const label = (x: string) => <Text color={color("dim")}>{x}</Text>;
+  const label = (x: string) => <Text {...look("dim")}>{x}</Text>;
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box borderStyle="round" borderColor={color("accent")} flexDirection="column" paddingX={1} width={width}>
-        {LOGO.map((l, i) => <Text key={i} color={color("accent")}>{l}</Text>)}
+        {LOGO.map((l, i) => <Text key={i} {...look("accent")}>{l}</Text>)}
         <Text> </Text>
-        <Text><Text bold>keel v2 {s.health?.version ?? VERSION}</Text><Text color={color("dim")}> · keel TUI {VERSION}</Text></Text>
-        <Text>{label("keel     ")}<Text color={color("run")}>{s.publicUrl}</Text><Text color={color("dim")}>{fmt.which(s.publicUrl, s.health).slice(s.publicUrl.length)}</Text></Text>
+        <Text><Text bold>keel v2 {s.health?.version ?? VERSION}</Text><Text {...look("dim")}> · keel TUI {VERSION}</Text></Text>
+        <Text>{label("keel     ")}<Text {...look("run")}>{s.publicUrl}</Text><Text {...look("dim")}>{fmt.which(s.publicUrl, s.health).slice(s.publicUrl.length)}</Text></Text>
         {s.error
-          ? <Text color={color("bad")}>{`keel is not reachable: ${s.error}\nStart it: keel2 start (or pass --url).`}</Text>
+          ? <Text {...look("bad")}>{`keel is not reachable: ${s.error}\nStart it: keel2 start (or pass --url).`}</Text>
           : <>
-            <Text>{label("project  ")}{p ? <><Text bold>{p.name || p.id}</Text><Text color={color("dim")}> · branch </Text><Text color={color("run")}>{p.branch || "-"}</Text></> : "none yet: add one in the dashboard"}</Text>
-            {t && <Text>{label("flow     ")}<Text color={color("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}{t.current ? <Text color={color("dim")}>{` at ${t.current}`}</Text> : null}</Text>}
-            <Text>{label("waiting  ")}<Text color={s.inbox.length ? color("gate") : color("ok")} bold={!!s.inbox.length}>{fmt.waitingBrief(s.inbox, p)}</Text></Text>
+            <Text>{label("project  ")}{p ? <><Text bold>{p.name || p.id}</Text><Text {...look("dim")}> · branch </Text><Text {...look("run")}>{p.branch || "-"}</Text></> : "none yet: add one in the dashboard"}</Text>
+            {t && <Text>{label("flow     ")}<Text {...look("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}{t.current ? <Text {...look("dim")}>{` at ${t.current}`}</Text> : null}</Text>}
+            <Text>{label("waiting  ")}<Text {...look(s.inbox.length ? "gate" : "ok")} bold={!!s.inbox.length}>{fmt.waitingBrief(s.inbox, p)}</Text></Text>
             <Text>{label("next     ")}{fmt.next(p, s.flow, paint).split("\n")[0]}</Text>
           </>}
       </Box>
-      <Text color={color("dim")} wrap="truncate-end">
-        {"  Ask KeelBot anything · "}<Text color={color("accent")}>/help</Text>{" · "}<Text color={color("accent")}>/flow</Text>
-        {" starts a flow · "}<Text color={color("accent")}>Ctrl+F</Text>{" flow · "}<Text color={color("accent")}>Ctrl+A</Text>{" agents · "}
-        <Text color={color("accent")}>Ctrl+B</Text>{" inbox"}
+      <Text {...look("dim")} wrap="truncate-end">
+        {"  Ask KeelBot anything · "}<Text {...look("accent")}>/help</Text>{" · "}<Text {...look("accent")}>/flow</Text>
+        {" starts a flow · "}<Text {...look("accent")}>Ctrl+F</Text>{" flow · "}<Text {...look("accent")}>Ctrl+A</Text>{" agents · "}
+        <Text {...look("accent")}>Ctrl+B</Text>{" inbox"}
       </Text>
     </Box>
   );
 }
 
 /** A line with a mark (✗ ✓ ◆): a line that wraps goes on under its text, not under the mark. */
-function Marked({ mark, children, color, bold }: { mark: string; children: string; color?: string; bold?: boolean }) {
+function Marked({ mark, children, look, bold }: { mark: string; children: string; look: RoleProps; bold?: boolean }) {
   return (
     <Box>
-      <Text color={color} bold={bold}>{mark + " "}</Text>
-      <Box flexShrink={1}><Text color={color} bold={bold}>{children}</Text></Box>
+      <Text {...look} bold>{mark + " "}</Text>
+      <Box flexShrink={1}><Text {...look} bold={bold}>{children}</Text></Box>
     </Box>
   );
 }
@@ -67,60 +67,68 @@ export function BlockView({ b, width = 100, gap }: { b: Block; width?: number; g
 }
 
 function BlockBody({ b, width }: { b: Block; width: number }) {
-  const { color, paint, tint } = useTheme();
+  const { look, paint } = useTheme();
   switch (b.kind) {
     case "markdown": return <Box marginLeft={2}><Text>{renderMarkdown(b.text, paint, width - 2)}</Text></Box>;
     case "diagram": return <Box marginLeft={1}><Text>{colorDiagram(b.text, paint)}</Text></Box>;
-    case "error": return <Marked mark="✗" color={color("bad")}>{b.text}</Marked>;
-    case "ok": return <Marked mark="✓" color={color("ok")}>{b.text}</Marked>;
+    case "error": return <Marked mark="✗" look={look("bad")}>{b.text}</Marked>;
+    case "ok": return <Marked mark="✓" look={look("ok")}>{b.text}</Marked>;
     case "notice": {
       const r = noticeRole(b.text);
-      return <Marked mark="◆" color={color(r)} bold={r === "gate"}>{b.text}</Marked>;
+      return <Marked mark="◆" look={look(r)} bold={r === "gate"}>{b.text}</Marked>;
     }
-    // the person's message: on its own tinted line, with air above it (xal's bubble)
-    case "user": {
-      const pad = " ".repeat(Math.max(0, width - 3 - [...b.text].length));
-      return (
-        <Box marginTop={1}>
-          <Text backgroundColor={tint}><Text color={color("accent")} bold>{" › "}</Text><Text bold>{b.text}</Text>{tint ? pad : ""}</Text>
-        </Box>
-      );
-    }
-    case "dim": return <Text color={color("dim")}>{b.text}</Text>;
-    default: return <Text>{b.text}</Text>;
+    // the person's message: a bold "›" in the person's colour, bold words, with air above it; KeelBot's answer
+    // (markdown, above) is the terminal's own text colour, indented
+    case "user": return (
+      <Box marginTop={1}>
+        <Text><Text {...look("person", true)}>{" › "}</Text><Text bold>{b.text}</Text></Text>
+      </Box>
+    );
+    case "dim": return <Text>{noteText(b.text, paint)}</Text>;
+    default: return <Text>{textBlock(b.text, paint)}</Text>;
   }
 }
 
 export function Picker({ title, choices, index, filter, ticked }: { title: string; choices: Choice[]; index: number; filter: string;
   /** keel 0.18.9 a pick of several: the values ticked so far (Space ticks) */
   ticked?: Set<string> }) {
-  const { color } = useTheme();
-  // a question (a yes or no, a gate's question) in amber with a "?", like xal's permission prompt; a list in the accent
-  const ask = title.trim().endsWith("?");
-  const tone = ask ? color("gate") : color("accent");
+  const { color, look } = useTheme();
+  // three looks, each with its own mark and border: KeelBot's suggestion ("✦ KeelBot suggests:", the accent), a
+  // question (a yes or no, a gate's question: "?" and the gate's amber, its words bold), a list (the accent)
+  const sug = /^KeelBot suggests:\s*/.exec(title);
+  const ask = !sug && title.trim().endsWith("?");
+  const tone = sug ? color("suggest") : ask ? color("gate") : color("accent");
   const max = 10;
   const start = Math.max(0, Math.min(index - Math.floor(max / 2), choices.length - max));
   const shown = choices.slice(start, start + max);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={tone} paddingX={1}>
-      <Text bold color={tone}>{ask ? "? " : ""}{title}</Text>
-      {filter && <Text color={color("dim")}>{`filter: ${filter}`}</Text>}
-      {shown.length === 0 && <Text color={color("dim")}>nothing matches</Text>}
+      {sug ? <Text><Text {...look("suggest", true)}>{"✦ KeelBot suggests: "}</Text><Text bold>{title.slice(sug[0].length)}</Text></Text>
+        : ask ? <Text><Text {...look("gate", true)}>{"? "}</Text><Text {...look("question", true)}>{title}</Text></Text>
+        : <Text {...look("accent")} bold>{title}</Text>}
+      {filter && <Text {...look("meta")}>{`filter: ${filter}`}</Text>}
+      {shown.length === 0 && <Text {...look("meta")}>nothing matches</Text>}
       {shown.map((c, k) => {
         const on = start + k === index;
+        // an option: its label bold, "(recommended)" in the recommended colour, its description readable (not dim)
+        const rec = / \(recommended\)/.exec(c.label);
+        const label = rec ? c.label.slice(0, rec.index) : c.label;
         return (
-          <Text key={c.value} color={on ? color("accent") : undefined} bold={on}>
-            {on ? "❯ " : "  "}{ticked ? (ticked.has(c.value) ? "[x] " : "[ ] ") : ""}{c.label}{c.hint ? <Text color={color("dim")} bold={false}>{"  " + c.hint}</Text> : null}
+          <Text key={c.value}>
+            <Text {...look(on ? "accent" : "option")} bold>{on ? "❯ " : "  "}{ticked ? (ticked.has(c.value) ? "[x] " : "[ ] ") : ""}{label}</Text>
+            {rec ? <Text {...look("recommended")} bold>{c.label.slice(rec.index, rec.index + rec[0].length)}</Text> : null}
+            {rec ? <Text {...look(on ? "accent" : "option")} bold>{c.label.slice(rec.index + rec[0].length)}</Text> : null}
+            {c.hint ? <Text {...look("detail")}>{"  " + c.hint}</Text> : null}
           </Text>
         );
       })}
-      <Text color={color("faint")}>{ticked ? "↑↓ · Space ticks · Enter sends the ticked (or this one) · Esc" : "↑↓ · Enter · type to filter · Esc"}</Text>
+      <Text {...look("meta")}>{ticked ? "↑↓ · Space ticks · Enter sends the ticked (or this one) · Esc" : "↑↓ · Enter · type to filter · Esc"}</Text>
     </Box>
   );
 }
 
 export function Completions({ items, index }: { items: Completion[]; index: number }) {
-  const { color } = useTheme();
+  const { color, look } = useTheme();
   const shown = items.slice(0, 8);
   return (
     <Box flexDirection="column" marginLeft={2}>
@@ -132,13 +140,13 @@ export function Completions({ items, index }: { items: Completion[]; index: numb
         const pad = " ".repeat(Math.max(1, 26 - c.label.length));
         return (
           <Text key={c.value}>
-            <Text color={color("accent")} bold={on}>{(on ? "❯ " : "  ") + name}</Text>
-            <Text color={color("attr")}>{args}</Text>
-            <Text color={on ? color("fg") : color("dim")}>{pad + (c.hint ?? "")}</Text>
+            <Text {...look("accent")} bold={on}>{(on ? "❯ " : "  ") + name}</Text>
+            <Text {...look("attr")}>{args}</Text>
+            <Text {...look("detail")}>{pad + (c.hint ?? "")}</Text>
           </Text>
         );
       })}
-      {items.length > shown.length && <Text color={color("faint")}>{`  … ${items.length - shown.length} more`}</Text>}
+      {items.length > shown.length && <Text {...look("faint")}>{`  … ${items.length - shown.length} more`}</Text>}
     </Box>
   );
 }
@@ -170,9 +178,9 @@ export function railOf(s: Snapshot): { phase: string; state: string }[] {
 }
 
 export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: PanelActs }) {
-  const { color, paint } = useTheme();
+  const { color, look, paint } = useTheme();
   const t = s.flow?.thread;
-  if (!t) return <PanelBox title="Flow"><Text color={color("dim")}>No flow on this project. /flow starts one.</Text></PanelBox>;
+  if (!t) return <PanelBox title="Flow"><Text {...look("dim")}>No flow on this project. /flow starts one.</Text></PanelBox>;
   const rail = railOf(s);
   const [done, all] = fmt.acCount(t);
   const gates = (s.flow?.workflow?.steps ?? []).filter((x) => x.kind === "gate");
@@ -180,22 +188,22 @@ export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: P
   const flowAct = on?.flow ?? (() => undefined);
   return (
     <Clickable act={flowAct}>
-    <PanelBox title={<>{"Flow · "}<Text color={color("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}</>}>
+    <PanelBox title={<>{"Flow · "}<Text {...look("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}</>}>
       <Text wrap="wrap">{rail.map((r, i) => (
-        <Text key={i} color={color(MARK_ROLE[r.state as keyof typeof MARK_ROLE])} bold={r.state === "now" || r.state === "wait"}>
+        <Text key={i} {...look(MARK_ROLE[r.state as keyof typeof MARK_ROLE])} bold={r.state === "now" || r.state === "wait"}>
           {`${MARK[r.state]} ${r.phase}`}{i < rail.length - 1 ? "  " : ""}
         </Text>))}
       </Text>
-      <Text><Text color={color("dim")}>step  </Text><Text bold>{t.current || "-"}</Text>{t.ac ? <Text color={color("accent")}>{` · ${t.ac}`}</Text> : null}<Text color={color("dim")}>{` · phase ${t.phase || "none"}`}</Text></Text>
-      {all > 0 && <Text><Text color={color("dim")}>AC    </Text>{t.acs.map((a, i) => (
-        <Text key={i} color={a.status === "done" || a.status === "already-met" ? color("ok") : a.id === t.ac ? color("accent") : color("faint")}>
+      <Text><Text {...look("dim")}>step  </Text><Text bold>{t.current || "-"}</Text>{t.ac ? <Text {...look("accent")}>{` · ${t.ac}`}</Text> : null}<Text {...look("dim")}>{` · phase ${t.phase || "none"}`}</Text></Text>
+      {all > 0 && <Text><Text {...look("dim")}>AC    </Text>{t.acs.map((a, i) => (
+        <Text key={i} {...look(a.status === "done" || a.status === "already-met" ? "ok" : a.id === t.ac ? "accent" : "faint")}>
           {a.status === "done" || a.status === "already-met" ? "■" : a.id === t.ac ? "▶" : "□"}</Text>))}
-        <Text color={done === all ? color("ok") : undefined}>{`  ${done}/${all}`}</Text></Text>}
-      {gates.length > 0 && <Text wrap="truncate-end"><Text color={color("dim")}>gates </Text>{gates.slice(0, Math.max(3, Math.floor(width / 22))).map((g, i) => (
-        <Text key={g.id} color={g.id === cur ? color("gate") : color("dim")} bold={g.id === cur}>{(i ? " · " : "") + (g.id === cur ? `◆ ${g.name}` : g.name)}</Text>))}</Text>}
-      {t.waiting && <Clickable act={on?.waiting ?? (() => undefined)}><Text color={color("gate")} bold wrap="truncate-end">
+        <Text {...look(done === all ? "ok" : "fg")}>{`  ${done}/${all}`}</Text></Text>}
+      {gates.length > 0 && <Text wrap="truncate-end"><Text {...look("dim")}>gates </Text>{gates.slice(0, Math.max(3, Math.floor(width / 22))).map((g, i) => (
+        <Text key={g.id} {...look(g.id === cur ? "gate" : "dim")} bold={g.id === cur}>{(i ? " · " : "") + (g.id === cur ? `◆ ${g.name}` : g.name)}</Text>))}</Text>}
+      {t.waiting && <Clickable act={on?.waiting ?? (() => undefined)}><Text {...look("gate")} bold wrap="truncate-end">
         {`◆ waiting for you: ${t.waiting.title} · ${t.waiting.kind === "clarify" ? "/answer" : fmt.answerWords(t.waiting)}${on ? " · click to answer" : ""}`}</Text></Clickable>}
-      {t.error && <Text color={color("bad")}>{t.error}</Text>}
+      {t.error && <Text {...look("bad")}>{t.error}</Text>}
     </PanelBox>
     </Clickable>
   );
@@ -203,17 +211,17 @@ export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: P
 
 export function AgentsPanel({ running, last, live, width, on, flowTitles }: { running: Job[]; last: Record<string, JobStep | undefined>; live?: Record<string, string>;
   width: number; on?: PanelActs; flowTitles?: Record<string, string> }) {
-  const { color, paint } = useTheme();
+  const { color, look, paint } = useTheme();
   return (
-    <PanelBox title={<>{"Agents · "}<Text color={running.length ? color("accent") : color("dim")}>{`${running.length} at work`}</Text></>}>
-      {running.length === 0 && <Text color={color("dim")}>No agent is running.</Text>}
+    <PanelBox title={<>{"Agents · "}<Text {...look(running.length ? "accent" : "dim")}>{`${running.length} at work`}</Text></>}>
+      {running.length === 0 && <Text {...look("dim")}>No agent is running.</Text>}
       {running.slice(0, 6).map((j) => {
         const writing = live?.[j.id];
         return (
           <Clickable key={j.id} act={() => on?.agent(j.id)}>
             <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null} tokens={fmt.tokensOf(j) || undefined}
               hint={[flowTitles ? fmt.flowOf(flowTitles, j.thread_id) : "", [j.step, j.ac].filter(Boolean).join(" ")].filter(Boolean).join(" · ")} />
-            {writing ? <Text color={color("fg")} wrap="truncate-end">{"   ✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text>
+            {writing ? <Text {...look("fg")} wrap="truncate-end">{"   ✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text>
               : last[j.id] && <Text wrap="truncate-end">{"   " + fmt.stepLine(last[j.id]!, width - 6, paint)}</Text>}
           </Clickable>
         );
@@ -223,16 +231,16 @@ export function AgentsPanel({ running, last, live, width, on, flowTitles }: { ru
 }
 
 export function InboxPanel({ s, on }: { s: Snapshot; on?: PanelActs }) {
-  const { color } = useTheme();
+  const { color, look } = useTheme();
   return (
-    <PanelBox title={<>{"Inbox · "}<Text color={s.inbox.length ? color("gate") : color("dim")}>{`${s.inbox.length} waiting`}</Text></>}>
-      {s.inbox.length === 0 && <Text color={color("dim")}>Nothing waits for you.</Text>}
+    <PanelBox title={<>{"Inbox · "}<Text {...look(s.inbox.length ? "gate" : "dim")}>{`${s.inbox.length} waiting`}</Text></>}>
+      {s.inbox.length === 0 && <Text {...look("dim")}>Nothing waits for you.</Text>}
       {s.inbox.slice(0, 6).map((i, k) => (
         <Clickable key={`${i.thread_id}-${k}`} act={() => on?.inbox(k + 1)}>
         <Text wrap="truncate-end">
-          <Text color={color("gate")} bold>{`${k + 1}. `}</Text><Text color={color("dim")}>{`${i.project_name || i.project_id} · `}</Text>
-          <Text color={color("gate")}>{`${i.kind}: ${i.title}`}</Text>
-          <Text color={color("faint")}>{` · /approve ${k + 1} · /reject ${k + 1} <why>`}</Text>
+          <Text {...look("gate")} bold>{`${k + 1}. `}</Text><Text {...look("dim")}>{`${i.project_name || i.project_id} · `}</Text>
+          <Text {...look("gate")}>{`${i.kind}: ${i.title}`}</Text>
+          <Text {...look("faint")}>{` · /approve ${k + 1} · /reject ${k + 1} <why>`}</Text>
         </Text>
         </Clickable>
       ))}
@@ -241,9 +249,9 @@ export function InboxPanel({ s, on }: { s: Snapshot; on?: PanelActs }) {
 }
 
 function PanelBox({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
-  const { color } = useTheme();
+  const { color, look } = useTheme();
   return (
-    <Box flexDirection="column" borderStyle="single" borderColor={color("border")} paddingX={1}>
+    <Box flexDirection="column" borderStyle="single" borderColor={color("border")} borderDimColor={!!look("border").dimColor} paddingX={1}>
       <Text bold>{title}</Text>
       {children}
     </Box>
@@ -274,7 +282,7 @@ export function PluginPanel({ plugin, panel, pid, width }: { plugin: string; pan
 /** One agent of a flow, followed (/agent <n>): what it is doing, its last steps and the text it writes now. Its steps
  *  are read again every 2 s; when it is finished the panel says so and stays until Esc or /panel off. */
 export function JobPanel({ id, s, width }: { id: string; s: Snapshot; width: number }) {
-  const { color, paint } = useTheme();
+  const { color, look, paint } = useTheme();
   const [steps, setSteps] = useState<JobStep[]>([]);
   const [running, setRunning] = useState(true);
   useEffect(() => {
@@ -295,12 +303,12 @@ export function JobPanel({ id, s, width }: { id: string; s: Snapshot; width: num
   const writing = s.liveText[id];
   const shown = steps.filter((x) => x.kind !== "thinking").slice(-6);
   return (
-    <PanelBox title={<>{"Agent · "}<Text color={color("accent")}>{j ? [j.agent, fmt.flowOf(s.flowTitles, j.thread_id), [j.step, j.ac].filter(Boolean).join(" ")].filter(Boolean).join(" · ") : id.slice(0, 8)}</Text>
-      <Text color={color("dim")}>{running ? "" : " · finished"}{" · Esc stops following"}</Text></>}>
+    <PanelBox title={<>{"Agent · "}<Text {...look("accent")}>{j ? [j.agent, fmt.flowOf(s.flowTitles, j.thread_id), [j.step, j.ac].filter(Boolean).join(" ")].filter(Boolean).join(" · ") : id.slice(0, 8)}</Text>
+      <Text {...look("dim")}>{running ? "" : " · finished"}{" · Esc stops following"}</Text></>}>
       {running && j && <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null} tokens={fmt.tokensOf(j) || undefined} />}
-      {shown.length === 0 && <Text color={color("dim")}>no steps yet</Text>}
+      {shown.length === 0 && <Text {...look("dim")}>no steps yet</Text>}
       {shown.map((x) => <Text key={x.n} wrap="truncate-end">{fmt.stepLine(x, width - 6, paint)}</Text>)}
-      {writing ? <Text color={color("fg")} wrap="truncate-end">{"✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text> : null}
+      {writing ? <Text {...look("fg")} wrap="truncate-end">{"✎ " + writing.replace(/\s+/g, " ").slice(-(width - 8))}</Text> : null}
     </PanelBox>
   );
 }
@@ -350,15 +358,15 @@ export function statusSegments(s: Snapshot): Seg[] {
 export const statusParts = (s: Snapshot) => statusSegments(s).map((x) => x.text.replace(/^● /, ""));
 
 export function StatusLine({ s }: { s: Snapshot }) {
-  const { color } = useTheme();
+  const { color, look } = useTheme();
   const segs = statusSegments(s);
   return (
     <Text wrap="truncate-end">
       {" "}
       {segs.map((x, i) => (
         <Text key={i}>
-          {i ? <Text color={color("faint")}>{" · "}</Text> : null}
-          <Text color={color(x.role)} bold={x.bold}>{x.text}</Text>
+          {i ? <Text {...look("faint")}>{" · "}</Text> : null}
+          <Text {...look(x.role)} bold={x.bold}>{x.text}</Text>
         </Text>
       ))}
     </Text>

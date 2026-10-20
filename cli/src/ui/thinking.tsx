@@ -36,10 +36,10 @@ export function Thinking({ verb, since, tokens, hint, who, interval = 160 }: {
   const bits = [`${s}s`, ...(tokens ? [`~${fmt.short(tokens)} tokens`] : []), ...(hint ? [hint] : [])];
   return (
     <Text>
-      <Text color={t.color("accent")} bold>{frames[tick % frames.length]} </Text>
+      <Text {...t.look("accent")} bold>{frames[tick % frames.length]} </Text>
       {who ? <Text bold>{who} · </Text> : null}
-      <Text color={t.color("accent")}>{verb}…</Text>
-      <Text color={t.color("dim")}>{` (${bits.join(" · ")})`}</Text>
+      <Text {...t.look("accent")}>{verb}…</Text>
+      <Text {...t.look("dim")}>{` (${bits.join(" · ")})`}</Text>
     </Text>
   );
 }

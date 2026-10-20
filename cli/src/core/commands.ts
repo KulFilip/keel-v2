@@ -9,7 +9,7 @@ import { rulesApi } from "../../../web/src/rulesApi";
 import * as fmt from "./format";
 import { setCommand } from "./transport";
 import type { KeelCore } from "./keel";
-import { PLAIN, type Paint } from "./theme";
+import { parseThemeName, PLAIN, type Paint, type ThemeName } from "./theme";
 import table from "../../../content/agent-clients/commands.json";
 import { fixRequest } from "../../../web/src/askFix";
 import { AGENT_TOOLS, prepare, pressButton, RUN_MODE_ABOUT, RUN_MODES, toButton, type Button } from "./buttons";
@@ -57,6 +57,8 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   prompt?: string;
   /** 0.18.19 a KeelBot answer was undone (undo) or redone (not): its question's turn on screen is drawn dim, or not any more */
   revert?: { undo: boolean; text: string };
+  /** /theme: keel TUI's palette from now on (dark, light, auto) */
+  theme?: ThemeName;
   /** 0.18.6 a plugin's mode, opened: it takes the screen until Esc (core/modes.ts) */
   mode?: import("./modes").ModeSession };
 
@@ -1001,6 +1003,12 @@ const IMPLS: Impl[] = [
     const w = a.trim().toLowerCase();
     if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");
     return { blocks: [], mouse: w ? w === "on" : "toggle" };
+  } },
+  { name: "theme", run: (_ctx, a) => {
+    if (!a.trim()) return text(`/theme dark, /theme light or /theme auto (KEEL_TUI_THEME sets it at the start).`);
+    const name = parseThemeName(a);
+    if (!name) return fail("/theme dark, /theme light or /theme auto.");
+    return { blocks: [], theme: name };
   } },
   // 0.18.18 write the prompt in the person's own editor: the words after /editor (or nothing) open in it, what they
   // save comes back into the prompt to read and send (Ctrl+X E opens the prompt as it is)

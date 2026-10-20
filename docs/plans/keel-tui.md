@@ -136,9 +136,13 @@ this branch's api, engine, plugins and keel TUI on top of 0.17.3's): captures in
   the whole message (helper.step text / answer) stays the record and replaces the live text
 ```
 
-- **Colours**: the dashboard's palette (`cli/src/core/theme.ts`: DARK and LIGHT from `web/src/styles.css`, the code
-  colours from the code view's `--hl-*`), truecolor with a 256-colour fallback, NO_COLOR, `KEEL_TUI_THEME=dark|light|terminal`,
-  COLORFGBG for a light terminal. Both palettes are tested for contrast on their background (text ≥ 4.5:1).
+- **Colours**: semantic roles (`cli/src/core/theme.ts`: person, keelbot, heading, gate, question, option, recommended,
+  chosen, suggest, hint, detail, meta, ok / warn / bad, code, path, link, add / del) on the terminal's own named ANSI
+  colours, so its theme picks the shade; fixed shades only where a named colour is too pale (green and amber on light,
+  the meta grey on a known background). Palettes DARK, LIGHT and AUTO (background unknown: meta is the text colour
+  dimmed, nothing fixed). `KEEL_TUI_THEME=dark|light|auto`, else COLORFGBG, else the background the terminal reports
+  (OSC 11), else auto; `/theme dark|light|auto` while it runs; NO_COLOR and FORCE_COLOR. Colour is never the only sign:
+  the person's " › " is bold, gates and notices have "◆", suggestions "✦", questions "?" and their number.
 - **Code**: highlight.js (the web's highlighter) → the palette's code roles (`highlight.ts`); diffs with line numbers.
 - **Working**: a turning compass over a wave, a keel verb per turn, seconds, `~tokens`, `esc to interrupt` (Esc stops
   the turn: `POST …/helper/sessions/{sid}/stop`); one line per agent at work.
@@ -150,8 +154,8 @@ xal we took how to use colour richly (code that was adapted keeps xal's notice; 
 
 | xal | keel TUI |
 |-----|----------|
-| colours are the terminal's own 16 (`theme/colors.ts`: faint 8, red 9, green 10, yellow 11, blue 12, magenta 13, cyan 14), so any terminal theme fits | `KEEL_TUI_THEME=terminal`, and the default in a 16-colour terminal (accent on magenta) |
-| a person's message on a background 8 % toward the text colour (`userMessageBackground`) | the same tint behind " › your words", with a line of air above |
+| colours are the terminal's own 16 (`theme/colors.ts`: faint 8, red 9, green 10, yellow 11, blue 12, magenta 13, cyan 14), so any terminal theme fits | every palette is on the terminal's named colours (`KEEL_TUI_THEME=terminal` is auto now) |
+| a person's message on a background 8 % toward the text colour (`userMessageBackground`) | a bold " › " in the person's colour and bold words, with a line of air above (no tint: it needs the background's exact shade) |
 | tool calls settle as one line: `>` reads, `*` changes, the title faint, the outcome right-aligned (✓ green, x red, the seconds) | the live tool lines and the settled list above each answer |
 | the end of a turn: `✓ Finished in 4.2s`, `x Failed after …`, `! Interrupted after …` | the line under each answer, with the model and tokens |
 | a question is amber with `?` and `↑↓ · Enter · Esc` (`permission-popover.ts`) | pickers that ask (title ends in "?") in amber with "?"; lists stay in the accent |

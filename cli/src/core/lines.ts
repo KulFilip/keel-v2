@@ -2,7 +2,6 @@
 // name stays at the top and the prompt at the bottom. No UI here: a block (and the start screen) becomes lines no
 // wider than the screen; App.tsx shows the part that fits and moves it with PgUp / PgDn, Shift+↑↓ and the wheel.
 
-import { Chalk } from "chalk";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import type { Block } from "./commands";
@@ -44,20 +43,51 @@ export function wrap(text: string, width: number): string[] {
 
 const indent = (lines: string[], n: number) => lines.map((l) => " ".repeat(n) + l);
 
-/** One block of the transcript as lines; `tint` is the background of the person's own messages (none without colour). */
-export function blockLines(b: Block, width: number, p: Paint, tint?: string, level: 0 | 1 | 2 | 3 = 3): string[] {
+/** A note (a "dim" block: what was chosen, what was not done, where a suggestion waits) in its roles: "q → answer"
+ *  with the answer as the chosen one, "it waits at:" as a gate, "not done" as a warning, the rest quiet meta text. */
+export function noteText(text: string, p: Paint): string {
+  if (!p.colored) return text;
+  return text.split("\n").map((l) => {
+    let m: RegExpExecArray | null;
+    if ((m = /^(\s*)(it waits at:)(.*)$/.exec(l))) return m[1] + p.strong("gate", m[2]) + p.detail(m[3]);
+    if ((m = /^(\s*)(.*?)( → )(.*)$/.exec(l))) return m[1] + p.detail(m[2]) + p.meta(m[3]) + p.strong("chosen", m[4]);
+    if (/^\s*(not done|not sent|left as it is|cancel)/i.test(l)) return p.warn(l);
+    return p.meta(l);
+  }).join("\n");
+}
+
+/** A plain text block in its roles where it has a known shape: a question card ("1/2 the question?" and its why
+ *  under it), the check of the answers ("Your answers:", each "→ answer"). Other text (and text that has its colours
+ *  already) stays as it is. */
+export function textBlock(text: string, p: Paint): string {
+  if (!p.colored || /\x1b\[/.test(text)) return text;
+  const [first, ...rest] = text.split("\n");
+  const q = /^(\d+\/\d+) (.*)$/.exec(first);
+  if (q) return [p.strong("gate", q[1]) + " " + p.strong("question", q[2]), ...rest.map((l) => fmt.labelLine(l, p))].join("\n");
+  if (first === "Your answers:") return [p.strong("heading", first), ...rest.map((l) => {
+    const a = /^(\s*)(→ )(.*)$/.exec(l);
+    if (a) return a[1] + p.meta(a[2]) + p.strong("chosen", a[3]);
+    const n = /^(\s*)(\d+\.)( .*)$/.exec(l);
+    return n ? n[1] + p.meta(n[2]) + p.strong("question", n[3]) : l;
+  })].join("\n");
+  return text;
+}
+
+/** One block of the transcript as lines. The person's message: a bold "›" in the person's colour and bold words;
+ *  KeelBot's answer: the terminal's own text colour, indented under it. */
+export function blockLines(b: Block, width: number, p: Paint): string[] {
   const role = (r: Role, s: string) => p[r](s);
   if (b.reverted) {
-    // 0.18.19 a KeelBot answer /undo took back: dim, as plain text, and the person's message says it is undone
-    if (b.kind === "user") return ["", ...wrap(`${b.text}  (undone)`, width - 3).map((r, i) => p.faint((i ? "   " : " ↶ ") + r))];
-    return indent(wrap(b.text, width - 2), 2).map((l) => p.faint(l));
+    // 0.18.19 a KeelBot answer /undo took back: quiet, as plain text, and the person's message says it is undone
+    if (b.kind === "user") return ["", ...wrap(`${b.text}  (undone)`, width - 3).map((r, i) => p.meta((i ? "   " : " ↶ ") + r))];
+    return indent(wrap(b.text, width - 2), 2).map((l) => p.meta(l));
   }
   switch (b.kind) {
     case "markdown": return indent(wrap(renderMarkdown(b.text, p, width - 2), width - 2), 2);
     // a diagram keeps its lines whole: a line wider than the screen is cut by the view, never folded
     case "diagram": return indent(colorDiagram(b.text, p).split("\n"), 1);
-    case "error": return wrap(role("bad", "✗ " + b.text), width);
-    case "ok": return wrap(role("ok", "✓ " + b.text), width);
+    case "error": return wrap(p.bold(role("bad", "✗ ")) + role("bad", b.text), width);
+    case "ok": return wrap(p.bold(role("ok", "✓ ")) + role("ok", b.text), width);
     case "notice": {
       const r = noticeRole(b.text);
       const s = role(r, "◆ " + b.text);
@@ -65,14 +95,11 @@ export function blockLines(b: Block, width: number, p: Paint, tint?: string, lev
     }
     case "user": {
       const rows = wrap(b.text, width - 3);
-      const head = p.bold(p.accent(" › "));
-      const out = rows.map((r, i) => (i ? "   " : head) + p.bold(r));
-      if (!tint || !level) return ["", ...out];
-      const bg = new Chalk({ level }).bgHex(tint);
-      return ["", ...out.map((l) => bg(l + " ".repeat(Math.max(0, width - stringWidth(l)))))];
+      const head = p.strong("person", " › ");
+      return ["", ...rows.map((r, i) => (i ? "   " : head) + p.bold(r))];
     }
-    case "dim": return wrap(role("dim", b.text), width);
-    default: return wrap(b.text, width);
+    case "dim": return wrap(noteText(b.text, p), width);
+    default: return wrap(textBlock(b.text, p), width);
   }
 }
 

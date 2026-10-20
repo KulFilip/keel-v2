@@ -343,6 +343,14 @@
       "group": "Screen"
     },
     {
+      "name": "theme",
+      "args": "[dark|light|auto]",
+      "summary": "keel TUI's colours for a dark or a light background, or auto (colours that read on both)",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
       "name": "editor",
       "args": "[text]",
       "summary": "write the prompt in your editor ($VISUAL or $EDITOR): what you save comes back into the prompt, Enter sends it (Ctrl+X E opens the prompt as it is)",

@@ -70,7 +70,7 @@ describe("KeelBot's buttons", () => {
     const f = t.frame();
     expect(f).toContain("One flow runs. I can stop it for you:");
     expect(f).not.toContain('"do": "stop"');
-    expect(f).toContain('? KeelBot suggests: stop "Add a health endpoint"?');
+    expect(f).toContain('✦ KeelBot suggests: stop "Add a health endpoint"?');
     await t.enter();                                                    // Yes
     expect(t.stub.calls.some((c) => c.method === "POST" && c.path === "/api/threads/t1/stop")).toBe(true);
     expect(t.frame()).toContain('✓ stopped "Add a health endpoint". Finished steps stay saved.');
