@@ -201,7 +201,7 @@ describe("Flow v0.2", () => {
     await user.selectOptions(within(dlg).getByLabelText("When the cap is hit"), "stop");
     expect(within(dlg).getByTestId("sf-cap-low")).toHaveTextContent("the flow will stop before it is done");
     await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/yegi/flows")[0]?.body).toEqual({ workflow_id: "feature", title: "Rank next to top 10", cap_tokens: 250000, on_cap: "stop" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/yegi/flows")[0]?.body).toEqual({ workflow_id: "feature", title: "Rank next to top 10", cap_tokens: 250000, on_cap: "stop", run_mode: "manual" }));
     expect(calls("PUT", "/api/projects/yegi/settings")).toHaveLength(0);
   });
 });

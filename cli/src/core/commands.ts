@@ -143,8 +143,8 @@ async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: bo
     // the reply can come back before the graph reaches its first step: no step and no phase yet, so say it is starting
     const at = t.current || t.phase ? ` at ${t.current || "-"} (phase ${t.phase || "none"})` : "";
     const now = at || (t.status && t.status !== "running") ? `It is ${t.status}${at}` : "It is starting";
-    const lines = [`started ${wid} "${title}" on ${p.id} (thread ${t.thread_id}) in ${t.run_mode ?? flags.mode ?? "manual"} mode, recorded as started via keel TUI.`,
-      `${now}; it runs until its first gate for you.`];
+    const lines = [`started ${wid} "${title}" on ${p.id} (thread ${t.thread_id}), recorded as started via keel TUI.`,
+      `${now}; it runs until its first gate for you. Run mode: ${t.run_mode ?? flags.mode ?? "the project's"}.`];
     if (t.cap_note) lines.push(t.cap_note);
     lines.push("Follow it: Ctrl+F (flow rail), /live (agents), /next.");
     return ok(lines.join("\n"));
