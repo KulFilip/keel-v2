@@ -393,6 +393,15 @@
    "group": "refactor"
   },
   {
+   "id": "ac_suite",
+   "kind": "code",
+   "name": "the tests outside this criterion",
+   "phase": "green",
+   "action": "verify_after_green",
+   "per_ac": true,
+   "back": "green"
+  },
+  {
    "id": "ac_review",
    "kind": "agent",
    "name": "AC review",
@@ -1387,6 +1396,7 @@
    "verify_green",
    "refactor",
    "refactor_commit",
+   "ac_suite",
    "ac_review",
    "ac_gate",
    "integration",
@@ -1664,6 +1674,10 @@
        },
        {
         "step": "refactor_commit",
+        "side": []
+       },
+       {
+        "step": "ac_suite",
         "side": []
        },
        {

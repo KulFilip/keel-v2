@@ -57,4 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \       then -> red  (loops back)
       \ [ ] the amendment again with your note  (code amend_with_note)
       \       then -> spec amendment
-... 125 more (zoom with id=contract)
+... 127 more (zoom with id=contract)

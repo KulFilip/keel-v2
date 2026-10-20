@@ -166,7 +166,7 @@ def test_the_red_prompt_names_the_test_the_filter_finds(tmp_path):
 def test_mcp_status_shows_the_order_and_the_real_choices_without_cutting_words():
     from keel_engine import mcp_server
 
-    detail = "AC-1 came back.\n\nChoose one:\n- first: build AC-2 (ranks) first, then AC-1\n- skip: move AC-1 to the end\n- stop: stop the flow\n" + "word " * 400
+    detail = "AC-1 came back.\n\nChoose one:\n- first: build AC-2 (ranks) first, then AC-1\n- skip: move AC-1 to the end\n- stop: stop the flow\n" + "word " * 1000
     thread = {"thread_id": "t", "status": "waiting", "current": "amend_loop", "phase": "spec", "ac": "AC-1",
               "acs": [{"id": "AC-2", "status": "done"}, {"id": "AC-1", "status": "todo"}], "ac_order": {"from": "keel"},
               "waiting": {"step": "amend_loop", "kind": "gate", "title": "the amendment changed nothing", "options": ["approve"],
@@ -178,7 +178,8 @@ def test_mcp_status_shows_the_order_and_the_real_choices_without_cutting_words()
     text = mcp_server.status(Api(), "p")
     assert "order     AC-2 → AC-1 (from keel moved it (an order question))" in text
     assert "first: build AC-2 (ranks) first, then AC-1" in text and "options: approve" not in text
-    assert "word word …\nusage" in text and "wor …" not in text      # cut between words, with the sign it was cut
+    assert "word word …\n" in text and "wor …" not in text      # cut between words, with the sign it was cut
+    assert "(the gate's text goes on: 5,1" in text and "keel_read_gate(project='p', flow='t') reads it whole" in text   # 0.18.28
     nxt = mcp_server.next_action(Api(), "p")
     assert "choose one" in nxt and "stop:" in nxt
 

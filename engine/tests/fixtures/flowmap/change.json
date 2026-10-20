@@ -139,6 +139,15 @@
    "lock": true
   },
   {
+   "id": "ac_suite",
+   "kind": "code",
+   "name": "the tests outside this criterion",
+   "phase": "green",
+   "action": "verify_after_green",
+   "per_ac": true,
+   "back": "green"
+  },
+  {
    "id": "ac_gate",
    "kind": "gate",
    "name": "AC gate",
@@ -605,6 +614,7 @@
    "verify_red",
    "green",
    "verify_green",
+   "ac_suite",
    "ac_gate",
    "ship_plan",
    "ship_doc_updates",
@@ -731,6 +741,10 @@
        },
        {
         "step": "verify_green",
+        "side": []
+       },
+       {
+        "step": "ac_suite",
         "side": []
        },
        {

@@ -63,6 +63,15 @@
    "lock": true
   },
   {
+   "id": "ac_suite",
+   "kind": "code",
+   "name": "the tests outside this criterion",
+   "phase": "green",
+   "action": "verify_after_green",
+   "per_ac": true,
+   "back": "green"
+  },
+  {
    "id": "review_fix",
    "kind": "agent",
    "name": "fix the review's findings",
@@ -122,6 +131,7 @@
    "verify_red",
    "green",
    "verify_green",
+   "ac_suite",
    "review_fix",
    "review_fix_commit",
    "review",
@@ -175,6 +185,10 @@
        },
        {
         "step": "verify_green",
+        "side": []
+       },
+       {
+        "step": "ac_suite",
         "side": []
        }
       ]
