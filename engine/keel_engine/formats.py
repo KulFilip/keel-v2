@@ -130,6 +130,10 @@ commands:                   # the project's own commands; {AC} (AC-6), {AC_ID} (
   api_compile: <the cheapest build check>               # web: web_typecheck
 tools:                      # programs keel runs itself: on edit | batch | pre-commit | pre-push | manual
   <name>: {run: <command, {FILES} for the changed files>, on: pre-commit, fail: fix | block | warn, match: <regex of files>}
+setup:                      # optional: what the stack needs in keel's container (it has Java, Node and Python only)
+  apt: [php8.3-cli, composer]          # system packages keel installs at start (Debian names)
+  run: []                              # root commands after apt, for a tool apt has no package for
+  each_worktree: [composer install -n] # run in the lane's folder of each new flow worktree (git-ignored installs)
 skills: {testing: <skill id>}   # optional: the skills agents read for this stack
 Read the project first (package.json scripts, the Gradle or Maven build, pyproject.toml, composer.json, a Makefile, \
 .pre-commit-config.yaml): every command must be one this project really has; never copy the example's. keel's \

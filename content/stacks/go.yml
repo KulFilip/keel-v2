@@ -26,6 +26,11 @@ commands:
 
 dependency_files: [go.mod]
 
+# What this stack needs in keel's container: keel's image has no Go, so keel installs it at start, in the background
+# (again after an update, from its apt cache). Modules download on the first build; nothing to do per worktree.
+setup:
+  apt: [golang-go]
+
 # Programs keel runs for this stack, in backend.dir (runtime/tools.py).
 tools:
   gofmt:

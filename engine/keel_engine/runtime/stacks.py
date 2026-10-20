@@ -6,6 +6,8 @@
                      (exclude_files first, then files / package_deps / extensions, in the root and one folder down);
                      never one the project turned off (keel 0.18.9: `stacks: {ignore: [name]}` in .keel/config.yml)
     turned_off(root) those names
+    validate_setup(block)  what is wrong with a stack's `setup:` block (keel 0.18.22, runtime/stack_setup.py); a stack read
+                     here with a broken one keeps everything else, its setup is left out and _setup_errors says why
 
 Detection walks the tree for `extensions`, so the answer is kept for a minute per root.
 """
@@ -13,12 +15,16 @@ Detection walks the tree for `extensions`, so the answer is kept for a minute pe
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from pathlib import Path
 
 import yaml
 
 from .. import config
+
+log = logging.getLogger(__name__)
 
 SKIP = {"node_modules", "build", ".git", ".venv", "venv", "dist", "target", ".gradle", "vendor", "__pycache__"}
 TTL = 60.0
@@ -32,7 +38,44 @@ def _read(f: Path, source: str) -> dict | None:
         return None
     if not isinstance(doc, dict) or not doc.get("name"):
         return None
-    return {**doc, "_source": source, "_file": str(f)}
+    out = {**doc, "_source": source, "_file": str(f)}
+    if "setup" in out:
+        errors = validate_setup(out["setup"])
+        if errors:
+            log.warning("stack %s (%s): its setup block is left out: %s", doc.get("name"), f, "; ".join(errors))
+            out.pop("setup")
+            out["_setup_errors"] = errors
+    return out
+
+
+# ------------------------------------------------------------------ setup: (keel 0.18.22)
+
+SETUP_KEYS = ("apt", "run", "each_worktree")
+APT_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,99}$")
+SETUP_CMD_MAX = 2000
+
+
+def validate_setup(block) -> list[str]:
+    """The errors of a stack's `setup:` block (empty = fine; None = no block). apt: Debian package names; run and
+    each_worktree: shell commands, one per entry."""
+    if block is None:
+        return []
+    if not isinstance(block, dict):
+        return ["setup is not a mapping: give apt, run or each_worktree, each a list"]
+    errors = [f"setup.{k} is not something keel reads (apt, run, each_worktree)" for k in block if k not in SETUP_KEYS]
+    for k in SETUP_KEYS:
+        v = block.get(k)
+        if v is None:
+            continue
+        if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
+            errors.append(f"setup.{k} is not a list of text")
+            continue
+        for x in v:
+            if k == "apt" and not APT_NAME.match(x.strip()):
+                errors.append(f"setup.apt has {x!r}: a package name is lower-case letters, digits, + . and -")
+            elif k != "apt" and len(x) > SETUP_CMD_MAX:
+                errors.append(f"setup.{k} has a command longer than {SETUP_CMD_MAX} characters")
+    return errors
 
 
 def shipped() -> list[dict]:

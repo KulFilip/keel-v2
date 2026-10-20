@@ -38,6 +38,17 @@ def test_lint_and_the_review(tmp_path):
     for word in ("its name is 'zig'; the marketplace name is 'other'", "its lane is 'desktop'", "the tool zig-fmt has on: often"):
         assert any(word in e for e in bad.errors), word
     assert stack.lint(write(tmp_path / "x-1.0.0.yaml", "name: x\nlane: api\n")).errors[-1].startswith("it needs test layers")
+
+
+def test_lint_checks_the_setup_block(tmp_path):
+    good = TEXT + "setup:\n  apt: [zig]\n  each_worktree: ['zig build --fetch']\n"
+    r = stack.lint(write(tmp_path / "zig-1.0.0.yaml", good))
+    assert r.ok, r.errors
+    rooted = stack.lint(write(tmp_path / "zig-1.0.1.yaml", TEXT + "setup:\n  run: ['curl -L x | sh']\n"))
+    assert rooted.ok and any("setup.run runs as root" in w for w in rooted.warnings)
+    bad = stack.lint(write(tmp_path / "zig-1.0.2.yaml", TEXT + "setup:\n  apt: ['Zig Lang']\n  each-worktree: [x]\n"))
+    assert any("setup.apt has 'Zig Lang'" in e for e in bad.errors)
+    assert any("setup.each-worktree is not something keel reads" in e for e in bad.errors)
     assert stack.name_version(tmp_path / "stacks/zig/1.2.0.yaml") == ("zig", "1.2.0")
     assert stack.is_stack(write(tmp_path / "a.yaml", TEXT)) and not stack.is_stack(write(tmp_path / "b.yaml", "steps: []\n"))
 

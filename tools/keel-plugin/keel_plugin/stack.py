@@ -12,6 +12,7 @@ repo), at most 64 KB, signed like a plugin, and **shipped unchanged**: it is the
     layers: [{id, what, where}]    required: the test layers, lowest first
     commands: {api_test_ac: …}     the project's commands ({AC}, {AC_ID}, {AC_KEY}, {PKG}, {PATHS})
     tools: {name: {run, on, fail, match?}}   programs keel runs (on: manual | edit | batch | pre-commit | pre-push)
+    setup: {apt: [package], run: [command], each_worktree: [command]}   what the stack needs in keel's container
     skills: {testing: <skill id>}
 
 The review (keel's engine builds the same from the file, keel_engine.marketplace.kinds.stack_review): {lane, detect,
@@ -35,6 +36,8 @@ CATEGORIES = ("jvm", "javascript", "python", "php", "go", "rust", "dotnet", "oth
 LANES = ("api", "web")
 WHEN = ("manual", "edit", "batch", "pre-commit", "pre-push")
 FAIL = ("fix", "block", "warn")
+SETUP_KEYS = ("apt", "run", "each_worktree")
+APT_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,99}$")
 
 
 @dataclass
@@ -145,8 +148,31 @@ def lint_doc(doc, r: StackReport) -> None:
             r.errors.append(f"the tool {k} has on: {_on(v)}, which is not one of {', '.join(WHEN)}")
         elif v.get("fail") is not None and str(v["fail"]) not in FAIL:
             r.errors.append(f"the tool {k} has fail: {v['fail']}, which is not one of {', '.join(FAIL)}")
+    r.errors += setup_errors(doc.get("setup"))
+    if isinstance(doc.get("setup"), dict) and doc["setup"].get("run"):
+        r.warnings.append("setup.run runs as root inside keel's container: say why in the stack's description")
     if doc.get("starter"):
         r.warnings.append("starter: a single stack file has no files for it; keel skips the ones that are not there")
+
+
+def setup_errors(block) -> list[str]:
+    """keel 0.18.22 the setup: block (the engine's runtime/stacks.validate_setup): apt names packages, run and
+    each_worktree are commands, each a list."""
+    if block is None:
+        return []
+    if not isinstance(block, dict):
+        return ["setup is not a mapping: give apt, run or each_worktree, each a list"]
+    out = [f"setup.{k} is not something keel reads (apt, run, each_worktree)" for k in block if k not in SETUP_KEYS]
+    for k in SETUP_KEYS:
+        v = block.get(k)
+        if v is None:
+            continue
+        if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
+            out.append(f"setup.{k} is not a list of text")
+        elif k == "apt":
+            out += [f"setup.apt has {x!r}: a package name is lower-case letters, digits, + . and -" for x in v
+                    if not APT_NAME.match(x.strip())]
+    return out
 
 
 def lint(path: Path, name: str | None = None, version: str | None = None) -> StackReport:

@@ -242,6 +242,14 @@ def check(root: str | None, text: str, replace: bool = False) -> dict:
     if doc.get("starter"):
         warnings.append("starter: its files come with a pack's folder; a single stack file has none, so keel skips them "
                         "when the files are not there")
+    setup = doc.get("setup")
+    errors += stacks.validate_setup(setup)
+    if isinstance(setup, dict) and not stacks.validate_setup(setup):
+        if setup.get("run"):
+            warnings.append("setup.run runs as root inside keel's container, at every start: read each command")
+        if setup.get("each_worktree") and not doc.get("dependency_files"):
+            warnings.append("setup.each_worktree runs in each new flow worktree; with dependency_files keel also runs "
+                            "it where the installed folder is missing (composer.json without vendor/)")
     if root and isinstance(name, str) and PACK_NAME.match(name):
         mine = next((d for d in stacks.project_defs(root) if d["name"] == name), None)
         theirs = next((d for d in stacks.shipped() if d["name"] == name), None)
@@ -272,10 +280,18 @@ def _clean_list(v) -> list[str]:
     return [str(x).strip() for x in v or [] if str(x).strip()] if isinstance(v, (list, tuple, str)) else []
 
 
+def _setup_list(key: str, v) -> list[str]:
+    """A setup answer as a list: packages split at commas, spaces or lines; commands one per line (a command may hold a
+    comma or a space)."""
+    if isinstance(v, str):
+        v = re.split(r"[,\s]+", v) if key == "apt" else v.splitlines()
+    return [str(x).strip() for x in v or [] if str(x).strip()] if isinstance(v, (list, tuple)) else []
+
+
 def render(form: dict) -> str:
     """The New stack form's answers as a stack YAML: {name, lane, detect: {files, package_deps, extensions,
     exclude_files}, layers: [{id, what, where}], commands: {key: command}, tools: {name: {run, on, fail, match?,
-    description?, timeout?}}, skills: {kind: id}}. Empty answers are left out."""
+    description?, timeout?}}, setup: {apt, run, each_worktree}, skills: {kind: id}}. Empty answers are left out."""
     f = form if isinstance(form, dict) else {}
     doc: dict = {"name": str(f.get("name") or "").strip(), "lane": str(f.get("lane") or "").strip()}
     det = f.get("detect") if isinstance(f.get("detect"), dict) else {}
@@ -309,6 +325,10 @@ def render(form: dict) -> str:
             tool_block[str(k)] = t
     if tool_block:
         doc["tools"] = tool_block
+    st = f.get("setup") if isinstance(f.get("setup"), dict) else {}
+    setup = {k: _setup_list(k, st.get(k)) for k in stacks.SETUP_KEYS}
+    if any(setup.values()):
+        doc["setup"] = {k: v for k, v in setup.items() if v}
     sk = f.get("skills")
     if isinstance(sk, dict) and any(str(v or "").strip() for v in sk.values()):
         doc["skills"] = {str(k): str(v).strip() for k, v in sk.items() if str(v or "").strip()}

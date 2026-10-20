@@ -96,6 +96,15 @@ schema_snapshot: docs/schema.sql
 
 dependency_files: [composer.json]
 
+# What this stack needs in keel's container. keel's image has no PHP: keel installs the apt packages at start, in the
+# background (again after an update or a restart, from its apt cache in the data volume), and runs each_worktree in the
+# backend folder of each new flow worktree (vendor/ is git-ignored, so a new worktree has none). Native mode installs
+# nothing: keel says what is missing.
+setup:
+  apt: [php8.3-cli, php8.3-xml, php8.3-mbstring, php8.3-sqlite3, php8.3-intl, php8.3-curl, unzip, composer]
+  each_worktree:
+    - composer install -n --no-progress
+
 # What this stack needs inside a dev container. Same keys as every other pack's block — see
 # stacks/kotlin-spring.yml's comment for why.
 devcontainer:
