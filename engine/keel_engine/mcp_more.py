@@ -68,11 +68,18 @@ def inbox(api: KeelApi, project: str | None = None) -> str:
         if i.get("choices"):
             out.append('    choices (choice="<name>"):')
             out += ask_mod.choice_lines(i, "      ")
+        for k in ("approve", "reject"):
+            e = (i.get("plain") or {}).get(k) if isinstance(i.get("plain"), dict) else None
+            if isinstance(e, dict) and e.get("does"):
+                out.append(f"    a plain {k} here {e['does']} (reason: {e.get('reason') or '-'})")
         out += ask_mod.question_lines(i.get("questions"), "    ")
         if i.get("questions") or i.get("choices"):
             out.append("    " + ask_mod.how_to_answer(i) + f" (thread_id={i.get('thread_id')!r}; ask_person=true asks in a form)")
         if i.get("detail"):
-            out.append("    " + str(i["detail"])[:300].replace("\n", "\n    "))
+            d = str(i["detail"])
+            out.append("    " + d[:600].replace("\n", "\n    ")
+                       + (f" … (cut: keel_read_gate(project={i.get('project_id')!r}, flow={i.get('thread_id')!r}) reads it "
+                          "whole)" if len(d) > 600 or i.get("more") else ""))
     return "\n".join(out)
 
 
@@ -243,12 +250,25 @@ def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: s
     return f"answered thread {thread_id} ({decision}). The flow is {st.get('status')} at {st.get('current') or '-'}."
 
 
+EDIT_CHOICES = ("edit", "change", "rewrite", "context", "reject")   # 0.18.28 a gate's edit choices, the closest first
+
+
 def edit_gate(api: KeelApi, notes: str, project: str | None = None) -> str:
-    """Send a waiting gate back with notes: the agent changes its work and the gate asks again."""
+    """Send a waiting gate back with notes: the agent changes its work and the gate asks again. 0.18.28 a gate with
+    named choices takes its edit choice with the notes (the spec gate's edit, the contract's change, an amendment's
+    context); a plain send-back only where the gate takes one."""
     if not (notes or "").strip():
         raise ApiError("notes are empty: say what to change.")
     from .mcp_server import approve_gate
 
+    w, _tid = waiting_of(api, project)
+    choices = [str(c) for c in (w or {}).get("choices") or []]
+    pick = next((c for c in EDIT_CHOICES if c in choices), None)
+    if pick:
+        return approve_gate(api, "approve", project, notes, None, pick)
+    if w and choices and "reject" not in (w.get("options") or ["approve", "reject"]):
+        return (f"{w.get('title')}: it has no edit choice ({', '.join(choices)}). Pick one with keel_approve_gate "
+                "(choice=..., why=your notes).")
     return approve_gate(api, "reject", project, notes)
 
 

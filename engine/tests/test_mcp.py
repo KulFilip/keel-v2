@@ -16,7 +16,7 @@ from keel_engine.tools import mcp as mcp_tools
 # 0.16.1's places: plugins/ci, plugins/db and plugins/git engine tests; tests/test_db_part.py has the whole lists)
 # the marketplace's four tools come last at every level (keel_plugin_request only asks: docs/plugins/13-step4-contract.md §7)
 MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
+READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
               "keel_dashboard",                                                                    # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
               "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
@@ -132,7 +132,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     import asyncio
 
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
-    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
+    read = ["keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
             "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
             "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]

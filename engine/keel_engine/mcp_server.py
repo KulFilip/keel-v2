@@ -25,6 +25,9 @@ from __future__ import annotations
 
 import argparse
 import copy
+import functools
+import inspect
+import logging
 import os
 import re
 from pathlib import Path
@@ -43,6 +46,8 @@ from . import extensions, rules
 from . import mcp_ask as ask_mod
 from .runtime import md
 from .addons import NAME
+
+log = logging.getLogger("keel.mcp")
 
 API_TIMEOUT = 15
 BUCKETS = ["api-main", "api-test", "web-src", "web-test", "contract", "specs", "migration", "e2e", "smoke", "other"]
@@ -248,7 +253,27 @@ def _choice_lines_at(w: dict, indent: str) -> list[str]:
     return ask_mod.choice_lines(w, indent)
 
 
-def _waiting_lines(w: dict) -> list[str]:
+GATE_PAGE = 12_000       # 0.18.28 keel_read_gate's page: a gate's text is paged, never cut without a word
+STATUS_DETAIL = 4_000    # keel_status shows this much of a gate's text, then says how to read the rest
+
+
+def plain_lines(w: dict, indent: str = "          ") -> list[str]:
+    """0.18.28 what a plain approve and a plain reject do at this gate, and whether the reason is used."""
+    out = []
+    for k in ("approve", "reject"):
+        e = (w.get("plain") or {}).get(k) if isinstance(w.get("plain"), dict) else None
+        if isinstance(e, dict) and e.get("does"):
+            out.append(f"{indent}a plain {k} here {e['does']} (reason: {e.get('reason') or '-'})")
+    return out
+
+
+def read_gate_hint(thread: dict, project: str | None, page: int = 2) -> str:
+    args = ", ".join(x for x in (f"project={project!r}" if project else "", f"flow={thread.get('thread_id')!r}",
+                                 f"page={page}" if page != 1 else "") if x)
+    return f"keel_read_gate({args})"
+
+
+def _waiting_lines(w: dict, thread: dict | None = None, project: str | None = None) -> list[str]:
     labels = w.get("labels") or {}
     if w.get("choices"):
         out = [f"waiting   {w.get('kind', 'gate')}: {w.get('title', '')}",
@@ -256,14 +281,58 @@ def _waiting_lines(w: dict) -> list[str]:
     else:
         opts = " | ".join(f"{o}" + (f' ("{labels[o]}")' if labels.get(o) else "") for o in w.get("options") or [])
         out = [f"waiting   {w.get('kind', 'gate')}: {w.get('title', '')}", f"          options: {opts or '-'}"]
+    out += plain_lines(w)
     if w.get("questions"):
         out.append("          questions (answers: {<id>: <label> | [<labels>] | <your words>}):")
         out += ask_mod.question_lines(w["questions"], "            ")
     # a gate's detail is Markdown: the summary first, the fences dropped so a diff or JSON reads as plain text
     detail = md.unfence(w.get("detail") or "").strip()
     if detail:
-        out.append("          " + cut(detail, 1500).replace("\n", "\n          "))
+        shown = detail if len(detail) <= STATUS_DETAIL else cut(detail, STATUS_DETAIL)
+        out.append("          " + shown.replace("\n", "\n          "))
+        if len(detail) > STATUS_DETAIL:
+            # 0.18.28 never cut without a word: how much is left and the call that reads it whole
+            pages = -(-len(detail) // GATE_PAGE)
+            out.append(f"          (the gate's text goes on: {len(detail):,} characters, {pages} page(s); "
+                       f"{read_gate_hint(thread or {}, project, 1)} reads it whole)")
     return out
+
+
+def read_gate(api: KeelApi, project: str | None = None, flow: str | None = None, page: int = 1) -> str:
+    """0.18.28 the whole text of the gate a flow waits at: its title, choices with what each does, questions, the
+    plain approve's and reject's effect, its full detail (findings, failure output) and, at a spec gate, the spec,
+    paged (GATE_PAGE characters a page)."""
+    p = _project(api, project)
+    if flow:
+        thread = (api.get(f"/projects/{p['id']}/flows/{quote(flow, safe='')}") or {}).get("thread") or {}
+    else:
+        thread, _ = _flow(api, p["id"])
+        thread = thread or {}
+    w = thread.get("waiting")
+    if thread.get("status") != "waiting" or not w:
+        return f"\"{thread.get('title') or flow or p['id']}\" waits for nothing now ({thread.get('status') or 'no flow'})."
+    head = [f"gate      {w.get('name') or w.get('step')}: {w.get('title')} · {w.get('kind', 'gate')} · thread {thread.get('thread_id')}"]
+    if w.get("choices"):
+        head += ['choices (approve with choice="<name>"):', *_choice_lines(w)]
+    else:
+        head.append("options   " + " | ".join(w.get("options") or ["approve", "reject"]))
+    head += plain_lines(w, "")
+    if w.get("questions"):
+        head += ["questions (answers: {<id>: <label> | [<labels>] | <your words>}):", *ask_mod.question_lines(w["questions"], "  ")]
+    body = md.unfence(w.get("detail") or "").strip()
+    if thread.get("spec") and (thread.get("phase") in ("spec", "triage") or str(w.get("step") or "").startswith(("spec", "amend"))):
+        try:
+            from . import mcp_more as more
+            body += "\n\n--- the spec ---\n" + more.specs(api, p["id"], thread["spec"])
+        except ApiError:
+            pass
+    pages = max(1, -(-len(body) // GATE_PAGE))
+    page = max(1, min(int(page or 1), pages))
+    chunk = body[(page - 1) * GATE_PAGE: page * GATE_PAGE]
+    out = (head if page == 1 else head[:1]) + ["", f"text      page {page} of {pages} ({len(body):,} characters)", chunk]
+    if page < pages:
+        out += ["", f"page {page} of {pages}: the next is {read_gate_hint(thread, project, page + 1)}"]
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- read tools
@@ -286,7 +355,7 @@ def status(api: KeelApi, project: str | None = None) -> str:
                    + (f" (from {ORDER_FROM.get(order.get('from'), order.get('from'))})" if order.get("from") else ""))
         out += [f"  {('[' + str(a.get('status')) + ']'):<14}{a.get('id')} {a.get('layer', '')}  {a.get('title', '')}" for a in acs]
     if thread.get("waiting"):
-        out += _waiting_lines(thread["waiting"])
+        out += _waiting_lines(thread["waiting"], thread, project)
     u = thread.get("usage") or {}
     total = int(u.get("tokens_in") or 0) + int(u.get("tokens_out") or 0)
     cap = f" of cap {_n(u['cap_tokens'])}" if u.get("cap_tokens") else " (no cap)"
@@ -359,11 +428,11 @@ def next_action(api: KeelApi, project: str | None = None) -> str:
         elif w.get("choices"):
             # before kind fix: a stuck criterion is a fix with real choices, not "approve to try again"
             line = "\n".join([f"waiting at {w.get('step')} ({w.get('title')}){ac}: choose one "
-                               '(approve with payload {"choice": "<name>"} and a note):', *_choice_lines(w),
+                               '(approve with payload {"choice": "<name>"} and a note):', *_choice_lines(w), *plain_lines(w, "  "),
                               *(["  questions (answers: {<id>: <label> | [<labels>]}):",
                                  *ask_mod.question_lines(w.get("questions"), "    ")] if w.get("questions") else [])])
         elif kind == "fix":
-            line = f"waiting at {w.get('title')}: approve to try again, or reject to stop the flow."
+            line = "\n".join([f"waiting at {w.get('title')}: approve to try again, or reject to stop the flow.", *plain_lines(w, "  ")])
         else:
             labels = w.get("labels") or {}
             line = (f"waiting at {w.get('step')} ({w.get('title')}){ac}: approve"
@@ -790,7 +859,7 @@ def part_tools() -> dict[str, list[str]]:
 # keel's own tools by level, in 0.16.1's order. The parts' tools (Database, Git, CI/CD) come from the parts, in 0.16.1's
 # places: their read tools after keel_dashboard, their acting ones after keel_restore_doc (part_tools, build_server).
 TOOLS: dict[str, tuple[str, ...]] = {
-    "read": ("keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
+    "read": ("keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
              "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",
              # 0.18.5 what keel TUI shows: the workflows, the agents, one agent, KeelBot's chats and changes, diagrams
@@ -853,11 +922,21 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                   log_level="WARNING")
 
     def reg(ann, at: str | None = None):
-        """Registers a tool within the level and --allow. `at`: a part's tool's level (else keel's own, TOOLS)."""
+        """Registers a tool within the level and --allow. `at`: a part's tool's level (else keel's own, TOOLS).
+        0.18.28 a plain (sync) tool runs in a worker thread: its HTTP call to keel's api (up to 15 s) blocked the
+        server's event loop, so the client's pings and its other calls waited, and opencode dropped keel's tools
+        mid-chat ("Model tried to call unavailable tool")."""
         def deco(fn):
             name = fn.__name__
             if RANK[lvl] < RANK[at or tool_level(name) or "admin"] or (allow is not None and name not in allow):
                 return fn
+            if not inspect.iscoroutinefunction(fn):
+                sync = fn
+
+                @functools.wraps(sync)
+                async def threaded(*a, **kw):
+                    return await anyio.to_thread.run_sync(lambda: sync(*a, **kw))
+                fn = threaded
             return srv.tool(annotations=ann, structured_output=False)(fn)
         return deco
 
@@ -866,6 +945,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             return fn(*a, **kw)
         except ApiError as exc:
             return f"keel: {exc}"
+        except Exception as exc:  # noqa: BLE001 - 0.18.28 one tool's bug is its answer, never the server's end
+            log.warning("keel mcp: %s failed", getattr(fn, "__name__", fn), exc_info=True)
+            return f"keel: {getattr(fn, '__name__', 'the tool')} failed ({type(exc).__name__}: {str(exc)[:300]})."
 
     def guard_pair(fn, *a, **kw) -> tuple:
         """A (value, text) call: (None, the api's refusal) when it fails."""
@@ -919,6 +1001,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """The project's flow: branch, workflow, current step and phase, every acceptance criterion with its status,
         what is waiting on a human (title, kind, options, questions), token usage against the cap, and blockers."""
         return guard(status, api, project)
+
+    @reg(ro)
+    def keel_read_gate(project: str | None = None, flow: str | None = None, page: int = 1) -> str:
+        """The whole text of the gate a flow waits at (flow: its thread id, default the project's flow): its choices
+        with what each does, its questions, what a plain approve or reject does, and its full text (findings, the
+        failing output, at a spec gate the spec), paged: "page 1 of 3" with the call for the next page."""
+        return guard(read_gate, api, project, flow, page)
 
     @reg(ro)
     def keel_projects() -> str:
@@ -1515,4 +1604,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--yes", action="store_true", help="no confirm question for push, DB change, delete, stop (when the client cannot ask)")
     args = parser.parse_args(argv)
     plugin_env()                    # before allowed(): --allow may name a plugin's tool
-    build_server(level=level(argv), allow=allowed(argv), yes=bool(args.yes)).run("stdio")
+    run_stdio(build_server(level=level(argv), allow=allowed(argv), yes=bool(args.yes)))
+
+
+def run_stdio(srv) -> None:
+    """0.18.28 the stdio transport on the real stdout, and every other write to stdout (a print in a part, a library's
+    warning) goes to stderr: one stray line on stdout broke the JSON-RPC stream and the client dropped the server.
+    Logs go to stderr only."""
+    import io
+
+    from mcp.server.stdio import stdio_server
+
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+    out = sys.stdout.buffer
+    sys.stdout = sys.stderr
+
+    async def serve():
+        protocol = anyio.wrap_file(io.TextIOWrapper(out, encoding="utf-8"))
+        async with stdio_server(stdout=protocol) as (read, write):
+            await srv._mcp_server.run(read, write, srv._mcp_server.create_initialization_options())
+
+    anyio.run(serve)

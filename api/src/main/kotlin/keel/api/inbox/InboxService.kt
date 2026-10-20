@@ -36,6 +36,10 @@ data class InboxItem(
     /** 0.19.0 one entry per choice, in the order of [choices]: {name, label, description, why: required | optional | none,
      *  default} (the engine's runtime/choices.py); the button text and whether a reason is needed, without reading [detail]. */
     val choiceInfo: JsonNode? = null,
+    /** 0.18.28 what a plain approve and a plain reject do here ({approve, reject}: {does, reason, choice?}). */
+    val plain: JsonNode? = null,
+    /** 0.18.28 the waiting step's own name ("verify the suite + commit"). */
+    val stepName: String? = null,
     /** Questions to answer in a form (clarify's shape: {id, question, why, options, multiple?}); answers go back as payload.answers. */
     val questions: JsonNode? = null,
     val labels: JsonNode? = null,
@@ -215,6 +219,7 @@ class InboxService(
             options = w.get("options")?.takeIf { it.isArray }?.map { it.asText() } ?: listOf("approve", "reject"),
             choices = w.get("choices")?.takeIf { it.isArray }?.map { it.asText() },
             choiceInfo = w.get("choice_info")?.takeIf { it.isArray && it.size() > 0 },
+            plain = w.get("plain")?.takeIf { it.isObject }, stepName = w.get("name")?.asText(),
             questions = w.get("questions")?.takeIf { it.isArray && it.size() > 0 },
             labels = w.get("labels")?.takeIf { it.isObject },
             id = w.get("id")?.asText(),
