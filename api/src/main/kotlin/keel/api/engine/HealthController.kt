@@ -27,6 +27,14 @@ class HealthController(private val engine: EngineClient, build: ObjectProvider<B
         )
     }
 
+    /**
+     * keel 0.18.22 the stack setup (engine runtime/stack_setup.py), passed through: what keel installs for the projects'
+     * stacks (setup.apt) and how far it is: {state: idle|running|ready|failed|missing, mode, line, busy, missing, failed}.
+     * Not in /api/health, which answers without a login: the line names projects.
+     */
+    @GetMapping("/api/setup")
+    fun setup(): JsonNode = engine.get("/setup/status")
+
     /** The engine's model list per provider (`{ [provider]: {id, label}[] }`), passed through. */
     @GetMapping("/api/providers/models")
     fun models(): JsonNode = engine.models()

@@ -1,7 +1,7 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, BudgetNow, Cap, Catalog, Commit, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
+  Agent, Budget, BudgetNow, Cap, Catalog, Commit, Checkpoint, Connections, Estimate, Health, StackSetup, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
   McpServer, Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, Settings, Skill, SkillDetail,
   Stack, StepExplanation, StepRunFacts, ThreadState, WikiPage, WikiTree, Workflow,
 } from "../api";
@@ -49,6 +49,7 @@ export type GraphFocus = {
 } | { available: true; missing: string } | GraphUnavailable;
 
 export const health: Health = { ok: true, engine: true, version: "0.4.1", fake: true, native: false };
+export const stackSetup: StackSetup = { state: "ready", mode: "host", line: "", busy: false, missing: [], failed: [] };
 
 export const projects: Project[] = [
   { id: "ludus-engine", name: "ludus-engine", root: "/workspace/ludus-engine", branch: "feat/scores", flow: "feature", phase: "ac-gate", acs: [1, 3], waiting: 1, running: 1 },

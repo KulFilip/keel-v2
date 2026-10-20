@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# keel's root helper for a stack's setup: block (keel 0.18.22, engine/keel_engine/runtime/stack_setup.py).
+#
+# keel's image has Java, Node and Python. A stack that needs more (PHP, Go, ...) lists it in setup.apt; keel's engine
+# runs this helper in the background at every start, when a project is added and when a stack changes. keel's user may
+# run this one program as root (/etc/sudoers.d/keel-stack-setup), nothing else.
+#
+#   keel-stack-setup apt <package>...   install system packages. The apt cache (downloaded packages and package lists)
+#                                       lives in the data volume, /data/cache/apt, so a re-created container (keel2
+#                                       update, restart, restore) installs again from the cache, without downloading.
+#   keel-stack-setup run <command>      run one setup.run command as root, once per container (recorded in
+#                                       /var/lib/keel-stack-setup, which goes with the container like the packages)
+#
+# The engine computes the run key the same way (stack_setup.run_key): the first 16 hex digits of the command's sha256.
+set -euo pipefail
+
+CACHE=/data/cache/apt
+RAN=/var/lib/keel-stack-setup
+OWNER=keel
+export DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8
+
+usage() {
+  echo "usage: keel-stack-setup apt <package>... | keel-stack-setup run <command>" >&2
+  exit 2
+}
+
+# the cache stays keel's (keel2 backup and restore read and delete the data volume as keel's user)
+give_back() { chown "$OWNER:$OWNER" "$(dirname "$CACHE")" 2>/dev/null || true; chown -R "$OWNER:$OWNER" "$CACHE" 2>/dev/null || true; }
+
+case "${1:-}" in
+  apt)
+    shift
+    [ "$#" -gt 0 ] || usage
+    for p in "$@"; do
+      [[ "$p" =~ ^[a-z0-9][a-z0-9+.-]{0,99}$ ]] || { echo "keel-stack-setup: not a package name: $p" >&2; exit 2; }
+    done
+    mkdir -p "$CACHE/archives/partial" "$CACHE/lists/partial"
+    trap give_back EXIT
+    opts=(-o "Dir::Cache::Archives=$CACHE/archives" -o "Dir::State::Lists=$CACHE/lists"
+          -o APT::Keep-Downloaded-Packages=true -o APT::Sandbox::User=root -o Dpkg::Use-Pty=0)
+    install() { apt-get install -y -q --no-install-recommends "${opts[@]}" "$@"; }
+    # package lists from an earlier container: try them first (no network when every package is in the cache)
+    if compgen -G "$CACHE/lists/*_Packages*" > /dev/null && install "$@"; then
+      echo "keel-stack-setup: installed $* (package lists from the cache)"
+      exit 0
+    fi
+    echo "keel-stack-setup: updating the package lists"
+    apt-get update -q "${opts[@]}"
+    install "$@"
+    echo "keel-stack-setup: installed $*"
+    ;;
+  run)
+    shift
+    [ "$#" = 1 ] && [ -n "$1" ] || usage
+    cmd="$1"
+    key="$(printf '%s' "$cmd" | sha256sum | cut -c1-16)"
+    mkdir -p "$RAN"
+    if [ -e "$RAN/$key" ]; then
+      echo "keel-stack-setup: ran in this container already: $cmd"
+      exit 0
+    fi
+    echo "keel-stack-setup: \$ $cmd"
+    (cd /tmp && HOME=/root bash -c "$cmd")
+    printf '%s\n' "$cmd" > "$RAN/$key"
+    ;;
+  *) usage ;;
+esac

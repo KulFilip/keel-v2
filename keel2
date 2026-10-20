@@ -804,7 +804,7 @@ cmd_backup() {
   local was=0; container_running && was=1
   # The database is copied while keel is stopped, so the copy is consistent.
   [ "$was" = 1 ] && docker stop "$NAME" >/dev/null
-  docker run --rm -v "$VOLUME:/data:ro" -v "$(dirname "$file"):/out" --entrypoint tar "$IMAGE" -czf "/out/$(basename "$file")" -C /data . \
+  docker run --rm -v "$VOLUME:/data:ro" -v "$(dirname "$file"):/out" --entrypoint tar "$IMAGE" -czf "/out/$(basename "$file")" --exclude=./cache -C /data . \
     || { [ "$was" = 1 ] && docker start "$NAME" >/dev/null; die "Backup failed."; }
   [ "$was" = 1 ] && docker start "$NAME" >/dev/null
   ok "saved $file  ($(du -h "$file" | cut -f1)). It holds your encrypted logins and their key: keep it private."
@@ -818,10 +818,11 @@ cmd_restore() {
   volume_guard
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
   ask_yes "Replace keel's current data (volume $VOLUME) with $file?" || die "Nothing changed."
+  # the apt cache of the stacks' setup (/data/cache) is not in a backup, so it stays: keel installs from it again
   local was=0; container_running && was=1
   [ "$was" = 1 ] && docker stop "$NAME" >/dev/null
   docker run --rm -v "$VOLUME:/data" -v "$(dirname "$file"):/in:ro" --entrypoint sh "$IMAGE" -c \
-    "find /data -mindepth 1 -delete && tar -xzf \"/in/$(basename "$file")\" -C /data" || die "Restore failed."
+    "find /data -mindepth 1 ! -path /data/cache ! -path '/data/cache/*' -delete && tar -xzf \"/in/$(basename "$file")\" -C /data" || die "Restore failed."
   [ "$was" = 1 ] && docker start "$NAME" >/dev/null
   ok "restored from $file"
 }

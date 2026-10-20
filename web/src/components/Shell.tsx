@@ -18,6 +18,7 @@ import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
 import { isCoreOnly, NoPagesYet, useCoreOnly } from "./CoreOnly";
 import { ProjectSwitcher, projectLine } from "./ProjectSwitcher";
+import { api, type StackSetup } from "../api";
 
 const THEME_KEY = "keel2.theme";
 
@@ -288,6 +289,35 @@ function EngineStatus({ version }: { version?: boolean }) {
   );
 }
 
+/** keel 0.18.22 the stack setup in one line: what keel installs for the projects' stacks now ("installing php8.3-cli for
+ *  carrier-router…"), a failure, or (native mode) what is missing. Nothing when all is set up. It looks again every few
+ *  seconds while it runs, every minute otherwise. */
+export function StackSetupLine() {
+  const { health } = useApp();
+  const [s, setS] = useState<StackSetup | null>(null);
+  const up = !!health?.engine;
+  useEffect(() => {
+    if (!up) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const look = () => {
+      api.stackSetup().then((x) => {
+        if (stop) return;
+        setS(x);
+        timer = setTimeout(look, x.busy ? 4000 : 60000);
+      }, () => { if (!stop) timer = setTimeout(look, 60000); });
+    };
+    look();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, [up]);
+  if (!s || !s.line || (s.state !== "running" && s.state !== "failed" && s.state !== "missing")) return null;
+  const tone = s.state === "running" ? "p-warn" : "p-bad";
+  const title = s.state === "running" ? "keel installs what the projects' stacks need (their setup: block), in the background"
+    : s.state === "failed" ? "keel could not install what a stack needs: flows that need it stop at a gate"
+      : "Native mode installs nothing: install these yourself";
+  return <span className={`pill ${tone} setup-line`} title={`${title}\n${s.line}`} data-testid="stack-setup">setup: {s.line}</span>;
+}
+
 function ThemeIcon({ dark }: { dark: boolean }) {
   return dark ? (
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
@@ -333,6 +363,7 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
         <nav className="ms-nav" aria-label="All screens"><NavLinks onPick={onClose} hints /></nav>
         <div className="ms-foot">
           <div className="row"><LiveDot /><EngineStatus version /></div>
+          <StackSetupLine />
           <button className="btn" type="button" onClick={theme.toggle}>{theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}</button>
         </div>
       </div>
@@ -497,6 +528,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="side-foot">
           {/* v0.15.3 the version shows here: the head row is often too full for it */}
           <div className="row"><LiveDot /><EngineStatus version /></div>
+          <StackSetupLine />
           <button className="btn sm ghost theme-btn" id="theme" type="button" onClick={theme.toggle}
             aria-label={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"} title={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}>
             <ThemeIcon dark={theme.dark} />

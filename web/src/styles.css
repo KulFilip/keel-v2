@@ -76,6 +76,8 @@ main { padding-inline: 28px; padding-block: 22px 60px; min-width: 0; }
 .g3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
 
 .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+/* keel 0.18.22 the stack setup's line (Shell StackSetupLine): it may be long, so it wraps instead of widening the rail */
+.pill.setup-line { white-space: normal; border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .p-ok { background: var(--ok-soft); color: var(--ok); }
 .p-run { background: var(--run-soft); color: var(--run); }

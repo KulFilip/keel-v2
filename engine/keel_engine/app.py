@@ -21,7 +21,7 @@ from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .marketplace import MarketError
 from .models import catalog
-from .runtime import evals, hunt, rules_view, scan
+from .runtime import evals, hunt, rules_view, scan, stack_setup
 from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
@@ -313,6 +313,9 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
                 log.warning("could not create the demo project: %s", exc)
         bus.start()
         await engine.open(resume_running=resume_running)
+        # keel 0.18.22 the system packages every registered project's stacks need (setup.apt): in the background, so
+        # keel starts at once; a flow that needs them waits (runtime/stack_setup.py)
+        stack_setup.SYSTEM.request()
         from .marketplace.routes import refresher   # the marketplace's catalogs, read while keel runs
 
         catalogs = asyncio.create_task(refresher())
@@ -560,8 +563,21 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.post("/projects/{pid}/scan")
     async def post_scan(pid: str, body: ScanBody, request: Request):
-        """Starts the scan (stack, code graph, map, knowledge sections) and answers at once with the index status."""
-        return await request.app.state.scanner.start(pid, project_root(body.root), body.rebuild)
+        """Starts the scan (stack, code graph, map, knowledge sections) and answers at once with the index status. A new
+        project's stacks may need system packages: keel looks (in the background) too."""
+        root = project_root(body.root)
+        stack_setup.SYSTEM.request(root, pid)
+        return await request.app.state.scanner.start(pid, root, body.rebuild)
+
+    # keel 0.18.22 stack setup: what keel installs for the projects' stacks (setup.apt / setup.run), for the dashboard
+    @app.get("/setup/status")
+    async def get_setup_status():
+        return stack_setup.SYSTEM.status()
+
+    @app.post("/setup/run")
+    async def post_setup_run():
+        """Look again now (after a stack pack changed by hand, say). Answers at once; the run is in the background."""
+        return stack_setup.SYSTEM.request()
 
     @app.get("/projects/{pid}/index")
     async def get_index(pid: str):

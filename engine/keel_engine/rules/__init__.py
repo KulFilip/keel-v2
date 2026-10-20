@@ -51,6 +51,10 @@ KEEL_KEY_WORDS = re.compile(r"/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/
                             r"|\bKEEL_INTERNAL_TOKEN\b|\bKEEL_WEB_KEY\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\("
                             r"|\bkeel2\s+auth\s+key\b", re.I)
 
+# keel 0.18.22 the root helper that installs a stack's setup.apt and setup.run in keel's container (sudo allows keel's
+# user that one program): keel's stack setup runs it; an agent never does, in any phase.
+STACK_SETUP_HELPER = re.compile(r"keel-stack-setup\b")
+
 
 def keel_key_file(path: str | Path | None) -> bool:
     """Is this one of keel's own key files (KEEL_KEY_FILES), also under the engine's data folder?"""
@@ -592,6 +596,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     if KEEL_KEY_WORDS.search(cmd):
         return Verdict(False, "keel-keys", "This command reads or sends one of keel's own keys; agents never do. "
                                            "Use keel's MCP tools instead.")
+    if STACK_SETUP_HELPER.search(cmd):
+        return Verdict(False, "keel-setup", "keel-stack-setup is keel's own root helper for a stack's setup: block; agents "
+                                            "never run it. Put the package in the stack's setup.apt instead.")
     v = pack_verdict(cfg, "bash", phase, cmd)
     if v:
         return v

@@ -140,7 +140,7 @@ ENV LANG=C.UTF-8 \
 # The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip python3-pytest python-is-python3 git tini curl ca-certificates gnupg sqlite3 \
-        openssh-client make zip unzip \
+        openssh-client make zip unzip sudo \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
@@ -182,9 +182,15 @@ ENV KEEL_EDITION=${EDITION}
 COPY --from=plugins /out /opt/keel-v2/plugins
 ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
+# keel 0.18.22 a stack's setup: block (PHP, Go, ... are not in this image): the engine installs setup.apt in the
+# background through this root helper, the one program keel's user may run with sudo (docker/keel-stack-setup)
+COPY docker/keel-stack-setup /usr/local/bin/keel-stack-setup
 RUN chmod +x /usr/local/bin/keel-start /opt/keel-v2/cli/keel-tui.mjs && ln -s /opt/keel-v2/cli/keel-tui.mjs /usr/local/bin/keel-tui \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \
-    && useradd -m -u 1000 keel && mkdir -p /data /workspace && chown keel:keel /data /workspace
+    && useradd -m -u 1000 keel && mkdir -p /data /workspace && chown keel:keel /data /workspace \
+    && chown root:root /usr/local/bin/keel-stack-setup && chmod 0755 /usr/local/bin/keel-stack-setup \
+    && echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup' > /etc/sudoers.d/keel-stack-setup \
+    && chmod 0440 /etc/sudoers.d/keel-stack-setup && visudo -cf /etc/sudoers.d/keel-stack-setup
 
 USER keel
 WORKDIR /workspace

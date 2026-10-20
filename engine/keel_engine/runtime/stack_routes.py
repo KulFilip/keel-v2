@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from . import stack_edit
+from . import stack_edit, stack_setup
 from .service import EngineError
 
 router = APIRouter()
@@ -82,17 +82,23 @@ async def post_check(body: CheckBody):
 async def post_save(body: SaveBody):
     if body.source not in ("project", "keelbot", "marketplace"):
         raise EngineError(400, f"source {body.source!r} is not project, keelbot or marketplace.")
-    return await asyncio.to_thread(stack_edit.save, _root(body.root), body.yaml, body.replace, body.source, body.market)
+    out = await asyncio.to_thread(stack_edit.save, _root(body.root), body.yaml, body.replace, body.source, body.market)
+    stack_setup.SYSTEM.request(_root(body.root))     # keel 0.18.22 its setup.apt may have changed
+    return out
 
 
 @router.post("/stacks/remove")
 async def post_remove(body: NameBody):
-    return await asyncio.to_thread(stack_edit.remove, _root(body.root), body.name)
+    out = await asyncio.to_thread(stack_edit.remove, _root(body.root), body.name)
+    stack_setup.SYSTEM.request(_root(body.root))     # keel 0.18.22 its setup.apt may have changed
+    return out
 
 
 @router.post("/stacks/off")
 async def post_off(body: OffBody):
-    return await asyncio.to_thread(stack_edit.set_off, _root(body.root), body.name, body.off)
+    out = await asyncio.to_thread(stack_edit.set_off, _root(body.root), body.name, body.off)
+    stack_setup.SYSTEM.request(_root(body.root))     # keel 0.18.22 its setup.apt may have changed
+    return out
 
 
 @router.get("/stacks/installed")

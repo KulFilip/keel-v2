@@ -253,6 +253,16 @@ export type EngineEvent = {
 
 /** `version` is keel v2's own version. */
 export type Health = { ok: boolean; engine: boolean; version: string; fake: boolean; native?: boolean };
+/** keel 0.18.22 the stack setup (engine runtime/stack_setup.py): `line` says what it does now ("installing php8.3-cli for
+ *  carrier-router…") or what is missing (native mode never installs). */
+export type StackSetup = {
+  state: "idle" | "running" | "ready" | "failed" | "missing";
+  mode: "container" | "native" | "host" | null;
+  line: string;
+  busy: boolean;
+  missing: string[];
+  failed: string[];
+};
 
 export type Project = {
   id: string;
@@ -1014,6 +1024,8 @@ export type PluginInfo = { name: string; title: string; version: string; web: Pl
 
 export const api = {
   health: () => get<Health>("/health"),
+  /** keel 0.18.22 what keel installs for the projects' stacks (setup.apt), and how far it is */
+  stackSetup: () => get<StackSetup>("/setup"),
   features: () => get<Features>("/features"),
   /** `pid` "*" = every project (notifications + project.changed only). */
   /** keel 0.18.6 the project and KeelBot chat every keel front end shows (api ui/UiFocus.kt) */

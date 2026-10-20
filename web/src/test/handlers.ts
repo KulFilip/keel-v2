@@ -161,6 +161,7 @@ export function handlers(db: Db) {
     http.get("/api/projects/:pid/docs/history/versions", () => HttpResponse.json([])),
     http.get("/api/threads/:tid/applied", ({ params }) => HttpResponse.json({ thread_id: params.tid, items: [] })),
     http.get("/api/health", () => HttpResponse.json(fx.health)),
+    http.get("/api/setup", () => HttpResponse.json(fx.stackSetup)),
     http.get("/api/features", () => HttpResponse.json(db.features)),
     http.get("/api/projects", () => HttpResponse.json(db.projects)),
     http.get("/api/ui/focus", () => HttpResponse.json(db.focus)),

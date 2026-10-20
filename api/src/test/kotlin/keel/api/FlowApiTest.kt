@@ -159,6 +159,11 @@ class FlowApiTest : ApiTest() {
         val expected = Regex("""(?m)^KEEL2_VERSION="([^"]+)"""").find(keel2)!!.groupValues[1]
         assertThat(h["version"].asText()).isEqualTo(expected)
         assertThat(h.has("keel")).isFalse()
+        // keel 0.18.22 the stack setup's line, passed through (not in /api/health: it names projects)
+        assertThat(h.has("setup")).isFalse()
+        val setup = get("/api/setup").andExpect(status().isOk).json()
+        assertThat(setup["state"].asText()).isEqualTo("running")
+        assertThat(setup["line"].asText()).isEqualTo("installing php8.3-cli for carrier-router…")
 
         val limits = get("/api/limits").json()
         assertThat(limits.map { it["id"].asText() }).contains("claude", "copilot", "api")
