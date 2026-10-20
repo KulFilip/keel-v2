@@ -93,3 +93,34 @@ def test_the_prompt_carries_the_block(repo):
     p = helper.build_prompt(mode="ask", root=str(repo), question="Which workflow?", know={"sections": [], "code_graph": False, "memory": False}, graph=False, flow=None,
                             mentions=None, selection=None, open_file=None, transcript="", keel=KEEL)
     assert "The workflows this project can run" in p and p.endswith("Question: Which workflow?")
+
+
+def test_advice_on_a_flow_s_question_comes_from_the_code_read_in_the_same_turn():
+    # 0.18.23 KeelBot said "I suggest A for both, smallest and safest", then "I did not read the code myself"
+    b = keelbot.keel_block(KEEL, "frame the question has 2 questions: what do you suggest?")
+    assert keelbot.ADVICE in b
+    assert "read the code the question is about, in the same turn" in b
+    assert "the files the gate names, the flow's evidence and findings, or what a search finds" in b
+    assert "claims to check, not evidence" in b and "`path/to/file.ext:LINE`" in b
+    assert '"not checked in the code: <what and why>"' in b
+    assert "Never call an option the safest, the smallest or the simplest without the evidence" in b
+    assert "Before you give an answer button, read the code the question is about" in b
+
+
+def test_keelbot_reads_without_asking_and_asks_only_the_person_s_own_choices(repo):
+    # 0.18.23 a question card asked leave to read ("Read the handler and entity, then confirm the rule fits")
+    b = keelbot.keel_block(KEEL, "hi")
+    assert 'Never use it to ask leave to read, search or explain ("Read the handler first?"): that needs no OK, do it' in b
+    know = {"sections": [], "code_graph": False, "memory": False}
+    for mode in ("ask", "edit", "fix", "side"):
+        p = helper.build_prompt(mode=mode, root=str(repo), question="did you read the code?", know=know, graph=False,
+                                flow=None, mentions=None, selection=None, open_file=None, transcript="", keel=KEEL)
+        assert helper.READING in p, mode
+    r = helper.READING
+    assert "Reading is always allowed, in every mode (Ask mode too)" in r
+    assert "Never ask the person before you read, search or explain" in r
+    assert "Ask only for choices that are the person's: a decision, a change to a file, a command that changes something" in r
+    assert '("did you read the code?"), read it now and answer from it in the same turn' in r
+    agent = (helper.Path(keelbot.__file__).parents[2] / "content" / "agents" / "helper.md").read_text()
+    assert "Reading, searching and explaining need nobody's OK, in Ask mode too" in agent
+    assert '"not checked in the code: ..."' in agent

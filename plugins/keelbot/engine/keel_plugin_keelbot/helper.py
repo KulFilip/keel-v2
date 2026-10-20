@@ -118,6 +118,15 @@ FAILURES = ("When a command or a tool fails, or keel refuses it: never run the s
             "by checkout\": say that the folder has uncommitted changes in those files, and offer: stash them, check out "
             "main, pull, then git stash pop (recommended: nothing is lost); commit them first on this branch; discard them "
             "(git checkout -- <files>: they are lost); or leave it as it is.")
+# 0.18.23 KeelBot asked a question card for leave to read code ("What should I do next? → Read the handler and entity,
+# then confirm the rule fits (recommended)"). Reading needs nobody's OK, in Ask mode too: only the person's own choices
+# are asked.
+READING = ("Reading is always allowed, in every mode (Ask mode too): reading files, searching the code and explaining "
+           "need nobody's OK. Never ask the person before you read, search or explain, and never offer it as an option "
+           "in a keel-questions block (\"Read the handler first?\"): do it, in the same turn. Ask only for choices that "
+           "are the person's: a decision, a change to a file, a command that changes something. When the person asks "
+           "whether you read the code (\"did you read the code?\"), read it now and answer from it in the same turn, "
+           "with file:line.")
 # keel 0.18.19 the person changed the mode in the middle of a chat (keel TUI /mode, Shift+Tab). Claude and Codex resume
 # their own session, which still holds the old mode's rules: the next turn's prompt starts with a note of the change,
 # as opencode's plan mode does when the person switches agents (from opencode (MIT), core/src/plugin/plan.ts).
@@ -1117,7 +1126,7 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     where = f"Your folder (the worktree): {root}" if mode == "side" or (mode == "ask" and branch) else \
         f"The project folder: {root}"
     note = mode_note(was, mode)            # 0.18.19 the mode changed since the last answer: say so first
-    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), FAILURES, where]
+    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), READING, FAILURES, where]
     if mode == "edit":
         busy = flows_in_folder(keel)
         if busy:
