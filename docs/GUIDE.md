@@ -534,8 +534,14 @@ in one, and the other follows. What you do in keel TUI shows in the dashboard as
 - **Working**: a spinner with a keel word (*Charting…*, *Tacking…*), seconds and tokens. **Esc** stops the turn.
   "✓ Finished in 4.2s · claude/sonnet · high" ends each turn.
 - **Screen**: keel's name on top and the prompt at the bottom stay; the transcript scrolls (PgUp / PgDn, Shift+↑↓, the
-  wheel, Home, End). Panels: **Ctrl+F** the flow rail, **Ctrl+A** the agents, **Ctrl+B** the Inbox, **Ctrl+O** follow
+  wheel, Home, End). Panels: **Ctrl+F** the flow rail, **Ctrl+A** the agents, **Ctrl+N** the Inbox, **Ctrl+O** follow
   the agent at work. Click an agent to follow it, or "◆ waiting" to answer it. `/clear` keeps the start screen.
+- **Tool calls**: each one KeelBot makes is one quiet line, `⚙ keel_status [project=app]` or `$ git status --short`,
+  its result folded under it (`└ 220 lines`, or the error in red); **Ctrl+O** or a click opens the whole output.
+  Under the answer: `■ Ask · Claude Sonnet 5.5 · 7.6s`, the turn's time.
+- **Sidebar** (a terminal 120 columns wide or more): the chat's context and cost, the flow and what waits, KeelBot's
+  MCP servers, the files the answer changed. **Ctrl+B** or `/sidebar` hides or shows it; keel TUI keeps the choice
+  (`~/.config/keel2/tui.json`, or `KEEL_TUI_SETTINGS`).
 
 **Commands** (`/help` lists them all, grouped):
 

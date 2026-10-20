@@ -38,6 +38,10 @@ import { osc52, pickCopy } from "../core/clipboard";
 import { colsOn, highlight, mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../core/select";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
+import { canOpen, toolBody, toolLines, type ToolCall } from "../core/tools";
+import { memorySettings, type SettingsStore } from "../core/settings";
+import { filesOfSteps, Sidebar, SIDEBAR_MIN, SIDEBAR_WIDTH, type ChangedFile } from "./sidebar";
+import type { KeelbotServer } from "../core/keel";
 
 /** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
 type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
@@ -48,7 +52,9 @@ export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boole
 /** `qid`: the KeelBot permission question this pick shows (it goes when the question ends elsewhere) */
 type Pending = { cmd: string; pick?: Pick; ask?: Ask; qid?: string };
 
-const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", b: "inbox" };
+const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", n: "inbox" };
+/** An open tool call in the live area shows at most this many of its last lines. */
+const LIVE_TOOL_ROWS = 12;
 /** a plugin's mode without the full screen (--inline, tests): this many rows */
 const INLINE_MODE_ROWS = 20;
 /** keel's panels, and a plugin's ("plugin:git") */
@@ -66,7 +72,9 @@ const THEME_WORDS: Record<ThemeName, string> = { dark: "colours for a dark backg
 const DOUBLE_MS = 400;
 
 /** keel TUI in keel's colours (the theme: core/theme.ts, NO_COLOR, KEEL_TUI_THEME; /theme changes the palette). */
-export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean }) {
+export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean;
+  /** keel TUI's settings (the sidebar on or off): the person's file from main.tsx; in memory without it */
+  settings?: SettingsStore }) {
   const base = useMemo(() => theme ?? makeTheme(), [theme]);
   const [palette, setPalette] = useState<ThemeName | null>(null);
   const th = useMemo(() => (palette && palette !== base.name ? withPalette(base, palette) : base), [base, palette]);
@@ -74,8 +82,8 @@ export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?
   return <ThemeProvider theme={th} setPalette={setPalette}><Main {...props} /></ThemeProvider>;
 }
 
-function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse: mouseAtStart = false }: { core: KeelCore; probe?: Probe; width?: number;
-  profiler?: Profiler; rows?: number; mouse?: boolean }) {
+function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse: mouseAtStart = false, settings: store }: { core: KeelCore; probe?: Probe; width?: number;
+  profiler?: Profiler; rows?: number; mouse?: boolean; settings?: SettingsStore }) {
   const t = useTheme();
   // --profile: this frame's render and commit time (from here to the layout effect below)
   const frameStart = useRef(0);
@@ -101,7 +109,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     return () => void stdout.off("resize", on);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stdout, fixedWidth]);
-  const width = fixedWidth ?? termWidth;
+  // the whole screen's width; `width` (below) is the transcript's: the whole width less the sidebar's, when it shows
+  const fullWidth = fixedWidth ?? termWidth;
+  const termCols = fixedWidth ?? termWidth + 2;
   // the full screen: its height (one row less than the terminal's, so Ink never scrolls it), else inline
   const screen = termRows > 0;
   const height = Math.max(11, termRows - 1);
@@ -166,11 +176,26 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const promptRef = useRef<DOMElement>(null);
   const lastPress = useRef({ t: 0, col: -1, row: -1 });
   const nextId = useRef(1);
+  const itemsRef = useRef<Item[]>([]);
+  itemsRef.current = items;
+  /** the inline screen: the tool call whose output Ctrl+O printed last */
+  const shownTool = useRef<number | null>(null);
   // 0.18.6 a plugin's mode (core/modes.ts): it takes the screen between keel's header and the status line until Esc
   const [mode, setMode] = useState<ModeSession | null>(null);
   const [, setModeTick] = useState(0);
   const [modeH, setModeH] = useState(Math.max(6, height - 3));
   const modeRef = useRef<DOMElement>(null);
+  // the sidebar (Ctrl+B, /sidebar): the person's choice, kept in keel TUI's settings; it shows on the full screen of a
+  // terminal SIDEBAR_MIN columns wide or more
+  const settings = useMemo(() => store ?? memorySettings(), [store]);
+  const [sideOn, setSideOn] = useState(() => settings.get().sidebar !== false);
+  const side = screen && !mode && sideOn && termCols >= SIDEBAR_MIN;
+  const width = side ? fullWidth - SIDEBAR_WIDTH : fullWidth;
+  const [servers, setServers] = useState<KeelbotServer[] | null>(null);
+  // the files the last answer changed (its turn's changes), for the sidebar
+  const [turnFiles, setTurnFiles] = useState<ChangedFile[]>([]);
+  // the running turn's tool call opened in the live area (Ctrl+O, a click), by its step's n
+  const [liveOpen, setLiveOpen] = useState<number | null>(null);
 
   const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint }), [core, width, t.paint]);
   // for the answer event's handler (it is set up once): the colours, the width and when the turn started
@@ -225,8 +250,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         const { paint, width: w } = look.current;
         const used = d ? [d.provider && d.model ? modelText(d) : "", d.tokens_in || d.tokens_out ? `${fmt.short((d.tokens_in ?? 0) + (d.tokens_out ?? 0))} tokens` : "",
           d.cost_usd ? `$${d.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
-        // what it did (its tools, settled: xal's way), the answer, then how the turn ended and what it used
-        const tools = fmt.toolLines(core.snapshot.chat.steps, w, paint);
+        // what it did (one line per tool call, its output folded), the answer, then how the turn ended and what it used
+        const calls = core.snapshot.chat.tools;
+        const lastOpenable = calls.map(canOpen).lastIndexOf(true);
+        const toolBlocks: Block[] = calls.map((c, i) => ({ kind: "tool", text: c.output, tool: c, ...(i === lastOpenable ? { hint: "Ctrl+O to show" } : {}) }));
         const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
         const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
         const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
@@ -236,8 +263,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         lastThought.current = thought ? { text: thought, ms: thoughtMs } : null;
         setShowThink(false);
         push(...(thought ? [{ kind: "dim" as const, text: thoughtLine(thoughtMs) }] : []),
-          ...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
-          ...(d?.model ? [{ kind: "dim" as const, text: answeredBy(d.mode ?? core.snapshot.chat.mode, modelName(d)) }] : []));
+          ...toolBlocks, { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
+          ...(d?.model ? [{ kind: "dim" as const, text: answeredBy(d.mode ?? core.snapshot.chat.mode, modelName(d), ms) }] : []));
+        setLiveOpen(null);
         // keel 0.18.8 "✓ Finished …" sits on the prompt (the last turn's), with room between it and the answer above
         setFooter(fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint));
         turnStart.current = null;
@@ -248,10 +276,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         // (0.18.20), and an answer that changed none (or an engine that does not say) shows no block at all.
         const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
         const files = Array.isArray(d?.files) ? d.files : [];
+        setTurnFiles([]);
         if ((mode === "fix" || mode === "side" || mode === "edit") && typeof d?.turn === "number" && files.length) {
           const sid = core.snapshot.chat.session?.id ?? "";
           void core.changes().then((all) => setChanged(sid, all.map((c) => c.path))).catch(() => undefined);   // /keep's Tab
           void core.changes(d.turn).then((ch) => {
+            setTurnFiles(ch.map((c) => ({ path: c.path, status: c.status, added: c.added, removed: c.removed })));
             if (!ch.length) return;
             const p = look.current.paint;
             push({ kind: "text", text: `${p.bold(p.warn(`${ch.length} file(s) changed`))} ${p.dim("· not kept yet")}\n${fmt.changesText(ch, p, 16)}\n`
@@ -394,6 +424,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     return () => void (alive = false);
   }, [core, started, pidNow]);
 
+  // the sidebar's MCP servers: read when it shows, and again for another project
+  useEffect(() => {
+    if (!side || !started) return;
+    let alive = true;
+    void core.keelbotServers().then((x) => alive && setServers(x));
+    return () => void (alive = false);
+  }, [core, side, started, pidNow]);
+
   // what keel's plugins add: their commands
   useEffect(() => {
     const taken = new Set(COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
@@ -497,6 +535,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }
     }
     if (reply.thinking) toggleThinking();
+    if (reply.sidebar !== undefined) toggleSidebar(reply.sidebar === "toggle" ? undefined : reply.sidebar, true);
     if (reply.mode) setMode(reply.mode);
     if (reply.editor !== undefined) openEditor(reply.editor);
     if (reply.revert) markReverted(reply.revert);
@@ -532,6 +571,56 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }
       return out;
     });
+  }
+
+  /** The sidebar on or off (`on`; the other way without it), kept in keel TUI's settings. Where it cannot show (an
+   *  inline screen, a narrow terminal) the person reads why; `say`: /sidebar says what it did in any case. */
+  function toggleSidebar(on?: boolean, say = false) {
+    const next = on ?? !sideOn;
+    setSideOn(next);
+    settings.set({ sidebar: next });
+    const why = !next ? "" : !screen ? " (it shows on the full screen: keel2 tui without --inline)"
+      : termCols < SIDEBAR_MIN ? ` (it shows on a terminal ${SIDEBAR_MIN} columns wide or more; this one has ${termCols})` : "";
+    // where it cannot show, Ctrl+B says what it did (nothing changes on the screen)
+    if (say || why || !screen || termCols < SIDEBAR_MIN) push({ kind: next && !why ? "ok" : "dim", text: `${say && !why ? "" : "  "}sidebar ${next ? "on" : "off"}${why}` });
+  }
+
+  /** A tool call in the transcript opens (its whole output under it) or folds again. The full screen redraws it in its
+   *  place; the inline screen printed it already, so its output comes as a new block. */
+  function toggleTool(id: number) {
+    const it = itemsRef.current.find((x) => x.id === id);
+    if (!it || it.kind !== "block" || it.b.kind !== "tool" || !it.b.tool || !canOpen(it.b.tool)) return false;
+    if (!screen) {
+      if (shownTool.current === id) push({ kind: "dim", text: "  (its output is above)" });
+      else push({ kind: "tool", text: it.b.text, tool: it.b.tool, open: true });
+      shownTool.current = id;
+      return true;
+    }
+    cache.current.delete(id);
+    setItems((xs) => xs.map((x) => (x.id === id && x.kind === "block" ? { ...x, b: { ...x.b, open: !x.b.open } } : x)));
+    return true;
+  }
+
+  const toggleToolRef = useRef(toggleTool);
+  toggleToolRef.current = toggleTool;
+
+  /** Ctrl+O: the last tool call of the running turn (in the live area), else of the last answer, opens or folds; false
+   *  when there is none to open (Ctrl+O then follows the agent at work, as before). */
+  function toggleLastTool(): boolean {
+    if (core.snapshot.chat.busy) {
+      const last = [...core.snapshot.chat.tools].reverse().find(canOpen);
+      if (!last) return false;
+      setLiveOpen((n) => (n === last.n ? null : last.n));
+      return true;
+    }
+    const xs = itemsRef.current;
+    for (let i = xs.length - 1; i >= 0; i--) {
+      const it = xs[i];
+      if (it.kind !== "block") return false;
+      if (it.b.kind === "user") return false;          // only the last answer's tool calls
+      if (it.b.kind === "tool" && it.b.tool && canOpen(it.b.tool)) return toggleTool(it.id);
+    }
+    return false;
   }
 
   /** 0.18.23 While KeelBot works: its thinking block opens or folds. After: the last answer's thinking, shown once. */
@@ -703,9 +792,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   // the full screen's transcript as lines (each block's lines kept until the width changes)
   const cache = useRef(new Map<number, { w: number; paint: unknown; lines: string[] }>());
+  // each line's item (a click on a tool call's line opens it)
+  const owners = useRef<number[]>([]);
   const lines = useMemo(() => {
     if (!screen) return [];
     const out: string[] = [];
+    const own: number[] = [];
     for (const it of items) {
       let c = cache.current.get(it.id);
       if (!c || c.w !== width || c.paint !== t.paint) {
@@ -713,7 +805,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         cache.current.set(it.id, c);
       }
       out.push(...c.lines);
+      for (let k = 0; k < c.lines.length; k++) own.push(it.id);
     }
+    owners.current = own;
     return out;
   }, [items, width, screen, t.paint]);
   // scrolled up while new lines come: the view stays where the person is reading
@@ -787,8 +881,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       if (moved !== cur.moved || hit.at.line !== cur.b.line || hit.at.col !== cur.b.col) setSel({ ...cur, b: hit.at, moved });
       return;
     }
-    // the release: what is selected goes to the clipboard at once; a plain click selects nothing
-    if (!cur.moved) return setSel(null);
+    // the release: what is selected goes to the clipboard at once; a plain click selects nothing (on a tool call's
+    // line it opens or folds its output)
+    if (!cur.moved) {
+      setSel(null);
+      const id = cur.area === "view" ? owners.current[cur.a.line] : undefined;
+      if (id !== undefined) toggleToolRef.current(id);
+      return;
+    }
     const text = selectedText(cur.area === "view" ? linesRef.current : [lineRef.current], cur.a, cur.b);
     if (!text.trim()) return setSel(null);
     stdout?.write(osc52(text));
@@ -917,7 +1017,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       toggleThinking();
       return;
     }
+    // Ctrl+B: the sidebar, on or off (kept in keel TUI's settings)
+    if (key.ctrl && input === "b") {
+      toggleSidebar();
+      return;
+    }
     if (key.ctrl && input === "o") {
+      // the last tool call's output, open or folded; with none, the agent at work
+      if (toggleLastTool()) return;
       const j = snap.running[0];
       if (j) followAgent(j.id);
       else push({ kind: "dim", text: "  No agent at work. /agent lists yours." });
@@ -1032,7 +1139,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const chat = snap.chat;
   const steps = chat.steps;
   const lastText = [...steps].reverse().find((s) => s.kind === "text" || s.kind === "answer");
-  const tools = steps.filter((s) => s.kind !== "text" && s.kind !== "answer" && s.kind !== "thinking").slice(-4);
+  // the running turn's tool calls: the last four, one line each (one of them open: Ctrl+O, a click)
+  const toolCalls = chat.tools;
+  const liveTools = toolCalls.slice(-4);
+  // the sidebar's files: the running answer's so far, else the last answer's
+  const sideFiles = chat.busy ? filesOfSteps(steps) : turnFiles;
   // what KeelBot is writing now (helper.delta), else its last whole message of this turn
   const writing = chat.stream || lastText?.text || "";
   const verb = useMemo(() => pickVerb(), [chat.callId]);
@@ -1050,9 +1161,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   if (screen && mode) {
     return (
       <ClicksProvider clicks={clicks}>
-      <Box flexDirection="column" height={height} width={width}>
-        <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
-        <Text {...t.look("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
+      <Box flexDirection="column" height={height} width={fullWidth}>
+        <Text wrap="truncate-end">{headerLine(snap, fullWidth, t.paint)}</Text>
+        <Text {...t.look("border")} wrap="truncate-end">{"─".repeat(fullWidth)}</Text>
         <Box ref={modeRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden">
           <ModeView session={mode} width={width} height={modeH} />
         </Box>
@@ -1071,9 +1182,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     const writingLines = writing ? wrap(renderMarkdown(writing.slice(-3000), t.paint, width - 2), width - 2).slice(-liveRows) : [];
     return (
       <ClicksProvider clicks={clicks}>
-      <Box flexDirection="column" height={height} width={width}>
-        <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
-        <Text {...t.look("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
+      <Box flexDirection="column" height={height} width={fullWidth}>
+        <Text wrap="truncate-end">{headerLine(snap, fullWidth, t.paint)}</Text>
+        <Text {...t.look("border")} wrap="truncate-end">{"─".repeat(fullWidth)}</Text>
+        <Box flexDirection="row" flexGrow={1} flexBasis={0}>
+        <Box flexDirection="column" width={width} flexShrink={0}>
         <Box ref={viewRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden" justifyContent="flex-end">
           {!started && <Text {...t.look("dim")}>connecting to keel at {snap.url} …</Text>}
           {v.shown.map((l, i) => {
@@ -1087,6 +1200,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
           </Text>
         )}
         {live(writingLines)}
+        </Box>
+        {side && <Sidebar s={snap} servers={servers} files={sideFiles} height={height - 2}
+          on={{ flow: () => runNow("/status"), waiting: () => answerGate() }} />}
+        </Box>
       </Box>
       </ClicksProvider>
     );
@@ -1115,7 +1232,18 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       <>
         {chat.busy && (
           <Box flexDirection="column" marginTop={1}>
-            {tools.length > 0 && <Text>{fmt.toolLines(steps, width, t.paint, 4).join("\n")}</Text>}
+            {toolCalls.length > liveTools.length && <Text {...t.look("meta")}>{`  … ${toolCalls.length - liveTools.length} earlier tool calls`}</Text>}
+            {liveTools.map((c, i) => {
+              const open = liveOpen === c.n && canOpen(c);
+              const hint = i === liveTools.map(canOpen).lastIndexOf(true) && !open ? "Ctrl+O to show" : "";
+              const body = open ? toolBody(c, width, t.paint) : [];
+              return (
+                <Clickable key={c.n} act={() => canOpen(c) && setLiveOpen((n) => (n === c.n ? null : c.n))}>
+                  <Text>{[...toolLines(c, width, t.paint, open, hint).slice(0, 2),
+                    ...(body.length > LIVE_TOOL_ROWS ? [t.paint.meta(`      … ${body.length - LIVE_TOOL_ROWS} lines above`), ...body.slice(-LIVE_TOOL_ROWS)] : body)].join("\n")}</Text>
+                </Clickable>
+              );
+            })}
             {edits.map((e) => (
               <Box key={e.n} flexDirection="column" marginLeft={4}>
                 {diffLines(e.diff ?? "").map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
@@ -1175,7 +1303,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             {comps.length > 0 && <Completions items={comps} index={compIdx} />}
           </Box>
         )}
-        <Clickable act={answerWaiting}><StatusLine s={snap} /></Clickable>
+        <Clickable act={answerWaiting}><StatusLine s={snap} meter={!side} /></Clickable>
       </>
     );
   }

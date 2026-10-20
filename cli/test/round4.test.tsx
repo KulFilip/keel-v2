@@ -4,6 +4,7 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 import { App, type Probe } from "../src/ui/App";
+import { memorySettings } from "../src/core/settings";
 import { KeelCore } from "../src/core/keel";
 import { question, splitButtons } from "../src/core/buttons";
 import * as fmt from "../src/core/format";
@@ -235,7 +236,7 @@ describe("clicks (the full screen with the mouse)", () => {
     const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
     const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
     // wide enough for the whole agent line (0.18.7: it names its flow too)
-    const r = render(<App core={core} probe={probe} width={130} rows={40} mouse theme={none} />);
+    const r = render(<App core={core} probe={probe} width={130} rows={40} mouse theme={none} settings={memorySettings({ sidebar: false })} />);
     const lines = () => stripAnsi(r.lastFrame() ?? "").split("\n");
     /** a left click on the first line that has `text` (SGR: 1-based column and row) */
     const click = async (text: string) => {

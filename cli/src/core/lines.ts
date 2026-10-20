@@ -10,8 +10,9 @@ import { colorDiagram } from "./colorize";
 import { renderMarkdown } from "./markdown";
 import { LOGO } from "./logo";
 import * as fmt from "./format";
-import type { Paint, Role } from "./theme";
+import { PLAIN as PLAIN_LOOK, type Paint, type Role } from "./theme";
 import { VERSION } from "./version";
+import { toolLines } from "./tools";
 
 /** A notice's colour: what waits for you amber, a failure red, a finished flow green, the rest the accent. */
 export function noticeRole(text: string): "gate" | "bad" | "ok" | "accent" | "dim" {
@@ -75,13 +76,18 @@ export function textBlock(text: string, p: Paint): string {
   return text;
 }
 
-/** One block of the transcript as lines. The person's message: a bold "›" in the person's colour and bold words;
- *  KeelBot's answer: the terminal's own text colour, indented under it. */
+/** The bar down the left of the person's message (opencode's look): in the person's colour, the sign without colour. */
+export const PERSON_BAR = "│";
+
+/** One block of the transcript as lines. The person's message: a bar in the person's colour down its left side, a line
+ *  of air above and below inside it, and bold words; KeelBot's answer: the terminal's own text colour, indented, no
+ *  bar. A tool call: its one line and its folded result (or its whole output, open). */
 export function blockLines(b: Block, width: number, p: Paint): string[] {
   const role = (r: Role, s: string) => p[r](s);
   if (b.reverted) {
     // 0.18.19 a KeelBot answer /undo took back: quiet, as plain text, and the person's message says it is undone
     if (b.kind === "user") return ["", ...wrap(`${b.text}  (undone)`, width - 3).map((r, i) => p.meta((i ? "   " : " ↶ ") + r))];
+    if (b.kind === "tool" && b.tool) return toolLines(b.tool, width, PLAIN_LOOK).map((l) => p.meta(l));
     return indent(wrap(b.text, width - 2), 2).map((l) => p.meta(l));
   }
   switch (b.kind) {
@@ -96,10 +102,10 @@ export function blockLines(b: Block, width: number, p: Paint): string[] {
       return wrap(r === "gate" ? p.bold(s) : s, width);
     }
     case "user": {
-      const rows = wrap(b.text, width - 3);
-      const head = p.strong("person", " › ");
-      return ["", ...rows.map((r, i) => (i ? "   " : head) + p.bold(r))];
+      const bar = p.person(PERSON_BAR);
+      return ["", bar, ...wrap(b.text, width - 4).map((r) => bar + "  " + p.bold(r)), bar];
     }
+    case "tool": return b.tool ? toolLines(b.tool, width, p, !!b.open, b.hint) : wrap(b.text, width);
     case "dim": return wrap(noteText(b.text, p), width);
     default: return wrap(textBlock(b.text, p), width);
   }
@@ -132,7 +138,7 @@ export function startLines(s: Snapshot, width: number, p: Paint): string[] {
   return [
     p.accent("╭" + "─".repeat(w - 2) + "╮"), ...body.map(row), p.accent("╰" + "─".repeat(w - 2) + "╯"),
     p.dim("  Ask KeelBot anything · ") + k("/help") + p.dim(" · ") + k("PgUp") + p.dim("/") + k("PgDn") + p.dim(" or the wheel scroll · ")
-      + k("Ctrl+F") + p.dim(" flow · ") + k("Ctrl+A") + p.dim(" agents · ") + k("Ctrl+B") + p.dim(" inbox"),
+      + k("Ctrl+F") + p.dim(" flow · ") + k("Ctrl+A") + p.dim(" agents · ") + k("Ctrl+N") + p.dim(" inbox"),
     "",
   ];
 }

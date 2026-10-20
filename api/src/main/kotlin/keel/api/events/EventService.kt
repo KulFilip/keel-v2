@@ -72,8 +72,9 @@ class EventService(
         return stored
     }
 
-    /** Live text events: many per answer, only for the screens that watch it now. */
-    fun isLive(type: String): Boolean = type.endsWith(".delta")
+    /** Live events: many per answer, only for the screens that watch it now: the text so far (`.delta`), and KeelBot's
+     *  tool calls as keel TUI's tool lines show them (helper.tool; the helper.step beside each one is the record). */
+    fun isLive(type: String): Boolean = type.endsWith(".delta") || type == "helper.tool"
 
     private fun apply(e: EngineEvent) {
         val at = e.at ?: Time.now()

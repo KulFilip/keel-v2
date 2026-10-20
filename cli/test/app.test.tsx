@@ -68,7 +68,7 @@ describe("keel TUI", () => {
     await t.type("feature");
     await t.enter();
     await waitFor(() => t.frame().includes("DIAGRAM workflow feature"));
-    expect(t.frame()).toContain("› /workflows feature");
+    expect(t.frame()).toContain("│  /workflows feature");
     t.r.unmount();
   });
 
@@ -103,7 +103,7 @@ describe("keel TUI", () => {
       data: { n: 2, kind: "text", text: "It starts in **src/main.ts:3**" } }) });
     await tick(50);
     expect(t.frame()).toMatch(new RegExp(`(${VERBS.join("|")})… \\(\\d+s · ~\\d+ tokens · esc to interrupt\\)`));
-    expect(t.frame()).toMatch(/  > grep createApp +✓/);                      // a tool step, settled at the right
+    expect(t.frame()).toMatch(/  ⚙ grep \[createApp\]\n    └ no output/);      // a tool call: one quiet line, its result folded
     expect(t.frame()).toContain("It starts in src/main.ts:3");
     t.stub.answer("It starts in `src/main.ts:3`, where **createApp** runs.");
     t.core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "s1", project_id: "demo", at: "x", data: { status: "done" } }) });
@@ -112,7 +112,7 @@ describe("keel TUI", () => {
     const f = t.frame();
     expect(f).toContain("It starts in src/main.ts:3, where createApp runs.");
     expect(f).toMatch(/✓ Finished in \d+\.\ds · KeelBot · fake\/fake · 1\.5k tokens/);
-    expect(f).toMatch(/  > grep createApp +✓\n/);                        // what it did, kept above the answer
+    expect(f).toMatch(/  ⚙ grep \[createApp\]\n    └ no output\n/);        // what it did, kept above the answer
     expect(f).not.toContain("esc to interrupt");
     expect(t.stub.calls.find((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn")?.body).toEqual({ text: "where does the app start?" });
     t.r.unmount();
@@ -184,12 +184,12 @@ describe("keel TUI", () => {
     t.r.stdin.write("\x1b");
     await tick(60);
     void VERBS;
-    t.r.stdin.write("\x02");                      // Ctrl+B
+    t.r.stdin.write("\x0e");                      // Ctrl+N
     await tick(50);
     f = t.frame();
     expect(f).toContain("Inbox · 1 waiting");
     expect(f).toContain("1. demo · gate: spec approval · /approve 1");
-    t.r.stdin.write("\x02");
+    t.r.stdin.write("\x0e");
     await tick(50);
     expect(t.frame()).not.toContain("Inbox · 1 waiting");
     t.r.unmount();

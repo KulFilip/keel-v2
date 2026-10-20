@@ -14,6 +14,7 @@ import { loadPlugins, type TuiPlugins } from "./plugins";
 import { get, post, put } from "./sdk";
 import type { HelperChange, HelperDone, HelperMention } from "./sdk";
 import type { Profiler } from "./profile";
+import { toolFromEvent, toolFromStep, upsertTool, type ToolCall } from "./tools";
 
 export type ChatState = {
   session: HelperSession | null;
@@ -31,6 +32,8 @@ export type ChatState = {
   /** 0.18.23 what KeelBot thinks in this turn so far (helper.thinking.delta), and when it last thought (ms) */
   thinking?: string;
   thoughtAt?: number | null;
+  /** the running turn's tool calls, one each (helper.tool; from helper.step with an engine that does not send it) */
+  tools: ToolCall[];
 };
 
 /** keel 0.18.8 a login keel can use (Connections): its name and whether its chosen way works now. */
@@ -132,7 +135,7 @@ export class KeelCore {
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
       visited: [], inbox: [], running: [], logins: [], spent: null, flowTitles: {}, lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
-      chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], stream: "", startedAt: null, wrote: 0 },
+      chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], tools: [], stream: "", startedAt: null, wrote: 0 },
     };
   }
 
@@ -258,7 +261,7 @@ export class KeelCore {
     const projects = this.snapshot.projects.length ? this.snapshot.projects : await api.projects();
     const p = projects.find((x) => x.id === name || x.name === name);
     if (!p) return false;
-    this.set({ project: p, flow: null, visited: [], chat: { ...this.snapshot.chat, session: null, callId: null, steps: [], busy: false } });
+    this.set({ project: p, flow: null, visited: [], chat: { ...this.snapshot.chat, session: null, callId: null, steps: [], tools: [], busy: false } });
     this.mentions.reset();
     // shared at once, not after the project's state is read: the other front ends follow sooner, and the window where a
     // focus naming the old project can arrive is short (followFocus holds this pick meanwhile)
@@ -372,6 +375,12 @@ export class KeelCore {
       if (ev.call_id === chat.callId && chat.busy) this.setChat({ thinking: String((ev.data as { text?: unknown }).text ?? ""), thoughtAt: Date.now() });
       return;
     }
+    // KeelBot's tool calls, one record each (keel TUI's tool lines): the richer record of a step that came before it
+    if (ev.type === "helper.tool" && ev.call_id) {
+      const t = ev.call_id === chat.callId && chat.busy ? toolFromEvent((ev.data ?? {}) as Record<string, unknown>) : null;
+      if (t) this.setChat({ tools: upsertTool(chat.tools, t) });
+      return;
+    }
     if ((ev.type === "helper.delta" || ev.type === "agent.delta") && ev.call_id) {
       const text = String((ev.data as { text?: unknown }).text ?? "");
       if (ev.type === "agent.delta") this.set({ liveText: { ...this.snapshot.liveText, [ev.call_id]: text } });
@@ -397,7 +406,8 @@ export class KeelCore {
       if (ev.call_id === chat.callId && !chat.steps.some((x) => x.n === step.n)) {
         // a whole message arrived: the streamed block is in it now
         const whole = step.kind === "text" || step.kind === "answer";
-        this.setChat({ steps: [...chat.steps, step].slice(-STEP_KEEP), ...(whole ? { stream: "" } : {}),
+        const tool = ev.type === "helper.step" && !chat.tools.some((x) => x.n === step.n) ? toolFromStep({ ...step, ...(d.output ? { output: String(d.output) } : {}) }) : null;
+        this.setChat({ steps: [...chat.steps, step].slice(-STEP_KEEP), ...(whole ? { stream: "" } : {}), ...(tool ? { tools: upsertTool(chat.tools, tool) } : {}),
           wrote: chat.wrote + (whole && !chat.stream ? step.text.length : 0) });
       }
       // 0.18.15 a code step's commands (the ladder's rungs, a suite) show as lines too: keel is not silent while they run
@@ -415,7 +425,7 @@ export class KeelCore {
     }
     // 0.18.6 the person asked in this chat from the dashboard: their words, then KeelBot's answer as it is written
     if (ev.type === "helper.started" && chat.session && ev.thread_id === chat.session.id && !chat.busy && !this.sending && ev.call_id) {
-      this.setChat({ busy: true, callId: ev.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
+      this.setChat({ busy: true, callId: ev.call_id, steps: [], tools: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
       const pid = this.pid;
       void (pid ? kb.session(pid, chat.session.id) : Promise.reject(new Error("no project"))).then((s) => {
         const last = [...(s.messages ?? [])].reverse().find((x) => x.role === "user");
@@ -468,7 +478,7 @@ export class KeelCore {
         // the engine said no (a flow moved on): a new chat in that mode, as before
       }
     }
-    this.setChat({ mode, session: null, callId: null, steps: [] });
+    this.setChat({ mode, session: null, callId: null, steps: [], tools: [] });
     return false;
   }
 
@@ -493,7 +503,7 @@ export class KeelCore {
     if (!this.pid) throw new Error("no project");
     const s = await kb.session(this.pid, sid);
     const busy = !!s.busy || s.status === "running";
-    this.setChat({ session: s, mode: s.mode, model: s.model, callId: null, steps: [], stream: "", busy, startedAt: busy ? Date.now() : null, wrote: 0, thinking: "", thoughtAt: null });
+    this.setChat({ session: s, mode: s.mode, model: s.model, callId: null, steps: [], tools: [], stream: "", busy, startedAt: busy ? Date.now() : null, wrote: 0, thinking: "", thoughtAt: null });
     // a chat at work (an agent from /agent new): follow it from here; its answer comes as for the person's own turn
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = busy ? setInterval(() => void this.pollTurn(), 3000) : null;
@@ -543,7 +553,7 @@ export class KeelCore {
   }
 
   newChat() {
-    this.setChat({ session: null, callId: null, steps: [], busy: false });
+    this.setChat({ session: null, callId: null, steps: [], tools: [], busy: false });
     if (this.pid) this.shareFocus({ close: true, chat_project: this.pid });
   }
 
@@ -683,7 +693,7 @@ export class KeelCore {
     } finally {
       this.sending = false;
     }
-    this.setChat({ busy: true, callId: t.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
+    this.setChat({ busy: true, callId: t.call_id, steps: [], tools: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
     // a missed helper.finished never leaves the chat "working": look every 3 s
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = setInterval(() => void this.pollTurn(), 3000);
@@ -741,12 +751,31 @@ export class KeelCore {
     if (this.pid && s) await kb.stop(this.pid, s.id).catch(() => undefined);
   }
 
+  /** The MCP servers KeelBot gets in this project's chats (the project's settings name them, Control › MCP has them on),
+   *  each with its status (ok: it answered its last test; error: it failed) and its tools; null when keel does not say
+   *  (an older keel, or no project). */
+  async keelbotServers(): Promise<KeelbotServer[] | null> {
+    const pid = this.pid;
+    if (!pid) return null;
+    try {
+      const [all, settings] = await Promise.all([api.mcpServers(), api.projectSettings(pid).catch(() => null)]);
+      const named = settings?.effective?.mcp;
+      return all.filter((m) => m.enabled && (!Array.isArray(named) || named.includes(m.name)))
+        .map((m) => ({ name: m.name, label: m.label || m.name, status: m.status, tools: m.tools ?? [] }));
+    } catch {
+      return null;
+    }
+  }
+
   /** KeelBot's own slash commands (/gate, /where, /explain …): typed in the TUI, they go to KeelBot as they are. */
   async keelbotCommands(): Promise<{ name: string; description: string }[]> {
     if (!this.pid) return [];
     return kb.commands(this.pid).catch(() => []);
   }
 }
+
+/** An MCP server KeelBot can use: its status as keel last saw it (ok, off, error) and its tools. */
+export type KeelbotServer = { name: string; label: string; status: string; tools: string[] };
 
 /** 0.18.18 a `!command` keel ran for the person: its exit (null: it did not run) and what it printed */
 export type ShellRun = { command: string; exit: number | null; output: string };

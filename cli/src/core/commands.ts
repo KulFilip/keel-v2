@@ -18,13 +18,15 @@ import type { ChoiceInfo } from "../../../web/src/api";
 import { effortComplete, effortRun, modelRun } from "./effort";
 import { guidedStack, stackComplete, stackRequest, stackRun, stacksRun } from "./stacks";
 import { readFileSync } from "node:fs";
+import type { ToolCall } from "./tools";
 import { resolve } from "node:path";
 
 // ------------------------------------------------------------------ replies
 
-export type BlockKind = "text" | "markdown" | "diagram" | "error" | "notice" | "user" | "ok" | "dim";
-/** `reverted` (0.18.19): part of a KeelBot answer /undo took back, drawn dim. */
-export type Block = { kind: BlockKind; text: string; reverted?: boolean };
+export type BlockKind = "text" | "markdown" | "diagram" | "error" | "notice" | "user" | "ok" | "dim" | "tool";
+/** `reverted` (0.18.19): part of a KeelBot answer /undo took back, drawn dim. A "tool" block is one of KeelBot's tool
+ *  calls (`tool`), its output folded, or whole with `open` (Ctrl+O, a click); `hint` says how to open it. */
+export type Block = { kind: BlockKind; text: string; reverted?: boolean; tool?: ToolCall; open?: boolean; hint?: string };
 /** A stored chat message as a block: the person's own, KeelBot's answer, or a note (an undone turn's are reverted). */
 export const messageBlock = (m: { role: string; text: string; data?: { reverted?: unknown } | null }): Block => ({
   kind: m.role === "user" ? "user" : m.role === "note" ? "dim" : "markdown", text: m.text, ...(m.data?.reverted ? { reverted: true } : {}) });
@@ -52,6 +54,8 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   copy?: number;
   /** 0.18.23 /thinking: KeelBot's thinking block opens or folds (as Ctrl+T) */
   thinking?: boolean;
+  /** /sidebar: the right sidebar on, off, or the other way (as Ctrl+B) */
+  sidebar?: boolean | "toggle";
   /** an agent of a flow (its job id) to follow on screen: its steps and the text it writes, live */
   follow?: string;
   /** the start box again (keel, the project, its flow, what waits): after a switch to another project */
@@ -1005,6 +1009,11 @@ const IMPLS: Impl[] = [
     return { blocks: [], copy: n };
   } },
   { name: "thinking", run: () => ({ blocks: [], thinking: true }) },
+  { name: "sidebar", run: (_ctx, a) => {
+    const w = a.trim().toLowerCase();
+    if (w && w !== "on" && w !== "off") return fail("/sidebar on or /sidebar off (no word switches it, as Ctrl+B).");
+    return { blocks: [], sidebar: w ? w === "on" : "toggle" };
+  } },
   { name: "mouse", run: (_ctx, a) => {
     const w = a.trim().toLowerCase();
     if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");

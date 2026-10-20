@@ -43,8 +43,10 @@ describe("the example screen: a chat with KeelBot about a waiting gate", () => {
       // meta: quieter, never the text colour dimmed on a known background
       expect(line(s, "Tokens:")).toContain(open(p, "meta") + "Tokens: 5.5k of 1.1M (1 %) · $0.04");
       expect(line(s, "flow id")).toContain(open(p, "meta") + "flow id ");
-      // the person: a bold › in the person's colour, bold words; KeelBot: the text colour, indented, with its bullets
-      expect(line(s, "› what do you mean")).toContain(BOLD + open(p, "person") + " › ");
+      // the person: a bar in the person's colour down the left, bold words; KeelBot: the text colour, indented, no bar
+      expect(line(s, "what do you mean")).toContain(open(p, "person") + "│");
+      expect(line(s, "what do you mean")).toContain(BOLD + "what do you mean");
+      expect(line(s, "I mean the gate")).not.toContain("│");
       expect(line(s, "I mean the gate")).toMatch(/^ {2}I mean the gate \x1b\[1mframe the question/);
       expect(line(s, "keep the earlier one")).toContain(open(p, "accent") + "•");
       expect(line(s, "src/webhooks/order.ts:42")).toContain(open(p, "path") + "src/webhooks/order.ts:42");
@@ -69,11 +71,44 @@ describe("the example screen: a chat with KeelBot about a waiting gate", () => {
     });
   }
 
+  for (const [name, t] of [["dark", dark], ["light", light]] as const) {
+    it(`draws the tool calls, the footer's time and the sidebar in their roles (${name})`, () => {
+      const p = t.palette;
+      const s = demoScreen(t, 100, true);
+      // a tool call: quiet (meta), its name readable; a failed one in the error colour, its fold too
+      expect(line(s, "⚙ keel_status")).toContain(open(p, "meta") + "⚙ ");
+      expect(line(s, "$ git log --oneline")).toContain(open(p, "meta") + "$ ");
+      expect(line(s, "└ 20 lines")).toContain(open(p, "meta") + "    └ 20 lines");
+      expect(line(s, "└ the code graph is not indexed")).toContain(open(p, "bad") + "    └ the code graph is not indexed yet");
+      expect(line(s, "⚙ keel_search")).toContain(open(p, "bad") + "⚙ ");
+      // the footer: who answered and how long it took, quiet
+      expect(line(s, "■ Ask · Claude Sonnet 5.5 · 7.6s")).toContain(open(p, "meta") + "■ Ask · Claude Sonnet 5.5 · 7.6s");
+      // the sidebar: bold headings, the failed server in the error colour, the meta words quiet
+      expect(line(s, "Context")).toContain(BOLD + open(p, "heading") + "Context");
+      expect(line(s, "Files changed")).toContain(BOLD + open(p, "heading") + "Files changed");
+      expect(line(s, "41% used")).toContain(open(p, "meta") + "41% used");
+      expect(stripAnsi(line(s, "Context")).slice(101)).toBe("│ Context");
+      expect(line(s, "✗ Jira")).toContain(open(p, "bad") + "✗ ");
+      expect(line(s, "● keel")).toContain(open(p, "ok") + "● ");
+      expect(line(s, "◆ waits: frame the question")).toContain(open(p, "gate") + "◆ waits");
+      expect(s).not.toContain("\x1b[2m");
+    });
+  }
+
+  it("draws the sidebar with NO_COLOR as plain text", () => {
+    const plain = demoScreen(none, 100, true);
+    expect(plain).not.toMatch(/\x1b\[/);
+    expect(plain).toBe(stripAnsi(demoScreen(dark, 100, true)));
+    expect(plain).toMatch(/Context\n?/);
+    expect(plain).toMatch(/✗ Jira +failed/);
+    expect(plain).toMatch(/M src\/webhooks\/order\.ts +\+12 -3/);
+  });
+
   it("is the same text with NO_COLOR, with no escape at all", () => {
     const plain = demoScreen(none);
     expect(plain).not.toMatch(/\x1b\[/);
     expect(plain).toBe(stripAnsi(demoScreen(dark)));
-    expect(plain).toContain(" › what do you mean");
+    expect(plain).toContain("│  what do you mean");
     expect(plain).toContain('✦ KeelBot suggests this answer for "frame the question". Send it?');
     expect(plain).toContain("◆ Waiting for you: frame the question has 2 questions");
   });
@@ -92,12 +127,12 @@ describe("the palettes", () => {
 
   it("draw the full screen's blocks in the same roles", () => {
     const p = dark.paint;
-    expect(blockLines({ kind: "user", text: "hi" }, 40, p)[1]).toBe(`${BOLD}\x1b[94m › \x1b[39m\x1b[22m${BOLD}hi\x1b[22m`);
+    expect(blockLines({ kind: "user", text: "hi" }, 40, p)[2]).toBe(`\x1b[94m│\x1b[39m  ${BOLD}hi\x1b[22m`);
     expect(blockLines({ kind: "dim", text: "  q? → Yes" }, 40, p)[0]).toContain(`${BOLD}\x1b[32mYes`);
     // KeelBot's thinking shown with Ctrl+T: its own words in meta, never read as "q → answer" or "not done"
     const thought = blockLines({ kind: "dim", text: "⋮ Thinking (3s)\n  a → b\n  not done yet" }, 40, p);
     expect(thought.every((l) => l.startsWith(open(dark.palette, "meta")))).toBe(true);
-    expect(blockLines({ kind: "user", text: "hi" }, 40, PLAIN)).toEqual(["", " › hi"]);
+    expect(blockLines({ kind: "user", text: "hi" }, 40, PLAIN)).toEqual(["", "│", "│  hi", "│"]);
     expect(noteText("  q? → Yes", PLAIN)).toBe("  q? → Yes");
     expect(textBlock("1/2 Which one?\n   why it matters: x", PLAIN)).toBe("1/2 Which one?\n   why it matters: x");
     expect(stripAnsi(textBlock("Your answers:\n  1. Which one?\n     → B", p))).toBe("Your answers:\n  1. Which one?\n     → B");

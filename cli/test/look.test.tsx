@@ -317,7 +317,7 @@ describe("what we took from xal", () => {
 });
 
 describe("xal's layout ideas in keel TUI", () => {
-  it("a question is amber with a '?', a list is in the accent; the person's message has a bold coloured '›'", async () => {
+  it("a question is amber with a '?', a list is in the accent; the person's message has a bar in its colour", async () => {
     const { Picker } = await import("../src/ui/parts");
     const q = render(<ThemeProvider theme={color}><Picker title="Run with the fake model anyway?" choices={[{ label: "Yes", value: "y" }, { label: "No", value: "n" }]} index={0} filter="" /></ThemeProvider>);
     expect(stripAnsi(q.lastFrame() ?? "")).toContain("? Run with the fake model anyway?");
@@ -333,8 +333,9 @@ describe("xal's layout ideas in keel TUI", () => {
     await tick(30);
     r.stdin.write("\r");
     await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("Criteria: 0/2 done"));
-    expect(r.lastFrame()).toContain("\x1b[1m\x1b[94m › \x1b[39m/status\x1b[22m");  // the person's words bold too
-    expect(stripAnsi(r.lastFrame() ?? "")).toMatch(/\n › \/status\s*\n/);
+    // the person's message: the bar in the person's colour down its left side (its lines of air too), the words bold
+    expect(r.lastFrame()).toContain("\x1b[94m│\x1b[39m  \x1b[1m/status\x1b[22m");
+    expect(stripAnsi(r.lastFrame() ?? "")).toMatch(/\n│\s*\n│  \/status\s*\n│\s*\n/);
     r.unmount();
   });
 });

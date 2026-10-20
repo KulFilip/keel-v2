@@ -23,9 +23,11 @@ class EventsApiTest : ApiTest() {
             ev("helper.delta", pid, "h_1", callId = "c1", step = "helper", data = mapOf("n" to 1, "block" to 0, "text" to "The entry")),
             ev("agent.delta", pid, "t-delta", callId = "c2", step = "spec", data = mapOf("n" to 1, "block" to 0, "text" to "Spec")),
             ev("helper.step", pid, "h_1", callId = "c1", step = "helper", data = mapOf("n" to 1, "kind" to "text", "text" to "The entry is main.py")),
+            ev("helper.tool", pid, "h_1", callId = "c1", step = "helper", data = mapOf("n" to 2, "name" to "keel_status", "status" to "ok", "output" to "ok")),
         )).andExpect(status().isOk)
         val types = jdbc.queryForList("SELECT type FROM events WHERE project_id = ?", String::class.java, pid)
         assertThat(types).containsExactly("helper.step")
+        assertThat(keel.api.events.EventHub.channelOf("helper.tool")).isEqualTo("helper.tool")
         assertThat(keel.api.events.EventHub.channelOf("helper.delta")).isEqualTo("helper.delta")
         assertThat(keel.api.events.EventHub.channelOf("agent.delta")).isEqualTo("agent.delta")
     }

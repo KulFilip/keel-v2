@@ -13,6 +13,7 @@ import { colorDiagram } from "../core/colorize";
 import * as fmt from "../core/format";
 import { VERSION } from "../core/version";
 import { noteText, noticeRole, textBlock } from "../core/lines";
+import { toolLines } from "../core/tools";
 
 export { noticeRole };
 import { useTheme, type RoleProps } from "./theme";
@@ -46,7 +47,7 @@ export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
       <Text {...look("dim")} wrap="truncate-end">
         {"  Ask KeelBot anything · "}<Text {...look("accent")}>/help</Text>{" · "}<Text {...look("accent")}>/flow</Text>
         {" starts a flow · "}<Text {...look("accent")}>Ctrl+F</Text>{" flow · "}<Text {...look("accent")}>Ctrl+A</Text>{" agents · "}
-        <Text {...look("accent")}>Ctrl+B</Text>{" inbox"}
+        <Text {...look("accent")}>Ctrl+N</Text>{" inbox"}
       </Text>
     </Box>
   );
@@ -77,13 +78,15 @@ function BlockBody({ b, width }: { b: Block; width: number }) {
       const r = noticeRole(b.text);
       return <Marked mark="◆" look={look(r)} bold={r === "gate"}>{b.text}</Marked>;
     }
-    // the person's message: a bold "›" in the person's colour, bold words, with air above it; KeelBot's answer
-    // (markdown, above) is the terminal's own text colour, indented
+    // the person's message: a bar in the person's colour down its left side, with air inside it and above it, bold
+    // words; KeelBot's answer (markdown, above) has no bar: the terminal's own text colour, indented
     case "user": return (
-      <Box marginTop={1}>
-        <Text><Text {...look("person", true)}>{" › "}</Text><Text bold>{b.text}</Text></Text>
+      <Box marginTop={1} borderStyle="single" borderTop={false} borderRight={false} borderBottom={false}
+        borderLeftColor={look("person").color} borderLeftDimColor={!!look("person").dimColor} paddingLeft={2} paddingY={1}>
+        <Text bold>{b.text}</Text>
       </Box>
     );
+    case "tool": return b.tool ? <Text>{toolLines(b.tool, width, paint, !!b.open, b.hint).join("\n")}</Text> : <Text>{b.text}</Text>;
     case "dim": return <Text>{noteText(b.text, paint)}</Text>;
     default: return <Text>{textBlock(b.text, paint)}</Text>;
   }
@@ -326,8 +329,9 @@ type Seg = { text: string; role: "fg" | "dim" | "accent" | "gate" | "ok" | "warn
  *  these): a question, a pencil, a wrench, a branch. */
 export const MODE_MARK: Record<string, string> = { ask: "[?] ask", edit: "[=/] edit", fix: "[-{] fix", side: "[-<] side" };
 
-/** project · flow · phase · AC n/m · gates waiting · tokens · live, each with the role it is coloured with. */
-export function statusSegments(s: Snapshot): Seg[] {
+/** project · flow · phase · AC n/m · gates waiting · tokens · live, each with the role it is coloured with. `meter`
+ *  false: no context meter (the sidebar shows it). */
+export function statusSegments(s: Snapshot, meter = true): Seg[] {
   const t = s.flow?.thread;
   const [done, all] = fmt.acCount(t);
   const here = s.project ? s.inbox.filter((i) => i.project_id === s.project!.id).length : 0;
@@ -347,7 +351,7 @@ export function statusSegments(s: Snapshot): Seg[] {
   if (t) segs.push({ text: `${fmt.short(fmt.tokensOf(t.usage))} tokens`, role: "dim" });
   // P1-1 the open KeelBot chat's context meter: how full its model's window is after the last turn
   const session = s.chat.session;
-  if (session && session.ctx_window) {
+  if (meter && session && session.ctx_window) {
     const pct = Math.round(((session.ctx_tokens ?? 0) / session.ctx_window) * 100);
     segs.push({ text: `ctx ${pct}%`, role: pct >= 85 ? "bad" : pct >= 70 ? "warn" : "dim" });
   }
@@ -358,9 +362,9 @@ export function statusSegments(s: Snapshot): Seg[] {
 /** The status line's words (tests, and front ends without colour). */
 export const statusParts = (s: Snapshot) => statusSegments(s).map((x) => x.text.replace(/^● /, ""));
 
-export function StatusLine({ s }: { s: Snapshot }) {
+export function StatusLine({ s, meter = true }: { s: Snapshot; meter?: boolean }) {
   const { color, look } = useTheme();
-  const segs = statusSegments(s);
+  const segs = statusSegments(s, meter);
   return (
     <Text wrap="truncate-end">
       {" "}

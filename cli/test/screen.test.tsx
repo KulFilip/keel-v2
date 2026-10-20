@@ -41,7 +41,7 @@ describe("lines", () => {
     expect(wrap("  /keep [path]   keep the change and commit it", 34)).toEqual(["  /keep [path]   keep the change", "                 and commit it"]);
     expect(wrap("    one two three four", 14)).toEqual(["    one two", "    three four"]);
     const u = blockLines({ kind: "user", text: "hello" }, 40, PLAIN);
-    expect(u).toEqual(["", " › hello"]);
+    expect(u).toEqual(["", "│", "│  hello", "│"]);
     expect(blockLines({ kind: "error", text: "x" }, 40, PLAIN)).toEqual(["✗ x"]);
   });
 

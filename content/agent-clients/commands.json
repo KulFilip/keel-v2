@@ -313,7 +313,7 @@
     {
       "name": "panel",
       "args": "<flow|agents|inbox|off>",
-      "summary": "show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+B toggle them)",
+      "summary": "show a panel, or none (keys: Ctrl+F, Ctrl+A, Ctrl+N toggle them)",
       "writes": false,
       "complete": "panel",
       "local": true,
@@ -338,6 +338,14 @@
       "name": "thinking",
       "args": "",
       "summary": "KeelBot's thinking: open or fold it while it works, or show the last answer's (Ctrl+T)",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
+      "name": "sidebar",
+      "args": "[on|off]",
+      "summary": "the sidebar on a wide terminal (120 columns or more): the chat's context and cost, the flow, KeelBot's MCP servers, the files this answer changed (Ctrl+B)",
       "writes": false,
       "local": true,
       "group": "Screen"
@@ -409,11 +417,15 @@
     },
     {
       "key": "Ctrl+B",
+      "does": "toggle the sidebar (on a terminal 120 columns wide or more; keel TUI keeps your choice)"
+    },
+    {
+      "key": "Ctrl+N",
       "does": "toggle the inbox"
     },
     {
       "key": "Ctrl+O",
-      "does": "follow the agent at work (or click it; a click on what waits answers it)"
+      "does": "open or fold the last tool call's output (or click it); with none on screen, follow the agent at work (or click it; a click on what waits answers it)"
     },
     {
       "key": "Alt+Tab / Shift+Tab",

@@ -56,7 +56,7 @@ with backoff), the twin of the web's EventSource use in `web/src/state.tsx`.
 - **Slash commands** with autocomplete (Tab, ↑/↓): /help /project /flow /flows /resume /stop /status /next /inbox
   /approve /reject <why> /answer /jobs /live /steps /timeline /workflows /diagram <flow|workflow|map-er|graph> /rules
   /plugins /budget /dashboard /model /chats /new /mode /panel /clear /quit.
-- **Panels** (keys): Ctrl+F flow rail (steps, current, gates), Ctrl+A live agents, Ctrl+B inbox. **Status line**:
+- **Panels** (keys): Ctrl+F flow rail (steps, current, gates), Ctrl+A live agents, Ctrl+N inbox (Ctrl+B: the sidebar on a wide terminal). **Status line**:
   project · flow · phase · AC n/m · gates waiting · tokens · live/reconnecting.
 - **Vice versa**: the SSE stream's gate.waiting, thread.done / failed, agent.started, notifications show as notices
   in the transcript. Every request carries `X-Keel-Via: tui`, `X-Keel-Client: keel TUI <version>` and

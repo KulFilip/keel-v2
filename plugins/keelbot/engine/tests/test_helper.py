@@ -109,6 +109,50 @@ def test_thinking_streams_apart_from_the_answer_and_never_reaches_the_next_turn(
     assert not any("The person asks" in t for _, t in helper.history(s["id"]))
 
 
+def test_each_tool_call_is_a_helper_tool_event_and_never_reaches_the_next_turn(client, repo, monkeypatch):
+    """keel TUI's tool lines: each tool call of a turn is one helper.tool event (name, args, status, summary, output),
+    next to its helper.step; the next turn's conversation has none of their output."""
+    from keel_engine.models import fake
+
+    s = new_session(client, repo)
+    started, s = ask(client, s["id"], "What is here?")
+    evs = [e for e in client.bus.recent if e["thread_id"] == s["id"]]
+    tools = [e for e in evs if e["type"] == "helper.tool"]
+    assert tools and all(e["call_id"] == started["call_id"] and e["step"] == "helper" for e in tools)
+    by_name = {e["data"]["name"]: e["data"] for e in tools}
+    nxt = by_name["keel_next"]
+    assert nxt["server"] == "keel" and nxt["args"] == {} and nxt["status"] == "ok" and not nxt["shell"]
+    assert nxt["output"].startswith("next step is") and nxt["lines"] == 1 and nxt["summary"] == nxt["output"]
+    read = by_name["Read"]
+    assert read["args"] == read["path"] and read["lines"] > 1 and read["summary"] == f"{read['lines']} lines"
+    # each record is the step with the same n: keel TUI joins them
+    steps = {e["data"]["n"]: e["data"] for e in evs if e["type"] == "helper.step"}
+    assert steps[nxt["n"]]["tool"] == "keel_next" and steps[read["n"]]["kind"] == "read"
+    # the answer and the stored messages keep no tool output
+    assert all("next step is" not in m["text"] for m in s["messages"])
+    seen = []
+    real = fake._plan
+    monkeypatch.setattr(fake, "_plan", lambda req: (seen.append(req), real(req))[1])
+    ask(client, s["id"], "And now?")
+    assert seen[-1].history and not any("next step is" in t for _, t in seen[-1].history)
+    assert not any("next step is" in t for _, t in helper.history(s["id"]))
+
+
+def test_a_tool_record_folds_long_output_and_says_what_failed():
+    long = "\n".join(f"line {i}" for i in range(300)) + "\n… (120 more lines)"
+    t = helper.tool_event(4, "tool", "git status --short", {"tool": "Bash", "output": long, "ok": True, "ms": 30})
+    assert t["shell"] and t["args"] == "git status --short" and t["lines"] == 420 and t["summary"] == "420 lines"
+    bad = helper.tool_event(5, "tool", '{"project": "app"}', {"tool": "keel_status", "server": "keel", "output": "\nboom: no project\nmore",
+                                                                  "ok": False})
+    assert bad["status"] == "error" and bad["summary"] == "boom: no project" and bad["args"] == {"project": "app"}
+    refused = helper.tool_event(6, "guard", "Ask mode is read only.", {"tool": "Write", "path": "a.py", "ok": False})
+    assert refused["status"] == "refused" and refused["summary"] == "refused: Ask mode is read only." and refused["args"] == "a.py"
+    edit = helper.tool_event(7, "edit", "Edit a.py (+3 -1)", {"path": "a.py", "diff": "--- a\n+++ b\n", "ok": True})
+    assert edit["summary"] == "+3 -1" and edit["output"].startswith("--- a")
+    huge = helper.tool_event(8, "tool", "cat big", {"tool": "Bash", "output": "x" * (helper.TOOL_OUTPUT_MAX + 500)})
+    assert len(huge["output"]) < helper.TOOL_OUTPUT_MAX + 40 and huge["output"].endswith("(500 more characters)")
+
+
 def test_thinking_kept_with_an_answer_is_capped():
     from keel_plugin_keelbot import helper
 

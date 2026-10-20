@@ -21,7 +21,8 @@ API-key runner gets the earlier messages; the other CLIs get the conversation so
 
 Events (thread_id = the session id, step "helper"): helper.started, helper.step, helper.finished. The api stores
 them as agent calls (agent "helper", so the budget, Live agents and Jobs count them) but never as a flow. Live, never
-stored: helper.delta (the answer so far) and, 0.18.23, helper.thinking.delta (the model's thinking so far).
+stored: helper.delta (the answer so far), 0.18.23 helper.thinking.delta (the model's thinking so far) and
+helper.tool (each tool call as one record: name, args, status, summary, output; keel TUI's tool lines).
 
 Its sessions live in the engine DB's helper_sessions, helper_messages and helper_files: core's runtime/migrate.py
 still makes them (the old tables stay core). Its routes are routes.py; its runner starts and stops with keel's app
@@ -1548,6 +1549,10 @@ class HelperRunner:
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
             data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})
             ev("helper.step", data)
+            # the same tool call as one tidy record for keel TUI's tool lines (a live event: never stored,
+            # never in the next turn's history)
+            if kind in TOOL_KINDS:
+                ev("helper.tool", tool_event(counter["n"], kind, str(text), extra))
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
             emit("guard", reason, tool=tool, path=path or None, ok=False, command=command)
@@ -1717,6 +1722,64 @@ class HelperRunner:
 
 
 THINKING_MAX = 20_000             # 0.18.23 the thinking kept with an answer, for a reload (never sent to the model)
+
+TOOL_KINDS = ("tool", "read", "write", "edit", "guard")   # the steps that are a tool call (helper.tool)
+TOOL_OUTPUT_MAX = 20_000          # a helper.tool event's output, at most
+TOOL_SUMMARY_MAX = 200
+SHELL_TOOLS = ("Bash", "bash", "shell", "run_command", "exec_command")
+FILE_TOOL = {"read": "Read", "write": "Write", "edit": "Edit"}
+_MORE_LINES = re.compile(r"\n… \((\d+) more lines\)$")
+_STAT = re.compile(r"\(([^()]*)\)\s*$")
+
+
+def _first_line(text: str) -> str:
+    line = next((x.strip() for x in str(text or "").splitlines() if x.strip()), "")
+    return line if len(line) <= TOOL_SUMMARY_MAX else line[:TOOL_SUMMARY_MAX - 1].rstrip() + "…"
+
+
+def _line_count(output: str) -> int:
+    """How many lines the tool printed: the lines kept, plus the ones a runner cut ("… (N more lines)")."""
+    if not output:
+        return 0
+    m = _MORE_LINES.search(output)
+    kept = output[:m.start()] if m else output
+    return len(kept.splitlines()) + (int(m.group(1)) if m else 0)
+
+
+def tool_event(n: int, kind: str, text: str, extra: dict) -> dict:
+    """One tool call of a turn as keel TUI shows it: {n (the step's), name, server, args, shell, status
+    (ok | error | refused), summary (one line: "220 lines", the error, what changed), lines, output (at most
+    TOOL_OUTPUT_MAX characters), path, ms}. From the step the runner emitted (tool, read, write, edit, guard)."""
+    name = str(extra.get("tool") or FILE_TOOL.get(kind) or kind)
+    path = extra.get("path")
+    if kind == "guard":
+        args, output = str(extra.get("command") or path or ""), text
+    elif kind in FILE_TOOL:
+        args = str(path or "")
+        output = str(extra.get("diff") or extra.get("output") or (text if kind == "read" else ""))
+    else:
+        args, output = text, str(extra.get("output") or "")
+    try:                                       # MCP and other tools: their arguments as JSON
+        parsed = json.loads(args) if args.lstrip().startswith("{") else None
+    except ValueError:
+        parsed = None
+    status = "refused" if kind == "guard" else "error" if extra.get("ok") is False else "ok"
+    lines = _line_count(output)
+    if status == "refused":
+        summary = "refused: " + _first_line(text)
+    elif status == "error":
+        summary = _first_line(output) or "failed"
+    elif kind in ("write", "edit"):
+        m = _STAT.search(text)
+        summary = m.group(1) if m else f"{lines} lines"
+    else:
+        summary = "" if not lines else _first_line(output) if lines == 1 else f"{lines} lines"
+    if len(output) > TOOL_OUTPUT_MAX:
+        output = output[:TOOL_OUTPUT_MAX].rstrip() + f"\n… ({len(output) - TOOL_OUTPUT_MAX} more characters)"
+    return {"n": n, "name": name, "args": parsed if isinstance(parsed, dict) else args,
+            "shell": name in SHELL_TOOLS, "status": status, "summary": summary, "lines": lines, "output": output,
+            **({"server": extra["server"]} if extra.get("server") else {}), **({"path": path} if path else {}),
+            **({"ms": extra["ms"]} if isinstance(extra.get("ms"), int) else {})}
 
 
 def _thinking_data(thought: dict, t0: float) -> dict:
