@@ -181,14 +181,19 @@ def test_the_document_holds_criteria_keel_reads_a_definition_of_done_and_a_promp
     assert [f for f in spec_check.check(text, acs) if f["level"] == "fix"] == []
     assert text.startswith("---\nid: clarify-") and "status: draft" in text
     heads = re.findall(r"^## (.+)$", text, re.M)
-    assert heads[:3] == ["What will change", "Payload changes", "Request"]
+    # keel's spec format: the six sections a reader scans first, In plain words first
+    assert heads[:7] == ["In plain words", "For engineers", "What will change", "Payload changes", "Database changes",
+                         "Architecture", "Request"]
     want = ["Goal", "User stories", "Decisions", "Findings (evidence)", "Acceptance criteria", "Test layers", "Request path",
-            "Architecture", "Data and migrations", "Validation and security rules", "Edge cases", "Risks and cost",
+            "Data and migrations", "Validation and security rules", "Edge cases", "Risks and cost",
             "Assumptions", "Unverified and open questions", "Out of scope", "Definition of done"]
     assert [h for h in heads if h in want] == want
     assert heads[-1] == "Appendix: ready-to-send prompt"                # the prompt is the last appendix
     assert "// + count" in text and "Compatible: old callers" in text      # the payload, before and after
     assert "[run() ~changed]" in text and "- src/scores/__init__.py: changed" in text
+    assert "like the third runner in a race" in spec_check.sections(text)["in plain words"]
+    assert "idempotent" in spec_check.sections(text)["for engineers"]
+    assert spec_check.sections(text)["database changes"].startswith("none: ")          # nothing stored
     assert "- [ ] Input validation is explicit and tested." in text
     assert "## Red-flag check" in text and "## Next step" in text
     assert "I need to implement: Player ranks" in text and st["prompt"].startswith("I need to implement: Player ranks")
@@ -268,3 +273,15 @@ def test_a_document_the_spec_check_refuses_is_written_again_once(client, repo, m
     assert "Test layers" in (calls[1].feedback or "") and "spec check" in calls[1].feedback
     text = (Path(repo) / values(client, tid)["data"]["clarify"]["doc"]).read_text()
     assert "## Test layers" in text
+
+
+def test_a_request_that_stores_something_shows_the_database_change(client, repo, monkeypatch):
+    tid, s, _seen = to_rounds(client, repo, monkeypatch, request="Store each player's rank in the scores table.")
+    finish(client, tid, s)
+    text = (Path(repo) / values(client, tid)["data"]["clarify"]["doc"]).read_text()
+    db = spec_check.sections(text)["database changes"]
+    assert "+ rank    int     null" in db and "+ index scores_rank_idx (rank)" in db         # before / after, marked
+    assert "up `ALTER TABLE scores ADD COLUMN rank int NULL" in db and "down `DROP INDEX" in db
+    assert "Online on PostgreSQL" in db and "Deploy order: migration, then consumer, then producer." in db
+    assert "Rollback:" in db and "ScoreRepository.save" in db
+    assert [f for f in spec_check.check(text, prompts.parse_acs(text)) if f["level"] == "fix"] == []

@@ -119,6 +119,12 @@ Each flow below has a short picture and what it asks you.
    ─ integration ◆ ─ security ─ full review ─ e2e ◆ ─ smoke ◆ ─ ship ─ ADR ─ done
 ```
 
+- **The spec's layout** (every flow that writes a spec: feature, clarify, a spike or a fix handing over): it starts
+  with six sections you can read first. **In plain words** (a short story for someone who does not know the code),
+  **For engineers** (the change per layer, the design choices, compatibility, how it fails), **What will change**
+  (one line per file), **Payload changes** and **Database changes** (always there; "none" with the reason when
+  nothing changes; else before and after, the migration with its rollback and deploy order), **Architecture** (an
+  ASCII request path, each box new, changed or unchanged). Then the usual sections, Goal to Definition of done.
 - **web_check**: does the spec need facts from outside the repository (a vendor API, a webhook, a library, a
   standard)? Only on yes does **web_docs** run (see [Web research](#web-research)).
 - **The interview** (its own step, before the spec): the explorer asks you questions when the request leaves something open. Several
@@ -236,8 +242,8 @@ The rule: never start any coding task without answering these questions first.
   - A task that names users, login, accounts, roles or permissions also gets the identity question (A named
     entities, B authentication, C authorization only). Section 4 asks about the red flags that may hold.
 - **Clarify result**: the document `<specs>/clarify/<date>-<slug>.md` (`docs/specs` or `.keel/specs`, not
-  committed) is a keel spec that passes the spec check: What will change, Payload changes (JSON before and after),
-  the spec's sections with an Architecture drawing, the numbered criteria (`AC-1 [API] Given …, when …, then …`), the
+  committed) is a keel spec that passes the spec check: In plain words, For engineers, What will change, Payload
+  changes, Database changes, Architecture, then the spec's sections, the numbered criteria (`AC-1 [API] Given …, when …, then …`), the
   definition of done, and the ready-to-send prompt as the last appendix. Hand it over to the flow that fits (feature
   for a new feature or an API integration, fix for a bug, change or small for a refactor, change or spike for
   performance, spike or feature for architecture): the criteria and the answers are its seed. Or copy the prompt

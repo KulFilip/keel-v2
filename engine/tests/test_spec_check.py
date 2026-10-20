@@ -3,6 +3,28 @@ from conftest import decide, start, wait
 
 GOOD = """# Leaderboard
 
+## In plain words
+Players cannot see where they stand. We will show a leaderboard, like the table in a sports club. Scores stay the same.
+
+## For engineers
+- Inbound: a new GET /leaderboard in LeaderboardController; the domain sorts by score, ties share a rank.
+- Persistence: reads the scores table only; no transaction, no ordering concern.
+
+## What will change
+- the leaderboard page and its endpoint: new
+
+## Payload changes
+none: GET /leaderboard is new, no existing payload changes shape.
+
+## Database changes
+none: the scores table is only read.
+
+## Architecture
+```
+[GET /leaderboard new] -> [ranking new] -> [scores unchanged]
+```
+It follows the controller, service, repository layers.
+
 ## Request
 Show ranks.
 
@@ -58,6 +80,30 @@ ACS = [{"id": "AC-1", "layer": "API", "title": "Given scores, when GET /leaderbo
 def test_a_complete_spec_has_nothing_missing():
     assert [f for f in spec_check.check(GOOD, ACS) if f["level"] == "fix"] == []
     assert spec_check.describe(spec_check.check(GOOD, ACS)) == "Spec check: nothing missing."
+
+
+def test_the_six_first_sections_are_required_and_none_needs_a_reason():
+    for name in ("In plain words", "For engineers", "What will change", "Payload changes", "Database changes", "Architecture"):
+        cut = GOOD.split(f"## {name}\n", 1)
+        cut = cut[0] + "## " + cut[1].split("## ", 1)[1]
+        texts = [f["text"] for f in spec_check.check(cut, ACS) if f["level"] == "fix"]
+        assert any(f"No “{name}” section" in t for t in texts), (name, texts)
+    bare = GOOD.replace("none: the scores table is only read.", "none")
+    texts = [f["text"] for f in spec_check.check(bare, ACS) if f["level"] == "fix"]
+    assert texts == ["“Database changes” says only none: add the reason in one line (\"none: <why>\")."]
+    assert spec_check.SECTION_ORDER[:6] == ("In plain words", "For engineers", "What will change", "Payload changes",
+                                            "Database changes", "Architecture")
+
+
+def test_the_template_and_the_skill_start_with_the_six_sections():
+    from pathlib import Path
+
+    tpl = Path(spec_check.template_path()).read_text()
+    heads = [h for h in spec_check.SECTION.findall(tpl)]
+    assert heads[:7] == ["In plain words", "For engineers", "What will change", "Payload changes", "Database changes",
+                         "Architecture", "Request"]
+    skill = (Path(spec_check.template_path()).parent.parent / "skills" / "spec-writing" / "SKILL.md").read_text()
+    assert skill.index("## In plain words") < skill.index("## Architecture") < skill.index("## Request ")
 
 
 def test_a_screen_without_a_mockup_and_an_api_without_a_path_are_found():

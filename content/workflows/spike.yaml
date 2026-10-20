@@ -106,7 +106,10 @@ steps:
       acceptance criteria "AC-n [API|WEB|E2E|SMOKE] Given, when, then" that are testable and cover absent, valid, malformed, a
       later update, an old queued message and the docs; Test layers per draft criterion (unit, functional,
       integration, smoke, e2e, or why not); Risks and cost (files touched, migration or not, the rolling deploy order
-      between producer and consumer, ambiguities to decide); the sources with their URLs; open questions; and one
+      between producer and consumer, ambiguities to decide); for the recommended angle also what the feature spec's
+      first sections need (keel's spec template): what will change, file by file; the payloads before and after (or
+      none, and why); the database changes with the migration, its rollback and deploy order (or none, and why); and
+      the request path through the layers; the sources with their URLs; open questions; and one
       recommendation with its reason. RECOMMEND is that recommendation on one line.
 
       The web research (sources and confidence):

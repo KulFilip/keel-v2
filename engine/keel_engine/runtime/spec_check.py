@@ -19,6 +19,20 @@ VAGUE = re.compile(r"\b(either|any of|whichever|or something|etc\.?|as needed|ap
 # file must have, as (shown name, heading prefixes, what goes in it). A spec without one is sent back once, then the
 # gate names it.
 REQUIRED = (
+    # 0.18.25 the six sections a reader scans first (every spec, every flow that writes one)
+    ("In plain words", ("in plain words",), "5 to 10 short sentences for a colleague who does not know the code: what is "
+                                            "wrong or missing, what we do, what a user notices, what stays the same, what we "
+                                            "still must find out; simple words, one everyday example"),
+    ("For engineers", ("for engineers",), "8 to 15 precise lines: the change per layer with its classes and tables, the "
+                                          "design choices and why, compatibility, how it fails and how we see it"),
+    ("What will change", ("what will change",), "one line per file or area: new, changed or removed, and what happens"),
+    ("Payload changes", ("payload change",), "JSON before and after with the fields marked + ~ -, and the compatibility "
+                                             "note; or \"none: <the reason>\""),
+    ("Database changes", ("database change",), "the table before and after, the migration (up, down, online or locking), "
+                                               "backfill, deploy order, rollback and its data loss, the repository methods; "
+                                               "or \"none: <the reason>\""),
+    ("Architecture", ("architecture",), "an ASCII request path (inbound → app → domain → persistence → outbound), each box "
+                                        "new, changed or unchanged, and why it fits the layers"),
     ("Goal", ("goal",), "why this exists and what changes for whom, in two or three sentences"),
     ("User stories", ("user stor",), "\"As a <role>, I want <capability>, so that <benefit>.\", one per actor"),
     ("Findings (evidence)", ("findings",), "what is true today, each claim with its file:line or URL: the inbound, "
@@ -33,7 +47,11 @@ REQUIRED = (
                                                     "contract and docs updated, migration and rollout done, review passed"),
 )
 UNVERIFIED = ("unverified", "open question")
-SECTION_ORDER = ("Request", "Goal", "User stories", "Decisions", "Findings (evidence)", "Acceptance criteria", "Test layers",
+# a section that may say only "none", but must say why (Payload changes, Database changes)
+NONE_NEEDS_REASON = (("Payload changes", ("payload change",)), ("Database changes", ("database change",)))
+BARE_NONE = re.compile(r"^[\s*_`>-]*(none|no changes?|n/?a|nothing)[\s.*_`]*$", re.I)
+SECTION_ORDER = ("In plain words", "For engineers", "What will change", "Payload changes", "Database changes",
+                 "Architecture", "Request", "Goal", "User stories", "Decisions", "Findings (evidence)", "Acceptance criteria", "Test layers",
                  "UI mockup", "Request path", "Data and migrations", "Validation and security rules", "Edge cases",
                  "Risks and cost", "Assumptions", "Unverified and open questions", "Out of scope", "Definition of done", "Plan")
 STORY = re.compile(r"\bas an?\b.+?\bi want\b.+?\bso that\b", re.I | re.S)
@@ -131,6 +149,10 @@ def _template(text: str, sec: dict[str, str], acs: list[dict], outside: bool) ->
     missing = [(name, what) for name, pre, what in REQUIRED if not bare(body(pre) or "")]
     for name, what in missing:
         found.append({"level": "fix", "text": f"No “{name}” section (or it is empty): {what}."})
+    for name, pre in NONE_NEEDS_REASON:
+        v = bare(body(pre) or "")
+        if v and BARE_NONE.match(v):
+            found.append({"level": "fix", "text": f"“{name}” says only none: add the reason in one line (\"none: <why>\")."})
     stories = body(("user stor",))
     if stories and bare(stories) and not STORY.search(stories):
         found.append({"level": "fix", "text": "User stories: write each as “As a <role>, I want <capability>, so that <benefit>.”"})

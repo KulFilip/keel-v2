@@ -17,6 +17,25 @@ front matter and headings.
 
 ```
 # <Title>                        one line: what is built and why it matters
+## In plain words                5-10 short sentences for a colleague who does not know the code:
+                                  what is wrong or missing, what we do, what a user notices, what
+                                  stays the same, what we still must find out; simple words, no
+                                  file names or jargon, one everyday example
+## For engineers                 8-15 lines, precise: the change per layer (inbound, parsing, the
+                                  message contract, handler, persistence, outbound) with classes
+                                  and tables; design choices and why (idempotency, ordering, null
+                                  semantics, transaction scope); compatibility (rolling deploy, old
+                                  messages, old clients); how it fails and how we see it
+## What will change              one line each: file or area, new / changed / removed, what happens
+## Payload changes               always: JSON before / after, fields marked // + // ~ // -, the
+                                  compatibility note; or "none: <reason>"
+## Database changes              always: table before / after (types, null, indexes, + ~ -), the
+                                  migration (name, up and down SQL, online or locking, rows), the
+                                  backfill and its cost, deploy order (migration → consumer →
+                                  producer), rollback and the data it loses, repository methods;
+                                  or "none: <reason>"
+## Architecture                  fenced ASCII: inbound → app → domain → persistence → outbound,
+                                  each box [new] / [changed] / [unchanged]; one line on why it fits
 ## Request                       the person's words (max 5 lines), and where the work came from
 ## Goal                          why it exists, what changes for whom (2-3 sentences)
 ## User stories                  "As a <role>, I want <capability>, so that <benefit>." one per actor
@@ -40,10 +59,12 @@ front matter and headings.
 ## Plan                          written by the plan step after the criteria
 ```
 
-keel's spec check sends a spec back once without Goal, User stories, Findings (evidence), Acceptance
+keel's spec check sends a spec back once without In plain words, For engineers, What will change,
+Payload changes, Database changes, Architecture, Goal, User stories, Findings (evidence), Acceptance
 criteria, Test layers (a line for every criterion), Validation and security rules, Edge cases, Risks
 and cost or Definition of done, and without Unverified and open questions when the work relies on facts
-from outside the repository. Cut another section only when it has nothing to say. Keep every line
+from outside the repository. Payload changes and Database changes are never cut: when nothing changes
+they say "none" and the reason in one line (a bare "none" is sent back). Cut another section only when it has nothing to say. Keep every line
 under 80 columns. A gap that needs a product choice ("an ETA-only update sends no webhook") is a
 decision to make, not a fact: put it under Decisions or Unverified and open questions.
 

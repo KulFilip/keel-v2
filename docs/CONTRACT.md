@@ -482,6 +482,10 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   states, `[API]` criteria a Request path; empty sections, vague or "then"-less criteria, an AC id inside a drawing,
   more than 8 criteria are noted. Gaps that are clearly missing send the spec back to the explorer once (same session;
   real models by default, `settings.spec_check` overrides). The spec gate shows the rest as "Spec check" lines.
+  0.18.25 every spec starts with six sections (content/templates/spec.md, `spec_check.REQUIRED`, `SECTION_ORDER`): In
+  plain words, For engineers, What will change, Payload changes, Database changes, Architecture; a missing one is a
+  "missing" item on the one send-back. Payload changes and Database changes are always there: a bare "none" is
+  missing too, "none: <the reason>" passes.
 - **Skills** (now `content/skills/`, see v0.4.0 below; shown in Build › Skill hub with source "keel"):
   `spec-clarify` (the question format, identity and work-placement probes) and `spec-writing` (spec layout, criteria
   form, drawings); both assigned to the `explorer` for phase `spec`. keel v1's `spec-authoring` (a live chat) is no
@@ -740,8 +744,8 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   .brief, `ask` yes when 1 or 4 is ticked; `clarify_rounds` back to 0) → explorer `rounds` (`asks: true`, `rounds: 4`:
   an asking agent step's own number of question rounds, 6 questions a round; NO_QUESTIONS ends them) ⇄ gate
   `round_gate` → explorer `assemble` (`keep`) → `clarify_doc` writes `<specs>/clarify/<date>-<slug>.md` as a keel spec
-  (What will change, Payload changes, the template's sections with Architecture, the skill's Definition of done, the
-  prompt as the last appendix) and runs `spec_check.check`: a "fix" finding sends it back to `assemble` once (branch
+  (the six first sections, In plain words to Architecture, then the template's sections, the skill's Definition of
+  done, the prompt as the last appendix) and runs `spec_check.check`: a "fix" finding sends it back to `assemble` once (branch
   `checked` on marker SPEC-CHECK) → gate `result` `choices: {feature, fix, change, small, spike, prompt, reject: assemble,
   stop: end}`; `data.result_without` drops the flows that do not fit the type and `data.result_order` puts the one that
   fits first (the default: a gate's `data.<gate id>_order`) → start_flow with seed {title, request (the request, the

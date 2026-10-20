@@ -20,11 +20,87 @@ contract: <contracts/openapi.yaml#operationId, or "no contract impact">
 # <Title: what is built, in one line>
 
 <!-- keel's spec template (keel v1's spec, with the evidence a spike or an investigation brings).
-     keel's spec check refuses a spec without: Goal, User stories, Findings (evidence),
+     It starts with six sections a reader scans first: In plain words, For engineers, What
+     will change, Payload changes, Database changes and Architecture. keel's spec check
+     refuses a spec without them, or without: Goal, User stories, Findings (evidence),
      Acceptance criteria, Test layers (every criterion), Validation and security rules, Edge
      cases, Risks and cost, Definition of done, and Unverified and open questions when the
-     spec relies on outside facts. Cut another section only when it has nothing to say.
-     Keep lines under 80 columns. -->
+     spec relies on outside facts. Payload changes and Database changes are always there:
+     "none" and the reason, in one line, when nothing changes. Cut another section only when
+     it has nothing to say. Keep lines under 80 columns. -->
+
+## In plain words
+
+<!-- 5 to 10 short sentences for a colleague who does not know the code. Simple English,
+     no file names, no jargon, one everyday example. Say: what is wrong or missing today,
+     what we will do, what a user will notice, what stays the same, what we still need to
+     find out. -->
+
+## For engineers
+
+<!-- 8 to 15 lines, precise terms, the classes and tables by name: the change at each
+     layer (inbound, parsing, the message contract, the handler, persistence, outbound);
+     the key design choices and why (idempotency, ordering, null semantics, transaction
+     scope); compatibility (rolling deploy, old messages, old clients); where it can fail
+     and how we see it (logs, metrics). -->
+
+## What will change
+
+<!-- A list a reader scans in 30 seconds, one line each: the file or area, new / changed /
+     removed, and what happens to it. -->
+
+- `<path or area>` — new | changed | removed: <what happens, in one line>
+
+## Payload changes
+
+<!-- Always here. Every request, response or message whose shape changes: its JSON before
+     and after, each new, changed or removed field marked with a `// +`, `// ~` or `// -`
+     comment, and the compatibility note (old clients, messages already queued). Nothing
+     changes shape: "none: <the reason, in one line>". -->
+
+```json
+// before
+{ "<field>": "<value>" }
+```
+
+```json
+// after
+{ "<field>": "<value>", "<new>": "<value>" }   // + <new>
+```
+
+Compatibility: <what old clients and messages already queued do with it>
+
+## Database changes
+
+<!-- Always here. Nothing changes in the schema or the data: "none: <the reason, in one
+     line>". Otherwise: the table before and after (columns with type, null or not null,
+     indexes; changed ones marked + / ~ / -); the migration (its name, the up and the down
+     SQL, online or locking on this database engine, the rows today when known); a backfill
+     or data fix and its cost; the deploy order (migration, then consumer, then producer);
+     the rollback and what data it loses; the repository or query methods that change. -->
+
+```
+<table> before                     <table> after
+  id      bigint   not null pk       id      bigint   not null pk
+                                   + <col>   <type>   null
+                                   + index <name> (<col>)
+```
+
+Migration `<V<n>__name>`: up `<SQL>`; down `<SQL>`; <online | locking>, ~<rows> rows.
+Backfill: <none, or what and its cost>. Deploy order: migration → consumer → producer.
+Rollback: <down; what data it loses>. Repository: <methods that change>.
+
+## Architecture
+
+<!-- The request path through the layers, each box marked [new], [changed] or
+     [unchanged], then one line on why it fits the existing layers (file:line). -->
+
+```
+[inbound]──▶[app]──▶[domain]──▶[persistence]──▶[outbound]
+ unchanged   changed  new        changed         unchanged
+```
+
+<why it fits the existing layers>
 
 ## Request
 

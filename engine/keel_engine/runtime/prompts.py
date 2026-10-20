@@ -245,7 +245,9 @@ def evidence_block(seed: dict | None) -> str:
     return ("Evidence handed over by the flow that started this one" + (f" (cut at {EVIDENCE_MAX} characters)" if cut else "")
             + ". Read all of it. Carry every claim with its file:line or URL into the spec's Findings (evidence), keep "
             "the paths it traced, the tests it named and its draft criteria, and put what it marks unconfirmed under "
-            "Unverified and open questions. Do not summarise it away.\n\n" + text[:EVIDENCE_MAX])
+            "Unverified and open questions. Fill the spec's first sections from it too (In plain words, For engineers, "
+            "What will change, Payload changes, Database changes, Architecture). Do not summarise it away.\n\n"
+            + text[:EVIDENCE_MAX])
 
 
 def spec_template_line() -> str:
@@ -257,7 +259,11 @@ def spec_template_line() -> str:
             f"without: {required}; and without Unverified and open questions when the work relies on facts from outside "
             "the repository. Cite a file:line or URL for every finding, give every criterion its test layers (unit, "
             "functional, integration, smoke, e2e, or why not), turn each interview answer into a sentence under Decisions, "
-            "and call a gap that needs a product choice a decision, not a fact. Cut UI mockup, Request path, Data and "
+            "and call a gap that needs a product choice a decision, not a fact. Start with the six sections a reader "
+            "scans first: In plain words (5 to 10 short, simple sentences, no file names, one everyday example), For "
+            "engineers (8 to 15 precise lines per layer), What will change, Payload changes and Database changes (always "
+            "there: \"none: <the reason>\" when nothing changes), Architecture (ASCII, each box new, changed or "
+            "unchanged). Cut UI mockup, Request path, Data and "
             "migrations, Assumptions and Plan only when they have nothing to say (the plan step writes the Plan).")
 
 

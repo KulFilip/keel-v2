@@ -58,9 +58,35 @@ def default_acs(title: str) -> list[dict]:
     ]
 
 
+# keel's spec starts with these six sections (content/templates/spec.md, 0.18.25); the fake spec changes no payload
+# and no table, so both say "none" with the reason
+TOP_SECTIONS = [
+    "## In plain words", "",
+    "Today players cannot see where they stand. We will show each player's rank next to the score. A player will see "
+    "a number like 3 beside their name, the way a race shows who came third. Scores and names stay as they are. We still "
+    "need to find out how ties should look.", "",
+    "## For engineers", "",
+    "- Inbound: unchanged; run() in src/scores/__init__.py:1 is the entry point.",
+    "- Domain: a new rank() orders players by score, ties share a rank.",
+    "- Persistence: none; ranks are computed on read, so there is no ordering or idempotency concern.",
+    "- Compatibility: callers that ignore the new field keep working; no messages are queued.",
+    "- Failure: bad input raises ValueError; the caller logs it.", "",
+    "## What will change", "",
+    "- src/scores/__init__.py: changed, run() returns the rank too",
+    "- tests/: new, one test per criterion", "",
+    "## Payload changes", "",
+    "none: run() is a library call; no request, response or message changes shape.", "",
+    "## Database changes", "",
+    "none: ranks are computed in memory; no table or data changes.", "",
+    "## Architecture", "",
+    "```", "[caller] --> [run() ~changed] --> [rank() +new] --> (no persistence, unchanged)", "```", "",
+    "It stays inside the scores package, like run() at src/scores/__init__.py:1.", "",
+]
+
+
 def spec_text(title: str, acs: list[dict]) -> str:
     """A spec in keel's template (content/templates/spec.md): every section keel's spec check asks for."""
-    lines = [f"# {title}", "", "## Goal", "", f"{title}, so that players see where they stand.", "",
+    lines = [f"# {title}", "", *TOP_SECTIONS, "## Goal", "", f"{title}, so that players see where they stand.", "",
              "## User stories", "", "- As a player, I want to see my rank, so that I know where I stand.", "",
              "## Findings (evidence)", "", "- The scores live in `src/scores/__init__.py:1`; no test covers ranks yet.", "",
              "## Acceptance criteria", ""]
@@ -85,7 +111,7 @@ def clarify_answer(req: AgentRequest) -> str:
     """The clarify flow's explorers (content/workflows/clarify.yaml): the read step names a type from the title and the
     request's words; the rounds ask one round of two questions, then NO_QUESTIONS; assemble writes a spec that keel's spec
     check passes (with What will change, Payload changes and Architecture), the red flags, the next step and the prompt."""
-    asked = (req.title or "") + " " + (req.prompt or "").split("What the user asked for:\n", 1)[-1].split("\n\n", 1)[0] \
+    asked = (req.title or "") + " " + (req.prompt or "").split("What the user asked for:\n", 1)[-1].split("\n", 1)[0] \
         if "What the user asked for:" in (req.prompt or "") else (req.title or "")
     if req.step_name == "read the request and the code":
         kind = next((k for k, words in CLARIFY_TYPES if re.search(words, asked, re.I)), "feature")
@@ -102,10 +128,37 @@ def clarify_answer(req: AgentRequest) -> str:
                             "recommended": True}, {"label": "nothing in particular", "description": "free to change"}]}]
         return "- what: the request says it\n- where: open\n```keel-questions\n" + json.dumps(qs) + "\n```"
     title = req.title or "the change"
-    return ("## What will change\n\n- src/scores/__init__.py: changed, run() gets the new case\n"
+    # a request that stores something gets a database change (a new nullable column and an index), else "none"
+    stores = bool(re.search(r"\b(store|save|persist|column|table|database)\b", asked, re.I))
+    db = ("## Database changes\n\n```\nscores before                      scores after\n"
+          "  id      bigint  not null pk        id      bigint  not null pk\n"
+          "  points  int     not null           points  int     not null\n"
+          "                                   + rank    int     null\n"
+          "                                   + index scores_rank_idx (rank)\n```\n\n"
+          "Migration `V7__scores_rank`: up `ALTER TABLE scores ADD COLUMN rank int NULL; CREATE INDEX CONCURRENTLY "
+          "scores_rank_idx ON scores (rank);` down `DROP INDEX scores_rank_idx; ALTER TABLE scores DROP COLUMN rank;`. "
+          "Online on PostgreSQL (a nullable column, the index built concurrently); about 10 000 rows.\n"
+          "Backfill: none, rank stays null until the next run (no cost).\n"
+          "Deploy order: migration, then consumer, then producer.\n"
+          "Rollback: the down SQL; it loses the stored ranks only (they are computed again).\n"
+          "Repository: ScoreRepository.save writes rank; ScoreRepository.top reads it.\n\n") if stores else \
+         "## Database changes\n\nnone: ranks are computed in memory; no table or data changes.\n\n"
+    return ("## In plain words\n\nToday players cannot see where they stand. We will show each player's rank. "
+            "A player will see a number like 3 next to their name, like the third runner in a race. Scores and names "
+            "stay the same. We still need to find out how ties should look.\n\n"
+            "## For engineers\n\n- Inbound: run() in src/scores/__init__.py:1 is unchanged as the entry point.\n"
+            "- Domain: a new rank() orders by points; ties share a rank, so it is deterministic and idempotent.\n"
+            f"- Persistence: {'ScoreRepository writes the nullable rank column in the same transaction' if stores else 'none'}.\n"
+            "- Compatibility: old callers ignore the new count field; nothing is queued, so a rolling deploy is safe.\n"
+            "- Failure: bad input raises ValueError, logged by the caller; no new metric.\n\n"
+            "## What will change\n\n- src/scores/__init__.py: changed, run() gets the new case\n"
             "- tests/test_scores.py: new, a test per criterion\n\n"
             "## Payload changes\n\nrun() returns:\n\n```json\n// before\n{\"ok\": true}\n```\n\n```json\n// after\n"
             "{\"ok\": true, \"count\": 3}   // + count\n```\n\nCompatible: old callers ignore count; nothing is queued.\n\n"
+            + db +
+            "## Architecture\n\n```\n[caller] -> [run() ~changed] -> [rank() +new] -> "
+            + ("[ScoreRepository ~changed]" if stores else "(no persistence) [unchanged]") + "\n```\n\n"
+            "It stays in the scores package, like run() at src/scores/__init__.py:1.\n\n"
             f"## Goal\n\n{title}, so that players see where they stand.\n\n"
             "## User stories\n\n- As a player, I want to see my rank, so that I know where I stand.\n\n"
             "## Decisions\n\n- Which module (asked): src/scores.\n\n"
@@ -115,10 +168,10 @@ def clarify_answer(req: AgentRequest) -> str:
             "- **AC-2** [API] Given bad input, when it runs, then it is refused with a clear message\n\n"
             "## Test layers\n\n- AC-1: unit; e2e: not needed, no browser path\n- AC-2: unit; e2e: not needed\n\n"
             "## Request path\n\n```\nrun(scores)                     ~ changed\n  -> rank()                      + new\n```\n\n"
-            "## Architecture\n\n```\n[caller] -> [run() ~changed] -> [rank() +new] -> (no persistence) [unchanged]\n```\n\n"
-            "It stays in the scores package, like run() at src/scores/__init__.py:1.\n\n"
-            "## Data and migrations\n\nnone\n\n## Validation and security rules\n\n- Bad input is refused; nothing is logged.\n\n"
-            "## Edge cases\n\n- No scores: an empty list.\n\n## Risks and cost\n\n- One module, no migration.\n\n"
+            "## Data and migrations\n\n" + ("see Database changes" if stores else "none") + "\n\n"
+            "## Validation and security rules\n\n- Bad input is refused; nothing is logged.\n\n"
+            "## Edge cases\n\n- No scores: an empty list.\n\n## Risks and cost\n\n- One module"
+            + (", one online migration." if stores else ", no migration.") + "\n\n"
             "## Assumptions\n\n- Ties share a rank.\n\n## Unverified and open questions\n\nnone\n\n"
             "## Out of scope\n\n- Paging.\n\n"
             "## Red-flag check\n\nnone\n\n## Next step\n\nThe feature flow, with these criteria.\n\n"

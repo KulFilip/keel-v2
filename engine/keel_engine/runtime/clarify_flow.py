@@ -489,14 +489,16 @@ def _report_part(prompt: str) -> str:
     return re.split(r"^---[ \t]*$", prompt, maxsplit=1, flags=re.M)[0].strip() if prompt else ""
 
 
-# The document is a keel spec (content/templates/spec.md, the spec-writing skill; spec_check.check passes it): two
-# sections a reader scans first, then the spec's sections in the template's order with the request path's Architecture
-# drawing beside it, the clarify-loop's own outputs, and the assembled prompt as the last appendix.
-FIRST = (("What will change", ("what will change",)), ("Payload changes", ("payload change",)))
+# The document is a keel spec (content/templates/spec.md, the spec-writing skill; spec_check.check passes it): the six
+# sections a reader scans first (In plain words ... Architecture), then the spec's sections in the template's order,
+# the clarify-loop's own outputs, and the assembled prompt as the last appendix.
+FIRST = (("In plain words", ("in plain words",)), ("For engineers", ("for engineers",)),
+         ("What will change", ("what will change",)), ("Payload changes", ("payload change",)),
+         ("Database changes", ("database change",)), ("Architecture", ("architecture",)))
 SPEC = (("Goal", ("goal",)), ("User stories", ("user stor",)), ("Decisions", ("decision",)),
         ("Findings (evidence)", ("findings",)), ("Acceptance criteria", ("acceptance criteria",)),
         ("Test layers", ("test layer",)), ("UI mockup", ("ui mockup", "mockup")), ("Request path", ("request path",)),
-        ("Architecture", ("architecture",)), ("Data and migrations", ("data and migration", "data")),
+        ("Data and migrations", ("data and migration", "data")),
         ("Validation and security rules", ("validation",)), ("Edge cases", ("edge case",)), ("Risks and cost", ("risk",)),
         ("Assumptions", ("assumption",)), ("Unverified and open questions", ("unverified", "open question")),
         ("Out of scope", ("out of scope",)))
@@ -529,7 +531,7 @@ def _doc(a):
     lines += [f"# {a.title}", "", f"> {SOURCE}", f"> {RULE}", "",
               f"Task type: {TYPES[kind][0]}  |  Flow: clarify  |  {day}", "", running_text(chosen), ""]
     for name, keys in FIRST:
-        lines += [f"## {name}", "", _part(parts, *keys) or "(none)", ""]
+        lines += [f"## {name}", "", _part(parts, *keys), ""]
     request = (a.request or a.title).strip()
     lines += ["## Request", "", request, "", "Clarified with keel's clarify flow (the clarify-loop of your ai-coding-toolkit).", ""]
     for name, keys in SPEC:

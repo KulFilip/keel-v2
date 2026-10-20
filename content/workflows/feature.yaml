@@ -96,7 +96,20 @@ steps:
     tools: ["mcp:keel:*"]
     instructions: >-
       Interview first, criteria second, code last: write the criteria from what was asked, not from the code that
-      exists. Use keel's spec template (its path and sections are above): a Goal, User stories ("As a <role>, I want
+      exists. Use keel's spec template (its path and sections are above). It starts with the six sections a reader
+      scans first: In plain words (5 to 10 short sentences for a colleague who does not know the code: what is wrong
+      or missing, what we will do, what a user will notice, what stays the same, what we still need to find out;
+      simple English, no file names or jargon, one everyday example), For engineers (8 to 15 precise lines: the change
+      at each layer, inbound, parsing, the message contract, the handler, persistence, outbound, with the classes and
+      tables named; the design choices and why: idempotency, ordering, null semantics, transaction scope;
+      compatibility: rolling deploy, old messages, old clients; where it can fail and how we see it: logs, metrics),
+      What will change (one line per file or area: new, changed or removed), Payload changes (JSON before and after,
+      each field marked // + // ~ // -, the compatibility note; or "none: <the reason>"), Database changes (the table
+      before and after with types, nullability and indexes marked + ~ -, the migration's name with its up and down SQL,
+      online or locking on this database with the row count when known, any backfill and its cost, the deploy order
+      migration then consumer then producer, the rollback and the data it loses, the repository or query methods that
+      change; or "none: <the reason>"), Architecture (an ASCII request path inbound → app → domain → persistence →
+      outbound, each box marked new, changed or unchanged, and one line on why it fits the layers). Then a Goal, User stories ("As a <role>, I want
       <capability>, so that <benefit>"), Findings (evidence) with a file:line or URL behind every claim and the paths
       the change touches traced (inbound, internal messages and their contract, persistence, outbound) with the tests
       that exist today, criteria "AC-n [API|WEB|E2E|SMOKE] Given, when, then" that cover absent, valid, malformed, a later
