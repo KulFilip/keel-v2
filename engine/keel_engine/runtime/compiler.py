@@ -1,8 +1,12 @@
 """Compile a Workflow into a LangGraph StateGraph.
 
-    START ─▶ step ─▶ step ─▶ __ac_begin ─▶ [per_ac steps ...] ─▶ __ac_end ─┐ ─▶ step ... ─▶ __finish ─▶ END
+    START ─▶ __setup ─▶ step ─▶ step ─▶ __ac_begin ─▶ [per_ac steps ...] ─▶ __ac_end ─┐ ─▶ step ... ─▶ __finish ─▶ END
                                  ▲                                         │
                                  └──────────── next AC ────────────────────┘
+
+__setup (keel 0.18.22, runtime/stack_setup.py) sets up the stack first: it waits for the system packages the stacks
+need and runs their each_worktree commands in a new worktree; it is silent when there is nothing to do, and a failure
+pauses at __setup_gate (retry / skip / stop).
 
 Every node returns Command(goto=...): the default is the next step, a gate's reject follows `back`,
 a branch's "no" follows `no`, a failed check goes back to the agent before it. Gates, budget pauses
@@ -44,7 +48,7 @@ from . import finding_decisions, security_actions
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
-from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check, stacks
+from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check, stack_setup, stacks
 from . import blockers as push_gates
 from . import choices as choices_mod
 from . import flow_actions
@@ -57,6 +61,8 @@ from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 log = logging.getLogger(__name__)
 
 AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
+SETUP, SETUP_GATE = "__setup", "__setup_gate"      # keel 0.18.22 the stack's setup before the first step
+SETUP_NAME = "set up the stack"
 END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
@@ -326,8 +332,78 @@ class Compiler:
             g.add_node(self.nav.begin(lp), self._loop_begin(lp))
             g.add_node(self.nav.end(lp), self._loop_end(lp))
         g.add_node(FINISH, self.finish)
-        g.add_edge(START, self.nav.enter(0))
+        g.add_node(SETUP, self.setup_step)
+        g.add_node(SETUP_GATE, self.setup_gate)
+        g.add_edge(START, SETUP)
         return g.compile(checkpointer=checkpointer)
+
+    # ------------------------------------------------------------ the stack's setup (keel 0.18.22)
+
+    async def setup_step(self, state: FlowState):
+        """Before the first step: the system packages the project's stacks need (keel waits for its background install)
+        and each stack's setup.each_worktree in a new worktree or a folder without its installed dependencies. Shown as
+        a step with its own job; nothing at all when there is nothing to do. A failure goes to the setup gate."""
+        first = self.nav.enter(0)
+        if state.get("status") in ("stopped", "failed"):
+            return Command(goto=END)
+        ctx = self.ctx
+        data = dict(state.get("data") or {})
+        try:
+            system, jobs = await asyncio.to_thread(stack_setup.flow_needs, ctx.root)
+        except Exception:                                   # a broken check never stops a flow
+            log.exception("stack setup check for %s", ctx.root)
+            return Command(goto=first)
+        if not system and not jobs:
+            return Command(goto=first)
+        prev = state.get("phase") or "none"
+        step = Step(id=SETUP, kind="code", name=SETUP_NAME, action="stack_setup")
+        ctx.emit("step.started", step=SETUP, data={"name": SETUP_NAME, "kind": "code", "phase": prev, "ac": None,
+                                                   "from": prev, "flow": self.wf.flow, "phase_changed": False,
+                                                   "transition_ok": True})
+        job = _CodeJob(ctx, step, state, name=SETUP_NAME, actions=["stack_setup"])
+        job.start()
+        try:
+            r = await asyncio.to_thread(stack_setup.prepare, ctx.root, job.progress)
+        except Exception as exc:                            # an unexpected error is a failure the person sees
+            log.exception("stack setup for %s", ctx.root)
+            r = {"ok": False, "note": f"the stack setup failed: {exc}", "detail": "", "jobs": []}
+        job.ok = bool(r["ok"])
+        job.progress(r["note"], tool="stack_setup", ok=job.ok)
+        job.finish("done" if job.ok else "failed")
+        ctx.emit("step.finished", step=SETUP, data={"name": SETUP_NAME, "kind": "code", "phase": prev, "ac": None,
+                                                    "ok": job.ok, "note": r["note"]})
+        data["setup"] = {"ok": job.ok, "note": r["note"], "detail": str(r.get("detail") or "")[-4000:],
+                         "jobs": [{k: j[k] for k in ("stack", "dir", "commands", "why", "key")} for j in r.get("jobs") or []]}
+        return Command(update={"data": data, "note": r["note"]}, goto=first if job.ok else SETUP_GATE)
+
+    async def setup_gate(self, state: FlowState):
+        """The stack's setup failed: retry (after the person fixed it), skip (go on; recorded so it is not asked again
+        for the same commands) or stop. Only a person answers it (run mode: a failure)."""
+        ctx = self.ctx
+        data = dict(state.get("data") or {})
+        last = data.get("setup") or {}
+        names = ["retry", "skip", "stop"]
+        detail = (f"{last.get('note') or 'The stack setup failed.'}\n\n{last.get('detail') or ''}".rstrip()
+                  + "\n\nretry: you fixed it (or it was a passing problem); keel runs the setup again.\n"
+                    "skip: go on without it; tests that need it will fail until it is done.\nstop: end the flow here.")
+        question = {"step": SETUP, "kind": "gate", "title": f"Setting up the stack failed: {last.get('note') or ''}"[:300],
+                    "detail": detail, "options": OPTIONS, "choices": names,
+                    "choice_info": choices_mod.choice_info(names, context="setup")}
+        answer, extra = self._ask(state, question, gate="failure")
+        payload = answer.get("payload") or {}
+        choice = payload.get("choice") or ("retry" if answer.get("decision") == "approve" else "stop")
+        ctx.emit("gate.decided", step=SETUP, data={"gate": "setup", "decision": answer.get("decision"), "choice": choice,
+                                                   "why": answer.get("why")})
+        if choice == "retry":
+            return Command(update=extra, goto=SETUP)
+        if choice == "skip":
+            jobs = last.get("jobs") or []
+            await asyncio.to_thread(stack_setup.skip_jobs, ctx.root, jobs)
+            note = "stack setup skipped" + (f": {answer['why']}" if answer.get("why") else "")
+            data["setup"] = {**last, "skipped": note}
+            return Command(update={**extra, "data": data, "note": note}, goto=self.nav.enter(0))
+        note = f"stopped at the stack setup: {last.get('note') or ''}".rstrip(": ")
+        return Command(update={**extra, "status": "stopped", "note": note, "error": note}, goto=END)
 
     def _wrap(self, i: int, step: Step, fn):
         ctx = self.ctx

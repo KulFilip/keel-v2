@@ -198,6 +198,13 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
             wt = worktrees.add(str(Path(root).resolve()), f"helper-{short}", f"keel/helper/{short}")
         except worktrees.WorktreeError as exc:
             raise HelperError(409, str(exc), exc.hint) from exc
+        # keel 0.18.22 the stacks' setup.each_worktree (composer install, ...) in the new copy, in the background
+        try:
+            from keel_engine.runtime import stack_setup
+        except ImportError:             # a keel older than 0.18.22 has no stack setup
+            stack_setup = None
+        if stack_setup:
+            stack_setup.prepare_in_background(wt["path"])
     now = db.now()
     with db.connect() as conn:
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",

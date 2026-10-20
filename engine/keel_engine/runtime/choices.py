@@ -46,6 +46,10 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("blocked", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),
     ("cannot-run", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),
     ("cannot-run", "recheck"): ("Check again", NONE, "run the check again after you fixed .keel/config.yml"),
+    # keel 0.18.22 the flow's first step could not set up the stack (Compiler.setup_gate, runtime/stack_setup.py)
+    ("setup", "retry"): ("I fixed it, try again", NONE, "run the stack setup again (the packages, then each_worktree)"),
+    ("setup", "skip"): ("Skip the setup", OPTIONAL, "go on without it; the flow's tests may fail until it is done"),
+    ("setup", "stop"): ("Stop the flow", OPTIONAL, "end the flow here; nothing was changed"),
     # a for_each item's gate (A5): skipping an item is recorded with its reason
     ("item", "approve"): ("Approve", NONE, "approve this item and go on"),
     ("item", "skip"): ("Skip this item", REQUIRED, "skip this item; the reason is recorded"),
