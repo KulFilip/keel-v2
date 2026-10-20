@@ -6,13 +6,14 @@
 // line break (agents write like that).
 
 import { Fragment, type ClipboardEvent, type ReactNode } from "react";
-import { CodeBlock, FOLD } from "./Code";
+import { CodeBlock, DiffView, FOLD, type FoldLabel } from "./Code";
 
 const CITE = /^[\w@./-]+\.[\w]+:\d+(-\d+)?$/;
 
 function inline(text: string, key = 0): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)|(\[[^\]]+\]\([^)\s]+\))/g;
+  // `_x_` / `__x__` are emphasis only at word boundaries (as on GitHub): snake_case_words stay as they are
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<![\p{L}\p{N}_])__[^_\s][^_]*__(?![\p{L}\p{N}_]))|(\*[^*\s][^*]*\*)|((?<![\p{L}\p{N}_])_[^_\s][^_]*_(?![\p{L}\p{N}_]))|(\[[^\]]+\]\([^)\s]+\))/gu;
   let last = 0;
   let m: RegExpExecArray | null;
   let k = key * 1000;
@@ -35,7 +36,13 @@ function inline(text: string, key = 0): ReactNode[] {
   return out;
 }
 
-const cells = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+/** A table row's cells: split on unescaped `|` only; `\|` inside a cell shows as `|`. */
+const cells = (line: string) => {
+  let t = line.trim();
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|") && !t.endsWith("\\|")) t = t.slice(0, -1);
+  return t.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+};
 
 /** Lines joined by `<br>` (breaks) or by a space (classic Markdown). */
 function joined(lines: string[], breaks: boolean, key: number): ReactNode[] {
@@ -53,8 +60,13 @@ const closes = (line: string, open: string) => {
   return t.length >= open.length && t === open[0].repeat(t.length);
 };
 
-export function Markdown({ text, breaks = false, fold = FOLD, sources = false }: {
-  text: string; breaks?: boolean; fold?: number;
+/** The fold buttons' text while folded, for code and for diff fences (the defaults say "Show all (N lines)"). */
+export type FoldLabels = { code?: FoldLabel; diff?: FoldLabel };
+
+const DIFF_LANG = /^(diff|patch)$/i;
+
+export function Markdown({ text, breaks = false, fold = FOLD, sources = false, foldLabels }: {
+  text: string; breaks?: boolean; fold?: number; foldLabels?: FoldLabels;
   /** v0.15.3 each block keeps its own Markdown (data-md), so a copy can give the Markdown back (MarkdownView) */
   sources?: boolean;
 }) {
@@ -94,7 +106,7 @@ export function Markdown({ text, breaks = false, fold = FOLD, sources = false }:
       blocks.push(
         <details key={key++} className="md-details">
           <summary>{inline(summary.replace(/<[^>]+>/g, "") || "Details", key)}</summary>
-          <Markdown text={body.join("\n")} breaks={breaks} fold={fold} />
+          <Markdown text={body.join("\n")} breaks={breaks} fold={fold} foldLabels={foldLabels} />
         </details>,
       );
       continue;
@@ -107,7 +119,10 @@ export function Markdown({ text, breaks = false, fold = FOLD, sources = false }:
       i++;
       while (i < lines.length && !closes(lines[i], close)) body.push(lines[i++]);
       i++;
-      blocks.push(<CodeBlock key={key++} className="md-code" text={body.join("\n")} lang={fence[2]} gutter={body.length > 3} fold={fold} />);
+      // a ```diff / ```patch fence is a diff: green added and red removed lines, never list or italic text
+      blocks.push(DIFF_LANG.test(fence[2])
+        ? <DiffView key={key++} className="md-diff" diff={body.join("\n")} fold={fold} foldLabel={foldLabels?.diff} />
+        : <CodeBlock key={key++} className="md-code" text={body.join("\n")} lang={fence[2]} gutter={body.length > 3} fold={fold} foldLabel={foldLabels?.code} />);
       continue;
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);

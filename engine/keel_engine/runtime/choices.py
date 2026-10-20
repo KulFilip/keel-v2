@@ -171,14 +171,15 @@ def _known(context: str | None, name: str) -> tuple[str, str, str]:
 
 
 def texts_from(detail: str | None, names: list[str]) -> dict[str, str]:
-    """What a gate's own prose says each choice does: "- retry: ..." lines, "retry: ..." lines, or several on one line
-    ("prove: ... stop: ..."). A choice the prose does not name is left out."""
+    """What a gate's own prose says each choice does: "- retry: ..." lines (also "- **retry**: ..."), "retry: ..." lines,
+    or several on one line ("prove: ... stop: ..."). A choice the prose does not name is left out."""
     text = str(detail or "")
     if not names or not text:
         return {}
     alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     # a name starts a line (after an optional "- ") or follows a sentence's end
-    marker = re.compile(rf"(?:(?<=\n)|^|(?<=[.!?] ))[ \t]*(?:[-*][ \t]+)?({alt}):[ \t]+", re.M)
+    # (Markdown gate details write it bold or as code: "- **retry**: ...", "- `retry`: ...")
+    marker = re.compile(rf"(?:(?<=\n)|^|(?<=[.!?] ))[ \t]*(?:[-*][ \t]+)?(?:\*\*|`)?({alt})(?:\*\*|`)?:[ \t]+", re.M)
     found = list(marker.finditer(text))
     out: dict[str, str] = {}
     for n, m in enumerate(found):

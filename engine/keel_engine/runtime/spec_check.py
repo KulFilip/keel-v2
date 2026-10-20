@@ -225,14 +225,16 @@ def revision_note(findings: list[dict]) -> str:
 
 
 def describe(findings: list[dict]) -> str:
+    """Markdown: a label line, a blank line, then the list (so the dashboard renders a real list)."""
+    from .md import safe_words
     if not findings:
         return "Spec check: nothing missing."
     fixes = [f["text"] for f in findings if f["level"] == "fix"]
     notes = [f["text"] for f in findings if f["level"] != "fix"]
     out = []
     if fixes:
-        out += ["Spec check, missing (keel sends the spec back once for these; choose edit or rewrite to fix the rest "
-                "before you approve):", *(f"- {t}" for t in fixes)]
+        out.append("Spec check, missing (keel sends the spec back once for these; choose edit or rewrite to fix the rest "
+                   "before you approve):\n\n" + "\n".join(f"- {safe_words(t)}" for t in fixes))
     if notes:
-        out += ["Spec check (warnings, you decide):", *(f"- {t}" for t in notes)]
-    return "\n".join(out)
+        out.append("Spec check (warnings, you decide):\n\n" + "\n".join(f"- {safe_words(t)}" for t in notes))
+    return "\n\n".join(out)

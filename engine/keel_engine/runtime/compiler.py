@@ -36,7 +36,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, extensions, models, rules
-from . import doc_history
+from . import doc_history, md
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
@@ -1225,7 +1225,7 @@ class Compiler:
                     # Findings go straight back to the step that wrote the work (cover: the test author), no question,
                     # until the rounds are used up; then the fix node asks.
                     rounds = {**(state.get("review_rounds") or {}), key: done_rounds + 1}
-                    listed = "\n".join(f"- [{f['lens']}] {f['text']}" for f in found)
+                    listed = "\n".join(f"- **[{f['lens']}]** {f['text']}" for f in found)
                     upd.update(review_rounds=rounds, findings=[],
                                feedback=f"Fix these blocking findings from {step.name} (round {done_rounds + 1}):\n{listed}")
                     upd["note"] += f" · sent back to {step.back} (round {done_rounds + 1})"
@@ -1389,13 +1389,13 @@ class Compiler:
                 return {"gates": gates, "findings": [],
                         "note": f"{review.name}: {len(found)} finding(s) dismissed before"}, self.nav.after(i)
             found = fresh
-        listed = "\n".join(f"- [{f['lens']}] {f['text']}" for f in found)
+        listed = "\n".join(f"- **[{f['lens']}]** {f['text']}" for f in found)
         again = f" (fix round {done_rounds + 1})" if done_rounds else ""
         limit = review.rounds or (2 if review.back else None)
         past = f"\n\n{done_rounds} fix round(s) done, the limit is {limit}: the check and the change disagree, and " \
                f"repeating may not settle it. Deciding is yours." if limit and done_rounds >= limit else ""
-        fix_txt = (f"Send back: {review.back} gets these findings once more, then {review.name} runs again." if review.back else
-                   f"Fix them: the implementer fixes these findings (payload route: review-fix, coverage-fix or red picks "
+        fix_txt = (f"{md.code(review.back)} gets these findings once more, then {review.name} runs again." if review.back else
+                   f"the implementer fixes these findings (payload route: review-fix, coverage-fix or red picks "
                    f"who and how), the tests run, the fix is committed, and the flow goes on from "
                    f"{review.redo or review.name}.")
         # keel v1: the person decides each finding (fix / accept / not a finding / amend the spec), as questions
@@ -1409,8 +1409,11 @@ class Compiler:
             each += f" Only the first {len(asked)} are asked one by one."
         answer, extra = self._ask(state, {
             "step": fix.id, "kind": "gate", "title": f"{review.name}: {len(found)} blocking finding(s){again}" + (f" · {item['id']}" if item else ""),
-            "detail": f"{listed}\n\n{fix_txt}\nGo on anyway: say why; the findings are kept as dismissed and shown "
-                      f"at the final review.\n{each}{past}",
+            "detail": md.doc(md.section(f"Blocking findings ({len(found)})", listed),
+                             md.section("What the buttons do", md.bullets([
+                                 f"**{'Send back' if review.back else 'Fix them'}**: {fix_txt}",
+                                 "**Go on anyway**: say why; the findings are kept as dismissed and shown at the final review."]),
+                                 each, past.strip())),
             "options": OPTIONS, "labels": {"approve": "Send back" if review.back else "Fix them", "reject": "Go on anyway"},
             "questions": asked},
             gate="findings" if done_rounds < (review.rounds or 2) else "rounds")

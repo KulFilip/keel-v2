@@ -6,6 +6,7 @@ import type { BudgetNow, Checkpoint, FlowView, Health, Job, JobStep, Project, Ru
 import type { InboxItem } from "../../../web/src/inboxApi";
 import { PLAIN, type Paint } from "./theme";
 import { renderDiff } from "./diff";
+import { gateDetailLines, gateFirstLines } from "./gatemd";
 import { modelText } from "./effort";
 
 export const n = (x: unknown) => {
@@ -92,7 +93,8 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
     }
   }
   const detail = folded(w.detail ?? "").trim();
-  if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + labelLine(l, c)));
+  // the engine's Markdown as plain text: headings bold, code indented, a diff coloured, the summary first
+  if (detail) out.push(...gateDetailLines(detail, c, { budget: 600, prose: (l) => labelLine(l, c) }).map((l) => "          " + l));
   return out;
 }
 
@@ -170,8 +172,7 @@ No flow yet. Start one: ${c.accent("/flow")}`;
       }
     }
     out.push(row("or ask KeelBot", "it explains the gate and suggests an answer"));
-    const detail = (w.detail ?? "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 2);
-    out.push(...detail.map((x) => "  " + labelLine(fit(x, width - 2), c)));
+    out.push(...gateFirstLines(folded(w.detail ?? ""), c, 2, width - 2, (x) => labelLine(x, c)).map((x) => "  " + x));
   }
   if (t.acs?.length) {
     const [done, all] = acCount(t);

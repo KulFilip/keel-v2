@@ -146,6 +146,7 @@ def test_a_full_review_of_a_branch_shares_only_the_chosen_sections_and_posts_not
     text = s["waiting"]["detail"]
     assert "**Review: done**" in text and "**Minor**" in text and "Code quality" not in text
     assert "branch, not a PR" in text
+    assert text.startswith("## The text for the author\n\nSections: `summary`, `minor`.") and "\n## What happens next\n" in text
     s = decide(client, tid)                                               # plain approve = keep
     assert s["status"] == "done" and calls == []
 

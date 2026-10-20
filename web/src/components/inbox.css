@@ -52,3 +52,6 @@
 .inbox-detail.md { white-space: normal; font: 13px/1.55 var(--f-body); color: var(--fg); }
 .inbox-detail.md h1, .inbox-detail.md h2, .inbox-detail.md h3 { font-size: 14px; margin: 10px 0 4px; }
 .inbox-detail.md p { margin: 0 0 6px; }
+/* open: the whole detail (headings, tables, diffs) without the folded height */
+.inbox-detail.md.open { max-height: none; }
+.inbox-detail.md .gate-md { font-size: 13px; }
