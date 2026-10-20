@@ -20,16 +20,20 @@ function useFold(total: number, fold: number) {
   return { open, folded, shown: folded ? fold : total, toggle: () => setOpen((o) => !o) };
 }
 
-export function FoldButton({ total, open, onToggle }: { total: number; open: boolean; onToggle: () => void }) {
+/** The fold button's text while folded, from the total line count. */
+export type FoldLabel = (total: number) => string;
+const DEFAULT_LABEL: FoldLabel = (total) => `Show all (${total} lines)`;
+
+export function FoldButton({ total, open, onToggle, label = DEFAULT_LABEL }: { total: number; open: boolean; onToggle: () => void; label?: FoldLabel }) {
   return (
     <button type="button" className="fold-btn" aria-expanded={open} onClick={onToggle}>
-      {open ? "Show less" : `Show all (${total} lines)`}
+      {open ? "Show less" : label(total)}
     </button>
   );
 }
 
 /** A code block: highlighted by `lang` (a fence tag) or by the extension of `path`, with a line gutter. */
-export function CodeBlock({ text, lang, path, gutter = true, fold = FOLD, className, start = 1 }: {
+export function CodeBlock({ text, lang, path, gutter = true, fold = FOLD, className, start = 1, foldLabel }: {
   text: string;
   lang?: string | null;
   path?: string;
@@ -37,6 +41,7 @@ export function CodeBlock({ text, lang, path, gutter = true, fold = FOLD, classN
   fold?: number;
   className?: string;
   start?: number;
+  foldLabel?: FoldLabel;
 }) {
   const all = useMemo(() => linesOf(text), [text]);
   const f = useFold(all.length, fold);
@@ -52,7 +57,7 @@ export function CodeBlock({ text, lang, path, gutter = true, fold = FOLD, classN
           ? <pre className="code-pre"><code className={`hljs language-${language}`} dangerouslySetInnerHTML={{ __html: html }} /></pre>
           : <pre className="code-pre"><code>{code}</code></pre>}
       </div>
-      {f.folded || f.open ? <FoldButton total={all.length} open={f.open} onToggle={f.toggle} /> : null}
+      {f.folded || f.open ? <FoldButton total={all.length} open={f.open} onToggle={f.toggle} label={foldLabel} /> : null}
     </div>
   );
 }
@@ -67,8 +72,14 @@ export function parseDiff(diff: string): { rows: DiffRow[]; added: number; remov
   let n = 1;
   let added = 0;
   let removed = 0;
-  for (const line of linesOf(diff)) {
-    if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+  const all = linesOf(diff);
+  let header = false;
+  for (let i = 0; i < all.length; i++) {
+    const line = all[i];
+    // a file header is a `--- ` line followed by `+++ ` (a removed `-- comment` line inside a hunk is not one)
+    const isHeader: boolean = (line.startsWith("--- ") && (all[i + 1] ?? "").startsWith("+++ ")) || (line.startsWith("+++ ") && header);
+    header = line.startsWith("--- ") && isHeader;
+    if (isHeader) {
       const f = line.slice(4).replace(/^[ab]\//, "").replace(/\t.*$/, "");
       if (f !== "/dev/null" && !files.includes(f)) files.push(f);
       continue;
@@ -122,13 +133,15 @@ export function splitRows(rows: DiffRow[]): SplitRow[] {
 const SIGN: Record<DiffRow["kind"], string> = { add: "+", del: "-", ctx: " ", hunk: "", meta: "" };
 
 /** A unified diff: green added and red removed lines, old and new line numbers, highlighted by `path`. */
-export function DiffView({ diff, path, fold = FOLD }: { diff: string; path?: string; fold?: number }) {
+export function DiffView({ diff, path, fold = FOLD, foldLabel, className }: {
+  diff: string; path?: string; fold?: number; foldLabel?: FoldLabel; className?: string;
+}) {
   const parsed = useMemo(() => parseDiff(diff), [diff]);
   const f = useFold(parsed.rows.length, fold);
   const language = languageOf(path ?? parsed.files[0]);
   const rows = f.folded ? parsed.rows.slice(0, f.shown) : parsed.rows;
   return (
-    <div className="code diffview" data-lines={parsed.rows.length}>
+    <div className={`code diffview ${className ?? ""}`} data-lines={parsed.rows.length}>
       <div className="diff-rows" role="table" aria-label={`Changes${path ? ` in ${path}` : ""}`}>
         {rows.map((r, i) => {
           if (r.kind === "hunk" || r.kind === "meta") return <div key={i} className={`dl ${r.kind}`} role="row"><span className="dtext">{r.text}</span></div>;
@@ -143,7 +156,7 @@ export function DiffView({ diff, path, fold = FOLD }: { diff: string; path?: str
           );
         })}
       </div>
-      {f.folded || f.open ? <FoldButton total={parsed.rows.length} open={f.open} onToggle={f.toggle} /> : null}
+      {f.folded || f.open ? <FoldButton total={parsed.rows.length} open={f.open} onToggle={f.toggle} label={foldLabel} /> : null}
     </div>
   );
 }

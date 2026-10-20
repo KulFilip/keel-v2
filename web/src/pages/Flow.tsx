@@ -13,7 +13,7 @@ import {
 import { CodeBlock, FoldedText } from "../components/Code";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { ChoiceForm } from "../components/ChoiceForm";
-import { Markdown } from "../components/Markdown";
+import { Markdown, type FoldLabels } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
 import { CoreWelcome, useCoreOnly } from "../components/CoreOnly";
@@ -1249,16 +1249,41 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
   );
 }
 
-/** A pause's detail: the explanation as text, then each `$ command` with its output folded (like agent steps). */
+/** Lines shown before a gate's code or diff block folds (more than elsewhere: the diff is what you decide on). */
+export const GATE_FOLD = 30;
+const GATE_FOLD_LABELS: FoldLabels = {
+  code: (n) => `Show all ${n} lines`,
+  diff: (n) => `Show the full diff, ${n} lines`,
+};
+
+/** The first line that starts with `$ ` outside a fenced block (a `$ ` line inside a fence is code), or -1. */
+export function commandLine(lines: string[]): number {
+  let open: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (open) {
+      const t = l.trim();
+      if (t.length >= open.length && t === open[0].repeat(t.length)) open = null;
+      continue;
+    }
+    const f = l.match(/^\s*(```+|~~~+)/);
+    if (f) { open = f[1]; continue; }
+    if (l.startsWith("$ ")) return i;
+  }
+  return -1;
+}
+
+/** A pause's detail: the explanation as Markdown (headings, tables, ```diff fences as diffs), then a `$ command` with
+ *  its output folded (like agent steps). */
 export function GateDetail({ text }: { text: string }) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const at = lines.findIndex((l) => l.startsWith("$ "));
+  const at = commandLine(lines);
   const prose = (at < 0 ? lines : lines.slice(0, at)).join("\n").trim();
   const cmd = at < 0 ? null : lines[at].slice(2);
   const out = at < 0 ? "" : lines.slice(at + 1).join("\n").replace(/\s+$/, "");
   return (
     <div className="gate-detail" data-testid="gate-detail">
-      {prose && <div className="facts"><Markdown text={prose} breaks /></div>}
+      {prose && <div className="facts md gate-md"><Markdown text={prose} breaks fold={GATE_FOLD} foldLabels={GATE_FOLD_LABELS} /></div>}
       {cmd !== null && (
         <div className="cmd" data-testid="gate-cmd">
           <span className="prompt" aria-hidden="true">$</span>

@@ -655,6 +655,39 @@ details.file-card[open] > summary.file-bar::before { content: "▾"; }
 .graph .acdot.cur circle { stroke: var(--run); stroke-width: 2.5; }
 .gate-detail { display: grid; gap: 8px; min-width: 0; }
 .gate-detail .cmd-out { margin-top: -4px; }
+/* A gate's detail as Markdown: the engine writes ## headings, tables, a bold verdict, `ids` in code and every diff,
+   JSON or log in a fence. Code sits on its own panel so it reads well on the gate's amber background. */
+:root { --code-bg: #fdfcf9; --code-border: #ddd6c8; --code-chip: rgba(70,50,10,.08); --code-fg: #1d1c1a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --code-bg: #161618; --code-border: #3a3832; --code-chip: rgba(255,240,210,.10); --code-fg: #eceae4;
+} }
+:root[data-theme="dark"] { --code-bg: #161618; --code-border: #3a3832; --code-chip: rgba(255,240,210,.10); --code-fg: #eceae4; }
+.gate-detail { --f-code: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
+.interrupt .gate-detail .facts.gate-md, .gate-detail .gate-md { display: block; font-size: 13.5px; line-height: 1.55; color: var(--fg); }
+.gate-detail .gate-md h1, .gate-detail .gate-md h2 { font-size: 14.5px; font-weight: 700; margin: 14px 0 6px; letter-spacing: .1px; }
+.gate-detail .gate-md h3, .gate-detail .gate-md h4 { font-size: 13.5px; font-weight: 700; margin: 10px 0 4px; }
+.gate-detail .gate-md > :first-child { margin-top: 0; }
+.gate-detail .gate-md p, .gate-detail .gate-md ul, .gate-detail .gate-md ol { margin: 4px 0 8px; }
+.gate-detail .gate-md li + li { margin-top: 2px; }
+.gate-detail .gate-md b { color: var(--fg); font-weight: 700; }
+.gate-detail .gate-md code { font: 500 .92em/1.4 var(--f-code); background: var(--code-chip); color: var(--code-fg);
+  border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.gate-detail .code { background: var(--code-bg); border-color: var(--code-border); color: var(--code-fg); margin: 6px 0 10px; }
+.gate-detail .code code { background: none; padding: 0; border-radius: 0; font: inherit; color: inherit; }
+.gate-detail .code-pre, .gate-detail .gutter, .gate-detail .diff-rows { font: 13.5px/1.55 var(--f-code); }
+.gate-detail .code-pre { padding: 10px 14px; overflow-x: auto; }
+.gate-detail .diff-rows { padding: 6px 0; }
+.gate-detail .dl .dtext { padding-right: 14px; }
+.gate-detail .dl.hunk { color: var(--dim); background: transparent; border-top: 1px dashed var(--code-border); padding: 2px 12px; }
+.gate-detail .dl.hunk:first-child { border-top: 0; }
+.gate-detail .fold-btn { background: var(--code-bg); border-top-color: var(--code-border); font-size: 12.5px; padding: 6px 12px; }
+.gate-detail .fold-btn:hover { background: var(--accent-soft); }
+.gate-detail .table-wrap { overflow-x: auto; margin: 6px 0 10px; border: 1px solid var(--code-border); border-radius: 8px; background: var(--code-bg); }
+.gate-detail table { margin: 0; border-collapse: collapse; width: 100%; font-size: 13px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.gate-detail th, .gate-detail td { text-align: left; vertical-align: top; padding: 5px 10px; border-bottom: 1px solid var(--code-border); }
+.gate-detail th { font-size: 12.5px; text-transform: none; letter-spacing: 0; font-weight: 700; color: var(--fg); background: var(--code-chip); white-space: nowrap; }
+.gate-detail tr:last-child td { border-bottom: 0; }
+.gate-detail td code { font-size: .92em; }
 .graph .lbl2.tok { paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
 .clarify { display: grid; gap: 14px; }
 .clarify-q { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 0; min-width: 0; background: var(--panel); }
