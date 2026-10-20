@@ -2427,3 +2427,63 @@ Plan: `docs/plans/0.17.5.md`.
 - **KeelBot.** The server's instructions say how to answer questions and keel-questions cards and the failure rule;
   `keel_keelbot_ask`'s hint for a keel-questions card adds the failure rule (never run the failed command again
   unchanged, the person picks one of the ways forward).
+
+## Stack setup: a stack's `setup:` block (feat/stack-setup, keel 0.18.22)
+
+A stack pack may have a `setup:` block. Every reader of stack packs checks it (`runtime/stacks.validate_setup`): a
+stack with a broken block keeps everything else; its setup is left out and `_setup_errors` says why. The stack check
+(`POST /stacks/check`) reports the same errors, and warns that `setup.run` runs as root.
+
+```yaml
+setup:
+  apt: [package, ...]            # Debian package names: ^[a-z0-9][a-z0-9+.-]*$
+  run: [command, ...]            # root commands after apt, once per container
+  each_worktree: [command, ...]  # in the lane's folder (backend.dir / frontend.dir) of a new flow worktree
+```
+
+**System part** (`runtime/stack_setup.py`, `SystemSetup`). The union of `setup.apt` and `setup.run` over every
+registered project (the engine's `project_index` rows, the folders it was told about in `$KEEL_DATA/setup/roots.json`,
+and `KEEL_FOLDERS`). It runs in a background thread at the engine's start, on `POST /projects/{p}/scan`, after a stack
+is saved, removed or turned off, and before a flow that needs it. It never blocks the start.
+
+- Container: the engine runs `sudo -n /usr/local/bin/keel-stack-setup apt <packages>` and `... run <command>`. The
+  helper (`docker/keel-stack-setup`) is root-owned. `/etc/sudoers.d/keel-stack-setup` lets keel's user run it, and
+  nothing else. Packages already installed (`dpkg-query`) and run commands already run in this container
+  (`/var/lib/keel-stack-setup/<sha256[:16]>`) are left out. The apt cache is `/data/cache/apt` (archives and package
+  lists), owned by keel; `keel2 backup` excludes it.
+- Native mode (`KEEL_NATIVE=1`) and any engine without the helper never install. The status says which programs are
+  missing (a package's program: `php8.3-cli` → php, `golang-go` → go, `composer` → composer).
+- Status: `$KEEL_DATA/setup/status.json`, and `$KEEL_DATA/setup/packages.json` (what was installed, for whom).
+
+```
+engine GET  /setup/status   → {state: idle|running|ready|failed|missing, mode: container|native|host|null, line,
+                               busy, missing: string[], failed: string[], log: string[], at}
+engine POST /setup/run      → the same (looks again in the background)
+api    GET  /api/setup      → the engine's /setup/status (needs a login; /api/health stays without the line)
+```
+
+The dashboard shows `line` while `state` is running, failed or missing ("setup: installing php8.3-cli for
+carrier-router…").
+
+**Flow part.** Every flow starts at the node `__setup`. It is silent when there is nothing to do. Otherwise it is a
+step named "set up the stack", with a code job (`code.started`, `code.step` per command with its output,
+`code.finished`):
+
+1. The stacks' packages: in the container it asks the system part and waits (a line every 5 seconds, at most 30
+   minutes). Elsewhere a missing program is only a note, unless a command needs it.
+2. `each_worktree` for each stack with work here: a linked worktree not set up yet with these commands, or a folder
+   with a `dependency_files` entry and without what it makes (`composer.json` → `vendor/`, `package.json` →
+   `node_modules/`). The same commands in the same folder run once. Each job is recorded in the worktree's git dir,
+   `keel-setup.json` (`{"<stack>:<dir>": {ok, sha, at}}`), so it goes with the worktree.
+
+A failure pauses at `__setup_gate`: `waiting = {step: "__setup", kind: "gate", choices: [retry, skip, stop],
+choice_info}`. The run mode never answers it (kind `failure`). retry runs `__setup` again; skip goes on and records
+`{skipped: sha}` so it is not asked again for the same commands; stop ends the flow (`status: stopped`). A KeelBot side
+session's new worktree runs `each_worktree` in the background (no gate).
+
+**Init.** The plan lists a `setup:` block for each project stack of a language the image lacks (PHP, Go, Ruby, Rust)
+that has none. `write_config` (after the plan gate) appends it to the stack's file. **Setup check**: rung 1
+(Toolchain) also looks for each stack's programs, and says "php not found; stack php-symfony lists setup.apt; keel
+installs it at start" (native: "install it yourself", with the packages).
+
+**Guard.** A shell command that names `keel-stack-setup` is refused in every phase (bucket `keel-setup`).

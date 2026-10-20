@@ -602,7 +602,8 @@ runs in the terminal app). How it all works: [docs/plugins/README.md](plugins/RE
 files that show a project uses it, its test layers, its commands (test one criterion, every test, coverage, static
 checks, migrate, compile) and its tools (formatters, linters, pre-commit).
 
-- **New stack** asks step by step: lane, the files that detect it, test layers, commands, tools. keel reads your
+- **New stack** asks step by step: lane, the files that detect it, test layers, commands, tools (and a `setup:` block,
+  below). keel reads your
   project first (package.json scripts, Gradle, Maven, pyproject, composer.json, go.mod, a Makefile, pre-commit) and
   fills each step; you change what you like. Then keel checks it (nothing is saved yet) and **Save the stack** writes
   `.keel/stacks/<name>.yml`.
@@ -612,6 +613,41 @@ checks, migrate, compile) and its tools (formatters, linters, pre-commit).
 - **Find stacks** opens Marketplace › Stacks.
 - Test filters: `{AC}` is the criterion id (`AC-006`), `{AC_ID}` the same without the dash (`AC006`) for Java class
   names. Maven `-Dtest` and Gradle `--tests` filters written with `{AC}` also match `AC006…`.
+
+### What a stack needs: `setup:`
+
+A stack names commands. It cannot install a language. keel's image has Java, Node and Python, nothing else. A stack
+that needs more says so in a `setup:` block:
+
+```yaml
+setup:
+  apt: [php8.3-cli, php8.3-xml, php8.3-mbstring, php8.3-sqlite3, php8.3-intl, php8.3-curl, unzip, composer]
+  run: []                                   # root commands after apt, for a tool apt has no package for
+  each_worktree: [composer install -n --no-progress]
+```
+
+- `apt`: system packages (Debian and Ubuntu names). keel installs them as root in its container, in the background,
+  when it starts, when a project is added and when a stack is saved. keel does not wait for it to start. The dashboard
+  shows what it does ("setup: installing php8.3-cli for carrier-router…").
+- After `keel2 update`, a restart or a restore the container is new, so the packages are gone. keel installs them
+  again at start. The apt cache is in keel's data volume (`/data/cache/apt`), so this is fast and needs no download.
+  `keel2 backup` leaves the cache out.
+- `run`: root commands after apt, once per container. keel shows them in the stack check, because they run as root.
+- `each_worktree`: commands keel runs in the stack's folder (`backend.dir` for an api stack, `frontend.dir` for a web
+  stack) when a flow starts in a new worktree, once per worktree. A new worktree has no git-ignored folders, so
+  `vendor/` or `node_modules/` must be installed again. keel also runs them when the folder has `composer.json` but no
+  `vendor/`, or `package.json` but no `node_modules/` (the stack's `dependency_files`).
+- The flow shows this as its first step, **set up the stack**, with the output. A flow that needs a package waits
+  until keel has installed it. If it fails, the flow stops at a gate: **I fixed it, try again**, **Skip the setup** or
+  **Stop the flow**. keel never answers this gate by itself.
+- keel's Symfony pack and Go stack have a `setup:` block. When init finds a project stack for PHP, Go, Ruby or Rust
+  without one, its plan proposes the block, and keel writes it after you approve the plan.
+- The setup check (init's first rung) names the stack: "php not found; stack php-symfony lists setup.apt; keel
+  installs it at start".
+- Native mode (`keel2 start --native`) never installs anything on your computer. keel says which programs are missing
+  and which packages to install.
+- Agents cannot run keel's root helper (`keel-stack-setup`): the guard refuses it. To add a package, add it to
+  `setup.apt`.
 
 The same from keel TUI (`/stacks`, `/stack <name>`, `/stack remove <name>`, `/stack off <name>`, `/stack install
 <name>`, `/create stack`) and MCP (`keel_stacks`, `keel_stack`, `keel_stack_suggest`, `keel_stack_check`,
