@@ -115,7 +115,7 @@ Each flow below has a short picture and what it asks you.
 ```
  web_check ─ WEB? ─yes─ web_docs ─┐
             └─no──────────────────┴─ spec ─ explore ─ plan ─◆ spec gate ─◆ options
-   ─ contract ─◆─ per criterion: red ─ green ─ AC review ─◆
+   ─ contract ─◆─ per criterion: red ─ green ─ the tests outside it ─ AC review ─◆
    ─ integration ◆ ─ security ─ full review ─ e2e ◆ ─ smoke ◆ ─ ship ─ ADR ─ done
 ```
 
@@ -128,13 +128,50 @@ Each flow below has a short picture and what it asks you.
 - **web_check**: does the spec need facts from outside the repository (a vendor API, a webhook, a library, a
   standard)? Only on yes does **web_docs** run (see [Web research](#web-research)).
 - **The interview** (its own step, before the spec): the explorer asks you questions when the request leaves something open. Several
-  answers can be ticked; the recommended ones come first.
+  answers can be ticked; the recommended ones come first. If your answer is a question ("what do you mean", "?",
+  "explain"), keel does not take it as the answer and does not pick the default for you: it asks that question again
+  once, in plain words, with what it decides and each option as an example (0.18.28). Still not clear: keel writes it
+  down as an open question.
   <!-- 0.18.21: the interview with lens questions -->
 - **Spec gate**: **approve**, **edit** (a note on what to change), **rewrite** (one section), **review** (a reviewer
   reads the spec first), **order** (plan the build order again), **reject** (the interview starts again).
 - **Options**: which optional phases run (integration gate, security, e2e, smoke).
 - **Contract gate** (only when the plan changes the API contract): approve, change, or amend the spec.
 - **AC gate** per criterion. An agent may say the spec needs an amendment: you approve it, or change it.
+- **The tests outside a criterion** (0.18.28): a criterion's own check runs only its own tests. After its green,
+  keel also runs the tests outside it, so a test that breaks other tests (a row it leaves in the shared database) is
+  found at that criterion, not at integration. Set it in `.keel/config.yml`:
+
+  ```yaml
+  checks:
+    after_green: changed   # none | changed (default) | suite
+    suite_every: 3         # with changed: the whole suite every 3 criteria, and at the end of each lane
+  ```
+
+  `changed` runs the branch's test files (`commands.api_test_paths` / `web_test_paths` with `{PATHS}`, else the
+  runner with the paths for pytest, vitest, jest and mocha, else the whole suite). A failure says "AC-8's change
+  broke tests outside it: …" with the failing tests and the output, and goes back to that criterion's green; its own
+  test files may change there (the fix is often the test's cleanup). The AC gate shows what ran.
+- **"Already passes"**: a criterion whose test passes before any code. When the run mode approves it, the AC
+  reviewer still reads the test (isolation, cleanup, assertions). When you approve it, keel does not stop again for
+  it. Either way the tests outside it run, and the full-diff review lists it as "not reviewed per AC" and reads its
+  test.
+- **Integration**: the whole suite runs. When it fails, the gate shows the failing tests and their messages (a run
+  that printed nothing runs again with a JUnit report). keel runs each failing test alone: one that passes alone was
+  broken by another test's leftovers. It lists the branch's tests that write to the database without a rollback or
+  cleanup, with their criterion. Then you choose (the recommended one first):
+
+  ```
+   suite fails ─▶ failing tests alone? ─ pass ─▶ pollution: whose test writes and never cleans up?
+        │                                                │
+        ▼                                                ▼
+   ◆ send_back_ac   AC-8 opens again at green with the failure and your note (its test may change)
+   ◆ keelbot_fix    KeelBot fixes it in an Edit chat (it may change tests), then keel checks again
+   ◆ retry          check again, after you fixed it yourself
+   ◆ stop
+  ```
+
+  A plain send-back with a reason takes the first choice with your reason; it never just stops the flow.
 - **Security**: a security auditor reads the diff (plus a dependency triager when `verify deps` failed).
   <!-- 0.18.21: per-finding security decisions -->
 - **e2e** and **smoke** run for criteria tagged `[E2E]` or `[SMOKE]`. No e2e command: keel asks whether to write the
@@ -214,7 +251,11 @@ browser is tagged `[E2E]`; a check that must also pass after a deploy, `[SMOKE]`
 ```
 
 - **Spike result**: **spec** starts a feature flow from the findings; **drop** ends it. Send it back with a note to
-  research again from "frame".
+  research again from "frame". The feature flow starts in the spike's run mode at that moment.
+- **A critic of your own** (a copy of spike with a critic step): give the critic `markers: [GAPS]` and a branch after
+  it, `when: {marker: GAPS, lte: 0, step: critic}, no: research, rounds: 3`. While gaps remain and rounds are left
+  the branch loops back, also when the critic is a reviewer agent (0.18.28: a reviewer used to stop at its findings
+  gate). A `when` compares numbers with `gt`, `gte`, `lt`, `lte`; a key keel does not know is an error.
 
 ### clarify
 
@@ -440,6 +481,13 @@ newest jobs. It gives you buttons; nothing starts, stops or is saved until you p
   then stops for a look". KeelBot writes it with only the steps the task needs; keel checks it on the spot and shows
   what it runs. **Save** it, or **Ask KeelBot to fix it** when the check finds a problem.
 - **It asks you to choose** with a question card, never as a prose "A or B?".
+- **It reads a gate's choices first** (0.18.28): KeelBot is told what each choice of the waiting gate really does,
+  whether the reason is used, and what a plain approve or send-back does there. It never says "send it back with
+  this reason" where a send-back only stops the flow. Its suggestions name the gate by its step ("verify the suite
+  + commit"), not by the flow's title.
+- **Type while it answers**: your message waits, shown dim ("will send after this answer"), and goes when the answer
+  ends. **Esc** stops the answer and sends your message now (in keel TUI also **Ctrl+C** while a message waits).
+- **A start button with a run mode**: ask "start it in important mode" and the button carries it.
 
 - **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (in
   the status bar at the bottom, or ⇧⌘\) hides everything but the code; ⤢ in the panel (or **KeelBot** in the menu)
@@ -685,6 +733,19 @@ checks, migrate, compile) and its tools (formatters, linters, pre-commit).
 - **Find stacks** opens Marketplace › Stacks.
 - Test filters: `{AC}` is the criterion id (`AC-006`), `{AC_ID}` the same without the dash (`AC006`) for Java class
   names. Maven `-Dtest` and Gradle `--tests` filters written with `{AC}` also match `AC006…`.
+- **Languages** (0.18.28): a stack brings the syntax colours for its files. `languages:` names highlight.js languages
+  with their file endings; without it keel takes them from `detect.extensions`. The Code page loads them when the
+  project opens, and again when a stack changes.
+
+  ```yaml
+  languages:
+    - {name: php, ext: [php, phtml]}
+    - {name: twig, ext: [twig]}
+    - {name: yaml, ext: [neon]}
+  ```
+
+  Outside any stack keel still colours PHP, XML/HTML, CSS, SCSS, Go, Rust, Ruby, C#, C/C++, Swift, INI/TOML,
+  Dockerfile, Makefile, Gradle, GraphQL and nginx files; each loads the first time a file of its type opens.
 
 ### What a stack needs: `setup:`
 
@@ -790,7 +851,11 @@ failing, a budget pause, a new dependency, a KeelBot command that needs your OK.
 Choices show as cards with their meaning; a reason box opens only for a choice that needs one.
 
 Each flow has a run mode. Pick it in *Start a flow* (the default is in Settings), and change it on the Flow page while
-the flow runs (keel TUI: `/run`; MCP: `keel_run_mode`; or ask KeelBot).
+the flow runs (keel TUI: `/run`; MCP: `keel_run_mode`; or ask KeelBot). To start a flow in a mode from elsewhere:
+keel TUI `/flow feature --mode important <idea>`, MCP `keel_start_flow(..., run_mode="important")`, or KeelBot's start
+button (ask "start it in important mode"). A flow that a flow starts (a spike's feature) gets the mode its parent has
+at that moment. (0.18.28: a flow started from those places ran in the project's default, and the start form could
+put the default back over the mode you picked.)
 
 | Run mode | keel decides by itself |
 |---|---|
@@ -897,6 +962,16 @@ asks you through the client's own form when it has one. Everything the client ch
 When a flow asks you something (the interview, a decision per finding, "ready to ship?"), `keel_status` and
 `keel_inbox` show each question with its options and the recommended one. A client that can show forms asks you right
 there when you approve (`keel_answer`): pick one, tick several, or write your own words.
+
+A gate with named choices lists each one with what it does and whether a reason is used, and what a plain approve
+or reject does there; pass the name as `choice` to `keel_approve_gate` or `keel_answer`. `keel_status` shows up to
+4,000 characters of a gate's text and then says how much is left; `keel_read_gate(project, flow, page)` returns the
+whole gate (findings, the failing output, at a spec gate the spec), page by page ("page 1 of 3", with the next
+call). `keel_edit_gate(notes)` takes the gate's edit choice (the spec gate's **edit**, the contract's **change**) or
+sends it back where the gate takes that.
+
+keel's MCP server runs every tool off its event loop, keeps stdout for the protocol only (a stray print goes to
+stderr) and answers a tool's own error as text, so a slow call never makes a client drop keel's tools (0.18.28).
 
 | keel v1 MCP | keel v2 MCP |
 |---|---|

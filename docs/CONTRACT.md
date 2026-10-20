@@ -2509,3 +2509,97 @@ that has none. `write_config` (after the plan gate) appends it to the stack's fi
 installs it at start" (native: "install it yourself", with the packages).
 
 **Guard.** A shell command that names `keel-stack-setup` is refused in every phase (bucket `keel-setup`).
+
+## 0.18.28: the suite outside each criterion, the integration way out, run modes, KeelBot and MCP
+
+### Flows (engine)
+
+- **`verify_after_green`** (a code action; feature, change and small run it as `ac_suite` after each green, `back:
+  green`). `.keel/config.yml`: `checks.after_green: none | changed | suite` (default `changed`), `checks.suite_every: N`
+  (default 3). `changed`: the branch's test files through `commands.api_test_paths` / `web_test_paths` (`{PATHS}`),
+  else the module command plus the paths for pytest, vitest, jest, mocha, else the module suite; the whole suite every
+  N finished criteria and for the last open criterion of its lane. Failure: note `"<AC>'s change broke tests outside
+  it: <tests>"`, the failure detail, `update.unlocks` (the criterion's own test files, phase green, by keel) and
+  `data.after_green[<AC>] = {ok, ran: none|changed|suite, why, failing?}`; the AC gate shows it under "Outside this
+  criterion". A failing code step now keeps `suite_failure`, `data` and `unlocks` of its result.
+- **Already met**: approving "already passes" sets `data.already_met[<AC>] = {auto, why}` and goes to the criterion's
+  `verify_after_green` step (else, as before, the loop's end). Approved by a person (`auto: false`): the ac-reviewer
+  step is skipped and the AC gate passes through (log `ac <AC> approve: already met, approved at "already passes"`).
+  Approved by the run mode: the ac-reviewer reads the test (isolation, cleanup, assertions) and the gate is the run
+  mode's. The status stays `already-met`. The code-reviewer's prompt lists every already-met criterion under "Not
+  reviewed per AC".
+- **A failing whole suite** (`verify_green` without a criterion): the detail is `$ cmd`, `exit N`, the runner's own
+  failure report (`runtime/suite_failure.excerpt`), and when the output names no failure (or is empty) a second run with
+  a JUnit report (`--log-junit` for phpunit and `composer test`, `--junitxml` for pytest) and its failures. In a flow
+  with criteria (not the bug flow, not simulated) `update.suite_failure = {failing, alone: [{name, command, passed, ran}],
+  pollution, suspects: [{file, acs, writes, commits, cleanup}], likely_ac, evidence, layer, command}`; a failing test is
+  run alone with `commands.api_test_one` (`{TEST}`) or the criterion command with the test's short name.
+- **The suite question** (a code step outside the loop whose check left `suite_failure`): with `pollution` or a
+  `likely_ac` it asks at once, else after the agent's rounds. `kind: fix`, `type: suite`, choices in this order (those
+  that apply): `send_back_ac`, `keelbot_fix` (only when a part has the `flow_fix` hook), `retry`, `stop`, each in
+  `choice_info`; `reject_choice` = the first. Answers: `send_back_ac` sets the criterion to `todo`,
+  `data.reopen = {ac, to: "green", from}`, the feedback (the failure, the analysis, the person's note) and unlocks of
+  its suspect test files, and enters the loop, whose begin node takes `data.reopen` (that criterion, at that step);
+  `keelbot_fix` awaits the hook and runs the step again (event `keelbot.fix {session, status}`); `retry` runs it
+  again; `stop` stops with the reason. Past `settings.sendback_limit` only `retry` and `stop`. Gate log `suite <step>
+  <choice>[: why]`.
+- **Part hook `flow_fix`** (`keel_engine/extensions.py`): `async flow_fix(project, root, model, keys, text, thread,
+  title) -> {session, status, answer}`. KeelBot's opens an Edit chat in `root` titled `Fix: <step name>` and waits for
+  its turn.
+- **The interview** (`_clarify_gate`): an answer that asks back (`clarify.is_confused`: "what do you mean", "?",
+  "explain", "I don't understand", a sentence ending in "?"; never an option's label) is no answer. Those questions are
+  asked again once at the same gate as `clarify.explained(q, said)` (`explained: true`, `asked_back`, the question with
+  "What it decides" and each option as an example; title `<title>: in plain words`); the other answers wait in
+  `clarify.kept_questions` / `kept_answers` and join the next round. Asked back again: the words go on with "do not
+  pick an option for them". Event `gate.decided {decision: "explain", clarify: true}`.
+- **`when`**: `gt`, `gte`, `lt`, `lte` compare the value's first number; a marker's `"0"` no longer counts as set; a
+  key outside `marker, data, state, step, equals, in, absent, any, gt, gte, lt, lte` is a validation error.
+- **A critic in a loop**: a step whose declared marker a later branch with `no:` reads (`when.step` names it or no
+  step) is not a review step (`Compiler._branch_decides`): its findings never open the `<id>__fix` gate.
+
+### Waiting questions (engine `GET /threads/{id}`)
+
+- `waiting.name`: the waiting step's name (a review's fix node: its review's).
+- `waiting.plain = {approve: {does, reason, choice?}, reject: {...}}` (`runtime/choices.plain_effects`): what a plain
+  approve and a plain reject do and whether the reason is `required`, `used` or `not used: …`. A question's producer
+  may set its own `plain` and `reject_choice`.
+- The api's Inbox items carry `plain` and `step_name`; KeelBot's turn body carries `waiting.name`, each choice's
+  `description` and `plain`.
+
+### Run modes
+
+- `POST /api/projects/{pid}/flows` from the start form always sends `run_mode`. `keel_start_flow` takes `run_mode`;
+  keel TUI `/flow <wf> --mode <m> <idea>`; a `keel-start` block takes `"mode"`. A child flow keeps its parent's current
+  `settings.run_mode` (start_child). `keel_run_mode` names the thread it changed.
+
+### KeelBot (plugins/keelbot)
+
+- `POST /helper/sessions/{sid}/turn` while a turn runs: no 409. `{session, queued: true, position, text}`, event
+  `helper.queued {session, text, position}`; the queued turns go in order when the running one ends (also after a
+  stop). `interrupt: true` stops the running turn first and sends this one now. `GET /helper/sessions/{sid}` has
+  `queued: [text]`. The api's turn body takes `interrupt`.
+- The prompt's flow block lists the waiting gate's choices with what each does, whether a reason is used, and the
+  plain effects, with the rule never to suggest a choice whose effect does not match.
+
+### MCP
+
+- New read tool `keel_read_gate(project?, flow?, page=1)`: the gate's name, title, choices (with what each does),
+  options, plain effects, questions and its whole text (at a spec gate also the spec), `GATE_PAGE` = 12,000 characters
+  a page: `text page 1 of 3 (N characters)` and `page 1 of 3: the next is keel_read_gate(...)`.
+- `keel_status` shows up to 4,000 characters of the gate's text, then `(the gate's text goes on: N characters, P
+  page(s); keel_read_gate(...) reads it whole)`; `keel_status`, `keel_next` and `keel_inbox` list the plain effects.
+- `keel_edit_gate(notes)`: approve with the gate's first edit choice (`edit`, `change`, `rewrite`, `context`, `reject`)
+  and the notes as why; a plain reject where the gate takes one; else a message naming the choices.
+- The server runs sync tools in worker threads, answers a tool's exception as `keel: <tool> failed (...)`, logs to
+  stderr, and `main` serves stdio on the real stdout with `sys.stdout` pointed at stderr.
+
+### Stacks and languages
+
+- A stack's optional `languages: [{name: <highlight.js name>, ext: [<file ending>]}]` (`runtime/stacks.validate_languages`,
+  `stack_edit.check`, keel-plugin lint). Without it: one per `detect.extensions` ending known in
+  `content/highlight-languages.json` (`names`, `extensions`). keel's packs and their marketplace copies carry it.
+- Engine `GET /stacks/languages?root=` and api `GET /api/projects/{pid}/languages` → `{languages: [{name, ext, stacks}]}`
+  for the stacks the project uses (detected or its own, not turned off). Saving, removing, turning off, creating or
+  installing a stack publishes `project.changed {id, stacks: true}`.
+- Web: `highlight.ts` builds in its base languages and loads the others with `import()` on first use
+  (`loadLanguage`, `useLanguage`); `setStackLanguages` maps the project's stack endings first, the static map after.
