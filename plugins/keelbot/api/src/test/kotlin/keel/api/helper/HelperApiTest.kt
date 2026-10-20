@@ -172,6 +172,27 @@ class HelperApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_28 a turn carries each choice's real effect and what a plain reject does`() {
+        val (pid, _) = newProject("helper-effects")
+        val sid = post("/api/projects/$pid/helper/sessions").json()["id"].asText()
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "ETA", "allow_fake" to true)).andExpect(status().isOk)
+        engine.overrides["t-stub-1"] = mapOf("status" to "waiting", "title" to "ETA",
+            "waiting" to mapOf("step" to "integration_commit", "name" to "verify the suite + commit", "kind" to "fix",
+                "title" to "verify the suite + commit: the suite fails", "detail" to "2 fail", "options" to listOf("approve", "reject"),
+                "choices" to listOf("send_back_ac", "stop"),
+                "choice_info" to listOf(
+                    mapOf("name" to "send_back_ac", "label" to "Send back to AC-008", "description" to "its test is the likely cause", "why" to "optional", "default" to true),
+                    mapOf("name" to "stop", "label" to "Stop the flow", "description" to "stop here", "why" to "optional", "default" to false)),
+                "plain" to mapOf("reject" to mapOf("does" to "stops the flow", "reason" to "not used"))))
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "what now?")).andExpect(status().isOk)
+        val w = engine.lastBody("/helper/sessions/$sid/turn")!!["flow"]["waiting"]
+        assertThat(w["name"].asText()).isEqualTo("verify the suite + commit")
+        assertThat(w["choices"][0]["description"].asText()).isEqualTo("its test is the likely cause")
+        assertThat(w["plain"]["reject"]["does"].asText()).isEqualTo("stops the flow")
+        assertThat(w["plain"]["reject"]["reason"].asText()).isEqualTo("not used")
+    }
+
+    @Test
     fun `KeelBot's effort comes from the helper agent, a chat can change it, and default clears it`() {
         val (pid, _) = newProject("helper-effort")
         put("/api/projects/$pid/agents/helper", mapOf("model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "sonnet", "effort" to "high")))

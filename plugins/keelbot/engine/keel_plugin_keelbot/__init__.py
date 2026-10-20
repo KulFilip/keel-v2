@@ -42,11 +42,24 @@ async def _lifespan(app):
     """KeelBot's runner lives as long as keel's app: it stops every turn that still runs when keel stops."""
     from .helper import HelperRunner
 
+    global _RUNNER
     app.state.helper = HelperRunner(app.state.bus)
+    _RUNNER = app.state.helper
     try:
         yield
     finally:
+        _RUNNER = None
         await app.state.helper.close()
+
+
+_RUNNER = None
+
+
+async def _flow_fix(project: str, root: str, model=None, keys=None, text: str = "", thread=None, title: str = "") -> dict:
+    """0.18.28 the hook a flow's suite gate calls for "let KeelBot fix it" (Compiler._keelbot_fix)."""
+    if _RUNNER is None:
+        raise RuntimeError("KeelBot's runner is not up")
+    return await _RUNNER.flow_fix(project=project, root=root, model=model, keys=keys, text=text, thread=thread, title=title)
 
 
 def _pr_body_sections(thread_id: str) -> list[str]:
@@ -68,5 +81,5 @@ PART = {
     "router": _router,
     "lifespan": _lifespan,
     "open_paths": (ASK_PATH,),
-    "hooks": {"pr_body_sections": _pr_body_sections},
+    "hooks": {"pr_body_sections": _pr_body_sections, "flow_fix": _flow_fix},
 }

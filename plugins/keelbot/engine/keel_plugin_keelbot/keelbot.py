@@ -185,6 +185,42 @@ def _flow_line(f: dict) -> str:
     return "- " + "; ".join(bits)
 
 
+def _choices_of(w: dict) -> list[dict]:
+    """The waiting gate's choices with what each does: choice_info (the engine), or the api's choices list of dicts."""
+    info = [c for c in w.get("choice_info") or [] if isinstance(c, dict) and c.get("name")]
+    if info:
+        return info
+    return [c if isinstance(c, dict) else {"name": str(c), **({"why": "required"} if c == "reject" else {})}
+            for c in w.get("choices") or [] if (isinstance(c, dict) and c.get("name")) or isinstance(c, str)]
+
+
+REASON_WORDS = {"required": "needs a reason, which is used", "optional": "a reason is used", "used": "a reason is used",
+                "none": "a reason is not used"}
+
+
+def effect_lines(w: dict) -> list[str]:
+    """0.18.28 what each choice of the waiting gate really does and whether a reason is used, and what a plain approve
+    and a plain reject do there. KeelBot advised "send it back (reject) with this reason" at a gate whose reject only
+    stopped the flow and handed the reason to nobody."""
+    out = []
+    cs = _choices_of(w)
+    if cs:
+        out.append("Its choices (answer with the choice's name; this is exactly what each does):")
+        out += [f"- {c['name']}" + (f" \"{c['label']}\"" if c.get("label") and c.get("label") != c["name"] else "")
+                + f": {c.get('description') or '(no description)'}; {REASON_WORDS.get(str(c.get('why')), 'a reason is used')}"
+                + ("; the plain approve takes it" if c.get("default") else "") for c in cs]
+    plain = w.get("plain") or {}
+    for k in ("approve", "reject"):
+        e = plain.get(k) if isinstance(plain.get(k), dict) else None
+        if e:
+            out.append(f"A plain {k} here {e.get('does')}; its reason: {e.get('reason')}.")
+    if cs or plain:
+        out.append("Before you suggest an answer, check that its effect above is what you say it will do: never suggest "
+                   "reject (or a choice) with a reason when that reason is not used, and never say a choice sends work "
+                   "back when it stops the flow. Offer the choice that does what you advise.")
+    return out
+
+
 def _asks(w: dict) -> str:
     """What a waiting flow asks, when the api sends it (keel 0.18.13): its questions' ids and options, or its named
     choices (a * marks one that needs a reason), so KeelBot can propose an answer with the right ids and names."""
@@ -194,10 +230,12 @@ def _asks(w: dict) -> str:
             f"{q['id']}{' [several]' if q.get('multiple') else ''}: {q.get('question', '')} ["
             + " | ".join(str(o.get("label", o) if isinstance(o, dict) else o) for o in q.get("options") or []) + "]"
             for q in qs) + ")"
-    info = [c for c in w.get("choice_info") or [] if isinstance(c, dict) and c.get("name")]
-    names = [f"{c['name']}{'*' if c.get('why') == 'required' else ''}" for c in info] or \
-        [str(c) + ("*" if c == "reject" else "") for c in w.get("choices") or []]
-    return f" (choices: {', '.join(names)}; * needs a reason)" if names else ""
+    info = _choices_of(w)
+    names = [f"{c['name']}{'*' if c.get('why') == 'required' else ''}"
+             + (f" = {c['description'][:120]}" if c.get("description") else "") for c in info]
+    plain = (w.get("plain") or {}).get("reject") if isinstance(w.get("plain"), dict) else None
+    tail = f"; a plain reject {plain.get('does')}, reason {plain.get('reason')}" if isinstance(plain, dict) and plain.get("does") else ""
+    return f" (choices: {(', ' if not any(' = ' in n for n in names) else '; ').join(names)}; * needs a reason{tail})" if names else ""
 
 
 def _agents() -> list[str]:

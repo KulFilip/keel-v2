@@ -140,6 +140,26 @@ describe("Helper in the Code page", () => {
     await waitFor(() => expect(within(p).queryByRole("button", { name: "Stop" })).toBeNull());
   });
 
+  it("0.18.28 a message typed while KeelBot answers waits (dim) and goes after the answer; no refusal", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    render(<App />);
+    const p = await panel();
+    const box = within(p).getByRole("textbox", { name: "Ask KeelBot" });
+    await user.type(box, "First question{Enter}");
+    await waitFor(() => expect(turns()).toHaveLength(1));
+    expect(await within(p).findByRole("button", { name: "Stop" })).toBeInTheDocument();
+    await user.type(box, "And the tests?{Enter}");
+    const waiting = await within(p).findByRole("list", { name: "Waiting messages" });
+    expect(waiting).toHaveTextContent("will send after this answer: And the tests?");
+    expect(turns()).toHaveLength(1);
+    answer("First answer.");
+    await waitFor(() => expect(turns()).toHaveLength(2));
+    expect(turns()[1].body).toMatchObject({ text: "And the tests?" });
+    await waitFor(() => expect(within(p).queryByRole("list", { name: "Waiting messages" })).toBeNull());
+  });
+
   it("offers commands after / and files, symbols and criteria after @, and sends the mentions", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";

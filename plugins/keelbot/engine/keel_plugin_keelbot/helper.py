@@ -999,9 +999,10 @@ def _flow_block(flow: dict | None) -> str:
         lines += [f"- {a.get('id')} [{a.get('layer', '')}] {a.get('title', '')} ({a.get('status', '')})" for a in acs[:30]]
     w = flow.get("waiting") or {}
     if w.get("title"):
-        lines.append(f"It waits for the person at a gate: {w['title']}.")
+        lines.append(f"It waits for the person at a gate: {w['title']}" + (f" (the step {w['name']!r})" if w.get("name") else "") + ".")
         if w.get("detail"):
-            lines.append(f"The gate shows:\n{str(w['detail'])[:3000]}")
+            lines.append(f"The gate shows:\n{str(w['detail'])[:6000]}")
+        lines += keelbot.effect_lines(w)
     if flow.get("current"):
         lines.append(f"The step it is at now: {flow['current']}.")
     jobs = flow.get("jobs") or []
@@ -1303,6 +1304,8 @@ class HelperRunner:
         # keel 0.18.18 the running turn's view of keel per session (its flows): the cards warn when a flow works in the
         # folder, and a flow's own branch is not KeelBot's to check out
         self.turn_keel: dict[str, dict] = {}
+        # 0.18.28 messages the person sent while an answer ran: sent in order once it ends (or at once after a stop)
+        self.queued: dict[str, list[dict]] = {}
 
     # ---- permission cards (runtime/permissions.py) --------------------------------------------------------------
 
@@ -1435,8 +1438,16 @@ class HelperRunner:
         text = str(body.get("text") or "").strip()
         if not text:
             raise HelperError(400, "The message is empty.")
+        if self.busy(sid) and body.get("interrupt"):
+            # 0.18.28 Esc / Ctrl+C with a new message: the running answer stops, this one goes now
+            await self.stop(sid)
         if self.busy(sid):
-            raise HelperError(409, "KeelBot is still answering in this session.", "Wait for the answer, or stop it.")
+            # 0.18.28 no "still answering" refusal: the message waits and goes after this answer
+            q = self.queued.setdefault(sid, [])
+            q.append({k: v for k, v in body.items() if k != "interrupt"})
+            self.bus.emit("helper.queued", sid, s["project"], step="helper",
+                          data={"session": sid, "text": text[:2000], "position": len(q)})
+            return {"session": sid, "queued": True, "position": len(q), "text": text}
         if s["mode"] == "side" and not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
         if finalize_reverts(sid):         # 0.18.19 a new message makes /undo final (no /redo any more)
@@ -1719,6 +1730,44 @@ class HelperRunner:
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
                                "result": answer[:2000], "session": sid, "n": n, "files": turn_files})
         self.tasks.pop(sid, None)
+        self._send_queued(sid)
+
+    def _send_queued(self, sid: str) -> None:
+        """0.18.28 the next message the person sent while the answer ran (in order), now that it ended."""
+        q = self.queued.get(sid) or []
+        if not q:
+            self.queued.pop(sid, None)
+            return
+        nxt = q.pop(0)
+
+        async def go():
+            try:
+                await self.turn(sid, nxt)
+            except Exception:  # noqa: BLE001 - a queued message that cannot go is logged, the chat stays usable
+                log.warning("KeelBot could not send the queued message of %s", sid, exc_info=True)
+
+        asyncio.get_running_loop().create_task(go())
+
+    def queue_of(self, sid: str) -> list[str]:
+        return [str(b.get("text") or "") for b in self.queued.get(sid) or []]
+
+    async def flow_fix(self, *, project: str, root: str, model: dict | None, keys: dict | None, text: str,
+                       thread: str | None = None, title: str = "") -> dict:
+        """0.18.28 a flow's gate asks KeelBot to fix what it cannot (the suite fails at integration): a new Edit chat in
+        the flow's folder, its turn waited for. The person sees it among KeelBot's chats. {session, status, answer}."""
+        sess = create(project, root, mode="edit", model=model, title=title or "Fix the failing suite")
+        sid = sess["id"]
+        await self.turn(sid, {"text": text, "keys": dict(keys or {}), "flow": {"thread_id": thread} if thread else {}})
+        task = self.tasks.get(sid)
+        if task:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - the flow checks the suite again either way
+                pass
+        now = get(sid)
+        last = next((m for m in reversed(now.get("messages") or []) if m.get("role") != "user"), None)
+        return {"session": sid, "status": (last or {}).get("data", {}).get("status") or now.get("status"),
+                "answer": (last or {}).get("text") or ""}
 
 
 THINKING_MAX = 20_000             # 0.18.23 the thinking kept with an answer, for a reload (never sent to the model)

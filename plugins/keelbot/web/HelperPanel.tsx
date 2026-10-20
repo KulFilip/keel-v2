@@ -446,8 +446,16 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     return created.id;
   };
 
+  // 0.18.28 messages typed while KeelBot answers: they wait (shown dim) and go one by one after the answer
+  const [queued, setQueued] = useState<string[]>([]);
   const send = async (raw?: string) => {
     const body = (raw ?? text).trim();
+    if (body && raw === undefined && (runningCall || sending) && !handed) {
+      setQueued((q) => [...q, body]);
+      setText("");
+      setCaret(0);
+      return;
+    }
     if (!body || sending || runningCall || handed) return;
     setSending(true);
     stick.current = true;
@@ -621,6 +629,16 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); choose(suggestions[pick]); return; }
       if (e.key === "Escape") { e.preventDefault(); setCaret(-1); return; }
     }
+    if (e.key === "Escape" && runningCall && (queued.length || text.trim())) {
+      // 0.18.28 Esc: stop the answer; the waiting message (or the one typed) goes now
+      e.preventDefault();
+      if (text.trim()) {
+        setQueued((q) => [...q, text.trim()]);
+        setText("");
+      }
+      void stop();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
@@ -633,6 +651,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   };
 
   const busy = !!runningCall || sending;
+  useEffect(() => {
+    if (busy || !queued.length) return;
+    const [next, ...rest] = queued;
+    setQueued(rest);
+    void send(next);
+  }, [busy, queued]); // eslint-disable-line react-hooks/exhaustive-deps
   const model = s?.model;
   const thread = flow.data?.thread ?? null;
   // Fix mode works on the flow that waited when the chat began; once that flow moved on, Done cannot commit here
@@ -839,8 +863,13 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             ))}
           </ul>
         )}
+        {queued.length > 0 && (
+          <ul className="hp-queued" aria-label="Waiting messages">
+            {queued.map((q, i) => <li key={i} className="sub">will send after this answer: {q}</li>)}
+          </ul>
+        )}
         <textarea ref={input} id="hp-input" rows={2} value={text} aria-label="Ask KeelBot" disabled={handed}
-          placeholder={handed ? "This side session was handed over: start a new chat" : busy ? "KeelBot is answering…"
+          placeholder={handed ? "This side session was handed over: start a new chat" : busy ? "KeelBot is answering… type the next message: it waits (Esc stops the answer and sends it)"
             : fix ? "Tell KeelBot what to change…  (@ files, symbols · / commands)"
               : side ? "Tell KeelBot what to try…  (@ files, symbols · / commands)" : "Ask about this project…  (@ files, symbols · / commands)"}
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); }}

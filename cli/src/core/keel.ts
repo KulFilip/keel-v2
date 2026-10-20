@@ -86,6 +86,8 @@ export type CoreEvents = {
   chat: (s: HelperSession, why: string) => void;
   /** 0.18.6 the person asked KeelBot in this chat from another front end (the dashboard): their words */
   remote: (text: string, by: string) => void;
+  /** 0.18.28 a message typed while KeelBot answers waits ("queued", its place), then goes ("sent") */
+  queued: (m: { text: string; position: number; sent: boolean }) => void;
 };
 
 /** keel 0.18.6 what the person looks at, shared by every keel front end (api ui/UiFocus.kt): the project and its chat. */
@@ -111,7 +113,7 @@ const STEP_KEEP = 200;
 
 export class KeelCore {
   snapshot: Snapshot;
-  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set(), questionGone: new Set(), chat: new Set(), remote: new Set() };
+  private listeners: { [K in keyof CoreEvents]: Set<CoreEvents[K]> } = { change: new Set(), notice: new Set(), answer: new Set(), question: new Set(), questionGone: new Set(), chat: new Set(), remote: new Set(), queued: new Set() };
   /** @mentions: the project's files, the code graph's symbols, the flow's criteria */
   readonly mentions = new Mentions(() => this.pid, () => (this.snapshot.flow?.thread?.acs ?? []).map((a) => ({ id: a.id, title: a.title })));
   private sub: Subscription | null = null;
@@ -559,9 +561,16 @@ export class KeelCore {
 
   /** Ask KeelBot: the answer streams as `chat.steps`, and arrives with the "answer" event. `mentions`: what the person
    *  pointed at with @ (files, symbols, criteria). */
-  async send(text: string, mentions: HelperMention[] = [], images: string[] = []): Promise<HelperSession> {
+  async send(text: string, mentions: HelperMention[] = [], images: string[] = []): Promise<HelperSession | null> {
     const pid = this.pid;
     if (!pid) throw new Error("no project: /project picks one");
+    // 0.18.28 typed while KeelBot answers: no "still answering" refusal; it waits and goes after this answer (Esc or
+    // Ctrl+C stops the answer and sends it now)
+    if (this.snapshot.chat.busy) {
+      this.queue.push({ text, mentions, images });
+      this.emit("queued", { text, position: this.queue.length, sent: false });
+      return null;
+    }
     setCommand("KeelBot");                                   // the timeline: "via keel TUI · KeelBot"
     try {
       return await this.sendTurn(pid, text, mentions, images);
@@ -674,6 +683,18 @@ export class KeelCore {
     return s;
   }
 
+  /** 0.18.28 the messages typed while KeelBot answered, in order */
+  queue: { text: string; mentions: HelperMention[]; images: string[] }[] = [];
+
+  /** 0.18.28 the next queued message, once an answer ended */
+  private sendQueued() {
+    const next = this.queue.shift();
+    if (!next) return;
+    this.emit("queued", { text: next.text, position: 0, sent: true });
+    void this.send(next.text, next.mentions, next.images).catch((e) =>
+      this.emit("answer", { text: e instanceof Error ? e.message : String(e), ok: false }));
+  }
+
   /** 0.18.18 what the engine said of the last turn's images: the ones sent (full paths), the others with why not */
   turnImages: { images: string[]; skipped: { path: string; why: string }[] } = { images: [], skipped: [] };
 
@@ -687,6 +708,11 @@ export class KeelCore {
       const body = { text, ...(mentions.length ? { mentions } : {}), ...(this.snapshot.chat.model ? { model: this.snapshot.chat.model } : {}),
         ...(this.shell ? { shell: this.shell } : {}), ...(images.length ? { images } : {}) };
       t = await kb.turn(pid, s.id, body);
+      if ((t as { queued?: boolean }).queued) {
+        // another front end's answer runs in this chat: keel queued it there
+        this.emit("queued", { text, position: Number((t as { position?: number }).position ?? 1), sent: false });
+        return s;
+      }
       const ti = t as typeof t & { images?: string[]; images_skipped?: { path: string; why: string }[] };
       this.turnImages = { images: ti.images ?? [], skipped: ti.images_skipped ?? [] };
       this.shell = null;
@@ -739,6 +765,7 @@ export class KeelCore {
     } finally {
       this.finishing = false;
     }
+    this.sendQueued();
   }
 
   private dropRunning(callId: string) {

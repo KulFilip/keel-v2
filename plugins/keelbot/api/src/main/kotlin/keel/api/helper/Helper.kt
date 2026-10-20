@@ -71,6 +71,8 @@ data class HelperTurn(
     val shell: HelperShell? = null,
     /** 0.18.18 image files of the project the person named (keel TUI); the engine sends those the model can see. */
     val images: List<String> = emptyList(),
+    /** 0.18.28 stop the running answer and send this one now (Esc / Ctrl+C); else it waits until the answer ends. */
+    val interrupt: Boolean? = null,
 )
 
 /**
@@ -247,6 +249,7 @@ class HelperService(
             "open_file" to body.openFile?.takeIf { it.isNotBlank() },
             "images" to body.images.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 1000 }.distinct().take(16).takeIf { it.isNotEmpty() },
             "shell" to body.shell?.takeIf { it.command.isNotBlank() }?.let { it.copy(command = it.command.take(2000), output = it.output.takeLast(8000)) },
+            "interrupt" to body.interrupt?.takeIf { it },
         ).filterValues { it != null }
         return engine.post("/helper/sessions/$sid/turn", payload)
     }
@@ -423,7 +426,8 @@ class HelperService(
             "spec" to t.path("spec").asText("").ifBlank { null },
             "acs" to t.path("acs").map { a -> mapOf("id" to a.path("id").asText(), "layer" to a.path("layer").asText(),
                 "title" to a.path("title").asText(), "status" to a.path("status").asText()) },
-            "waiting" to waiting?.let { mapOf("title" to it.path("title").asText(), "detail" to it.path("detail").asText("").take(3000)) + askedOf(it) },
+            "waiting" to waiting?.let { mapOf("title" to it.path("title").asText(), "name" to it.path("name").asText("").ifBlank { null },
+                "detail" to it.path("detail").asText("").take(6000)) + askedOf(it) },
             // 0.18.15 what runs now and what the latest agents and code steps ended with (a doctor's diagnosis, a
             // ladder's failing rung): KeelBot could only see the step's name before
             "current" to t.path("current").asText("").ifBlank { null },
@@ -444,10 +448,17 @@ class HelperService(
         val info = w.path("choice_info").takeIf { it.isArray && it.size() > 0 }
         if (info != null) out["choices"] = info.map { c ->
             mapOf("name" to c.path("name").asText(), "label" to c.path("label").asText(), "why" to c.path("why").asText("optional"),
-                "default" to c.path("default").asBoolean(false))
+                // 0.18.28 what each choice really does: KeelBot checks its advice against it
+                "description" to c.path("description").asText(""), "default" to c.path("default").asBoolean(false))
         }
         else w.path("choices").takeIf { it.isArray && it.size() > 0 }?.let { names ->
             out["choices"] = names.mapIndexed { i, n -> mapOf("name" to n.asText(), "label" to n.asText(), "why" to "optional", "default" to (i == 0)) }
+        }
+        // 0.18.28 what a plain approve and a plain reject do at this gate, and whether the reason is used
+        w.path("plain").takeIf { it.isObject }?.let { pl ->
+            out["plain"] = listOf("approve", "reject").mapNotNull { k ->
+                pl.path(k).takeIf { it.isObject }?.let { e -> k to mapOf("does" to e.path("does").asText(), "reason" to e.path("reason").asText()) }
+            }.toMap()
         }
         return out
     }

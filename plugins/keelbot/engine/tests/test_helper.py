@@ -182,11 +182,34 @@ def test_stop_and_busy(client, repo, monkeypatch):
     s = new_session(client, repo)
     r = client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "Slow one"})
     assert r.status_code == 200
+    # 0.18.28 no "still answering" refusal: the message waits for this answer
     again = client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "Another"})
-    assert again.status_code == 409 and "still answering" in again.json()["error"]
+    assert again.status_code == 200 and again.json()["queued"] is True and again.json()["position"] == 1
+    assert client.get(f"/helper/sessions/{s['id']}").json()["queued"] == ["Another"]
     client.post(f"/helper/sessions/{s['id']}/stop")
+    # the stop ends the first answer; the queued message goes then, and is answered
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        cur = client.get(f"/helper/sessions/{s['id']}").json()
+        if not cur["busy"] and cur["status"] != "running" and any(m["text"] == "Another" for m in cur["messages"]):
+            break
+        time.sleep(0.05)
     s = wait_idle(client, s["id"])
-    assert s["messages"][-1]["role"] == "note" and s["messages"][-1]["data"]["status"] == "stopped"
+    roles = [(m["role"], m["text"][:12]) for m in s["messages"]]
+    assert roles[0] == ("user", "Slow one") and roles[1][0] == "note"            # stopped
+    assert roles[2] == ("user", "Another") and roles[3][0] == "helper"           # then the queued one, answered
+    assert s["queued"] == []
+
+
+def test_a_message_with_interrupt_stops_the_answer_and_goes_now(client, repo, monkeypatch):
+    monkeypatch.setenv("KEEL_FAKE_DELAY", "0.3")
+    s = new_session(client, repo)
+    client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "Slow one"})
+    r = client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "Do this instead", "interrupt": True})
+    assert r.status_code == 200 and not r.json().get("queued")
+    s = wait_idle(client, s["id"])
+    roles = [(m["role"], m["text"][:15]) for m in s["messages"]]
+    assert roles == [("user", "Slow one"), ("note", "Stopped."), ("user", "Do this instead"), ("helper", roles[3][1])]
 
 
 def test_bad_requests_and_delete(client, repo):

@@ -231,6 +231,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }),
       // 0.18.6 a question asked in this chat from the dashboard: shown as the person's own, then KeelBot answers here too
       core.on("remote", (text, by) => push({ kind: "user", text }, { kind: "dim", text: `  asked in ${by}` })),
+      // 0.18.28 typed while KeelBot answered: dim until it goes, then the person's message as usual
+      core.on("queued", (m) => push(m.sent ? { kind: "user", text: m.text }
+        : { kind: "dim", text: `  ⧗ will send after this answer${m.position > 1 ? ` (#${m.position})` : ""}: ${m.text.split("\n")[0].slice(0, 200)}  · Esc stops the answer and sends it now` })),
       // KeelBot asks the person's OK for a command: an amber yes/no, one after the other
       core.on("question", (q) => {
         if (questions.current.some((x) => x.id === q.id)) return;
@@ -531,11 +534,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         if (mentions.length) push({ kind: "dim", text: `  with ${mentions.map((m) => `@${m.value}`).join(" ")}` });
         if (core.shell) push({ kind: "dim", text: `  with the output of !${core.shell.command}` });
         pastes.current.clear();
-        await core.send(full, mentions, images);
+        const sent = await core.send(full, mentions, images);
         const ti = core.turnImages;
         const name = (p: string) => p.split("/").pop() || p;
-        if (ti.images.length) push({ kind: "dim", text: `  with the image${ti.images.length === 1 ? "" : "s"} ${ti.images.map(name).join(", ")}` });
-        for (const x of ti.skipped) push({ kind: "dim", text: `  not sent: ${x.path}: ${x.why}` });
+        if (sent && ti.images.length) push({ kind: "dim", text: `  with the image${ti.images.length === 1 ? "" : "s"} ${ti.images.map(name).join(", ")}` });
+        if (sent) for (const x of ti.skipped) push({ kind: "dim", text: `  not sent: ${x.path}: ${x.why}` });
       } catch (e) {
         push({ kind: "error", text: e instanceof Error ? e.message : String(e) });
       }
@@ -688,7 +691,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (!text.trim()) return;
     setOffset(0);
-    push({ kind: "user", text });
+    // 0.18.28 a message to KeelBot while it answers waits (shown dim by the "queued" event), it is not refused
+    if (!(core.snapshot.chat.busy && !/^[/!]/.test(text))) push({ kind: "user", text });
     setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, HISTORY_MAX));
     setHIdx(-1);
     const name = text.startsWith("/") ? text.split(/\s+/)[0] : "";
@@ -939,6 +943,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       scroll(key.pageUp || key.upArrow ? step : -step);
       return;
     }
+    if (key.ctrl && input === "c" && snap.chat.busy && core.queue.length) {
+      // 0.18.28 Ctrl+C with a message waiting: stop the answer, the waiting message goes now
+      push({ kind: "dim", text: "  stopping KeelBot's answer; your waiting message goes next…" });
+      void core.stopChat();
+      return;
+    }
     if (key.ctrl && input === "c") {
       const now = Date.now();
       if (now - ctrlC.current < 1500) exit();
@@ -1058,7 +1068,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         push({ kind: "dim", text: "  cancelled" });
         setPending(null);
       } else if (snap.chat.busy) {
-        push({ kind: "dim", text: "  stopping KeelBot's answer…" });
+        push({ kind: "dim", text: core.queue.length ? "  stopping KeelBot's answer; your waiting message goes next…" : "  stopping KeelBot's answer…" });
         void core.stopChat();
       } else if (panels.some((x) => x.startsWith("job:"))) setPanels((ps) => ps.filter((x) => !x.startsWith("job:")));
       return;

@@ -461,3 +461,24 @@ describe("a flow starts in the run mode the person names (0.18.28)", () => {
     expect(posts().at(-1)?.body).toMatchObject({ run_mode: "important" });
   });
 });
+
+describe("typing while KeelBot answers (0.18.28)", () => {
+  it("waits instead of a \"still answering\" refusal, and goes once the answer ended", async () => {
+    const { stub, ctx } = await waitingOn(STUCK);
+    const core = ctx.core as KeelCore;
+    const turns = () => stub.calls.filter((c) => c.method === "POST" && c.path === "/api/projects/demo/helper/sessions/s1/turn");
+    const seen: { text: string; position: number; sent: boolean }[] = [];
+    core.on("queued", (m) => seen.push(m));
+    await core.send("first");
+    expect(core.snapshot.chat.busy).toBe(true);
+    expect(await core.send("second")).toBeNull();
+    expect(seen).toEqual([{ text: "second", position: 1, sent: false }]);
+    expect(turns()).toHaveLength(1);
+    stub.state.messages.push({ n: 9, role: "helper", text: "the first answer", data: {}, at: "2026-10-16T10:00:00Z" });
+    await (core as unknown as { finishTurn: () => Promise<void> }).finishTurn();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(turns().map((c) => (c.body as { text: string }).text)).toEqual(["first", "second"]);
+    expect(seen[1]).toEqual({ text: "second", position: 0, sent: true });
+    expect(core.queue).toEqual([]);
+  });
+});

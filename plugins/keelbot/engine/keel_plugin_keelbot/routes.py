@@ -117,6 +117,8 @@ class HelperTurn(BaseModel):
     shell: dict[str, Any] | None = None         # 0.18.18 {command, exit, output}: a `!command` the person ran before
     images: list[str] = Field(default_factory=list, max_length=16)   # 0.18.18 image files of the project the person named
     timeout: int | None = Field(default=None, ge=30, le=3600)
+    # 0.18.28 Esc / Ctrl+C with a new message: stop the running answer and send this one now (else it waits its turn)
+    interrupt: bool | None = None
 
 
 def project_root(root: str) -> str:
@@ -151,6 +153,7 @@ async def get_helper_sessions(project: str):
 async def get_helper_session(sid: str, request: Request):
     s = await asyncio.to_thread(helper_call, helper.get, sid)
     s["busy"] = runner(request).busy(sid)
+    s["queued"] = runner(request).queue_of(sid)        # 0.18.28 the messages that go after this answer
     return s
 
 

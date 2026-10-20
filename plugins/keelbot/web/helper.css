@@ -249,3 +249,7 @@ main:has(> .helper-page) { padding-bottom: 14px; }
 .hp-thinking { margin: 4px 0 6px; color: var(--dim); font-size: 12.5px; }
 .hp-thinking > summary { cursor: pointer; user-select: none; }
 .hp-thinking-text { margin: 4px 0 0 12px; white-space: pre-wrap; border-left: 2px solid var(--border); padding-left: 8px; }
+
+/* 0.18.28 messages typed while KeelBot answers: dim until they go */
+.hp-queued { list-style: none; margin: 0 0 4px; padding: 0; opacity: .6; font-size: 12px; }
+.hp-queued li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
