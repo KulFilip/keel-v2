@@ -11,7 +11,7 @@ import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdou
 import { complete, follow, pickMatches, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, PermissionQuestion, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
-import { applyLevel, makeTheme, withPalette, type Theme, type ThemeName } from "../core/theme";
+import { applyLevel, describeOverrides, makeTheme, withPalette, type Theme, type ThemeName } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
@@ -20,7 +20,7 @@ import { answeredBy, thinkingLines, thoughtLine, THINKING_HEAD } from "../core/t
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
-import { COMMANDS, messageBlock, setChanged, setPluginCommands } from "../core/commands";
+import { COMMANDS, THEME_HELP, messageBlock, setChanged, setPluginCommands } from "../core/commands";
 import { renderDiff } from "../core/diff";
 import { inboxApi } from "../../../web/src/inboxApi";
 import type { Profiler } from "../core/profile";
@@ -485,7 +485,13 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (reply.theme) {
       t.setPalette(reply.theme);
-      push({ kind: "ok", text: `theme ${reply.theme}: ${THEME_WORDS[reply.theme]}` });
+      const kept = describeOverrides(t.overrides);
+      push({ kind: "ok", text: `theme ${reply.theme}: ${THEME_WORDS[reply.theme]}${kept.length ? `; your colours stay: ${kept.join(", ")}` : ""}` });
+    }
+    if (reply.themeInfo) {
+      const kept = describeOverrides(t.overrides);
+      push({ kind: "ok", text: `theme ${t.name}${t.level ? "" : " (NO_COLOR: no colour)"}; ${kept.length ? `active colour overrides: ${kept.join(", ")}` : "no colour overrides"}` });
+      for (const l of THEME_HELP) push({ kind: "dim", text: "  " + l });
     }
     if (reply.mouse !== undefined) {
       const on = reply.mouse === "toggle" ? !mouse : reply.mouse;

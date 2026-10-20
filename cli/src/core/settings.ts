@@ -9,6 +9,8 @@ import { dirname, join } from "node:path";
 export type TuiSettings = {
   /** the sidebar (Ctrl+B, /sidebar): shown on a wide terminal; false hides it */
   sidebar?: boolean;
+  /** per-role colour overrides, as KEEL_TUI_COLORS: { "ok": "#3cc463", "gate": "ansi:yellow" } (the env wins) */
+  colors?: Record<string, string>;
 };
 
 export type SettingsStore = {

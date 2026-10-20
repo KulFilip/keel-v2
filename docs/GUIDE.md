@@ -559,7 +559,29 @@ commands (`/gate`, `/where` …) go to KeelBot as they are.
 
 Options: `keel2 tui -c /status -c /next` prints answers without opening the app; `--inline` (or `KEEL_TUI_INLINE=1`)
 keeps the transcript in the terminal's scrollback; `--no-mouse` gives the mouse back to the terminal; `--profile`
-times the start, API calls and frames. Colours: `NO_COLOR`, `KEEL_TUI_THEME=light`.
+times the start, API calls and frames. Colours: `NO_COLOR`, `KEEL_TUI_THEME=light`, and your own
+colours for single roles (below).
+
+### keel TUI colours
+
+keel TUI draws every piece of text with a **role** (the person's message, a gate that waits, a hint ...), and a palette says how each role looks.
+`KEEL_TUI_THEME=dark|light|auto` (or `/theme dark|light|auto` while it runs) picks the palette. To change single roles
+on top of any palette, set `KEEL_TUI_COLORS`:
+
+```
+KEEL_TUI_COLORS="ok=#3cc463,gate=#e0a13a,recommended=ansi:green"
+```
+
+- Each entry is `role=colour`, separated by commas. A colour is `#rgb`, `#rrggbb`, an ANSI colour name (`red`,
+  `cyanBright` ...) or `ansi:<name>`; the terminal's own theme decides the exact shade of an ANSI name.
+- Roles: `person`, `keelbot`, `heading`, `accent`, `gate`, `question`, `option`, `recommended`, `chosen`, `suggest`,
+  `hint`, `detail`, `meta`, `border`, `ok`, `warn`, `bad`, `code`, `path`, `link`, `run`, `add`, `del`. Also
+  accepted: `success` (= `ok`), `warning` (= `warn`), `waiting` (= `gate`), `error` (= `bad`).
+- The status line uses them: the flow `done`, `AC 3/3` and `live` are `ok`; a flow that waits and `◆ n waiting` are `gate`.
+- A bad entry is ignored and keel TUI prints one quiet warning at the start.
+- The same in the settings file `~/.config/keel2/tui.json`: `{ "colors": { "ok": "#3cc463", "gate": "ansi:yellow" } }`.
+  The environment wins over the file.
+- `/theme` (no word) lists the active overrides and `/theme light` keeps them. `NO_COLOR` still turns all colour off.
 
 ## Thinking effort
 

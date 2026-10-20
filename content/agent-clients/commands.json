@@ -360,8 +360,8 @@
     },
     {
       "name": "theme",
-      "args": "[dark|light|auto]",
-      "summary": "keel TUI's colours for a dark or a light background, or auto (colours that read on both)",
+      "args": "[dark|light|auto|colors]",
+      "summary": "keel TUI's colours for a dark or a light background, or auto (colours that read on both); with no word, the active colour overrides (KEEL_TUI_COLORS)",
       "writes": false,
       "local": true,
       "group": "Screen"

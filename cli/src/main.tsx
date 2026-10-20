@@ -24,8 +24,11 @@ import { fileSettings } from "./core/settings";
 
 // keel's colours (core/theme.ts: NO_COLOR, KEEL_TUI_THEME, COLORFGBG, FORCE_COLOR); -c writes them only into a terminal.
 // The app asks the terminal for its background first when nothing else said dark or light (termbg.ts).
-let theme = makeTheme();
+// KEEL_TUI_COLORS and the settings file's `colors` change single roles; a bad entry is ignored with one quiet warning.
+const fileColors = fileSettings().get().colors;
+let theme = makeTheme(process.env, undefined, undefined, fileColors);
 applyLevel(theme);
+for (const w of theme.warnings) process.stderr.write(w + "\n");
 
 function printReply(r: Reply, c: Paint) {
   for (const b of r.blocks) {
@@ -86,7 +89,7 @@ async function main(): Promise<number> {
   }
   if (theme.level && theme.name === "auto") {
     const bg = await probeBackground().catch(() => null);
-    if (bg) theme = makeTheme(process.env, undefined, bg);
+    if (bg) theme = makeTheme(process.env, undefined, bg, fileColors);
   }
   if (args.inline) {
     const app = render(<App core={core} theme={theme} profiler={profiler} settings={fileSettings()} />, { exitOnCtrlC: false });

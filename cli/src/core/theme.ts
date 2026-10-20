@@ -7,6 +7,8 @@
 //   KEEL_TUI_THEME=dark|light|auto   which palette; auto (the default): COLORFGBG, else the background the terminal
 //                                    reports (OSC 11, termbg.ts), else a palette that reads on both
 //   /theme dark|light|auto           the same while keel TUI runs
+//   KEEL_TUI_COLORS="ok=#3cc463,gate=ansi:yellow"   per-role overrides on top of whichever palette is active (see
+//                                    parseColors); the same as a `colors` object in keel TUI's settings file (the env wins)
 //   NO_COLOR=1                       no colour at all (https://no-color.org); FORCE_COLOR=0|1|2|3 forces a level
 //
 // Colour is never the only sign: the person's lines start with a bold "›", gates and notices with "◆", suggestions
@@ -126,7 +128,8 @@ export function makePaint(p: Palette, level: 0 | 1 | 2 | 3): Paint {
 }
 
 export type ThemeName = "dark" | "light" | "auto";
-export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean };
+/** `overrides`: the person's per-role colours (KEEL_TUI_COLORS, the settings file); `warnings`: what was ignored. */
+export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean; overrides: Partial<Palette>; warnings: string[] };
 
 type Env = Record<string, string | undefined>;
 
@@ -165,18 +168,79 @@ export function asciiOnly(env: Env): boolean {
   return !!loc && !/utf-?8/i.test(loc);
 }
 
+// ------------------------------------------------------------------ per-role overrides (KEEL_TUI_COLORS)
+
+/** Other words for a role (the older palette keys and plain English). */
+export const ROLE_ALIASES: Record<string, Role> = { success: "ok", warning: "warn", waiting: "gate", error: "bad" };
+
+const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "gray", "grey"].flatMap((n) =>
+  n === "gray" || n === "grey" ? [n] : [n, n + "Bright"]);
+const ansiByLower = new Map(ANSI_NAMES.map((n) => [n.toLowerCase(), n]));
+
+/** A colour value as a palette value: "#rgb" and "#rrggbb" become "#rrggbb", an ANSI colour name (or "ansi:<name>",
+ *  "bright-red", "redBright") becomes "ansi:<name>"; anything else is null. */
+export function parseColorValue(v: string): string | null {
+  const w = v.trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(w);
+  if (hex) {
+    const h = hex[1].toLowerCase();
+    return "#" + (h.length === 3 ? [...h].map((c) => c + c).join("") : h);
+  }
+  const name = (w.toLowerCase().startsWith("ansi:") ? w.slice(5) : w).toLowerCase().replace(/^bright[-_ ]?(.+)$/, "$1bright").replace(/[-_ ]/g, "");
+  const found = ansiByLower.get(name);
+  return found ? "ansi:" + found : null;
+}
+
+/** The role a word names (a Role or an alias), else null. */
+export function parseRole(word: string): Role | null {
+  const w = word.trim().toLowerCase();
+  const r = ROLE_ALIASES[w] ?? ROLES.find((x) => x.toLowerCase() === w);
+  return r ?? null;
+}
+
+/** Overrides from `role=colour,role=colour` (KEEL_TUI_COLORS) and/or an object (the settings file's `colors`). The
+ *  object is read first, the string after it, so the env wins. A bad entry is ignored; all of them make ONE warning. */
+export function parseColors(spec: string | undefined, fromFile?: unknown): { overrides: Partial<Palette>; warnings: string[] } {
+  const overrides: Partial<Palette> = {};
+  const bad: string[] = [];
+  const take = (k: string, v: unknown) => {
+    const role = parseRole(k);
+    const val = typeof v === "string" ? parseColorValue(v) : null;
+    if (role && val) overrides[role] = val;
+    else bad.push(`${k}=${typeof v === "string" ? v : JSON.stringify(v)}`);
+  };
+  if (fromFile && typeof fromFile === "object" && !Array.isArray(fromFile)) {
+    for (const [k, v] of Object.entries(fromFile)) take(k, v);
+  } else if (fromFile !== undefined && fromFile !== null) bad.push("colors (settings file) is not an object");
+  for (const part of (spec ?? "").split(",")) {
+    if (!part.trim()) continue;
+    const i = part.indexOf("=");
+    if (i < 0) bad.push(part.trim());
+    else take(part.slice(0, i).trim(), part.slice(i + 1).trim());
+  }
+  return { overrides, warnings: bad.length ? [`keel TUI: ignored colour entries (${bad.join(", ")}); use role=#rrggbb or role=ansi:name`] : [] };
+}
+
+/** The overrides as `role=colour` words (/theme). */
+export const describeOverrides = (o: Partial<Palette>): string[] => ROLES.filter((r) => o[r]).map((r) => `${r}=${o[r]}`);
+
 export const paletteOf = (name: ThemeName): Palette => (name === "light" ? LIGHT : name === "dark" ? DARK : AUTO);
 
-export function makeTheme(env: Env = process.env, detected?: number, probed?: "dark" | "light" | null): Theme {
+/** The palette with the person's overrides on top. */
+const withOverrides = (name: ThemeName, o: Partial<Palette>): Palette => ({ ...paletteOf(name), ...o });
+
+/** `fileColors`: the settings file's `colors` object; KEEL_TUI_COLORS in `env` wins over it. */
+export function makeTheme(env: Env = process.env, detected?: number, probed?: "dark" | "light" | null, fileColors?: unknown): Theme {
   const level = colorLevel(env, detected);
   const name = themeName(env, probed);
-  const palette = paletteOf(name);
-  return { name, palette, level, paint: makePaint(palette, level), ascii: asciiOnly(env) };
+  const { overrides, warnings } = parseColors(env.KEEL_TUI_COLORS, fileColors);
+  const palette = withOverrides(name, overrides);
+  return { name, palette, level, paint: makePaint(palette, level), ascii: asciiOnly(env), overrides, warnings };
 }
 
 /** The same theme with another palette (/theme): the colour level and the glyphs stay. */
 export function withPalette(t: Theme, name: ThemeName): Theme {
-  const palette = paletteOf(name);
+  const palette = withOverrides(name, t.overrides);
   return { ...t, name, palette, paint: makePaint(palette, t.level) };
 }
 

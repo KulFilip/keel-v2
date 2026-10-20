@@ -68,6 +68,8 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   revert?: { undo: boolean; text: string };
   /** /theme: keel TUI's palette from now on (dark, light, auto) */
   theme?: ThemeName;
+  /** /theme with no word, or /theme colors: say the palette and the colour overrides that are active */
+  themeInfo?: boolean;
   /** 0.18.6 a plugin's mode, opened: it takes the screen until Esc (core/modes.ts) */
   mode?: import("./modes").ModeSession };
 
@@ -1020,9 +1022,10 @@ const IMPLS: Impl[] = [
     return { blocks: [], mouse: w ? w === "on" : "toggle" };
   } },
   { name: "theme", run: (_ctx, a) => {
-    if (!a.trim()) return text(`/theme dark, /theme light or /theme auto (KEEL_TUI_THEME sets it at the start).`);
+    // 0.18.26 no word (or "colors"): the palette and the per-role overrides (KEEL_TUI_COLORS) that are active, with the help
+    if (!a.trim() || a.trim().toLowerCase() === "colors") return { blocks: [], themeInfo: true };
     const name = parseThemeName(a);
-    if (!name) return fail("/theme dark, /theme light or /theme auto.");
+    if (!name) return fail("/theme dark, /theme light, /theme auto or /theme colors.");
     return { blocks: [], theme: name };
   } },
   // 0.18.18 write the prompt in the person's own editor: the words after /editor (or nothing) open in it, what they
@@ -1032,6 +1035,14 @@ const IMPLS: Impl[] = [
 ];
 
 /** keel's commands: the shared table's words with what each one does here. */
+export const THEME_HELP = [
+  "/theme dark, /theme light or /theme auto sets the palette (KEEL_TUI_THEME sets it at the start).",
+  "Your own colours stay on top of any palette: KEEL_TUI_COLORS=\"ok=#3cc463,gate=ansi:yellow\" or a `colors` object in",
+  "~/.config/keel2/tui.json (the env wins). Values: #rgb, #rrggbb, an ANSI colour name or ansi:<name>. Roles: person, keelbot,",
+  "heading, accent, gate (waiting), question, option, recommended, chosen, suggest, hint, detail, meta, border, ok (success),",
+  "warn (warning), bad (error), code, path, link, run, add, del. NO_COLOR turns all colour off.",
+];
+
 export const COMMANDS: Command[] = TABLE.commands.map((spec) => {
   const impl = IMPLS.find((i) => i.name === spec.name);
   if (!impl) throw new Error(`content/agent-clients/commands.json names /${spec.name}, but keel TUI does not have it`);
