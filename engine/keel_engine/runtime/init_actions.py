@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 
 from .. import rules
-from . import arch
+from . import arch, md
 from .actions import ActionInput, ActionResult, ladder
 
 
@@ -109,12 +109,14 @@ DOCTOR_ASK = ("These setup ladder rungs fail. First look for a cause they share 
 
 def _audit_detail(rungs: list[dict]) -> str:
     ran = [r for r in rungs if r.get("status") == "pass"]
-    return (f"The ladder checked liveness only: {len(ran)} of {len(rungs)} steps passed, and none of them asked whether "
-            "an endpoint behaves correctly. A bug hunt takes about 10-20 minutes and costs tokens.\n\n"
-            "skip: hand over now; the backlog stays empty and nothing checked behaviour.\n"
-            "hunt: start a bug hunt now (semi mode, whole project). It changes no code: hunters propose, provers "
-            "reproduce against the running stack, and only what reproduces is reported.\n\n"
-            "Only you can answer this: keel never decides it by itself, in any run mode.")
+    return md.doc(
+        md.section("What the ladder checked", f"The ladder checked liveness only: {len(ran)} of {len(rungs)} steps passed, and "
+                   "none of them asked whether an endpoint behaves correctly. A bug hunt takes about 10-20 minutes and costs tokens."),
+        md.section("Your choice", md.bullets([
+            "**skip**: hand over now; the backlog stays empty and nothing checked behaviour.",
+            "**hunt**: start a bug hunt now (semi mode, whole project). It changes no code: hunters propose, provers "
+            "reproduce against the running stack, and only what reproduces is reported."]),
+            "Only you can answer this: keel never decides it by itself, in any run mode."))
 
 
 async def _ladder_state(a: ActionInput, step: str, extra: dict | None = None) -> ActionResult:
@@ -193,28 +195,32 @@ def _rung_report(a: ActionInput) -> ActionResult:
     text = str(said.get("text") or "")
     diagnosis = str((said.get("markers") or {}).get("DIAGNOSIS") or "").strip().lower() or "unknown"
     cmds = fix_commands(text)
-    lines = []
+    rungs = []
     for x in a.data.get("failed_rungs") or []:
-        lines += [f"Rung {x['n']} ({x['name']}) failed" + (f" {x['attempts']} time(s)" if x.get("attempts", 0) > 1 else "") + ":",
-                  f"$ {x['cmd']}", str(x.get("detail") or "").strip()[-1200:], ""]
+        times = f" {x['attempts']} times" if x.get("attempts", 0) > 1 else ""
+        out = str(x.get("detail") or "").strip()[-1200:]
+        rungs.append(f"### Rung {x['n']} ({md.safe_words(x['name'])}) failed{times}\n\n{md.fence('$ ' + str(x['cmd']), 'bash')}"
+                     + (f"\n\n{md.fence(out, 'text')}" if out else ""))
+    parts = [md.section("Failing rungs", *rungs)]
     if a.data.get("rung_fix_log"):
-        lines += ["What the last fix did:", str(a.data["rung_fix_log"])[-1500:], ""]
-    lines.append(f"The setup doctor's DIAGNOSIS: {diagnosis}" + {
-        "fixable": " (it found the cause and a fix)", "needs-you": " (the fix needs you: the machine or a decision)",
-        "unknown": " (it did not find the cause)"}.get(diagnosis, ""))
+        parts.append(md.section("What the last fix did", md.fence(str(a.data["rung_fix_log"])[-1500:], "text")))
     report = _doctor_text(text)
-    if report:
-        lines += ["", report]
+    parts.append(md.section("Diagnosis", f"**The setup doctor's DIAGNOSIS: {diagnosis}**" + {
+        "fixable": " (it found the cause and a fix)", "needs-you": " (the fix needs you: the machine or a decision)",
+        "unknown": " (it did not find the cause)"}.get(diagnosis, ""), md.demote(report) if report else ""))
     if cmds:
-        lines += ["", "The proposed fix (apply_fix runs these in the project folder, one after the other):",
-                  *[f"$ {c}" for c in cmds]]
+        parts.append(md.section("The proposed fix", "apply_fix runs these in the project folder, one after the other:",
+                                md.fence("\n".join(f"$ {c}" for c in cmds), "bash")))
     else:
-        lines += ["", "The doctor proposed no command keel can run: fix it yourself, then choose retry."]
-    lines += ["", ("apply_fix: keel runs the commands above, then the ladder again.\n" if cmds else "")
-              + "retry: you fixed it (or it was a passing problem); the ladder runs again and the doctor looks again if it "
-                "still fails.\n"
-              + f"skip: keep rung {q['n']} but mark it as not checked (setup.not_checked); the ladder goes on with the next rungs.\n"
-              + "stop: end init here; nothing after the ladder runs (no knowledge check, no commit)."]
+        parts.append(md.section("The proposed fix", "The doctor proposed no command keel can run: fix it yourself, then choose retry."))
+    parts.append(md.section("Your choice", md.bullets(
+        (["**apply_fix**: keel runs the commands above, then the ladder again."] if cmds else [])
+        + ["**retry**: you fixed it (or it was a passing problem); the ladder runs again and the doctor looks again if it "
+           "still fails.",
+           f"**skip**: keep rung {q['n']} but mark it as not checked ({md.code('setup.not_checked')}); the ladder goes on "
+           "with the next rungs.",
+           "**stop**: end init here; nothing after the ladder runs (no knowledge check, no commit)."])))
+    lines = [md.doc(*parts)]
     data = {**a.data, "rung_fix": cmds, "rung_gate_detail": "\n".join(lines).strip(),
             "rung_gate_without": [] if cmds else ["apply_fix"]}
     note = f"rung {q['n']}: DIAGNOSIS {diagnosis}" + (f", {len(cmds)} fix command(s) proposed" if cmds else ", no command proposed")

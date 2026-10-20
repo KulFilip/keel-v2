@@ -37,7 +37,7 @@ from pathlib import Path
 from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
-from . import contract_delta, prompts, spec_check, stacks, verdict_actions
+from . import contract_delta, md, prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
 from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
@@ -164,8 +164,9 @@ def _section(text: str, *names: str) -> str:
 
 
 def _criteria_lines(acs: list[dict]) -> list[str]:
-    return [f"- {x['id']} [{x.get('layer', 'API')}] {x.get('title', '')}" + (f" ({x['status']})" if x.get("status") in DONE else "")
-            + (f" · after {', '.join(x['depends_on'])}" if x.get("depends_on") else "") for x in acs]
+    return [f"- {md.code(x['id'])} [{x.get('layer', 'API')}] {md.safe_words(x.get('title', ''))}"
+            + (f" ({x['status']})" if x.get("status") in DONE else "")
+            + (f" · after {', '.join(md.code(d) for d in x['depends_on'])}" if x.get("depends_on") else "") for x in acs]
 
 
 # ------------------------------------------------------------------ preflight
@@ -323,27 +324,31 @@ def spec_sync(a):
     order, source = build_order(a, text)
     acs = with_depends(order_acs(acs, order), text)
     said = {"spec": "the spec's ORDER line", "plan": "the plan's ORDER", "id": "criteria ids (no ORDER given)"}[source]
-    lines = [f"Spec: {spec or '(no spec file found)'}", "", f"Criteria, in build order (from {said}):", *_criteria_lines(acs)]
+    contract = contract_needed(a, text)
+    head = [f"Spec: {md.code(spec) if spec else '(no spec file found)'}"]
+    if contract == "no":
+        head.append("Contract: the plan says the contract delta is none, so the contract step and its gate are skipped.")
+    parts = [md.section("Spec", *head)]
+    crit = [f"Criteria, in build order (from {said}):", "\n".join(_criteria_lines(acs))]
     retagged = [i for i in retagged if any(x["id"] == i and x.get("layer") == "API" for x in acs)]
     if retagged:
-        lines += ["", f"{NO_WEB_NOTE} (its pages are tested by backend tests): {', '.join(retagged)}"]
+        crit.append(f"{NO_WEB_NOTE} (its pages are tested by backend tests): {', '.join(md.code(i) for i in retagged)}")
+    parts.append(md.section("Criteria", *crit))
     plan = _section(text, "plan")
     if plan:
-        lines += ["", "Plan (files per criterion, contract delta, test layer):", plan[:2500]]
-    lines += ["", spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data)))]
+        parts.append(md.section("Plan (files per criterion, contract delta, test layer)", md.demote(plan[:2500])))
+    parts.append(md.section("Spec check", spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data)))))
     answer = a.data.get("spec_gate_answer") or {}
     if a.step.startswith("spec_review") and answer.get("choice") == "review" and (a.state.get("last_answer") or "").strip():
-        lines += ["", "Spec review (you asked for it), word for word:", a.state["last_answer"].strip()[:6000]]
-    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"} and a note):",
-              "- approve: freeze the spec (status frozen, approved and frozen today), commit it, go to the contract",
-              "- edit: change the criteria your note names, then come back here",
-              "- rewrite: rewrite the section your note names (goal, validation, auth, edge cases, out of scope)",
-              "- review: an adversarial read first (vague, untestable or overlapping criteria), shown here",
-              "- order: the criteria are right but the plan under them is not: the plan is written again",
-              "- reject: the spec misses the intent: the interview starts again with what was missing"]
-    contract = contract_needed(a, text)
-    if contract == "no":
-        lines.insert(1, "Contract: the plan says the contract delta is none, so the contract step and its gate are skipped.")
+        parts.append(md.section("Spec review (you asked for it)", "The reviewer's answer, word for word:", md.demote(a.state["last_answer"].strip()[:6000])))
+    parts.append(md.section("Your choice", 'Choose one (approve with payload {"choice": "<name>"} and a note):', md.bullets([
+        "**approve**: freeze the spec (status frozen, approved and frozen today), commit it, go to the contract",
+        "**edit**: change the criteria your note names, then come back here",
+        "**rewrite**: rewrite the section your note names (goal, validation, auth, edge cases, out of scope)",
+        "**review**: an adversarial read first (vague, untestable or overlapping criteria), shown here",
+        "**order**: the criteria are right but the plan under them is not: the plan is written again",
+        "**reject**: the spec misses the intent: the interview starts again with what was missing"])))
+    lines = [md.doc(*parts)]
     upd = {"acs": acs, "show": "\n".join(lines),
            "data": {**a.data, "ac_order": {"ids": [x["id"] for x in acs], "from": source}, "contract": contract}}
     if spec:
@@ -881,29 +886,23 @@ def show_diff(a):
         # v0.17.5 the contract agent wrote nothing: there is no delta to approve, so its gate is not asked
         return _ok("no contract change", update={"show": "The contract agent changed nothing.",
                                                   "data": {**a.data, "contract": "no"}})
+    delta = None
     if dirty:
-        tracked = [f for f, xy in dirty.items() if "?" not in xy]
-        out = []
+        tracked = sorted(f for f, xy in dirty.items() if "?" not in xy)
         delta = contract_view(a, dirty) if a.phase == "contract" else None
-        if delta:
-            out += [*delta["lines"], ""]
-        out += [f"Uncommitted change ({len(dirty)} file(s)), not committed until you approve:", ""]
-        if tracked:
-            out.append(git.git(a.root, "diff", "HEAD", "--", *tracked).stdout)
+        blocks = md.diff_blocks(git.git(a.root, "diff", "HEAD", "--", *tracked).stdout) if tracked else []
         for f in sorted(x for x, xy in dirty.items() if "?" in xy):
             p = Path(a.root) / f
-            body = p.read_text(errors="replace") if p.is_file() else ""
-            out += [f"new file {f}:", "\n".join("+" + line for line in body.splitlines()[:200]), ""]
-        text = "\n".join(out)
+            blocks.append(md.new_file_block(f, p.read_text(errors="replace") if p.is_file() else ""))
+        diff = md.section("Diff", f"Uncommitted change ({len(dirty)} file{'' if len(dirty) == 1 else 's'}), not committed until you approve.", *blocks)
+        text = md.doc(*(delta["parts"] if delta else []), diff)
     else:
         base = a.base or "HEAD"
-        stat = git.git(a.root, "diff", "--stat", f"{base}..HEAD").stdout.strip()
-        text = f"Branch diff since the flow started ({base[:7]}..HEAD):\n{stat or 'no change'}\n\n" + \
-               git.git(a.root, "diff", f"{base}..HEAD").stdout
-    text = text.strip()
-    if len(text) > 12000:
-        text = text[:12000] + "\n… (cut; see the repository for the rest)"
-    if dirty and a.phase == "contract" and delta:
+        stat = git.git(a.root, "diff", "--stat", f"{base}..HEAD").stdout.rstrip()
+        text = md.section("Diff", f"Branch diff since the flow started ({md.code(base[:7] + '..HEAD')}):",
+                          md.fence(stat or "no change", "text"), *md.diff_blocks(git.git(a.root, "diff", f"{base}..HEAD").stdout))
+    text = md.cut(text.strip(), 12000)
+    if delta:
         breaks = sum(len(d["breaks"]) for d in delta["files"].values() if d)
         return _ok(f"contract delta: {breaks} change(s) that break callers" if breaks else "contract delta: nothing breaks callers",
                    update={"show": text, "data": {**a.data, "contract_delta": delta["files"]}})
@@ -939,8 +938,13 @@ def test_check(a):
 def _contract_files(a, dirty: dict) -> list[str]:
     cfg = rules.load_config(a.root)
     named = str((cfg.get("contract") or {}).get("file") or "")
-    return sorted(f for f in dirty if f == named or rules.classify(cfg, f) == "contract"
-                  or (f.endswith((".yaml", ".yml", ".json")) and contract_delta.load(_text(a.root, f)) is not None))
+
+    def sortable(f):
+        if not f.endswith((".yaml", ".yml", ".json")):
+            return False
+        text = _text(a.root, f)
+        return contract_delta.load(text) is not None or contract_delta.load_schema(text, f) is not None
+    return sorted(f for f in dirty if f == named or rules.classify(cfg, f) == "contract" or sortable(f))
 
 
 def _text(root: str, rel: str) -> str:
@@ -949,24 +953,41 @@ def _text(root: str, rel: str) -> str:
 
 
 def contract_view(a, dirty: dict) -> dict | None:
-    """keel v1 phase 2: the contract delta endpoint by endpoint, new / changed / removed-or-narrowed ("breaks
-    callers"), for every changed contract file (OpenAPI YAML or JSON; another format gets the plain diff)."""
+    """keel v1 phase 2: the contract delta field by field, for every changed contract file: an OpenAPI document
+    endpoint by endpoint, a JSON Schema (a message contract) property by property; another format gets its diff.
+    parts: the gate's "In plain words", "What changes" and "Compatibility" sections (the diff follows them)."""
     files = _contract_files(a, dirty)
     if not files:
         return None
-    lines, out = ["Contract delta, endpoint by endpoint (the removed or narrowed half breaks callers):"], {}
+    words, changes, out = [], [], {}
     for f in files:
-        old_text = git.git(a.root, "show", f"HEAD:{f}").stdout if "?" not in dirty.get(f, "?") else ""
-        new_doc = contract_delta.load(_text(a.root, f))
+        new_file = "?" in dirty.get(f, "?")
+        old_text = "" if new_file else git.git(a.root, "show", f"HEAD:{f}").stdout
+        text = _text(a.root, f)
+        new_doc, kind = contract_delta.load(text), "openapi"
+        if new_doc is None:
+            new_doc, kind = contract_delta.load_schema(text, f), "json-schema"
         if new_doc is None:
             removed = sum(1 for line in git.git(a.root, "diff", "HEAD", "--", f).stdout.splitlines()
                           if line.startswith("-") and not line.startswith("---"))
             out[f] = None
-            lines += contract_delta.describe(f, None, removed)
+            words.append(contract_delta.plain_words(f, None, None, removed, new_file))
             continue
-        out[f] = contract_delta.classify(contract_delta.load(old_text), new_doc)
-        lines += contract_delta.describe(f, out[f])
-    return {"files": out, "lines": lines}
+        if kind == "openapi":
+            out[f] = contract_delta.classify(contract_delta.load(old_text), new_doc)
+        else:
+            out[f] = contract_delta.classify_schema(contract_delta.load_schema(old_text, f), new_doc)
+        words.append(contract_delta.plain_words(f, out[f], new_doc))
+        changes += [*contract_delta.describe(f, out[f], doc=new_doc), ""]
+    sorted_ = [d for d in out.values() if d is not None]
+    compat = [md.verdict(contract_delta.verdict_text(list(out.values())))]
+    if len(sorted_) > 1:
+        compat.append(md.bullets([f"{md.code(f)}: {contract_delta.verdict_text([d])}" for f, d in out.items() if d is not None]))
+    parts = [md.section("In plain words", *words)]
+    if changes:
+        parts.append(md.section("What changes", "\n".join(changes)))
+    parts.append(md.section("Compatibility", *compat))
+    return {"files": out, "parts": parts}
 
 
 def contract_check(a):
@@ -1189,12 +1210,12 @@ def _phase_result(a, name: str) -> str:
 
 
 SHIP_CHOICES = [
-    "- ship: ship it (recommended): ship runs its whole sequence now (verify, release, coverage, deps, audit, trace, the "
+    "- **ship**: ship it (recommended): ship runs its whole sequence now (verify, release, coverage, deps, audit, trace, the "
     "review lenses, the spec walk) and stops next at the final review",
-    "- diff: show me the branch diff first: it is shown here, then this question comes again",
-    "- wrong: something is not right: say what in your note; the spec gets a dated amendment (its gate shows it) and the "
+    "- **diff**: show me the branch diff first: it is shown here, then this question comes again",
+    "- **wrong**: something is not right: say what in your note; the spec gets a dated amendment (its gate shows it) and the "
     "criteria it reopens are built again",
-    "- stop: stop here: the branch and its commits stay as they are; nothing is pushed",
+    "- **stop**: stop here: the branch and its commits stay as they are; nothing is pushed",
 ]
 
 
@@ -1206,28 +1227,29 @@ def ship_ready(a):
     done = [x for x in acs if x.get("status") in DONE]
     full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
     sec, sec_lines = verdict_actions.security_summary(a.state)
-    lines = ["Ready to ship? Everything after this runs without stopping until the final review.", "",
-             f"Criteria: {len(done)}/{len(acs)} done", *_criteria_lines(acs), "",
-             "Full-diff review: " + (f"{full.get('verdict')} at {str(full.get('sha') or '?')[:7]}" if full else "not run"),
-             f"Security: {sec}", *sec_lines,
-             f"E2E: {_phase_result(a, 'e2e')}", f"Smoke: {_phase_result(a, 'smoke')}"]
-    open_ = [f"- {x['id']} is not done ({x.get('status') or 'todo'})" for x in acs if x.get("status") not in DONE]
-    open_ += verdict_actions.dismissed_lines(a.data)
-    open_ += [f"- skipped: {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in a.data.get("ship_skipped") or []
-              if isinstance(s, dict)]
-    open_ += [f"- flaky: {f.get('label')}" for f in a.state.get("flaky") or []]
-    open_ += [f"- warning: {w.get('text')}" for w in a.data.get("warnings") or [] if isinstance(w, dict)]
-    lines += ["", "Still open:" if open_ else "Still open: nothing.", *open_[:30]]
-    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"}; a plain approve ships):", *SHIP_CHOICES]
+    review = f"{full.get('verdict')} at {md.code(str(full.get('sha') or '?')[:7])}" if full else "not run"
+    parts = [md.section("Ready to ship?", "Everything after this runs without stopping until the final review.",
+                        md.verdict(f"{len(done)}/{len(acs)} criteria done, security {sec}, full-diff review {full.get('verdict') or 'not run'}")),
+             md.section("Criteria", f"Criteria: {len(done)}/{len(acs)} done", "\n".join(_criteria_lines(acs))),
+             md.section("Checks", md.table(["check", "result"], [["Full-diff review", review], ["Security", sec],
+                                                                ["E2E", _phase_result(a, "e2e")], ["Smoke", _phase_result(a, "smoke")]]),
+                        f"Security: {sec}" + ("\n\n" + "\n".join(md.safe_words(x) for x in sec_lines) if sec_lines else ""))]
+    open_ = [f"- {md.code(x['id'])} is not done ({x.get('status') or 'todo'})" for x in acs if x.get("status") not in DONE]
+    open_ += [md.safe_words(x) for x in verdict_actions.dismissed_lines(a.data)]
+    open_ += [f"- skipped: {md.code(s.get('step'))}: {md.safe_words(s.get('reason') or 'no reason given')}"
+              for s in a.data.get("ship_skipped") or [] if isinstance(s, dict)]
+    open_ += [f"- flaky: {md.code(f.get('label'))}" for f in a.state.get("flaky") or []]
+    open_ += [f"- warning: {md.safe_words(w.get('text'))}" for w in a.data.get("warnings") or [] if isinstance(w, dict)]
+    parts.append(md.section("Still open", "\n".join(open_[:30]) if open_ else "Still open: nothing."))
+    parts.append(md.section("Your choice", 'Choose one (approve with payload {"choice": "<name>"}; a plain approve ships):',
+                            "\n".join(SHIP_CHOICES)))
     if a.step.endswith("_diff") and git.is_repo(a.root):
         base = a.base or "HEAD"
-        stat = git.git(a.root, "diff", "--stat", f"{base}..HEAD").stdout.strip()
-        diff = git.git(a.root, "diff", f"{base}..HEAD").stdout
-        text = f"Branch diff since the flow started ({base[:7]}..HEAD):\n{stat or 'no change'}\n\n{diff}".strip()
-        if len(text) > 12000:
-            text = text[:12000] + "\n… (cut; see the repository for the rest)"
-        lines += ["", text]
-    return _ok(f"ready to ship? {len(done)}/{len(acs)} criteria done; security {sec}", update={"show": "\n".join(lines)})
+        stat = git.git(a.root, "diff", "--stat", f"{base}..HEAD").stdout.rstrip()
+        parts.append(md.cut(md.section("Diff", f"Branch diff since the flow started ({md.code(base[:7] + '..HEAD')}):",
+                                       md.fence(stat or "no change", "text"),
+                                       *md.diff_blocks(git.git(a.root, "diff", f"{base}..HEAD").stdout)), 12000))
+    return _ok(f"ready to ship? {len(done)}/{len(acs)} criteria done; security {sec}", update={"show": md.doc(*parts)})
 
 
 def ship_stop(a):

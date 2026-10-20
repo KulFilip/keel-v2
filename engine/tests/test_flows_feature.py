@@ -86,8 +86,11 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     w = s["waiting"]
     assert w["step"] == "spec_gate" and w["options"] == ["approve"]
     assert w["choices"] == ["approve", "edit", "rewrite", "review", "order", "reject"]
-    assert f"Spec: {SPEC}" in w["detail"] and "- AC-1 [API]" in w["detail"] and "Spec check" in w["detail"]
-    assert "## Plan" not in w["detail"] and "Plan (files per criterion" in w["detail"]
+    assert f"Spec: `{SPEC}`" in w["detail"] and "- `AC-1` [API]" in w["detail"] and "## Spec check" in w["detail"]
+    # 0.18.25 the gate is a Markdown document: one ## part each, the spec's own Plan heading under the gate's
+    for head in ("## Spec\n", "## Criteria\n", "## Plan (files per criterion, contract delta, test layer)", "## Your choice"):
+        assert head in w["detail"], head
+    assert "\n## Plan\n" not in w["detail"] and "- **approve**: freeze the spec" in w["detail"]
     assert log(repo)[0] == "chore: demo project", "nothing is committed before the gate"
     # v0.17.5 the optional-step menus are part of the spec gate: no separate stop
     for unit in ("integration_gate", "security", "e2e", "smoke", "release"):
@@ -101,7 +104,7 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert any(x == "gate options approve: chosen at spec_gate" for x in s["gate_log"])
     w = s["waiting"]
     assert w["step"] == "contract_gate" and w["choices"] == ["approve", "change", "amend"]
-    assert "new file docs/contract/player-ranks.md" in w["detail"] and "contract: Player ranks" not in log(repo)
+    assert "new file `docs/contract/player-ranks.md`" in w["detail"] and "contract: Player ranks" not in log(repo)
     s, gates = gates_until_done(client, tid, decide(client, tid))
     assert s["status"] == "done"
     assert gates == ["ac_gate", "ac_gate", "integration_gate", "ready_gate", "ship_final_review", "ship_pr_gate"]
@@ -169,7 +172,7 @@ def test_spec_gate_change_order_writes_the_plan_again(client, repo, monkeypatch)
     s = decide(client, tid, payload={"choice": "order"}, why="AC-2 first: it validates the input AC-1 reads")
     assert len(calls) == 2 and "AC-2 first" in calls[1].prompt
     assert s["waiting"]["step"] == "spec_gate" and [a["id"] for a in s["acs"]] == ["AC-2", "AC-1"]
-    assert s["waiting"]["detail"].index("- AC-2 [API]") < s["waiting"]["detail"].index("- AC-1 [API]")
+    assert s["waiting"]["detail"].index("- `AC-2` [API]") < s["waiting"]["detail"].index("- `AC-1` [API]")
     s = to_loop(client, tid, s)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-2", "the loop follows the plan's order"
 
@@ -394,7 +397,9 @@ def test_the_contract_gate_lists_a_removed_field_under_breaks_callers(client, re
     s = to_loop(client, tid, upto="options")
     w = s["waiting"]
     assert w["step"] == "contract_gate"
-    assert "Breaks callers (removed or narrowed):" in w["detail"] and "GET /ranks response 200.score: removed" in w["detail"]
+    d = w["detail"]
+    assert d.startswith("## In plain words\n\n") and "| `GET /ranks response 200.score` | removed |" in d
+    assert "**Verdict: breaks: `GET /ranks response 200.score` removed" in d and "\n```diff\ndiff --git a/docs/contract/openapi.yaml" in d
     started = [e["step"] for e in client.bus.of(tid, "step.started")]
     assert started.index("contract_check") < started.index("contract_diff")
 
@@ -433,6 +438,8 @@ def test_security_is_not_shown_when_clean_and_asks_when_it_finds_something(clien
     w = s["waiting"]
     assert w["title"].startswith("security auditor + dependency triager: 1 blocking finding")
     assert "any user reads any rank" in w["detail"]
+    assert w["detail"].startswith("## Blocking findings (1)\n\n- **[") and "\n## What the buttons do\n" in w["detail"]
+    assert "- **Fix them**: the implementer fixes" in w["detail"] and "- **Go on anyway**: say why" in w["detail"]
     assert [r.item["id"] for r in calls] == ["audit"], "no dependency changed: no triager"
     s = decide(client, tid)
     assert len(calls) == 2 and "fix(review): address security auditor + dependency triager findings" in log(repo)
@@ -446,14 +453,14 @@ def test_the_ac_gate_shows_the_commits_the_review_and_the_board(client, repo, mo
     d = s["waiting"]["detail"]
     red = git(repo, "log", "--format=%h", "--grep=test(AC-1)", "--fixed-strings").stdout.split()[0]
     green = git(repo, "log", "--format=%h", "--grep=feat(AC-1)", "--fixed-strings").stdout.split()[0]
-    assert d.startswith("AC-1 [API] Player ranks: the main case works")
-    assert f"RED: {red} test(AC-1)" in d and "  test file: " in d
-    assert f"GREEN: {green} feat(AC-1)" in d and "changed" in d, "the diffstat"
-    assert "AC-REVIEW: pass" in d and "The ac-reviewer's answer:" in d and "the test proves AC-1" in d
-    assert "Board: done - · now AC-1 · todo AC-2" in d
+    assert d.startswith("## Criterion\n\n`AC-1` [API] Player ranks: the main case works")
+    assert f"**RED**: `{red}` `test(AC-1)" in d and "Test files:\n\n- `" in d
+    assert f"**GREEN**: `{green}` `feat(AC-1)" in d and "changed" in d and "```text\n" in d, "the diffstat, fenced"
+    assert "**AC-REVIEW: pass**" in d and "The ac-reviewer's answer:" in d and "the test proves AC-1" in d
+    assert "Board: done - · now `AC-1` · todo `AC-2`" in d
     s = decide(client, tid)
     s = to(client, tid, s, "ac_gate")
-    assert "Board: done AC-1 · now AC-2 · todo -" in s["waiting"]["detail"]
+    assert "Board: done `AC-1` · now `AC-2` · todo -" in s["waiting"]["detail"]
 
 
 TWO_FINDINGS = ("**Blocking**\n\n- `src/scores/ac_1.py:1` any user reads any rank.\n- `src/scores/ac_2.py:1` the error "
@@ -621,8 +628,8 @@ def test_ready_to_ship_shows_the_state_and_can_show_the_diff_or_stop(client, rep
     assert w["choices"] == ["ship", "diff", "wrong", "stop"]
     assert [c["name"] for c in w["choice_info"] if c["default"]] == ["ship"]
     assert next(c for c in w["choice_info"] if c["name"] == "wrong")["why"] == "required"
-    for want in ("Criteria: 2/2 done", "Full-diff review: pass at", "Security: clean", "E2E: nothing to do",
-                 "Smoke: nothing to do", "- ship: ship it (recommended)"):
+    for want in ("## Ready to ship?", "## Checks", "## Still open", "Criteria: 2/2 done", "| Full-diff review | pass at `",
+                 "Security: clean", "| E2E | nothing to do", "| Smoke | nothing to do", "- **ship**: ship it (recommended)"):
         assert want in w["detail"], want
     assert values(client, tid)["data"]["full_review"]["verdict"] == "pass"
     s = decide(client, tid, payload={"choice": "diff"})
@@ -696,7 +703,7 @@ def test_e2e_and_smoke_criteria_are_criteria_but_not_built_in_the_loop(client, r
     tid = start(client, repo)
     s = wait(client, tid)
     w = s["waiting"]
-    assert w["step"] == "spec_gate" and "- AC-3 [E2E] Given two players" in w["detail"] and "- AC-4 [SMOKE]" in w["detail"]
+    assert w["step"] == "spec_gate" and "- `AC-3` [E2E] Given two players" in w["detail"] and "- `AC-4` [SMOKE]" in w["detail"]
     assert [a["id"] for a in values(client, tid)["acs"]] == ["AC-1", "AC-2", "AC-3", "AC-4"]
     s = to(client, tid, s, "ship_final_review", SHIP)
     red = {r.ac["id"] for r in seen if r.phase == "red"}
@@ -906,7 +913,7 @@ def test_a_flow_started_from_a_spec_takes_its_path_and_criteria(client, repo, mo
     assert [a["id"] for a in s["acs"]] == ["AC-1", "AC-2"]
     spec = [r for r in seen if r.step_name == "spec"][0]
     assert "keel-questions" not in spec.prompt and "starts from the spec docs/specs/scores.md" in spec.prompt
-    assert s["waiting"]["step"] == "spec_gate" and "Spec: docs/specs/scores.md" in s["waiting"]["detail"]
+    assert s["waiting"]["step"] == "spec_gate" and "Spec: `docs/specs/scores.md`" in s["waiting"]["detail"]
 
 
 def test_a_spec_outside_the_project_or_not_a_file_is_not_taken(tmp_path):

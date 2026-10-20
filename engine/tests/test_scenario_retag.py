@@ -141,7 +141,7 @@ def test_without_a_web_layer_keel_tags_web_criteria_api_and_says_so(client, repo
     w = s["waiting"]
     assert w["step"] == "spec_gate"
     assert [a["layer"] for a in s["acs"]] == ["API", "API"]
-    assert "keel tagged these [API]: this project has no separate web tests (its pages are tested by backend tests): AC-2" \
+    assert "keel tagged these [API]: this project has no separate web tests (its pages are tested by backend tests): `AC-2`" \
         in w["detail"]
     assert "- **AC-2** [API] Player ranks: the ranks page shows" in (Path(repo) / SPEC).read_text()
     assert sorted(r.item["id"] for r in seen if r.item) == ["api", "data"], "no web explorer"

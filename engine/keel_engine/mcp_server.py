@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field
 
 from . import extensions, rules
 from . import mcp_ask as ask_mod
+from .runtime import md
 from .addons import NAME
 
 API_TIMEOUT = 15
@@ -258,7 +259,8 @@ def _waiting_lines(w: dict) -> list[str]:
     if w.get("questions"):
         out.append("          questions (answers: {<id>: <label> | [<labels>] | <your words>}):")
         out += ask_mod.question_lines(w["questions"], "            ")
-    detail = (w.get("detail") or "").strip()
+    # a gate's detail is Markdown: the summary first, the fences dropped so a diff or JSON reads as plain text
+    detail = md.unfence(w.get("detail") or "").strip()
     if detail:
         out.append("          " + cut(detail, 1500).replace("\n", "\n          "))
     return out

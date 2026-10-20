@@ -73,7 +73,10 @@ def test_a_failing_rung_shows_the_doctors_diagnosis_and_asks(client, repo, monke
     assert "You change nothing" in doctors[0].prompt and "keel-fix" in doctors[0].prompt
     assert "Rung 4 (Both apps compile) failed" in w["detail"] and f"$ test -f {FLAG}" in w["detail"]
     assert "DIAGNOSIS: fixable" in w["detail"] and "nothing built it yet" in w["detail"]
-    assert f"$ mkdir -p __pycache__\n$ touch {FLAG}" in w["detail"] and "```" not in w["detail"]
+    # the doctor's keel-fix block is not repeated; keel's own fenced bash block shows what apply_fix runs
+    assert f"```bash\n$ mkdir -p __pycache__\n$ touch {FLAG}\n```" in w["detail"] and "keel-fix" not in w["detail"]
+    for head in ("## Failing rungs", "### Rung 4", "## Diagnosis", "## The proposed fix", "## Your choice"):
+        assert head in w["detail"], head
     if choice == "retry":
         (Path(repo) / "__pycache__").mkdir(exist_ok=True)
         (Path(repo) / FLAG).write_text("")

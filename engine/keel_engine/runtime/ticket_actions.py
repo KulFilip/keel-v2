@@ -35,6 +35,7 @@ from .. import config, rules
 from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
+from . import md
 from . import run_mode as run_modes
 from . import tools as tool_runner
 from . import verdict_actions as va
@@ -976,7 +977,9 @@ def _share(a):
     pr = (review.get("source") or {}).get("pr")
     where = (f"Choose post to post it as one comment on PR #{pr}, or keep to copy it yourself." if pr else
              "This review is of a branch, not a PR: copy the text yourself (post has nothing to post to).")
-    show = f"The text for the author (sections: {', '.join(sections)}):\n\n{text}\n\n---\n{where}"
+    show = md.doc(md.section("The text for the author", f"Sections: {', '.join(md.code(x) for x in sections)}.",
+                             "It is posted exactly as it shows here:", md.demote(text)),
+                  md.section("What happens next", where))
     return _result(True, f"Text for the author ready: {', '.join(sections)}.", "",
                    {"show": show, "data": {**a.data, "review_comment": text, "review_sections": sections}})
 

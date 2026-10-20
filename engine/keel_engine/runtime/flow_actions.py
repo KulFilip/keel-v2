@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import rules
 from ..tools import git
-from . import bug, spike_report, verdict_actions
+from . import bug, md, spike_report, verdict_actions
 
 LENSES = ["correctness", "security", "performance", "architecture", "assertions"]
 # How often one gate may be sent back in a row before keel asks (settings.sendback_limit). 0.18.12: a fix question that
@@ -200,41 +200,45 @@ def ac_commit(root: str, prefix: str, ac_id: str, since: str | None = None) -> t
 
 
 def ac_evidence(root: str, ac: dict, acs: list[dict], review: str | None, note: str = "", since: str | None = None) -> str:
-    """What the AC gate shows (keel v1's AC gate: the board, the review word for word): the criterion, its RED commit
-    and test files, its GREEN commit and diffstat, the ac-reviewer's verdict and answer, and the board."""
+    """What the AC gate shows (keel v1's AC gate: the board, the review word for word), as Markdown sections: the
+    criterion, its RED commit and test files, its GREEN commit and diffstat, the ac-reviewer's verdict and answer, and
+    the board."""
     ac_id = ac["id"]
-    lines = [f"{ac_id} [{ac.get('layer', 'API')}] {ac.get('title', '')}", ""]
+    parts = [md.section("Criterion", f"{md.code(ac_id)} [{ac.get('layer', 'API')}] {md.safe_words(ac.get('title', ''))}")]
+    commits = []
     red = ac_commit(root, "test", ac_id, since)
     if red:
         files = [f for f in git.git(root, "show", "--name-only", "--format=", red[0]).stdout.splitlines() if f.strip()]
-        lines.append(f"RED: {red[0]} {red[1]}")
-        lines += [f"  test file: {f}" for f in files[:15]] or ["  (no files in this commit)"]
+        commits.append(f"**RED**: {md.code(red[0])} {md.code(red[1])}")
+        commits.append("Test files:\n\n" + md.bullets([md.code(f) for f in files[:15]]) if files else "(no files in this commit)")
     else:
-        lines.append(f"RED: no test({ac_id}) commit found")
+        commits.append(f"**RED**: no {md.code(f'test({ac_id})')} commit found")
     green = ac_commit(root, "feat", ac_id, since)
     if green:
         stat = [x.rstrip() for x in git.git(root, "show", "--stat", "--format=", green[0]).stdout.splitlines() if x.strip()]
-        lines.append(f"GREEN: {green[0]} {green[1]}")
+        commits.append(f"**GREEN**: {md.code(green[0])} {md.code(green[1])}")
         if len(stat) > STAT_LINES:
             stat = stat[:STAT_LINES - 1] + [f" ... {len(stat) - STAT_LINES} more", stat[-1]]
-        lines += [f"  {x.strip()}" for x in stat] or ["  (no files in this commit)"]
+        commits.append(md.fence("\n".join(x.strip() for x in stat), "text") if stat else "(no files in this commit)")
     else:
-        lines.append(f"GREEN: no feat({ac_id}) commit found")
-    lines.append("")
+        commits.append(f"**GREEN**: no {md.code(f'feat({ac_id})')} commit found")
+    parts.append(md.section("Commits", *commits))
     text = (review or "").strip()
     if text:
         m = _AC_REVIEW.findall(text)
         verdict = m[-1].lower() if m else "no verdict line"
         body = text if len(text) <= REVIEW_MAX else text[:REVIEW_MAX] + "\n... (cut)"
-        lines += [f"AC-REVIEW: {verdict}", "", "The ac-reviewer's answer:", body, ""]
+        parts.append(md.section("Review", f"**AC-REVIEW: {verdict}**", "The ac-reviewer's answer:", md.demote(body)))
     else:
-        lines += ["AC-REVIEW: no review ran for this criterion", ""]
+        parts.append(md.section("Review", "**AC-REVIEW: no review ran for this criterion**"))
     done = [a["id"] for a in acs if a.get("status") in ("done", "already-met") and a["id"] != ac_id]
     todo = [a["id"] for a in acs if a.get("status") not in ("done", "already-met") and a["id"] != ac_id]
-    lines.append(f"Board: done {', '.join(done) or '-'} · now {ac_id} · todo {', '.join(todo) or '-'}")
+    ids = lambda xs: ", ".join(md.code(x) for x in xs) or "-"      # noqa: E731
+    board = [f"Board: done {ids(done)} · now {md.code(ac_id)} · todo {ids(todo)}"]
     if note:
-        lines.append(f"Last step: {note}")
-    return "\n".join(lines)
+        board.append(f"Last step: {md.safe_words(note)}")
+    parts.append(md.section("Board", *board))
+    return md.doc(*parts)
 
 
 # ------------------------------------------------------------------ report
