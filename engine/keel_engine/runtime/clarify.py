@@ -165,3 +165,45 @@ def reason_problem(questions: list[dict] | None, answers: dict | None, why: str 
         if opt and opt.get("why") == "required" and not said:
             return f'"{q.get("question")}": "{label}" needs a reason ("{label}: <reason>").'
     return None
+
+
+# 0.18.28 an answer that is a question or confusion ("what do you mean", "?", "explain"): the person did not understand
+# the question. It is no answer, so the asker must not read it as one, and keel must not fall back to the recommended
+# option for it: keel asks that question again, once, in plain words with examples (Compiler._clarify_gate).
+_CONFUSED = re.compile(
+    r"^\s*\?+\s*$|what\s+do\s+you\s+mean|what\s+does\s+.{0,60}\bmean\b|what\s+is\s+meant|\bmeaning\b|"
+    r"(?:i\s+)?(?:do\s*n[o']?t|dont|do\s+not|don't)\s+(?:understand|get\s+it|know\s+what)|not\s+sure\s+what|"
+    r"\bexplain\b|\bunclear\b|\bconfus|^\s*(?:huh|what|sorry|pardon)\s*[?!.]*\s*$|can\s+you\s+clarify|"
+    r"\bno\s+idea\b|which\s+one\s+do\s+you\s+mean", re.I)
+
+
+def is_confused(raw, question: dict | None = None) -> bool:
+    """Is this answer a question or confusion rather than an answer? An option's label (or "<label>: ...") never is;
+    own words that ask back are ("what do you mean", "?", "explain", "I don't understand", a sentence ending in "?")."""
+    if isinstance(raw, list):
+        return False
+    text = str(raw or "").strip()
+    if not text:
+        return False
+    if question and split_answer(question, text)[0]:
+        return False
+    return bool(_CONFUSED.search(text)) or text.endswith("?")
+
+
+def explained(question: dict, said: str = "") -> dict:
+    """The question again in plain words: what it decides (its why), each option as an example of what it means, and
+    the person's own words back. Marked "explained" so it is asked this way once."""
+    opts = question.get("options") or []
+    examples = [f'"{o["label"]}"' + (f" means {o['description'].rstrip('.')}" if o.get("description") else "")
+                for o in opts if o.get("label")]
+    why = str(question.get("why") or "").strip().rstrip(".")
+    lines = [str(question.get("question") or "").strip(), ""]
+    if said:
+        lines.append(f'You asked: "{said.strip()[:200]}". Here it is in plain words.')
+    lines.append(f"What it decides: {why}." if why else "It decides how the feature behaves in this case.")
+    if examples:
+        lines.append("For example: " + "; ".join(examples) + ".")
+    lines.append("Pick one, or answer in your own words (\"not sure\" is fine: keel then writes it down as an open "
+                 "question instead of guessing).")
+    return {**question, "question": "\n".join(lines).strip(), "explained": True, "asked_back": str(said or "")[:200]}
+

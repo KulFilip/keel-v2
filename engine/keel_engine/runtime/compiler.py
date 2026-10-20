@@ -2612,6 +2612,43 @@ class Compiler:
             "detail": clarify.describe(asked), "questions": asked, "options": ["approve"],
             "labels": {"approve": "Send my answers"}})
         payload = answer.get("payload") or {}
+        given = dict(payload.get("answers") or {}) if isinstance(payload.get("answers"), dict) else {}
+        said_why = (answer.get("why") or "").strip()
+        # 0.18.28 an answer that asks back ("what do you mean", "?", "explain") is no answer: that question is asked
+        # again once, in plain words with examples; the other answers wait for it (they are kept, not asked again)
+        if not answer.get("auto"):
+            fresh = [q for q in asked if not q.get("explained")]
+            confused = [q for q in fresh if clarify.is_confused(given.get(q["id"]), q)]
+            if not given and clarify.is_confused(said_why):
+                confused = fresh
+            if confused:
+                ids = {q["id"] for q in confused}
+                again = [clarify.explained(q, str(given.get(q["id"]) or said_why)) for q in confused]
+                kept_q = list(clar.get("kept_questions") or []) + [q for q in asked if q["id"] not in ids]
+                kept_a = {**(clar.get("kept_answers") or {}), **{k: v for k, v in given.items() if k not in ids}}
+                plain = f"{title}: in plain words" if not str(title).endswith(": in plain words") else title
+                gates["log"].append(f"gate {step.id} asked back on {', '.join(sorted(ids))}: asked again in plain words")
+                self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "explain", "clarify": True,
+                                                                  "why": f"asked back on {', '.join(sorted(ids))}"})
+                return {"gates": gates, **extra, "clarify": {**clar, "questions": again, "title": plain,
+                                                             "kept_questions": kept_q, "kept_answers": kept_a},
+                        "note": f"{len(again)} question(s) asked again in plain words"}, step.id
+        # the answers kept from before a question was asked again join this round's
+        if clar.get("kept_questions"):
+            asked = [q for q in clar["kept_questions"]] + [
+                {k: v for k, v in q.items() if k not in ("explained", "asked_back")} for q in asked]
+            for q in asked:
+                if q.get("question", "").count("\n"):
+                    q["question"] = q["question"].split("\n", 1)[0]
+            given = {**(clar.get("kept_answers") or {}), **given}
+        if not answer.get("auto"):
+            for q in asked:
+                v = given.get(q["id"])
+                if clarify.is_confused(v, q):
+                    # still asked back after the plain words: never the recommended option in its place
+                    given[q["id"]] = (f"{v} (the person did not understand this question, also in plain words: do not "
+                                      "pick an option for them; write it under the open questions)")
+        payload = {**payload, "answers": given} if given else payload
         round_no = int(state.get("clarify_rounds") or 0) + 1
         auto = answer.get("why") if answer.get("auto") else ""
         text = clarify.answers_text(asked, payload.get("answers"), "" if auto else (answer.get("why") or ""), round_no,
