@@ -20,6 +20,7 @@ import { runScript } from "./script";
 import { Profiler } from "./core/profile";
 import { HELP, parseArgs } from "./main.args";
 import { MOUSE, SCREEN, screenStdout } from "./core/lines";
+import { fileSettings } from "./core/settings";
 
 // keel's colours (core/theme.ts: NO_COLOR, KEEL_TUI_THEME, COLORFGBG, FORCE_COLOR); -c writes them only into a terminal.
 // The app asks the terminal for its background first when nothing else said dark or light (termbg.ts).
@@ -88,7 +89,7 @@ async function main(): Promise<number> {
     if (bg) theme = makeTheme(process.env, undefined, bg);
   }
   if (args.inline) {
-    const app = render(<App core={core} theme={theme} profiler={profiler} />, { exitOnCtrlC: false });
+    const app = render(<App core={core} theme={theme} profiler={profiler} settings={fileSettings()} />, { exitOnCtrlC: false });
     await app.waitUntilExit();
     return done(0);
   }
@@ -108,7 +109,8 @@ async function main(): Promise<number> {
     const t = setTimeout(done, 1000);
     process.stdout.once("resize", () => (clearTimeout(t), done()));
   });
-  const app = render(<App core={core} theme={theme} profiler={profiler} rows={process.stdout.rows || 24} mouse={args.mouse} />,
+  const app = render(<App core={core} theme={theme} profiler={profiler} rows={process.stdout.rows || 24} mouse={args.mouse}
+    settings={fileSettings()} />,
     { exitOnCtrlC: false, stdout: screenStdout(process.stdout) });
   try {
     await app.waitUntilExit();

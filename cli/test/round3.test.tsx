@@ -148,7 +148,7 @@ describe("Fix mode", () => {
     t.core.onMessage(step(1, "edit", { path: "src/app.ts", text: "Edit src/app.ts", diff: DIFF, ok: true }));
     await tick(50);
     let f = t.frame();
-    expect(f).toMatch(/\* edit src\/app\.ts +✓/);
+    expect(f).toMatch(/⚙ Edit \[src\/app\.ts\]\n    └ \+1 -1/);
     expect(f).toContain("   3 -const limit = 10;");
     expect(f).toContain("   3 +const limit = 100;");
     t.stub.state.turnChanges = { 1: t.stub.state.changes };     // 0.18.20 this answer's own files
