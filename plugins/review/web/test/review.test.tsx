@@ -753,8 +753,9 @@ describe("Code › Review, IDE style", () => {
     const next = await screen.findByRole("region", {
       name: "src/test/PrefsTest.kt in review #7",
     });
+    // the file's tab shows first, its diff once that loads
     expect(
-      within(next).getByRole("region", {
+      await within(next).findByRole("region", {
         name: "Changes in src/test/PrefsTest.kt",
       }),
     ).toBeInTheDocument();

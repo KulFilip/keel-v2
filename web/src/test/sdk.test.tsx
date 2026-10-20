@@ -2,8 +2,9 @@
 // nothing else), and main.tsx shares keel's own React and the SDK on window.__keel for the import map's shims.
 
 import * as React from "react";
-import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, screen } from "@testing-library/react";
+import type { Root } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   Async,
@@ -55,6 +56,13 @@ describe("@keel/web-sdk", () => {
   });
 });
 
+// the root main.tsx renders into: the test unmounts it, so none of its work is left for after the file's jsdom is gone
+const roots = vi.hoisted(() => [] as Root[]);
+vi.mock("react-dom/client", async (real) => {
+  const m = await real<typeof import("react-dom/client")>();
+  return { ...m, createRoot: (...a: Parameters<typeof m.createRoot>) => { const r = m.createRoot(...a); roots.push(r); return r; } };
+});
+
 describe("window.__keel", () => {
   it("main.tsx shares keel's React and the SDK before it renders", async () => {
     document.body.innerHTML = '<div id="root"></div>';
@@ -67,5 +75,6 @@ describe("window.__keel", () => {
     expect(typeof shared.jsxRuntime.jsx).toBe("function");
     // and the app it rendered is there
     expect(await screen.findByRole("navigation", { name: "Screens" })).toBeInTheDocument();
+    act(() => roots.forEach((r) => r.unmount()));
   });
 });
