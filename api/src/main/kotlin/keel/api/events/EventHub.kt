@@ -73,6 +73,8 @@ class EventHub(private val mapper: ObjectMapper) {
             "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
             // keel 0.18.2 live text: the answer as it is written (never stored, EventService)
             "helper.delta", "agent.delta",
+            // keel TUI's tool lines: KeelBot's tool calls, one record each (never stored; the web does not listen to it)
+            "helper.tool",
         )
 
         /** The SSE event name an engine event goes out under. */
