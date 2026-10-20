@@ -217,6 +217,12 @@ def validate(wf: Workflow) -> list[str]:
                 errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}), "
                               "a data path (when: {data: hunt.mode, equals: semi}) or a state path (when: {state: acs}).")
             else:
+                from ..runtime.markers import WHEN_KEYS
+
+                # 0.18.28 a key keel does not know (a `gt:` before it could compare) was ignored without a word
+                unknown = sorted(k for k in s.when if k not in WHEN_KEYS)
+                if unknown:
+                    errors.append(f"{where}: when does not know {', '.join(unknown)} (it knows {', '.join(sorted(WHEN_KEYS))}).")
                 src = s.when.get("step")
                 for name in (src if isinstance(src, list) else [src] if src else []):
                     if name not in index:

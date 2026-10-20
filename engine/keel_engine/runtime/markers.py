@@ -84,13 +84,41 @@ def blocked(text: str) -> str | None:
     return None
 
 
+# 0.18.28 a `when` may compare a number: `when: {marker: GAPS, gt: 0}` (gt, gte, lt, lte). The value's first number
+# counts ("GAPS: 9 (3 high)" is 9); a value without a number does not hold.
+COMPARE = ("gt", "gte", "lt", "lte")
+WHEN_KEYS = frozenset({"marker", "data", "state", "step", "equals", "in", "absent", "any", *COMPARE})
+_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def number(value) -> float | None:
+    """The first number in a value (9 for "9 (3 high)", 0 for "0"), else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    m = _NUMBER.search(str(value or ""))
+    return float(m.group(0)) if m else None
+
+
 def matches(value: str | None, when: dict) -> bool:
-    """A branch's `when`: equals (one value) or in (a list); case does not matter. Neither: the value is set, and
-    False, 0, "", [] and {} are not (str(False) is "false", which used to count as set)."""
+    """A branch's `when`: equals (one value) or in (a list); case does not matter. gt / gte / lt / lte compare the
+    value's first number. None of these: the value is set, and False, 0, "0", "", [] and {} are not (str(False) is
+    "false", which used to count as set; a marker's "GAPS: 0" is the text "0", which did too)."""
     if value is None:
         return False
-    if "equals" not in when and "in" not in when and (value is False or value in (0, "", [], {}) or value == ()):
-        return False
+    cmp = [k for k in COMPARE if k in when]
+    if cmp:
+        n = number(value)
+        if n is None:
+            return False
+        ops = {"gt": n.__gt__, "gte": n.__ge__, "lt": n.__lt__, "lte": n.__le__}
+        return all(ops[k](float(number(when[k]) or 0)) for k in cmp)
+    if "equals" not in when and "in" not in when:
+        if value is False or value in (0, "", [], {}) or value == ():
+            return False
+        if isinstance(value, str) and re.fullmatch(r"\s*0+(?:\.0+)?\s*", value):
+            return False
     v = str(value).strip().lower()
     if "equals" in when:
         return v == str(when["equals"]).strip().lower()

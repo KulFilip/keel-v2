@@ -1356,7 +1356,25 @@ class Compiler:
         """A review step whose blocking findings must be fixed or accepted before the flow goes on."""
         if rules.read_only(step.phase):
             return False      # a read-only flow (review) reports its findings; nothing is fixed
+        if self._branch_decides(step):
+            return False      # 0.18.28 a critic in a loop: its branch reads its marker and loops, no findings gate
         return step.kind in ("agent", "parallel") and not step.per_ac and not step.lanes and (step.agent or "") in REVIEWERS
+
+    def _branch_decides(self, step: Step) -> bool:
+        """0.18.28 Does a later branch read a marker this step declares (when.step names it, or names no step)? Then the
+        step is a critic in a loop (a spike's "GAPS: 9": the branch loops back while rounds remain). A reviewer agent
+        there used to stop at its findings gate ("critic: 9 blocking findings") instead of looping."""
+        names = {m.upper() for m in step.markers or []}
+        if not names or step.id not in self.nav.index:
+            return False
+        for s in self.wf.steps[self.nav.index[step.id] + 1:]:
+            if s.kind != "branch" or not s.when or not s.when.get("marker") or not s.no:
+                continue
+            src = s.when.get("step")
+            srcs = src if isinstance(src, list) else ([src] if src else [])
+            if str(s.when["marker"]).upper() in names and (not srcs or step.id in srcs):
+                return True
+        return False
 
     async def findings_step(self, i: int, fix: Step, state: FlowState):
         """After a review with blocking findings: ask; fix and review again, or go on with the user's reason (the
