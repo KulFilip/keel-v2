@@ -27,12 +27,14 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 "verify_smoke", "close_flow", "full_review", "ship_ready", "ship_stop", "contract_check", "stack_up",
                 # static checks (runtime/lint_actions.py)
                 "lint_scope", "lint_run", "lint_report", "verify_lint"}
-# the hunt and hunt-next flows (runtime/hunt_actions.py), init's extra steps (runtime/init_actions.py) and review-pr's
+# the hunt and hunt-next flows (runtime/hunt_actions.py), init's extra steps (runtime/init_actions.py), review-pr's and clarify's
 FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
                 "hunt_commit", "hunt_close", "hunt_take", "hunt_map", "hunt_stack", "hunt_preview", "arch_detect", "arch_set",
                 "ladder_soft", "ladder_retry", "rung_apply", "rung_report", "git_check", "git_init", "init_summary",
                 # review-pr (runtime/ticket_actions.py)
-                "ticket_prep", "ticket_build", "ticket_claims", "ticket_record", "ticket_share", "ticket_comment"}
+                "ticket_prep", "ticket_build", "ticket_claims", "ticket_record", "ticket_share", "ticket_comment",
+                # clarify (runtime/clarify_flow.py)
+                "clarify_start", "clarify_type", "clarify_sections", "clarify_doc", "clarify_prompt"}
 END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 
@@ -136,8 +138,9 @@ def validate(wf: Workflow) -> list[str]:
         if s.rounds is not None:
             if s.rounds < 1:
                 errors.append(f"{where}: rounds must be 1 or more.")
-            if s.kind not in ("code", "branch") and not review:
-                errors.append(f"{where}: rounds belongs to a code step, a branch or a review step.")
+            if s.kind not in ("code", "branch") and not review and not (s.asks and s.kind == "agent"):
+                errors.append(f"{where}: rounds belongs to a code step, a branch, a review step or an agent step that "
+                              "asks (its rounds of questions).")
         if s.soft and s.kind != "code":
             errors.append(f"{where}: only a code step is soft.")
         if s.retry_only and s.kind not in ("agent", "code"):

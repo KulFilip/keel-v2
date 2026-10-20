@@ -1,0 +1,301 @@
+{
+ "workflow": "clarify",
+ "name": "clarify (keel)",
+ "steps": [
+  {
+   "id": "read",
+   "kind": "agent",
+   "name": "read the request and the code",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "markers": [
+    "TASK-TYPE",
+    "SECTIONS"
+   ],
+   "instructions": "Read the request, keel's memory of the project and the code the request touches (grep, open the files it names and their neighbours; edit nothing, write no file, ask nothing yet). Write a short map, at most 40 lines: the files and symbols the request touches (file:line), the pattern nearby to follow (file:line), the stack (language, framework, key libraries), the tests that exist for that code (or none), and what the request and the code already answer (scope, behaviour, errors, numbers, who may do what). Then name the task type the request suggests: feature (New feature: building something that does not exist yet), bug (Bug fix: something is broken), performance (Performance: too slow, hits a deadline, or costs too much), refactor (Refactor: change shape without changing behavior), api (API integration: wire up an external service) or architecture (Architecture: an irreversible decision, pick an approach). And the sections worth running, by number: 1 Requirement questions, 2 Acceptance criteria, 3 Definition of Done, 4 Red-flag check, 5 Ready-to-send prompt, 6 Next-step recommendation. Leave one out only when its skip rule holds: 1 when the requirements are already written and unambiguous, 2 when the request already holds acceptance criteria, 3 for a trivial one-line fix, 4 when the scope is clean, 5 when the work is handed to a spec or plan anyway, 6 when the next step is already known. TASK-TYPE is one of feature, bug, performance, refactor, api, architecture, then a dash and the reason in a few words. SECTIONS is the numbers, comma separated.",
+   "keep": true
+  },
+  {
+   "id": "ask_type",
+   "kind": "code",
+   "name": "the task type question",
+   "phase": "spec",
+   "action": "clarify_start"
+  },
+  {
+   "id": "task_type",
+   "kind": "gate",
+   "name": "task type",
+   "phase": "spec",
+   "when": {
+    "state": "clarify.questions"
+   }
+  },
+  {
+   "id": "type_set",
+   "kind": "code",
+   "name": "the sections question",
+   "phase": "spec",
+   "action": "clarify_type"
+  },
+  {
+   "id": "sections",
+   "kind": "gate",
+   "name": "sections",
+   "phase": "spec",
+   "when": {
+    "state": "clarify.questions"
+   }
+  },
+  {
+   "id": "sections_set",
+   "kind": "code",
+   "name": "the sections to run",
+   "phase": "spec",
+   "action": "clarify_sections"
+  },
+  {
+   "id": "rounds",
+   "kind": "agent",
+   "name": "clarify questions",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "when": {
+    "data": "clarify.ask",
+    "equals": "yes"
+   },
+   "instructions": "Ask the person the clarify questions for this task, before any code is written (keel's clarify flow, the clarify-loop from the person's ai-coding-toolkit). Write no file. The task type, the sections chosen and the questions to cover:\n{{data.clarify.brief}}\nWhat the first read of the request and the code found:\n{{data.read_text}}\nFirst read the code the request touches (grep, open the files; edit nothing), so every option is concrete and names the file:line it comes from. Never ask what the request, the code or an earlier answer already settles: write that answer down instead, with where it comes from. Ask each question still open as a structured question: 2 to 4 options drawn from the code and the request, the recommended one first (\"recommended\": true), each option's description saying what it means or costs; the person can always answer in their own words. At most 6 questions a round, most important first, ending your answer with one ```keel-questions block (a JSON list of {\"id\", \"question\", \"why\", \"options\": [{\"label\", \"description\", \"recommended\"}]}). Always write first, in a short list, each question of the chosen sections with what is already known and where (request, file:line, answer). When the answers come back, write that list again with each answer in it, then ask the next round about what is still open. When nothing is open, ask nothing and end with \"NO_QUESTIONS: <why, in one line>\".",
+   "rounds": 4,
+   "asks": true,
+   "keep": true
+  },
+  {
+   "id": "round_gate",
+   "kind": "gate",
+   "name": "your answers",
+   "phase": "spec",
+   "when": {
+    "state": "clarify.questions"
+   }
+  },
+  {
+   "id": "assemble",
+   "kind": "agent",
+   "name": "assemble the outputs",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "instructions": "Build the clarify outputs from the request, the code and the answers (keel's clarify flow, the clarify-loop from the person's ai-coding-toolkit). Write no file: keel writes the document from your answer, as a keel spec (keel's spec template, {{data.clarify.spec_template}}, and the spec-writing skill: the same sections keel's spec check asks for); it adds the front matter, the Request, the Definition of done and the prompt appendix itself. Read the code you cite (edit nothing). Answer with these \"## \" headings, in this order, each one filled: \"## What will change\": a plain-words list a reader can scan in 30 seconds, one line each: the file or area, new / changed / removed, and what happens to it. \"## Payload changes\": for every request, response or message whose shape changes, its JSON before and after in fenced blocks, each new, changed or removed field marked with a `// +`, `// ~` or `// -` comment, and the compatibility note (old clients, messages already queued); or \"none: no request, response or message changes shape\". \"## Goal\" (two or three sentences: the outcome, not the how). \"## User stories\" (\"As a <role>, I want <capability>, so that <benefit>.\", one per actor). \"## Decisions\" (each answer as a sentence, with the question it answers). \"## Findings (evidence)\" (what is true today, each claim with its file:line; the inbound, internal-message, persistence and outbound paths the change touches, and the tests that exist). \"## Acceptance criteria\": numbered, testable criteria, one per line in exactly this form: \"- **AC-1** [API] Given <context>, when <action>, then <observable result>\" ([API] a backend test, [WEB] a frontend test, [E2E] a journey that needs a browser, [SMOKE] a check that must also pass after a deploy); each observable, testable, and small enough to map to one test; one rule per criterion, its cases as examples. \"## Test layers\" (each criterion: unit, functional, integration, smoke, e2e, or why not). \"## UI mockup\" only with a [WEB] criterion (fenced ASCII, four states: loading, empty, filled, error). \"## Request path\" only with an [API] criterion (fenced ASCII, one hop a line, each marked + new or ~ changed). \"## Architecture\": a fenced ASCII diagram of the request path through the layers (inbound \u2192 app \u2192 domain \u2192 persistence \u2192 outbound), each box marked [new], [changed] or [unchanged], then one line on why it fits the existing layers (file:line). \"## Data and migrations\" (or \"none\"). \"## Validation and security rules\". \"## Edge cases\". \"## Risks and cost\". \"## Assumptions\". \"## Unverified and open questions\" (each fact no source confirms and who must confirm it, or \"none\"). \"## Out of scope\". Then, only for the sections chosen: \"## Red-flag check\" (each red flag that holds, with why, or \"none\"), \"## Next step\" (the keel flow to hand over to: feature, fix, change, small or spike, why, and what context to bring), and \"## Assembled prompt\": the task type's template below with every placeholder in double braces filled from the request, the code (file:line) and the answers, keeping the template's words (\"unknown\" where nothing says it), between a line ````prompt and a line ```` (four backticks: the template has its own fences). Never put an AC id inside a drawing. When your outputs come back with a note or the spec check's findings, write your whole answer again with them.\nThe sections:\n{{data.clarify.running}}\nThe template for this task type:\n{{data.clarify.template}}\nThe red flags:\n{{data.clarify.red_flags}}\nWhat each question already says (the rounds' record):\n{{data.rounds_text}}\nThe person's answers:\n{{data.rounds_answers}}\nThe first read of the request and the code:\n{{data.read_text}}",
+   "keep": true
+  },
+  {
+   "id": "write_doc",
+   "kind": "code",
+   "name": "write the clarify document",
+   "phase": "spec",
+   "action": "clarify_doc",
+   "lock": true
+  },
+  {
+   "id": "checked",
+   "kind": "branch",
+   "name": "the spec check passed",
+   "phase": "spec",
+   "no": "assemble",
+   "when": {
+    "marker": "SPEC-CHECK",
+    "equals": "pass",
+    "step": "write_doc"
+   }
+  },
+  {
+   "id": "result",
+   "kind": "gate",
+   "name": "clarify result",
+   "phase": "spec",
+   "lock": true,
+   "choices": {
+    "feature": "to_feature",
+    "fix": "to_fix",
+    "change": "to_change",
+    "small": "to_small",
+    "spike": "to_spike",
+    "prompt": "prompt_only",
+    "reject": "assemble",
+    "stop": "end"
+   }
+  },
+  {
+   "id": "to_feature",
+   "kind": "code",
+   "name": "start a feature flow with the criteria",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "feature",
+   "seed": {
+    "title": "$title",
+    "request": "$data.clarify.request",
+    "acs": "$data.clarify.acs",
+    "evidence": "$data.clarify.evidence"
+   },
+   "then": "end"
+  },
+  {
+   "id": "to_fix",
+   "kind": "code",
+   "name": "start a fix flow with the bug report",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "fix",
+   "seed": {
+    "title": "$title",
+    "request": "$data.clarify.request",
+    "evidence": "$data.clarify.evidence"
+   },
+   "then": "end"
+  },
+  {
+   "id": "to_change",
+   "kind": "code",
+   "name": "start a change flow with the criteria",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "change",
+   "seed": {
+    "title": "$title",
+    "request": "$data.clarify.request",
+    "evidence": "$data.clarify.evidence"
+   },
+   "then": "end"
+  },
+  {
+   "id": "to_small",
+   "kind": "code",
+   "name": "start a small flow with the criteria",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "small",
+   "seed": {
+    "title": "$title",
+    "request": "$data.clarify.request",
+    "evidence": "$data.clarify.evidence"
+   },
+   "then": "end"
+  },
+  {
+   "id": "to_spike",
+   "kind": "code",
+   "name": "start a spike flow on the options",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "spike",
+   "seed": {
+    "title": "$title",
+    "request": "$data.clarify.request",
+    "evidence": "$data.clarify.evidence"
+   },
+   "then": "end"
+  },
+  {
+   "id": "prompt_only",
+   "kind": "code",
+   "name": "the prompt only",
+   "phase": "spec",
+   "action": "clarify_prompt",
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "read",
+   "ask_type",
+   "task_type",
+   "type_set",
+   "sections",
+   "sections_set",
+   "rounds",
+   "round_gate",
+   "assemble",
+   "write_doc",
+   "checked",
+   "result",
+   "to_feature"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "spec",
+    "nodes": [
+     {
+      "step": "read",
+      "side": []
+     },
+     {
+      "step": "ask_type",
+      "side": []
+     },
+     {
+      "step": "task_type",
+      "side": []
+     },
+     {
+      "step": "type_set",
+      "side": []
+     },
+     {
+      "step": "sections",
+      "side": []
+     },
+     {
+      "step": "sections_set",
+      "side": []
+     },
+     {
+      "step": "rounds",
+      "side": []
+     },
+     {
+      "step": "round_gate",
+      "side": []
+     },
+     {
+      "step": "assemble",
+      "side": []
+     },
+     {
+      "step": "write_doc",
+      "side": []
+     },
+     {
+      "step": "checked",
+      "side": []
+     },
+     {
+      "step": "result",
+      "side": [
+       "to_fix",
+       "to_change",
+       "to_small",
+       "to_spike",
+       "prompt_only"
+      ]
+     },
+     {
+      "step": "to_feature",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {
+   "prompt_only": "result",
+   "to_change": "result",
+   "to_fix": "result",
+   "to_small": "result",
+   "to_spike": "result"
+  }
+ }
+}

@@ -732,6 +732,21 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   first, at least five sources; `keep`: `data.web_docs_text`, CONFIDENCE) → one investigator per angle (VERDICT; the web
   findings in its prompt, it may read the web with `curl -sL`) → `report` → investigator writes the findings (confirmed
   vs not, sources with URLs, RECOMMEND) → `report` → gate `choices: [spec, drop]`.
+- **clarify** (phase `spec`; runtime/clarify_flow.py, the clarify-loop skill of the person's ai-coding-toolkit): explorer
+  `read` (`keep`, markers TASK-TYPE and SECTIONS) → `clarify_start` sets `state.clarify` = {questions: [task_type],
+  step: type_set, title} (a code step may ask: the clarify gate's answers jump to `clarify.step`, and `title` names the
+  form) → gate `task_type` (`when: {state: clarify.questions}`) → `clarify_type` (data.clarify.type, the template; the
+  `sections` question, `multiple: true`) → gate `sections` → `clarify_sections` (sections 2 and 3 always; data.clarify
+  .brief, `ask` yes when 1 or 4 is ticked; `clarify_rounds` back to 0) → explorer `rounds` (`asks: true`, `rounds: 4`:
+  an asking agent step's own number of question rounds, 6 questions a round; NO_QUESTIONS ends them) ⇄ gate
+  `round_gate` → explorer `assemble` (`keep`) → `clarify_doc` writes `<specs>/clarify/<date>-<slug>.md` as a keel spec
+  (What will change, Payload changes, the template's sections with Architecture, the skill's Definition of done, the
+  prompt as the last appendix) and runs `spec_check.check`: a "fix" finding sends it back to `assemble` once (branch
+  `checked` on marker SPEC-CHECK) → gate `result` `choices: {feature, fix, change, small, spike, prompt, reject: assemble,
+  stop: end}`; `data.result_without` drops the flows that do not fit the type and `data.result_order` puts the one that
+  fits first (the default: a gate's `data.<gate id>_order`) → start_flow with seed {title, request (the request, the
+  prompt's report part and the criteria as AC lines), evidence (the document), acs (feature only)}, or
+  `clarify_prompt` (ends, no child).
 - **fix**: `bug_intake` (data.no_gates or `gates.bug_gates: false` → `gates.skipped["gate-r"|"gate-f"]`: those gates approve
   themselves and the PR body lists them; data.needs_e2e → marker E2E) → reproducer (REPRO; not-reproducible → start_flow
   diagnose) → verify red + `test(BUG)` → Gate R `choices: [investigate, stop]` → hypotheses → investigators in parallel → no

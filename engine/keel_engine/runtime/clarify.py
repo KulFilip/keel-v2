@@ -53,6 +53,7 @@ def parse_questions(text: str, limit: int = MAX_QUESTIONS) -> list[dict]:
                              "recommended": bool(o.get("recommended"))})
         if opts and not any(o["recommended"] for o in opts):
             opts[0]["recommended"] = True
+        opts.sort(key=lambda o: not o["recommended"])       # the recommended option first (stable: the rest keep order)
         qid = re.sub(r"[^a-z0-9_-]+", "-", str(q.get("id") or f"q{i + 1}").lower()).strip("-") or f"q{i + 1}"
         out.append({"id": qid, "question": str(q["question"]).strip()[:300], "why": str(q.get("why") or "").strip()[:300],
                     "options": opts, **({"multiple": True} if q.get("multiple") is True else {})})
@@ -79,10 +80,12 @@ def describe(questions: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def answers_text(questions: list[dict], answers: dict | None, note: str, round_no: int, spec: bool = True) -> str:
+def answers_text(questions: list[dict], answers: dict | None, note: str, round_no: int, spec: bool = True,
+                 rounds: int = MAX_ROUNDS) -> str:
     """What the explorer reads next. An unanswered question gets its recommended option, and says so. `spec`: the
     asker writes the spec next (the spec step); else it finishes its own step (an `asks` step: the interview, a spike's
-    frame)."""
+    frame). `rounds`: the asker's rounds of questions (an `asks` step with `rounds`: the clarify flow asks round after
+    round until nothing is open)."""
     answers = answers or {}
     lines = [PREFIX]
     for n, q in enumerate(questions, 1):
@@ -97,9 +100,13 @@ def answers_text(questions: list[dict], answers: dict | None, note: str, round_n
             lines.append(f"{n}. {q['question']}\n   → not answered: use {pick} and write it under Assumptions")
     if note.strip():
         lines.append(f"Also, in the user's words: {note.strip()}")
-    if not spec:
+    if not spec and rounds > MAX_ROUNDS and round_no < rounds:
+        lines.append(f"Round {round_no} of at most {rounds} is answered. Write your list again with these answers in it, "
+                     "then ask the next round about what is still open (never again what is answered), or end with "
+                     "NO_QUESTIONS: <why, in one line> when nothing is.")
+    elif not spec:
         lines.append("Now finish your step with these answers." + (" This was the last round of questions: do not ask "
-                     "again, take the recommended option for anything still open and say so." if round_no >= MAX_ROUNDS
+                     "again, take the recommended option for anything still open and say so." if round_no >= rounds
                      else " Ask again only if an answer opens a new, bigger question."))
     elif round_no >= MAX_ROUNDS:
         lines.append("This was the last round of questions. Do not ask again: decide what is still open "

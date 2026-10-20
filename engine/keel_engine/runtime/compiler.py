@@ -1185,10 +1185,12 @@ class Compiler:
         if step.asks:
             # keel's clarify loop for any agent step: its keel-questions go to the next gate as buttons, the answers back
             # to this agent (at most clarify.MAX_ROUNDS rounds; then it must decide with the recommended options).
-            rounds = int(state.get("clarify_rounds") or 0)
+            # `rounds` on the step: a longer interview (the clarify flow's rounds), else clarify.MAX_ROUNDS
+            rounds, cap = int(state.get("clarify_rounds") or 0), step.rounds or clarify.MAX_ROUNDS
             asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text, clarify.STEP_QUESTIONS)] \
-                if rounds < clarify.MAX_ROUNDS else []
-            upd["clarify"] = {"questions": asked[:clarify.STEP_QUESTIONS], "step": step.id} if asked else {}
+                if rounds < cap else []
+            upd["clarify"] = {"questions": asked[:clarify.STEP_QUESTIONS], "step": step.id,
+                              **({"rounds": cap} if step.rounds else {})} if asked else {}
         if self._reviews(step):
             def lens(n: int) -> str:
                 if step.items_from and n in item_of:
@@ -2393,9 +2395,13 @@ class Compiler:
     def _open_choices(step: Step, state: FlowState) -> list[str]:
         """A dict-choice gate's exits, minus the ones a step before it ruled out this time (data["<gate id>_without"],
         v0.17.5: amend_loop has no `first` when nothing else is unfinished)."""
-        without = set((state.get("data") or {}).get(f"{step.id}_without") or [])
-        names = [c for c in step.choices or {} if c not in without]
-        return names or list(step.choices or {})
+        data = state.get("data") or {}
+        without = set(data.get(f"{step.id}_without") or [])
+        names = [c for c in step.choices or {} if c not in without] or list(step.choices or {})
+        # data["<gate id>_order"]: the exits a step before put first, in its order (the clarify flow's matching flow
+        # first: the first exit is the default and the recommended one)
+        order = [c for c in data.get(f"{step.id}_order") or [] if c in names]
+        return order + [c for c in names if c not in order]
 
     def _gate_questions(self, i: int, step: Step, state: FlowState) -> list[dict]:
         """Questions a gate shows beside its choices: what a step before it wrote (data["<gate id>_questions"]: the hunt's
@@ -2573,10 +2579,13 @@ class Compiler:
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
         n = len(asked)
-        src = (state.get("clarify") or {}).get("step")      # an agent step with `asks: true`; else the spec's explorer
+        clar = state.get("clarify") or {}
+        # an agent step with `asks: true`, or a code step that asked and reads the answers (the clarify flow's Step 0);
+        # else the spec's explorer
+        src = clar.get("step")
         asker = next((s.name for s in self.wf.steps if s.id == src), src) if src else None
-        title = (f"{asker} has {n} question{'s' if n != 1 else ''}" if asker
-                 else f"The explorer has {n} question{'s' if n != 1 else ''} before the spec")
+        title = clar.get("title") or (f"{asker} has {n} question{'s' if n != 1 else ''}" if asker
+                                      else f"The explorer has {n} question{'s' if n != 1 else ''} before the spec")
         answer, extra = self._ask(state, {
             "step": step.id, "kind": "clarify", "title": title,
             "detail": clarify.describe(asked), "questions": asked, "options": ["approve"],
@@ -2585,7 +2594,7 @@ class Compiler:
         round_no = int(state.get("clarify_rounds") or 0) + 1
         auto = answer.get("why") if answer.get("auto") else ""
         text = clarify.answers_text(asked, payload.get("answers"), "" if auto else (answer.get("why") or ""), round_no,
-                                    spec=not src)
+                                    spec=not src, rounds=int(clar.get("rounds") or clarify.MAX_ROUNDS))
         gates["log"].append(f"gate {step.id} answered the explorer's {n} question(s)" + (f": {auto}, the recommended options" if auto else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": text[:600],
                                                           "clarify": True})

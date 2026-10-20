@@ -133,9 +133,10 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
 
 
 def _flow_actions() -> dict:
-    """The actions of single flows (hunt, hunt-next, init's extra steps, review-pr); imported late, they import this module."""
-    from . import hunt_actions, init_actions, ticket_actions
-    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS, **ticket_actions.ACTIONS}
+    """The actions of single flows (hunt, hunt-next, init's extra steps, review-pr, clarify); imported late, they import
+    this module."""
+    from . import clarify_flow, hunt_actions, init_actions, ticket_actions
+    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS, **ticket_actions.ACTIONS, **clarify_flow.ACTIONS}
 
 
 

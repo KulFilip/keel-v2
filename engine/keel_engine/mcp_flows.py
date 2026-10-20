@@ -36,6 +36,8 @@ ABOUT = {
     "knowledge-refresh": "rewrite keel's knowledge sections from the code",
     "plugin": "build a keel plugin: spec, scaffold, test-first, lint",
     "spike": "research a question from evidence and the web, then decide: build or drop",
+    "clarify": "ask before you code: task type, sections, rounds of questions; a spec-format document with criteria, "
+               "a definition of done and a prompt; hands over to the flow that fits",
 }
 # the inputs keel_start_flow takes by name (they go to the flow as its options, the same as the dashboard's form)
 NAMED_INPUTS = ("ticket", "pr")

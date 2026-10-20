@@ -1,0 +1,197 @@
+id: clarify
+name: clarify (keel)
+keel_rules: true
+version: 1
+# Ask before you code: the clarify-loop skill from your own ai-coding-toolkit plugin (skills/clarify-loop), as a keel
+# flow; its questions, wording and output templates are kept. The rule: never start any coding task without answering
+# these questions first. An explorer reads the request and the code first (so every option names its file:line and
+# nothing the code answers is asked). Step 0 asks two questions: the task type (New feature, Bug fix, Performance,
+# Refactor, API integration, Architecture; the one the request suggests first and recommended) and which of the six
+# sections to run (several may be ticked; the sensible ones are). Then the type's questions in rounds of at most 6
+# structured questions (2 to 4 options each, the recommended one first, your own words allowed; the identity probe
+# when the task names users or auth; the red flags), until the chosen sections are answered (NO_QUESTIONS ends them
+# early; at most 4 rounds). The outputs go to <specs>/clarify/<date>-<slug>.md in the project's layout (docs/specs or
+# .keel/specs; not committed): numbered criteria in keel's form (AC-1 [API] Given, when, then), the Definition of Done,
+# the red-flag check, the next step and the ready-to-send prompt for any AI coding tool. The result gate: hand over to
+# the keel flow that fits the type (feature for New feature and API integration, fix for Bug fix, change or small for
+# Refactor, change or spike for Performance, spike or feature for Architecture) with the criteria and the answers as
+# its seed; copy the prompt only; send back with a note; stop.
+steps:
+  - id: read
+    kind: agent
+    name: read the request and the code
+    agent: explorer
+    model: default
+    phase: spec
+    keep: true
+    markers: [TASK-TYPE, SECTIONS]
+    instructions: >-
+      Read the request, keel's memory of the project and the code the request touches (grep, open the files it names
+      and their neighbours; edit nothing, write no file, ask nothing yet). Write a short map, at most 40 lines: the
+      files and symbols the request touches (file:line), the pattern nearby to follow (file:line), the stack (language,
+      framework, key libraries), the tests that exist for that code (or none), and what the request and the code
+      already answer (scope, behaviour, errors, numbers, who may do what). Then name the task type the request
+      suggests: feature (New feature: building something that does not exist yet), bug (Bug fix: something is broken),
+      performance (Performance: too slow, hits a deadline, or costs too much), refactor (Refactor: change shape without
+      changing behavior), api (API integration: wire up an external service) or architecture (Architecture: an
+      irreversible decision, pick an approach). And the sections worth running, by number: 1 Requirement questions,
+      2 Acceptance criteria, 3 Definition of Done, 4 Red-flag check, 5 Ready-to-send prompt, 6 Next-step
+      recommendation. Leave one out only when its skip rule holds: 1 when the requirements are already written and
+      unambiguous, 2 when the request already holds acceptance criteria, 3 for a trivial one-line fix, 4 when the scope
+      is clean, 5 when the work is handed to a spec or plan anyway, 6 when the next step is already known. TASK-TYPE is
+      one of feature, bug, performance, refactor, api, architecture, then a dash and the reason in a few words.
+      SECTIONS is the numbers, comma separated.
+  # Step 0: two questions, as clarify forms (the code steps build them; the answers go to the step after the gate)
+  - { id: ask_type, kind: code, name: the task type question, action: clarify_start, phase: spec }
+  - { id: task_type, kind: gate, name: task type, phase: spec, when: { state: clarify.questions } }
+  - { id: type_set, kind: code, name: the sections question, action: clarify_type, phase: spec }
+  - { id: sections, kind: gate, name: sections, phase: spec, when: { state: clarify.questions } }
+  - { id: sections_set, kind: code, name: the sections to run, action: clarify_sections, phase: spec }
+  # the rounds: the type's questions, at most 6 a round, until the chosen sections are answered (NO_QUESTIONS ends them)
+  - id: rounds
+    kind: agent
+    name: clarify questions
+    agent: explorer
+    model: default
+    phase: spec
+    asks: true
+    rounds: 4
+    keep: true
+    when: { data: clarify.ask, equals: "yes" }
+    instructions: >-
+      Ask the person the clarify questions for this task, before any code is written (keel's clarify flow, the
+      clarify-loop from the person's ai-coding-toolkit). Write no file. The task type, the sections chosen and the
+      questions to cover:
+
+      {{data.clarify.brief}}
+
+      What the first read of the request and the code found:
+
+      {{data.read_text}}
+
+      First read the code the request touches (grep, open the files; edit nothing), so every option is concrete and
+      names the file:line it comes from. Never ask what the request, the code or an earlier answer already settles:
+      write that answer down instead, with where it comes from. Ask each question still open as a structured question:
+      2 to 4 options drawn from the code and the request, the recommended one first ("recommended": true), each
+      option's description saying what it means or costs; the person can always answer in their own words. At most 6
+      questions a round, most important first, ending your answer with one ```keel-questions block (a JSON list of
+      {"id", "question", "why", "options": [{"label", "description", "recommended"}]}). Always write first, in a short
+      list, each question of the chosen sections with what is already known and where (request, file:line, answer).
+      When the answers come back, write that list again with each answer in it, then ask the next round about what is
+      still open. When nothing is open, ask nothing and end with "NO_QUESTIONS: <why, in one line>".
+  - { id: round_gate, kind: gate, name: your answers, phase: spec, when: { state: clarify.questions } }
+  - id: assemble
+    kind: agent
+    name: assemble the outputs
+    agent: explorer
+    model: default
+    phase: spec
+    keep: true
+    instructions: >-
+      Build the clarify outputs from the request, the code and the answers (keel's clarify flow, the clarify-loop
+      from the person's ai-coding-toolkit). Write no file: keel writes the document from your answer, as a keel spec
+      (keel's spec template, {{data.clarify.spec_template}}, and the spec-writing skill: the same sections keel's spec
+      check asks for); it adds the front matter, the Request, the Definition of done and the prompt appendix itself.
+      Read the code you cite (edit nothing). Answer with these "## " headings, in this order, each one filled:
+      "## What will change": a plain-words list a reader can scan in 30 seconds, one line each: the file or area,
+      new / changed / removed, and what happens to it. "## Payload changes": for every request, response or message
+      whose shape changes, its JSON before and after in fenced blocks, each new, changed or removed field marked with a
+      `// +`, `// ~` or `// -` comment, and the compatibility note (old clients, messages already queued); or "none:
+      no request, response or message changes shape". "## Goal" (two or three sentences: the outcome, not the how).
+      "## User stories" ("As a <role>, I want <capability>, so that <benefit>.", one per actor). "## Decisions" (each
+      answer as a sentence, with the question it answers). "## Findings (evidence)" (what is true today, each claim
+      with its file:line; the inbound, internal-message, persistence and outbound paths the change touches, and the
+      tests that exist). "## Acceptance criteria": numbered, testable criteria, one per line in exactly this form:
+      "- **AC-1** [API] Given <context>, when <action>, then <observable result>" ([API] a backend test, [WEB] a
+      frontend test, [E2E] a journey that needs a browser, [SMOKE] a check that must also pass after a deploy); each
+      observable, testable, and small enough to map to one test; one rule per criterion, its cases as examples.
+      "## Test layers" (each criterion: unit, functional, integration, smoke, e2e, or why not). "## UI mockup" only with
+      a [WEB] criterion (fenced ASCII, four states: loading, empty, filled, error). "## Request path" only with an [API]
+      criterion (fenced ASCII, one hop a line, each marked + new or ~ changed). "## Architecture": a fenced ASCII
+      diagram of the request path through the layers (inbound → app → domain → persistence → outbound), each box
+      marked [new], [changed] or [unchanged], then one line on why it fits the existing layers (file:line). "## Data
+      and migrations" (or "none"). "## Validation and security rules". "## Edge cases". "## Risks and cost". "##
+      Assumptions". "## Unverified and open questions" (each fact no source confirms and who must confirm it, or
+      "none"). "## Out of scope". Then, only for the sections chosen: "## Red-flag check" (each red flag that holds,
+      with why, or "none"), "## Next step" (the keel flow to hand over to: feature, fix, change, small or spike, why,
+      and what context to bring), and "## Assembled prompt": the task type's template below with every placeholder in
+      double braces filled from the request, the code (file:line) and the answers, keeping the template's words
+      ("unknown" where nothing says it), between a line ````prompt and a line ```` (four backticks: the template has its
+      own fences). Never put an AC id inside a drawing. When your outputs come back with a note or the spec check's
+      findings, write your whole answer again with them.
+
+      The sections:
+
+      {{data.clarify.running}}
+
+      The template for this task type:
+
+      {{data.clarify.template}}
+
+      The red flags:
+
+      {{data.clarify.red_flags}}
+
+      What each question already says (the rounds' record):
+
+      {{data.rounds_text}}
+
+      The person's answers:
+
+      {{data.rounds_answers}}
+
+      The first read of the request and the code:
+
+      {{data.read_text}}
+  - { id: write_doc, kind: code, name: write the clarify document, action: clarify_doc, lock: true, phase: spec }
+  # keel's spec check: something clear missing sends the outputs back once (SPEC-CHECK: fix), then the gate shows the rest
+  - { id: checked, kind: branch, name: the spec check passed, when: { marker: SPEC-CHECK, equals: pass, step: write_doc }, no: assemble, phase: spec }
+  - id: result
+    kind: gate
+    name: clarify result
+    lock: true
+    phase: spec
+    choices: { feature: to_feature, fix: to_fix, change: to_change, small: to_small, spike: to_spike, prompt: prompt_only,
+               reject: assemble, stop: end }
+  # the hand-over (the same mechanism as the spike's hand_spec): the criteria and the answers are the seed
+  - id: to_feature
+    kind: code
+    name: start a feature flow with the criteria
+    action: start_flow
+    flow: feature
+    then: end
+    phase: spec
+    seed: { title: $title, request: $data.clarify.request, acs: $data.clarify.acs, evidence: $data.clarify.evidence }
+  - id: to_fix
+    kind: code
+    name: start a fix flow with the bug report
+    action: start_flow
+    flow: fix
+    then: end
+    phase: spec
+    seed: { title: $title, request: $data.clarify.request, evidence: $data.clarify.evidence }
+  - id: to_change
+    kind: code
+    name: start a change flow with the criteria
+    action: start_flow
+    flow: change
+    then: end
+    phase: spec
+    seed: { title: $title, request: $data.clarify.request, evidence: $data.clarify.evidence }
+  - id: to_small
+    kind: code
+    name: start a small flow with the criteria
+    action: start_flow
+    flow: small
+    then: end
+    phase: spec
+    seed: { title: $title, request: $data.clarify.request, evidence: $data.clarify.evidence }
+  - id: to_spike
+    kind: code
+    name: start a spike flow on the options
+    action: start_flow
+    flow: spike
+    then: end
+    phase: spec
+    seed: { title: $title, request: $data.clarify.request, evidence: $data.clarify.evidence }
+  - { id: prompt_only, kind: code, name: the prompt only, action: clarify_prompt, then: end, phase: spec }

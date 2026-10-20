@@ -75,6 +75,58 @@ def spec_text(title: str, acs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+CLARIFY_STEPS = ("read the request and the code", "clarify questions", "assemble the outputs")
+CLARIFY_TYPES = (("bug", r"bug|broken|crash|error|fails"), ("performance", r"slow|latency|performance"),
+                 ("refactor", r"refactor|restructure"), ("api", r"\bapi\b|integrat|webhook"),
+                 ("architecture", r"architecture|design decision"))
+
+
+def clarify_answer(req: AgentRequest) -> str:
+    """The clarify flow's explorers (content/workflows/clarify.yaml): the read step names a type from the title and the
+    request's words; the rounds ask one round of two questions, then NO_QUESTIONS; assemble writes a spec that keel's spec
+    check passes (with What will change, Payload changes and Architecture), the red flags, the next step and the prompt."""
+    asked = (req.title or "") + " " + (req.prompt or "").split("What the user asked for:\n", 1)[-1].split("\n\n", 1)[0] \
+        if "What the user asked for:" in (req.prompt or "") else (req.title or "")
+    if req.step_name == "read the request and the code":
+        kind = next((k for k, words in CLARIFY_TYPES if re.search(words, asked, re.I)), "feature")
+        return ("- the request touches src/scores/__init__.py:1 (run)\n- the pattern to follow: src/scores/__init__.py:1\n"
+                f"- tests: tests/ (pytest)\nTASK-TYPE: {kind} — the request's words\nSECTIONS: 1, 2, 3, 5, 6")
+    if req.step_name == "clarify questions":
+        if (req.feedback or "").startswith("Answers to your questions:"):
+            return "- what: answered\n- where: src/scores/__init__.py:1\nNO_QUESTIONS: the chosen sections are answered"
+        qs = [{"id": "where", "question": "Which module does this live in?", "why": "it sets the files the criteria name",
+               "options": [{"label": "src/scores", "description": "next to run() at src/scores/__init__.py:1", "recommended": True},
+                           {"label": "a new module", "description": "a new package beside scores"}]},
+              {"id": "constraints", "question": "What must not change?", "why": "it bounds the change",
+               "options": [{"label": "run()'s return shape", "description": "callers read it (src/scores/__init__.py:1)",
+                            "recommended": True}, {"label": "nothing in particular", "description": "free to change"}]}]
+        return "- what: the request says it\n- where: open\n```keel-questions\n" + json.dumps(qs) + "\n```"
+    title = req.title or "the change"
+    return ("## What will change\n\n- src/scores/__init__.py: changed, run() gets the new case\n"
+            "- tests/test_scores.py: new, a test per criterion\n\n"
+            "## Payload changes\n\nrun() returns:\n\n```json\n// before\n{\"ok\": true}\n```\n\n```json\n// after\n"
+            "{\"ok\": true, \"count\": 3}   // + count\n```\n\nCompatible: old callers ignore count; nothing is queued.\n\n"
+            f"## Goal\n\n{title}, so that players see where they stand.\n\n"
+            "## User stories\n\n- As a player, I want to see my rank, so that I know where I stand.\n\n"
+            "## Decisions\n\n- Which module (asked): src/scores.\n\n"
+            "## Findings (evidence)\n\n- run() lives in src/scores/__init__.py:1; no test covers it yet.\n\n"
+            "## Acceptance criteria\n\n"
+            f"- **AC-1** [API] Given scores, when {title} runs, then the main case works\n"
+            "- **AC-2** [API] Given bad input, when it runs, then it is refused with a clear message\n\n"
+            "## Test layers\n\n- AC-1: unit; e2e: not needed, no browser path\n- AC-2: unit; e2e: not needed\n\n"
+            "## Request path\n\n```\nrun(scores)                     ~ changed\n  -> rank()                      + new\n```\n\n"
+            "## Architecture\n\n```\n[caller] -> [run() ~changed] -> [rank() +new] -> (no persistence) [unchanged]\n```\n\n"
+            "It stays in the scores package, like run() at src/scores/__init__.py:1.\n\n"
+            "## Data and migrations\n\nnone\n\n## Validation and security rules\n\n- Bad input is refused; nothing is logged.\n\n"
+            "## Edge cases\n\n- No scores: an empty list.\n\n## Risks and cost\n\n- One module, no migration.\n\n"
+            "## Assumptions\n\n- Ties share a rank.\n\n## Unverified and open questions\n\nnone\n\n"
+            "## Out of scope\n\n- Paging.\n\n"
+            "## Red-flag check\n\nnone\n\n## Next step\n\nThe feature flow, with these criteria.\n\n"
+            f"## Assembled prompt\n\n````prompt\nI need to implement: {title}\n\nLocation: src/scores  |  Stack: Python\n"
+            "Follow the pattern from: src/scores/__init__.py:1\n\nRequirements:\n- the main case works\n\nConstraints:\n"
+            "- run()'s return shape stays\n\n---\nBefore writing any code:\n1. Ask me if anything is unclear\n````\n")
+
+
 def _plan(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     """(path to write or None, file content, final answer, structured data). A step that collects a list gets one."""
     path, content, answer, data = _canned(req)
@@ -118,6 +170,8 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         if re.search(r"webhook|vendor|third-party|\bsdk\b", asked, re.I):
             return None, "", "Needs from outside: the payload fields of the webhook the request names.\nWEB: yes", {}
         return None, "", "Nothing from outside: the work stays inside this code.\nWEB: no", {}
+    if agent == "explorer" and phase == "spec" and req.step_name in CLARIFY_STEPS:
+        return None, "", clarify_answer(req), {}
     if agent == "explorer" and phase == "spec" and not req.acs and "Write the spec under" not in (req.prompt or ""):
         # an explorer in the spec phase that does not write the spec (prompts.spec_writer): the feature's interview (the
         # request answers every lens), the spike's frame

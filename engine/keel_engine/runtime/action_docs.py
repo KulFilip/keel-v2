@@ -595,6 +595,39 @@ DOCS: dict[str, dict] = {
         "steps": ["Never in run mode auto, never on the fake model, never for a branch without a PR; then the text is "
                   "only shown to copy."],
     },
+    # ---------------------------------------------------------------- clarify (runtime/clarify_flow.py)
+    "clarify_start": {
+        "summary": "Asks the clarify-loop's first question: what kind of task is this (six types).",
+        "steps": ["The type the read step named (TASK-TYPE) is first and recommended; the others follow in the skill's "
+                  "order: New feature, Bug fix, Performance, Refactor, API integration, Architecture.",
+                  "The question is a clarify form at the next gate; its answer goes to the next step."],
+    },
+    "clarify_type": {
+        "summary": "Takes the task type and asks which sections to run (several may be ticked).",
+        "steps": ["No answer (or a run mode's): the recommended type.",
+                  "The six sections of the clarify-loop; the ones the read step named (SECTIONS) are ticked, all six "
+                  "without that line."],
+    },
+    "clarify_sections": {
+        "summary": "Takes the sections and writes the brief for the rounds of questions.",
+        "steps": ["Shows \"Got it. Running:\" with each section ticked or not.",
+                  "Requirement questions: the task type's questions; the identity probe when the task names users, "
+                  "login, accounts, roles or permissions. Red-flag check: the red flags.",
+                  "Neither section chosen: the rounds are skipped, the outputs come next."],
+    },
+    "clarify_doc": {
+        "summary": "Writes the clarify document (<specs>/clarify/<date>-<slug>.md) and the result gate's choices.",
+        "steps": ["From the assemble step's answer: numbered criteria (AC-1 [API] Given, when, then), the Definition of "
+                  "Done, the red-flag check, the next step and the ready-to-send prompt, for the sections chosen.",
+                  "The hand-over seed: the request with the bug report or prompt and the criteria as AC lines; feature "
+                  "gets the criteria themselves too.",
+                  "The result gate offers the keel flow that fits the task type first (feature, fix, change, small or "
+                  "spike), then copy the prompt only, send back with a note, stop. Nothing is committed."],
+    },
+    "clarify_prompt": {
+        "summary": "Shows the ready-to-send prompt to copy; the flow ends without starting another one.",
+        "steps": ["The prompt from the clarify document is the step's output; no child flow starts."],
+    },
 }
 
 

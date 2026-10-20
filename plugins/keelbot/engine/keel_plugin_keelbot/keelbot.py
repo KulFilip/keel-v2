@@ -39,6 +39,10 @@ ABOUT = {
                  "fail → a fix and the tests again; no gate",
     "fix": "a bug you can describe: reproduce it as a failing test → find the cause → fix → regression test → ship",
     "spike": "research before building: frame → web research of outside docs (search first, 5+ sources) → 2–4 angles researched in parallel → findings with data, sources and one recommendation → spec (a feature flow) or drop",
+    "clarify": "ask before you code (the clarify-loop of your ai-coding-toolkit): which task type (6) → which sections → "
+               "rounds of up to 6 questions with options from the code → a document in keel's spec format (what will "
+               "change, payload changes, architecture, numbered criteria, definition of done, the prompt for any AI "
+               "tool) → hand over to feature, fix, change, small or spike, or copy the prompt only",
     "diagnose": "a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hands over to fix or feature",
     "review": "read-only review of the branch, one reviewer per lens (code, security, performance, ...); a report",
     "review-pr": "review someone else's PR or branch against a ticket and the definition of done: build and lint in a "

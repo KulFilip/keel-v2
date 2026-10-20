@@ -104,7 +104,8 @@ class Step(BaseModel):
     # it to read several projects at once (keel Product: one impact analyst per repo).
     root: Literal["item"] | None = None
     # An agent step that may end with a keel-questions block: the next gate shows the questions as buttons and the
-    # answers go back to the same agent session (keel's clarify loop, which the spec step uses), at most 2 rounds.
+    # answers go back to the same agent session (keel's clarify loop, which the spec step uses), at most 2 rounds
+    # (`rounds` on the step: that many, the clarify flow's rounds of questions).
     asks: bool | None = None
     # An agent step whose whole answer the next steps read (an add-on's document): state.data["<step id>_text"].
     keep: bool | None = None

@@ -1,0 +1,44 @@
+workflow clarify "clarify (keel)" - 18 steps, 4 gates
+
+== Spec: write and approve what to build ==  id=spec
+   o  read the request and the code  (agent explorer)
+   #  the task type question  (code clarify_start)
+  [?] task type  (gate, you decide)
+   #  the sections question  (code clarify_type)
+  [?] sections  (gate, you decide)
+   #  the sections to run  (code clarify_sections)
+   o  clarify questions  (agent explorer)
+  [?] your answers  (gate, you decide)
+   o  assemble the outputs  (agent explorer)
+   #  write the clarify document  (code clarify_doc)
+   <  the spec check passed  (branch)
+        yes -> clarify result
+        no -> assemble the outputs  (loops back)
+  [?] clarify result  (gate, you decide)
+        feature -> start a feature flow with the criteria
+        fix -> start a fix flow with the bug report
+        change -> start a change flow with the criteria
+        small -> start a small flow with the criteria
+        spike -> start a spike flow on the options
+        prompt -> the prompt only
+        reject -> assemble the outputs  (loops back)
+        stop -> end of the flow
+      \  #  start a fix flow with the bug report  (code start_flow)
+      \       starts the fix flow
+      \       then -> end of the flow
+      \  #  start a change flow with the criteria  (code start_flow)
+      \       starts the change flow
+      \       then -> end of the flow
+      \  #  start a small flow with the criteria  (code start_flow)
+      \       starts the small flow
+      \       then -> end of the flow
+      \  #  start a spike flow on the options  (code start_flow)
+      \       starts the spike flow
+      \       then -> end of the flow
+      \  #  the prompt only  (code clarify_prompt)
+      \       then -> end of the flow
+   #  start a feature flow with the criteria  (code start_flow)
+        starts the feature flow
+        then -> end of the flow
+
+ o  agent   #  code   [?] gate (you decide)   <  branch   =  parallel   [+] included flow

@@ -90,6 +90,7 @@ The [README](../README.md) is the short version. This page has the details.
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
 | **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note ◆ |
 | **spike** | research before building: frame → web docs → one researcher per angle → findings with one recommendation ◆ → a feature flow, or drop |
+| **clarify** | ask before you code (the clarify-loop of your ai-coding-toolkit): task type ◆ → sections ◆ → rounds of questions from the code ◆ → a document in keel's spec format with criteria, a definition of done and a prompt ◆ → the flow that fits, or the prompt only |
 | **review** | read-only review of the branch, one reviewer per lens; the report word for word ◆ |
 | **review-pr** | someone else's PR or branch against a ticket and your definition of done: build and lint in a throwaway worktree, each checklist item met / not met with evidence, bugs checked twice; you pick what the author sees ◆, nothing is posted unless you choose post |
 | **lint** | run the project's formatters and linters (from its stacks and `.keel/config.yml`) → fix the findings without changing behaviour (2 rounds) → `chore(lint)` commit → report ◆ |
@@ -208,6 +209,39 @@ browser is tagged `[E2E]`; a check that must also pass after a deploy, `[SMOKE]`
 
 - **Spike result**: **spec** starts a feature flow from the findings; **drop** ends it. Send it back with a note to
   research again from "frame".
+
+### clarify
+
+The clarify-loop skill from your own ai-coding-toolkit plugin, as a keel flow: its questions, words and templates.
+The rule: never start any coding task without answering these questions first.
+
+```
+ read the request + code ─◆ task type ─◆ sections ─┬─ rounds of questions ─◆ answers ─┐ (until NO_QUESTIONS, 4 at most)
+                                                   └────────── no section asks ────────┴─ assemble ─ document
+   ─ spec check (sent back once) ─◆ result ─ feature │ fix │ change │ small │ spike │ prompt only │ send back │ stop
+```
+
+- **Task type**: New feature, Bug fix, Performance, Refactor, API integration or Architecture. The one your request
+  suggests is first and recommended (the explorer read the request and the code first).
+- **Sections** (tick several): 1 requirement questions, 2 acceptance criteria, 3 definition of done, 4 red-flag
+  check, 5 ready-to-send prompt, 6 next step. The sensible ones are ticked. 2 and 3 are always in the document.
+- **Your answers** (rounds of at most 6 questions): each question has 2 to 4 options from your code (file:line), the
+  recommended one first, and you can answer in your own words. What it asks per type:
+  - New feature: what to build, which module, the pattern to follow, the stack, the requirements, the constraints.
+  - Bug fix: symptom, expected behavior, steps to reproduce, the error, recent changes, what you already tried.
+  - Performance: what is slow, the measured latency, the target, stack and volume, profiling data.
+  - Refactor: what to refactor, the goal, the public interface that must not change, the pattern, the tests.
+  - API integration: which API, what you need from it, the auth, your HTTP client pattern, error handling.
+  - Architecture: what you design, the key requirements, stack and constraints, team and timeline, your options.
+  - A task that names users, login, accounts, roles or permissions also gets the identity question (A named
+    entities, B authentication, C authorization only). Section 4 asks about the red flags that may hold.
+- **Clarify result**: the document `<specs>/clarify/<date>-<slug>.md` (`docs/specs` or `.keel/specs`, not
+  committed) is a keel spec that passes the spec check: What will change, Payload changes (JSON before and after),
+  the spec's sections with an Architecture drawing, the numbered criteria (`AC-1 [API] Given …, when …, then …`), the
+  definition of done, and the ready-to-send prompt as the last appendix. Hand it over to the flow that fits (feature
+  for a new feature or an API integration, fix for a bug, change or small for a refactor, change or spike for
+  performance, spike or feature for architecture): the criteria and the answers are its seed. Or copy the prompt
+  only (no flow starts), send it back with a note, or stop.
 
 ### review
 

@@ -10,7 +10,7 @@ from ..model import Workflow, load_yaml
 from ... import addons
 from ...config import content_dir
 
-ORDER = ["feature", "change", "quick", "small", "implement", "spike", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
+ORDER = ["feature", "change", "quick", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
          "plugin"]
 
 
