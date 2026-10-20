@@ -103,18 +103,18 @@ describe("a new message while KeelBot's suggestion waits (0.18.23)", () => {
     await waitFor(() => t.probe.chatBusy);
     t.stub.answer('Answer it so:\n\n```keel-flow\n{"do": "answer", "flow": "t1", "choice": "approve"}\n```');
     finished(t.core);
-    await waitFor(() => t.probe.pick);
-    await tick(80);
-    expect(t.frame()).toContain("KeelBot suggests");
+    await waitFor(() => t.probe.pick && t.frame().includes("KeelBot suggests"));
     await t.type("did you read the code?");
-    expect(t.probe.pick).toBe(false);
+    await waitFor(() => !t.probe.pick && t.frame().includes("Suggestion not sent: you wrote a new message."));
     const f = t.frame();
     expect(f).toContain("Suggestion not sent: you wrote a new message. KeelBot will update it.");
     expect(f).not.toContain("cancelled");
     expect(f).not.toContain("not done");
     expect(t.stub.calls.some((c) => c.path === "/api/inbox/t1/act")).toBe(false);
     await t.enter();
-    expect(t.stub.calls.filter((c) => c.method === "POST" && /helper/.test(c.path) && JSON.stringify(c.body ?? {}).includes("did you read the code?")).length).toBe(1);
+    const sent = () => t.stub.calls.filter((c) => c.method === "POST" && /helper/.test(c.path) && JSON.stringify(c.body ?? {}).includes("did you read the code?"));
+    await waitFor(() => sent().length > 0);
+    expect(sent().length).toBe(1);
     t.r.unmount();
   });
 
@@ -125,13 +125,12 @@ describe("a new message while KeelBot's suggestion waits (0.18.23)", () => {
     await waitFor(() => t.probe.chatBusy);
     t.stub.answer('```keel-flow\n{"do": "mode", "flow": "t1", "mode": "auto"}\n```');
     finished(t.core);
-    await waitFor(() => t.probe.pick);
-    await tick(80);
+    await waitFor(() => t.probe.pick && t.frame().includes("KeelBot suggests"));
     await t.type("n");                                                  // "No" matches: still the picker
+    await waitFor(() => t.frame().includes("filter: n"));
     expect(t.probe.pick).toBe(true);
     await t.type("\x1b");
-    await tick(80);
-    expect(t.frame()).toContain("Suggestion not sent: you closed it.");
+    await waitFor(() => t.frame().includes("Suggestion not sent: you closed it."));
     t.r.unmount();
   });
 });
