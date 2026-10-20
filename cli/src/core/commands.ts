@@ -130,18 +130,20 @@ export async function draw(ctx: Ctx, kind: string, data: unknown, zoom?: string,
   return r.text;
 }
 
-async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: boolean; dirty?: boolean } = {}): Promise<Reply> {
+async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: boolean; dirty?: boolean; mode?: RunMode } = {}): Promise<Reply> {
   const p = needProject(ctx);
   const first = idea.split("\n")[0].trim();
   const title = first.length <= 72 ? first : first.slice(0, 71).trimEnd() + "…";
   try {
     const t = await api.startFlow(p.id, { workflow_id: wid, title, request: idea, options: { started_via: "tui" },
-      ...(flags.fake ? { allow_fake: true } : {}), ...(flags.dirty ? { allow_dirty: true } : {}) });
+      ...(flags.fake ? { allow_fake: true } : {}), ...(flags.dirty ? { allow_dirty: true } : {}),
+      // 0.18.28 /flow --mode important: the flow starts in that run mode (else the project's)
+      ...(flags.mode ? { run_mode: flags.mode } : {}) });
     await ctx.core.refresh();
     // the reply can come back before the graph reaches its first step: no step and no phase yet, so say it is starting
     const at = t.current || t.phase ? ` at ${t.current || "-"} (phase ${t.phase || "none"})` : "";
     const now = at || (t.status && t.status !== "running") ? `It is ${t.status}${at}` : "It is starting";
-    const lines = [`started ${wid} "${title}" on ${p.id} (thread ${t.thread_id}), recorded as started via keel TUI.`,
+    const lines = [`started ${wid} "${title}" on ${p.id} (thread ${t.thread_id}) in ${t.run_mode ?? flags.mode ?? "manual"} mode, recorded as started via keel TUI.`,
       `${now}; it runs until its first gate for you.`];
     if (t.cap_note) lines.push(t.cap_note);
     lines.push("Follow it: Ctrl+F (flow rail), /live (agents), /next.");
@@ -499,8 +501,10 @@ const IMPLS: Impl[] = [
     complete: (ctx, a) => cachedWorkflowIds(ctx).filter((x) => x.startsWith(a)),
     run: async (ctx, a) => {
       const rows = await workflows(ctx);
-      const flags = { fake: /(^|\s)--fake(\s|$)/.test(a), dirty: /(^|\s)--dirty(\s|$)/.test(a) };
-      const rest = a.replace(/(^|\s)--(fake|dirty)(?=\s|$)/g, " ").trim();
+      const mode = /(?:^|\s)--mode[= ](manual|important|auto|readonly)(?=\s|$)/.exec(a)?.[1] as RunMode | undefined;
+      if (/(?:^|\s)--mode(?:[= ]\S*)?(?=\s|$)/.test(a) && !mode) return fail(`--mode is one of ${RUN_MODES.join(", ")}.`);
+      const flags = { fake: /(^|\s)--fake(\s|$)/.test(a), dirty: /(^|\s)--dirty(\s|$)/.test(a), ...(mode ? { mode } : {}) };
+      const rest = a.replace(/(^|\s)--(fake|dirty)(?=\s|$)/g, " ").replace(/(^|\s)--mode[= ]\S+(?=\s|$)/g, " ").trim();
       const [first, ...more] = rest.split(/\s+/);
       const wf = rows.find((w) => w.id === first);
       const idea = wf ? more.join(" ").trim() : "";

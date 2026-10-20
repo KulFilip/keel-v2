@@ -448,7 +448,8 @@ def dashboard(api: KeelApi, view: str = "flow", project: str | None = None) -> s
 
 def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | None = None, sleep=time.sleep,
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
-               ticket: str | None = None, pr: str | None = None, inputs: dict | None = None) -> str:
+               ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
+               run_mode: str | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -468,6 +469,12 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     title = body["title"]
     if allow_fake:
         body["allow_fake"] = True        # v0.17.5 like the web's "Run with the fake model anyway" box
+    if run_mode:
+        # 0.18.28 the run mode the person asked for, from the first gate on (a keel_run_mode call after the start came
+        # too late for the gates before it, and without a thread id could set another flow's mode)
+        if run_mode not in ("manual", "important", "auto", "readonly"):
+            raise ApiError("run_mode is one of manual, important, auto, readonly.")
+        body["run_mode"] = run_mode
     try:
         state = api.post(f"/projects/{p['id']}/flows", body) or {}
     except ApiError as exc:
@@ -486,7 +493,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     at = f" at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})" if state.get("current") or state.get("phase") else ""
     now = (f"The flow is {state.get('status')}{at}." if at or state.get("status") not in (None, "", "running")
            else "The flow is starting: it has not reached its first step yet.")
-    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}), recorded as started via MCP.', now]
+    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
+           "recorded as started via MCP.", now]
     if state.get("waiting"):
         out.append(f"It waits for a human: {state['waiting'].get('title')}. Decide it in the dashboard or with keel_approve_gate.")
     elif state.get("status") == "running":
@@ -1043,6 +1051,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     async def keel_start_flow(type: str | None = None, idea: str | None = None, project: str | None = None,
                               allow_fake: bool = False, title: str | None = None, request: str | None = None,
                               ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
+                              run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
@@ -1052,12 +1061,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         first line, and the ticket from the lines after it); inputs: any other input the flow lists (e.g. lens for
         review, scope for lint, branch and base for review-pr). It runs under keel's guard, budget and records, and
         stops at its first human gate. allow_fake: start it even though agents use the fake model (it writes example
-        files), like the dashboard's checkbox."""
+        files), like the dashboard's checkbox. run_mode: manual, important, auto or readonly for this flow (default the
+        project's setting); pass it here when the person names one, not with keel_run_mode afterwards."""
         if not type:
             from . import mcp_flows
             return guard(mcp_flows.startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
-                         time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs)
+                         time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,

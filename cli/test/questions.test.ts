@@ -446,3 +446,18 @@ describe("a choice gate's suggestion names the step (0.18.28)", () => {
     expect(rej.title + ans.title).not.toContain("ParcelPerform");
   });
 });
+
+describe("a flow starts in the run mode the person names (0.18.28)", () => {
+  it("/flow --mode important sends it; KeelBot's start button carries one too", async () => {
+    const { stub, ctx } = await waitingOn(STUCK);
+    const posts = () => stub.calls.filter((c) => c.method === "POST" && c.path === "/api/projects/demo/flows");
+    await run(ctx as never, "/flow feature --mode important add the ETA field");
+    expect(posts().at(-1)?.body).toMatchObject({ workflow_id: "feature", run_mode: "important", request: "add the ETA field" });
+    const bad = (await run(ctx as never, "/flow feature --mode fast x")) as Reply;
+    expect(JSON.stringify(bad)).toContain("--mode is one of manual, important, auto, readonly");
+    const b = toButton("start", '{"workflow": "feature", "title": "ETA", "request": "add it", "mode": "important"}')!;
+    expect(question(b, () => "")).toBe('KeelBot suggests: start feature "ETA" in important mode?');
+    await pressButton(b, "demo", () => "");
+    expect(posts().at(-1)?.body).toMatchObject({ run_mode: "important" });
+  });
+});

@@ -356,6 +356,16 @@ describe("KeelBot's answers: text and buttons", () => {
     await waitFor(() => expect(location.hash).toMatch(/^#\/flow\//));
   });
 
+  it("0.18.28 a start button with a run mode starts the flow in that mode and says so", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith('```keel-start\n{"workflow": "feature", "title": "ETA", "request": "add it", "mode": "important"}\n```');
+    const card = await within(p).findByRole("region", { name: "Start a flow: ETA" });
+    expect(within(card).getByTestId("kb-start-mode")).toHaveTextContent("Run mode: important");
+    await user.click(within(card).getByRole("button", { name: "Start the flow" }));
+    await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path === "/api/projects/ludus-engine/flows")?.body)
+      .toEqual({ workflow_id: "feature", title: "ETA", request: "add it", run_mode: "important" }));
+  });
+
   it("a workflow it wrote is checked, shows what it runs, and saves into a folder", async () => {
     const user = userEvent.setup();
     db.importAs = {

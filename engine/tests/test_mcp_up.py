@@ -239,3 +239,11 @@ def test_keelbot_cards_carry_the_failure_rule_and_the_server_says_how_to_answer(
     s = mcp_server.build_server(level="read", api=object())
     assert "keel-questions" in s.instructions and "do not run it again unchanged" in s.instructions
     assert mcp_ask.needs_answers(INTERVIEW, "approve", None, None) and not mcp_ask.needs_answers(READY, "approve", None, None)
+
+
+async def test_start_flow_takes_the_run_mode_the_person_named(api):
+    """0.18.28 a flow started over MCP in a named mode starts in it (keel_run_mode afterwards came too late)."""
+    text = await call(srv(api), "keel_start_flow", {"type": "spike", "request": "Kafka or SQS", "run_mode": "important"})
+    assert api.posts[-1][1]["run_mode"] == "important" and "important mode" in text
+    await call(srv(api), "keel_start_flow", {"type": "spike", "request": "Kafka or SQS"})
+    assert "run_mode" not in api.posts[-1][1]

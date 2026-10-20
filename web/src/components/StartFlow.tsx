@@ -1,6 +1,6 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type CapsLeft, type Estimate, type FlowWhere, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
@@ -38,6 +38,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [runMode, setRunMode] = useState<RunMode>("manual");
   const [modeDefault, setModeDefault] = useState<RunMode>("manual");
+  // 0.18.28 the person picked a mode: the project's settings, arriving later, never put the default back over it
+  const modePicked = useRef(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const [model, setModel] = useState<{ provider: string; model: string; effort?: string } | null>(null);
@@ -68,7 +70,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       setOnCap(s.effective.on_cap);
       // v0.4.1: the project's default run mode (Settings › Run mode); this flow may pick another
       const m = s.effective.run_mode ?? "manual";
-      setRunMode(m);
+      if (!modePicked.current) setRunMode(m);
       setModeDefault(m);
     }, () => undefined);
     // v0.4.2: the project's caps can make this flow's cap smaller (the smallest one left binds) or refuse the start
@@ -145,8 +147,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
         ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
         ...(request.trim() ? { request: request.trim() } : {}),
-        // the api falls back to the project's run mode; send it only when this flow picks another one
-        ...(runMode !== modeDefault ? { run_mode: runMode } : {}),
+        // 0.18.28 always the mode shown: a flow ran in auto while the form showed important (the settings, arriving
+        // after the pick, put the project's mode back; and an omitted mode followed whatever the project said by then)
+        run_mode: runMode,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
         ...(where !== "auto" ? { where } : {}),
@@ -291,7 +294,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. This cap is for this flow only; the project default stays in Settings.</span>
         {capsLeft && capsLeft.caps.length > 0 && <ProjectCaps left={capsLeft} />}
       </div>
-      <RunModePicker value={runMode} onChange={setRunMode}
+      <RunModePicker value={runMode} onChange={(m) => { modePicked.current = true; setRunMode(m); }}
         hint={`The project default is ${modeDefault} (Settings › Run mode). You can change it on the Flow page while the flow runs.`} />
       {err && <ErrorBox error={err} />}
       {(fakeRefused || allowFake) && (

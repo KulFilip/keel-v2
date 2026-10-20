@@ -101,7 +101,8 @@ def run_mode(api: KeelApi, mode: str | None = None, project: str | None = None, 
     if mode == now:
         return f'"{thread.get("title")}" runs in {mode} mode already.'
     api.post(f"/threads/{_q(thread['thread_id'])}/mode", {"mode": mode})
-    return f'"{thread.get("title")}" runs in {mode} mode from its next gate on: it {RUN_MODES[mode]}.'
+    return (f'"{thread.get("title")}" (thread {thread["thread_id"]}) runs in {mode} mode from its next gate on: it '
+            f'{RUN_MODES[mode]}.')
 
 
 def resume_flow(api: KeelApi, project: str | None = None, thread_id: str | None = None) -> str:

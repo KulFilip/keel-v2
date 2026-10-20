@@ -179,6 +179,8 @@ export const kb = {
       title: string;
       request?: string;
       allow_dirty?: boolean;
+      /** 0.18.28 the run mode KeelBot's start button carries */
+      run_mode?: "manual" | "important" | "auto" | "readonly";
     },
   ) => post<ThreadState>(`/projects/${e(pid)}/flows`, body),
 

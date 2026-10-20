@@ -10,6 +10,7 @@ import type { InboxItem, InboxView } from "../inboxApi";
 import { registerSlot } from "../sdk/registry";
 import { SLOTS, type InboxCardItem, type InboxCardProps } from "../sdk/slots";
 import { AppProvider } from "../state";
+import * as fx from "./fixtures";
 import { db, FakeEventSource, server } from "./setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
@@ -392,6 +393,29 @@ describe("run modes", () => {
     await user.click(within(group).getByRole("radio", { name: /Auto/ }));
     await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
     await waitFor(() => expect(calls("POST", "/api/projects/yegi/flows")[0]?.body).toMatchObject({ run_mode: "auto" }));
+  });
+
+  it("0.18.28 a mode picked before the project's settings arrive stays the one sent (the flow ran in auto)", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("keel2.project", "yegi");
+    db.overrides["yegi"] = { ...db.overrides["yegi"], run_mode: "auto" };
+    let release: () => void = () => undefined;
+    const late = new Promise<void>((r) => { release = r; });
+    server.use(http.get("/api/projects/yegi/settings", async () => {
+      await late;
+      return HttpResponse.json(fx.projectSettings(db.overrides["yegi"] ?? {}));
+    }));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Start a flow" }));
+    const dlg = await screen.findByRole("dialog", { name: "Start a flow" });
+    const group = within(dlg).getByRole("group", { name: "Run mode" });
+    await user.click(within(group).getByRole("radio", { name: /Important only/ }));
+    await act(async () => { release(); await late; });
+    await waitFor(() => expect(within(dlg).getByText(/The project default is auto/)).toBeInTheDocument());
+    expect(within(group).getByRole("radio", { name: /Important only/ })).toBeChecked();
+    await user.type(within(dlg).getByLabelText("What to build"), "ETA from the webhook");
+    await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/yegi/flows")[0]?.body).toMatchObject({ run_mode: "important" }));
   });
 
   it("the project default comes from Settings", async () => {

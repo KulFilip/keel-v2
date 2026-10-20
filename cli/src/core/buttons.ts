@@ -45,7 +45,7 @@ export type NewAgent = { name: string; about?: string; prompt: string; tools?: s
 export const AGENT_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
 
 export type Button =
-  | { kind: "start"; workflow: string; title: string; request?: string }
+  | { kind: "start"; workflow: string; title: string; request?: string; mode?: RunMode }
   | { kind: "decide"; decision: "approve" | "reject"; flow: string; why?: string }
   | { kind: "answer"; flow: string; answers?: Answers; choice?: string; why?: string }
   | { kind: "stop"; flows: string[] }
@@ -131,7 +131,8 @@ export function toButton(kind: string, body: string): Button | null {
   if (kind !== "start" && kind !== "flow") return { kind: "other", name: kind };
   const v = json(body);
   if (!v) return null;
-  if (kind === "start") return str(v.workflow) ? { kind: "start", workflow: str(v.workflow), title: str(v.title), request: str(v.request) || undefined } : null;
+  if (kind === "start") return str(v.workflow) ? { kind: "start", workflow: str(v.workflow), title: str(v.title), request: str(v.request) || undefined,
+    ...(RUN_MODES.includes(str(v.mode) as RunMode) ? { mode: str(v.mode) as RunMode } : {}) } : null;
   const what = str(v.do);
   if (what === "approve" || what === "reject") return str(v.flow) ? { kind: "decide", decision: what, flow: str(v.flow), why: str(v.why) || undefined } : null;
   if (what === "answer") {
@@ -203,7 +204,7 @@ export type Names = (tid: string) => string;
 /** The question a button asks before anything happens; null for buttons only the dashboard has. */
 export function question(b: Button, name: Names): string | null {
   switch (b.kind) {
-    case "start": return `KeelBot suggests: start ${b.workflow}${b.title ? ` "${b.title}"` : ""}?`;
+    case "start": return `KeelBot suggests: start ${b.workflow}${b.title ? ` "${b.title}"` : ""}${b.mode ? ` in ${b.mode} mode` : ""}?`;
     case "decide": return `KeelBot suggests: ${b.decision} the gate of ${name(b.flow)}${b.why ? ` (${b.why})` : ""}?`;
     case "answer": return `KeelBot suggests: answer ${name(b.flow)} with ${answerText(b)}${b.why ? ` (${b.why})` : ""}?`;
     case "stop": return b.flows.length === 1 ? `KeelBot suggests: stop ${name(b.flows[0])}?` : `KeelBot suggests: stop ${b.flows.length} flows (${b.flows.map(name).join(", ")})?`;
@@ -335,7 +336,8 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
 export async function pressButton(b: Button, pid: string, name: Names): Promise<string> {
   switch (b.kind) {
     case "start": {
-      const t = await api.startFlow(pid, { workflow_id: b.workflow, title: b.title || b.workflow, request: b.request, options: { started_via: "tui-keelbot" } });
+      const t = await api.startFlow(pid, { workflow_id: b.workflow, title: b.title || b.workflow, request: b.request, options: { started_via: "tui-keelbot" },
+        ...(b.mode ? { run_mode: b.mode } : {}) });
       return `started ${b.workflow} "${t.title}": ${t.status}${t.current ? ` at ${t.current}` : ""}.`;
     }
     case "decide": {

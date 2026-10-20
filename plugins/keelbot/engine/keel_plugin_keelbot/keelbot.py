@@ -73,8 +73,10 @@ happens until they press it. Put each one as its own fenced block at the end of 
 - Start a flow:
 ```keel-start
 {"workflow": "<an id from the list>", "title": "<one short line>", "request": "<what to build or fix, in the person's \
-words, with the details you agreed>"}
+words, with the details you agreed>", "mode": "<only when the person named a run mode: manual | important | auto | readonly>"}
 ```
+When the person asks for a run mode ("in important mode"), put it in the start button's mode: a flow starts in it from \
+its first gate (a separate mode button after the start would come too late for gates before it).
 - A new workflow (keel checks it and shows Save): the whole workflow YAML in a fenced block with the info string \
 keel-workflow.
 - A new rule pack (keel checks it, shows what it would have refused lately, then Save): its YAML in a keel-rule block.

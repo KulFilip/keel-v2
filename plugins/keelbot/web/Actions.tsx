@@ -81,7 +81,9 @@ export function splitActions(text: string): Segment[] {
   return out;
 }
 
-type StartSpec = { workflow: string; title: string; request?: string };
+/** 0.18.28 `mode`: the run mode the person asked for (manual | important | auto | readonly); else the project's */
+type StartSpec = { workflow: string; title: string; request?: string; mode?: "manual" | "important" | "auto" | "readonly" };
+const START_MODES = ["manual", "important", "auto", "readonly"] as const;
 
 function parseStart(body: string): StartSpec | null {
   try {
@@ -91,6 +93,7 @@ function parseStart(body: string): StartSpec | null {
           workflow: v.workflow,
           title: String(v.title ?? ""),
           request: v.request ? String(v.request) : undefined,
+          mode: START_MODES.includes(v.mode as never) ? v.mode : undefined,
         }
       : null;
   } catch {
@@ -131,6 +134,7 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
         workflow_id: spec.workflow,
         title: title.trim(),
         request: spec.request,
+        ...(spec.mode ? { run_mode: spec.mode } : {}),
         ...(allowDirty ? { allow_dirty: true } : {}),
       });
       setStarted({ tid: t.thread_id, title: title.trim() });
@@ -175,6 +179,11 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
           {spec.request && (
             <p className="kb-request">
               <span className="sub">What the agents get:</span> {spec.request}
+            </p>
+          )}
+          {spec.mode && (
+            <p className="kb-request" data-testid="kb-start-mode">
+              <span className="sub">Run mode:</span> {spec.mode}
             </p>
           )}
           {unknown && (

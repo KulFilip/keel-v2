@@ -424,3 +424,23 @@ def test_readonly_commit_refuses_before_staging(repo):
                            settings={"run_mode": "readonly"}))
     assert not r.ok and r.ask["type"] == "readonly" and r.ask["kind"] == "fix"
     assert git(repo, "diff", "--cached", "--name-only").stdout == ""
+
+
+# ------------------------------------------------------------------ 0.18.28 the mode a person picked is the flow's
+
+def test_a_spike_hands_its_current_run_mode_to_the_feature_it_starts(client, repo):
+    """The person set important on the spike while it waited (or at its start): the feature it hands over to starts in
+    important, not in the project's default, and not in the mode the spike had first."""
+    tid = start(client, repo, workflow="spike", settings=mode_settings("manual"))
+    s = wait(client, tid)
+    while s["status"] == "waiting" and s["waiting"]["step"] != "decide":
+        s = decide(client, tid)
+    assert s["waiting"]["step"] == "decide"
+    assert client.post(f"/threads/{tid}/mode", json={"mode": "important"}).status_code == 200
+    s = decide(client, tid, payload={"choice": "spec"})
+    child = s["children"][0]["thread_id"]
+    c = wait(client, child)
+    assert c["run_mode"] == "important"
+    # and its gates follow it: the spec gate waits for the person (important asks at the spec)
+    assert c["status"] == "waiting" and c["waiting"]["step"] == "spec_gate"
+    assert not [x for x in c.get("gate_log") or [] if run_mode.is_auto_line(x)]
