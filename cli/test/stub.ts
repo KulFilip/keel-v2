@@ -2,6 +2,7 @@
 // at its spec gate, an inbox, a running agent, KeelBot and the diagrams route. As a fetch (UI tests) or an http server
 // (the contract test); every call is recorded with its method, path, body and headers.
 import { createServer, type Server } from "node:http";
+import { unstable_IdlePriority, unstable_scheduleCallback } from "scheduler";
 
 export type Call = { method: string; path: string; query: string; body: unknown; headers: Record<string, string> };
 
@@ -346,7 +347,21 @@ export async function stubServer(): Promise<{ url: string; stub: ReturnType<type
   };
 }
 
-export const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+/** Until React has no work queued: with React 19 Ink's updates render in Scheduler tasks (and their effects in more),
+ *  not at once as with React 18, so a fixed wait can end between a key's render and its effects. An idle-priority
+ *  task runs only once every task before it ran; twice, for the work those tasks queued. */
+export async function settle(): Promise<void> {
+  for (let i = 0; i < 2; i++) {
+    await new Promise<void>((r) => unstable_scheduleCallback(unstable_IdlePriority, () => r()));
+    await new Promise<void>((r) => setImmediate(r));
+  }
+}
+
+/** `ms` milliseconds, then until the screen caught up (settle). */
+export const tick = async (ms = 20) => {
+  await new Promise((r) => setTimeout(r, ms));
+  await settle();
+};
 
 export async function waitFor(cond: () => boolean, ms = 4000): Promise<void> {
   const end = Date.now() + ms;

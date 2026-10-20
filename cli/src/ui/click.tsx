@@ -1,7 +1,7 @@
 // keel TUI's clicks (the full screen with the wheel on: the terminal reports the mouse, SGR mode). A part of the screen
 // that does something when clicked wraps itself in <Clickable act={…}>; the app finds the one under the click from
 // where Ink laid it out (each box's place, from its yoga node up to the screen's top-left corner).
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import React, { createContext, useContext, useLayoutEffect, useRef } from "react";
 import { Box, type DOMElement } from "ink";
 
 type Entry = { el: () => DOMElement | null; act: () => void };
@@ -52,6 +52,8 @@ export function Clickable({ act, children, flexDirection = "column" }: { act: ()
   const ref = useRef<DOMElement>(null);
   const latest = useRef(act);
   latest.current = act;
-  useEffect(() => clicks?.add({ el: () => ref.current, act: () => latest.current() }), [clicks]);
+  // in the commit that draws it: a passive effect can run after Ink wrote the frame (React 19 schedules it), and a
+  // click on the new line in between would find nothing under it
+  useLayoutEffect(() => clicks?.add({ el: () => ref.current, act: () => latest.current() }), [clicks]);
   return <Box ref={ref} flexDirection={flexDirection}>{children}</Box>;
 }
