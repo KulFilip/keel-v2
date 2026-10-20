@@ -10,6 +10,14 @@ detect:
   files: [gradlew, build.gradle.kts, build.gradle, pom.xml]
   extensions: ['.kt', '.java']
 
+# keel 0.18.28 the highlight.js languages for this stack's files (the dashboard loads them when the project opens)
+languages:
+  - {name: kotlin, ext: [kt, kts]}
+  - {name: java, ext: [java]}
+  - {name: groovy, ext: [gradle]}
+  - {name: xml, ext: [xml]}
+  - {name: ini, ext: [properties]}
+
 # Test layers, lowest first. The AC loop picks the lowest layer that can express the AC.
 layers:
   - id: unit

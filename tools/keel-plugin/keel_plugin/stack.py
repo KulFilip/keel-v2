@@ -150,11 +150,36 @@ def lint_doc(doc, r: StackReport) -> None:
         elif v.get("fail") is not None and str(v["fail"]) not in FAIL:
             r.errors.append(f"the tool {k} has fail: {v['fail']}, which is not one of {', '.join(FAIL)}")
     r.errors += setup_errors(doc.get("setup"))
+    r.errors += language_errors(doc.get("languages"))
     if isinstance(doc.get("setup"), dict) and doc["setup"].get("run"):
         r.warnings.append("setup.run runs in keel's container as keel's own user (not root): say why in the stack's "
                           "description; system packages go in setup.apt")
     if doc.get("starter"):
         r.warnings.append("starter: a single stack file has no files for it; keel skips the ones that are not there")
+
+
+_LANG = re.compile(r"^[a-z][a-z0-9+#-]{0,31}$")
+_EXT = re.compile(r"^\.?[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+
+
+def language_errors(block) -> list[str]:
+    """keel 0.18.28 the languages: list (the engine's runtime/stacks.validate_languages): [{name, ext: [ending]}], name
+    a highlight.js language."""
+    if block is None:
+        return []
+    if not isinstance(block, list):
+        return ["languages is not a list of {name, ext}: like [{name: php, ext: [php, phtml]}]"]
+    out = []
+    for i, item in enumerate(block):
+        if not isinstance(item, dict) or set(item) - {"name", "ext"}:
+            out.append(f"languages[{i}] is not {{name, ext}}")
+            continue
+        if not _LANG.match(str(item.get("name") or "")):
+            out.append(f"languages[{i}] has the name {item.get('name')!r}: a highlight.js language, like php or xml")
+        ext = item.get("ext")
+        if not isinstance(ext, list) or not ext or not all(isinstance(x, str) and _EXT.match(x) for x in ext):
+            out.append(f"languages[{i}]: ext is a list of file endings, like [php, phtml]")
+    return out
 
 
 def setup_errors(block) -> list[str]:

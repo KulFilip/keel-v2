@@ -12,6 +12,13 @@ detect:
   package_deps: [react]
   exclude_files: [tsconfig.json]
 
+# keel 0.18.28 the highlight.js languages for this stack's files (the dashboard loads them when the project opens)
+languages:
+  - {name: javascript, ext: [js, jsx]}
+  - {name: css, ext: [css]}
+  - {name: scss, ext: [scss]}
+  - {name: xml, ext: [html, svg]}
+
 layers:
   - id: component
     what: rendering, form validation, error and empty states

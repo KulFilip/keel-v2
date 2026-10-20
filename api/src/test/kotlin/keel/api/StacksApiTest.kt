@@ -120,6 +120,25 @@ class StacksApiTest : ApiTest() {
     }
 
     @Test
+    fun `a symfony project's languages are its stack's, and a stack without a list gets them from its extensions`() {
+        // keel's own symfony pack (content/packs/symfony), installed in the project as POST .../install leaves it
+        val symfony = Files.readString(Path.of("../content/packs/symfony/stack.yml"))
+        val (pid, root) = newProject("st-lang", mapOf("composer.json" to "{}", "symfony.lock" to "{}", "src/Kernel.php" to "<?php\n",
+            ".keel/stacks/symfony/stack.yml" to symfony))
+        val langs = get("/api/projects/$pid/languages").andExpect(status().isOk).json()["languages"].associateBy { it["name"].asText() }
+        assertThat(langs.getValue("php")["ext"].map { it.asText() }).containsExactly("php", "phtml")
+        assertThat(langs.getValue("php")["stacks"].map { it.asText() }).containsExactly("symfony")
+        assertThat(langs.keys).contains("twig", "yaml", "xml")
+        // a project's own stack with no languages: list: detect.extensions decides; turned off: none
+        Files.writeString(root.resolve(".keel/stacks/zig.yml"),
+            "name: zig\nlane: api\ndetect: {files: [build.zig], extensions: ['.go']}\nlayers: [{id: unit}]\n")
+        Files.writeString(root.resolve(".keel/config.yml"), "stacks:\n  ignore: [symfony]\n")
+        val after = get("/api/projects/$pid/languages").json()["languages"].associateBy { it["name"].asText() }
+        assertThat(after.keys).doesNotContain("php")
+        assertThat(after.getValue("go")["stacks"].map { it.asText() }).containsExactly("zig")
+    }
+
+    @Test
     fun `suggest, check, save, remove and off go to the engine with the project's folder`() {
         val (pid, root) = newProject("st-engine", mapOf("build.zig" to ""))
         assertThat(get("/api/projects/$pid/stacks/suggest?lane=api").andExpect(status().isOk).json()["closest"].asText()).isEqualTo("kotlin-spring")

@@ -3,7 +3,7 @@
 // puts the caret on that line. Tab inserts two spaces. v0.17.2 (the rule pack YAML); any language highlight.ts knows.
 
 import { useMemo, useRef, type KeyboardEvent } from "react";
-import { highlight } from "./highlight";
+import { highlight, useLanguage } from "./highlight";
 
 export type LineError = { line: number; message: string };
 
@@ -17,10 +17,11 @@ export function CodeEditor({ id, value, onChange, lang = "yaml", rows = 18, erro
   const pre = useRef<HTMLPreElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
   // a trailing newline needs a character after it, or the last empty line has no height in the <pre>
+  const arrived = useLanguage(lang);
   const html = useMemo(() => {
     const text = value.endsWith("\n") ? value + " " : value;
     return highlight(text, lang) ?? escape(text);
-  }, [value, lang]);
+  }, [value, lang, arrived]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = value.split("\n").length;
   const bad = new Map<number, string>();
   for (const e of errors) bad.set(e.line, bad.has(e.line) ? `${bad.get(e.line)}\n${e.message}` : e.message);

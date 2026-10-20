@@ -31,6 +31,8 @@ export function createStackDb() {
     /** name → a marketplace install here: {version, edited} */
     installed: {} as Record<string, { version: string; edited: boolean }>,
     yaml: {} as Record<string, string>,
+    /** keel 0.18.28 the project's stack languages (GET /api/projects/:pid/languages) */
+    languages: [] as { name: string; ext: string[]; stacks?: string[] }[],
   };
 }
 export type StackDb = ReturnType<typeof createStackDb>;
@@ -55,6 +57,7 @@ export function stackHandlers(m: StackDb, db: { stacks: Stack[] }, log: (req: Re
     file: `.keel/stacks/${name}.yml`,
   });
   return [
+    http.get("/api/projects/:pid/languages", () => HttpResponse.json({ languages: m.languages })),
     http.get("/api/projects/:pid/stacks/suggest", ({ request }) => {
       const lane = new URL(request.url).searchParams.get("lane") ?? "api";
       return HttpResponse.json({

@@ -14,6 +14,7 @@ import {
   highlight,
   languageOf,
   parseDiff,
+  useLanguage,
   splitRows,
   useLoad,
   type DiffRow,
@@ -88,6 +89,7 @@ export function ReviewDiff({
     [d.data],
   );
   const lang = languageOf(path);
+  useLanguage(lang);
   const body = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState<LineRef | null>(null);
 
@@ -312,6 +314,7 @@ export function FileAtView({
   );
   const box = useRef<HTMLDivElement>(null);
   const lang = languageOf(path);
+  useLanguage(lang);
   useEffect(() => {
     if (!f.data || !line) return;
     box.current

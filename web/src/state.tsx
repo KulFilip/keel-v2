@@ -6,6 +6,7 @@ import {
   type EngineEvent, type Health, type JobStep, type Notification as Note, type NotificationSettings, type Project,
 } from "./api";
 import { inboxApi } from "./inboxApi";
+import { loadProjectLanguages } from "./components/stackLanguages";
 import { desktopPop, NOTIFY_DEFAULTS, playSound, shouldAlert, unlockAudio, withDefaults } from "./notify";
 import { hashFor, hashForScreen, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
 import { usePagesVersion } from "./sdk/registry";
@@ -172,6 +173,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const project = projects.find((p) => p.id === pidState) ?? projects[0] ?? null;
   const pid = project?.id ?? null;
+  // keel 0.18.28 the project's stack languages, loaded when the project opens (highlight.ts)
+  useEffect(() => {
+    void loadProjectLanguages(pid);
+  }, [pid]);
 
   const keepProject = useCallback((id: string) => {
     setPidState(id);
@@ -369,9 +374,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         /* ignore */
       }
     };
-    const onChanged = () => {
+    const onChanged = (e?: MessageEvent) => {
       void reloadProjects();
       bump();
+      // keel 0.18.28 a stack changed (saved, installed, turned off): its languages, without a reload
+      try {
+        const d = e?.data ? (JSON.parse(e.data) as { id?: string; stacks?: boolean }) : null;
+        if (d?.stacks && (!d.id || d.id === pid)) void loadProjectLanguages(pid);
+      } catch {
+        /* not ours to read */
+      }
     };
     // v0.4.1: a gate was decided somewhere (Flow page, Inbox, MCP, the run mode): its notifications are done.
     const onDone = (e: MessageEvent) => {
@@ -392,7 +404,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ENGINE_EVENT_TYPES.forEach((t) => es!.addEventListener(t, onEngine as EventListener));
       es.addEventListener(ENGINE_CHANNEL, onEngine as EventListener);
       es.addEventListener("notification", onNote as EventListener);
-      es.addEventListener("project.changed", onChanged);
+      es.addEventListener("project.changed", onChanged as EventListener);
       es.addEventListener("notification.done", onDone as EventListener);
       // 0.18.6 another front end (keel TUI, another tab) moved to a project or a KeelBot chat: follow it
       es.addEventListener("ui.focus", ((e: MessageEvent) => {

@@ -1,0 +1,14 @@
+{
+  "about": "keel 0.18.28 the highlight.js languages a stack's `languages:` may name (the web builds these in or loads them on first use: web/src/components/highlight.ts), and the language a detect.extensions file ending gets when a stack has no `languages:` list.",
+  "names": ["bash", "c", "cpp", "csharp", "css", "diff", "django", "dockerfile", "go", "graphql", "groovy", "ini", "java",
+            "javascript", "json", "kotlin", "makefile", "markdown", "nginx", "php", "python", "ruby", "rust", "scss", "sql",
+            "swift", "twig", "typescript", "xml", "yaml"],
+  "extensions": {
+    "sh": "bash", "c": "c", "h": "c", "cc": "cpp", "cpp": "cpp", "hpp": "cpp", "cs": "csharp", "css": "css", "go": "go",
+    "graphql": "graphql", "gql": "graphql", "gradle": "groovy", "groovy": "groovy", "ini": "ini", "toml": "ini",
+    "java": "java", "js": "javascript", "jsx": "javascript", "mjs": "javascript", "json": "json", "kt": "kotlin",
+    "kts": "kotlin", "md": "markdown", "php": "php", "phtml": "php", "py": "python", "rb": "ruby", "rs": "rust",
+    "scss": "scss", "sql": "sql", "swift": "swift", "twig": "twig", "ts": "typescript", "tsx": "typescript",
+    "xml": "xml", "html": "xml", "svg": "xml", "xlf": "xml", "vue": "xml", "yml": "yaml", "yaml": "yaml", "neon": "yaml"
+  }
+}

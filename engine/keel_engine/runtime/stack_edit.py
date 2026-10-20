@@ -225,6 +225,9 @@ def check(root: str | None, text: str, replace: bool = False) -> dict:
             if isinstance(v, str) and v.strip() and ph and not any(p in v for p in PLACEHOLDER[ph]):
                 warnings.append(f"commands.{k} does not use {' or '.join(PLACEHOLDER[ph])}: it cannot {what} alone")
     tblock = doc.get("tools")
+    lang_errors, lang_warnings = stacks.validate_languages(doc.get("languages"))
+    errors += lang_errors
+    warnings += lang_warnings
     if tblock is not None and not isinstance(tblock, dict):
         errors.append("tools is not a mapping of name: {run, on, fail}")
     for k, v in (tblock or {}).items() if isinstance(tblock, dict) else []:

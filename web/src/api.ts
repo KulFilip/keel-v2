@@ -118,6 +118,8 @@ export type ClarifyQuestion = {
 /** keel 0.18.13 what one named choice of a waiting question means (same order as `choices`): its words, whether it
  *  needs a reason (`why`), and which one a plain approve takes (`default`). Answer: approve with payload {choice: name}. */
 export type ChoiceInfo = { name: string; label: string; description: string; why: "required" | "optional" | "none"; default: boolean };
+/** keel 0.18.28 one highlight.js language of a project's stacks, with its file endings and the stacks that bring it */
+export type StackLanguage = { name: string; ext: string[]; stacks?: string[] };
 /** 0.18.28 a plain approve's or reject's real effect at a gate; `reason`: "required", "used", or "not used…" */
 export type PlainEffect = { does: string; reason: string; choice?: string };
 
@@ -1158,6 +1160,8 @@ export const api = {
     put<Skill>(`/projects/${e(pid)}/skills/${e(sid)}`, s),
   importSkill: (pid: string, body: { url: string } | { body: string }) => post<Skill>(`/projects/${e(pid)}/skills/import`, body),
   stacks: (pid: string) => get<unknown[]>(`/projects/${e(pid)}/stacks`).then((l) => l.map(normalizeStack)),
+  /** keel 0.18.28 the highlight.js languages of the project's stacks (their `languages:`, else their detect.extensions) */
+  languages: (pid: string) => get<{ languages: StackLanguage[] }>(`/projects/${e(pid)}/languages`),
   newStack: (pid: string, name: string, from: string) => post<unknown>(`/projects/${e(pid)}/stacks`, { name, from }).then(normalizeStack),
   installStack: (pid: string, name: string) => post<unknown>(`/projects/${e(pid)}/stacks/${e(name)}/install`).then(normalizeStack),
   // keel 0.18.9 a stack written with keel's help, checked, saved, turned off for the project, removed

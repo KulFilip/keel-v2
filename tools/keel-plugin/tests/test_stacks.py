@@ -53,6 +53,13 @@ def test_lint_checks_the_setup_block(tmp_path):
     assert stack.is_stack(write(tmp_path / "a.yaml", TEXT)) and not stack.is_stack(write(tmp_path / "b.yaml", "steps: []\n"))
 
 
+def test_lint_checks_the_languages_list(tmp_path):
+    good = TEXT + "languages:\n  - {name: zig, ext: [zig, zon]}\n"
+    assert stack.lint(write(tmp_path / "zig-1.0.0.yaml", good)).ok
+    bad = stack.lint(write(tmp_path / "zig-1.0.1.yaml", TEXT + "languages:\n  - {name: Zig Lang, ext: zig}\n"))
+    assert any("a highlight.js language" in e for e in bad.errors) and any("ext is a list" in e for e in bad.errors)
+
+
 def test_add_keels_own_stacks_and_index_them(tmp_path, run):
     key = minisign.SecretKey.generate()
     root = tmp_path / "market"

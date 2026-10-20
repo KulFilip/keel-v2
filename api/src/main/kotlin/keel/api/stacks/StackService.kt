@@ -74,6 +74,8 @@ data class NewStack(val name: String = "", val from: String? = null)
 data class StackText(val yaml: String? = null, val form: Map<String, Any?>? = null, val replace: Boolean = false)
 data class StackOff(val off: Boolean = true)
 
+private val LANG = Regex("^[a-z][a-z0-9+#-]{0,31}$")
+
 private data class StackDef(val doc: Map<String, Any?>, val source: String, val file: Path) {
     val name: String get() = doc["name"].toString()
 }
@@ -202,6 +204,51 @@ class StackService(
                 file = if (d.source == "project") root.relativize(d.file).toString() else null,
             )
         }
+    }
+
+    /**
+     * keel 0.18.28 the highlight.js languages of the stacks this project uses (detected or its own, not turned off), merged
+     * by name: each stack's `languages:` list, else one per detect.extensions ending keel knows
+     * (content/highlight-languages.json). The dashboard loads exactly these when the project opens.
+     */
+    fun languages(pid: String): Map<String, Any?> {
+        val root = projects.root(pid)
+        val files = ProjectFiles(root)
+        val off = turnedOff(root)
+        val table = highlightTable()
+        val out = linkedMapOf<String, MutableMap<String, Any?>>()
+        for (d in defs(root)) {
+            @Suppress("UNCHECKED_CAST")
+            val detect = d.doc["detect"] as? Map<String, Any?> ?: emptyMap()
+            if (d.name in off || !(d.source == "project" || detects(detect, files))) continue
+            for ((name, exts) in languagesOf(d.doc, table)) {
+                val cur = out.getOrPut(name) { mutableMapOf("name" to name, "ext" to mutableListOf<String>(), "stacks" to mutableListOf<String>()) }
+                @Suppress("UNCHECKED_CAST")
+                (cur["ext"] as MutableList<String>).let { l -> exts.filter { it !in l }.forEach { l.add(it) } }
+                @Suppress("UNCHECKED_CAST")
+                (cur["stacks"] as MutableList<String>).let { l -> if (d.name !in l) l.add(d.name) }
+            }
+        }
+        return mapOf("languages" to out.values.toList())
+    }
+
+    private fun highlightTable(): Map<String, String> = runCatching {
+        @Suppress("UNCHECKED_CAST")
+        (mapper.readValue(Files.readString(props.contentDir.resolve("highlight-languages.json")), Map::class.java)["extensions"]
+            as? Map<String, Any?>).orEmpty().mapValues { it.value.toString() }
+    }.getOrDefault(emptyMap())
+
+    private fun languagesOf(doc: Map<String, Any?>, table: Map<String, String>): List<Pair<String, List<String>>> {
+        val own = (doc["languages"] as? List<*>)?.mapNotNull { x ->
+            val m = x as? Map<*, *> ?: return@mapNotNull null
+            val name = m["name"]?.toString()?.takeIf { LANG.matches(it) } ?: return@mapNotNull null
+            val exts = strings(m["ext"]).map { it.removePrefix(".").lowercase() }.filter { it.isNotBlank() }
+            if (exts.isEmpty()) null else name to exts
+        }
+        if (!own.isNullOrEmpty()) return own
+        @Suppress("UNCHECKED_CAST")
+        val exts = strings((doc["detect"] as? Map<String, Any?>)?.get("extensions")).map { it.removePrefix(".").lowercase() }
+        return exts.mapNotNull { e -> table[e]?.let { it to e } }.groupBy({ it.first }, { it.second }).map { (k, v) -> k to v }
     }
 
     fun get(pid: String, name: String): Stack = list(pid).firstOrNull { it.name == name } ?: throw NotFound("No stack called \"$name\"")
@@ -422,9 +469,18 @@ class StackService(
 
 /** Stacks (Build › Stacks). keel 0.18.9: check and suggest are reads; save, remove and off are write for MCP (McpLevels). */
 @RestController
-class StackController(private val stacks: StackService) {
+class StackController(private val stacks: StackService, private val hub: keel.api.events.EventHub) {
+    /** keel 0.18.28 a stack changed: the dashboards load its languages again (and the project's view) without a reload. */
+    private fun <T> changed(pid: String, out: T): T = out.also {
+        runCatching { hub.publish(pid, "project.changed", mapOf("id" to pid, "stacks" to true)) }
+    }
+
     @GetMapping("/api/projects/{pid}/stacks")
     fun list(@PathVariable pid: String): List<Stack> = stacks.list(pid)
+
+    /** keel 0.18.28 the highlight.js languages of the project's stacks: {languages: [{name, ext, stacks}]}. */
+    @GetMapping("/api/projects/{pid}/languages")
+    fun languages(@PathVariable pid: String): Map<String, Any?> = stacks.languages(pid)
 
     @GetMapping("/api/projects/{pid}/stacks/suggest")
     fun suggest(@PathVariable pid: String, @RequestParam(required = false) lane: String?): JsonNode = stacks.suggest(pid, lane)
@@ -437,17 +493,17 @@ class StackController(private val stacks: StackService) {
     fun check(@PathVariable pid: String, @RequestBody body: StackText): JsonNode = stacks.check(pid, body)
 
     @PostMapping("/api/projects/{pid}/stacks/save")
-    fun save(@PathVariable pid: String, @RequestBody body: StackText): JsonNode = stacks.save(pid, body)
+    fun save(@PathVariable pid: String, @RequestBody body: StackText): JsonNode = changed(pid, stacks.save(pid, body))
 
     @DeleteMapping("/api/projects/{pid}/stacks/{name}")
-    fun remove(@PathVariable pid: String, @PathVariable name: String): JsonNode = stacks.remove(pid, name)
+    fun remove(@PathVariable pid: String, @PathVariable name: String): JsonNode = changed(pid, stacks.remove(pid, name))
 
     @PutMapping("/api/projects/{pid}/stacks/{name}/off")
-    fun off(@PathVariable pid: String, @PathVariable name: String, @RequestBody body: StackOff): JsonNode = stacks.setOff(pid, name, body.off)
+    fun off(@PathVariable pid: String, @PathVariable name: String, @RequestBody body: StackOff): JsonNode = changed(pid, stacks.setOff(pid, name, body.off))
 
     @PostMapping("/api/projects/{pid}/stacks")
-    fun create(@PathVariable pid: String, @RequestBody body: NewStack): Stack = stacks.create(pid, body.name.trim(), body.from)
+    fun create(@PathVariable pid: String, @RequestBody body: NewStack): Stack = changed(pid, stacks.create(pid, body.name.trim(), body.from))
 
     @PostMapping("/api/projects/{pid}/stacks/{name}/install")
-    fun install(@PathVariable pid: String, @PathVariable name: String): Stack = stacks.install(pid, name)
+    fun install(@PathVariable pid: String, @PathVariable name: String): Stack = changed(pid, stacks.install(pid, name))
 }

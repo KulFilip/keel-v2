@@ -78,6 +78,74 @@ def validate_setup(block) -> list[str]:
     return errors
 
 
+# ------------------------------------------------------------------ languages: (keel 0.18.28)
+
+LANG_NAME = re.compile(r"^[a-z][a-z0-9+#-]{0,31}$")
+EXT_NAME = re.compile(r"^\.?[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+
+
+def highlight_table() -> dict:
+    """content/highlight-languages.json: the highlight.js names a stack may name, and the default per file ending."""
+    try:
+        doc = json.loads((config.content_dir() / "highlight-languages.json").read_text())
+    except (OSError, ValueError):
+        doc = {}
+    return {"names": list(doc.get("names") or []), "extensions": dict(doc.get("extensions") or {})}
+
+
+def validate_languages(block) -> tuple[list[str], list[str]]:
+    """(errors, warnings) of a stack's `languages:` list: [{name: <highlight.js name>, ext: [<file ending>]}]. A name
+    keel's dashboard cannot load is a warning (its files show plain)."""
+    if block is None:
+        return [], []
+    if not isinstance(block, list):
+        return ["languages is not a list of {name, ext}: like [{name: php, ext: [php, phtml]}]"], []
+    errors, warnings = [], []
+    known = set(highlight_table()["names"])
+    for i, item in enumerate(block):
+        if not isinstance(item, dict):
+            errors.append(f"languages[{i}] is not {{name, ext}}")
+            continue
+        extra = sorted(k for k in item if k not in ("name", "ext"))
+        if extra:
+            errors.append(f"languages[{i}] has {', '.join(map(str, extra))}: only name and ext")
+        name = str(item.get("name") or "")
+        if not LANG_NAME.match(name):
+            errors.append(f"languages[{i}] has the name {item.get('name')!r}: a highlight.js language, like php or xml")
+        elif known and name not in known:
+            warnings.append(f"languages: keel's dashboard has no highlight for {name} ({', '.join(sorted(known))}); its files show plain")
+        ext = item.get("ext")
+        if not isinstance(ext, list) or not ext or not all(isinstance(x, str) and EXT_NAME.match(x) for x in ext):
+            errors.append(f"languages[{i}] ({name or '?'}): ext is a list of file endings, like [php, phtml]")
+    return errors, warnings
+
+
+def languages_of(doc: dict) -> list[dict]:
+    """A stack's languages: its own `languages:` list, else one per detect.extensions ending keel knows."""
+    own = doc.get("languages")
+    if isinstance(own, list) and own and not validate_languages(own)[0]:
+        return [{"name": str(x["name"]), "ext": [str(e).lstrip(".").lower() for e in x["ext"]]} for x in own]
+    table = highlight_table()["extensions"]
+    by: dict[str, list[str]] = {}
+    for e in _strings((doc.get("detect") or {}).get("extensions") if isinstance(doc.get("detect"), dict) else None):
+        e = e.lstrip(".").lower()
+        if table.get(e):
+            by.setdefault(table[e], []).append(e)
+    return [{"name": n, "ext": x} for n, x in by.items()]
+
+
+def project_languages(root: str) -> list[dict]:
+    """The languages of the stacks this project uses (matched), merged by name: [{name, ext, stacks}]."""
+    out: dict[str, dict] = {}
+    for d in matched(root):
+        for lang in languages_of(d):
+            cur = out.setdefault(lang["name"], {"name": lang["name"], "ext": [], "stacks": []})
+            cur["ext"] += [e for e in lang["ext"] if e not in cur["ext"]]
+            if d["name"] not in cur["stacks"]:
+                cur["stacks"].append(d["name"])
+    return list(out.values())
+
+
 def shipped() -> list[dict]:
     """keel's own stacks (source "keel") and packs (source "keel pack")."""
     base = config.content_dir()

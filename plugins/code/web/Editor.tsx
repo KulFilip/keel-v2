@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
-  ErrorBox, errorParts, highlight, isTyping, languageOf, linesOf, MarkdownView, modalOpen, parseDiff, useLoad, type DiffRow,
+  ErrorBox, errorParts, highlight, isTyping, languageOf, useLanguage, linesOf, MarkdownView, modalOpen, parseDiff, useLoad, type DiffRow,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon, isImage, extOf } from "./icons";
@@ -152,11 +152,12 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
     const l = linesOf(text);
     return l.length ? l : [""];
   }, [text]);
+  const arrived = useLanguage(languageOf(path));
   const html = useMemo(() => {
     const lang = languageOf(path);
     const h = text.length <= 200_000 ? highlight(lines.join("\n"), lang) : null;
     return h !== null ? splitHtmlLines(h) : lines.map(escapeHtml);
-  }, [lines, path, text.length]);
+  }, [lines, path, text.length, arrived]); // eslint-disable-line react-hooks/exhaustive-deps
   const wrapOn = wrap && lines.length <= WRAP_MAX;
   const virtual = !wrapOn && lines.length > VIRTUAL_FROM;
   const maxCols = useMemo(() => (virtual ? lines.reduce((m, l) => Math.max(m, l.replace(/\t/g, "    ").length), 0) : 0), [lines, virtual]);
@@ -419,6 +420,7 @@ export function DiffPane({ pid, path, against, sha, branch, mode }: {
   useSelectAll(body, ".dv-code, .dv-hunk");
   const parsed = useMemo(() => (d.data ? parseDiff(d.data.diff) : null), [d.data]);
   const lang = languageOf(path);
+  useLanguage(lang);
   if (d.error) return <div className="ed-note"><ErrorBox error={d.error} /></div>;
   if (!d.data || !parsed) return <div className="ed-note"><span className="pg-spin" role="status">Reading the changes…</span></div>;
   const head = (

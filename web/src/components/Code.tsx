@@ -2,7 +2,7 @@
 // and long content folded after FOLD lines behind "Show all (N lines)".
 
 import { useMemo, useState, type ReactNode } from "react";
-import { highlight, languageOf, normLang } from "./highlight";
+import { highlight, languageOf, normLang, useLanguage } from "./highlight";
 
 /** Lines shown before a long block folds. */
 export const FOLD = 14;
@@ -48,7 +48,8 @@ export function CodeBlock({ text, lang, path, gutter = true, fold = FOLD, classN
   const language = normLang(lang) ?? languageOf(path);
   const shown = f.folded ? all.slice(0, f.shown) : all;
   const code = shown.join("\n");
-  const html = useMemo(() => highlight(code, language), [code, language]);
+  const arrived = useLanguage(language);
+  const html = useMemo(() => highlight(code, language), [code, language, arrived]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className={`code ${className ?? ""}`} data-lines={all.length}>
       <div className={`code-grid ${gutter ? "" : "no-gutter"}`}>
@@ -139,6 +140,7 @@ export function DiffView({ diff, path, fold = FOLD, foldLabel, className }: {
   const parsed = useMemo(() => parseDiff(diff), [diff]);
   const f = useFold(parsed.rows.length, fold);
   const language = languageOf(path ?? parsed.files[0]);
+  useLanguage(language);
   const rows = f.folded ? parsed.rows.slice(0, f.shown) : parsed.rows;
   return (
     <div className={`code diffview ${className ?? ""}`} data-lines={parsed.rows.length}>

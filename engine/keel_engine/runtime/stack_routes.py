@@ -104,3 +104,11 @@ async def post_off(body: OffBody):
 @router.get("/stacks/installed")
 async def get_installed(root: str):
     return await asyncio.to_thread(stack_edit.installed, _root(root))
+
+
+@router.get("/stacks/languages")
+async def get_languages(root: str):
+    """keel 0.18.28 the highlight.js languages of the stacks this project uses: {languages: [{name, ext, stacks}]}."""
+    from . import stacks
+
+    return {"languages": await asyncio.to_thread(stacks.project_languages, _root(root))}

@@ -196,7 +196,7 @@ export type { Item as LauncherItem } from "../components/launcher/model";
 // (IntelliJ or VS Code; src/keys.ts), and the api's commit and diff types
 export { parseDiff, splitRows } from "../components/Code";
 export type { DiffRow, SplitRow } from "../components/Code";
-export { highlight, languageOf } from "../components/highlight";
+export { highlight, languageOf, loadLanguage, useLanguage } from "../components/highlight";
 export { FileIcon, Icon } from "../components/icons";
 export { keyLabel, matches, readKeymap, saveKeymap } from "../keys";
 export type { Keymap } from "../keys";
