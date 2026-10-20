@@ -3,7 +3,7 @@ name: spike (keel)
 keel_rules: true
 version: 1
 # Research before building: frame the question (0.18.21: with one round of questions about the decision when only
-# the person knows the answer), research what it needs from outside the repo on the web (0.18.20
+# the person knows the answer; 0.18.23: about the decision only, how to build it goes to the spec as open questions), research what it needs from outside the repo on the web (0.18.20
 # web_docs: the web-researcher searches first and reads at least five sources), research each angle from evidence and
 # measurements, write the findings with data, sources and one recommendation (0.18.21: evidence with file:line or URL,
 # draft criteria, test layers, risks and cost, kept whole: the report adds each angle's answer word for word and seeds
@@ -26,10 +26,14 @@ steps:
       outside this repository (third-party APIs, libraries, SDKs, webhooks, vendor docs: exact field names, formats,
       versions, limits), or say it needs nothing from outside. Then list two to four distinct angles to research
       (options, approaches or tools), each one researchable on its own. Do not research them yet. If the decision
-      depends on something only the person knows (a constraint, what is acceptable, a deadline, which systems may
-      change), ask it once: at most 3 questions, each with 2 to 4 options (the recommended one first), in one
-      ```keel-questions block after the angles (a JSON list of {"id", "question", "why", "options": [{"label",
-      "description", "recommended"}]}). When the answers come back, frame the spike again with them.
+      depends on something only the person knows, ask it once: at most 3 questions, each with 2 to 4 options (the
+      recommended one first), in one ```keel-questions block after the angles (a JSON list of {"id", "question",
+      "why", "options": [{"label", "description", "recommended"}]}). Ask only about the DECISION the spike must
+      support: do we need it at all, for whom, what certainty or what evidence decides it, deadline or cost limits,
+      which options to compare. Never ask how to build it (which column or table, overwrite or keep history, which
+      systems or APIs read it, a field's format): those belong in the feature's spec interview, so list them under
+      "Open questions for the spec" in your framing, and the findings carry them on. When the answers come back,
+      frame the spike again with them.
   - { id: frame_questions, kind: gate, name: questions about the decision, phase: spec, when: { state: clarify.questions } }
   - id: web_docs
     kind: agent
@@ -86,7 +90,8 @@ steps:
       where every claim has its file:line or URL, with the paths the change touches traced (inbound, internal messages
       and their contract, e.g. a schema with additionalProperties: false, and the old messages already queued at
       deploy, persistence, outbound); the tests that exist today for those paths (or none); gaps that need a product
-      decision, called decisions, not facts; Unverified, each fact no source confirms with what must be confirmed and
+      decision, called decisions, not facts (with the framing's open questions for the spec: how to build it is
+      the spec interview's to ask, not this spike's); Unverified, each fact no source confirms with what must be confirmed and
       by whom; a comparison table (angle, verdict, the key numbers, risk, effort); for the recommended angle, draft
       acceptance criteria "AC-n [API|WEB|E2E|SMOKE] Given, when, then" that are testable and cover absent, valid, malformed, a
       later update, an old queued message and the docs; Test layers per draft criterion (unit, functional,

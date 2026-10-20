@@ -272,8 +272,9 @@ def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, re
 def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_answers(client, repo, monkeypatch):
     from conftest import decide, start, wait
 
-    qs = [{"id": "change", "question": "May the outbound webhook contract change?", "options": [
-        {"label": "Additive only", "recommended": True}, {"label": "A new version"}]}]
+    # 0.18.23 a question about the decision (what evidence decides it), not how to build it
+    qs = [{"id": "evidence", "question": "What evidence decides whether we build it?", "options": [
+        {"label": "The vendor's documented fields", "recommended": True}, {"label": "A measured sample of real payloads"}]}]
     angles = "```json\n" + json.dumps([{"title": "map the field"}, {"title": "poll the API"}]) + "\n```"
     real, seen = fake._plan, []
 
@@ -287,11 +288,39 @@ def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_ans
     tid = start(client, repo, workflow="spike", title="ParcelPerform ETA")
     s = wait(client, tid)
     assert s["waiting"]["step"] == "frame_questions" and s["waiting"]["kind"] == "clarify"
-    assert [q["id"] for q in s["waiting"]["questions"]] == ["change"]
-    s = decide(client, tid, "approve", payload={"answers": {"change": "Additive only"}})
+    assert [q["id"] for q in s["waiting"]["questions"]] == ["evidence"]
+    s = decide(client, tid, "approve", payload={"answers": {"evidence": "The vendor's documented fields"}})
     frames = [r for r in seen if r.step_name == "frame the question"]
-    assert len(frames) == 2 and "→ Additive only" in frames[1].feedback
+    assert len(frames) == 2 and "→ The vendor's documented fields" in frames[1].feedback
     assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"]
+
+
+def test_the_spikes_frame_asks_about_the_decision_and_leaves_how_to_build_it_to_the_spec(client, repo, monkeypatch):
+    # 0.18.23 a real frame asked "overwrite one column or keep history?" and "DB only, outbound or API?": the feature's
+    # spec interview asks those; the frame asks what the decision needs
+    from keel_engine.workflows.templates import get_template
+    from conftest import start, wait
+
+    frame = get_template("spike").step("frame")
+    text = " ".join(frame.instructions.split())
+    assert "Ask only about the DECISION the spike must support: do we need it at all, for whom, what certainty or what " \
+           "evidence decides it, deadline or cost limits, which options to compare." in text
+    assert "Never ask how to build it (which column or table, overwrite or keep history, which systems or APIs read it" in text
+    assert 'those belong in the feature\'s spec interview, so list them under "Open questions for the spec"' in text
+    findings = get_template("spike").step("findings")
+    assert "the framing's open questions for the spec" in " ".join(findings.instructions.split())
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide"                       # the fake asks nothing: straight to the result
+    framed = next(r for r in seen if r.step_name == "frame the question")
+    assert "Ask only about the DECISION" in framed.prompt
+    said = fake._plan(framed)[2]
+    assert "Decision: whether to build it" in said and "Open questions for the spec:" in said
 
 
 # ------------------------------------------------------------------ the feature flow (fake model)

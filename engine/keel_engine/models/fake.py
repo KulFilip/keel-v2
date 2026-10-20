@@ -124,7 +124,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         if req.step_name == "interview":
             return None, "", ("- goal and users: the request says it\n- scope: the request names it\n"
                               "NO_QUESTIONS: the request answers every lens that changes the criteria"), {}
-        return None, "", f"Framed: {title}. Nothing from outside this repository is needed.", {}
+        # 0.18.23 the frame is about the decision (need, for whom, what evidence decides, limits, options); how to
+        # build it goes to the spec as open questions
+        return None, "", (f"Framed: {title}.\nDecision: whether to build it, and which option.\n"
+                          "For whom: the request says it.\nWhat decides it: the evidence the angles collect.\n"
+                          "Limits: none given.\nOpen questions for the spec: none yet.\n"
+                          "Nothing from outside this repository is needed."), {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)
         path = f"{specs}/{slug(title)}.md"
