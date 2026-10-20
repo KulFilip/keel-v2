@@ -1,0 +1,8 @@
+# keel's own skill sonar (content/skills in keel-v2), kept in this repo: skills/sonar/<version>.md
+name: sonar
+title: "Sonar — code that passes the quality gate"
+publisher: keel
+category: other
+summary: "Write code and tests that pass SonarQube's quality gate on new code — complexity, duplication, dead code, test smells and security hotspots, with the per-language rules."
+tags: [sonar, keel]
+keel: ">=0.18.21"
