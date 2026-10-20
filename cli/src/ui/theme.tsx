@@ -1,16 +1,32 @@
-// keel's colours for the Ink parts: the theme (palette, paint, colour level, ASCII or not) as a React context.
+// keel's colours for the Ink parts: the theme (palette, paint, colour level, ASCII or not) as a React context, and a
+// way to change the palette while keel TUI runs (/theme).
 import React, { createContext, useContext } from "react";
-import { inkColor, makeTheme, userTint, type Theme } from "../core/theme";
+import { BOLD, inkColor, makeTheme, UNDERLINE, type Role, type Theme, type ThemeName } from "../core/theme";
 
-const Ctx = createContext<Theme>(makeTheme());
+type Ctx = { theme: Theme; setPalette: (name: ThemeName) => void };
+const Ctx = createContext<Ctx>({ theme: makeTheme(), setPalette: () => undefined });
 
-export const ThemeProvider = ({ theme, children }: { theme: Theme; children: React.ReactNode }) => <Ctx.Provider value={theme}>{children}</Ctx.Provider>;
+export const ThemeProvider = ({ theme, setPalette, children }: { theme: Theme; setPalette?: (name: ThemeName) => void; children: React.ReactNode }) =>
+  <Ctx.Provider value={{ theme, setPalette: setPalette ?? (() => undefined) }}>{children}</Ctx.Provider>;
 
-/** The theme; `color(role)` is the hex for Ink's color props, or undefined without colour (NO_COLOR). */
+/** Ink's props for a role: its colour, dimmed for the quiet "dim:" look; `strong` adds the role's bold or underline. */
+export type RoleProps = { color?: string; dimColor?: boolean; bold?: boolean; underline?: boolean };
+
+/** The theme; `color(role)` is the colour for Ink's color props, or undefined without colour (NO_COLOR); `look(role)`
+ *  is all of a role's props (colour, dim, and with `strong` its bold or underline). */
 export function useTheme() {
-  const t = useContext(Ctx);
-  const color = (role: keyof Theme["palette"]) => (t.level ? inkColor(t.palette[role]) : undefined);
-  /** the background of the person's own messages (none without colour, or with the terminal's own palette) */
-  const tint = t.level >= 2 ? userTint(t.palette) : undefined;
-  return { ...t, color, tint };
+  const { theme: t, setPalette } = useContext(Ctx);
+  const color = (role: Role) => (t.level ? inkColor(t.palette[role]) : undefined);
+  const look = (role: Role, strong = false): RoleProps => {
+    const p: RoleProps = {};
+    if (t.level) {
+      const c = inkColor(t.palette[role]);
+      if (c) p.color = c;
+      if (t.palette[role] === "dim:") p.dimColor = true;
+    }
+    if (strong && BOLD.has(role)) p.bold = true;
+    if (strong && UNDERLINE.has(role) && t.level) p.underline = true;
+    return p;
+  };
+  return { ...t, color, look, setPalette };
 }

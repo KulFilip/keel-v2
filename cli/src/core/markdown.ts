@@ -1,7 +1,7 @@
 // Markdown for the terminal: KeelBot's answers (and keel's own texts) as styled lines, in keel's colours. No UI: it
 // returns text with ANSI styles from a Paint (theme.ts; PLAIN for none), so any terminal front end can print it.
 //
-//   # Heading         accent, bold                **bold**  *italic*  `code` (tinted)
+//   # Heading         the heading role (bold)     **bold**  *italic*  `code` (the code role)
 //   - item / 1. item  "  • item" (accent bullet)  [text](url) → text (url)
 //   ```lang code```   highlighted by language (highlight.js, the web's highlighter), a diff green and red
 //   > quote           "  ┃ quote"                 path/file.ts:12 → a file link (FILE_LINE)
@@ -42,10 +42,10 @@ function inline(text: string, p: Paint): string {
     out += prose(text.slice(i, m.index), p);
     if (m[1]) {
       const inner = m[1].slice(1, -1);
-      out += isFileLine(inner) ? p.underline(p.run(inner)) : p.kw(inner);
+      out += isFileLine(inner) ? p.strong("path", inner) : p.code(inner);
     } else {
       // **path:line** is a bold link; a lone ** next to a path stays as it was written
-      const link = p.underline(p.run(m[3]));
+      const link = p.strong("path", m[3]);
       out += m[2] && m[4] ? p.bold(link) : (m[2] ?? "") + link + (m[4] ?? "");
     }
     i = (m.index ?? 0) + m[0].length;
@@ -55,7 +55,7 @@ function inline(text: string, p: Paint): string {
 
 function prose(t: string, p: Paint): string {
   return t
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, x: string, u: string) => (x === u ? p.underline(p.run(u)) : `${p.underline(p.accent(x))} ${p.faint(`(${u})`)}`))
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, x: string, u: string) => (x === u ? p.strong("link", u) : `${p.strong("link", x)} ${p.meta(`(${u})`)}`))
     .replace(/\*\*([^*]+)\*\*|(?<!\w)__([^_]+)__(?!\w)/g, (_, a?: string, b?: string) => p.bold(a ?? b ?? ""))
     .replace(/(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])|(?<![_\w])_([^_\s][^_]*?)_(?![_\w])/g, (_, a?: string, b?: string) => p.italic(a ?? b ?? ""));
 }
@@ -78,7 +78,7 @@ export function fitColumns(natural: number[], target: number): number[] {
 
 function table(rows: string[][], p: Paint, width: number): string[] {
   const count = Math.max(...rows.map((r) => r.length));
-  const cells = rows.map((r, i) => Array.from({ length: count }, (_, c) => (i === 0 ? p.bold(p.accent(inline(r[c] ?? "", PLAIN))) : inline(r[c] ?? "", p))));
+  const cells = rows.map((r, i) => Array.from({ length: count }, (_, c) => (i === 0 ? p.strong("heading", inline(r[c] ?? "", PLAIN)) : inline(r[c] ?? "", p))));
   const natural = Array.from({ length: count }, (_, c) => Math.max(...cells.map((r) => visible(r[c]))));
   const widths = fitColumns(natural, Math.max(count, width - (3 * count + 1)));
   const cut = (s: string, w: number) => (visible(s) <= w ? s + " ".repeat(w - visible(s)) : [...s.replace(/\x1b\[[0-9;]*m/g, "")].slice(0, Math.max(1, w - 1)).join("") + "…");
@@ -129,7 +129,7 @@ export function renderMarkdown(md: string, p: Paint = PLAIN, width = 100): strin
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
     if (h) {
       const text = inline(h[2].replace(/\s+#+\s*$/, ""), PLAIN);
-      out.push(h[1].length <= 2 ? p.bold(p.accent(text)) : p.bold(text));
+      out.push(h[1].length <= 2 ? p.strong("heading", text) : p.bold(text));
       continue;
     }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
@@ -138,7 +138,7 @@ export function renderMarkdown(md: string, p: Paint = PLAIN, width = 100): strin
     }
     const q = /^\s*>\s?(.*)$/.exec(line);
     if (q) {
-      out.push(p.faint("  ┃ ") + p.italic(p.faint(inline(q[1], PLAIN))));
+      out.push(p.meta("  ┃ ") + p.italic(p.detail(inline(q[1], PLAIN))));
       continue;
     }
     const li = /^(\s*)[-*+]\s+(?:\[( |x|X)\]\s+)?(.*)$/.exec(line);

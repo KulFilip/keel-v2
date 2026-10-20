@@ -8,8 +8,8 @@ packages). Ideas and small pieces of code were also taken from:
 https://github.com/xal-sh/xal — a terminal coding harness. keel TUI took its way of using colour (docs/plans/keel-tui.md,
 "What we took from xal"). Adapted code, each file keeps this notice:
 
-- `src/core/theme.ts`: the TERMINAL palette (roles on the terminal's own ANSI colours) and `userTint` (the 8 % mix for a
-  person's message) — from `apps/cli/src/plugins/tui/theme/colors.ts`
+- `src/core/theme.ts`: the idea of roles on the terminal's own ANSI colours (keel TUI 0.18's TERMINAL palette; the
+  palettes are keel's own since the colour roles of fix/tui-colors) — from `apps/cli/src/plugins/tui/theme/colors.ts`
 - `src/core/diff.ts`: `classifyDiff` (line numbers from the hunk headers) — from `apps/cli/src/plugins/tui/output/diff.ts`
 - `src/core/markdown.ts`: the table layout (`fitColumns`: shrink the widest column, grow the most cramped) and the bullets
   by depth — from `apps/cli/src/plugins/tui/markdown/render.ts`

@@ -11,7 +11,7 @@ import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdou
 import { complete, follow, pickMatches, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
 import type { KeelCore, PermissionQuestion, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
-import { applyLevel, makeTheme, type Theme } from "../core/theme";
+import { applyLevel, makeTheme, withPalette, type Theme, type ThemeName } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
@@ -58,14 +58,19 @@ type Question = PermissionQuestion;
 type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
 /** 0.18.18 the prompt history keeps this many (as opencode's, MIT: the last 50) */
 const HISTORY_MAX = 50;
+/** What /theme says after it changed the palette. */
+const THEME_WORDS: Record<ThemeName, string> = { dark: "colours for a dark background", light: "colours for a light background",
+  auto: "colours that read on any background" };
 /** two presses on the same cell within this many ms: a double-click (the word under it) */
 const DOUBLE_MS = 400;
 
-/** keel TUI in keel's colours (the theme: the dashboard's palette, NO_COLOR, KEEL_TUI_THEME). */
+/** keel TUI in keel's colours (the theme: core/theme.ts, NO_COLOR, KEEL_TUI_THEME; /theme changes the palette). */
 export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean }) {
-  const th = useMemo(() => theme ?? makeTheme(), [theme]);
+  const base = useMemo(() => theme ?? makeTheme(), [theme]);
+  const [palette, setPalette] = useState<ThemeName | null>(null);
+  const th = useMemo(() => (palette && palette !== base.name ? withPalette(base, palette) : base), [base, palette]);
   applyLevel(th);
-  return <ThemeProvider theme={th}><Main {...props} /></ThemeProvider>;
+  return <ThemeProvider theme={th} setPalette={setPalette}><Main {...props} /></ThemeProvider>;
 }
 
 function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse: mouseAtStart = false }: { core: KeelCore; probe?: Probe; width?: number;
@@ -429,6 +434,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       setSel(null);
       setEpoch((e) => e + 1);
     }
+    if (reply.theme) {
+      t.setPalette(reply.theme);
+      push({ kind: "ok", text: `theme ${reply.theme}: ${THEME_WORDS[reply.theme]}` });
+    }
     if (reply.mouse !== undefined) {
       const on = reply.mouse === "toggle" ? !mouse : reply.mouse;
       if (!screen) push({ kind: "dim", text: "  The wheel scrolls in the full screen only (keel2 tui without --inline)." });
@@ -667,20 +676,20 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   };
 
   // the full screen's transcript as lines (each block's lines kept until the width changes)
-  const cache = useRef(new Map<number, { w: number; lines: string[] }>());
+  const cache = useRef(new Map<number, { w: number; paint: unknown; lines: string[] }>());
   const lines = useMemo(() => {
     if (!screen) return [];
     const out: string[] = [];
     for (const it of items) {
       let c = cache.current.get(it.id);
-      if (!c || c.w !== width) {
-        c = { w: width, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : [...(it.gap ? [""] : []), ...blockLines(it.b, width, t.paint, t.tint, t.level)] };
+      if (!c || c.w !== width || c.paint !== t.paint) {
+        c = { w: width, paint: t.paint, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : [...(it.gap ? [""] : []), ...blockLines(it.b, width, t.paint)] };
         cache.current.set(it.id, c);
       }
       out.push(...c.lines);
     }
     return out;
-  }, [items, width, screen, t.paint, t.tint, t.level]);
+  }, [items, width, screen, t.paint]);
   // scrolled up while new lines come: the view stays where the person is reading
   const seen = useRef(0);
   useEffect(() => {
@@ -999,7 +1008,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       <ClicksProvider clicks={clicks}>
       <Box flexDirection="column" height={height} width={width}>
         <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
-        <Text color={t.color("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
+        <Text {...t.look("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
         <Box ref={modeRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden">
           <ModeView session={mode} width={width} height={modeH} />
         </Box>
@@ -1020,16 +1029,16 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       <ClicksProvider clicks={clicks}>
       <Box flexDirection="column" height={height} width={width}>
         <Text wrap="truncate-end">{headerLine(snap, width, t.paint)}</Text>
-        <Text color={t.color("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
+        <Text {...t.look("border")} wrap="truncate-end">{"─".repeat(width)}</Text>
         <Box ref={viewRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden" justifyContent="flex-end">
-          {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
+          {!started && <Text {...t.look("dim")}>connecting to keel at {snap.url} …</Text>}
           {v.shown.map((l, i) => {
             const m = marked(v.above + i);
             return <Text key={v.above + i} wrap="truncate-end">{(m ? highlight(l, m[0], m[1]) : l) || " "}</Text>;
           })}
         </Box>
         {v.below > 0 && (
-          <Text color={t.color("accent")} wrap="truncate-end">
+          <Text {...t.look("accent")} wrap="truncate-end">
             {`── ↓ ${v.below} newer line${v.below === 1 ? "" : "s"} · PgDn, End${mouse ? " or the wheel" : ""} ` + "─".repeat(Math.max(0, width - 40))}
           </Text>
         )}
@@ -1045,7 +1054,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         {(it) => (it.kind === "start" ? <StartScreen key={it.id} s={it.s} width={width} /> : <BlockView key={it.id} b={it.b} width={width} gap={it.gap} />)}
       </Static>
       <Box flexDirection="column">
-        {!started && <Text color={t.color("dim")}>connecting to keel at {snap.url} …</Text>}
+        {!started && <Text {...t.look("dim")}>connecting to keel at {snap.url} …</Text>}
         {mode ? <>
           <ModeView session={mode} width={width} height={INLINE_MODE_ROWS} />
           {pending?.pick && <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} />}
@@ -1082,7 +1091,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
               <Thinking who={j.agent} verb={pickVerb(j.id)} since={Date.parse(j.started_at) || null}
                 tokens={fmt.tokensOf(j) || undefined} hint={[fmt.flowOf(snap.flowTitles, j.thread_id), [j.step, j.ac].filter(Boolean).join(" "),
                   screen && mouse ? "click to follow" : "Ctrl+O follows"].filter(Boolean).join(" · ")} />
-              {now ? <Text wrap="truncate-end" color={t.color("dim")}>{"   " + now}</Text> : null}
+              {now ? <Text wrap="truncate-end" {...t.look("dim")}>{"   " + now}</Text> : null}
             </Clickable>
           );
         })}
@@ -1099,16 +1108,16 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
           <Picker title={pending.pick.title} choices={filtered} index={pickIdx} filter={pickFilter} ticked={pending.pick.multi ? ticked : undefined} />
         ) : (
           <Box flexDirection="column">
-            {pending?.ask && <Text color={t.color("accent")} bold>{pending.ask.prompt}<Text color={t.color("dim")} bold={false}> (Esc cancels)</Text></Text>}
+            {pending?.ask && <Text {...t.look("accent")} bold>{pending.ask.prompt}<Text {...t.look("dim")} bold={false}> (Esc cancels)</Text></Text>}
             {/* "copied N characters" takes the row the footer (or the prompt's air above it) had: nothing moves */}
-            {flash ? <Box marginTop={footer && !chat.busy ? 1 : 0}><Text wrap="truncate-end" color={t.color("dim")}>{" " + flash}</Text></Box>
+            {flash ? <Box marginTop={footer && !chat.busy ? 1 : 0}><Text wrap="truncate-end" {...t.look("dim")}>{" " + flash}</Text></Box>
               : footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
             <Box ref={promptRef} borderStyle="round" borderColor={border} paddingX={1} marginTop={flash || (footer && !chat.busy) ? 0 : 1}
               flexDirection="column">
               {line ? promptText() : (
                 <Text>
-                  <Text color={t.color("accent")} bold>{"› "}</Text>
-                  <Text inverse> </Text><Text color={t.color("dim")}>{pending?.ask ? "type the answer, Enter sends"
+                  <Text {...t.look("person")} bold>{"› "}</Text>
+                  <Text inverse> </Text><Text {...t.look("dim")}>{pending?.ask ? "type the answer, Enter sends"
                     : flowWaits ? "A gate waits for you: /approve, /reject <why>, /next … or ask KeelBot" : "Ask KeelBot, / for commands, ! for a shell command"}</Text>
                 </Text>
               )}
@@ -1128,14 +1137,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     // 0.18.18 `!` at the start: a shell command keel runs in the project folder (as opencode's shell mode, MIT)
     const shellLine = line.startsWith("!");
     const more = (n: number, where: string) => (
-      <Text color={t.color("dim")} wrap="truncate-end">{`  ${n} more line${n === 1 ? "" : "s"} ${where}`}</Text>
+      <Text {...t.look("dim")} wrap="truncate-end">{`  ${n} more line${n === 1 ? "" : "s"} ${where}`}</Text>
     );
     return (
       <>
         {pv.above > 0 && more(pv.above, "above")}
         {pv.rows.map((r, i) => (
           <Text key={pv.above + i}>
-            <Text color={t.color(shellLine ? "warn" : "accent")} bold>{pv.above + i === 0 ? (shellLine ? "shell › " : "› ") : shellLine ? "        " : "  "}</Text>
+            <Text {...t.look(shellLine ? "warn" : "person")} bold>{pv.above + i === 0 ? (shellLine ? "shell › " : "› ") : shellLine ? "        " : "  "}</Text>
             {r.cursor === null ? inputText(r.text || " ")
               : <>{inputText(r.text.slice(0, r.cursor))}<Text inverse>{r.text[r.cursor] ?? " "}</Text>{inputText(r.text.slice(r.cursor + 1))}</>}
           </Text>
@@ -1149,6 +1158,6 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   function inputText(x: string) {
     const m = /^(\/\S*)(.*)$/s.exec(x);
     if (!m || x !== line.slice(0, x.length) || !line.startsWith("/")) return <Text>{x}</Text>;
-    return <><Text color={t.color("accent")} bold>{m[1]}</Text><Text>{m[2]}</Text></>;
+    return <><Text {...t.look("accent")} bold>{m[1]}</Text><Text>{m[2]}</Text></>;
   }
 }

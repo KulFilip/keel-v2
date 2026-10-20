@@ -70,8 +70,8 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
   if (w.kind === "clarify") {
     out.push(`          answer: ${cmd("/answer")} (one question after the other)`);
     for (const q of w.questions ?? []) {
-      const choices = q.options.map((o) => o.label + (o.recommended ? c.ok(" (recommended)") : "")).join(" / ");
-      out.push(`          ${c.dim(q.id + ":")} ${q.question}  [${choices}]`);
+      const choices = q.options.map((o) => o.label + (o.recommended ? c.recommended(" (recommended)") : "")).join(" / ");
+      out.push(`          ${c.strong("hint", q.id + ":")} ${c.strong("question", q.question)}  [${choices}]`);
     }
   } else if (w.choices?.length) {
     out.push(`          answer: ${cmd(answerWords(w))}`);
@@ -86,22 +86,29 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
       // keel 0.18.22 a gate that asks beside approve / reject (a findings gate: one question per finding)
       out.push(`          or decide each: ${cmd("/answer")} (one after the other; ${cmd("/answer f1=fix f2=\"accept: <why>\"")})`);
       for (const q of w.questions) {
-        const choices = q.options.map((o) => o.label + (o.recommended ? c.ok(" (recommended)") : "") + (o.why === "required" ? c.dim(" +why") : "")).join(" / ");
-        out.push(`          ${c.dim(q.id + ":")} ${q.question}  [${choices}]`);
+        const choices = q.options.map((o) => o.label + (o.recommended ? c.recommended(" (recommended)") : "") + (o.why === "required" ? c.meta(" +why") : "")).join(" / ");
+        out.push(`          ${c.strong("hint", q.id + ":")} ${c.strong("question", q.question)}  [${choices}]`);
       }
     }
   }
   const detail = (w.detail ?? "").trim();
-  if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + c.dim(l)));
+  if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + labelLine(l, c)));
   return out;
 }
 
 /** keel 0.18.13 a waiting question's named choices with the engine's words (choice_info): one line each, its number,
  *  label and name, the default marked, whether it needs a reason, what it does. [] for an older engine (no words). */
 export function choiceLines(w: Waiting, c: Paint = PLAIN): string[] {
-  return (w.choice_info ?? []).map((x, n) => `${c.dim(`${n + 1}.`)} ${c.bold(x.label || x.name)}${x.label && x.label !== x.name ? c.dim(` (${x.name})`) : ""}`
-    + (x.default ? c.ok(" · default") : "") + (x.why === "required" ? c.gate(" · needs a reason") : x.why === "optional" ? c.dim(" · reason optional") : "")
-    + (x.description ? c.dim(` — ${x.description}`) : ""));
+  return (w.choice_info ?? []).map((x, n) => `${c.meta(`${n + 1}.`)} ${c.bold(x.label || x.name)}${x.label && x.label !== x.name ? c.meta(` (${x.name})`) : ""}`
+    + (x.default ? c.recommended(" · default") : "") + (x.why === "required" ? c.gate(" · needs a reason") : x.why === "optional" ? c.meta(" · reason optional") : "")
+    + (x.description ? c.detail(` — ${x.description}`) : ""));
+}
+
+/** A "label: text" line under a gate or a question ("why it matters: …"): the label as a hint, the text readable (never
+ *  dim). A line without a short label is readable text. */
+export function labelLine(l: string, c: Paint = PLAIN): string {
+  const m = /^(\s*)([\w ()'-]{2,28}:)( .*)$/.exec(l);
+  return m ? m[1] + c.bold(c.hint(m[2])) + c.detail(m[3]) : c.detail(l);
 }
 
 /** A text cut at a word near `max`, with "…" when it was longer. */
@@ -138,8 +145,8 @@ No flow yet. Start one: ${c.accent("/flow")}`;
   const w = t.waiting;
   if (w) {
     out.push("", c.bold(c.gate(`◆ Waiting for you: ${w.title}`)) + (t.ac ? c.gate(` (for ${t.ac})`) : ""));
-    const cmd = (s: string) => c.bold(c.gate(s));
-    const row = (a: string, b: string) => `  ${cmd(a)}${" ".repeat(Math.max(2, 34 - a.length))}${c.dim(b)}`;
+    // each way to answer: the command as a hint (bold), what it does readable beside it
+    const row = (a: string, b: string) => `  ${c.bold(c.hint(a))}${" ".repeat(Math.max(2, 34 - a.length))}${c.detail(b)}`;
     const l = w.labels ?? {};
     if (w.kind === "clarify") out.push(row("/answer", `${(w.questions ?? []).length} question(s), one after the other`));
     else {
@@ -157,7 +164,7 @@ No flow yet. Start one: ${c.accent("/flow")}`;
     }
     out.push(row("or ask KeelBot", "it explains the gate and suggests an answer"));
     const detail = (w.detail ?? "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 2);
-    out.push(...detail.map((x) => "  " + c.dim(fit(x, width - 2))));
+    out.push(...detail.map((x) => "  " + labelLine(fit(x, width - 2), c)));
   }
   if (t.acs?.length) {
     const [done, all] = acCount(t);
@@ -168,12 +175,13 @@ No flow yet. Start one: ${c.accent("/flow")}`;
   }
   const u = t.usage ?? ({} as ThreadState["usage"]);
   const used = tokensOf(u);
-  out.push("", `${c.bold("Tokens")}: ${short(used)}` + (u.cap_tokens ? ` of ${short(u.cap_tokens)} (${Math.round((100 * used) / u.cap_tokens)} %)` : c.dim(" (no cap)"))
-    + ` · ${usd(u.cost_usd)}`);
+  // meta: quieter than the content above, still readable
+  out.push("", c.meta(`Tokens: ${short(used)}` + (u.cap_tokens ? ` of ${short(u.cap_tokens)} (${Math.round((100 * used) / u.cap_tokens)} %)` : " (no cap)")
+    + ` · ${usd(u.cost_usd)}`));
   if (t.error) out.push(`${c.bad("Error")}: ${c.bad(fit(t.error))}`);
   const b = t.blockers ?? [];
   if (b.length) out.push(c.dim(`Before a push: ${b.length} check${b.length === 1 ? "" : "s"} still to run (${b.map((x) => x.gate).join(", ")}); the flow runs them at the end. /next says how.`));
-  out.push(c.faint(`flow id ${t.thread_id} · /steps, /timeline, /flows for more`));
+  out.push(c.meta(`flow id ${t.thread_id} · /steps, /timeline, /flows for more`));
   return out.join("\n");
 }
 
@@ -247,9 +255,9 @@ export function inbox(items: InboxItem[], c: Paint = PLAIN): string {
   items.forEach((i, k) => {
     out.push(`${c.bold(c.gate(`${k + 1}.`))} ${c.dim(i.project_name || i.project_id)} · ${c.bold(i.flow || i.thread_id)} · ${c.gate(`${i.kind}: ${i.title}`)}`
       + (i.ac ? ` (${c.accent(i.ac)})` : "") + ` · ${c.dim((i.options ?? []).join(" / ") || "-")}`);
-    (i.questions ?? []).forEach((q) => out.push(`     ${c.dim(q.id + ":")} ${q.question}`));
+    (i.questions ?? []).forEach((q) => out.push(`     ${c.strong("hint", q.id + ":")} ${c.strong("question", q.question)}`));
     if (i.permission) out.push(`     command: ${c.kw(i.permission.command)}`);
-    if (i.detail) out.push(...String(i.detail).slice(0, 300).split("\n").map((l) => "     " + c.dim(l)));
+    if (i.detail) out.push(...String(i.detail).slice(0, 300).split("\n").map((l) => "     " + labelLine(l, c)));
   });
   return out.join("\n");
 }

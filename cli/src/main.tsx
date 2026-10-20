@@ -14,14 +14,16 @@ import { run, follow, type Reply } from "./core/commands";
 import { renderMarkdown } from "./core/markdown";
 import { colorDiagram } from "./core/colorize";
 import { applyLevel, makeTheme, PLAIN, type Paint } from "./core/theme";
+import { probeBackground } from "./core/termbg";
 import { VERSION } from "./core/version";
 import { runScript } from "./script";
 import { Profiler } from "./core/profile";
 import { HELP, parseArgs } from "./main.args";
 import { MOUSE, SCREEN, screenStdout } from "./core/lines";
 
-// keel's colours: the dashboard's palette (NO_COLOR, KEEL_TUI_THEME, FORCE_COLOR); -c writes them only into a terminal
-const theme = makeTheme();
+// keel's colours (core/theme.ts: NO_COLOR, KEEL_TUI_THEME, COLORFGBG, FORCE_COLOR); -c writes them only into a terminal.
+// The app asks the terminal for its background first when nothing else said dark or light (termbg.ts).
+let theme = makeTheme();
 applyLevel(theme);
 
 function printReply(r: Reply, c: Paint) {
@@ -80,6 +82,10 @@ async function main(): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     process.stderr.write("keel-tui needs a terminal. Without one: keel-tui -c \"/status\" or keel-tui --script <file>.\n");
     return 2;
+  }
+  if (theme.level && theme.name === "auto") {
+    const bg = await probeBackground().catch(() => null);
+    if (bg) theme = makeTheme(process.env, undefined, bg);
   }
   if (args.inline) {
     const app = render(<App core={core} theme={theme} profiler={profiler} />, { exitOnCtrlC: false });

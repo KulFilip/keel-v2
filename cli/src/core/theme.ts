@@ -1,57 +1,93 @@
-// keel's colours in the terminal: the dashboard's own palette (web/src/styles.css, the dark and the light tokens), as
-// truecolor, with a 256- or 16-colour fallback (chalk picks the closest the terminal has) and none with NO_COLOR.
+// keel's colours in the terminal: one place for every colour keel TUI draws with. Each piece of text has a ROLE (the
+// person's message, KeelBot's answer, a gate that waits, a question, a hint, meta text ...) and each palette says how
+// that role looks. The palettes use the terminal's own named ANSI colours wherever they read well, so a terminal theme
+// (Solarized, Dracula, macOS Basic ...) decides the exact shade; a fixed shade only where the named colour is known to
+// be too pale (green and yellow on a light background, the quiet grey of meta text on a known background).
 //
-//   KEEL_TUI_THEME=dark|light   which palette (default: the terminal's background from COLORFGBG, else dark)
-//   KEEL_TUI_THEME=terminal     the terminal's own 16 colours (its theme decides the shades; also used in a 16-colour
-//                               terminal), the way xal colours its TUI (cli/THIRD_PARTY_NOTICES.md)
-//   NO_COLOR=1                  no colour at all (https://no-color.org); FORCE_COLOR=1|2|3 forces a level
+//   KEEL_TUI_THEME=dark|light|auto   which palette; auto (the default): COLORFGBG, else the background the terminal
+//                                    reports (OSC 11, termbg.ts), else a palette that reads on both
+//   /theme dark|light|auto           the same while keel TUI runs
+//   NO_COLOR=1                       no colour at all (https://no-color.org); FORCE_COLOR=0|1|2|3 forces a level
+//
+// Colour is never the only sign: the person's lines start with a bold "›", gates and notices with "◆", suggestions
+// with "✦", questions with "?" or their number, bullets "•"; hints and details have their own indentation.
 //
 // No UI here: a Paint turns text into styled text for any terminal front end; keel TUI's Ink parts read the palette.
-//
-// The TERMINAL palette's role → ANSI index map and userTint()'s 8 % mix are adapted from xal
-// (https://github.com/xal-sh/xal, apps/cli/src/plugins/tui/theme/colors.ts), MIT License, Copyright (c) 2026 Saeed Vaziry.
 
 import chalk, { Chalk } from "chalk";
 
+/** The semantic roles (what the text IS) and the code roles (highlighted code). `dim` and `faint` are kept for the
+ *  older call sites: both are the quiet meta look now, never grey on grey. */
 export type Role =
-  | "fg" | "dim" | "faint" | "border" | "accent" | "run" | "ok" | "warn" | "bad" | "gate"
-  | "kw" | "str" | "num" | "com" | "fn" | "attr" | "type" | "add" | "del";
-export type Palette = Record<Role, string> & { bg: string };
+  // the conversation
+  | "person" | "keelbot" | "heading" | "accent"
+  // waiting for the person
+  | "gate" | "question" | "option" | "recommended" | "chosen" | "suggest"
+  // secondary and quiet text
+  | "hint" | "detail" | "meta" | "dim" | "faint" | "border"
+  // outcomes
+  | "ok" | "warn" | "bad"
+  // code, paths and links, diffs
+  | "code" | "path" | "link" | "run" | "add" | "del"
+  // highlighted code (highlight.ts)
+  | "fg" | "kw" | "str" | "num" | "com" | "fn" | "attr" | "type";
 
-/** The dashboard's dark tokens (styles.css [data-theme=dark] and the code view's --hl-*). */
+/** A role's look: "ansi:<name>" (the terminal's named colour), "#rrggbb" (a fixed shade), "term:" (the terminal's
+ *  own text colour), "dim:" (the terminal's text colour, dimmed: quiet on any background). */
+export type Palette = Record<Role, string>;
+
+const META_DARK = "#a8a8a8";   // ≥ 4.5:1 on black and on the usual dark backgrounds (#1e1e1e, Dracula, Nord, Solarized)
+const META_LIGHT = "#5c5c5c";  // ≥ 4.5:1 on white and on Solarized light
+const GREEN_LIGHT = "#1a7f37"; // the named greens of many light themes are under 3:1 on white
+const AMBER_LIGHT = "#8a5a00"; // the named yellows of many light themes are under 2:1 on white
+const TEAL_LIGHT = "#0b6e6e";  // so is cyan
+
+const shared = { fg: "term:", keelbot: "term:", question: "term:", option: "term:", detail: "term:", bad: "ansi:red", del: "ansi:red" };
+
+/** A dark background: the terminal's normal colours (its theme makes them readable on its own background), bright blue
+ *  for blue (normal blue is too dark on most dark themes). */
 export const DARK: Palette = {
-  bg: "#131314", fg: "#f7f6f3", dim: "#9a958c", faint: "#6b675f", border: "#3d3d43",
-  accent: "#a48bff", run: "#57aeff", ok: "#4ec07c", warn: "#e0a13a", bad: "#f0685a", gate: "#e9b53a",
-  kw: "#c3a6ff", str: "#8fd19e", num: "#f0b46a", com: "#8a857c", fn: "#7cc2ff", attr: "#e8c07a", type: "#f59ac2",
-  add: "#4ec07c", del: "#f0685a",
+  ...shared,
+  person: "ansi:blueBright", heading: "ansi:magentaBright", accent: "ansi:magentaBright",
+  gate: "ansi:yellow", recommended: "ansi:green", chosen: "ansi:green", suggest: "ansi:magentaBright",
+  hint: "ansi:cyan", meta: META_DARK, dim: META_DARK, faint: META_DARK, border: META_DARK,
+  ok: "ansi:green", warn: "ansi:yellow",
+  code: "ansi:magentaBright", path: "ansi:blueBright", link: "ansi:blueBright", run: "ansi:blueBright", add: "ansi:green",
+  kw: "ansi:magentaBright", str: "ansi:green", num: "ansi:yellow", com: META_DARK, fn: "ansi:blueBright", attr: "ansi:cyan", type: "ansi:cyan",
 };
 
-/** The dashboard's light tokens. */
+/** A light background: named red, blue and magenta; fixed dark shades of green, amber, teal and grey. */
 export const LIGHT: Palette = {
-  bg: "#f7f6f3", fg: "#131314", dim: "#5f5b54", faint: "#8a857c", border: "#b9b4aa",
-  accent: "#6a4ee6", run: "#0b62a8", ok: "#1f7a45", warn: "#9a5b00", bad: "#b03024", gate: "#8a5a00",
-  kw: "#7a3fd1", str: "#1f7a45", num: "#a35a00", com: "#7d786f", fn: "#0b62a8", attr: "#9a5b00", type: "#b03a6f",
-  add: "#1f7a45", del: "#b03024",
+  ...shared,
+  person: "ansi:blue", heading: "ansi:magenta", accent: "ansi:magenta",
+  gate: AMBER_LIGHT, recommended: GREEN_LIGHT, chosen: GREEN_LIGHT, suggest: "ansi:magenta",
+  hint: TEAL_LIGHT, meta: META_LIGHT, dim: META_LIGHT, faint: META_LIGHT, border: META_LIGHT,
+  ok: GREEN_LIGHT, warn: AMBER_LIGHT,
+  code: "ansi:magenta", path: "ansi:blue", link: "ansi:blue", run: "ansi:blue", add: GREEN_LIGHT,
+  kw: "ansi:magenta", str: GREEN_LIGHT, num: AMBER_LIGHT, com: META_LIGHT, fn: "ansi:blue", attr: TEAL_LIGHT, type: "ansi:magenta",
 };
 
-/** The terminal's own colours, by their ANSI names: gray (8), red (9), green (10), yellow (11), blue (12), magenta (13),
- *  cyan (14), xal's map with keel's accent on magenta. "term:" = the terminal's own text colour. */
-export const TERMINAL: Palette = {
-  bg: "", fg: "term:", dim: "ansi:blackBright", faint: "ansi:blackBright", border: "ansi:blackBright",
-  accent: "ansi:magentaBright", run: "ansi:blueBright", ok: "ansi:greenBright", warn: "ansi:yellowBright", bad: "ansi:redBright",
-  gate: "ansi:yellowBright", kw: "ansi:magentaBright", str: "ansi:greenBright", num: "ansi:yellowBright", com: "ansi:blackBright",
-  fn: "ansi:blueBright", attr: "ansi:cyanBright", type: "ansi:cyanBright", add: "ansi:greenBright", del: "ansi:redBright",
+/** The background is not known: only what reads on dark and on light. Meta text is the terminal's own text colour,
+ *  dimmed (no grey that can vanish on a grey background); hints are the text colour (their bold and their place say
+ *  what they are); blue as bright blue (readable on both). */
+export const AUTO: Palette = {
+  ...shared,
+  person: "ansi:blueBright", heading: "ansi:magenta", accent: "ansi:magenta",
+  gate: "ansi:yellow", recommended: "ansi:green", chosen: "ansi:green", suggest: "ansi:magenta",
+  hint: "term:", meta: "dim:", dim: "dim:", faint: "dim:", border: "dim:",
+  ok: "ansi:green", warn: "ansi:yellow",
+  code: "ansi:magenta", path: "ansi:blueBright", link: "ansi:blueBright", run: "ansi:blueBright", add: "ansi:green",
+  kw: "ansi:magenta", str: "ansi:green", num: "ansi:yellow", com: "dim:", fn: "ansi:blueBright", attr: "ansi:yellow", type: "ansi:magenta",
 };
-type AnsiName = "blackBright" | "redBright" | "greenBright" | "yellowBright" | "blueBright" | "magentaBright" | "cyanBright";
 
-/** The background of a person's message: the terminal's background moved 8 % toward its text colour (xal's bubble). */
-export function userTint(p: Palette): string | undefined {
-  if (!p.bg.startsWith("#")) return undefined;
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(p.bg.slice(i, i + 2), 16));
-  const target = r * 0.299 + g * 0.587 + b * 0.114 > 127 ? 0 : 255;
-  const mix = (v: number) => Math.round(v + (target - v) * 0.08).toString(16).padStart(2, "0");
-  return `#${mix(r)}${mix(g)}${mix(b)}`;
-}
+/** Roles that are always bold with `strong` (headings, the person's words, what waits, a question, a chosen answer,
+ *  KeelBot's suggestion). */
+export const BOLD: ReadonlySet<Role> = new Set<Role>(["person", "heading", "gate", "question", "chosen", "suggest"]);
+/** Roles drawn underlined with `strong` (paths and links: a sign beside the colour). */
+export const UNDERLINE: ReadonlySet<Role> = new Set<Role>(["path", "link"]);
+
+type AnsiName = "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "redBright" | "greenBright" | "yellowBright" | "blueBright"
+  | "magentaBright" | "cyanBright";
 
 /** A palette value as Ink's color prop: "#hex", an ANSI colour name, or undefined (the terminal's own text colour). */
 export function inkColor(v: string): string | undefined {
@@ -60,36 +96,60 @@ export function inkColor(v: string): string | undefined {
 }
 
 type Fn = (s: string) => string;
-export type Paint = Record<Role, Fn> & { bold: Fn; italic: Fn; underline: Fn; inverse: Fn; colored: boolean };
+/** One function per role (its colour), `strong` (the colour with the role's bold or underline), and the plain styles. */
+export type Paint = Record<Role, Fn> & { strong: (r: Role, s: string) => string; bold: Fn; italic: Fn; underline: Fn; inverse: Fn;
+  colored: boolean };
 
 const id: Fn = (s) => s;
-const ROLES = Object.keys(DARK).filter((k) => k !== "bg") as Role[];
+export const ROLES = Object.keys(DARK) as Role[];
 
 /** No colour, no style: what -c prints into a pipe, and what NO_COLOR asks for. */
-export const PLAIN: Paint = { ...(Object.fromEntries(ROLES.map((r) => [r, id])) as Record<Role, Fn>), bold: id, italic: id, underline: id,
-  inverse: id, colored: false };
+export const PLAIN: Paint = { ...(Object.fromEntries(ROLES.map((r) => [r, id])) as Record<Role, Fn>), strong: (_r, s) => s, bold: id, italic: id,
+  underline: id, inverse: id, colored: false };
 
 export function makePaint(p: Palette, level: 0 | 1 | 2 | 3): Paint {
   if (level === 0) return PLAIN;
   const c = new Chalk({ level });
   const fn = (v: string): Fn => {
     if (v.startsWith("ansi:")) return (s) => c[v.slice(5) as AnsiName](s);
+    if (v === "dim:") return (s) => c.dim(s);
     return v.startsWith("#") ? (s) => c.hex(v)(s) : id;
   };
-  return { ...(Object.fromEntries(ROLES.map((r) => [r, fn(p[r])])) as Record<Role, Fn>),
-    bold: (s) => c.bold(s), italic: (s) => c.italic(s), underline: (s) => c.underline(s), inverse: (s) => c.inverse(s), colored: true };
+  const roles = Object.fromEntries(ROLES.map((r) => [r, fn(p[r])])) as Record<Role, Fn>;
+  const strong = (r: Role, s: string) => {
+    let out = roles[r](s);
+    if (UNDERLINE.has(r)) out = c.underline(out);
+    return BOLD.has(r) ? c.bold(out) : out;
+  };
+  return { ...roles, strong, bold: (s) => c.bold(s), italic: (s) => c.italic(s), underline: (s) => c.underline(s), inverse: (s) => c.inverse(s),
+    colored: true };
 }
 
-export type Theme = { name: "dark" | "light" | "terminal"; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean };
+export type ThemeName = "dark" | "light" | "auto";
+export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean };
 
 type Env = Record<string, string | undefined>;
 
-/** dark or light: KEEL_TUI_THEME, else the background COLORFGBG says ("15;0" is light text on dark), else dark. */
-export function themeName(env: Env): "dark" | "light" | "terminal" {
-  const want = (env.KEEL_TUI_THEME ?? "").toLowerCase();
-  if (want === "light" || want === "dark" || want === "terminal") return want;
-  const bg = Number((env.COLORFGBG ?? "").split(";").pop());
+/** "dark", "light" or "auto" from a word ("terminal", keel TUI 0.18's name for the terminal's own colours, is auto). */
+export function parseThemeName(word: string | undefined): ThemeName | null {
+  const w = (word ?? "").trim().toLowerCase();
+  return w === "dark" || w === "light" || w === "auto" ? w : w === "terminal" ? "auto" : null;
+}
+
+/** dark or light from COLORFGBG ("15;0" is light text on a dark background; the last number is the background). */
+export function bgFromColorFgBg(v: string | undefined): "dark" | "light" | null {
+  if (!v) return null;
+  const bg = Number(v.split(";").pop());
+  if (!Number.isInteger(bg)) return null;
   return bg === 7 || bg === 15 ? "light" : "dark";
+}
+
+/** The palette: KEEL_TUI_THEME (dark, light; auto or unset looks further), then COLORFGBG, then the background the
+ *  terminal reported (`probed`), else auto. */
+export function themeName(env: Env, probed?: "dark" | "light" | null): ThemeName {
+  const want = parseThemeName(env.KEEL_TUI_THEME);
+  if (want === "dark" || want === "light") return want;
+  return bgFromColorFgBg(env.COLORFGBG) ?? probed ?? "auto";
 }
 
 /** The colour level: 0 with NO_COLOR, else what chalk found (FORCE_COLOR, COLORTERM=truecolor, TERM). */
@@ -105,12 +165,19 @@ export function asciiOnly(env: Env): boolean {
   return !!loc && !/utf-?8/i.test(loc);
 }
 
-export function makeTheme(env: Env = process.env, detected?: number): Theme {
+export const paletteOf = (name: ThemeName): Palette => (name === "light" ? LIGHT : name === "dark" ? DARK : AUTO);
+
+export function makeTheme(env: Env = process.env, detected?: number, probed?: "dark" | "light" | null): Theme {
   const level = colorLevel(env, detected);
-  // a 16-colour terminal: its own colours fit better than the nearest of 16 to keel's shades
-  const name = level === 1 && !env.KEEL_TUI_THEME ? "terminal" : themeName(env);
-  const palette = name === "light" ? LIGHT : name === "terminal" ? TERMINAL : DARK;
+  const name = themeName(env, probed);
+  const palette = paletteOf(name);
   return { name, palette, level, paint: makePaint(palette, level), ascii: asciiOnly(env) };
+}
+
+/** The same theme with another palette (/theme): the colour level and the glyphs stay. */
+export function withPalette(t: Theme, name: ThemeName): Theme {
+  const palette = paletteOf(name);
+  return { ...t, name, palette, paint: makePaint(palette, t.level) };
 }
 
 /** Make Ink (which colours with chalk's own instance) use the same level: none with NO_COLOR. */
@@ -118,7 +185,7 @@ export function applyLevel(t: Theme) {
   chalk.level = t.level;
 }
 
-// ------------------------------------------------------------------ contrast (WCAG), for the tests of both palettes
+// ------------------------------------------------------------------ contrast (WCAG), for the tests of the fixed shades
 
 const lum = (hex: string) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
