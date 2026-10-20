@@ -292,6 +292,10 @@ DOCS: dict[str, dict] = {
     "report": {
         "summary": "Collects every fan-out answer word for word, with a tally of their markers, for the next gate.",
     },
+    "spike_report": {
+        "summary": "The spike's report: a short summary first (decision, open questions before building, the angles' "
+                   "conflicts, cost, spec or drop, one counted VERDICT line), then the findings and each angle's clean report.",
+    },
     "investigation_note": {
         "summary": "Writes docs/investigations/<date>-<slug>.md with every hypothesis and commits it.",
     },

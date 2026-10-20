@@ -77,6 +77,46 @@ def test_the_answer_streams_as_helper_delta_and_the_whole_answer_is_the_record(c
     assert not any(e["type"] == "helper.step" and e["data"]["kind"] == "delta" for e in evs)
 
 
+def test_thinking_streams_apart_from_the_answer_and_never_reaches_the_next_turn(client, repo, monkeypatch):
+    """0.18.23 KeelBot's thinking, live like opencode's: helper.thinking.delta events (the thinking so far), apart from
+    helper.delta; the answer text is unchanged; the thinking is kept with the answer's data, never in the history."""
+    from keel_engine.models import fake
+    from keel_plugin_keelbot import helper
+
+    s = new_session(client, repo)
+    started, s = ask(client, s["id"], "Where does it start?")
+    evs = [e for e in client.bus.recent if e["thread_id"] == s["id"]]
+    thinks = [e for e in evs if e["type"] == "helper.thinking.delta"]
+    thought = fake.FAKE_THINKING.format(question="Where does it start?")
+    assert thinks and all(e["call_id"] == started["call_id"] and e["step"] == "helper" for e in thinks)
+    texts = [e["data"]["text"] for e in thinks]
+    assert all(thought.startswith(t) for t in texts) and texts[-1] == thought
+    # thinking comes before the answer and never mixes into it
+    first_delta = next(e for e in evs if e["type"] == "helper.delta")
+    assert evs.index(thinks[0]) < evs.index(first_delta)
+    assert not any(thought[:20] in e["data"]["text"] for e in evs if e["type"] == "helper.delta")
+    answer = s["messages"][-1]
+    assert "The person asks" not in answer["text"] and "src/scores/__init__.py:1" in answer["text"]
+    assert answer["data"]["thinking"] == thought and answer["data"]["thinking_ms"] >= 0
+    assert not any(e["type"] == "helper.step" and e["data"]["kind"] == "thinking_delta" for e in evs)
+    # the next turn's conversation: the questions and answers, never the thinking
+    seen = []
+    real = fake._plan
+    monkeypatch.setattr(fake, "_plan", lambda req: (seen.append(req), real(req))[1])
+    ask(client, s["id"], "And the tests?")
+    hist = seen[-1].history
+    assert hist and not any("The person asks" in t for _, t in hist)
+    assert not any("The person asks" in t for _, t in helper.history(s["id"]))
+
+
+def test_thinking_kept_with_an_answer_is_capped():
+    from keel_plugin_keelbot import helper
+
+    got = helper._thinking_data({"text": "x" * (helper.THINKING_MAX + 50), "last": 12.5}, 10.0)
+    assert len(got["thinking"]) <= helper.THINKING_MAX + 2 and got["thinking"].endswith(" …") and got["thinking_ms"] == 2500
+    assert helper._thinking_data({"text": "  "}, 0.0) == {}
+
+
 def test_ask_changes_nothing_even_when_the_engine_writes_behind_keels_back(client, repo):
     s = new_session(client, repo, model={"provider": "fake", "mode": "api", "model": "fake-rogue"})
     ask(client, s["id"], "Look around.")

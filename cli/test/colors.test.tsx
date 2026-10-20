@@ -13,7 +13,7 @@ import { AUTO, DARK, LIGHT, makeTheme, PLAIN, ROLES, type Palette, type Role } f
 import { parseOsc11 } from "../src/core/termbg";
 import { stripAnsi } from "../src/script";
 import { demoScreen } from "./colors-demo";
-import { stubKeel, tick, waitFor } from "./stub";
+import { stubKeel, waitFor } from "./stub";
 
 const CODE: Record<string, number> = { red: 31, green: 32, yellow: 33, blue: 34, magenta: 35, cyan: 36, redBright: 91, greenBright: 92,
   yellowBright: 93, blueBright: 94, magentaBright: 95, cyanBright: 96 };
@@ -48,14 +48,16 @@ describe("the example screen: a chat with KeelBot about a waiting gate", () => {
       expect(line(s, "I mean the gate")).toMatch(/^ {2}I mean the gate \x1b\[1mframe the question/);
       expect(line(s, "keep the earlier one")).toContain(open(p, "accent") + "•");
       expect(line(s, "src/webhooks/order.ts:42")).toContain(open(p, "path") + "src/webhooks/order.ts:42");
-      // KeelBot's suggestion: where it waits as a gate, the answer it would give as chosen
-      expect(line(s, "it waits at:")).toContain(BOLD + open(p, "gate") + "it waits at:");
+      // KeelBot's thinking, folded, and who answered: quiet meta text, readable (not dimmed)
+      expect(line(s, "⋮ Thought for 4s")).toContain(open(p, "meta") + "⋮ Thought for 4s");
+      expect(line(s, "■ Ask · Claude Sonnet 5.5")).toContain(open(p, "meta") + "■ Ask");
+      // KeelBot's suggestion: the question's words, the answer it would give as chosen; not sent as a warning
       expect(line(s, "keep it? → No")).toContain(BOLD + open(p, "chosen") + "No");
-      expect(line(s, "not done")).toContain(open(p, "warn") + "  not done");
+      expect(line(s, "Suggestion not sent")).toContain(open(p, "warn") + "  Suggestion not sent: you chose No.");
       // the question card: its number in the gate's colour, the question bold, its why readable
       expect(line(s, "1/1 What should I do next?")).toContain(BOLD + open(p, "gate") + "1/1");
       // the suggestion box: ✦ and the suggestion's colour; the question box: "?" and the gate's colour
-      expect(line(s, "✦ KeelBot suggests:")).toContain(open(p, "suggest") + "✦ KeelBot suggests: ");
+      expect(line(s, "✦ KeelBot suggests")).toContain(open(p, "suggest") + "✦ KeelBot suggests ");
       expect(line(s, "? What should I do next?")).toContain(open(p, "gate") + "? ");
       // an option: bold, "(recommended)" in its own colour, its description readable (no dim, no grey)
       const opt = line(s, "Ask KeelBot more");
@@ -72,7 +74,7 @@ describe("the example screen: a chat with KeelBot about a waiting gate", () => {
     expect(plain).not.toMatch(/\x1b\[/);
     expect(plain).toBe(stripAnsi(demoScreen(dark)));
     expect(plain).toContain(" › what do you mean");
-    expect(plain).toContain("✦ KeelBot suggests: answer");
+    expect(plain).toContain('✦ KeelBot suggests this answer for "frame the question". Send it?');
     expect(plain).toContain("◆ Waiting for you: frame the question has 2 questions");
   });
 });
@@ -92,6 +94,9 @@ describe("the palettes", () => {
     const p = dark.paint;
     expect(blockLines({ kind: "user", text: "hi" }, 40, p)[1]).toBe(`${BOLD}\x1b[94m › \x1b[39m\x1b[22m${BOLD}hi\x1b[22m`);
     expect(blockLines({ kind: "dim", text: "  q? → Yes" }, 40, p)[0]).toContain(`${BOLD}\x1b[32mYes`);
+    // KeelBot's thinking shown with Ctrl+T: its own words in meta, never read as "q → answer" or "not done"
+    const thought = blockLines({ kind: "dim", text: "⋮ Thinking (3s)\n  a → b\n  not done yet" }, 40, p);
+    expect(thought.every((l) => l.startsWith(open(dark.palette, "meta")))).toBe(true);
     expect(blockLines({ kind: "user", text: "hi" }, 40, PLAIN)).toEqual(["", " › hi"]);
     expect(noteText("  q? → Yes", PLAIN)).toBe("  q? → Yes");
     expect(textBlock("1/2 Which one?\n   why it matters: x", PLAIN)).toBe("1/2 Which one?\n   why it matters: x");
@@ -118,12 +123,13 @@ describe("/theme", () => {
     const r = render(<App core={core} probe={probe} width={80} theme={dark} />);
     await waitFor(() => probe.started);
     r.stdin.write("/theme light");
-    await tick(30);
+    await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("› /theme light"));
     r.stdin.write("\r");
     await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("theme light: colours for a light background"));
-    await tick(30);
-    expect(r.lastFrame()).toContain(hex(LIGHT.ok));                              // what comes next is in the light palette
-    expect(r.lastFrame()).toContain("\x1b[34m› ");                               // the prompt's "›": the person's blue on light
+    // what comes next is in the light palette; the prompt's "›": the person's blue on light
+    await waitFor(() => (r.lastFrame() ?? "").includes(hex(LIGHT.ok)) && (r.lastFrame() ?? "").includes("\x1b[34m› "));
+    expect(r.lastFrame()).toContain(hex(LIGHT.ok));
+    expect(r.lastFrame()).toContain("\x1b[34m› ");
     r.unmount();
   });
 });

@@ -263,7 +263,7 @@ def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, re
     request = spec.prompt.split("What the user asked for:\n", 1)[1]
     assert "[cut at 8000 of" in request                     # every agent's request stays short
     assert spec.prompt.count("src/webhook/EtaHandler.kt:249") >= 2       # both angles, whole, in the evidence block
-    assert all(f"ANGLE-END angles {n}" in spec.prompt for n in (1, 2, 3))
+    assert all(f"ANGLE-END {t}" in spec.prompt for t in fake.SPIKE_ANGLES)        # 0.18.23 the fake frame's angles
     assert "Carry every claim with its file:line or URL into the spec's Findings (evidence)" in spec.prompt
     red = [r for r in seen if r.agent == "test-author"]
     assert all("Evidence handed over" not in r.prompt for r in red)
@@ -272,8 +272,9 @@ def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, re
 def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_answers(client, repo, monkeypatch):
     from conftest import decide, start, wait
 
-    qs = [{"id": "change", "question": "May the outbound webhook contract change?", "options": [
-        {"label": "Additive only", "recommended": True}, {"label": "A new version"}]}]
+    # 0.18.23 a question about the decision (what evidence decides it), not how to build it
+    qs = [{"id": "evidence", "question": "What evidence decides whether we build it?", "options": [
+        {"label": "The vendor's documented fields", "recommended": True}, {"label": "A measured sample of real payloads"}]}]
     angles = "```json\n" + json.dumps([{"title": "map the field"}, {"title": "poll the API"}]) + "\n```"
     real, seen = fake._plan, []
 
@@ -287,11 +288,39 @@ def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_ans
     tid = start(client, repo, workflow="spike", title="ParcelPerform ETA")
     s = wait(client, tid)
     assert s["waiting"]["step"] == "frame_questions" and s["waiting"]["kind"] == "clarify"
-    assert [q["id"] for q in s["waiting"]["questions"]] == ["change"]
-    s = decide(client, tid, "approve", payload={"answers": {"change": "Additive only"}})
+    assert [q["id"] for q in s["waiting"]["questions"]] == ["evidence"]
+    s = decide(client, tid, "approve", payload={"answers": {"evidence": "The vendor's documented fields"}})
     frames = [r for r in seen if r.step_name == "frame the question"]
-    assert len(frames) == 2 and "→ Additive only" in frames[1].feedback
+    assert len(frames) == 2 and "→ The vendor's documented fields" in frames[1].feedback
     assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"]
+
+
+def test_the_spikes_frame_asks_about_the_decision_and_leaves_how_to_build_it_to_the_spec(client, repo, monkeypatch):
+    # 0.18.23 a real frame asked "overwrite one column or keep history?" and "DB only, outbound or API?": the feature's
+    # spec interview asks those; the frame asks what the decision needs
+    from keel_engine.workflows.templates import get_template
+    from conftest import start, wait
+
+    frame = get_template("spike").step("frame")
+    text = " ".join(frame.instructions.split())
+    assert "Ask only about the DECISION the spike must support: do we need it at all, for whom, what certainty or what " \
+           "evidence decides it, deadline or cost limits, which options to compare." in text
+    assert "Never ask how to build it (which column or table, overwrite or keep history, which systems or APIs read it" in text
+    assert 'those belong in the feature\'s spec interview, so list them under "Open questions for the spec"' in text
+    findings = get_template("spike").step("findings")
+    assert "the framing's open questions for the spec" in " ".join(findings.instructions.split())
+    real, seen = fake._plan, []
+
+    def plan(req):
+        seen.append(req)
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    assert s["waiting"]["step"] == "decide"                       # the fake asks nothing: straight to the result
+    framed = next(r for r in seen if r.step_name == "frame the question")
+    assert "Ask only about the DECISION" in framed.prompt
+    said = fake._plan(framed)[2]
+    assert "Decision: whether to build it" in said and "Open questions for the spec:" in said
 
 
 # ------------------------------------------------------------------ the feature flow (fake model)
@@ -338,3 +367,68 @@ def test_a_plain_refactor_does_not_research_the_web(client, repo, monkeypatch):
     assert [r.step_name for r in seen][:3] == ["outside docs needed?", "interview", "spec"]
     assert not any(r.agent == "web-researcher" for r in seen) and "web_docs" in skipped
     assert "https://docs.example.com/webhooks" not in seen[2].prompt
+
+
+# ------------------------------------------------------------------ 0.18.23 the spike's report reads in a glance
+
+def test_the_spike_report_starts_with_its_summary_and_strips_the_angles_working(client, repo):
+    from conftest import start, wait
+
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform webhook ETA"))
+    assert s["waiting"]["step"] == "decide"
+    report = s["waiting"]["detail"]
+    lines = report.splitlines()
+    assert lines[0] == "# Spike: ParcelPerform webhook ETA" and lines[2] == "## Summary"
+    summary = report.split("## Findings", 1)[0]
+    assert len([x for x in summary.splitlines() if x.strip()]) <= 14
+    heads = [x.split(":**")[0] for x in summary.splitlines() if x.startswith("- **")]
+    assert heads == ["- **DECISION", "- **BEFORE BUILDING", "- **CONFLICTS", "- **COST", "- **NEXT"]
+    assert "- **DECISION:** build it on the existing tracking_subscriptions column." in summary
+    assert "  1. Does the vendor send the ETA on every update?" in summary and "- **NEXT:** spec" in summary
+    # the summary comes first: before the findings and the angles
+    assert report.index("## Summary") < report.index("## Findings") < report.index("## Angles")
+    # the angles keep their ANGLE REPORT only: no tool-call log, no narration
+    for noise in ("●", "│", "└", "/ Search", "I'll start with", "Now the entity"):
+        assert noise not in report, noise
+    assert "<details><summary>reuse the subscription column · VERDICT promising</summary>" in report    # folded
+    assert "- where the ETA is stored: trackings.estimated_delivery_date — src/db/Tracking.kt:30" in report
+
+
+def test_the_angles_conflict_shows_under_conflicts_and_one_verdict_line_is_counted(client, repo):
+    from conftest import start, wait
+
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform webhook ETA"))
+    summary = s["waiting"]["detail"].split("## Findings", 1)[0]
+    conflicts = summary.split("**CONFLICTS:**", 1)[1].split("**COST:**", 1)[0]
+    assert "where the ETA is stored" in conflicts and "tracking_subscriptions" in conflicts and "trackings" in conflicts
+    verdicts = [x for x in s["waiting"]["detail"].splitlines() if x.startswith("VERDICT:")]
+    assert verdicts == ["VERDICT: 1 of 2 angles promising (1 possible); recommendation: reuse the subscription column"]
+
+
+def test_keel_finds_a_conflict_the_findings_missed(client, repo, monkeypatch):
+    from conftest import start, wait
+
+    real = fake._plan
+
+    def plan(req):
+        if req.agent == "investigator" and req.step_name.startswith("findings"):
+            return None, "", "DECISION: build it.\nCONFLICTS: none\nCOST: small\nNEXT: spec\nRECOMMEND: build it", {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ETA"))
+    conflicts = s["waiting"]["detail"].split("**CONFLICTS:**", 1)[1].split("**COST:**", 1)[0]
+    assert "where the eta is stored:" in conflicts and "migration needed:" in conflicts
+    assert "keel found it in the angles' facts" in conflicts
+
+
+def test_the_report_helpers_strip_logs_count_verdicts_and_read_facts():
+    from keel_engine.runtime import spike_report as sr
+
+    raw = "I'll look.\n● cat -n a.kt\n│ 1 x\n└ 9 lines…\n/ Search (grep) eta\nLet me check.\nThe ETA is set at a.kt:1.\n```\n● kept in code\n```"
+    assert sr.clean(raw) == "The ETA is set at a.kt:1.\n```\n● kept in code\n```"
+    assert sr.angle_text("working\nANGLE REPORT\nAnswer: x\nVERDICT: no") == "Answer: x\nVERDICT: no"
+    rs = [{"markers": {"VERDICT": v}} for v in ("promising", "promising", "possible", "promising")]
+    assert sr.verdict_line(rs, "map it") == "VERDICT: 3 of 4 angles promising (1 possible); recommendation: map it"
+    assert sr.verdict_line([{"markers": {}}], "") == "VERDICT: 0 of 1 angles with a verdict (1 without a verdict)"
+    assert markers.parse("VERDICT: Promising — the column exists", ["VERDICT"]) == {"VERDICT": "promising"}
+    assert markers.REGISTRY["CONFLICTS"] == ("none", "found")

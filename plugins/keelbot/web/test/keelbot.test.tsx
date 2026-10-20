@@ -10,7 +10,7 @@ import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
 import { db } from "../../../../web/src/test/setup";
 import { skillHead, splitActions } from "../Actions";
-import { answeredBy } from "../HelperPanel";
+import { answeredBy, ThinkingBlock } from "../HelperPanel";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 
@@ -30,7 +30,7 @@ const WORKFLOW = [
 ].join("\n");
 
 /** A KeelBot chat whose last answer is `text` (as the engine stores it), on KeelBot's own page. */
-async function chatWith(text: string, after: { role: "user" | "helper"; text: string }[] = []) {
+async function chatWith(text: string, after: { role: "user" | "helper"; text: string }[] = [], extra: Record<string, unknown> = {}) {
   db.helper.sessions.push({
     id: "h1",
     project: "ludus-engine",
@@ -68,6 +68,7 @@ async function chatWith(text: string, after: { role: "user" | "helper"; text: st
           tokens_out: 200,
           cost_usd: 0,
           ms: 3000,
+          ...extra,
         },
         at: new Date().toISOString(),
       },
@@ -203,7 +204,7 @@ describe("0.18.13 KeelBot proposes the answer to a flow's question (keel-flow an
     const card = await within(p).findByRole("region", { name: "Flow: Choose “Skip it for now”" });
     expect(card).toHaveTextContent("AC-002 goes to the end of the list");
     expect(card).toHaveTextContent("The reason: blocked by AC-003");
-    expect(card).toHaveTextContent("It waits at: AC-002 is stuck at verify_green");
+    expect(card).toHaveTextContent('"AC-002 is stuck at verify_green"');          // 0.18.23 the gate's name, like the gate
     expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
     await user.click(within(card).getByRole("button", { name: "Choose “Skip it for now”" }));
     await waitFor(() => expect(db.calls.find((c) => c.path === `/api/threads/${t.thread_id}/resume`)?.body).toEqual(
@@ -228,6 +229,39 @@ describe("0.18.13 KeelBot proposes the answer to a flow's question (keel-flow an
     await user.click(within(card).getByRole("button", { name: "Send these answers" }));
     await waitFor(() => expect(db.calls.find((c) => c.path === `/api/threads/${t.thread_id}/resume`)?.body).toEqual(
       { decision: "approve", payload: { answers: { run: "locally", knowledge: ["architecture", "data"] } } }));
+  });
+});
+
+describe("0.18.23 KeelBot's suggested gate answer reads like the gate, and a new message drops it", () => {
+  const FRAME = { step: "frame_questions", kind: "clarify" as const, title: "frame the question has 2 questions", detail: "",
+    options: ["approve" as const], questions: [
+      { id: "eta_semantics", question: "What should the ETA mean?", options: [{ label: "A · Overwrite one column" }, { label: "B · Keep history" }] },
+      { id: "eta_consumers", question: "Who reads the ETA?", options: [{ label: "A · Database only" }, { label: "B · Outbound too" }] }] };
+  const block = (tid: string) => `\`\`\`keel-flow\n{"do": "answer", "flow": "${tid}", "answers": {"eta_semantics": "A · Overwrite one column", "eta_consumers": "A · Database only"}}\n\`\`\``;
+
+  it("the step's short name, one line per question with its words, never the ids or the request", async () => {
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = FRAME;
+    t.title = "I want to extend the parcelperform webhook to support the estmiated delivery date";
+    const p = await chatWith(`I read src/webhook/EtaHandler.kt:249.\n\n${block(t.thread_id)}`);
+    const card = await within(p).findByRole("region", { name: "Flow: Send these answers" });
+    await waitFor(() => expect(card).toHaveTextContent('"frame the question"'));
+    const list = within(card).getByRole("list", { name: "KeelBot's answers" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "What should the ETA mean? → A · Overwrite one column", "Who reads the ETA? → A · Database only"]);
+    expect(card.textContent).not.toMatch(/eta_semantics|eta_consumers|parcelperform/);
+    expect(within(card).getByRole("button", { name: "Send these answers" })).toBeEnabled();
+  });
+
+  it("a message after the suggestion: not sent, says why, no Send button", async () => {
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = FRAME;
+    const p = await chatWith(block(t.thread_id), [{ role: "user", text: "did you read the code?" }]);
+    const card = await within(p).findByRole("region", { name: "Flow: Send these answers" });
+    await waitFor(() => expect(within(card).getByRole("status")).toHaveTextContent(
+      "Suggestion not sent: you wrote a new message. KeelBot will update it."));
+    expect(within(card).queryByRole("button", { name: "Send these answers" })).not.toBeInTheDocument();
+    expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
   });
 });
 
@@ -373,5 +407,32 @@ describe("KeelBot's answers: text and buttons", () => {
         ),
       }),
     );
+  });
+});
+
+describe("0.18.23 KeelBot's thinking in the panel", () => {
+  it("a stored answer's thinking is folded above it, apart from the answer; a click opens it", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith("The report page goes in web/src/pages/Report.tsx:1.", [],
+      { thinking: "The person wants a weekly page. I look at the pages first.", thinking_ms: 12000 });
+    const box = await within(p).findByText("⋮ Thought for 12s");
+    const details = box.closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    const answer = within(p).getByText(/The report page goes in/).closest(".hp-answer")!;
+    expect(answer.textContent).not.toContain("I look at the pages first.");
+    await user.click(box);
+    expect(details).toHaveAttribute("open");
+    expect(within(details).getByLabelText("KeelBot's thinking")).toHaveTextContent("I look at the pages first.");
+  });
+
+  it("live: open while KeelBot thinks, folded once the answer starts", () => {
+    const r = render(<ThinkingBlock text="Thinking about it" answering={false} />);
+    const details = r.container.querySelector("details")!;
+    expect(details).toHaveAttribute("open");
+    expect(r.getByText("⋮ Thinking")).toBeInTheDocument();
+    r.rerender(<ThinkingBlock text="Thinking about it, done" answering />);
+    expect(details).not.toHaveAttribute("open");
+    expect(r.getByText("⋮ Thought")).toBeInTheDocument();
+    r.unmount();
   });
 });

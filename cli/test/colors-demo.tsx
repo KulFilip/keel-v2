@@ -31,15 +31,17 @@ const thread = {
 export const blocks = (p: Paint): Block[] => [
   { kind: "text", text: fmt.status(project as never, { thread, workflow: null } as never, p, 100) },
   { kind: "user", text: "what do you mean" },
+  { kind: "dim", text: "⋮ Thought for 4s (Ctrl+T to show)" },
   { kind: "markdown", text: "I mean the gate **frame the question** asks you two things before keel writes the spec:\n\n"
     + "- **A** keep the later webhook (`order_id` decides)\n- **B** keep the earlier one\n- **C** keep both and warn\n\n"
     + "See src/webhooks/order.ts:42. I would answer **No** to the first question." },
-  { kind: "dim", text: "  it waits at: frame the question\n  When a later webhook arrives first, keep it? → No" },
-  { kind: "dim", text: "  not done" },
+  { kind: "dim", text: "■ Ask · Claude Sonnet 5.5" },
+  { kind: "dim", text: "  When a later webhook arrives first, keep it? → No" },
+  { kind: "dim", text: "  Suggestion not sent: you chose No." },
   { kind: "text", text: "1/1 What should I do next?\n   why it matters: keel waits for this answer before it goes on" },
 ];
 
-export const SUGGESTION = 'KeelBot suggests: answer "Webhook retries" with q1 → No?';
+export const SUGGESTION = 'KeelBot suggests this answer for "frame the question". Send it?';
 export const OPTIONS: Choice[] = [
   { label: "Answer the gate (recommended)", value: "a", hint: "send No for q1, the default for q2" },
   { label: "Ask KeelBot more", value: "b", hint: "it explains each question first" },

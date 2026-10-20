@@ -206,6 +206,54 @@ describe("KeelBot streams", () => {
     r.unmount();
   });
 
+  it("0.18.23 shows KeelBot's thinking while it thinks, folds it when the answer starts, Ctrl+T opens it", async () => {
+    const stub = stubKeel();
+    const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
+    const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
+    const r = render(<App core={core} probe={probe} width={100} theme={none} />);
+    const frame = () => stripAnsi(r.lastFrame() ?? "");
+    await waitFor(() => probe.started);
+    r.stdin.write("where does it start?");
+    await tick(30);
+    r.stdin.write("\r");
+    await waitFor(() => probe.chatBusy);
+    const ev = (type: string, n: number, text: string) => core.onMessage({ event: "engine", data: JSON.stringify({ type,
+      thread_id: "s1", project_id: "demo", at: "x", call_id: "call-9", step: "helper", data: { n, block: 0, text } }) });
+    ev("helper.thinking.delta", 1, "The person asks where");
+    ev("helper.thinking.delta", 2, "The person asks where it starts. I look at main.py first.");
+    await tick(30);
+    expect(frame()).toContain("⋮ Thinking");
+    expect(frame()).toContain("The person asks where it starts. I look at main.py first.");
+    ev("helper.delta", 1, "It starts in main.py");
+    await tick(30);
+    expect(frame()).toMatch(/⋮ Thought for \d+s \(Ctrl\+T to show\)/);
+    expect(frame()).not.toContain("I look at main.py first.");
+    expect(frame()).toContain("It starts in main.py");
+    r.stdin.write("\x14");                                                                  // Ctrl+T opens it again
+    await tick(30);
+    expect(frame()).toContain("I look at main.py first.");
+    r.stdin.write("\x14");
+    await tick(30);
+    expect(frame()).not.toContain("I look at main.py first.");
+    stub.answer("It starts in main.py.", { mode: "ask", provider: "claude", model: "sonnet",
+      thinking: "The person asks where it starts. I look at main.py first.", thinking_ms: 12000 });
+    core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "s1", project_id: "demo", at: "x", data: {} }) });
+    await waitFor(() => probe.answers === 1);
+    await tick(30);
+    const f = frame();
+    expect(f).toContain("⋮ Thought for 12s (Ctrl+T to show)");
+    expect(f).toContain("It starts in main.py.");
+    expect(f).toMatch(/■ Ask · \S+/);
+    expect(f.indexOf("⋮ Thought for 12s")).toBeLessThan(f.indexOf("It starts in main.py."));
+    expect(f.indexOf("It starts in main.py.")).toBeLessThan(f.indexOf("■ Ask"));
+    expect(f).not.toContain("I look at main.py first.");                                     // folded, not in the answer
+    r.stdin.write("\x14");                                                                  // after the turn: shown once
+    await tick(30);
+    expect(frame()).toContain("⋮ Thinking (12s)");
+    expect(frame()).toContain("I look at main.py first.");
+    r.unmount();
+  });
+
   it("Esc stops the turn through keel's api", async () => {
     const stub = stubKeel();
     const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });

@@ -689,6 +689,10 @@ class Compiler:
             if kind == "delta":
                 live_text.add(str(text))
                 return
+            if kind == "thinking_delta":
+                # 0.18.23 thinking as the model writes it: KeelBot shows it live; a flow's agent keeps its whole
+                # thinking step only
+                return
             if kind == "usage":
                 # 0.18.17 the run's usage so far (runners that learn it while they run): kept for the thread's view and
                 # the cap, and sent as agent.usage at most every USAGE_EVERY seconds; agent.finished still books the total

@@ -770,7 +770,9 @@ export type HelperMessage = {
     /** 0.18.20 an answer: its turn (the user message's n); `files` is then what this answer changed ([] for none) */
     turn?: number;
     /** 0.18.19 part of an answer /undo took back (kept, shown dim); final: a newer message came, /redo cannot bring it back */
-    reverted?: boolean; final?: boolean };
+    reverted?: boolean; final?: boolean;
+    /** 0.18.23 an answer: the mode it ran in, and the model's thinking (kept for a reload, never sent to the model) */
+    mode?: string; thinking?: string; thinking_ms?: number };
   at: string;
 };
 export type HelperSession = {

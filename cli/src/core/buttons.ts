@@ -26,9 +26,10 @@ import { api, get, post, type RunMode } from "../../../web/src/api";
 import type { Answers, Question } from "./commands";
 import { inboxApi } from "../../../web/src/inboxApi";
 import { answersMessage, parseQuestions } from "../../../web/src/questions";
+import { answerLines, gateName, NOT_SENT_NEW_MESSAGE } from "../../../plugins/keelbot/web/suggest";
 
 // keel 0.18.13 one copy of the questions' parser and the answers' message, shared with the dashboard (web/src/questions.ts)
-export { answersMessage, parseQuestions };
+export { answersMessage, parseQuestions, NOT_SENT_NEW_MESSAGE };
 
 export const RUN_MODES: RunMode[] = ["manual", "important", "auto", "readonly"];
 
@@ -160,9 +161,10 @@ function answersFrom(raw: unknown): Answers | null {
   return Object.keys(out).length ? out : null;
 }
 
-/** What an answer button sends, in words: "run → docker; knowledge → architecture, domain" or "the choice retry". */
+/** What an answer button sends, in words, without the questions' ids (0.18.23): "docker; architecture, domain" or
+ *  "the choice retry". With the gate at hand, `prepare` shows each question's own words with its answer. */
 export function answerText(b: Extract<Button, { kind: "answer" }>): string {
-  if (b.answers) return Object.entries(b.answers).map(([k, v]) => `${k} → ${Array.isArray(v) ? v.join(", ") : v}`).join("; ");
+  if (b.answers) return Object.values(b.answers).map((v) => (Array.isArray(v) ? v.join(", ") : v)).join("; ");
   return `the choice ${b.choice}`;
 }
 
@@ -303,9 +305,16 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
     const info = b.choice ? w?.choice_info?.find((c) => c.name === b.choice) : undefined;
     if (b.choice && !b.why && (info ? info.why === "required" : b.choice === "reject"))
       return { error: `KeelBot's answer chooses ${info?.label || b.choice}, which needs a reason, and gives none: /answer ${b.choice} <why>, or ask KeelBot for one.` };
-    const lines = b.answers ? Object.entries(b.answers).map(([k, v]) => `${w?.questions?.find((q) => q.id === k)?.question ?? k} → ${Array.isArray(v) ? v.join("; ") : v}`)
-      : info ? [`${info.label}${info.description ? `: ${info.description}` : ""}`] : [];
-    return { title: question(b, name)!, detail: [...(w?.title ? [`it waits at: ${w.title}`] : []), ...lines].join("\n") || undefined };
+    // 0.18.23 like the gate itself: its short name (the step's, not the request cut short), then one line per question
+    const gate = gateName(w);
+    const at = gate ? `"${gate}"` : name(b.flow);
+    if (b.answers) {
+      const one = Object.keys(b.answers).length === 1;
+      return { title: `KeelBot suggests ${one ? "this answer" : "these answers"} for ${at}${b.why ? ` (${b.why})` : ""}. Send ${one ? "it" : "them"}?`,
+        detail: answerLines(b.answers, w).join("\n") };
+    }
+    return { title: `KeelBot suggests "${info?.label || b.choice}" for ${at}${b.why ? ` (${b.why})` : ""}. Send it?`,
+      detail: info?.description ? `${info.label || b.choice}: ${info.description}` : undefined };
   }
   const q = question(b, name);
   return q ? { title: q } : null;

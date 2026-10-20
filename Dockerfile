@@ -42,7 +42,7 @@ WORKDIR /src/cli
 COPY cli/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/src/api.ts web/src/askFix.ts web/src/inboxApi.ts web/src/questions.ts web/src/rulesApi.ts web/src/signIn.ts /src/web/src/
-COPY plugins/keelbot/web/keelbotApi.ts /src/plugins/keelbot/web/
+COPY plugins/keelbot/web/keelbotApi.ts plugins/keelbot/web/suggest.ts /src/plugins/keelbot/web/
 COPY content/agent-clients/commands.json /src/content/agent-clients/
 COPY cli/ ./
 RUN npm run build

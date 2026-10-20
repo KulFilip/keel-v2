@@ -17,6 +17,16 @@ export function effortsOf(c: Catalog | null, p: string, mode: Mode, model: strin
 export const modelText = (m: { provider?: string | null; model?: string | null; effort?: string | null }): string =>
   `${m.provider ?? "?"}/${m.model ?? "?"}${m.effort ? ` · ${m.effort}` : ""}`;
 
+/** 0.18.23 a model's name as people say it ("Claude Sonnet 5.5"): its label in keel's catalog, when it was read, else
+ *  provider/model. */
+export function modelName(m: { provider?: string | null; model?: string | null }): string {
+  for (const list of Object.values(known?.[m.provider ?? ""]?.modes ?? {})) {
+    const label = (list ?? []).find((x) => x.id === m.model)?.label;
+    if (label) return label;
+  }
+  return `${m.provider ?? "?"}/${m.model ?? "?"}`;
+}
+
 const bare = (m: Model): Model => ({ provider: m.provider, mode: m.mode, model: m.model });
 const ok = (t: string): Reply => ({ blocks: [{ kind: "ok", text: t }] });
 const said = (t: string): Reply => ({ blocks: [{ kind: "text", text: t }] });

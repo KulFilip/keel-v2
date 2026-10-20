@@ -100,3 +100,30 @@ def test_a_flow_agent_streams_agent_delta_and_stores_only_whole_steps(client, re
     for cid, text in last.items():
         assert answers[cid].startswith(text)
     assert not any(e["type"] == "agent.step" and e["data"]["kind"] == "delta" for e in evs)
+
+
+def test_claude_thinking_streams_as_thinking_deltas_apart_from_the_text():
+    """0.18.23 Claude's thinking_delta events: emit("thinking_delta"), never a text delta; the whole thinking block
+    stays its own step."""
+    got = []
+    s = ClaudeStream(lambda kind, text="", **k: got.append((kind, text)), "/tmp")
+    for line in [
+        {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Look at "}}},
+        {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "main.py"}}},
+        {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "x"}}},
+        {"type": "stream_event", "event": {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "It is main.py"}}},
+        {"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "Look at main.py"},
+                                                      {"type": "text", "text": "It is main.py"}]}},
+    ]:
+        s.line(json.dumps(line))
+    assert got == [("thinking_delta", "Look at "), ("thinking_delta", "main.py"), ("delta", "It is main.py"),
+                   ("thinking", "Look at main.py"), ("text", "It is main.py")]
+
+
+def test_the_api_runner_reads_reasoning_from_each_providers_chunks():
+    from langchain_core.messages import AIMessageChunk
+
+    assert api_runner._thinking(AIMessageChunk(content=[{"type": "thinking", "thinking": "Hm, "}, {"type": "text", "text": "A"}])) == "Hm, "
+    assert api_runner._thinking(AIMessageChunk(content=[{"type": "reasoning", "summary": [{"type": "summary_text", "text": "Plan"}]}])) == "Plan"
+    assert api_runner._thinking(AIMessageChunk(content="A", additional_kwargs={"reasoning_content": "why"})) == "why"
+    assert api_runner._thinking(AIMessageChunk(content="just the answer")) == ""

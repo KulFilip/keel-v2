@@ -94,8 +94,9 @@ export function Picker({ title, choices, index, filter, ticked }: { title: strin
   ticked?: Set<string> }) {
   const { color, look } = useTheme();
   // three looks, each with its own mark and border: KeelBot's suggestion ("✦ KeelBot suggests:", the accent), a
-  // question (a yes or no, a gate's question: "?" and the gate's amber, its words bold), a list (the accent)
-  const sug = /^KeelBot suggests:\s*/.exec(title);
+  // question (a yes or no, a gate's question: "?" and the gate's amber, its words bold), a list (the accent). A
+  // suggested answer to a gate reads "KeelBot suggests this answer for …" (no colon), and has the suggestion's look too
+  const sug = /^KeelBot suggests(:\s*|\s+)/.exec(title);
   const ask = !sug && title.trim().endsWith("?");
   const tone = sug ? color("suggest") : ask ? color("gate") : color("accent");
   const max = 10;
@@ -103,7 +104,7 @@ export function Picker({ title, choices, index, filter, ticked }: { title: strin
   const shown = choices.slice(start, start + max);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={tone} paddingX={1}>
-      {sug ? <Text><Text {...look("suggest", true)}>{"✦ KeelBot suggests: "}</Text><Text bold>{title.slice(sug[0].length)}</Text></Text>
+      {sug ? <Text><Text {...look("suggest", true)}>{sug[1].startsWith(":") ? "✦ KeelBot suggests: " : "✦ KeelBot suggests "}</Text><Text bold>{title.slice(sug[0].length)}</Text></Text>
         : ask ? <Text><Text {...look("gate", true)}>{"? "}</Text><Text {...look("question", true)}>{title}</Text></Text>
         : <Text {...look("accent")} bold>{title}</Text>}
       {filter && <Text {...look("meta")}>{`filter: ${filter}`}</Text>}

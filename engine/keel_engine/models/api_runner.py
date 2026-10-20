@@ -41,6 +41,29 @@ def _text(content) -> str:
     return str(content or "")
 
 
+def _thinking(chunk) -> str:
+    """0.18.23 the reasoning in a streamed chunk, where the provider sends it: Anthropic's `thinking` blocks, OpenAI's
+    `reasoning` summaries, or `reasoning_content` (DeepSeek and others); "" when there is none. Never the answer."""
+    out = []
+    content = getattr(chunk, "content", None)
+    if isinstance(content, list):
+        for c in content:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "thinking" and c.get("thinking"):
+                out.append(str(c["thinking"]))
+            elif c.get("type") == "reasoning":
+                summary = c.get("summary")
+                if isinstance(summary, list):
+                    out += [str(x.get("text", "")) for x in summary if isinstance(x, dict) and x.get("text")]
+                elif c.get("reasoning"):
+                    out.append(str(c["reasoning"]))
+    extra = getattr(chunk, "additional_kwargs", None) or {}
+    if isinstance(extra, dict) and isinstance(extra.get("reasoning_content"), str):
+        out.append(extra["reasoning_content"])
+    return "".join(out)
+
+
 class APIRunner:
     @staticmethod
     async def _reply(bound, messages, emit: Emit):
@@ -53,6 +76,9 @@ class APIRunner:
                 piece = _text(chunk.content)
                 if piece:
                     emit("delta", piece)
+                thought = _thinking(chunk)
+                if thought:
+                    emit("thinking_delta", thought)
         except NotImplementedError:
             full = None
         return full if full is not None else await bound.ainvoke(messages)

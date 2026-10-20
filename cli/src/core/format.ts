@@ -91,9 +91,16 @@ export function waitingLines(w: Waiting, c: Paint = PLAIN): string[] {
       }
     }
   }
-  const detail = (w.detail ?? "").trim();
+  const detail = folded(w.detail ?? "").trim();
   if (detail) out.push(...cut(detail, 600).split("\n").map((l) => "          " + labelLine(l, c)));
   return out;
+}
+
+/** 0.18.23 a gate's `<details><summary>title</summary> … </details>` fold-outs (a spike's angles) as their title line
+ *  only, "▸ title"; the dashboard's Flow page opens them. */
+export function folded(text: string): string {
+  return text.replace(/^[ \t]*<details>[ \t]*(?:<summary>(.*?)<\/summary>)?[\s\S]*?^[ \t]*<\/details>[ \t]*$/gim,
+    (_m, title: string | undefined) => `▸ ${title || "more"}`);
 }
 
 /** keel 0.18.13 a waiting question's named choices with the engine's words (choice_info): one line each, its number,

@@ -83,7 +83,8 @@ commands and tools; keel checks it, then Save writes .keel/stacks/<name>.yml): i
 with up to 4 questions, each 2 to 4 options, the recommended one first with "recommended": true, and "multiple": true \
 when several options can be true together. The person picks (or writes their own answer) and the answers come back as \
 your next message. Whenever the person must choose between options, ask with this block: never write the choice as a \
-question in your text ("A or B?"), and do not go on as if they had chosen:
+question in your text ("A or B?"), and do not go on as if they had chosen. Never use it to ask leave to read, search \
+or explain ("Read the handler first?"): that needs no OK, do it:
 ```keel-questions
 [{"id": "<short word>", "question": "<the question>", "why": "<what the answer changes>", \
 "options": [{"label": "<option>", "description": "<what it costs>", "recommended": true}, {"label": "<option>"}]}]
@@ -112,12 +113,24 @@ when that choice needs a reason (a send back always does). Use the ids and names
 ```keel-flow
 {"do": "answer", "flow": "<flow id>", "choice": "<choice name>", "why": "<the reason, when the choice needs one>"}
 ```
+Before you give an answer button, read the code the question is about (the rule below on advice).
 Run modes: manual stops at every gate; important approves a criterion's gate when its checks and review pass; auto \
 approves every gate keel can decide (it still stops for money, new dependencies, secrets and failures); readonly lets \
 agents read but not change anything. Only flows that run or wait can be stopped. A gate that asks questions or offers \
 named choices is answered (the answer button above, the dashboard or /answer), not approved.
 When the person asks how to build, change or fix something, say which workflow fits best and why (one or two \
 sentences, and when another one fits better), then give the start button with a good title and request."""
+
+# 0.18.23 a person asked KeelBot about a spike's waiting questions: it said "I suggest A for both, smallest and safest",
+# and only later "I did not read the code myself, my answers came from the gate text and the explorer notes". Advice on
+# a flow's question comes from the code, read in the same turn.
+ADVICE = ("Advice on a flow's question. Before you recommend an answer to a question or a choice a flow waits at (an "
+          "answer button, or a recommendation in your text), read the code the question is about, in the same turn: "
+          "the files the gate names, the flow's evidence and findings, or what a search finds. The gate's text and the "
+          "explorer's notes are claims to check, not evidence. Give the reason for each answer with its "
+          "`path/to/file.ext:LINE`. When you truly cannot check something, say so in the recommendation itself: "
+          "\"not checked in the code: <what and why>\". Never call an option the safest, the smallest or the simplest "
+          "without the evidence for it (a file:line, a number, a source).")
 
 FORMAT = formats.WORKFLOW
 
@@ -227,7 +240,7 @@ def keel_block(keel: dict | None, question: str) -> str:
                      + "\n".join(_flow_line(f) for f in flows))
     elif wfs:
         parts.append("No flow has run in this project yet.")
-    parts.append(ACTIONS)
+    parts += [ACTIONS, ADVICE]
     on = list(keel.get("plugins") or [])
     parts += [kb["prompt"] for kb in extensions.keelbot(on) if kb.get("prompt")]     # the parts on (Database ...)
     q = question or ""

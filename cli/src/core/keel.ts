@@ -28,6 +28,9 @@ export type ChatState = {
   /** when the running turn started (ms), and how much text it wrote so far (for "~N tokens") */
   startedAt: number | null;
   wrote: number;
+  /** 0.18.23 what KeelBot thinks in this turn so far (helper.thinking.delta), and when it last thought (ms) */
+  thinking?: string;
+  thoughtAt?: number | null;
 };
 
 /** keel 0.18.8 a login keel can use (Connections): its name and whether its chosen way works now. */
@@ -364,6 +367,11 @@ export class KeelCore {
     this.opts.profiler?.event(ev.at);
     const chat = this.snapshot.chat;
     // live text: KeelBot's answer, or an agent's, as it is written (never a notice, never a refresh)
+    // 0.18.23 KeelBot's thinking as the model writes it: shown apart from the answer, never stored here
+    if (ev.type === "helper.thinking.delta" && ev.call_id) {
+      if (ev.call_id === chat.callId && chat.busy) this.setChat({ thinking: String((ev.data as { text?: unknown }).text ?? ""), thoughtAt: Date.now() });
+      return;
+    }
     if ((ev.type === "helper.delta" || ev.type === "agent.delta") && ev.call_id) {
       const text = String((ev.data as { text?: unknown }).text ?? "");
       if (ev.type === "agent.delta") this.set({ liveText: { ...this.snapshot.liveText, [ev.call_id]: text } });
@@ -407,7 +415,7 @@ export class KeelCore {
     }
     // 0.18.6 the person asked in this chat from the dashboard: their words, then KeelBot's answer as it is written
     if (ev.type === "helper.started" && chat.session && ev.thread_id === chat.session.id && !chat.busy && !this.sending && ev.call_id) {
-      this.setChat({ busy: true, callId: ev.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
+      this.setChat({ busy: true, callId: ev.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
       const pid = this.pid;
       void (pid ? kb.session(pid, chat.session.id) : Promise.reject(new Error("no project"))).then((s) => {
         const last = [...(s.messages ?? [])].reverse().find((x) => x.role === "user");
@@ -485,7 +493,7 @@ export class KeelCore {
     if (!this.pid) throw new Error("no project");
     const s = await kb.session(this.pid, sid);
     const busy = !!s.busy || s.status === "running";
-    this.setChat({ session: s, mode: s.mode, model: s.model, callId: null, steps: [], stream: "", busy, startedAt: busy ? Date.now() : null, wrote: 0 });
+    this.setChat({ session: s, mode: s.mode, model: s.model, callId: null, steps: [], stream: "", busy, startedAt: busy ? Date.now() : null, wrote: 0, thinking: "", thoughtAt: null });
     // a chat at work (an agent from /agent new): follow it from here; its answer comes as for the person's own turn
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = busy ? setInterval(() => void this.pollTurn(), 3000) : null;
@@ -675,7 +683,7 @@ export class KeelCore {
     } finally {
       this.sending = false;
     }
-    this.setChat({ busy: true, callId: t.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0 });
+    this.setChat({ busy: true, callId: t.call_id, steps: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
     // a missed helper.finished never leaves the chat "working": look every 3 s
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = setInterval(() => void this.pollTurn(), 3000);

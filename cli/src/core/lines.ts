@@ -47,11 +47,13 @@ const indent = (lines: string[], n: number) => lines.map((l) => " ".repeat(n) + 
  *  with the answer as the chosen one, "it waits at:" as a gate, "not done" as a warning, the rest quiet meta text. */
 export function noteText(text: string, p: Paint): string {
   if (!p.colored) return text;
+  // KeelBot's thinking (shown with Ctrl+T or /thinking): its own words, never read as "q → answer" or a warning
+  if (/^⋮ /.test(text)) return text.split("\n").map((l) => p.meta(l)).join("\n");
   return text.split("\n").map((l) => {
     let m: RegExpExecArray | null;
     if ((m = /^(\s*)(it waits at:)(.*)$/.exec(l))) return m[1] + p.strong("gate", m[2]) + p.detail(m[3]);
     if ((m = /^(\s*)(.*?)( → )(.*)$/.exec(l))) return m[1] + p.detail(m[2]) + p.meta(m[3]) + p.strong("chosen", m[4]);
-    if (/^\s*(not done|not sent|left as it is|cancel)/i.test(l)) return p.warn(l);
+    if (/^\s*(not done|(suggestion )?not sent|left as it is|cancel)/i.test(l)) return p.warn(l);
     return p.meta(l);
   }).join("\n");
 }

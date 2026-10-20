@@ -263,7 +263,7 @@ describe("KeelBot's answer button (keel-flow answer)", () => {
       why: undefined,
     });
     expect(question(answers!, () => '"Set up"')).toBe(
-      'KeelBot suggests: answer "Set up" with knowledge → architecture, data; run → docker compose?',
+      'KeelBot suggests: answer "Set up" with architecture, data; docker compose?',     // 0.18.23 no question ids
     );
     expect(toButton("flow", '{"do": "answer", "flow": "t1"}')).toBeNull(); // nothing to answer: stays text
     const choice = toButton(
@@ -290,8 +290,8 @@ describe("KeelBot's answer button (keel-flow answer)", () => {
     const prep = await prepare(toButton("flow", '{"do": "answer", "flow": "t1", "choice": "skip"}')!, "demo", () => "it");
     expect(prep).toMatchObject({ error: expect.stringContaining("Skip it for now, which needs a reason") });
     const ok = await prepare(toButton("flow", '{"do": "answer", "flow": "t1", "choice": "stop"}')!, "demo", () => "it");
-    expect(ok).toEqual({ title: "KeelBot suggests: answer it with the choice stop?",
-      detail: "it waits at: AC-002 is stuck at verify_green\nStop the flow: the commits so far stay" });
+    expect(ok).toEqual({ title: 'KeelBot suggests "Stop the flow" for "AC-002 is stuck at verify_green". Send it?',
+      detail: "Stop the flow: the commits so far stay" });
   });
 
   it("parses KeelBot's questions with the dashboard's own parser", () => {
@@ -372,5 +372,47 @@ describe("keel 0.18.22 a findings gate: one question per finding", () => {
       payload: { answers: { f1: "fix", f2: "accept: tracked in ticket 7" } },
       id: "q-find",
     });
+  });
+});
+
+// 0.18.23 a real suggestion read: KeelBot suggests: answer "I want to extend the parcelperform webhook to support the
+// estmiated del…" with eta_semantics → A · …; eta_consumers → A · Database only?
+const FRAME = {
+  step: "frame_questions",
+  kind: "clarify",
+  title: "frame the question has 2 questions",
+  detail: "",
+  options: ["approve"],
+  id: "q-frame",
+  questions: [
+    { id: "eta_semantics", question: "What should the ETA mean?", options: [{ label: "A · Overwrite one column" }, { label: "B · Keep history" }] },
+    { id: "eta_consumers", question: "Who reads the ETA?", options: [{ label: "A · Database only" }, { label: "B · Outbound too" }] },
+  ],
+};
+
+describe("KeelBot's suggested answer reads like the gate (0.18.23)", () => {
+  it("the gate's short name, then one line per question: its words → the answer; never the ids or the request", async () => {
+    const { stub } = await waitingOn(FRAME);
+    stub.state.thread = { ...stub.state.thread, title: "I want to extend the parcelperform webhook to support the estmiated delivery date" } as never;
+    const b = toButton("flow", '{"do": "answer", "flow": "t1", "answers": {"eta_semantics": "A · Overwrite one column", "eta_consumers": "A · Database only"}}')!;
+    const prep = (await prepare(b, "demo", () => '"I want to extend the parcelperform webhook to support the estmiated del…"')) as { title: string; detail: string };
+    expect(prep.title).toBe('KeelBot suggests these answers for "frame the question". Send them?');
+    expect(prep.detail.split("\n")).toEqual([
+      "What should the ETA mean? → A · Overwrite one column",
+      "Who reads the ETA? → A · Database only",
+    ]);
+    const all = prep.title + "\n" + prep.detail;
+    expect(all).not.toContain("eta_semantics");
+    expect(all).not.toContain("eta_consumers");
+    expect(all).not.toContain("parcelperform");
+    // without the gate at hand: still no ids
+    expect(question(b, () => '"ETA"')).toBe('KeelBot suggests: answer "ETA" with A · Overwrite one column; A · Database only?');
+  });
+});
+
+describe("a gate's fold-outs in keel TUI (0.18.23)", () => {
+  it("show their title line only: a spike's angles with their verdicts", () => {
+    const detail = "## Summary\n- **DECISION:** build it\n\n<details><summary>reuse the column · VERDICT promising</summary>\n\nAnswer: it fits.\n- a: b\n\n</details>\n\n<details><summary>a new column · VERDICT possible</summary>\n\nAnswer: no.\n\n</details>";
+    expect(fmt.folded(detail)).toBe("## Summary\n- **DECISION:** build it\n\n▸ reuse the column · VERDICT promising\n\n▸ a new column · VERDICT possible");
   });
 });

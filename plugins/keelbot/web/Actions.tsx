@@ -21,6 +21,7 @@ import {
   type WorkflowCheck,
 } from "@keel/web-sdk";
 import { kb } from "./keelbotApi";
+import { gateName, NOT_SENT_NEW_MESSAGE } from "./suggest";
 import {
   AskFixButton,
   AskKeelBot,
@@ -453,9 +454,11 @@ const MODE_ABOUT: Record<string, string> = {
 
 /** 0.18.4 a flow button KeelBot gives (```keel-flow```): approve or send back the gate a flow waits at, stop flows, or
  *  a flow's run mode. Nothing happens until the person presses it. */
-export function FlowCard({ pid, body }: { pid: string; body: string }) {
+export function FlowCard({ pid, body, later }: { pid: string; body: string;
+  /** 0.18.23 the person wrote a new message after this answer: a suggested gate answer not sent yet is not offered */
+  later?: boolean }) {
   const spec = parseJson<FlowSpec>(body);
-  return spec?.do === "answer" ? <AnswerFlowCard pid={pid} spec={spec} /> : <FlowOpCard pid={pid} body={body} />;
+  return spec?.do === "answer" ? <AnswerFlowCard pid={pid} spec={spec} later={!!later} /> : <FlowOpCard pid={pid} body={body} />;
 }
 
 function FlowOpCard({ pid, body }: { pid: string; body: string }) {
@@ -533,7 +536,7 @@ function proposedAnswers(raw: unknown): ClarifyAnswers | null {
  *  answers to the questions, or one of the gate's named choices with the reason. The card shows them with the
  *  questions' and choices' own words; the button sends the same resume the Flow page sends. Nothing is sent until the
  *  person presses it. */
-function AnswerFlowCard({ pid, spec }: { pid: string; spec: FlowSpec }) {
+function AnswerFlowCard({ pid, spec, later }: { pid: string; spec: FlowSpec; later: boolean }) {
   const tid = String(spec.flow || spec.thread || "").trim();
   const answers = proposedAnswers(spec.answers);
   const choice = typeof spec.choice === "string" ? spec.choice.trim() : "";
@@ -550,6 +553,9 @@ function AnswerFlowCard({ pid, spec }: { pid: string; spec: FlowSpec }) {
   const label = answers ? "Send these answers" : `Choose “${info?.label || choice}”`;
   const needsWhy = !!choice && !why && (info?.why === "required" || (!info && choice === "reject"));
   const notWaiting = !!view.data && t?.status !== "waiting";
+  // 0.18.23 like the gate: its short name (the step's), not the flow's request; the flow's title only without one
+  const gate = gateName(w);
+  const stale = later && !done && !notWaiting;
   const press = async () => {
     setBusy(true);
     setErr(null);
@@ -564,13 +570,14 @@ function AnswerFlowCard({ pid, spec }: { pid: string; spec: FlowSpec }) {
   };
   return (
     <section className="kb-card" aria-label={`Flow: ${label}`}>
-      <div className="kb-card-h"><span className="kb-tag">Flow</span><b>{label}</b><span className="sub">{t?.title ? `"${t.title}"` : tid.slice(0, 8)}</span></div>
-      {w?.title && <p className="sub">It waits at: {w.title}</p>}
+      <div className="kb-card-h"><span className="kb-tag">Flow</span><b>{label}</b><span className="sub">{gate ? `"${gate}"` : t?.title ? `"${t.title}"` : tid.slice(0, 8)}</span></div>
       {answers && (
         <ol className="kb-answers" aria-label="KeelBot's answers">
-          {Object.entries(answers).map(([id, v]) => (
-            <li key={id}><span className="sub">{questions.find((q) => q.id === id)?.question ?? id}</span> → <b>{Array.isArray(v) ? v.join("; ") : v}</b></li>
-          ))}
+          {Object.entries(answers).map(([id, v]) => {
+            const q = questions.find((x) => x.id === id)?.question;
+            const said = Array.isArray(v) ? v.join("; ") : v;
+            return <li key={id}>{q && <><span className="sub">{q}</span> → </>}<b>{said}</b></li>;
+          })}
         </ol>
       )}
       {choice && info?.description && <p className="kb-request"><span className="sub">{info.label || choice}:</span> {info.description}</p>}
@@ -579,12 +586,13 @@ function AnswerFlowCard({ pid, spec }: { pid: string; spec: FlowSpec }) {
       {notWaiting && !done && <p className="kb-warn">The flow does not wait for this now ({t?.status ?? "gone"}).</p>}
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
       <AskFixButton what={`KeelBot's flow button "${label}"`} error={err} />
+      {stale && <p className="kb-warn" role="status">{NOT_SENT_NEW_MESSAGE}</p>}
       {done ? (
         <p className="kb-done" role="status">{done}{" "}
           <button type="button" className="btn sm" onClick={() => go("flow", tid)}>Open the flow ▸</button></p>
       ) : (
         <div className="row">
-          <button type="button" className="btn sm primary" disabled={busy || needsWhy || notWaiting} onClick={() => void press()}>{busy ? "…" : label}</button>
+          {!stale && <button type="button" className="btn sm primary" disabled={busy || needsWhy || notWaiting} onClick={() => void press()}>{busy ? "…" : label}</button>}
           <button type="button" className="btn sm ghost" onClick={() => go("flow", tid)}>Open the flow</button>
         </div>
       )}
