@@ -232,3 +232,55 @@ def picked(question: dict, decision: str, payload: dict | None) -> dict | None:
     if name is None and decision == "approve":
         return next((c for c in info if c.get("default")), None)
     return next((c for c in info if c.get("name") == str(name)), None)
+
+
+# 0.18.28 what a plain approve and a plain reject (no choice) do at a waiting question, and whether the reason is used.
+# KeelBot advised "send the gate back (reject) with this reason" at a gate whose reject only stopped the flow and handed
+# the reason to nobody; now every client and KeelBot read the real effect. A question's producer may set its own
+# `plain` ({"reject": {"does": ..., "reason": ...}}); else it follows from the question's kind and choices.
+REASON = {REQUIRED: "required", OPTIONAL: "used", NONE: "not used"}
+
+
+def _effect(c: dict) -> dict:
+    return {"does": f'the choice "{c.get("name")}" ({c.get("label") or c.get("name")}): {c.get("description") or ""}'.rstrip(": "),
+            "choice": c.get("name"), "reason": REASON.get(str(c.get("why")), "used")}
+
+
+def plain_effects(question: dict) -> dict:
+    """{"approve": {does, reason, choice?}, "reject": {...}} for this question; reason is required, used or not used."""
+    q = question or {}
+    given = q.get("plain") if isinstance(q.get("plain"), dict) else {}
+    options = list(q.get("options") or ["approve", "reject"])
+    names = [str(c) for c in q.get("choices") or []]
+    info = list(q.get("choice_info") or (for_question(q, q.get("step")).get("choice_info") if names else []) or [])
+    by = {c.get("name"): c for c in info}
+    labels = q.get("labels") or {}
+    kind = str(q.get("kind") or "gate")
+    out: dict = {}
+    if "approve" in options:
+        pick = next((c for c in info if c.get("default")), None) or (info[0] if info else None)
+        if pick:
+            out["approve"] = _effect(pick)
+        elif kind == "clarify":
+            out["approve"] = {"does": labels.get("approve") or "sends the answers (an unanswered question takes its recommended option)",
+                              "reason": "used"}
+        else:
+            out["approve"] = {"does": labels.get("approve") or "approves and goes on", "reason": "used" if kind == "fix" else "not used"}
+    rc = q.get("reject_choice")
+    if "reject" in by:
+        out["reject"] = _effect(by["reject"])
+    elif rc and rc in by:
+        out["reject"] = _effect(by[rc])
+    elif "reject" not in options:
+        out["reject"] = {"does": "not taken here" + (": choose one of the choices" if names else ""), "reason": "not used"}
+    elif names:
+        out["reject"] = {"does": "stops the flow (the work so far stays)", "reason": "not used: it is only kept as the stop reason"}
+    elif kind in ("fix", "budget", "usage"):
+        out["reject"] = {"does": labels.get("reject") or "stops the flow", "reason": "not used: it is only kept as the stop reason"}
+    else:
+        out["reject"] = {"does": labels.get("reject") or "sends it back to the step before; the agent gets your reason",
+                         "reason": "required"}
+    for k, v in given.items():
+        if k in ("approve", "reject") and isinstance(v, dict):
+            out[k] = {**out.get(k, {}), **v}
+    return out

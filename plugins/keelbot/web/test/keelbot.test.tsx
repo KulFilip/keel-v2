@@ -265,6 +265,23 @@ describe("0.18.23 KeelBot's suggested gate answer reads like the gate, and a new
   });
 });
 
+describe("0.18.28 a gate decision names the step and says what reject really does", () => {
+  it("the step's name, not the flow's title; a reject that only stops the flow warns that no agent gets the reason", async () => {
+    const t = db.flows["ludus-engine"].thread!;
+    t.title = "Extend the ParcelPerform (Perform.AI) webhook to support the estimated delivery date";
+    t.waiting = { step: "integration_commit", name: "verify the suite + commit", kind: "fix" as const,
+      title: "verify the suite + commit keeps failing", detail: "2 tests fail", options: ["approve" as const, "reject" as const],
+      plain: { approve: { does: "runs the check again", reason: "used" },
+        reject: { does: "stops the flow (the work so far stays)", reason: "not used: it is only kept as the stop reason" } } };
+    const p = await chatWith(`\`\`\`keel-flow\n{"do": "reject", "flow": "${t.thread_id}", "why": "the AC-008 test leaks a row"}\n\`\`\``);
+    const card = await within(p).findByRole("region", { name: "Flow: Send back" });
+    await waitFor(() => expect(card).toHaveTextContent('"verify the suite + commit"'));
+    expect(card.textContent).not.toMatch(/ParcelPerform/);
+    expect(within(card).getByTestId("kb-plain-effect")).toHaveTextContent("Send back here: stops the flow (the work so far stays)");
+    expect(card).toHaveTextContent("The reason (no agent gets it here): the AC-008 test leaks a row");
+  });
+});
+
 describe("KeelBot's flow buttons (0.18.4)", () => {
   it("stop: names the flow, stops it only when pressed, then offers to open it", async () => {
     const user = userEvent.setup();

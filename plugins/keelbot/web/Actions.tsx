@@ -470,10 +470,16 @@ function FlowOpCard({ pid, body }: { pid: string; body: string }) {
   const flows = [...new Set((spec?.flows ?? (spec?.flow ? [spec.flow] : [])).filter((x) => typeof x === "string" && x))];
   const ok = !!spec && flows.length > 0 && (["approve", "reject", "stop"].includes(op) || (op === "mode" && RUN_MODES.includes(spec.mode as never)))
     && !(op === "reject" && !spec.why);
-  const titles = useLoad(ok ? `kb-flow-titles:${flows.join(",")}` : null,
-    () => Promise.all(flows.map((f) => kb.flowOf(pid, f).then((v) => v.thread?.title || f).catch(() => f))), { live: false });
+  const views = useLoad(ok ? `kb-flow-titles:${flows.join(",")}` : null,
+    () => Promise.all(flows.map((f) => kb.flowOf(pid, f).then((v) => v.thread ?? null).catch(() => null))), { live: false });
   if (!ok) return <p className="kb-card bad" role="note">KeelBot's flow button could not be read. Ask it to give it again.</p>;
-  const names = (titles.data ?? flows.map((f) => f.slice(0, 8))).map((x) => `"${x}"`).join(", ");
+  const decides = op === "approve" || op === "reject";
+  // 0.18.28 a gate decision names the gate by its step ("verify the suite + commit"), not the flow's title cut short
+  const waiting = decides ? views.data?.[0]?.waiting : undefined;
+  const gate = waiting ? gateName(waiting) : "";
+  const names = gate ? `"${gate}"` : flows.map((f, i) => `"${views.data?.[i]?.title || f.slice(0, 8)}"`).join(", ");
+  // and what the button really does there: a reject that only stops the flow hands its reason to nobody
+  const effect = decides ? waiting?.plain?.[op as "approve" | "reject"] : undefined;
   const label = op === "approve" ? "Approve the gate" : op === "reject" ? "Send back" : op === "stop"
     ? (flows.length === 1 ? "Stop the flow" : `Stop ${flows.length} flows`) : `Run in ${spec!.mode} mode`;
   const press = async () => {
@@ -500,7 +506,9 @@ function FlowOpCard({ pid, body }: { pid: string; body: string }) {
   return (
     <section className="kb-card" aria-label={`Flow: ${label}`}>
       <div className="kb-card-h"><span className="kb-tag">Flow</span><b>{label}</b><span className="sub">{names}</span></div>
-      {op === "reject" && <p className="kb-request"><span className="sub">The reason the agent gets:</span> {spec!.why}</p>}
+      {op === "reject" && <p className="kb-request"><span className="sub">{effect && /^not used/.test(effect.reason) ? "The reason (no agent gets it here):" : "The reason the agent gets:"}</span> {spec!.why}</p>}
+      {effect && <p className={`kb-request${op === "reject" && /^not used/.test(effect.reason) ? " kb-warn" : ""}`} data-testid="kb-plain-effect">
+        <span className="sub">{op === "approve" ? "Approve" : "Send back"} here:</span> {effect.does}</p>}
       {op === "mode" && <p className="kb-request"><span className="sub">{spec!.mode}:</span> {MODE_ABOUT[spec!.mode!]}</p>}
       {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
       <AskFixButton what={`KeelBot's flow button "${label}"`} error={err} />

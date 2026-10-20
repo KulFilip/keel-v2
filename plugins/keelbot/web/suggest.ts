@@ -10,13 +10,18 @@ export const NOT_SENT_NEW_MESSAGE =
 type Waiting =
   | {
       title?: string | null;
+      /** 0.18.28 the waiting step's own name, when the engine sends it ("verify the suite + commit") */
+      name?: string | null;
       questions?: { id: string; question?: string }[] | null;
     }
   | null
   | undefined;
 
-/** The gate's short name: its step's name. A question round's title is "<step name> has 2 questions": the step name. */
+/** The gate's short name: its step's name. The engine sends it (0.18.28, `name`); else a question round's title is
+ *  "<step name> has 2 questions": the step name. Never the flow's title cut short. */
 export function gateName(w: Waiting): string {
+  const own = String(w?.name ?? "").trim();
+  if (own) return own;
   const t = String(w?.title ?? "").trim();
   if (/^The explorer has \d+ questions? before the spec$/i.test(t))
     return "the spec's questions";

@@ -118,6 +118,8 @@ export type ClarifyQuestion = {
 /** keel 0.18.13 what one named choice of a waiting question means (same order as `choices`): its words, whether it
  *  needs a reason (`why`), and which one a plain approve takes (`default`). Answer: approve with payload {choice: name}. */
 export type ChoiceInfo = { name: string; label: string; description: string; why: "required" | "optional" | "none"; default: boolean };
+/** 0.18.28 a plain approve's or reject's real effect at a gate; `reason`: "required", "used", or "not used…" */
+export type PlainEffect = { does: string; reason: string; choice?: string };
 
 /** v0.17.4 where the criteria's build order came from */
 export type AcOrder = { ids: string[]; from: "spec" | "plan" | "keel" | "person" | "id" };
@@ -142,6 +144,10 @@ export type ThreadState = {
     choices?: string[];
     /** keel 0.18.13 the choices' labels, descriptions and reasons; missing from an older engine (raw `choices` then) */
     choice_info?: ChoiceInfo[];
+    /** 0.18.28 the waiting step's own name ("verify the suite + commit"); a suggestion names the gate by it */
+    name?: string;
+    /** 0.18.28 what a plain approve and a plain reject do here, and whether the reason is used */
+    plain?: { approve?: PlainEffect; reject?: PlainEffect };
   };
   usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number; cap_usd?: number };
   checkpoints: number;

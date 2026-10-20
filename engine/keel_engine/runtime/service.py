@@ -434,6 +434,13 @@ class Engine:
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}
             if waiting.get("id"):
                 out["waiting"]["id"] = waiting["id"]
+            # 0.18.28 the waiting step's own name ("verify the suite + commit"): a suggestion names the gate by it, never
+            # by the flow's title cut short
+            name = self._step_name(ctx_now, waiting.get("step"))
+            if name:
+                out["waiting"]["name"] = name
+            # 0.18.28 what a plain approve and a plain reject do here, and whether the reason is used
+            out["waiting"]["plain"] = choices_mod.plain_effects(waiting)
             if waiting.get("labels"):
                 out["waiting"]["labels"] = dict(waiting["labels"])
             if waiting.get("questions"):
@@ -465,6 +472,15 @@ class Engine:
         if err and status in ("failed", "stopped"):
             out["error"] = err
         return out
+
+    @staticmethod
+    def _step_name(ctx, step_id: str | None) -> str | None:
+        """A step's name by its id; a review's fix node (<id>__fix) is its review's; None when the flow has no such step."""
+        if not step_id:
+            return None
+        base = str(step_id).removesuffix("__fix")
+        found = next((s for s in ctx.workflow.steps if s.id in (step_id, base)), None)
+        return found.name if found else None
 
     async def set_root(self, tid: str, root: str | None) -> None:
         """Moves a thread to its project's folder now, and refuses to go on in a folder that is gone.

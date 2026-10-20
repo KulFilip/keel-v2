@@ -416,3 +416,33 @@ describe("a gate's fold-outs in keel TUI (0.18.23)", () => {
     expect(fmt.folded(detail)).toBe("## Summary\n- **DECISION:** build it\n\n▸ reuse the column · VERDICT promising\n\n▸ a new column · VERDICT possible");
   });
 });
+
+// 0.18.28 a choice gate's suggestion named the flow's title cut short ('the gate of "Extend the ParcelPerform …"'):
+// it names the step now, and says what a plain reject really does there
+const SUITE = {
+  step: "integration_commit", name: "verify the suite + commit", kind: "fix", options: ["approve", "reject"], id: "q-suite",
+  title: "verify the suite + commit: the suite fails outside the criteria",
+  detail: "2 tests fail.",
+  choices: ["send_back_ac", "retry", "stop"],
+  choice_info: [
+    { name: "send_back_ac", label: "Send back to AC-008", description: "its test is the likely cause", why: "optional", default: true },
+    { name: "retry", label: "Check again", description: "after you fixed it yourself", why: "none", default: false },
+    { name: "stop", label: "Stop the flow", description: "the commits so far stay", why: "optional", default: false },
+  ],
+  plain: { approve: { does: 'the choice "send_back_ac" (Send back to AC-008): its test is the likely cause', reason: "used" },
+    reject: { does: "stops the flow (the work so far stays)", reason: "not used: it is only kept as the stop reason" } },
+};
+
+describe("a choice gate's suggestion names the step (0.18.28)", () => {
+  it("decide and answer buttons show the step's name, never the flow's title; a reject that only stops says so", async () => {
+    const { stub } = await waitingOn(SUITE);
+    stub.state.thread = { ...stub.state.thread, title: "Extend the ParcelPerform (Perform.AI) webhook to support the estimated delivery date" } as never;
+    const long = () => '"Extend the ParcelPerform (Perform.AI) webhook to support the estimated…"';
+    const rej = (await prepare(toButton("flow", '{"do": "reject", "flow": "t1", "why": "the AC-008 test leaks a row"}')!, "demo", long)) as { title: string; detail: string };
+    expect(rej.title).toBe('KeelBot suggests: send back "verify the suite + commit" (the AC-008 test leaks a row)?');
+    expect(rej.detail).toBe("reject here stops the flow (the work so far stays); the reason goes to no agent.");
+    const ans = (await prepare(toButton("flow", '{"do": "answer", "flow": "t1", "choice": "send_back_ac"}')!, "demo", long)) as { title: string };
+    expect(ans.title).toBe('KeelBot suggests "Send back to AC-008" for "verify the suite + commit". Send it?');
+    expect(rej.title + ans.title).not.toContain("ParcelPerform");
+  });
+});

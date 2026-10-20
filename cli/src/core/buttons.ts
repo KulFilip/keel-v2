@@ -299,6 +299,17 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
         + (r.replaces === "keel" ? `\nkeel has a stack called ${r.name}: here this one is used in its place` : "")
         + (r.warnings.length ? `\n${r.warnings.map((w) => `warning: ${w}`).join("\n")}` : "") };
   }
+  if (b.kind === "decide") {
+    // 0.18.28 like an answer: the gate's own name (its step's), never the flow's title cut short; and what a plain
+    // approve or reject really does at this gate (a reject that only stops the flow says so)
+    const w = (await api.flowOf(pid, b.flow).catch(() => null))?.thread?.waiting;
+    const gate = gateName(w);
+    const at = gate ? `"${gate}"` : `the gate of ${name(b.flow)}`;
+    const eff = w?.plain?.[b.decision];
+    const title = `KeelBot suggests: ${b.decision === "approve" ? "approve" : "send back"} ${at}${b.why ? ` (${b.why})` : ""}?`;
+    const detail = eff ? `${b.decision} here ${eff.does}${b.decision === "reject" && b.why && /^not used/.test(eff.reason) ? "; the reason goes to no agent" : ""}.` : undefined;
+    return detail ? { title, detail } : { title };
+  }
   if (b.kind === "answer") {
     // the flow's question as it waits now: the questions' words, the choice's label, and whether it needs a reason
     const w = (await api.flowOf(pid, b.flow).catch(() => null))?.thread?.waiting;
@@ -329,8 +340,9 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
     }
     case "decide": {
       if (b.decision === "reject" && !b.why) throw new Error("A send-back needs a reason: /reject <why>.");
+      const gate = gateName((await api.flowOf(pid, b.flow).catch(() => null))?.thread?.waiting);
       const s = await inboxApi.act(b.flow, { decision: b.decision, ...(b.why ? { why: b.why } : {}) });
-      return `${b.decision === "approve" ? "approved" : "sent back"} the gate of ${name(b.flow)}. The flow is ${s.status} at ${s.current || "-"}.`;
+      return `${b.decision === "approve" ? "approved" : "sent back"} ${gate ? `"${gate}"` : `the gate of ${name(b.flow)}`}. The flow is ${s.status} at ${s.current || "-"}.`;
     }
     case "answer": {
       if (b.choice === "reject" && !b.why) throw new Error("A send-back needs a reason: ask KeelBot for one, or /answer reject <why>.");
