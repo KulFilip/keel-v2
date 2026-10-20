@@ -269,6 +269,10 @@ SPIKE_FINDINGS = (
     "RECOMMEND: reuse the subscription column")
 
 
+# 0.18.23 what the fake KeelBot thinks before it answers (thinking deltas, never part of the answer)
+FAKE_THINKING = "The person asks: {question}. I look at the package entry first, then answer with file:line."
+
+
 def chunks(text: str, size: int = 12) -> list[str]:
     """The text in pieces of about `size` characters, cut after a space where one is near (as a model's tokens come)."""
     out, i = [], 0
@@ -334,6 +338,15 @@ class FakeRunner:
 
         # the answer as a model writes it: in pieces (KEEL_FAKE_STREAM_DELAY apart), then the whole answer
         stream_delay = config.fake_stream_delay()
+        if req.agent == "helper":
+            # 0.18.23 KeelBot's thinking first, as Claude streams it (thinking deltas, then the whole block), apart
+            # from the answer
+            thought = FAKE_THINKING.format(question=(req.prompt or "").rsplit("Question:", 1)[-1].strip()[:80])
+            for chunk in chunks(thought):
+                emit("thinking_delta", chunk)
+                if stream_delay:
+                    await asyncio.sleep(stream_delay)
+            emit("thinking", thought)
         for chunk in chunks(answer):
             emit("delta", chunk)
             if stream_delay:

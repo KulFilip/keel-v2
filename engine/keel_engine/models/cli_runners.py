@@ -335,6 +335,9 @@ class ClaudeStream:
                 self.note_usage(self.current, e.get("usage"))
             if e.get("type") == "content_block_delta" and d.get("type") == "text_delta" and d.get("text"):
                 self.emit("delta", d["text"])
+            elif e.get("type") == "content_block_delta" and d.get("type") == "thinking_delta" and d.get("thinking"):
+                # 0.18.23 Claude's thinking as it writes it: shown live apart from the answer, never part of it
+                self.emit("thinking_delta", d["thinking"])
             return
         if t == "result":
             self.steps.flush()

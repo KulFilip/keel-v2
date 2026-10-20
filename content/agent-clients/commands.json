@@ -335,6 +335,14 @@
       "group": "Screen"
     },
     {
+      "name": "thinking",
+      "args": "",
+      "summary": "KeelBot's thinking: open or fold it while it works, or show the last answer's (Ctrl+T)",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
       "name": "mouse",
       "args": "[on|off]",
       "summary": "on: the wheel scrolls keel TUI and selecting text copies it; off: the terminal's own selection",

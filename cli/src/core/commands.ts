@@ -50,6 +50,8 @@ export type PanelName = "flow" | "agents" | "inbox";
 export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; clear?: boolean; mouse?: boolean | "toggle"; panel?: PanelName | "off"; chat?: string;
   /** 0.18.15 copy the n-th block from the end (1 = the last answer) to the person's clipboard (OSC 52) */
   copy?: number;
+  /** 0.18.23 /thinking: KeelBot's thinking block opens or folds (as Ctrl+T) */
+  thinking?: boolean;
   /** an agent of a flow (its job id) to follow on screen: its steps and the text it writes, live */
   follow?: string;
   /** the start box again (keel, the project, its flow, what waits): after a switch to another project */
@@ -1000,6 +1002,7 @@ const IMPLS: Impl[] = [
     if (!Number.isInteger(n) || n < 1) return fail("/copy copies the last answer; /copy 2 the block before it, and so on.");
     return { blocks: [], copy: n };
   } },
+  { name: "thinking", run: () => ({ blocks: [], thinking: true }) },
   { name: "mouse", run: (_ctx, a) => {
     const w = a.trim().toLowerCase();
     if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");

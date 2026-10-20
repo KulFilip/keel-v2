@@ -15,7 +15,8 @@ import { applyLevel, makeTheme, type Theme } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
-import { modelText } from "../core/effort";
+import { modelName, modelText } from "../core/effort";
+import { answeredBy, thinkingLines, thoughtLine, THINKING_HEAD } from "../core/thinking";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
@@ -171,6 +172,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const look = useRef({ paint: t.paint, width });
   look.current = { paint: t.paint, width };
   const turnStart = useRef<number | null>(null);
+  // 0.18.23 KeelBot's thinking: the live block open (Ctrl+T, /thinking) or folded, and the last answer's thinking
+  const [showThink, setShowThink] = useState(false);
+  const lastThought = useRef<{ text: string; ms: number } | null>(null);
   if (snap.chat.startedAt) turnStart.current = snap.chat.startedAt;
 
   const push = useCallback((...bs: Block[]) => {
@@ -221,7 +225,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
         const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
         const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
-        push(...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" });
+        // 0.18.23 its thinking, folded to one line (Ctrl+T or /thinking shows it), then the answer and who answered
+        const thought = typeof d?.thinking === "string" && d.thinking.trim() ? d.thinking : core.snapshot.chat.thinking || "";
+        const thoughtMs = typeof d?.thinking_ms === "number" ? d.thinking_ms : 0;
+        lastThought.current = thought ? { text: thought, ms: thoughtMs } : null;
+        setShowThink(false);
+        push(...(thought ? [{ kind: "dim" as const, text: thoughtLine(thoughtMs) }] : []),
+          ...(tools.length ? [{ kind: "text" as const, text: tools.join("\n") }] : []), { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
+          ...(d?.model ? [{ kind: "dim" as const, text: answeredBy(d.mode ?? core.snapshot.chat.mode, modelName(d)) }] : []));
         // keel 0.18.8 "✓ Finished …" sits on the prompt (the last turn's), with room between it and the answer above
         setFooter(fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint));
         turnStart.current = null;
@@ -476,6 +487,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         push({ kind: "error", text: e instanceof Error ? e.message : String(e) });
       }
     }
+    if (reply.thinking) toggleThinking();
     if (reply.mode) setMode(reply.mode);
     if (reply.editor !== undefined) openEditor(reply.editor);
     if (reply.revert) markReverted(reply.revert);
@@ -511,6 +523,20 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }
       return out;
     });
+  }
+
+  /** 0.18.23 While KeelBot works: its thinking block opens or folds. After: the last answer's thinking, shown once. */
+  function toggleThinking() {
+    if (core.snapshot.chat.busy) {
+      setShowThink((x) => !x);
+      return;
+    }
+    const lt = lastThought.current;
+    if (!lt) {
+      push({ kind: "dim", text: "  KeelBot's last answer has no thinking to show (its model did not send any)." });
+      return;
+    }
+    push({ kind: "dim", text: `${THINKING_HEAD} (${Math.max(1, Math.round(lt.ms / 1000))}s)\n${lt.text.split("\n").map((l) => "  " + l).join("\n")}` });
   }
 
   /** 0.18.18 The text in the person's editor ($VISUAL / $EDITOR): the terminal is the editor's until it ends (no raw
@@ -877,6 +903,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       setPanels((ps) => (ps.includes(id) ? ps.filter((x) => x !== id) : [...ps, id]));
       return;
     }
+    // 0.18.23 Ctrl+T: KeelBot's thinking, open or folded (while it works), or the last answer's thinking
+    if (key.ctrl && input === "t") {
+      toggleThinking();
+      return;
+    }
     if (key.ctrl && input === "o") {
       const j = snap.running[0];
       if (j) followAgent(j.id);
@@ -1081,6 +1112,12 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
                 {diffLines(e.diff ?? "").map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
               </Box>
             ))}
+            {chat.thinking ? (
+              // 0.18.23 thinking: open while KeelBot thinks (or Ctrl+T), one folded line once the answer starts
+              writing && !showThink
+                ? <Text color={t.color("dim")}>{"  " + thoughtLine((chat.thoughtAt ?? Date.now()) - (chat.startedAt ?? Date.now()))}</Text>
+                : <Text color={t.color("dim")}>{thinkingLines(chat.thinking, width, showThink ? 40 : undefined).map((l) => "  " + l).join("\n")}</Text>
+            ) : null}
             {writingLines ? writingLines.map((l, i) => <Text key={i} wrap="truncate-end">{"  " + l}</Text>)
               : writing && <Box marginLeft={2}><Text>{renderMarkdown(writing.slice(-3000), t.paint)}</Text></Box>}
             <Thinking verb={verb} since={chat.startedAt} tokens={Math.round(chat.wrote / 4) || undefined} hint="esc to interrupt" />

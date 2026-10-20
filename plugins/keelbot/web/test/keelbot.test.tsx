@@ -10,7 +10,7 @@ import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
 import { db } from "../../../../web/src/test/setup";
 import { skillHead, splitActions } from "../Actions";
-import { answeredBy } from "../HelperPanel";
+import { answeredBy, ThinkingBlock } from "../HelperPanel";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 
@@ -30,7 +30,7 @@ const WORKFLOW = [
 ].join("\n");
 
 /** A KeelBot chat whose last answer is `text` (as the engine stores it), on KeelBot's own page. */
-async function chatWith(text: string, after: { role: "user" | "helper"; text: string }[] = []) {
+async function chatWith(text: string, after: { role: "user" | "helper"; text: string }[] = [], extra: Record<string, unknown> = {}) {
   db.helper.sessions.push({
     id: "h1",
     project: "ludus-engine",
@@ -68,6 +68,7 @@ async function chatWith(text: string, after: { role: "user" | "helper"; text: st
           tokens_out: 200,
           cost_usd: 0,
           ms: 3000,
+          ...extra,
         },
         at: new Date().toISOString(),
       },
@@ -406,5 +407,32 @@ describe("KeelBot's answers: text and buttons", () => {
         ),
       }),
     );
+  });
+});
+
+describe("0.18.23 KeelBot's thinking in the panel", () => {
+  it("a stored answer's thinking is folded above it, apart from the answer; a click opens it", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith("The report page goes in web/src/pages/Report.tsx:1.", [],
+      { thinking: "The person wants a weekly page. I look at the pages first.", thinking_ms: 12000 });
+    const box = await within(p).findByText("⋮ Thought for 12s");
+    const details = box.closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    const answer = within(p).getByText(/The report page goes in/).closest(".hp-answer")!;
+    expect(answer.textContent).not.toContain("I look at the pages first.");
+    await user.click(box);
+    expect(details).toHaveAttribute("open");
+    expect(within(details).getByLabelText("KeelBot's thinking")).toHaveTextContent("I look at the pages first.");
+  });
+
+  it("live: open while KeelBot thinks, folded once the answer starts", () => {
+    const r = render(<ThinkingBlock text="Thinking about it" answering={false} />);
+    const details = r.container.querySelector("details")!;
+    expect(details).toHaveAttribute("open");
+    expect(r.getByText("⋮ Thinking")).toBeInTheDocument();
+    r.rerender(<ThinkingBlock text="Thinking about it, done" answering />);
+    expect(details).not.toHaveAttribute("open");
+    expect(r.getByText("⋮ Thought")).toBeInTheDocument();
+    r.unmount();
   });
 });

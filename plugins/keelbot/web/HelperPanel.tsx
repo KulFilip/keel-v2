@@ -119,6 +119,22 @@ function Answer({ text, onOpen, pid, onAsk, answered, later }: { text: string; o
   );
 }
 
+/** 0.18.23 KeelBot's thinking, as opencode shows it: open while the model thinks ("Thinking"), folded to one line once
+ *  the answer starts ("Thought for 12s"); a click opens or folds it. Quieter than the answer, never part of it. */
+export function ThinkingBlock({ text, answering, ms }: { text: string; answering: boolean; ms?: number }) {
+  const [open, setOpen] = useState(!answering);
+  useEffect(() => {
+    if (answering) setOpen(false);
+  }, [answering]);
+  const secs = ms !== undefined ? Math.max(1, Math.round(ms / 1000)) : null;
+  return (
+    <details className="hp-thinking" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>{answering ? `⋮ Thought${secs ? ` for ${secs}s` : ""}` : "⋮ Thinking"}</summary>
+      <p className="hp-thinking-text" aria-label="KeelBot's thinking">{text}</p>
+    </details>
+  );
+}
+
 /** keel 0.18.13 the person's answers to the questions of KeelBot's message `n`: the first later message of theirs that
  *  starts with "Answers to your questions", before KeelBot asks again. Read from the chat, so it holds after a reload. */
 export function answeredBy(messages: { n: number; role: string; text: string }[], n: number): string | null {
@@ -165,7 +181,7 @@ function UserMessage({ m }: { m: HelperMessage }) {
 }
 
 export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0, layout = "panel", prefill }: Props) {
-  const { recent, liveSteps, liveText, toast, tick } = useApp();
+  const { recent, liveSteps, liveText, liveThinking, toast, tick } = useApp();
   // @ mentions read the Code plugin's file list and the Graph plugin's search: only from the ones this keel has
   const pages = usePages();
   const hasCode = pages.some((p) => p.id === "repo");
@@ -766,6 +782,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
+            {m.role === "helper" && m.data.thinking && <ThinkingBlock text={m.data.thinking} ms={m.data.thinking_ms} answering />}
             {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)}
               later={messages.some((x) => x.n > m.n && x.role === "user")} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
@@ -778,6 +795,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         {runningCall && !messages.some((m) => m.call_id === runningCall) && (
           <div className="hp-msg hp-help hp-live">
             <TurnSteps callId={runningCall} live={liveSteps[runningCall] ?? []} running />
+            {/* 0.18.23 KeelBot's thinking: open while it thinks, folded once the answer starts */}
+            {liveThinking?.[runningCall] && <ThinkingBlock text={liveThinking[runningCall]} answering={!!liveText?.[runningCall]} />}
             {/* keel 0.18.2 the answer as KeelBot writes it (helper.delta); the stored answer replaces it */}
             {liveText?.[runningCall] && (
               <div className="hp-stream" aria-live="polite" aria-label="KeelBot is writing">

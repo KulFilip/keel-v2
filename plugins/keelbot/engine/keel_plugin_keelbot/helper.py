@@ -20,7 +20,8 @@ How a session continues: claude and codex continue their own CLI session (cheap:
 API-key runner gets the earlier messages; the other CLIs get the conversation so far in the prompt.
 
 Events (thread_id = the session id, step "helper"): helper.started, helper.step, helper.finished. The api stores
-them as agent calls (agent "helper", so the budget, Live agents and Jobs count them) but never as a flow.
+them as agent calls (agent "helper", so the budget, Live agents and Jobs count them) but never as a flow. Live, never
+stored: helper.delta (the answer so far) and, 0.18.23, helper.thinking.delta (the model's thinking so far).
 
 Its sessions live in the engine DB's helper_sessions, helper_messages and helper_files: core's runtime/migrate.py
 still makes them (the old tables stay core). Its routes are routes.py; its runner starts and stops with keel's app
@@ -1491,6 +1492,23 @@ class HelperRunner:
         # 0.18.19 a new chat's first answer ends with its title line: the person never sees it
         auto = str(body.get("auto_title") or "")
         live = DeltaThrottle(lambda d: ev("helper.delta", {**d, "text": hide_title(d.get("text", ""))} if auto else d))
+        # 0.18.23 KeelBot's thinking as the model writes it: helper.thinking.delta (the turn's thinking so far, every
+        # 80 ms; a live event the api never stores), apart from the answer. Kept with the answer's data for a reload
+        # (capped), never in the conversation the model gets next turn (history() reads the text only).
+        think = DeltaThrottle(lambda d: ev("helper.thinking.delta", d))
+        thought: dict = {"text": "", "first": None, "last": None, "live": False, "gap": False}
+
+        def add_thought(chunk: str):
+            if not chunk:
+                return
+            now = time.monotonic()
+            thought["first"] = thought["first"] or now
+            thought["last"] = now
+            if thought["gap"] and thought["text"]:
+                chunk = "\n\n" + chunk.lstrip()
+            thought["gap"] = False
+            thought["text"] += chunk
+            think.add(chunk)
         # keel 0.18.18 what failed or was refused in this turn: the next turn's prompt starts from it, and failed.json
         # (runtime/repeats.py, in the turn's scratch folder) lets the hook and the ToolBox refuse an exact repeat
         failures: list[dict] = []
@@ -1507,8 +1525,18 @@ class HelperRunner:
 
         def emit(kind: str, text: str = "", **extra):
             if kind == "delta":
+                think.flush()
                 live.add(str(text))
                 return
+            if kind == "thinking_delta":
+                thought["live"] = True
+                add_thought(str(text))
+                return
+            if kind == "thinking" and not thought["live"]:
+                add_thought(str(text))           # an engine that sends whole thinking only (Codex, opencode)
+                think.flush()
+            elif kind != "thinking":
+                thought["gap"] = True            # a tool call or a message between: the next thinking is a new block
             live.reset()
             try:
                 note_failure(kind, str(text), extra)
@@ -1626,6 +1654,7 @@ class HelperRunner:
         except Exception as exc:  # the panel shows it; the session stays usable
             status, err = "failed", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}"
             emit("error", err[:2000], ok=False)
+        think.flush()
         self.ask_keys.pop(sid, None)
         self.turn_keel.pop(sid, None)
         scratch["dir"] = None
@@ -1674,7 +1703,8 @@ class HelperRunner:
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
                           # 0.18.20 the files this answer changed (keel TUI lists only these after it), and its turn
                           "turn": n, "files": turn_files,
-                          **({"failed": failures[-10:]} if failures else {})})
+                          **({"failed": failures[-10:]} if failures else {}),
+                          **_thinking_data(thought, t0)})
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
                tokens_in=cur["tokens_in"] + tin, tokens_out=cur["tokens_out"] + tout, tokens_cached=cur["tokens_cached"] + cached,
@@ -1684,6 +1714,20 @@ class HelperRunner:
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
                                "result": answer[:2000], "session": sid, "n": n, "files": turn_files})
         self.tasks.pop(sid, None)
+
+
+THINKING_MAX = 20_000             # 0.18.23 the thinking kept with an answer, for a reload (never sent to the model)
+
+
+def _thinking_data(thought: dict, t0: float) -> dict:
+    """The answer's thinking for its stored data: the text (cut at THINKING_MAX) and how long it took (from the turn's
+    start to its last thinking); {} for none."""
+    text = str(thought.get("text") or "").strip()
+    if not text:
+        return {}
+    cut = text if len(text) <= THINKING_MAX else text[:THINKING_MAX].rstrip() + " …"
+    ms = int(((thought.get("last") or t0) - t0) * 1000)
+    return {"thinking": cut, "thinking_ms": max(0, ms)}
 
 
 def commands(root: str | None, enabled: list[str] | None = None) -> list[dict]:
