@@ -10,8 +10,8 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { Plugin } from "vite"; // types only: the tests import this file in jsdom, where Vite's esbuild cannot run
-import type { KeelShared } from "../src/sdk/shared";
+import type { Plugin } from "vite"; // types only: the tests import this file in jsdom, where Vite itself cannot run
+import type { KeelShared } from "../src/sdk/shared.ts";
 
 /** The bare names a plugin's web part imports from keel, and the member of window.__keel each one is. */
 export const SHARED: Record<string, keyof KeelShared> = {

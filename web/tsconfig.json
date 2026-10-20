@@ -13,12 +13,16 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // the Vite configs import their own .ts files by full name (Vite 8 loads a config that way: configLoader native)
+    "allowImportingTsExtensions": true,
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
     "baseUrl": ".",
     // keel Product's pages (../product/web) and the plugins' (../plugins/*/web) import @keel/web-sdk and keel's own
     // packages from here
     "paths": {
       "@keel/web-sdk": ["src/sdk/index.ts"],
+      // Vite 8 names its types only in package.json "exports", which a "paths" match does not read
+      "vite": ["node_modules/vite/dist/node/index.d.ts"],
       "*": ["node_modules/@types/*", "node_modules/*"]
     }
   },

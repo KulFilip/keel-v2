@@ -13,11 +13,11 @@ const SHARED = ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "
 export default {
   root: fileURLToPath(new URL(".", import.meta.url)),
   publicDir: false,
-  esbuild: { jsx: "automatic" },
+  oxc: { jsx: { runtime: "automatic" } },
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    lib: { entry: "index.tsx", formats: ["es"], fileName: () => "index.js" },
-    rollupOptions: { external: SHARED },
+    lib: { entry: "index.tsx", formats: ["es"], fileName: () => "index.js", cssFileName: "style" },
+    rolldownOptions: { external: SHARED },
   },
 } satisfies UserConfig;

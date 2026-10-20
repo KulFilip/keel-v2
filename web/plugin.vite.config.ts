@@ -12,7 +12,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { UserConfig } from "vite";
-import { SHARED } from "./tools/sdkShims";
+import { SHARED } from "./tools/sdkShims.ts";
 
 const name = process.env.KEEL_PLUGIN ?? "";
 if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
@@ -27,12 +27,12 @@ if (!existsSync(`${root}index.tsx`))
 export default {
   root,
   publicDir: false,
-  esbuild: { jsx: "automatic" },
+  oxc: { jsx: { runtime: "automatic" } },
   logLevel: "warn",
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    lib: { entry: "index.tsx", formats: ["es"], fileName: () => "index.js" },
-    rollupOptions: { external: Object.keys(SHARED) },
+    lib: { entry: "index.tsx", formats: ["es"], fileName: () => "index.js", cssFileName: "style" },
+    rolldownOptions: { external: Object.keys(SHARED) },
   },
 } satisfies UserConfig;

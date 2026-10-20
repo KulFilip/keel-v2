@@ -2,7 +2,7 @@
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import { sdkShims } from "./tools/sdkShims";
+import { sdkShims } from "./tools/sdkShims.ts";
 
 // `npm run dev` serves the studio on :5173 and forwards /api (including the /api/events SSE stream) and /plugins (the
 // plugins' web parts) to the Spring Boot api on :8080. `npm run build` writes web/dist, which the api serves at /.
