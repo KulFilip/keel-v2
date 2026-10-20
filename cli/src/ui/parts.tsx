@@ -40,7 +40,7 @@ export function StartScreen({ s, width }: { s: Snapshot; width?: number }) {
           : <>
             <Text>{label("project  ")}{p ? <><Text bold>{p.name || p.id}</Text><Text {...look("dim")}> · branch </Text><Text {...look("run")}>{p.branch || "-"}</Text></> : "none yet: add one in the dashboard"}</Text>
             {t && <Text>{label("flow     ")}<Text {...look("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}{t.current ? <Text {...look("dim")}>{` at ${t.current}`}</Text> : null}</Text>}
-            <Text>{label("waiting  ")}<Text {...look(s.inbox.length ? "gate" : "ok")} bold={!!s.inbox.length}>{fmt.waitingBrief(s.inbox, p)}</Text></Text>
+            <Text>{label("waiting  ")}<Text {...look(s.inbox.length ? "gate" : "ok", false, !!s.inbox.length)}>{fmt.waitingBrief(s.inbox, p)}</Text></Text>
             <Text>{label("next     ")}{fmt.next(p, s.flow, paint).split("\n")[0]}</Text>
           </>}
       </Box>
@@ -144,7 +144,7 @@ export function Completions({ items, index }: { items: Completion[]; index: numb
         const pad = " ".repeat(Math.max(1, 26 - c.label.length));
         return (
           <Text key={c.value}>
-            <Text {...look("accent")} bold={on}>{(on ? "❯ " : "  ") + name}</Text>
+            <Text {...look("accent", false, on)}>{(on ? "❯ " : "  ") + name}</Text>
             <Text {...look("attr")}>{args}</Text>
             <Text {...look("detail")}>{pad + (c.hint ?? "")}</Text>
           </Text>
@@ -194,7 +194,7 @@ export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: P
     <Clickable act={flowAct}>
     <PanelBox title={<>{"Flow · "}<Text {...look("accent")}>{t.workflow_id}</Text>{` "${t.title}" · `}{fmt.badge(t.status, paint)}</>}>
       <Text wrap="wrap">{rail.map((r, i) => (
-        <Text key={i} {...look(MARK_ROLE[r.state as keyof typeof MARK_ROLE])} bold={r.state === "now" || r.state === "wait"}>
+        <Text key={i} {...look(MARK_ROLE[r.state as keyof typeof MARK_ROLE], false, r.state === "now" || r.state === "wait")}>
           {`${MARK[r.state]} ${r.phase}`}{i < rail.length - 1 ? "  " : ""}
         </Text>))}
       </Text>
@@ -204,7 +204,7 @@ export function FlowPanel({ s, width, on }: { s: Snapshot; width: number; on?: P
           {a.status === "done" || a.status === "already-met" ? "■" : a.id === t.ac ? "▶" : "□"}</Text>))}
         <Text {...look(done === all ? "ok" : "fg")}>{`  ${done}/${all}`}</Text></Text>}
       {gates.length > 0 && <Text wrap="truncate-end"><Text {...look("dim")}>gates </Text>{gates.slice(0, Math.max(3, Math.floor(width / 22))).map((g, i) => (
-        <Text key={g.id} {...look(g.id === cur ? "gate" : "dim")} bold={g.id === cur}>{(i ? " · " : "") + (g.id === cur ? `◆ ${g.name}` : g.name)}</Text>))}</Text>}
+        <Text key={g.id} {...look(g.id === cur ? "gate" : "dim", false, g.id === cur)}>{(i ? " · " : "") + (g.id === cur ? `◆ ${g.name}` : g.name)}</Text>))}</Text>}
       {t.waiting && <Clickable act={on?.waiting ?? (() => undefined)}><Text {...look("gate")} bold wrap="truncate-end">
         {`◆ waiting for you: ${t.waiting.title} · ${t.waiting.kind === "clarify" ? "/answer" : fmt.answerWords(t.waiting)}${on ? " · click to answer" : ""}`}</Text></Clickable>}
       {t.error && <Text {...look("bad")}>{t.error}</Text>}
@@ -371,7 +371,7 @@ export function StatusLine({ s, meter = true }: { s: Snapshot; meter?: boolean }
       {segs.map((x, i) => (
         <Text key={i}>
           {i ? <Text {...look("faint")}>{" · "}</Text> : null}
-          <Text {...look(x.role)} bold={x.bold}>{x.text}</Text>
+          <Text {...look(x.role, false, !!x.bold)}>{x.text}</Text>
         </Text>
       ))}
     </Text>

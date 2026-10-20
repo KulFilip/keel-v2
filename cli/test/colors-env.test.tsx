@@ -7,7 +7,7 @@ import { StatusLine } from "../src/ui/parts";
 import { ThemeProvider } from "../src/ui/theme";
 import { KeelCore } from "../src/core/keel";
 import { run } from "../src/core/commands";
-import { applyLevel, makeTheme, parseColors, withPalette, DARK, LIGHT } from "../src/core/theme";
+import { applyLevel, describeOverrides, makeTheme, parseColors, withPalette, DARK, LIGHT } from "../src/core/theme";
 import type { Snapshot } from "../src/core/keel";
 import { stripAnsi } from "../src/script";
 import { stubKeel, waitFor } from "./stub";
@@ -117,5 +117,72 @@ describe("/theme lists the overrides", () => {
     r.stdin.write("\r");
     await waitFor(() => stripAnsi(r.lastFrame() ?? "").includes("theme light: colours for a light background; your colours stay"));
     r.unmount();
+  });
+});
+
+
+describe("style flags: role=#3cc463+bold", () => {
+  const BOLD = "\x1b[1m";
+  const frameOf = (colors: unknown, env: Record<string, string> = {}, s = snap()) => {
+    const t = makeTheme({ KEEL_TUI_THEME: "dark", ...env }, env.NO_COLOR ? 0 : 3, undefined, colors);
+    applyLevel(t);
+    const r = render(<ThemeProvider theme={t}><StatusLine s={s} /></ThemeProvider>);
+    const f = r.lastFrame() ?? "";
+    r.unmount();
+    return { t, f };
+  };
+
+  it("applies bold (and underline, italic, dim) with the colour, in paint and in the status line", () => {
+    const { t, f } = frameOf(undefined, { KEEL_TUI_COLORS: "ok=#3cc463+bold+underline" });
+    expect(t.overrides.ok).toBe("#3cc463");
+    expect(t.styles.ok).toEqual({ bold: true, underline: true });
+    expect(t.paint.ok("x")).toContain(BOLD);
+    expect(t.paint.ok("x")).toContain("\x1b[4m");
+    expect(f).toContain(BOLD + hex("#3cc463") + "feature done");
+    expect(frameOf(undefined, { KEEL_TUI_COLORS: "ok=ansi:red+italic+dim" }).t.paint.ok("x")).toMatch(/\x1b\[3m.*\x1b\[2m|\x1b\[2m.*\x1b\[3m/);
+  });
+
+  it("a flag alone keeps the palette colour", () => {
+    const { t, f } = frameOf(undefined, { KEEL_TUI_COLORS: "ok=+bold" });
+    expect(t.palette.ok).toBe(DARK.ok);
+    expect(t.overrides.ok).toBeUndefined();
+    expect(f).toContain(BOLD + "\x1b[32mfeature done");
+  });
+
+  it("+nobold removes the bold a role has by default", () => {
+    const strongOf = (colors?: string) => makeTheme({ KEEL_TUI_THEME: "dark", KEEL_TUI_COLORS: colors }, 3).paint.strong("gate", "x");
+    expect(strongOf()).toContain(BOLD);
+    expect(strongOf("gate=+nobold")).not.toContain(BOLD);
+    const { f } = frameOf(undefined, { KEEL_TUI_COLORS: "gate=+nobold" }, snap({ status: "waiting", inbox: 1 }));
+    expect(f).toContain("\x1b[33m" + "◆ 1 waiting here");
+    expect(f).not.toContain(BOLD + "\x1b[33m◆");
+  });
+
+  it("the settings file takes the string form and the object form", () => {
+    const t = makeTheme({ KEEL_TUI_THEME: "dark" }, 3, undefined, { ok: { color: "#3cc463", bold: true }, gate: "#e0a13a+bold", warn: "+nobold" });
+    expect(t.warnings).toEqual([]);
+    expect(t.overrides).toMatchObject({ ok: "#3cc463", gate: "#e0a13a" });
+    expect(t.styles).toEqual({ ok: { bold: true }, gate: { bold: true }, warn: { bold: false } });
+  });
+
+  it("bad flags give the one warning and the entry is ignored", () => {
+    const t = makeTheme({ KEEL_TUI_COLORS: "ok=#3cc463+shiny,gate=+bold+blink,warn=#e0a13a+bold,hint=" }, 3, undefined, { bad: { bold: "yes" } });
+    expect(t.warnings).toHaveLength(1);
+    expect(t.warnings[0]).toContain("ok=#3cc463+shiny");
+    expect(t.warnings[0]).toContain("gate=+bold+blink");
+    expect(t.overrides).toEqual({ warn: "#e0a13a" });
+    expect(t.styles).toEqual({ warn: { bold: true } });
+  });
+
+  it("NO_COLOR stays plain text, bold flags included", () => {
+    const { t, f } = frameOf(undefined, { NO_COLOR: "1", KEEL_TUI_COLORS: "ok=#3cc463+bold+underline" });
+    expect(t.paint.ok("x")).toBe("x");
+    expect(t.paint.strong("ok", "x")).toBe("x");
+    expect(f).not.toContain("\x1b[");
+  });
+
+  it("/theme lists the flags", () => {
+    const t = makeTheme({ KEEL_TUI_COLORS: "ok=#3cc463+bold,gate=+nobold" }, 3);
+    expect(describeOverrides(t.overrides, t.styles)).toEqual(["gate=+nobold", "ok=#3cc463+bold"]);
   });
 });

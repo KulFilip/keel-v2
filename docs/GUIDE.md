@@ -577,6 +577,10 @@ KEEL_TUI_COLORS="ok=#3cc463,gate=#e0a13a,recommended=ansi:green"
 - Roles: `person`, `keelbot`, `heading`, `accent`, `gate`, `question`, `option`, `recommended`, `chosen`, `suggest`,
   `hint`, `detail`, `meta`, `border`, `ok`, `warn`, `bad`, `code`, `path`, `link`, `run`, `add`, `del`. Also
   accepted: `success` (= `ok`), `warning` (= `warn`), `waiting` (= `gate`), `error` (= `bad`).
+- Style flags join the colour with `+`: `ok=#3cc463+bold`, `ok=#3cc463+bold+underline`; flags are `bold`, `underline`,
+  `italic`, `dim`. A flag alone keeps the palette's colour (`ok=+bold`). `+nobold` removes the bold a role has by default
+  (`gate=+nobold`). In the settings file a role can also be an object: `{"ok": {"color": "#3cc463", "bold": true}}`.
+  The flags reach every place that draws the role (status line, banner, notes, gates). `NO_COLOR` gives plain text, no bold.
 - The status line uses them: the flow `done`, `AC 3/3` and `live` are `ok`; a flow that waits and `◆ n waiting` are `gate`.
 - A bad entry is ignored and keel TUI prints one quiet warning at the start.
 - The same in the settings file `~/.config/keel2/tui.json`: `{ "colors": { "ok": "#3cc463", "gate": "ansi:yellow" } }`.

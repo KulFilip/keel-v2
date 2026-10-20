@@ -109,7 +109,7 @@ export const ROLES = Object.keys(DARK) as Role[];
 export const PLAIN: Paint = { ...(Object.fromEntries(ROLES.map((r) => [r, id])) as Record<Role, Fn>), strong: (_r, s) => s, bold: id, italic: id,
   underline: id, inverse: id, colored: false };
 
-export function makePaint(p: Palette, level: 0 | 1 | 2 | 3): Paint {
+export function makePaint(p: Palette, level: 0 | 1 | 2 | 3, styles: Styles = {}): Paint {
   if (level === 0) return PLAIN;
   const c = new Chalk({ level });
   const fn = (v: string): Fn => {
@@ -117,19 +117,34 @@ export function makePaint(p: Palette, level: 0 | 1 | 2 | 3): Paint {
     if (v === "dim:") return (s) => c.dim(s);
     return v.startsWith("#") ? (s) => c.hex(v)(s) : id;
   };
-  const roles = Object.fromEntries(ROLES.map((r) => [r, fn(p[r])])) as Record<Role, Fn>;
+  // the role's own flags (+italic, +dim, +underline, +bold) on top of its colour; bold in `strong` too
+  const roles = Object.fromEntries(ROLES.map((r) => {
+    const f = fn(p[r]), st = styles[r];
+    if (!st) return [r, f];
+    return [r, (s: string) => {
+      let out = f(s);
+      if (st.italic) out = c.italic(out);
+      if (st.dim) out = c.dim(out);
+      if (st.underline) out = c.underline(out);
+      return st.bold ? c.bold(out) : out;
+    }];
+  })) as Record<Role, Fn>;
   const strong = (r: Role, s: string) => {
     let out = roles[r](s);
     if (UNDERLINE.has(r)) out = c.underline(out);
-    return BOLD.has(r) ? c.bold(out) : out;
+    return BOLD.has(r) && styles[r]?.bold !== false && !styles[r]?.bold ? c.bold(out) : out;
   };
   return { ...roles, strong, bold: (s) => c.bold(s), italic: (s) => c.italic(s), underline: (s) => c.underline(s), inverse: (s) => c.inverse(s),
     colored: true };
 }
 
+/** A role's own style flags (KEEL_TUI_COLORS `role=#3cc463+bold`): `bold: false` is `+nobold` (no bold even where the role has it). */
+export type Style = { bold?: boolean; underline?: boolean; italic?: boolean; dim?: boolean };
+export type Styles = Partial<Record<Role, Style>>;
+
 export type ThemeName = "dark" | "light" | "auto";
 /** `overrides`: the person's per-role colours (KEEL_TUI_COLORS, the settings file); `warnings`: what was ignored. */
-export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean; overrides: Partial<Palette>; warnings: string[] };
+export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean; overrides: Partial<Palette>; styles: Styles; warnings: string[] };
 
 type Env = Record<string, string | undefined>;
 
@@ -198,16 +213,39 @@ export function parseRole(word: string): Role | null {
   return r ?? null;
 }
 
-/** Overrides from `role=colour,role=colour` (KEEL_TUI_COLORS) and/or an object (the settings file's `colors`). The
- *  object is read first, the string after it, so the env wins. A bad entry is ignored; all of them make ONE warning. */
-export function parseColors(spec: string | undefined, fromFile?: unknown): { overrides: Partial<Palette>; warnings: string[] } {
+const FLAGS: Record<string, Style> = { bold: { bold: true }, nobold: { bold: false }, underline: { underline: true }, italic: { italic: true }, dim: { dim: true } };
+
+/** Overrides from `role=colour+flag,role=+flag` (KEEL_TUI_COLORS; flags: bold, nobold, underline, italic, dim) and/or an
+ *  object (the settings file's `colors`: "#3cc463+bold" or { color, bold, ... }). The object is read first, the string
+ *  after it, so the env wins. A bad entry is ignored; all of them make ONE warning. */
+export function parseColors(spec: string | undefined, fromFile?: unknown): { overrides: Partial<Palette>; styles: Styles; warnings: string[] } {
   const overrides: Partial<Palette> = {};
+  const styles: Styles = {};
   const bad: string[] = [];
+  const show = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
   const take = (k: string, v: unknown) => {
     const role = parseRole(k);
-    const val = typeof v === "string" ? parseColorValue(v) : null;
-    if (role && val) overrides[role] = val;
-    else bad.push(`${k}=${typeof v === "string" ? v : JSON.stringify(v)}`);
+    let color: string | undefined;
+    const st: Style = {};
+    let ok = !!role;
+    if (typeof v === "string") {
+      const [c, ...flags] = v.split("+").map((x) => x.trim());
+      if (c) { color = parseColorValue(c) ?? undefined; if (!color) ok = false; }
+      for (const f of flags) { const fl = FLAGS[f.toLowerCase()]; if (fl) Object.assign(st, fl); else ok = false; }
+      if (!c && !flags.length) ok = false;
+    } else if (v && typeof v === "object" && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>;
+      if (o.color !== undefined) { color = typeof o.color === "string" ? parseColorValue(o.color) ?? undefined : undefined; if (!color) ok = false; }
+      for (const f of ["bold", "underline", "italic", "dim"] as const) {
+        if (o[f] === undefined) continue;
+        if (typeof o[f] === "boolean") st[f] = o[f] as boolean; else ok = false;
+      }
+      if (Object.keys(o).some((x) => !["color", "bold", "underline", "italic", "dim"].includes(x))) ok = false;
+    } else ok = false;
+    if (ok && role) {
+      if (color) overrides[role] = color;
+      if (Object.keys(st).length) styles[role] = { ...styles[role], ...st };
+    } else bad.push(`${k}=${show(v)}`);
   };
   if (fromFile && typeof fromFile === "object" && !Array.isArray(fromFile)) {
     for (const [k, v] of Object.entries(fromFile)) take(k, v);
@@ -218,11 +256,15 @@ export function parseColors(spec: string | undefined, fromFile?: unknown): { ove
     if (i < 0) bad.push(part.trim());
     else take(part.slice(0, i).trim(), part.slice(i + 1).trim());
   }
-  return { overrides, warnings: bad.length ? [`keel TUI: ignored colour entries (${bad.join(", ")}); use role=#rrggbb or role=ansi:name`] : [] };
+  return { overrides, styles, warnings: bad.length ? [`keel TUI: ignored colour entries (${bad.join(", ")}); use role=#rrggbb, role=ansi:name, role=#rrggbb+bold or role=+bold`] : [] };
 }
 
-/** The overrides as `role=colour` words (/theme). */
-export const describeOverrides = (o: Partial<Palette>): string[] => ROLES.filter((r) => o[r]).map((r) => `${r}=${o[r]}`);
+/** The overrides as `role=colour+flag` words (/theme). */
+export const describeOverrides = (o: Partial<Palette>, st: Styles = {}): string[] => ROLES.filter((r) => o[r] || st[r]).map((r) => {
+  const s = st[r] ?? {};
+  const flags = [s.bold === true && "bold", s.bold === false && "nobold", s.underline && "underline", s.italic && "italic", s.dim && "dim"].filter(Boolean);
+  return `${r}=${o[r] ?? ""}${flags.map((f) => "+" + f).join("")}`;
+});
 
 export const paletteOf = (name: ThemeName): Palette => (name === "light" ? LIGHT : name === "dark" ? DARK : AUTO);
 
@@ -233,15 +275,15 @@ const withOverrides = (name: ThemeName, o: Partial<Palette>): Palette => ({ ...p
 export function makeTheme(env: Env = process.env, detected?: number, probed?: "dark" | "light" | null, fileColors?: unknown): Theme {
   const level = colorLevel(env, detected);
   const name = themeName(env, probed);
-  const { overrides, warnings } = parseColors(env.KEEL_TUI_COLORS, fileColors);
+  const { overrides, styles, warnings } = parseColors(env.KEEL_TUI_COLORS, fileColors);
   const palette = withOverrides(name, overrides);
-  return { name, palette, level, paint: makePaint(palette, level), ascii: asciiOnly(env), overrides, warnings };
+  return { name, palette, level, paint: makePaint(palette, level, styles), ascii: asciiOnly(env), overrides, styles, warnings };
 }
 
 /** The same theme with another palette (/theme): the colour level and the glyphs stay. */
 export function withPalette(t: Theme, name: ThemeName): Theme {
   const palette = withOverrides(name, t.overrides);
-  return { ...t, name, palette, paint: makePaint(palette, t.level) };
+  return { ...t, name, palette, paint: makePaint(palette, t.level, t.styles) };
 }
 
 /** Make Ink (which colours with chalk's own instance) use the same level: none with NO_COLOR. */

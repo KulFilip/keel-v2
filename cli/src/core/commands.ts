@@ -1038,7 +1038,7 @@ const IMPLS: Impl[] = [
 export const THEME_HELP = [
   "/theme dark, /theme light or /theme auto sets the palette (KEEL_TUI_THEME sets it at the start).",
   "Your own colours stay on top of any palette: KEEL_TUI_COLORS=\"ok=#3cc463,gate=ansi:yellow\" or a `colors` object in",
-  "~/.config/keel2/tui.json (the env wins). Values: #rgb, #rrggbb, an ANSI colour name or ansi:<name>. Roles: person, keelbot,",
+  "~/.config/keel2/tui.json (the env wins). Values: #rgb, #rrggbb, an ANSI colour name or ansi:<name>, with flags: ok=#3cc463+bold (+underline +italic +dim; ok=+bold keeps the colour; +nobold). Roles: person, keelbot,",
   "heading, accent, gate (waiting), question, option, recommended, chosen, suggest, hint, detail, meta, border, ok (success),",
   "warn (warning), bad (error), code, path, link, run, add, del. NO_COLOR turns all colour off.",
 ];

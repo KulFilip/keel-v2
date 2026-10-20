@@ -485,11 +485,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (reply.theme) {
       t.setPalette(reply.theme);
-      const kept = describeOverrides(t.overrides);
+      const kept = describeOverrides(t.overrides, t.styles);
       push({ kind: "ok", text: `theme ${reply.theme}: ${THEME_WORDS[reply.theme]}${kept.length ? `; your colours stay: ${kept.join(", ")}` : ""}` });
     }
     if (reply.themeInfo) {
-      const kept = describeOverrides(t.overrides);
+      const kept = describeOverrides(t.overrides, t.styles);
       push({ kind: "ok", text: `theme ${t.name}${t.level ? "" : " (NO_COLOR: no colour)"}; ${kept.length ? `active colour overrides: ${kept.join(", ")}` : "no colour overrides"}` });
       for (const l of THEME_HELP) push({ kind: "dim", text: "  " + l });
     }
