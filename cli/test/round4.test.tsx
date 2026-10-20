@@ -90,7 +90,48 @@ describe("KeelBot's buttons", () => {
     await t.type("\x1b[B");                                             // No
     await t.enter();
     expect(t.stub.calls.some((c) => c.path === "/api/threads/t1/mode")).toBe(false);
-    expect(t.frame()).toContain("not done");
+    expect(t.frame()).toContain("Suggestion not sent: you chose No.");
+    t.r.unmount();
+  });
+});
+
+describe("a new message while KeelBot's suggestion waits (0.18.23)", () => {
+  it("drops the suggestion saying why, and what was typed is the new message", async () => {
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run("what should I answer?");
+    await waitFor(() => t.probe.chatBusy);
+    t.stub.answer('Answer it so:\n\n```keel-flow\n{"do": "answer", "flow": "t1", "choice": "approve"}\n```');
+    finished(t.core);
+    await waitFor(() => t.probe.pick);
+    await tick(80);
+    expect(t.frame()).toContain("KeelBot suggests");
+    await t.type("did you read the code?");
+    expect(t.probe.pick).toBe(false);
+    const f = t.frame();
+    expect(f).toContain("Suggestion not sent: you wrote a new message. KeelBot will update it.");
+    expect(f).not.toContain("cancelled");
+    expect(f).not.toContain("not done");
+    expect(t.stub.calls.some((c) => c.path === "/api/inbox/t1/act")).toBe(false);
+    await t.enter();
+    expect(t.stub.calls.filter((c) => c.method === "POST" && /helper/.test(c.path) && JSON.stringify(c.body ?? {}).includes("did you read the code?")).length).toBe(1);
+    t.r.unmount();
+  });
+
+  it("a letter that a choice matches still picks it; Esc says the suggestion was not sent", async () => {
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run("make it auto");
+    await waitFor(() => t.probe.chatBusy);
+    t.stub.answer('```keel-flow\n{"do": "mode", "flow": "t1", "mode": "auto"}\n```');
+    finished(t.core);
+    await waitFor(() => t.probe.pick);
+    await tick(80);
+    await t.type("n");                                                  // "No" matches: still the picker
+    expect(t.probe.pick).toBe(true);
+    await t.type("\x1b");
+    await tick(80);
+    expect(t.frame()).toContain("Suggestion not sent: you closed it.");
     t.r.unmount();
   });
 });

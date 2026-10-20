@@ -78,9 +78,11 @@ function TurnSteps({ callId, live, running }: { callId: string; live: JobStep[];
 }
 
 /** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow). */
-function Answer({ text, onOpen, pid, onAsk, answered }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void;
+function Answer({ text, onOpen, pid, onAsk, answered, later }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void;
   /** keel 0.18.13 the chat's later message with the answers to this answer's questions (its QuestionsCard shows them) */
-  answered?: string | null }) {
+  answered?: string | null;
+  /** 0.18.23 the person wrote a message after this answer: its suggested gate answer, not sent, is not offered any more */
+  later?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.querySelectorAll<HTMLElement>(".cite").forEach((el) => {
@@ -103,7 +105,7 @@ function Answer({ text, onOpen, pid, onAsk, answered }: { text: string; onOpen: 
       {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
-          : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} />
+          : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} later={later} />
           : seg.kind === "rule" ? <RuleCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "questions" ? <QuestionsCard key={i} body={seg.body} answered={answered} />
           : seg.kind === "agent" ? <AgentCard key={i} pid={pid} body={seg.body} />
@@ -764,7 +766,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
-            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)} />}
+            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)}
+              later={messages.some((x) => x.n > m.n && x.role === "user")} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
               <p className="hp-meta">{m.data.model ? `${provLabel(m.data.provider)} ${answerModel(m.data)} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}

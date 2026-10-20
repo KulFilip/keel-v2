@@ -26,7 +26,7 @@ import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
 import { modelCatalog } from "../core/effort";
 import { Clickable, ClicksProvider, makeClicks, placeOf } from "./click";
-import { answersMessage, blockedByChanges, buttonWords, elsewhere, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
+import { answersMessage, blockedByChanges, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { fixRequest } from "../../../web/src/askFix";
 import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
@@ -314,9 +314,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       }
       if (prep.detail) push({ kind: "dim", text: prep.detail.split("\n").map((l) => "  " + l).join("\n") });
       const title = prep.title;
-      buttonAsks.current.push({ title, choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }],
+      buttonAsks.current.push({ title, choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }], newMessage: NOT_SENT_NEW_MESSAGE,
         then: async (v) => {
-          if (v !== "yes") return { blocks: [{ kind: "dim", text: "  not done" }] };
+          if (v !== "yes") return { blocks: [{ kind: "dim", text: "  Suggestion not sent: you chose No." }] };
           try {
             const said = await pressButton(b, pid, name);
             await core.refresh().catch(() => undefined);
@@ -808,7 +808,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     }
     if (pending?.pick) {
       if (key.escape) {
-        push({ kind: "dim", text: "  cancelled" });
+        push({ kind: "dim", text: pending.pick.newMessage ? "  Suggestion not sent: you closed it." : "  cancelled" });
         setPending(null);
         const cancel = pending.pick.onCancel;
         if (cancel) void Promise.resolve(cancel()).then((r) => handle(r, pending.cmd)).catch((e) => push({ kind: "error", text: e instanceof Error ? e.message : String(e) }));
@@ -836,7 +836,20 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         if (pending.pick.multi) setPickIdx(Number(input) - 1);
         else void choose(filtered[Number(input) - 1].value);
       } else if (input && !key.ctrl && !key.meta) {
-        setPickFilter((f) => f + input);
+        // 0.18.23 a KeelBot suggestion: once what the person types matches no choice, it is a new message (in the
+        // prompt, Enter sends it), and the suggestion is dropped saying why; KeelBot's next answer updates it
+        const typed = pickFilter + input;
+        if (pending.pick.newMessage && !pickMatches(pending.pick.choices, typed).length) {
+          push({ kind: "dim", text: `  ${pending.pick.newMessage}` });
+          buttonAsks.current = [];
+          setPending(null);
+          setPickFilter("");
+          setHIdx(-1);
+          const add = typed.replace(/\r\n?|\n/g, " ");
+          setText(line.slice(0, cursor) + add + line.slice(cursor), cursor + add.length);
+          return;
+        }
+        setPickFilter(typed);
         setPickIdx(0);
       }
       return;

@@ -203,7 +203,7 @@ describe("0.18.13 KeelBot proposes the answer to a flow's question (keel-flow an
     const card = await within(p).findByRole("region", { name: "Flow: Choose “Skip it for now”" });
     expect(card).toHaveTextContent("AC-002 goes to the end of the list");
     expect(card).toHaveTextContent("The reason: blocked by AC-003");
-    expect(card).toHaveTextContent("It waits at: AC-002 is stuck at verify_green");
+    expect(card).toHaveTextContent('"AC-002 is stuck at verify_green"');          // 0.18.23 the gate's name, like the gate
     expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
     await user.click(within(card).getByRole("button", { name: "Choose “Skip it for now”" }));
     await waitFor(() => expect(db.calls.find((c) => c.path === `/api/threads/${t.thread_id}/resume`)?.body).toEqual(
@@ -228,6 +228,39 @@ describe("0.18.13 KeelBot proposes the answer to a flow's question (keel-flow an
     await user.click(within(card).getByRole("button", { name: "Send these answers" }));
     await waitFor(() => expect(db.calls.find((c) => c.path === `/api/threads/${t.thread_id}/resume`)?.body).toEqual(
       { decision: "approve", payload: { answers: { run: "locally", knowledge: ["architecture", "data"] } } }));
+  });
+});
+
+describe("0.18.23 KeelBot's suggested gate answer reads like the gate, and a new message drops it", () => {
+  const FRAME = { step: "frame_questions", kind: "clarify" as const, title: "frame the question has 2 questions", detail: "",
+    options: ["approve" as const], questions: [
+      { id: "eta_semantics", question: "What should the ETA mean?", options: [{ label: "A · Overwrite one column" }, { label: "B · Keep history" }] },
+      { id: "eta_consumers", question: "Who reads the ETA?", options: [{ label: "A · Database only" }, { label: "B · Outbound too" }] }] };
+  const block = (tid: string) => `\`\`\`keel-flow\n{"do": "answer", "flow": "${tid}", "answers": {"eta_semantics": "A · Overwrite one column", "eta_consumers": "A · Database only"}}\n\`\`\``;
+
+  it("the step's short name, one line per question with its words, never the ids or the request", async () => {
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = FRAME;
+    t.title = "I want to extend the parcelperform webhook to support the estmiated delivery date";
+    const p = await chatWith(`I read src/webhook/EtaHandler.kt:249.\n\n${block(t.thread_id)}`);
+    const card = await within(p).findByRole("region", { name: "Flow: Send these answers" });
+    await waitFor(() => expect(card).toHaveTextContent('"frame the question"'));
+    const list = within(card).getByRole("list", { name: "KeelBot's answers" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "What should the ETA mean? → A · Overwrite one column", "Who reads the ETA? → A · Database only"]);
+    expect(card.textContent).not.toMatch(/eta_semantics|eta_consumers|parcelperform/);
+    expect(within(card).getByRole("button", { name: "Send these answers" })).toBeEnabled();
+  });
+
+  it("a message after the suggestion: not sent, says why, no Send button", async () => {
+    const t = db.flows["ludus-engine"].thread!;
+    t.waiting = FRAME;
+    const p = await chatWith(block(t.thread_id), [{ role: "user", text: "did you read the code?" }]);
+    const card = await within(p).findByRole("region", { name: "Flow: Send these answers" });
+    await waitFor(() => expect(within(card).getByRole("status")).toHaveTextContent(
+      "Suggestion not sent: you wrote a new message. KeelBot will update it."));
+    expect(within(card).queryByRole("button", { name: "Send these answers" })).not.toBeInTheDocument();
+    expect(db.calls.some((c) => c.path.endsWith("/resume"))).toBe(false);
   });
 });
 
