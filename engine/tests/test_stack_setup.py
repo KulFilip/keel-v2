@@ -100,7 +100,7 @@ def test_stack_check_reports_setup_errors_and_warns_about_root_commands(tmp_path
     assert not bad["ok"] and any("setup.apt has 'bad name'" in e for e in bad["errors"])
     good = stack_edit.check(None, PHP_STACK + "setup:\n  apt: [php8.3-cli]\n  run: ['curl -sS https://x | php']\n")
     assert good["ok"], good["errors"]
-    assert any("setup.run runs as root" in w for w in good["warnings"])
+    assert any("setup.run runs as keel's own user (not root)" in w for w in good["warnings"])
     # the guided form writes the block too: packages split at spaces or commas, commands one per line
     text = stack_edit.render({"name": "p", "lane": "api", "detect": {"files": "composer.json"},
                               "layers": [{"id": "unit"}],
@@ -152,30 +152,91 @@ def test_plan_outside_the_container_installs_nothing_and_says_what_is_missing():
     assert stack_setup.plan(u, set(), set(), "native", have={"php", "composer"}, items=items)["message"] == ""
 
 
-def test_system_run_calls_the_helper_with_the_union_and_says_so(tmp_path, monkeypatch):
-    root = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, composer]\n  run: ['echo x']\n")
+def test_system_run_calls_the_helper_for_apt_only_and_says_so(tmp_path, monkeypatch):
+    marker = tmp_path / "run-marker.txt"
+    root = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, composer]\n"
+                    f"  run: ['id -un > {marker}']\n")
     calls = tmp_path / "calls.txt"
     helper = tmp_path / "fake-helper"
     helper.write_text(f'#!/bin/sh\necho "$@" >> {calls}\necho "Setting up $2"\n')
     helper.chmod(helper.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setattr(stack_setup, "FORCE_MODE", "container")
     monkeypatch.setattr(stack_setup, "HELPER_CMD", [str(helper)])
+    monkeypatch.setattr(stack_setup, "RAN_DIR", str(tmp_path / "ran"))
     monkeypatch.setattr(stack_setup, "known_roots", lambda: [("carrier-router", str(root))])
     monkeypatch.setattr(stack_setup, "dpkg_present", lambda pkgs: set())
-    monkeypatch.setattr(stack_setup, "ran_markers", lambda: set())
     sysu = stack_setup.SystemSetup()
     sysu.run_once()
-    assert calls.read_text().splitlines() == ["apt php8.3-cli composer", "run echo x"]
+    # the root helper gets the packages and nothing else; setup.run ran as this process's own user, no sudo
+    assert calls.read_text().splitlines() == ["apt php8.3-cli composer"]
+    assert marker.read_text().strip() == subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
     st = sysu.status()
     assert st["state"] == "ready" and st["line"] == "installed php8.3-cli, composer"
     assert "$ keel-stack-setup apt php8.3-cli composer" in st["log"]
     assert (Path(os.environ["KEEL_DATA"]) / "setup" / "packages.json").is_file()
+    # recorded: the next run in this container does not run it again
+    marker.unlink()
+    monkeypatch.setattr(stack_setup, "dpkg_present", lambda pkgs: {"php8.3-cli", "composer"})
+    sysu.run_once()
+    assert not marker.exists() and calls.read_text().splitlines() == ["apt php8.3-cli composer"]
     # a failing helper: the line says what could not be installed, for whom
+    monkeypatch.setattr(stack_setup, "dpkg_present", lambda pkgs: set())
     helper.write_text("#!/bin/sh\necho 'E: Unable to locate package php8.3-cli'\nexit 100\n")
     sysu.run_once()
     st = sysu.status()
     assert st["state"] == "failed" and st["line"].startswith("could not install php8.3-cli, composer for carrier-router "
                                                              "(exit 100): E: Unable to locate package")
+
+
+def test_a_failing_setup_run_says_so(tmp_path, monkeypatch):
+    root = _project(tmp_path, "billing", PHP_STACK + "setup:\n  run: ['echo nope; exit 4']\n")
+    monkeypatch.setattr(stack_setup, "FORCE_MODE", "container")
+    monkeypatch.setattr(stack_setup, "HELPER_CMD", ["false"])          # never called: no apt here
+    monkeypatch.setattr(stack_setup, "RAN_DIR", str(tmp_path / "ran"))
+    monkeypatch.setattr(stack_setup, "known_roots", lambda: [("billing", str(root))])
+    sysu = stack_setup.SystemSetup()
+    sysu.run_once()
+    st = sysu.status()
+    assert st["state"] == "failed" and st["line"] == "could not run echo nope; exit 4 for billing (exit 4): nope"
+    assert not (tmp_path / "ran").exists()
+
+
+# ------------------------------------------------------------------ the root helper and sudo
+
+HELPER_FILE = Path(__file__).resolve().parents[2] / "docker" / "keel-stack-setup"
+
+
+def _helper(*args):
+    return subprocess.run(["bash", str(HELPER_FILE), *args], capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("args", [[], ["run", "id"], ["run"], ["sh", "-c", "id"], ["APT", "php"], ["install", "php"],
+                                  ["--", "apt", "php"]])
+def test_the_helper_refuses_anything_but_apt(args):
+    r = _helper(*args)
+    assert r.returncode == 2 and "usage: keel-stack-setup apt <package>..." in r.stderr
+
+
+@pytest.mark.parametrize("pkg", ["php8.3-cli;id", "-o", "--allow-unauthenticated", "Php", "php=1.0", "x y", "$(id)",
+                                 "../x", ""])
+def test_the_helper_refuses_what_is_not_a_package_name(pkg):
+    r = _helper("apt", "php8.3-cli", pkg)
+    assert r.returncode == 2 and f"not a package name: {pkg}" in r.stderr     # before apt (or mkdir) runs
+
+
+def test_the_helper_needs_a_package():
+    assert _helper("apt").returncode == 2
+
+
+def test_sudo_allows_keels_user_only_the_helpers_apt():
+    dockerfile = (HELPER_FILE.parents[1] / "Dockerfile").read_text()
+    lines = [ln for ln in dockerfile.splitlines() if "sudoers" in ln and "echo" in ln]
+    assert len(lines) == 1
+    assert "echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup apt *' > /etc/sudoers.d/keel-stack-setup" \
+        in lines[0]
+    assert "visudo -cf /etc/sudoers.d/keel-stack-setup" in dockerfile
+    text = HELPER_FILE.read_text()
+    assert "bash -c" not in text and "\n  run)" not in text and "eval" not in text
 
 
 def test_the_background_request_runs_once_and_looks_again_when_asked(tmp_path, monkeypatch):

@@ -5,14 +5,17 @@ project needs more, and a flow's new worktree has none of the git-ignored folder
 need. A stack's `setup:` block says what to do (validated by stacks.validate_setup):
 
     apt:            [packages]   system packages (Debian/Ubuntu names) the stack needs
-    run:            [commands]   root commands after apt (a tool apt has no package for)
+    run:            [commands]   setup commands after apt, as keel's own user (never root): a tool apt has no
+                                 package for, installed under keel's home
     each_worktree:  [commands]   run in the lane's folder (backend.dir / frontend.dir) of a new flow worktree, or of a
                                  folder that lacks what dependency_files imply (composer.json without vendor/)
 
 Two parts:
 
-  system    the union of setup.apt and setup.run of every registered project's stacks, installed as root through
-            keel's helper (docker/keel-stack-setup, allowed by sudo for that one program). It runs in the background:
+  system    the union of setup.apt and setup.run of every registered project's stacks. The packages are installed as
+            root through keel's helper (docker/keel-stack-setup): sudo allows it only as `keel-stack-setup apt ...`,
+            and it accepts nothing but package names. setup.run commands run as keel's own user, once per container.
+            It runs in the background:
             keel starts at once, a flow that needs a package waits for it (or stops at a clear gate). The apt cache is in
             the data volume (/data/cache/apt), so a re-created container installs again from the cache. It runs at the
             engine's start, when a project is scanned (added), when a stack is saved, and before a flow that needs it.
@@ -53,8 +56,10 @@ log = logging.getLogger(__name__)
 HELPER = "/usr/local/bin/keel-stack-setup"
 HELPER_CMD: list[str] = ["sudo", "-n", HELPER]
 FORCE_MODE: str | None = None
-# Where the helper records the setup.run commands it ran in this container (gone with the container, like the packages)
-RAN_DIR = "/var/lib/keel-stack-setup"
+# Where keel records the setup.run commands it ran in this container: keel's home is in the container, not in the data
+# volume, so a re-created container runs them again (like the packages, which go with it too)
+RAN_DIR = str(Path.home() / ".cache" / "keel-stack-setup")
+RUN_TIMEOUT = 30 * 60
 # What a dependency file implies the folder has once its install ran
 IMPLIES = {"composer.json": "vendor", "package.json": "node_modules"}
 RECORD = "keel-setup.json"
@@ -118,7 +123,7 @@ def runtimes(setup: dict) -> list[str]:
 
 
 def run_key(command: str) -> str:
-    """The helper's record of one setup.run command (docker/keel-stack-setup computes the same)."""
+    """keel's record of one setup.run command it ran in this container (a file named so in RAN_DIR)."""
     return hashlib.sha256(command.encode("utf-8")).hexdigest()[:16]
 
 
@@ -395,25 +400,49 @@ class SystemSetup:
         for step in p["steps"]:
             if step["do"] == "apt":
                 line = f"installing {_short(step['packages'])} for {_projects(step['for'])}…"
-                args = ["apt", *step["packages"]]
+                self._set(state="running", mode=where, line=line, missing=p["missing"], failed=failed)
+                self._log(f"$ keel-stack-setup apt {' '.join(step['packages'])}")
+                code, out = self._helper(["apt", *step["packages"]])
             else:
+                # setup.run: keel's own user, a plain shell; never root, never the helper
                 line = f"running {step['command'][:80]} for {_projects(step['for'])}…"
-                args = ["run", step["command"]]
-            self._set(state="running", mode=where, line=line, missing=p["missing"], failed=failed)
-            self._log(f"$ keel-stack-setup {' '.join(args)}")
-            code, out = self._helper(args)
+                self._set(state="running", mode=where, line=line, missing=p["missing"], failed=failed)
+                self._log(f"$ {step['command']}")
+                code, out = self._run_as_keel(step["command"])
             self._log(out)
             if code != 0:
                 what = _short(step["packages"]) if step["do"] == "apt" else step["command"][:80]
                 failed.append(what)
                 tail = " ".join(out.strip().splitlines()[-2:])[-300:]
-                self._set(state="failed", line=f"could not install {what} for {_projects(step['for'])} (exit {code})"
+                verb = "install" if step["do"] == "apt" else "run"
+                self._set(state="failed", line=f"could not {verb} {what} for {_projects(step['for'])} (exit {code})"
                                                + (f": {tail}" if tail else ""), failed=failed)
                 return p
         self._set(state="ready", mode=where, line=f"installed {_short(p['missing'])}" if p["missing"] else "set up",
                   missing=[], failed=[])
         self._save_packages(u)
         return p
+
+    @staticmethod
+    def _run_as_keel(command: str) -> tuple[int, str]:
+        """One setup.run command as this process's own user (keel's), in its home; recorded once it passed."""
+        from ..tools.agent_tools import command_env
+
+        try:
+            r = subprocess.run(["bash", "-c", command], cwd=str(Path.home()), capture_output=True, text=True,
+                               timeout=RUN_TIMEOUT, stdin=subprocess.DEVNULL, env=command_env())
+            code, out = r.returncode, ((r.stdout or "") + (r.stderr or ""))[-20000:]
+        except subprocess.TimeoutExpired:
+            return 124, f"timed out after {RUN_TIMEOUT}s"
+        except OSError as exc:
+            return 127, str(exc)
+        if code == 0:
+            try:
+                Path(RAN_DIR).mkdir(parents=True, exist_ok=True)
+                (Path(RAN_DIR) / run_key(command)).write_text(command + "\n")
+            except OSError:
+                pass
+        return code, out
 
     @staticmethod
     def _helper(args: list[str]) -> tuple[int, str]:

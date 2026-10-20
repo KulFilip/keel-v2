@@ -622,7 +622,7 @@ that needs more says so in a `setup:` block:
 ```yaml
 setup:
   apt: [php8.3-cli, php8.3-xml, php8.3-mbstring, php8.3-sqlite3, php8.3-intl, php8.3-curl, unzip, composer]
-  run: []                                   # root commands after apt, for a tool apt has no package for
+  run: []                                   # after apt, as keel's own user (not root)
   each_worktree: [composer install -n --no-progress]
 ```
 
@@ -632,7 +632,8 @@ setup:
 - After `keel2 update`, a restart or a restore the container is new, so the packages are gone. keel installs them
   again at start. The apt cache is in keel's data volume (`/data/cache/apt`), so this is fast and needs no download.
   `keel2 backup` leaves the cache out.
-- `run`: root commands after apt, once per container. keel shows them in the stack check, because they run as root.
+- `run`: setup commands that do not need root, after apt, once per container. They run as keel's own user, for
+  example a tool installed under keel's home. They never run as root: a system package goes in `apt`.
 - `each_worktree`: commands keel runs in the stack's folder (`backend.dir` for an api stack, `frontend.dir` for a web
   stack) when a flow starts in a new worktree, once per worktree. A new worktree has no git-ignored folders, so
   `vendor/` or `node_modules/` must be installed again. keel also runs them when the folder has `composer.json` but no

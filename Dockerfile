@@ -183,13 +183,14 @@ COPY --from=plugins /out /opt/keel-v2/plugins
 ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
 # keel 0.18.22 a stack's setup: block (PHP, Go, ... are not in this image): the engine installs setup.apt in the
-# background through this root helper, the one program keel's user may run with sudo (docker/keel-stack-setup)
+# background through this root helper (docker/keel-stack-setup). sudo lets keel's user run it only as
+# `keel-stack-setup apt ...`, nothing else; the helper also refuses any other first argument.
 COPY docker/keel-stack-setup /usr/local/bin/keel-stack-setup
 RUN chmod +x /usr/local/bin/keel-start /opt/keel-v2/cli/keel-tui.mjs && ln -s /opt/keel-v2/cli/keel-tui.mjs /usr/local/bin/keel-tui \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \
     && useradd -m -u 1000 keel && mkdir -p /data /workspace && chown keel:keel /data /workspace \
     && chown root:root /usr/local/bin/keel-stack-setup && chmod 0755 /usr/local/bin/keel-stack-setup \
-    && echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup' > /etc/sudoers.d/keel-stack-setup \
+    && echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup apt *' > /etc/sudoers.d/keel-stack-setup \
     && chmod 0440 /etc/sudoers.d/keel-stack-setup && visudo -cf /etc/sudoers.d/keel-stack-setup
 
 USER keel

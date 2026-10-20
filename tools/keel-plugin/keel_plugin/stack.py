@@ -13,6 +13,7 @@ repo), at most 64 KB, signed like a plugin, and **shipped unchanged**: it is the
     commands: {api_test_ac: …}     the project's commands ({AC}, {AC_ID}, {AC_KEY}, {PKG}, {PATHS})
     tools: {name: {run, on, fail, match?}}   programs keel runs (on: manual | edit | batch | pre-commit | pre-push)
     setup: {apt: [package], run: [command], each_worktree: [command]}   what the stack needs in keel's container
+                                   (apt: installed as root by keel; run and each_worktree: as keel's own user)
     skills: {testing: <skill id>}
 
 The review (keel's engine builds the same from the file, keel_engine.marketplace.kinds.stack_review): {lane, detect,
@@ -150,7 +151,8 @@ def lint_doc(doc, r: StackReport) -> None:
             r.errors.append(f"the tool {k} has fail: {v['fail']}, which is not one of {', '.join(FAIL)}")
     r.errors += setup_errors(doc.get("setup"))
     if isinstance(doc.get("setup"), dict) and doc["setup"].get("run"):
-        r.warnings.append("setup.run runs as root inside keel's container: say why in the stack's description")
+        r.warnings.append("setup.run runs in keel's container as keel's own user (not root): say why in the stack's "
+                          "description; system packages go in setup.apt")
     if doc.get("starter"):
         r.warnings.append("starter: a single stack file has no files for it; keel skips the ones that are not there")
 

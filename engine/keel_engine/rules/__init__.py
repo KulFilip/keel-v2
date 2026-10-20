@@ -51,8 +51,8 @@ KEEL_KEY_WORDS = re.compile(r"/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/
                             r"|\bKEEL_INTERNAL_TOKEN\b|\bKEEL_WEB_KEY\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\("
                             r"|\bkeel2\s+auth\s+key\b", re.I)
 
-# keel 0.18.22 the root helper that installs a stack's setup.apt and setup.run in keel's container (sudo allows keel's
-# user that one program): keel's stack setup runs it; an agent never does, in any phase.
+# keel 0.18.22 the root helper that installs a stack's setup.apt in keel's container (sudo allows keel's user that one
+# program, only as `keel-stack-setup apt ...`): keel's stack setup runs it; an agent never does, in any phase.
 STACK_SETUP_HELPER = re.compile(r"keel-stack-setup\b")
 
 

@@ -2432,12 +2432,12 @@ Plan: `docs/plans/0.17.5.md`.
 
 A stack pack may have a `setup:` block. Every reader of stack packs checks it (`runtime/stacks.validate_setup`): a
 stack with a broken block keeps everything else; its setup is left out and `_setup_errors` says why. The stack check
-(`POST /stacks/check`) reports the same errors, and warns that `setup.run` runs as root.
+(`POST /stacks/check`) reports the same errors, and says that `setup.run` runs as keel's user (not root).
 
 ```yaml
 setup:
   apt: [package, ...]            # Debian package names: ^[a-z0-9][a-z0-9+.-]*$
-  run: [command, ...]            # root commands after apt, once per container
+  run: [command, ...]            # after apt, as keel's own user (never root), once per container
   each_worktree: [command, ...]  # in the lane's folder (backend.dir / frontend.dir) of a new flow worktree
 ```
 
@@ -2446,10 +2446,13 @@ registered project (the engine's `project_index` rows, the folders it was told a
 and `KEEL_FOLDERS`). It runs in a background thread at the engine's start, on `POST /projects/{p}/scan`, after a stack
 is saved, removed or turned off, and before a flow that needs it. It never blocks the start.
 
-- Container: the engine runs `sudo -n /usr/local/bin/keel-stack-setup apt <packages>` and `... run <command>`. The
-  helper (`docker/keel-stack-setup`) is root-owned. `/etc/sudoers.d/keel-stack-setup` lets keel's user run it, and
-  nothing else. Packages already installed (`dpkg-query`) and run commands already run in this container
-  (`/var/lib/keel-stack-setup/<sha256[:16]>`) are left out. The apt cache is `/data/cache/apt` (archives and package
+- Container: the engine runs `sudo -n /usr/local/bin/keel-stack-setup apt <packages>`. The helper
+  (`docker/keel-stack-setup`) is root-owned and does one thing: `apt` with Debian package names
+  (`^[a-z0-9][a-z0-9+.-]*$`, checked before apt runs). Any other first argument is refused (exit 2).
+  `/etc/sudoers.d/keel-stack-setup` is `keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup apt *`: nothing else
+  runs as root. `setup.run` commands run as keel's own user (`bash -c`, in keel's home), never through sudo.
+  Packages already installed (`dpkg-query`) and run commands already run in this container (`~/.cache/keel-stack-setup/
+  <sha256[:16]>`) are left out. The apt cache is `/data/cache/apt` (archives and package
   lists), owned by keel; `keel2 backup` excludes it.
 - Native mode (`KEEL_NATIVE=1`) and any engine without the helper never install. The status says which programs are
   missing (a package's program: `php8.3-cli` → php, `golang-go` → go, `composer` → composer).

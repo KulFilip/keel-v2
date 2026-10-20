@@ -132,7 +132,7 @@ tools:                      # programs keel runs itself: on edit | batch | pre-c
   <name>: {run: <command, {FILES} for the changed files>, on: pre-commit, fail: fix | block | warn, match: <regex of files>}
 setup:                      # optional: what the stack needs in keel's container (it has Java, Node and Python only)
   apt: [php8.3-cli, composer]          # system packages keel installs at start (Debian names)
-  run: []                              # root commands after apt, for a tool apt has no package for
+  run: []                              # after apt, as keel's own user (not root): a tool apt has no package for
   each_worktree: [composer install -n] # run in the lane's folder of each new flow worktree (git-ignored installs)
 skills: {testing: <skill id>}   # optional: the skills agents read for this stack
 Read the project first (package.json scripts, the Gradle or Maven build, pyproject.toml, composer.json, a Makefile, \

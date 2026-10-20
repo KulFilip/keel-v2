@@ -246,7 +246,8 @@ def check(root: str | None, text: str, replace: bool = False) -> dict:
     errors += stacks.validate_setup(setup)
     if isinstance(setup, dict) and not stacks.validate_setup(setup):
         if setup.get("run"):
-            warnings.append("setup.run runs as root inside keel's container, at every start: read each command")
+            warnings.append("setup.run runs as keel's own user (not root) once per container: a system package goes in "
+                            "setup.apt; read each command")
         if setup.get("each_worktree") and not doc.get("dependency_files"):
             warnings.append("setup.each_worktree runs in each new flow worktree; with dependency_files keel also runs "
                             "it where the installed folder is missing (composer.json without vendor/)")
