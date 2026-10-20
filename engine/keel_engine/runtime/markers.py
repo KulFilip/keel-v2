@@ -11,6 +11,8 @@
     CONFIDENCE: high | medium | low            (web-researcher, 0.18.20)
     WEB: yes | no                              (feature's web_check, 0.18.21: does the spec need outside docs?)
     REFACTOR: done | none                      (feature's optional refactor step: did it tidy anything?)
+    VERDICT: promising | possible | no         (spike: each angle's researcher, 0.18.23: counted, never glued)
+    CONFLICTS: none | found                    (spike's findings, 0.18.23: the angles' contradictions, listed under it)
     AMEND: <what the frozen spec gets wrong>   (feature: test-author / implementer, only when the spec is wrong)
     BLOCKED: <tooling | needs AC-x>: <what>    (feature: test-author / implementer, only when they cannot go on;
                                                 the implementer's `GREEN-RESULT: stalled` counts as BLOCKED too)
@@ -40,6 +42,8 @@ REGISTRY: dict[str, tuple[str, ...]] = {
     "CONFIDENCE": ("high", "medium", "low"),
     "WEB": ("yes", "no"),
     "REFACTOR": ("done", "none"),
+    "VERDICT": ("promising", "possible", "no"),
+    "CONFLICTS": ("none", "found"),
     "AMEND": (),
     "BLOCKED": (),
 }

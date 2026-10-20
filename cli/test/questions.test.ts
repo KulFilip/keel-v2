@@ -409,3 +409,10 @@ describe("KeelBot's suggested answer reads like the gate (0.18.23)", () => {
     expect(question(b, () => '"ETA"')).toBe('KeelBot suggests: answer "ETA" with A · Overwrite one column; A · Database only?');
   });
 });
+
+describe("a gate's fold-outs in keel TUI (0.18.23)", () => {
+  it("show their title line only: a spike's angles with their verdicts", () => {
+    const detail = "## Summary\n- **DECISION:** build it\n\n<details><summary>reuse the column · VERDICT promising</summary>\n\nAnswer: it fits.\n- a: b\n\n</details>\n\n<details><summary>a new column · VERDICT possible</summary>\n\nAnswer: no.\n\n</details>";
+    expect(fmt.folded(detail)).toBe("## Summary\n- **DECISION:** build it\n\n▸ reuse the column · VERDICT promising\n\n▸ a new column · VERDICT possible");
+  });
+});

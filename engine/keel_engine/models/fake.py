@@ -126,10 +126,13 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                               "NO_QUESTIONS: the request answers every lens that changes the criteria"), {}
         # 0.18.23 the frame is about the decision (need, for whom, what evidence decides, limits, options); how to
         # build it goes to the spec as open questions
-        return None, "", (f"Framed: {title}.\nDecision: whether to build it, and which option.\n"
-                          "For whom: the request says it.\nWhat decides it: the evidence the angles collect.\n"
-                          "Limits: none given.\nOpen questions for the spec: none yet.\n"
-                          "Nothing from outside this repository is needed."), {}
+        framed = (f"Framed: {title}.\nDecision: whether to build it, and which option.\n"
+                  "For whom: the request says it.\nWhat decides it: the evidence the angles collect.\n"
+                  "Limits: none given.\nOpen questions for the spec: none yet.\n"
+                  "Nothing from outside this repository is needed.")
+        if req.step_name == "frame the question":      # the spike's two angles (they disagree: SPIKE_ANGLES)
+            framed += "\n```json\n" + json.dumps([{"title": t} for t in SPIKE_ANGLES]) + "\n```"
+        return None, "", framed, {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)
         path = f"{specs}/{slug(title)}.md"
@@ -224,10 +227,46 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
             lines.append(f"Q | {files[0]}:1 | like its neighbour | no docstring here | add one line, like the others")
         lines += ["S | A small change that does what it says.", "TICKET-REVIEW: done"]
         return None, "", "\n".join(lines), {}
+    if agent == "investigator" and req.step_name == "one researcher per angle":
+        # 0.18.23 the spike's angles: the working (tool-call log, narration) first, then the clean ANGLE REPORT
+        return None, "", SPIKE_ANGLES.get(str((req.item or {}).get("title")), next(iter(SPIKE_ANGLES.values()))), {}
+    if agent == "investigator" and req.step_name.startswith("findings"):
+        return None, "", SPIKE_FINDINGS, {}
     if agent == "investigator":
         return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
                           "ROOT-CAUSE: confirmed"), {}
     return None, "", f"{agent}: done.", {}
+
+
+# 0.18.23 the spike's two angles, as a real CLI agent answers: its working first, then the ANGLE REPORT. They disagree
+# on where the ETA is stored and whether it needs a migration (a real spike's angles did, and nobody said so).
+_WORKING = ("I'll start with the webhook handler.\n● cd src; cat -n webhook/EtaHandler.kt\n│ 249  fun onEvent(e: Event) {\n"
+            "└ 220 lines…\n/ Search (grep) estimated_delivery\nNow the entity.\n")
+SPIKE_ANGLES = {
+    "reuse the subscription column": _WORKING + (
+        "ANGLE REPORT\nAnswer: the ETA fits the column that exists.\nFacts:\n"
+        "- where the ETA is stored: tracking_subscriptions.estimated_delivery_date — src/db/TrackingSubscription.kt:12\n"
+        "- migration needed: no — src/db/migrations/V12__subscriptions.sql:4\n"
+        "Unverified:\n- whether the vendor sends it on every update\nRisks:\n- one value, no history\n"
+        "Cost: 2 files, no migration, S\nVERDICT: promising"),
+    "a column on trackings": _WORKING + (
+        "ANGLE REPORT\nAnswer: the ETA needs its own column on trackings.\nFacts:\n"
+        "- where the ETA is stored: trackings.estimated_delivery_date — src/db/Tracking.kt:30\n"
+        "- migration needed: yes — a new V13 migration\n"
+        "Unverified:\n- none\nRisks:\n- a migration on a large table\n"
+        "Cost: 4 files, 1 migration, M\nVERDICT: possible"),
+}
+SPIKE_FINDINGS = (
+    "DECISION: build it on the existing tracking_subscriptions column.\n"
+    "BEFORE BUILDING:\n1. Does the vendor send the ETA on every update?\n"
+    "CONFLICTS: found\n"
+    "- where the ETA is stored: \"reuse the subscription column\" says tracking_subscriptions "
+    "(src/db/TrackingSubscription.kt:12); \"a column on trackings\" says trackings (src/db/Tracking.kt:30); the evidence "
+    "supports tracking_subscriptions: the column exists (src/db/migrations/V12__subscriptions.sql:4)\n"
+    "- migration needed: one angle says no, the other a new V13; no migration is needed, the column exists\n"
+    "COST: 2 files, no migration, small\nNEXT: spec\n\n"
+    "## Findings (evidence)\n- the column exists: src/db/migrations/V12__subscriptions.sql:4\n\n"
+    "RECOMMEND: reuse the subscription column")
 
 
 def chunks(text: str, size: int = 12) -> list[str]:

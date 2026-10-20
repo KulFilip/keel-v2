@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import rules
 from ..tools import git
-from . import bug, verdict_actions
+from . import bug, spike_report, verdict_actions
 
 LENSES = ["correctness", "security", "performance", "architecture", "assertions"]
 # How often one gate may be sent back in a row before keel asks (settings.sendback_limit). 0.18.12: a fix question that
@@ -255,7 +255,9 @@ def report(a):
         out += ["## Static checks", "", str(data["lint_report"]).strip(), ""]
     for key in keys:
         for r in data[key]:
-            out += [f"## {r.get('title') or r.get('item')}", "", str(r.get("text") or "").strip() or "(no answer)", ""]
+            # 0.18.23 without the agent's tool-call log and narration; an ANGLE REPORT block when it wrote one (the raw
+            # answer stays in data.<step>_results and the agent's own log)
+            out += [f"## {r.get('title') or r.get('item')}", "", spike_report.angle_text(str(r.get("text") or "")) or "(no answer)", ""]
     tally = _tally([r for k in keys for r in data[k]])
     if tally:
         out += ["---", tally]
@@ -424,6 +426,6 @@ def change_start(a):
     return _ok(note, update={"gates": gates})
 
 
-ACTIONS = {"review_scope": review_scope, "report": report, "investigation_note": investigation_note,
+ACTIONS = {"review_scope": review_scope, "report": report, "spike_report": spike_report.spike_report, "investigation_note": investigation_note,
            "bug_intake": bug_intake, "reset": reset, "change_size": change_size, "change_start": change_start,
            "bug_plan": bug.bug_plan, "bug_drop_red": bug.bug_drop_red, "bug_reset": bug.bug_reset}

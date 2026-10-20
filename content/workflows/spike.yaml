@@ -3,11 +3,13 @@ name: spike (keel)
 keel_rules: true
 version: 1
 # Research before building: frame the question (0.18.21: with one round of questions about the decision when only
-# the person knows the answer; 0.18.23: about the decision only, how to build it goes to the spec as open questions), research what it needs from outside the repo on the web (0.18.20
-# web_docs: the web-researcher searches first and reads at least five sources), research each angle from evidence and
-# measurements, write the findings with data, sources and one recommendation (0.18.21: evidence with file:line or URL,
-# draft criteria, test layers, risks and cost, kept whole: the report adds each angle's answer word for word and seeds
-# the feature's evidence), and let the person decide. Phase spec:
+# the person knows the answer; 0.18.23: about the decision only, how to build it goes to the spec as open
+# questions), research what it needs from outside the repo on the web (0.18.20 web_docs: the web-researcher searches
+# first and reads at least five sources), research each angle from evidence and measurements, write the findings
+# with data, sources and one recommendation (0.18.21: evidence with file:line or URL, draft criteria, test layers,
+# risks and cost, kept whole: the report adds each angle's answer word for word and seeds
+# the feature's evidence; 0.18.23: the report starts with a summary, keeps each angle's clean ANGLE REPORT block only,
+# lists the angles' conflicts and counts their verdicts in one line), and let the person decide. Phase spec:
 # agents may write notes and the spec, never code or tests. "spec" starts a feature flow from the findings (its spec
 # step writes the spec); "drop" ends here.
 steps:
@@ -69,7 +71,11 @@ steps:
       list of claims, each with its file:line or URL; trace the paths your angle touches (inbound, internal messages
       and their contract, persistence, outbound) and name the tests that exist for them; mark Unverified what no source
       confirms, with what must be confirmed. Name the risks and what the angle would cost to build (files, migration,
-      deploy order). End with VERDICT: promising | possible | no.
+      deploy order). End with your clean report, the only part of your answer the spike's report keeps (your working
+      before it is not): a line ANGLE REPORT, then "Answer:" in one or two sentences; "Facts:", a list of
+      "- <topic>: <value> — <file:line or URL>" (one topic per line, short topic names such as "where the ETA is
+      stored" or "migration needed", so keel can compare the angles); "Unverified:"; "Risks:"; "Cost:" (files,
+      migration, size); and last VERDICT: promising | possible | no.
 
       What the web research found:
 
@@ -82,11 +88,15 @@ steps:
     model: default
     phase: spec
     keep: true
-    markers: [RECOMMEND]
+    markers: [RECOMMEND, CONFLICTS]
     instructions: >-
       Write the spike's findings for the person who decides, and for the feature spec that may start from them (the
-      researchers' answers follow yours word for word in the report and the feature gets both, so carry their
-      evidence, never summarise it away). In this order: the question and the decision; Findings (evidence), a list
+      researchers' reports follow yours in the report and the feature gets both, so carry their evidence, never
+      summarise it away). Start with the summary, at most 12 lines, each section on its own line:
+      "DECISION: <one sentence>"; "BEFORE BUILDING:" with at most 3 numbered open questions that block building
+      (or "none"); "CONFLICTS: none | found" and under it, as a list, every point where the angles disagree (compare
+      their Facts one by one), with the evidence for each side and which side the evidence supports; "COST: <files,
+      migrations, size>"; "NEXT: spec | drop". Then the full findings, in this order: the question and the decision; Findings (evidence), a list
       where every claim has its file:line or URL, with the paths the change touches traced (inbound, internal messages
       and their contract, e.g. a schema with additionalProperties: false, and the old messages already queued at
       deploy, persistence, outbound); the tests that exist today for those paths (or none); gaps that need a product
@@ -106,7 +116,7 @@ steps:
       The researchers' answers:
 
       {{data.report}}
-  - { id: report, kind: code, name: findings report, action: report, phase: spec }
+  - { id: report, kind: code, name: findings report, action: spike_report, phase: spec }
   - id: decide
     kind: gate
     name: spike result

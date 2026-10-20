@@ -263,7 +263,7 @@ def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, re
     request = spec.prompt.split("What the user asked for:\n", 1)[1]
     assert "[cut at 8000 of" in request                     # every agent's request stays short
     assert spec.prompt.count("src/webhook/EtaHandler.kt:249") >= 2       # both angles, whole, in the evidence block
-    assert all(f"ANGLE-END angles {n}" in spec.prompt for n in (1, 2, 3))
+    assert all(f"ANGLE-END {t}" in spec.prompt for t in fake.SPIKE_ANGLES)        # 0.18.23 the fake frame's angles
     assert "Carry every claim with its file:line or URL into the spec's Findings (evidence)" in spec.prompt
     red = [r for r in seen if r.agent == "test-author"]
     assert all("Evidence handed over" not in r.prompt for r in red)
@@ -367,3 +367,68 @@ def test_a_plain_refactor_does_not_research_the_web(client, repo, monkeypatch):
     assert [r.step_name for r in seen][:3] == ["outside docs needed?", "interview", "spec"]
     assert not any(r.agent == "web-researcher" for r in seen) and "web_docs" in skipped
     assert "https://docs.example.com/webhooks" not in seen[2].prompt
+
+
+# ------------------------------------------------------------------ 0.18.23 the spike's report reads in a glance
+
+def test_the_spike_report_starts_with_its_summary_and_strips_the_angles_working(client, repo):
+    from conftest import start, wait
+
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform webhook ETA"))
+    assert s["waiting"]["step"] == "decide"
+    report = s["waiting"]["detail"]
+    lines = report.splitlines()
+    assert lines[0] == "# Spike: ParcelPerform webhook ETA" and lines[2] == "## Summary"
+    summary = report.split("## Findings", 1)[0]
+    assert len([x for x in summary.splitlines() if x.strip()]) <= 14
+    heads = [x.split(":**")[0] for x in summary.splitlines() if x.startswith("- **")]
+    assert heads == ["- **DECISION", "- **BEFORE BUILDING", "- **CONFLICTS", "- **COST", "- **NEXT"]
+    assert "- **DECISION:** build it on the existing tracking_subscriptions column." in summary
+    assert "  1. Does the vendor send the ETA on every update?" in summary and "- **NEXT:** spec" in summary
+    # the summary comes first: before the findings and the angles
+    assert report.index("## Summary") < report.index("## Findings") < report.index("## Angles")
+    # the angles keep their ANGLE REPORT only: no tool-call log, no narration
+    for noise in ("●", "│", "└", "/ Search", "I'll start with", "Now the entity"):
+        assert noise not in report, noise
+    assert "<details><summary>reuse the subscription column · VERDICT promising</summary>" in report    # folded
+    assert "- where the ETA is stored: trackings.estimated_delivery_date — src/db/Tracking.kt:30" in report
+
+
+def test_the_angles_conflict_shows_under_conflicts_and_one_verdict_line_is_counted(client, repo):
+    from conftest import start, wait
+
+    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform webhook ETA"))
+    summary = s["waiting"]["detail"].split("## Findings", 1)[0]
+    conflicts = summary.split("**CONFLICTS:**", 1)[1].split("**COST:**", 1)[0]
+    assert "where the ETA is stored" in conflicts and "tracking_subscriptions" in conflicts and "trackings" in conflicts
+    verdicts = [x for x in s["waiting"]["detail"].splitlines() if x.startswith("VERDICT:")]
+    assert verdicts == ["VERDICT: 1 of 2 angles promising (1 possible); recommendation: reuse the subscription column"]
+
+
+def test_keel_finds_a_conflict_the_findings_missed(client, repo, monkeypatch):
+    from conftest import start, wait
+
+    real = fake._plan
+
+    def plan(req):
+        if req.agent == "investigator" and req.step_name.startswith("findings"):
+            return None, "", "DECISION: build it.\nCONFLICTS: none\nCOST: small\nNEXT: spec\nRECOMMEND: build it", {}
+        return real(req)
+    monkeypatch.setattr(fake, "_plan", plan)
+    s = wait(client, start(client, repo, workflow="spike", title="ETA"))
+    conflicts = s["waiting"]["detail"].split("**CONFLICTS:**", 1)[1].split("**COST:**", 1)[0]
+    assert "where the eta is stored:" in conflicts and "migration needed:" in conflicts
+    assert "keel found it in the angles' facts" in conflicts
+
+
+def test_the_report_helpers_strip_logs_count_verdicts_and_read_facts():
+    from keel_engine.runtime import spike_report as sr
+
+    raw = "I'll look.\n● cat -n a.kt\n│ 1 x\n└ 9 lines…\n/ Search (grep) eta\nLet me check.\nThe ETA is set at a.kt:1.\n```\n● kept in code\n```"
+    assert sr.clean(raw) == "The ETA is set at a.kt:1.\n```\n● kept in code\n```"
+    assert sr.angle_text("working\nANGLE REPORT\nAnswer: x\nVERDICT: no") == "Answer: x\nVERDICT: no"
+    rs = [{"markers": {"VERDICT": v}} for v in ("promising", "promising", "possible", "promising")]
+    assert sr.verdict_line(rs, "map it") == "VERDICT: 3 of 4 angles promising (1 possible); recommendation: map it"
+    assert sr.verdict_line([{"markers": {}}], "") == "VERDICT: 0 of 1 angles with a verdict (1 without a verdict)"
+    assert markers.parse("VERDICT: Promising — the column exists", ["VERDICT"]) == {"VERDICT": "promising"}
+    assert markers.REGISTRY["CONFLICTS"] == ("none", "found")

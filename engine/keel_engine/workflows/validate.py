@@ -17,7 +17,7 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # ship and cover (runtime/ship.py)
                 "review_lenses", "coverage_report", "memory_plan", "memory_skip", "knowledge_scan",
                 # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
-                "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
+                "review_scope", "report", "spike_report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
                 "escalate_model",
                 # the bug flow's own steps (runtime/bug.py)
                 "bug_plan", "bug_drop_red", "bug_reset",
