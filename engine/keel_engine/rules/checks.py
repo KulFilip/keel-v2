@@ -18,7 +18,8 @@ PATTERNS = [
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "an AWS access key id"),
     (re.compile(r"\bASIA[0-9A-Z]{16}\b"), "an AWS temporary access key id"),
     (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"), "a GitHub token"),
-    (re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"), "an API secret key"),
+    # sk-..., sk-ant-api03-..., sk-proj-...: dashes and underscores belong to the key; a digit keeps words like sk-learn-... out
+    (re.compile(r"\bsk-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}"), "an API secret key"),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}\b"), "a Slack token"),
     (re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----"), "a private key"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "a JWT"),
@@ -26,9 +27,13 @@ PATTERNS = [
     (re.compile(r"\bpostgres(?:ql)?://[^\s:@]+:[^\s:@]+@"), "a database URL with a password in it"),
     (re.compile(r"\bmongodb(?:\+srv)?://[^\s:@]+:[^\s:@]+@"), "a MongoDB URL with a password in it"),
 ]
-ASSIGNMENT = re.compile(r"\b(?:password|passwd|secret|token|api[_-]?key|apikey|private[_-]?key|credential|access[_-]?key)\b"
-                        r"\s*[:=]\s*[\"'`]([^\"'`\n]{12,})[\"'`]", re.I)
-PLACEHOLDER = re.compile(r"^(?:\$\{|\{\{|<|x{3,}|\*{3,}|changeme|placeholder|your[_-]|example|dummy|redacted|todo|null|none|test)", re.I)
+_SECRET_NAME = r"(?:password|passwd|secret|token|api[_-]?key|apikey|private[_-]?key|credential|access[_-]?key)"
+# a name that holds one of those words, with anything around it (DB_PASSWORD, STRIPE_SECRET_KEY, dbPassword, "api_key"),
+# then a quoted value
+ASSIGNMENT = re.compile(_SECRET_NAME + r"[A-Za-z0-9_-]*[\"'`]?\s*[:=]\s*[\"'`]([^\"'`\n]{12,})[\"'`]", re.I)
+# the same in an env file or shell line, where the value has no quotes: DB_PASSWORD=hunter2hunter2
+ENV_ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?[A-Za-z0-9_]*" + _SECRET_NAME + r"[A-Za-z0-9_]*=([^\s\"'`#]{12,})\s*$", re.I)
+PLACEHOLDER = re.compile(r"^(?:\$|\{\{|<|x{3,}|\*{3,}|changeme|placeholder|your[_-]|example|dummy|redacted|todo|null|none|test)", re.I)
 ALLOW_MARKER = "keel:allow-secret"
 
 
@@ -52,7 +57,7 @@ def scan_secrets(text: str, max_bytes: int = 512 * 1024) -> list[dict]:
             continue
         why = next((w for rx, w in PATTERNS if rx.search(line)), None)
         if not why:
-            m = ASSIGNMENT.search(line)
+            m = ASSIGNMENT.search(line) or ENV_ASSIGNMENT.search(line)
             if m and not PLACEHOLDER.match(m.group(1)) and entropy(m.group(1)) > 3.2:
                 why = "a high-entropy value assigned to a secret-looking name"
         if why:
