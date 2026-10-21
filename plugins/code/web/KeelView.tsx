@@ -1,10 +1,10 @@
 // The keel activity: which phase and rule apply to the open file (with its history and an unlock for this phase),
 // and keel's own pages — the files keel wrote and what agents remember (Memory) — which open as editor tabs.
 
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import {
   Async, clock, Confirm, DocProblems, Drawer, EmptyState, ErrorBox, errorParts, kfmt, Panel, Pill, plural, RefreshStaleButton, useApp, useLoad, usePages,
-  type Commit, type Fact, type FactKind, type Memory, type PillTone,
+  useSelectAll, type Commit, type Fact, type FactKind, type Memory, type PillTone,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon } from "./icons";
@@ -140,8 +140,10 @@ export function DocsView({ pid, onOpen }: { pid: string; onOpen: (path: string) 
   const { project } = useApp();
   const wiki = usePages().some((p) => p.id === "wiki");
   const docs = useLoad(`keeldocs:${pid}`, () => api.keelDocs(pid));
+  const box = useRef<HTMLDivElement>(null);
+  useSelectAll(box);
   return (
-    <div className="ed-doc">
+    <div className="ed-doc" ref={box}>
       <Panel title={`Files keel wrote in ${project?.name ?? pid}`} extra={<span className="hint">every change is a commit you can review</span>} body={false}>
         <Async r={docs} what="Reading keel files">
           {(list) => (
@@ -210,6 +212,8 @@ function FactDrawer({ pid, fact, onClose, onSaved }: { pid: string; fact: Fact |
 export function MemoryView({ pid }: { pid: string }) {
   const { project, toast } = useApp();
   const mem = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
+  const box = useRef<HTMLDivElement>(null);
+  useSelectAll(box);
   const [edit, setEdit] = useState<Fact | null | "new">(null);
   const forget = async (f: Fact) => {
     try {
@@ -221,7 +225,7 @@ export function MemoryView({ pid }: { pid: string }) {
     }
   };
   return (
-    <div className="ed-doc">
+    <div className="ed-doc" ref={box}>
       <Async r={mem} what="Reading memory">
         {(m) => {
           const chars = m.facts.reduce((a, f) => a + f.text.length + f.title.length, 0);
