@@ -186,8 +186,8 @@ class GitHubLoginService(
             // safety net: a terminal query (cursor position) is answered, so gh never waits for a terminal
             val asked = synchronized(s.out) { Regex("\u001B\\[6n").findAll(s.out).count() }
             while (s.cursorAsked < asked) { s.cursorAsked++; send(s, "\u001B[1;1R") }
-            // gh asks "Authenticate Git with your GitHub credentials? (Y/n)": yes; any other yes/no prompt: its default
-            val prompts = Regex("\\?[^\\n]*?\\((?:Y/n|y/N)\\)").findAll(text).toList()
+            // gh asks "Authenticate Git with your GitHub credentials? (Y/n)" — the accessible prompter writes "(default: yes) [Y/n]": yes; any other yes/no prompt: its default
+            val prompts = Regex("(?m)^[^\\n]*\\?[^\\n]*?[(\\[](?:Y/n|y/N)[)\\]]").findAll(text).toList()
             while (s.answered < prompts.size) {
                 val p = prompts[s.answered++].value
                 send(s, (if (p.contains("Authenticate Git", ignoreCase = true)) "Y" else "") + eol)

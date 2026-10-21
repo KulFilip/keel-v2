@@ -126,7 +126,8 @@ case "${'$'}1 ${'$'}2" in
       *cpr.example.com*) printf '\033[6n'; reply=${'$'}(dd bs=1 count=6 2>/dev/null); case "${'$'}reply" in *"[1;1R"*) ;; *) sleep 600;; esac;;
       *hang.example.com*) sleep 600;;
     esac
-    printf '? Authenticate Git with your GitHub credentials? (Y/n) '
+    # exactly what gh 2.102's accessible prompter prints (square brackets, no newline)
+    printf 'Authenticate Git with your GitHub credentials? (default: yes) [Y/n] '
     IFS= read -r answer
     if [ "${'$'}answer" != Y ]; then echo "did not authenticate git"; exit 1; fi
     echo "! First copy your one-time code: AB12-CD34"
