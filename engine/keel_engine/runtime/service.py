@@ -673,9 +673,6 @@ class Engine:
         await self._row(tid)
         graph = await self._graph(tid)
         ctx = await self._context(tid)
-        ctx.done_calls.clear()
-        ctx.auto_seen.clear()
-        await ctx.memory.clear()          # a rewind goes back on purpose: agents start fresh from there
         target = None
         async for snap in graph.aget_state_history(self._cfg(tid)):
             if snap.config["configurable"]["checkpoint_id"] == checkpoint_id:
@@ -691,6 +688,16 @@ class Engine:
                     target = snap
                     break
         checkpoint_id = target.config["configurable"]["checkpoint_id"]
+        sha = (target.values or {}).get("git_head")
+        goes_back = bool(sha) and git.is_repo(ctx.root) and git.head(ctx.root) != sha
+        if goes_back:
+            # `git reset --hard` below would throw away uncommitted work in tracked files, and nothing in keel can bring it
+            # back. keel has no stash precedent (agents are even forbidden to stash), so refuse: the person decides.
+            changed = sorted(p for p, xy in (await asyncio.to_thread(git.dirty, ctx.root)).items() if xy != "??")
+            if changed:
+                shown = ", ".join(changed[:5]) + (f" and {len(changed) - 5} more" if len(changed) > 5 else "")
+                raise EngineError(409, f"The project folder has uncommitted changes ({shown}); going back to that step would delete them.",
+                                  "Commit or stash them (git stash), then rewind again.")
         task = self.tasks.get(tid)
         if task:
             task.cancel()
@@ -698,9 +705,11 @@ class Engine:
                 await task
             except BaseException:
                 pass
-        sha = (target.values or {}).get("git_head")
+        ctx.done_calls.clear()
+        ctx.auto_seen.clear()
+        await ctx.memory.clear()          # a rewind goes back on purpose: agents start fresh from there
         # The code goes back with the flow: otherwise the next step would see commits from the abandoned branch.
-        if sha and git.is_repo(ctx.root) and git.head(ctx.root) != sha:
+        if goes_back:
             await asyncio.to_thread(git.git, ctx.root, "reset", "--hard", "-q", sha)
         log.info("thread %s rewound to %s (git %s)", tid, checkpoint_id, sha)
         await self._set_status(tid, "running")
