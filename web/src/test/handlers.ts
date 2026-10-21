@@ -89,6 +89,7 @@ export function createDb() {
     importAs: null as Workflow | null,
     /** v0.10.0 plugins: which are on for every project (the "*" row), the database connections and query answers, git's
      *  state. v0.17.1 projectPlugins: a project's own choice, which wins (PUT …/plugins/{name} with scope "project"). */
+    githubPolls: 0,
     plugins: { db: false, git: false } as Record<string, boolean>,
     projectPlugins: {} as Record<string, Record<string, boolean>>,
     /** v0.13.0 GET /api/features: keel without an add-on unless a test installs one */
@@ -98,7 +99,7 @@ export function createDb() {
     gitStatus: { branch: "feat/euro", base: "main", upstream: "origin/feat/euro", ahead: 2, behind: 0, base_ahead: 2, base_behind: 1, pushed: true,
       changes: [] } as GitStatus,
     pr: null as PullRequest | null,
-    github: { set: false, hint: null as string | null, from: null as "keel" | "env" | null },
+    github: { set: false, hint: null as string | null, from: null as "keel" | "env" | null, login: null as string | null, scopes: [] as string[], host: "github.com", via: null as "gh" | "oauth" | null },
     /** v0.11.0 CI/CD plugin: the pipeline runs (newest first) */
     ciRuns: [] as CiRun[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
@@ -409,12 +410,31 @@ export function handlers(db: Db) {
       return HttpResponse.json(pluginList(pid));
     }),
     http.get("/api/github", () => HttpResponse.json(db.github)),
+    // v0.18.30 Connections › GitHub › Sign in with GitHub: the sign-in starts waiting; the first poll finds it done
+    http.post("/api/github/login", async ({ request }) => {
+      const b = (await log(request)) as { host?: string };
+      db.githubPolls = 0;
+      return HttpResponse.json({ id: "gl-1", status: "waiting", host: b.host || "github.com", url: `https://${b.host || "github.com"}/login/device`, code: "AB12-CD34",
+        message: "Open the link, enter the code, and allow access.", login: null, scopes: [], via: null });
+    }),
+    http.get("/api/github/login/:id", () => {
+      db.githubPolls += 1;
+      if (db.githubPolls < 1) return HttpResponse.json({ id: "gl-1", status: "waiting", host: "github.com", url: "https://github.com/login/device", code: "AB12-CD34", message: "Waiting", login: null, scopes: [], via: null });
+      db.github = { set: true, hint: "…234", from: "keel", login: "mili-dev", scopes: ["repo", "workflow"], host: "github.com", via: "gh" };
+      return HttpResponse.json({ id: "gl-1", status: "done", host: "github.com", url: null, code: null, message: "Connected.", login: "mili-dev", scopes: ["repo", "workflow"], via: "gh" });
+    }),
+    http.delete("/api/github/login/:id", async ({ request }) => { await log(request); return HttpResponse.json({ id: "gl-1", status: "cancelled", host: "github.com", url: null, code: null, message: "Cancelled", login: null, scopes: [], via: null }); }),
+    http.delete("/api/github", async ({ request }) => {
+      await log(request);
+      db.github = { set: false, hint: null, from: null, login: null, scopes: [], host: "github.com", via: null };
+      return HttpResponse.json({ ok: true });
+    }),
     // v0.14.0 Connections › GitLab (the Code Review plugin)
     http.get("/api/gitlab", () => HttpResponse.json({ set: false, url: null, host: null, hint: null })),
     http.put("/api/secrets/:name", async ({ request, params }) => {
       if (params.name !== "GITHUB_REPO_TOKEN") return undefined;   // the providers' keys: the handler further down
       await log(request);
-      db.github = { set: true, hint: "…789", from: "keel" };
+      db.github = { set: true, hint: "…789", from: "keel", login: null, scopes: [], host: "github.com", via: null };
       return HttpResponse.json({ hint: "…789" });
     }),
     http.get("/api/projects/:pid/db/connections", () => HttpResponse.json(db.dbConns)),

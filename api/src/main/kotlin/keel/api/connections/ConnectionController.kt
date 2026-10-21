@@ -44,12 +44,15 @@ class ConnectionController(private val connections: ConnectionService, private v
     @PutMapping("/secrets/{name}")
     fun putSecret(@PathVariable name: String, @RequestBody body: SecretValue): Map<String, String> {
         secrets.checkShape(name, body.value)
+        // a pasted GitHub token is not the one "Sign in with GitHub" saved: who that was no longer applies
+        if (name == GitHubLoginService.TOKEN && secrets.has(GitHubLoginService.INFO)) secrets.delete(GitHubLoginService.INFO)
         return mapOf("hint" to secrets.put(name, body.value))
     }
 
     @DeleteMapping("/secrets/{name}")
     fun deleteSecret(@PathVariable name: String): Map<String, Boolean> {
         secrets.delete(name)
+        if (name == GitHubLoginService.TOKEN && secrets.has(GitHubLoginService.INFO)) secrets.delete(GitHubLoginService.INFO)
         return mapOf("ok" to true)
     }
 }

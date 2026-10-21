@@ -137,6 +137,7 @@ ENV LANG=C.UTF-8 \
 # System tools, Python 3.12, Node.js (NodeSource) and the Docker CLI with compose + buildx (Docker's apt repo).
 # python3-pytest + python-is-python3: a plain Python project (and keel's demo) runs `python -m pytest` out of the box;
 # keel's own venv is kept off the PATH its projects and agents see (models/cli.py project_env).
+# gh (the GitHub CLI): Connections › GitHub › Sign in with GitHub runs `gh auth login --web` (device code) in a scratch HOME.
 # The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip python3-pytest python-is-python3 git tini curl ca-certificates gnupg sqlite3 \
@@ -145,7 +146,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
-    && apt-get update && apt-get install -y --no-install-recommends nodejs docker-ce-cli docker-compose-plugin docker-buildx-plugin \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs docker-ce-cli docker-compose-plugin docker-buildx-plugin gh \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*' \
     && git config --system user.name "keel" && git config --system user.email "keel@localhost"

@@ -995,6 +995,10 @@ export const del = <T = void>(path: string) => request<T>("DELETE", path);
 export const getText = (path: string) => request<string>("GET", path, undefined, { text: true });
 
 // ---- login helper ----
+/** Connections › GitHub: is a token set, and when it came from "Sign in with GitHub", who it is (never the token). */
+export type GitHubState = { set: boolean; hint: string | null; from: "keel" | "env" | null; login?: string | null; scopes?: string[]; host?: string; via?: "gh" | "oauth" | null };
+export type GitHubLoginView = { id: string; status: "starting" | "waiting" | "done" | "failed" | "cancelled"; host: string; url: string | null; code: string | null;
+  message: string; login: string | null; scopes: string[]; via: string | null };
 export type LoginView = { id: string; provider: string; status: "starting" | "waiting" | "code_needed" | "done" | "failed" | "cancelled";
   url?: string | null; code?: string | null; message: string; hint?: string | null };
 
@@ -1214,7 +1218,12 @@ export const api = {
   plugins: (pid: string) => get<Plugin[]>(`/projects/${e(pid)}/plugins`),
   setPlugin: (pid: string, name: string, enabled: boolean, scope: "project" | "all" = "project") =>
     put<Plugin[]>(`/projects/${e(pid)}/plugins/${e(name)}`, { enabled, scope }),
-  github: () => get<{ set: boolean; hint: string | null; from: "keel" | "env" | null }>("/github"),
+  github: () => get<GitHubState>("/github"),
+  // v0.18.30 Sign in with GitHub: the device code and link, polled; sign out removes keel's token
+  githubLogin: (host: string) => post<GitHubLoginView>("/github/login", { host }),
+  githubLoginState: (id: string) => get<GitHubLoginView>(`/github/login/${e(id)}`),
+  githubLoginCancel: (id: string) => del<GitHubLoginView>(`/github/login/${e(id)}`),
+  githubSignOut: () => del<{ ok: boolean }>("/github"),
   testConnection: (provider: string) => post<TestResult>(`/connections/${e(provider)}/test`),
 
   // notifications

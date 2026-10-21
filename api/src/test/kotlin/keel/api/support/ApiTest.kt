@@ -114,6 +114,20 @@ abstract class ApiTest {
                     "mkdir -p \"\$HOME/.copilot\"; echo '{\"token\":\"gho_abcdefghijklmnopqrstuvwxyz123456\"}' > \"\$HOME/.copilot/config.json\"; " +
                     "echo 'Signed in successfully'; sleep 600"
             }
+            // GitHub sign-in: a stand-in gh (it writes its arguments to gh.log) and no real GitHub
+            val fakeGh = dataDir.resolve("fake-gh")
+            Files.writeString(fakeGh, """#!/bin/sh
+echo "${'$'}*" >> "${'$'}(dirname "${'$'}0")/gh.log"
+case "${'$'}1 ${'$'}2" in
+  "auth login") echo "! First copy your one-time code: AB12-CD34"; echo "Open this URL to continue in your web browser: https://github.com/login/device"; sleep 1;;
+  "auth token") echo "gho_fakefakefakefakefakefakefakefake1234";;
+  "auth status") echo "github.com"; echo "  ✓ Logged in to github.com account mili-dev (hosts.yml)"; echo "  - Token scopes: 'read:org', 'repo', 'workflow'";;
+  "auth logout") echo "Logged out";;
+esac
+exit 0
+""")
+            fakeGh.toFile().setExecutable(true)
+            r.add("keel.github-login.gh") { fakeGh.toString() }
             r.add("keel.login-commands.claude") {
                 "echo 'Browse to https://claude.com/cai/oauth/authorize?code=true&client_id=x'; printf 'Paste code here if prompted> '; read code; " +
                     "if [ \"\$code\" = good-code ]; then echo 'Your OAuth token: sk-ant-oat01-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123'; else echo 'OAuth error: invalid code'; exit 1; fi"

@@ -294,6 +294,29 @@ describe("Connections › GitHub", () => {
   });
 });
 
+describe("Connections › GitHub › Sign in with GitHub", () => {
+  it("shows the one-time code and the link, then who is connected, and signs out", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/connections";
+    render(<App />);
+    await user.clear(await screen.findByLabelText("GitHub host"));
+    await user.type(screen.getByLabelText("GitHub host"), "ghe.example.com");
+    await user.click(screen.getByRole("button", { name: "Sign in with GitHub" }));
+    expect(await screen.findByText("AB12-CD34")).toBeInTheDocument();
+    expect(calls("POST", "/api/github/login")[0]?.body).toEqual({ host: "ghe.example.com" });
+    expect(screen.getByRole("link", { name: "Open GitHub" })).toHaveAttribute("href", "https://ghe.example.com/login/device");
+    expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
+    // the poll finds it done: who is connected, with the scopes and the host
+    expect(await screen.findByText("connected as mili-dev · repo, workflow · github.com")).toBeInTheDocument();
+    expect(screen.queryByText("AB12-CD34")).not.toBeInTheDocument();
+    // pasting a token stays as the second way
+    expect(screen.getByLabelText("GitHub token")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(calls("DELETE", "/api/github")).toHaveLength(1));
+    expect(await screen.findByText("no token")).toBeInTheDocument();
+  });
+});
+
 describe("Code › Source control › a branch", () => {
   it("opens a branch as a tab with its changed files, a file's diff, its commits, and switches to another", async () => {
     const user = userEvent.setup();

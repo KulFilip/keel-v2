@@ -36,7 +36,7 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                "keel_agent_model",
                # 0.18.9 stacks
                "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install"}
-ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus",  # 0.19.x
+ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github",  # 0.19.x
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
 PROJECTS = [
@@ -136,7 +136,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
             "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
             "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]
-    admin = ["keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus"]
+    admin = ["keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github"]
     # 0.18.5 keel TUI's: after keel_workflows (read since 0.18.5), in the order they are written
     tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
                 "keel_rule_check", "keel_agent_definitions", "keel_skills", "keel_skill",

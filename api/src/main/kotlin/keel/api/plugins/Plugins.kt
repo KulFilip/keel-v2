@@ -146,7 +146,13 @@ class PluginService(
     fun github(): Map<String, Any?> {
         val hint = secrets.hintOf(GITHUB)
         val env = System.getenv(GITHUB)?.takeIf { it.isNotBlank() }
-        return mapOf("set" to (hint != null || env != null), "hint" to hint, "from" to when { hint != null -> "keel"; env != null -> "env"; else -> null })
+        // v0.18.30 who a "Sign in with GitHub" connected (login, scopes, host; never the token)
+        val who = if (hint != null) secrets.get("GITHUB_REPO_INFO")?.let { runCatching { mapper.readTree(it) }.getOrNull() } else null
+        return mapOf(
+            "set" to (hint != null || env != null), "hint" to hint, "from" to when { hint != null -> "keel"; env != null -> "env"; else -> null },
+            "login" to who?.get("login")?.takeIf { !it.isNull }?.asText(), "scopes" to (who?.get("scopes")?.map { it.asText() } ?: emptyList<String>()),
+            "host" to (who?.get("host")?.asText() ?: "github.com"), "via" to who?.get("via")?.takeIf { !it.isNull }?.asText(),
+        )
     }
 
     /** The GitHub token of Connections › GitHub (its own; the Copilot login is not used for git). */

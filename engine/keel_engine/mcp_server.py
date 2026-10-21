@@ -886,6 +886,8 @@ TOOLS: dict[str, tuple[str, ...]] = {
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
               "keel_pause", "keel_focus",
+              # 0.18.30 connect GitHub with a one-time code (the token is never returned)
+              "keel_connect_github",
               "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
 }
 # the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
@@ -1225,6 +1227,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         if not project and not chat:
             return guard(flows_mod.focus, api)
         return await act(ctx, "keel_focus", f"switch keel to {project or 'this chat'}", flows_mod.focus, api, project, chat)
+
+    @reg(rw)
+    async def keel_connect_github(host: str | None = None, ctx: Context | None = None) -> str:
+        """Connect GitHub the way the dashboard's "Sign in with GitHub" does: returns a one-time code and the link
+        (github.com/login/device, or your Enterprise host) for the person to open. keel saves the token itself when they
+        allow access; this tool never returns the token. host: a GitHub Enterprise host (default github.com)."""
+        return await act(ctx, "keel_connect_github", f"start the GitHub sign-in on {host or 'github.com'}", more.connect_github, api, host, confirm=False)
 
     @reg(ro)
     def keel_workflows(project: str | None = None, workflow: str | None = None) -> str:

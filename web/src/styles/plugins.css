@@ -17,6 +17,7 @@
 .db-form label { display: grid; gap: 4px; font-size: 12px; color: var(--dim); min-width: 0; }
 .db-form .db-note, .db-form .row, .db-form .errbox { grid-column: 1 / -1; margin: 0; }
 @media (max-width: 640px) { .db-form { grid-template-columns: minmax(0, 1fr); } }
+.gh-box { display: grid; gap: 12px; }
 .gh-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gh-row input { flex: 1 1 220px; min-width: 0; }
 .btn.danger { background: var(--bad); color: var(--on-accent, #fff); border-color: transparent; }

@@ -813,13 +813,22 @@ pages you use.
     workflow of code steps only checks your data with no model and no tokens.
   A change of data (INSERT, UPDATE, DELETE) runs only on a **local** or **test** database: keel counts the rows first,
   then you press **Run it**. Staging and prod are read only for everyone. Schema changes belong in your migrations.
-- **Git**: add a token in **Connections › GitHub**. Then **Code › Source control** shows the branch against its
+- **Git**: connect GitHub in **Connections › GitHub**: press **Sign in with GitHub**, open the link (github.com/login/device)
+  and type the one-time code keel shows (there is a Copy button and an **Open GitHub** button). keel notices by itself
+  when you allow access, and the card says "connected as <login> · scopes · host". Under it, **or paste a token** still
+  works. **Sign out** removes keel's token. For GitHub Enterprise, type your host in the host field first. keel runs
+  `gh auth login --web --scopes repo,read:org,workflow` inside its container (the image has `gh`; the token is saved
+  encrypted, never shown); without `gh`, set `KEEL_GITHUB_CLIENT_ID` to your company's public OAuth App client id (device
+  flow on) and keel uses GitHub's standard device flow. The same token serves the Git plugin, a flow's PR step, Code
+  Review, CI/CD and Tasks. Then **Code › Source control** shows the branch against its
   remote and main, **Push**, **Update from main**, **Switch branch**, **New branch**, a commit box, and the pull
   request with its CI checks and review comments (**Ask KeelBot to address the comments**). KeelBot reads git and the
   PR (`/commit`, `/pr`, `/sync`, `/branch` draft the next step) and gives buttons; workflows get `git:sync`,
   `git:push`, `git:pr`, `git:pr-checks` (wait for CI), `git:branch` and `git:cleanup`. keel never force-pushes and never
   pushes to main.
-  Under **Branches** (the current one first and marked, a filter when there are many), click a branch (for example
+  Under **Branches** (a tree: **Local** with the current branch on top, then `main`, then folders by prefix such as
+  `feature/`, `fix/` and `chore/`, then **other**; one group per remote such as `origin`; folders open and close and
+  keep their state per project; the filter searches every group, opens the folders with matches and counts them), click a branch (for example
   `feat/test`) to open it as a tab: the files it changed since it left main (click one for its diff), its commits that
   main does not have, **Switch to feat/test**, and **Ask KeelBot to review it**. Switching keeps your uncommitted work;
   when git refuses because of uncommitted changes, keel offers **Stash my changes and switch**.
@@ -957,7 +966,7 @@ keel has an MCP server with three levels; each includes the one below:
 |---|---|---|
 | read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
 | write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
-| admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), change workflows, install and change rules |
+| admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
 ```bash
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level

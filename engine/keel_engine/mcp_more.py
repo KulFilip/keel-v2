@@ -309,6 +309,16 @@ def add_project(api: KeelApi, path: str, name: str | None = None) -> str:
     return f"project {p.get('id')} added ({p.get('root')})."
 
 
+def connect_github(api: KeelApi, host: str | None = None) -> str:
+    """Start "Sign in with GitHub" (the device flow): the code and the link are for the person to open. The token is
+    saved by keel when they finish, and is never in the answer."""
+    v = api.post("/github/login", {"host": (host or "github.com").strip()}) or {}
+    if not v.get("code") or not v.get("url"):
+        return f"GitHub sign-in started on {v.get('host', host or 'github.com')}: {v.get('message') or 'no code yet'}. Look in Connections › GitHub."
+    return (f"Open {v['url']} and type the code {v['code']} (host {v.get('host', host or 'github.com')}). keel notices by itself when "
+            "you allow access, saves the token encrypted and shows who is connected in Connections › GitHub. The token is never shown here.")
+
+
 def remove_project(api: KeelApi, project: str) -> str:
     p = _project(api, project)
     api.delete(f"/projects/{p['id']}")
