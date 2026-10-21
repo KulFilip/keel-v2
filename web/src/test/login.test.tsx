@@ -44,3 +44,25 @@ describe("login helper", () => {
     expect(within(dlg).getByText(/On your computer run `claude setup-token`/)).toBeInTheDocument();
   });
 });
+
+describe("login drawer polling", () => {
+  it("keeps polling after one poll failed", async () => {
+    const user = userEvent.setup();
+    let polls = 0;
+    server.use(
+      http.post("/api/logins", () => HttpResponse.json({ id: "L2", provider: "claude", status: "waiting",
+        url: "https://claude.com/cai/oauth/authorize?code=true", message: "Waiting for you." })),
+      http.get("/api/logins/L2", () => {
+        polls++;
+        if (polls === 1) return HttpResponse.json({ error: "busy" }, { status: 500 });
+        return HttpResponse.json({ id: "L2", provider: "claude", status: "done", message: "Logged in again after a failed poll." });
+      }),
+    );
+    location.hash = "#/connections";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Set up login" }));
+    await user.click(await screen.findByRole("button", { name: "Start login" }));
+    expect(await screen.findByText(/Logged in again after a failed poll/, {}, { timeout: 6000 })).toBeInTheDocument();
+    expect(polls).toBeGreaterThan(1);
+  }, 15000);
+});
