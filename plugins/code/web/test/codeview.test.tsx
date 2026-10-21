@@ -84,9 +84,8 @@ describe("the file view scrolls by itself", () => {
     expect(rule(".ed-tabs")).toMatch(/overflow-x: auto; overflow-y: hidden/);
     // the IDE takes the rest of the window; its floor is low, so a short or narrow window does not make the page scroll
     const ide = rule(".ide");
-    expect(ide).toMatch(
-      /height: calc\(100dvh - var\(--ide-top, 180px\) - 14px\)/,
-    );
+    expect(ide).toMatch(/flex: 1 1 0/);
+    expect(ide).not.toMatch(/--ide-top/);
     expect(ide).toMatch(/min-height: 240px/);
     expect(css).toMatch(
       /@media \(max-width: 720px\), \(max-height: 720px\) \{\s*\.repo-page \.top p \{ display: none; \}/,

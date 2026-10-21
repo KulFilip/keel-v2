@@ -363,27 +363,6 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     return () => window.removeEventListener("keydown", on);
   }, [showSide, toggleSide, hideActive, codeActive, helperOpen, codeSelection, askHelper, shownIds]);
 
-  // the IDE fills the window below the page head, so the code is the one thing that scrolls (not the page as well).
-  // Measured again when anything above it changes height: the page head (a merge result), and keel's own bars above
-  // the page (in a narrow window the usage bar wraps to more lines once its numbers come, and the menu is a header).
-  useLayoutEffect(() => {
-    const el = root.current;
-    if (!el) return;
-    const set = () => el.style.setProperty("--ide-top", `${Math.max(0, el.getBoundingClientRect().top + window.scrollY)}px`);
-    set();
-    window.addEventListener("resize", set);
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(set) : null;
-    // the boxes above it, and the ones around it (they grow when a bar or a notice appears above it)
-    for (let a: Element | null = el; a && a !== document.body; a = a.parentElement) {
-      if (a !== el) ro?.observe(a, { box: "border-box" });
-      for (let s = a.previousElementSibling; s; s = s.previousElementSibling) ro?.observe(s, { box: "border-box" });
-    }
-    return () => {
-      window.removeEventListener("resize", set);
-      ro?.disconnect();
-    };
-  }, []);
-
   // the breadcrumbs keep the file name in view, the tab strip the active tab
   const crumbsRef = useRef<HTMLElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);

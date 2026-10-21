@@ -3,6 +3,14 @@
 
 .repo-page .top { margin-bottom: 12px; }
 main:has(> .repo-page) { padding-bottom: 14px; }
+/* v0.18.33 the Code page fits the window by CSS alone (no measuring in JS): the app is one window high, and every box on
+   the way down to the IDE is a flex column that may shrink (min-height: 0), so the IDE takes what the page head leaves.
+   Only the code panes scroll; the page scrolls only when the window is lower than the IDE's floor. Scoped to this page. */
+.app:has(.repo-page) { height: 100vh; height: 100dvh; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.app:has(.repo-page) > .app-col { min-height: 0; }
+.app-col > main:has(> .repo-page) { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.repo-page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.repo-page > :not(.ide) { flex: none; }
 .repo-page .top .actions { align-items: center; }
 
 .ide {
@@ -13,9 +21,10 @@ main:has(> .repo-page) { padding-bottom: 14px; }
   grid-template-columns: 48px var(--side-w, 280px) 4px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 24px;
   grid-template-areas: "act side split main" "sb sb sb sb";
-  /* the rest of the window (Ide.tsx measures --ide-top), so the page itself does not scroll and the code is the one scroll
-     area; the floor is low so a short or narrow window does not push the status bar and the last lines below the fold */
-  height: calc(100dvh - var(--ide-top, 180px) - 14px); min-height: 240px;
+  /* the rest of the window: a flex child of .repo-page (see the top of this file), so the page itself does not scroll and
+     the code is the one scroll area; the floor is low so a short or narrow window does not push the status bar and the
+     last lines below the fold */
+  flex: 1 1 0; min-height: 240px;
   border: 1px solid var(--ide-line); border-radius: 10px; overflow: hidden; background: var(--ide-bg);
   font-size: 13px;
 }
@@ -381,7 +390,7 @@ button.sb-i:disabled:hover { background: none; }
 :root[data-focus] .app > .side, :root[data-focus] .app > .side-rail, :root[data-focus] .bbar { display: none; }
 :root[data-focus] .app-col { --bar-h: 0px; }
 :root[data-focus] main:has(> .repo-page) { padding: 0; }
-:root[data-focus] .repo-page .ide { height: 100vh; height: 100dvh; border: 0; border-radius: 0; }
+:root[data-focus] .repo-page .ide { border: 0; border-radius: 0; }
 .sb-k { font: inherit; opacity: .75; margin-left: 2px; }
 
 /* v0.15.2 the Git log (like JetBrains' Git › Log): branches | commits with a graph | the chosen commit's files and its diff */
@@ -470,8 +479,11 @@ button.sb-i:disabled:hover { background: none; }
   .lg-detail { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .lg-dside { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--ide-line); }
 }
-/* v0.15.3 in Code it feels like an IDE: a panel that reaches its end keeps the wheel, the page behind does not move */
-.ide, .ide * { overscroll-behavior: contain; }
+/* v0.15.3 in Code it feels like an IDE: a panel that reaches its end keeps the wheel, the page behind does not move.
+   v0.18.33 only on the boxes that really scroll: on any other box (tab strip, path bar, a short file) the wheel must
+   reach the page instead of being swallowed. */
+.ide .cv, .ide .dv-body, .ide .ex-list, .ide .sr-list, .ide .sv-scroll, .ide .scm-scroll, .ide .br-side, .ide .lg-list,
+.ide .lg-refs, .ide .lg-dside, .ide .md-pane, .ide .img-pane, .ide .ed-doc, .qo-list { overscroll-behavior: contain; }
 /* branches as a tree: folder rows (Local, each remote, prefixes), the filter's match count */
 .scm-bfh { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding-right: 10px; border: 0; background: none; color: var(--fg); font-size: 12px; text-align: left; cursor: pointer; }
 .scm-bfh:hover { background: var(--ide-hover); }
