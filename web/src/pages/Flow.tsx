@@ -857,6 +857,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const [picked, setPicked] = useState<ClarifyAnswers>({});
   const [typed, setTyped] = useState<ClarifyAnswers>({});
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const step = workflow.steps.find((s) => s.id === w.step.replace(/__fix$/, "")) ?? workflow.steps.find((s) => s.id === thread.current);
   const back = step?.back ? workflow.steps.find((s) => s.id === step.back) : undefined;
@@ -875,8 +876,11 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     : "the step before runs again, with your reason";
   const used = thread.usage.tokens_in + thread.usage.tokens_out + Math.floor((thread.usage.tokens_cached ?? 0) / 10);
   const onKey = (e: React.KeyboardEvent) => {
-    const tag = (e.target as HTMLElement).tagName;
-    if (busy || e.metaKey || e.ctrlKey || e.altKey || tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+    const target = e.target as HTMLElement;
+    const tag = target.tagName;
+    // a held key repeats; typing in a box (also a contenteditable one) is only typing
+    if (e.repeat || target.isContentEditable || target.closest?.('[contenteditable]:not([contenteditable="false"])')) return;
+    if (busy || inFlight.current || e.metaKey || e.ctrlKey || e.altKey || tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
     if (plain && e.key.toLowerCase() === "a") { e.preventDefault(); void decide("approve"); }
     if (w.options.includes("reject") && labels.whyLabel && e.key.toLowerCase() === "r") { e.preventDefault(); document.getElementById("why")?.focus(); }
   };
@@ -888,6 +892,9 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
       toast("Write why first, so the agent knows what to change.");
       return;
     }
+    // a ref, not `busy`: the state is stale until the next render, so a second key in the same frame would post again
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setErr(null);
     try {
@@ -902,6 +909,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     } catch (e) {
       setErr(errorParts(e));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
