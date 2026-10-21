@@ -119,7 +119,20 @@ abstract class ApiTest {
             Files.writeString(fakeGh, """#!/bin/sh
 echo "${'$'}*" >> "${'$'}(dirname "${'$'}0")/gh.log"
 case "${'$'}1 ${'$'}2" in
-  "auth login") echo "! First copy your one-time code: AB12-CD34"; echo "Open this URL to continue in your web browser: https://github.com/login/device"; sleep 1;;
+  "auth login")
+    # like gh 2.102 in a container: the plain prompter needs GH_ACCESSIBLE_PROMPTER, else gh waits for terminal answers forever
+    if [ "${'$'}GH_ACCESSIBLE_PROMPTER" != true ]; then sleep 600; fi
+    case "${'$'}*" in
+      *cpr.example.com*) printf '\033[6n'; reply=${'$'}(dd bs=1 count=6 2>/dev/null); case "${'$'}reply" in *"[1;1R"*) ;; *) sleep 600;; esac;;
+      *hang.example.com*) sleep 600;;
+    esac
+    printf '? Authenticate Git with your GitHub credentials? (Y/n) '
+    IFS= read -r answer
+    if [ "${'$'}answer" != Y ]; then echo "did not authenticate git"; exit 1; fi
+    echo "! First copy your one-time code: AB12-CD34"
+    echo "Press Enter to open https://github.com/login/device in your browser..."
+    IFS= read -r enter
+    sleep 1;;
   "auth token") echo "gho_fakefakefakefakefakefakefakefake1234";;
   "auth status") echo "github.com"; echo "  ✓ Logged in to github.com account mili-dev (hosts.yml)"; echo "  - Token scopes: 'read:org', 'repo', 'workflow'";;
   "auth logout") echo "Logged out";;

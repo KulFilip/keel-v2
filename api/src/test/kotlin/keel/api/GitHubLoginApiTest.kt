@@ -64,6 +64,24 @@ class GitHubLoginApiTest : ApiTest() {
     }
 
     @Test
+    fun `gh that asks the terminal for the cursor position still gets to the code`() {
+        val v = post("/api/github/login", mapOf("host" to "cpr.example.com")).json()
+        assertThat(v["code"].asText()).isEqualTo("AB12-CD34")
+        assertThat(v["url"].asText()).isEqualTo("https://github.com/login/device")
+        assertThat(waitFor(v["id"].asText())["status"].asText()).isEqualTo("done")
+    }
+
+    @Test
+    fun `a gh that shows no code fails with what it printed instead of staying at starting`() {
+        val service = GitHubLoginService(mock(SecretService::class.java), ObjectMapper(), false, dataDir.resolve("fake-gh").toString(), "", "", 2)
+        val v = service.start("hang.example.com")
+        var now = service.get(v.id)
+        repeat(60) { if (now.status == "starting") { Thread.sleep(100); now = service.get(v.id) } }
+        assertThat(now.status).isEqualTo("failed")
+        assertThat(now.message).contains("did not show a sign-in code")
+    }
+
+    @Test
     fun `an Enterprise host goes to gh as --hostname, and a bad host is refused`() {
         val v = post("/api/github/login", mapOf("host" to "GHE.Example.com")).json()
         assertThat(waitFor(v["id"].asText())["status"].asText()).isEqualTo("done")
@@ -97,6 +115,9 @@ class GitHubLoginApiTest : ApiTest() {
         val out = "! First copy your one-time code: 1A2B-3C4D\nOpen this URL to continue in your web browser: https://ghe.example.com/login/device\n"
         assertThat(GitHubLoginService.parseCode(out)).isEqualTo("1A2B-3C4D")
         assertThat(GitHubLoginService.parseUrl(out)).isEqualTo("https://ghe.example.com/login/device")
+        val accessible = "! First copy your one-time code: 5292-5695\nPress Enter to open https://github.com/login/device in your browser...\n"
+        assertThat(GitHubLoginService.parseCode(accessible)).isEqualTo("5292-5695")
+        assertThat(GitHubLoginService.parseUrl(accessible)).isEqualTo("https://github.com/login/device")
         val who = GitHubLoginService.parseStatus("ghe.example.com\n  ✓ Logged in to ghe.example.com account some-one (/x)\n  - Token scopes: 'repo', 'workflow'\n", "ghe.example.com", "gh")
         assertThat(who.login).isEqualTo("some-one")
         assertThat(who.scopes).containsExactly("repo", "workflow")

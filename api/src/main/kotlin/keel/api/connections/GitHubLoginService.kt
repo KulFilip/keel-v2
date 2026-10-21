@@ -62,6 +62,8 @@ class GitHubLoginService(
     @Value("\${keel.github.oauth-client-id:\${KEEL_GITHUB_CLIENT_ID:}}") private val clientId: String,
     /** tests: where the OAuth device endpoints and the API live instead of https://<host> */
     @Value("\${keel.github-login.oauth-base:}") private val oauthBase: String,
+    /** how long gh may take to print the code before the sign-in fails with what it printed */
+    @Value("\${keel.github-login.code-timeout-seconds:30}") private val codeTimeoutSeconds: Long = 30,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -73,6 +75,8 @@ class GitHubLoginService(
         @Volatile var code: String? = null
         @Volatile var who: GitHubWho? = null
         @Volatile var enter = false
+        @Volatile var answered = 0      // yes/no prompts already answered
+        @Volatile var cursorAsked = 0   // cursor-position requests (ESC [ 6 n) already answered
         @Volatile var cancelled = false
     }
 
@@ -128,7 +132,9 @@ class GitHubLoginService(
 
     private fun env(home: Path) = mapOf(
         "HOME" to home.toString(), "XDG_CONFIG_HOME" to home.resolve(".config").toString(), "GH_CONFIG_DIR" to home.resolve(".config/gh").toString(),
-        "PATH" to (System.getenv("PATH") ?: "/usr/local/bin:/usr/bin:/bin"), "LANG" to "C.UTF-8", "TERM" to "xterm-256color",
+        "PATH" to (System.getenv("PATH") ?: "/usr/local/bin:/usr/bin:/bin"), "LANG" to "C.UTF-8", "TERM" to "dumb",
+        // gh's default prompter asks the terminal questions (colour, cursor position) that keel's pty never answers; the accessible one reads plain lines
+        "GH_ACCESSIBLE_PROMPTER" to "true",
         "BROWSER" to "/bin/false", "COLUMNS" to "1000", "GH_PROMPT_DISABLED" to "", "NO_COLOR" to "1", "GH_NO_UPDATE_NOTIFIER" to "1",
     )
 
@@ -175,9 +181,21 @@ class GitHubLoginService(
         val text = cleanOut(s)
         if (s.code == null) s.code = parseCode(text)
         if (s.url == null) s.url = parseUrl(text)
-        if (!s.enter && Regex("(?i)press enter").containsMatchIn(text)) {
-            s.enter = true
-            runCatching { s.stdin?.write((if (usePty) "\r" else "\n").toByteArray()); s.stdin?.flush() }
+        val eol = if (usePty) "\r" else "\n"
+        synchronized(s) {
+            // safety net: a terminal query (cursor position) is answered, so gh never waits for a terminal
+            val asked = synchronized(s.out) { Regex("\u001B\\[6n").findAll(s.out).count() }
+            while (s.cursorAsked < asked) { s.cursorAsked++; send(s, "\u001B[1;1R") }
+            // gh asks "Authenticate Git with your GitHub credentials? (Y/n)": yes; any other yes/no prompt: its default
+            val prompts = Regex("\\?[^\\n]*?\\((?:Y/n|y/N)\\)").findAll(text).toList()
+            while (s.answered < prompts.size) {
+                val p = prompts[s.answered++].value
+                send(s, (if (p.contains("Authenticate Git", ignoreCase = true)) "Y" else "") + eol)
+            }
+            if (!s.enter && Regex("(?i)press enter").containsMatchIn(text)) {
+                s.enter = true
+                send(s, eol)
+            }
         }
         if (s.status == "starting" && s.url != null && s.code != null) {
             s.status = "waiting"
@@ -185,8 +203,23 @@ class GitHubLoginService(
         }
     }
 
+    private fun send(s: Session, text: String) {
+        runCatching { s.stdin?.write(text.toByteArray()); s.stdin?.flush() }
+    }
+
     private fun finishGh(s: Session) {
-        val ended = s.proc!!.waitFor(15, TimeUnit.MINUTES)
+        // gh must print the code soon; if it does not, say what it printed instead of staying at "starting"
+        if (!s.proc!!.waitFor(codeTimeoutSeconds, TimeUnit.SECONDS)) {
+            parseGh(s)
+            if (s.code == null && !s.cancelled) {
+                val tail = scrub(cleanOut(s).trim().takeLast(300))
+                s.proc.destroyForcibly()
+                fail(s, "gh did not show a sign-in code after $codeTimeoutSeconds seconds. It printed: ${tail.ifEmpty { "(nothing)" }}")
+                s.home?.toFile()?.deleteRecursively()
+                return
+            }
+        }
+        val ended = s.proc.waitFor(15, TimeUnit.MINUTES)
         Thread.sleep(200)
         parseGh(s)
         try {
