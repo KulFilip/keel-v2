@@ -8,9 +8,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import { db } from "./setup";
+import { db, server } from "./setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
@@ -295,25 +296,48 @@ describe("Connections › GitHub", () => {
 });
 
 describe("Connections › GitHub › Sign in with GitHub", () => {
-  it("shows the one-time code and the link, then who is connected, and signs out", async () => {
+  it("opens the shared login drawer, shows the code and the link, then who is connected, and signs out", async () => {
     const user = userEvent.setup();
     location.hash = "#/connections";
     render(<App />);
-    await user.clear(await screen.findByLabelText("GitHub host"));
-    await user.type(screen.getByLabelText("GitHub host"), "ghe.example.com");
-    await user.click(screen.getByRole("button", { name: "Sign in with GitHub" }));
-    expect(await screen.findByText("AB12-CD34")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Sign in with GitHub" }));
+    const dlg = screen.getByRole("dialog", { name: "Set up GitHub login" });
+    expect(within(dlg).getByText(/authorize it when GitHub asks/)).toBeInTheDocument();
+    await user.clear(within(dlg).getByLabelText("GitHub host"));
+    await user.type(within(dlg).getByLabelText("GitHub host"), "ghe.example.com");
+    await user.click(within(dlg).getByRole("button", { name: "Start login" }));
+    expect(await within(dlg).findByText("AB12-CD34")).toBeInTheDocument();
     expect(calls("POST", "/api/github/login")[0]?.body).toEqual({ host: "ghe.example.com" });
-    expect(screen.getByRole("link", { name: "Open GitHub" })).toHaveAttribute("href", "https://ghe.example.com/login/device");
-    expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
-    // the poll finds it done: who is connected, with the scopes and the host
+    expect(within(dlg).getByRole("link", { name: "Open ghe.example.com" })).toHaveAttribute("href", "https://ghe.example.com/login/device");
+    expect(within(dlg).getByRole("button", { name: "Copy code" })).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    // the poll finds it done: who is connected, with the scopes and the host (in the drawer and on the card)
+    expect(await within(dlg).findByText("✓ connected as mili-dev · repo, workflow · github.com", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(within(dlg).queryByText("AB12-CD34")).not.toBeInTheDocument();
+    await user.click(within(dlg).getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("dialog", { name: "Set up GitHub login" })).not.toBeInTheDocument();
+    expect(calls("DELETE", "/api/github/login/gl-1")).toHaveLength(0);   // it was saved: nothing to cancel
     expect(await screen.findByText("connected as mili-dev · repo, workflow · github.com")).toBeInTheDocument();
-    expect(screen.queryByText("AB12-CD34")).not.toBeInTheDocument();
-    // pasting a token stays as the second way
+    // the card keeps no code UI; pasting a token stays as the second way
+    expect(screen.queryByLabelText("GitHub host")).not.toBeInTheDocument();
     expect(screen.getByLabelText("GitHub token")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(calls("DELETE", "/api/github")).toHaveLength(1));
     expect(await screen.findByText("no token")).toBeInTheDocument();
+  });
+
+  it("closing the drawer while it waits cancels the sign-in", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("/api/github/login/:id", () => HttpResponse.json({ id: "gl-1", status: "waiting", host: "github.com", url: "https://github.com/login/device",
+      code: "AB12-CD34", message: "Waiting", login: null, scopes: [], via: null })));
+    location.hash = "#/connections";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Sign in with GitHub" }));
+    await user.click(screen.getByRole("button", { name: "Start login" }));
+    expect(await screen.findByText("AB12-CD34")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    await waitFor(() => expect(calls("DELETE", "/api/github/login/gl-1")).toHaveLength(1));
+    expect(screen.queryByRole("dialog", { name: "Set up GitHub login" })).not.toBeInTheDocument();
   });
 });
 

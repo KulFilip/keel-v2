@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Connections, type LoginView, type Mode, type Model } from "../api";
 import { defaultModel, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
 import { EmptyState, Section, Spinner } from "../components/page";
-import { Drawer, ErrorBox, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
+import { LoginDrawer, type LoginAdapter, type LoginCtx } from "../components/LoginDrawer";
+import { ErrorBox, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { useApp, useLoad } from "../state";
 import { UsageLine } from "../components/UsageStrip";
 import { useSlot } from "../sdk/registry";
@@ -91,106 +92,54 @@ const HELP: Record<string, { name: string; here: string; paste: { steps: string[
   },
 };
 
-function copy(text: string, toast: (m: string) => void) {
-  navigator.clipboard?.writeText(text).then(() => toast("Copied."), () => toast("Select the text to copy it."));
-}
-
 function LoginHelper({ p, onClose, onSaved }: { p: Connections["providers"][number]; onClose: () => void; onSaved: () => void }) {
-  const { toast } = useApp();
   const h = HELP[p.id];
-  const [way, setWay] = useState<"here" | "paste">("here");
-  const [login, setLogin] = useState<LoginView | null>(null);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
 
-  // poll while the login runs
-  useEffect(() => {
-    if (!login || ["done", "failed", "cancelled"].includes(login.status)) return;
-    const t = window.setTimeout(() => {
-      api.login(login.id).then((v) => live.current && setLogin(v), () => undefined);
-    }, 2000);
-    return () => window.clearTimeout(t);
-  }, [login]);
-
+  const adapter: LoginAdapter<LoginView> = {
+    start: () => { setTest(null); setCode(""); return api.startLogin(p.id); },
+    poll: (id) => api.login(id),
+    cancel: (id) => api.cancelLogin(id),
+  };
   // when it is saved: refresh the page behind and run the test once
-  useEffect(() => {
-    if (login?.status !== "done") return;
+  const done = () => {
     onSaved();
     if (p.selected !== "api") {
       api.testConnection(p.id).then((r) => live.current && setTest({ ok: r.ok, text: r.ok ? `${r.text ?? "OK"} · ${(r.ms / 1000).toFixed(1)}s` : (r.error ?? "no answer") }),
         (e) => live.current && setTest({ ok: false, text: errorParts(e).message }));
     }
-  }, [login?.status]);
-
-  const start = async () => {
-    setBusy(true); setErr(null); setTest(null); setCode("");
-    try { setLogin(await api.startLogin(p.id)); } catch (e) { setErr(errorParts(e).message); } finally { setBusy(false); }
   };
-  const send = async () => {
+  const send = async ({ login, setLogin, setErr }: LoginCtx<LoginView>) => {
     if (!login || !code.trim()) return;
     setBusy(true); setErr(null);
     try { setLogin(await api.loginCode(login.id, code.trim())); setCode(""); } catch (e) { setErr(errorParts(e).message); } finally { setBusy(false); }
   };
-  const close = () => {
-    if (login && ["starting", "waiting", "code_needed"].includes(login.status)) void api.cancelLogin(login.id).catch(() => undefined);
-    onClose();
-  };
 
   return (
-    <Drawer title={`Set up ${h.name} login`} onClose={close} footer={<button className="btn" type="button" onClick={close}>Close</button>}>
-      <div className="tabs" role="tablist">
-        <button role="tab" type="button" aria-selected={way === "here"} onClick={() => setWay("here")}>Log in here</button>
-        <button role="tab" type="button" aria-selected={way === "paste"} onClick={() => setWay("paste")}>Paste a token</button>
-      </div>
-
-      {way === "here" ? (
-        <div className="grid" style={{ gap: 12 }}>
-          <p className="sub" style={{ margin: 0 }}>{h.here}</p>
-          {(!login || ["failed", "cancelled"].includes(login.status)) && (
-            <button className="btn primary" type="button" onClick={start} disabled={busy}>{busy ? "Starting…" : login ? "Start again" : "Start login"}</button>
-          )}
-          {login && (
-            <ol className="steps">
-              {login.url && (
-                <li>
-                  <span>Open this page{p.id === "claude" ? " and sign in with your Claude account" : ""}:</span>
-                  <div className="row">
-                    <a className="btn sm primary" href={login.url} target="_blank" rel="noreferrer">Open {new URL(login.url).host}</a>
-                    <button className="btn sm ghost" type="button" onClick={() => copy(login.url!, toast)}>Copy link</button>
-                  </div>
-                </li>
-              )}
-              {login.code && (
-                <li>
-                  <span>Type this code on that page:</span>
-                  <div className="row"><b className="devcode">{login.code}</b><button className="btn sm ghost" type="button" onClick={() => copy(login.code!, toast)}>Copy code</button></div>
-                </li>
-              )}
-              {p.id === "claude" && login.status === "code_needed" && (
-                <li>
-                  <label htmlFor="login-code">After you sign in, the page shows a code. Paste it here:</label>
-                  <div className="row">
-                    <input id="login-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" placeholder="code from the Claude page"
-                      style={{ flex: "1 1 220px" }} onKeyDown={(e) => e.key === "Enter" && void send()} />
-                    <button className="btn sm primary" type="button" onClick={send} disabled={busy || !code.trim()}>Send</button>
-                  </div>
-                </li>
-              )}
-              <li>
-                <span role="status" className={login.status === "done" ? "okc" : login.status === "failed" ? "badc" : "sub"}>
-                  {login.status === "done" ? `✓ ${login.message} (${login.hint ?? "saved"})` : login.status === "failed" ? `✕ ${login.message}` : `… ${login.message}`}
-                </span>
-                {test && <div className={test.ok ? "okc" : "badc"}>{test.ok ? "Test: " : "Test failed: "}{test.text}</div>}
-              </li>
-            </ol>
-          )}
-          {err && <span className="badc">{err}</span>}
-        </div>
-      ) : (
+    <LoginDrawer
+      title={`Set up ${h.name} login`}
+      intro={h.here}
+      adapter={adapter}
+      doneText={(v) => `${v.message} (${v.hint ?? "saved"})`}
+      onDone={done}
+      onClose={onClose}
+      openHint={p.id === "claude" ? " and sign in with your Claude account" : ""}
+      steps={(ctx) => p.id === "claude" && ctx.login?.status === "code_needed" ? (
+        <li>
+          <label htmlFor="login-code">After you sign in, the page shows a code. Paste it here:</label>
+          <div className="row">
+            <input id="login-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" placeholder="code from the Claude page"
+              style={{ flex: "1 1 220px" }} onKeyDown={(e) => e.key === "Enter" && void send(ctx)} />
+            <button className="btn sm primary" type="button" onClick={() => void send(ctx)} disabled={busy || !code.trim()}>Send</button>
+          </div>
+        </li>
+      ) : null}
+      status={test && <div className={test.ok ? "okc" : "badc"}>{test.ok ? "Test: " : "Test failed: "}{test.text}</div>}
+      tabs={
         <div className="grid" style={{ gap: 12 }}>
           <ol className="steps">{h.paste.steps.map((x) => <li key={x}>{x}</li>)}</ol>
           {h.paste.link && <a className="btn sm" href={h.paste.link[0]} target="_blank" rel="noreferrer">{h.paste.link[1]}</a>}
@@ -199,8 +148,8 @@ function LoginHelper({ p, onClose, onSaved }: { p: Connections["providers"][numb
               hint={p.login_hint} multiline={LOGIN_HELP[p.id]?.multiline} />
           )}
         </div>
-      )}
-    </Drawer>
+      }
+    />
   );
 }
 
