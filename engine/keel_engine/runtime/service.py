@@ -67,6 +67,7 @@ class Engine:
         self.tasks: dict[str, asyncio.Task] = {}
         self.pending: set[str] = set()            # running when keel stopped; continued by the api (or the grace timer)
         self._grace: asyncio.Task | None = None
+        self._resuming: dict[str, asyncio.Lock] = {}   # one resume at a time per thread (web + MCP, a double click)
         self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
 
@@ -521,6 +522,11 @@ class Engine:
             self.ctxs[tid].keys = dict(keys)
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
+        # The checks below await; without the lock two calls both pass "not running" and start two drivers on one thread.
+        async with self._resuming.setdefault(tid, asyncio.Lock()):
+            return await self._resume(tid, decision, why, payload)
+
+    async def _resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
         row = await self._row(tid)
         if tid in self.tasks:
             raise EngineError(409, "The flow is running, not waiting.", "Wait for it to reach a gate.")

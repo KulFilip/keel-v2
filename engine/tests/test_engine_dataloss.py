@@ -102,3 +102,33 @@ def test_a_bad_checkpoint_id_leaves_agent_memory_and_calls_alone(client, repo):
     assert ctx.done_calls == {"k": "result"} and ctx.auto_seen == {"q": 1}
     row = client.portal.call(ctx.memory.get, "a")
     assert row is not None
+
+
+# ---- bug 3: two resumes at once start one driver
+
+def test_two_resumes_at_once_start_one_driver(client, repo, monkeypatch):
+    import asyncio
+    from conftest import start, wait
+    from keel_engine.runtime.service import EngineError
+    tid = start(client, repo)
+    assert wait(client, tid)["waiting"]["step"] == "spec_gate"
+    monkeypatch.setenv("KEEL_FAKE_DELAY", "0.3")    # the first driver is still running when the second resume asks
+    eng = client.app.state.engine
+    launched = []
+    real = eng._launch
+
+    def counting(t, inp, cfg=None):
+        launched.append(t)
+        return real(t, inp, cfg)
+
+    eng._launch = counting
+
+    async def both():
+        return await asyncio.gather(eng.resume(tid, "approve", None, None), eng.resume(tid, "approve", None, None),
+                                    return_exceptions=True)
+
+    results = client.portal.call(both)
+    assert launched == [tid], f"{len(launched)} drivers started on one thread"
+    errors = [r for r in results if isinstance(r, EngineError)]
+    assert len(errors) == 1 and errors[0].status == 409
+    wait(client, tid)
