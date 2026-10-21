@@ -67,11 +67,13 @@ class Engine:
         self.tasks: dict[str, asyncio.Task] = {}
         self.pending: set[str] = set()            # running when keel stopped; continued by the api (or the grace timer)
         self._grace: asyncio.Task | None = None
+        self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
 
     # ------------------------------------------------------------ lifecycle
 
     async def open(self, resume_running: bool = True):
+        self._closing = False
         d = self.data_dir or config.data_dir()
         d.mkdir(parents=True, exist_ok=True)
         # Autocommit: a write commits inside its own statement, so this connection never holds the write lock while it
@@ -128,6 +130,8 @@ class Engine:
         return await self.state(tid)
 
     async def close(self):
+        # Set before the cancel: _drive then leaves a cut-off flow 'running', so open() continues it after the restart.
+        self._closing = True
         if self._grace:
             self._grace.cancel()
         for t in list(self.tasks.values()):
@@ -225,7 +229,8 @@ class Engine:
                     done.update(warnings=[w.get("text") for w in warned], title=snap.values.get("note") or "")
                 ctx.emit("thread.done", data=done)
         except asyncio.CancelledError:
-            await self._set_status(tid, "stopped")
+            if not self._closing:      # a user's Stop (or a rewind); a shutdown keeps the row 'running'
+                await self._set_status(tid, "stopped")
             raise
         except Exception as exc:
             log.exception("thread %s failed", tid)
