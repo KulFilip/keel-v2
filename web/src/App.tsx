@@ -73,7 +73,12 @@ function Router() {
       /* jsdom */
     }
   }, [page]);
-  if (page === SCREEN.projects) return <ProjectsPage />;
+  if (page === SCREEN.projects)
+    return (
+      <PageBoundary resetKey={page}>
+        <ProjectsPage />
+      </PageBoundary>
+    );
   if (page === SCREEN.addon && route.screen) {
     if (!pid && !projectsLoaded)
       return (
@@ -103,7 +108,11 @@ function Router() {
       );
     if (reg?.needsProject === "optional") {
       const Page = reg.component;
-      return <Page pid="" />;
+      return (
+        <PageBoundary resetKey={page}>
+          <Page pid="" />
+        </PageBoundary>
+      );
     }
     return (
       <>
