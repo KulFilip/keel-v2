@@ -57,6 +57,19 @@ class LocalAuthApiTest : ApiTest() {
     }
 
     @Test
+    fun `a path written in another form (semicolon, percent, double slash) is still an api path and needs a credential`() {
+        val sneaky = listOf("/api;x=1/projects", "/%61pi/projects", "/api/%70rojects", "//api/projects", "/api//projects",
+            "/api/./projects", "/api%2fprojects", "/%2e/api/projects", "/api/projects;jsessionid=1", "/internal;x/anything", "//internal/anything")
+        val open = sneaky.mapNotNull { p ->
+            val res = bare.perform(rget(java.net.URI.create(p))).andReturn().response   // a URI keeps the raw path
+            if (res.status == 401 || res.status == 400 || res.status == 403 || res.status == 404) null else "GET $p -> ${res.status}"
+        }
+        assertThat(open).isEmpty()
+        // the plain path still answers a signed-in caller
+        mvc.perform(rget("/api/projects")).andExpect(status().isOk)
+    }
+
+    @Test
     fun `health, the web app's files and the sign-in link need nothing`() {
         bare.perform(rget("/api/health")).andExpect(status().isOk)
         bare.perform(rget("/")).andExpect(status().isOk)

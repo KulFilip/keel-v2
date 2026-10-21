@@ -87,7 +87,7 @@ class McpTokenController(private val tokens: McpTokens, private val props: KeelP
 class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMapper) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean {
-        val path = request.requestURI
+        val path = keel.api.common.ApiPath.of(request)
         if (!path.startsWith("/api/") || path == "/api/mcp/token") return true
         val who = request.getAttribute(keel.api.auth.LocalAuth.WHO_ATTR)
         if (who != null && who != "mcp" && request.getHeader("X-Keel-Via") != "mcp") return true
@@ -116,7 +116,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         action(request)?.let { name ->
             return when (name) { in READ_ACTIONS -> "read"; in ADMIN_ACTIONS -> "admin"; else -> "write" }
         }
-        val path = request.requestURI.trimEnd('/')
+        val path = keel.api.common.ApiPath.of(request).trimEnd('/')
         if (method == "POST" && DB_QUERY.matches(path)) return "read"     // a change needs write: DatabaseController checks the body
         // step 4: keel_plugin_request is a read-level tool (agents run keel2 mcp --read-only); it only opens an Inbox
         // request a person approves, and the marketplace rule "agents may ask" still decides (PluginRequests)
@@ -127,7 +127,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
     }
 
     private fun action(request: HttpServletRequest): String? =
-        if (request.method == "POST") ACTION.find(request.requestURI.trimEnd('/'))?.groupValues?.get(1) else null
+        if (request.method == "POST") ACTION.find(keel.api.common.ApiPath.of(request).trimEnd('/'))?.groupValues?.get(1) else null
 
     companion object {
         const val TOKEN_HEADER = "X-Keel-Mcp-Token"

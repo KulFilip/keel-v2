@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import keel.api.common.ApiPath
 import keel.api.common.ErrorBody
 import keel.api.common.KeelProperties
 import keel.api.mcp.McpLevelGuard
@@ -23,7 +24,8 @@ import java.net.URI
  * In this order, for every request:
  *  1. the Host must be keel's own (localhost, 127.0.0.1, [::1], KEEL_PUBLIC_URL's host, KEEL_ALLOWED_HOSTS): a web
  *     page cannot reach keel through DNS rebinding;
- *  2. outside /api and /internal (the web app's files, plugins' web files, the sign-in link) nothing more is needed,
+ *  2. the path is read the way the controllers read it ([ApiPath]); an api path written with `;`, `//` or an encoded `/` is
+ *     refused (400); outside /api and /internal (the web app's files, plugins' web files, the sign-in link) nothing more is needed,
  *     and neither is it for GET /api/health;
  *  3. X-Keel-Mcp-Token = an MCP level token: keel's MCP servers ([McpLevelGuard] then checks the level, as before);
  *  4. X-Keel-Token = the internal token: the engine, keel2 and keel's own scripts;
@@ -50,10 +52,13 @@ class LocalAuth(
             return refuse(response, HttpServletResponse.SC_FORBIDDEN, "This keel only answers on localhost",
                 "Open it as http://localhost:<port>. For another name, set KEEL_PUBLIC_URL or KEEL_ALLOWED_HOSTS.")
         }
-        val path = request.requestURI
-        if (!(path.startsWith("/api/") || path.startsWith("/internal/")) || open(request.method, path)) {
-            return chain.doFilter(request, response)
+        val path = ApiPath.of(request)   // the path the controllers see, not the raw one (`/api;x/..`, `/%61pi/..`)
+        if (!ApiPath.isApi(path)) return chain.doFilter(request, response)
+        if (ApiPath.ambiguous(request)) {
+            return refuse(response, HttpServletResponse.SC_BAD_REQUEST, "This path is written in an unusual way",
+                "Use the plain path, for example /api/projects: no ';', '//', '.' segments or encoded '/' or '.'.")
         }
+        if (open(request.method, path)) return chain.doFilter(request, response)
         // an MCP call is always judged as one, whatever else it carries (McpLevelGuard keeps it within its level)
         request.getHeader(McpLevelGuard.TOKEN_HEADER)?.let { t ->
             if (tokens.levelOf(t) != null) return pass(request, response, chain, "mcp")

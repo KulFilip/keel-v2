@@ -74,7 +74,7 @@ class PluginsApiTest : ApiTest() {
         val q = post("/api/projects/$pid/plugins/ask", mapOf("title" to "Claude Code: push?", "command" to "push the branch")).andExpect(status().isOk).json()
         assertThat(engine.lastBody("/plugins/ask")!!["project"].asText()).isEqualTo(pid)
         assertThat(get("/api/plugins/asks/${q["id"].asText()}").json()["decision"].asText()).isEqualTo("allow")
-        get("/api/plugins/asks/../../threads").andExpect(status().isNotFound)
+        get("/api/plugins/asks/../../threads").andExpect(status().isBadRequest)   // a ".." segment is refused by LocalAuth (ApiPath)
         get("/api/plugins/asks/bad").andExpect(status().isBadRequest)
     }
 }
