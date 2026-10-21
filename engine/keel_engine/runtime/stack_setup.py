@@ -16,8 +16,8 @@ Two parts:
             root through keel's helper (docker/keel-stack-setup): sudo allows it only as `keel-stack-setup apt ...`,
             and it accepts nothing but package names. setup.run commands run as keel's own user, once per container.
             It runs in the background:
-            keel starts at once, a flow that needs a package waits for it (or stops at a clear gate). The apt cache is in
-            the data volume (/data/cache/apt), so a re-created container installs again from the cache. It runs at the
+            keel starts at once, a flow that needs a package waits for it (or stops at a clear gate). The apt cache is root's
+            own (/var/cache/keel-apt), so a re-created container downloads the packages again. It runs at the
             engine's start, when a project is scanned (added), when a stack is saved, and before a flow that needs it.
             Native mode (and any keel without the helper) never installs: it says which runtimes are missing.
   worktree  the stack's each_worktree commands in a flow's folder, once per worktree (recorded in the worktree's own git

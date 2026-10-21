@@ -773,8 +773,8 @@ setup:
   when it starts, when a project is added and when a stack is saved. keel does not wait for it to start. The dashboard
   shows what it does ("setup: installing php8.3-cli for carrier-router…").
 - After `keel2 update`, a restart or a restore the container is new, so the packages are gone. keel installs them
-  again at start. The apt cache is in keel's data volume (`/data/cache/apt`), so this is fast and needs no download.
-  `keel2 backup` leaves the cache out.
+  again at start. The apt cache is root-owned (`/var/cache/keel-apt`, outside the data volume, so keel's user
+  cannot plant packages in it), so a new container downloads the packages again.
 - `run`: setup commands that do not need root, after apt, once per container. They run as keel's own user, for
   example a tool installed under keel's home. They never run as root: a system package goes in `apt`.
 - `each_worktree`: commands keel runs in the stack's folder (`backend.dir` for an api stack, `frontend.dir` for a web
