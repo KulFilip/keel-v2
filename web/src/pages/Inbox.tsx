@@ -27,7 +27,9 @@ const KIND_LABEL: Record<string, string> = {
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
 const PLUGIN_INSTALL = "plugin-install";
-const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? it.step}`;
+/** One waiting question: its id, else the step with the AC and the time it began to wait, so a gate that comes back to the
+ *  same step is a new card (not the old one with its buttons stuck disabled). */
+const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? `${it.step}|${it.ac ?? ""}|${it.since ?? ""}`}`;
 
 /** Details longer than this fold behind "Show more". */
 const LONG_LINES = 6;
@@ -86,6 +88,7 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
       await onDone(decision === "deny" ? `Refused: ${who} will not run it.` : `Allowed: ${who} runs it now.`);
     } catch (e) {
       setErr(errorParts(e));
+    } finally {
       setBusy(false);
     }
   };
@@ -146,6 +149,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
       await onDone(msg ?? (decision === "approve" ? `${it.project_name}: ${b.approve}. The flow goes on.` : `${it.project_name}: ${b.reject}.`));
     } catch (e) {
       setErr(errorParts(e));
+    } finally {
       setBusy(false);
     }
   };
