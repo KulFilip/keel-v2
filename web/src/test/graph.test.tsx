@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { Workflow } from "../api";
@@ -48,7 +48,7 @@ describe("Zoom", () => {
     expect(screen.getByTestId("zoom-t").style.getPropertyValue("--zoom")).toBe("1.25");
     expect(localStorage.getItem("keel2.zoom.t")).toBe("1.25");
     screen.getByTestId("zoom-t").dispatchEvent(new WheelEvent("wheel", { deltaY: 200, ctrlKey: true, bubbles: true, cancelable: true }));
-    expect(await screen.findByText(/^\d+%$/)).not.toHaveTextContent("125%");
+    await waitFor(() => expect(screen.getByText(/^\d+%$/)).not.toHaveTextContent("125%"));   // React 19 draws the wheel's zoom a tick later
     unmount();
     render(<Zoom id="t"><Graph steps={featureWorkflow.steps} /></Zoom>);   // remembered per place
     expect(screen.queryByText("100%")).not.toBeInTheDocument();
