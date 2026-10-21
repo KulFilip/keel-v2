@@ -317,6 +317,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let es: EventSource | null = null;
     let timer: number | null = null;
     let attempt = 0;
+    let opened = false;
     let closed = false;
 
     const onEngine = (e: MessageEvent) => {
@@ -421,6 +422,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       es.onopen = () => {
         attempt = 0;
         setLive("live");
+        // a RE-open (after a drop or a keel restart) missed events: catch up like a tab shown again
+        if (opened) {
+          void reloadProjects();
+          bump();
+        }
+        opened = true;
       };
       es.onerror = () => {
         es?.close();
