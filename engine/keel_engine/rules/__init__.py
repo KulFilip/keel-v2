@@ -579,6 +579,10 @@ def push_gate(cfg: dict, cmd: str, blockers: list[dict] | None) -> Verdict | Non
                                  f'{str(first.get("fix") or "").rstrip(".")}.{more}')
 
 
+# a redirect (`>f`, `> f`, `>>f`, `2>f`; `2>&1` has no file) or sed -i / tee / perl -pi with its target
+_SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)")
+
+
 def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str | None = None,
                exists=lambda rel: False, unlocks: list[dict] | None = None,
                push_blockers: list[dict] | None = None) -> Verdict:
@@ -615,9 +619,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     dep = None if is_off(cfg, "new-dependency") else adds_dependency(cmd)
     if dep:
         return Verdict(False, reason=f'adding "{dep}" is a dependency decision. Put it in the spec and take it through the gate.')
-    m = re.search(r"(?:>|>>|sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)", cmd)
-    if m:
-        target = m.group(1).strip("\"'")
+    # Every write target of the line, not only the first: `echo a > /tmp/x && echo b > src/Main.kt`; `>file` needs no space.
+    for m in _SHELL_WRITE.finditer(cmd):
+        target = (m.group(1) or m.group(2)).strip("\"'")
         if not target.startswith("/dev/"):
             v = check_edit(phase, target, cfg, exists=exists(target), unlocks=unlocks)
             if not v.ok:
