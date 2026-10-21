@@ -55,6 +55,43 @@ class DatabaseApiTest : ApiTest() {
     }
 
     @Test
+    fun `shown hides the password in every shape of address`() {
+        val cases = mapOf(
+            "postgres://app:s3cret@localhost:5432/db" to "s3cret",            // keel:allow-secret
+            "postgres://app:pa/ss@localhost:5432/db" to "pa/ss",              // keel:allow-secret
+            "postgres://app:pa@ss@localhost:5432/db" to "pa@ss",              // keel:allow-secret
+            "POSTGRES://app:Upper1@localhost/db" to "Upper1",
+            "jdbc:postgresql://localhost:5432/db?user=app&password=q1w2e3" to "q1w2e3",
+            "jdbc:postgresql://localhost/db?Password=q1w2e3&ssl=true" to "q1w2e3",
+            "mysql://localhost/db?user=a&PWD=zzz999" to "zzz999",
+            "jdbc:sqlserver://h:1433;databaseName=x;user=a;password=hunter2;" to "hunter2",
+            "postgres://host/db?token=abc123&secret=def456" to "abc123",
+        )
+        cases.forEach { (url, secret) ->
+            val shown = DatabaseService.shownOf(url)
+            assertThat(shown).describedAs(url).doesNotContain(secret).contains("•••")
+        }
+        assertThat(DatabaseService.shownOf("postgres://app:pw@localhost:5432/scores")).isEqualTo("postgres://app:•••@localhost:5432/scores") // keel:allow-secret
+        assertThat(DatabaseService.shownOf("postgres://app@localhost/db?sslmode=require")).isEqualTo("postgres://app@localhost/db?sslmode=require")
+        assertThat(DatabaseService.shownOf("sqlite:data/app.db")).isEqualTo("sqlite:data/app.db")
+    }
+
+    @Test
+    fun `a suggestion reaches the web without its password and is saved with the real address`() {
+        val (pid, _) = newProject("plug-db-sugg")
+        val sugg = get("/api/projects/$pid/db/suggest").andExpect(status().isOk).json()
+        assertThat(sugg.toString()).doesNotContain(":app@")                                      // keel:allow-secret
+        assertThat(sugg[0]["url"].asText()).isEqualTo("postgres://app:•••@localhost:15432/scores") // keel:allow-secret
+        val made = post("/api/projects/$pid/db/connections", mapOf("name" to "db", "url" to sugg[0]["url"].asText(), "env" to "local",
+            "source" to sugg[0]["source"].asText())).andExpect(status().isOk).json()
+        val id = jdbc.queryForObject("SELECT id FROM db_connections WHERE project_id = ?", String::class.java, pid)
+        assertThat(secrets.get("db.$id")).isEqualTo("postgres://app:app@localhost:15432/scores") // keel:allow-secret
+        assertThat(made["connection"]["shown"].asText()).isEqualTo("postgres://app:•••@localhost:15432/scores") // keel:allow-secret
+        // a masked address that no suggestion explains is refused: the password cannot be guessed
+        post("/api/projects/$pid/db/connections", mapOf("name" to "x", "url" to "postgres://u:•••@h:5432/d")).andExpect(status().isBadRequest)
+    }
+
+    @Test
     fun `flows and KeelBot turns carry its connections while it is on, next to the GitHub token`() {
         put("/api/secrets/GITHUB_REPO_TOKEN", mapOf("value" to "ghp_exampletoken")).andExpect(status().isOk)
         // off for a project: its connections stay home

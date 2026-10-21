@@ -101,14 +101,24 @@ def conn_of(d: dict) -> Conn:
     return Conn(str(d.get("name") or "local"), kind, url, env)
 
 
+_SECRET_PARAM = re.compile(r"(?i)([?&;])(password|passwd|pwd|pass|secret|token|api_?key|access_?token|sslpassword)=([^&;#]*)")
+_SCHEME_RE = re.compile(r"^((?:jdbc:)?[A-Za-z][A-Za-z0-9+.\-]*://)(.*)$", re.S)
+
+
 def masked_url(url: str) -> str:
-    """The url with its password as •••, to show."""
-    p = urlsplit(url.removeprefix("jdbc:"))
-    if p.password:
-        host = p.hostname or ""
-        netloc = f"{p.username}:•••@{host}" + (f":{p.port}" if p.port else "")
-        return urlunsplit((p.scheme, netloc, p.path, p.query, p.fragment))
-    return url
+    """The url with every secret as •••, to show: the password of user:pw@host (the password may hold any character, up to
+    the last @ of the address) and the value of ?password=, &pwd=, ;secret=, token= … in the query (any case)."""
+    out = url
+    m = _SCHEME_RE.match(out)
+    if m:
+        head, rest = m.groups()
+        authority = re.split(r"[/?#]", rest, 1)[0]
+        # a clean address has its @ before the first / ? #; a password with a / or ? makes the @ come later
+        at = authority.rfind("@") if "@" in authority else rest.rfind("@")
+        if at >= 0 and ":" in rest[:at]:
+            user = rest[:at].split(":", 1)[0]
+            out = f"{head}{user}:•••@{rest[at + 1:]}"
+    return _SECRET_PARAM.sub(lambda g: f"{g.group(1)}{g.group(2)}=•••", out)
 
 
 def _in_docker() -> bool:
@@ -126,6 +136,15 @@ def _walk_has(node: exp.Expression, types: tuple) -> bool:
     return any(isinstance(n, types) for n in node.walk())
 
 
+def _danger_fn(st: exp.Expression) -> str:
+    """The name of a server-acting function the statement calls (in a SELECT, an UPDATE, an INSERT … anywhere), or ''."""
+    for fn in st.find_all(exp.Anonymous, exp.Func):
+        name = fn.name if isinstance(fn, exp.Anonymous) else (fn.sql_name() if hasattr(fn, "sql_name") else "")
+        if name and DANGER_FN.match(str(name)):
+            return str(name)
+    return ""
+
+
 def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
     """("read" | "change" | "schema" | "never", why). One statement; keel decides from the parsed SQL."""
     text = (sql or "").strip().rstrip(";").strip()
@@ -140,6 +159,9 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
         return "never", "One statement at a time: keel runs a single query."
     st = stmts[0]
     head = text.split(None, 1)[0].upper()
+    bad = _danger_fn(st)
+    if bad:
+        return "never", f"keel does not call {bad}(): it acts on the server, not on data."
     if isinstance(st, exp.Command):
         if head == "EXPLAIN":
             m = re.match(r"(?is)^explain\s+(\([^)]*\)\s*)?(analy[sz]e\s+)?(verbose\s+)?(.*)$", text)
@@ -158,10 +180,6 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
             return "never", "SELECT … INTO creates a table: change the schema with a migration."
         if _walk_has(st, (exp.Insert, exp.Update, exp.Delete, exp.Merge)):
             return "never", "This query reads and changes data at once: split it into a read and a change."
-        for fn in st.find_all(exp.Anonymous, exp.Func):
-            name = fn.name if isinstance(fn, exp.Anonymous) else (fn.sql_name() if hasattr(fn, "sql_name") else "")
-            if name and DANGER_FN.match(str(name)):
-                return "never", f"keel does not call {name}(): it acts on the server, not on data."
         return "read", ""
     if isinstance(st, (exp.Insert, exp.Update, exp.Delete, exp.Merge)):
         return "change", ""
@@ -242,8 +260,24 @@ def _value(v):
     return str(v)
 
 
-def _run(c, conn: Conn, sql: str, limit: int) -> tuple[list[str], list[list], bool, int]:
-    cur = c.cursor()
+_SERVER_SIDE = re.compile(r"(?is)^[\s(]*(select|with|values|table)\b")
+
+
+def _cursor(c, conn: Conn, sql: str, stream: bool):
+    """A cursor that does not pull the whole result into memory before keel takes its first `limit` rows: the drivers
+    buffer everything on execute by default (psycopg, pymysql), so a read streams: a server-side cursor on PostgreSQL
+    (SELECT, WITH, VALUES, TABLE only), an unbuffered one on MySQL. SQLite already reads row by row."""
+    if stream and conn.kind == "postgres" and _SERVER_SIDE.match(sql):
+        return c.cursor(name="keel_read")
+    if stream and conn.kind == "mysql":
+        import pymysql.cursors
+
+        return c.cursor(pymysql.cursors.SSCursor)
+    return c.cursor()
+
+
+def _run(c, conn: Conn, sql: str, limit: int, *, stream: bool = False) -> tuple[list[str], list[list], bool, int]:
+    cur = _cursor(c, conn, sql, stream)
     try:
         cur.execute(sql)
         cols = [d[0] for d in cur.description] if cur.description else []
@@ -279,7 +313,7 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
     except Exception as exc:
         raise _connect_error(conn, exc) from exc
     try:
-        cols, rows, truncated, count = _run(c, conn, text, max(1, min(limit, MAX_ROWS)))
+        cols, rows, truncated, count = _run(c, conn, text, max(1, min(limit, MAX_ROWS)), stream=cls == "read")
         if cls == "change":
             (c.commit if confirm else c.rollback)()
         else:

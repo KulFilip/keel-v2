@@ -86,8 +86,23 @@ class DatabaseService(
         val out = engine.post("/plugins/db/suggest", mapOf("root" to root))
         val arr = (out as? com.fasterxml.jackson.databind.node.ArrayNode)?.deepCopy() ?: return out
         val it = arr.elements()
-        while (it.hasNext()) if (it.next().path("shown").asText() in saved) it.remove()
+        while (it.hasNext()) {
+            val s = it.next()
+            if (s.path("shown").asText() in saved) it.remove()
+            // the web never gets a compose password: `url` is the masked address; create/update read the real one again (resolveUrl)
+            else if (s is com.fasterxml.jackson.databind.node.ObjectNode && s.has("shown")) s.put("url", s.path("shown").asText())
+        }
         return arr
+    }
+
+    /** A suggestion comes to the web masked (•••); when it comes back to be saved, the real address is read again from the project. */
+    private fun resolveUrl(pid: String, url: String): String {
+        if (!url.contains(MASK)) return url
+        val root = projects.root(pid).toString()
+        val raw = (engine.post("/plugins/db/suggest", mapOf("root" to root)) as? com.fasterxml.jackson.databind.node.ArrayNode)
+            ?.firstOrNull { it.path("shown").asText() == url }?.path("url")?.asText()
+        return raw?.takeIf { it.isNotBlank() }
+            ?: throw BadRequest("The password of this address is hidden", "Type the address with its password, or pick the suggestion again.")
     }
 
     fun create(pid: String, body: DbConnectionBody): Map<String, Any?> {
@@ -95,7 +110,7 @@ class DatabaseService(
         val name = body.name.trim().ifBlank { "local" }
         if (!NAME.matches(name)) throw BadRequest("A connection name is a short word", "Letters, digits, - and _, for example local or test.")
         if (rows(pid, name).isNotEmpty()) throw Conflict("There is a connection called $name already", "Pick another name, or edit that one.")
-        val url = body.url?.trim().orEmpty().ifBlank { throw BadRequest("Give the database's address") }
+        val url = resolveUrl(pid, body.url?.trim().orEmpty().ifBlank { throw BadRequest("Give the database's address") })
         val env = (body.env ?: "local").lowercase()
         if (env !in ENVS) throw BadRequest("Pick local, test, staging or prod")
         val kind = kindOf(url)
@@ -108,7 +123,8 @@ class DatabaseService(
 
     fun update(pid: String, name: String, body: DbConnectionBody): DbConnection {
         val r = row(pid, name)
-        body.url?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
+        body.url?.trim()?.takeIf { it.isNotBlank() }?.let { given ->
+            val url = resolveUrl(pid, given)
             kindOf(url)
             secrets.put("db.${r.id}", url)
             jdbc.update("UPDATE db_connections SET kind = ?, shown = ?, ok = NULL, error = NULL WHERE id = ?", kindOf(url), shownOf(url), r.id)
@@ -175,8 +191,24 @@ class DatabaseService(
             }
         }
 
-        /** The address with its password as •••. */
-        fun shownOf(url: String): String = url.trim().replace(Regex("^([a-z0-9+:]+//[^:/@]+):[^@/]*@"), "$1:•••@")
+        const val MASK = "•••"
+        private val SCHEME = Regex("^((?:jdbc:)?[A-Za-z][A-Za-z0-9+.\\-]*://)(.*)$", RegexOption.DOT_MATCHES_ALL)
+        private val SECRET_PARAM = Regex("([?&;])(password|passwd|pwd|pass|secret|token|api_?key|access_?token|sslpassword)=([^&;#]*)", RegexOption.IGNORE_CASE)
+
+        /** The address with every secret as •••: the password of user:pw@host (it may hold any character, up to the last @ of
+         *  the address) and the value of ?password=, &pwd=, ;secret=, token= … (any case). Same rules as the engine's masked_url. */
+        fun shownOf(url: String): String {
+            var out = url.trim()
+            SCHEME.matchEntire(out)?.let { m ->
+                val head = m.groupValues[1]
+                val rest = m.groupValues[2]
+                val authority = rest.split('/', '?', '#', limit = 2)[0]
+                // a clean address has its @ before the first / ? #; a password with a / or ? makes the @ come later
+                val at = if ('@' in authority) authority.lastIndexOf('@') else rest.lastIndexOf('@')
+                if (at >= 0 && ':' in rest.substring(0, at)) out = head + rest.substring(0, at).substringBefore(':') + ":$MASK@" + rest.substring(at + 1)
+            }
+            return SECRET_PARAM.replace(out) { "${it.groupValues[1]}${it.groupValues[2]}=$MASK" }
+        }
     }
 }
 
