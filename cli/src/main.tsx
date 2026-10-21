@@ -13,7 +13,7 @@ import { KeelCore } from "./core/keel";
 import { run, follow, type Reply } from "./core/commands";
 import { renderMarkdown } from "./core/markdown";
 import { colorDiagram } from "./core/colorize";
-import { applyLevel, makeTheme, PLAIN, type Paint } from "./core/theme";
+import { applyLevel, makeTheme, needsProbe, PLAIN, type Paint } from "./core/theme";
 import { probeBackground } from "./core/termbg";
 import { VERSION } from "./core/version";
 import { runScript } from "./script";
@@ -87,7 +87,7 @@ async function main(): Promise<number> {
     process.stderr.write("keel-tui needs a terminal. Without one: keel-tui -c \"/status\" or keel-tui --script <file>.\n");
     return 2;
   }
-  if (theme.level && theme.name === "auto") {
+  if (theme.level && needsProbe(process.env)) {
     const bg = await probeBackground().catch(() => null);
     if (bg) theme = makeTheme(process.env, undefined, bg, fileColors);
   }

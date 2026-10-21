@@ -66,7 +66,7 @@ export type Reply = { blocks: Block[]; pick?: Pick; ask?: Ask; quit?: boolean; c
   prompt?: string;
   /** 0.18.19 a KeelBot answer was undone (undo) or redone (not): its question's turn on screen is drawn dim, or not any more */
   revert?: { undo: boolean; text: string };
-  /** /theme: keel TUI's palette from now on (dark, light, auto) */
+  /** /theme: keel TUI's palette from now on (keel, dark, light, auto) */
   theme?: ThemeName;
   /** /theme with no word, or /theme colors: say the palette and the colour overrides that are active */
   themeInfo?: boolean;
@@ -1029,7 +1029,7 @@ const IMPLS: Impl[] = [
     // 0.18.26 no word (or "colors"): the palette and the per-role overrides (KEEL_TUI_COLORS) that are active, with the help
     if (!a.trim() || a.trim().toLowerCase() === "colors") return { blocks: [], themeInfo: true };
     const name = parseThemeName(a);
-    if (!name) return fail("/theme dark, /theme light, /theme auto or /theme colors.");
+    if (!name) return fail("/theme keel, /theme dark, /theme light, /theme auto or /theme colors.");
     return { blocks: [], theme: name };
   } },
   // 0.18.18 write the prompt in the person's own editor: the words after /editor (or nothing) open in it, what they
@@ -1040,7 +1040,7 @@ const IMPLS: Impl[] = [
 
 /** keel's commands: the shared table's words with what each one does here. */
 export const THEME_HELP = [
-  "/theme dark, /theme light or /theme auto sets the palette (KEEL_TUI_THEME sets it at the start).",
+  "/theme keel (the default), /theme dark, /theme light or /theme auto (follow the background) sets the palette (KEEL_TUI_THEME sets it at the start).",
   "Your own colours stay on top of any palette: KEEL_TUI_COLORS=\"ok=#3cc463,gate=ansi:yellow\" or a `colors` object in",
   "~/.config/keel2/tui.json (the env wins). Values: #rgb, #rrggbb, an ANSI colour name or ansi:<name>, with flags: ok=#3cc463+bold (+underline +italic +dim; ok=+bold keeps the colour; +nobold). Roles: person, keelbot,",
   "heading, accent, gate (waiting), question, option, recommended, chosen, suggest, hint, detail, meta, border, ok (success),",

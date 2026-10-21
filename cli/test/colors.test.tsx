@@ -152,7 +152,9 @@ describe("/theme", () => {
     const stub = stubKeel();
     const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
     expect((await run({ core, width: 80 }, "/theme light")).theme).toBe("light");
-    expect((await run({ core, width: 80 }, "/theme terminal")).theme).toBe("auto");
+    expect((await run({ core, width: 80 }, "/theme terminal")).theme).toBe("keel");
+    expect((await run({ core, width: 80 }, "/theme keel")).theme).toBe("keel");
+    expect((await run({ core, width: 80 }, "/theme auto")).theme).toBe("auto");
     expect((await run({ core, width: 80 }, "/theme pink")).blocks[0].kind).toBe("error");
     const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
     const r = render(<App core={core} probe={probe} width={80} theme={dark} />);

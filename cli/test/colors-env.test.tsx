@@ -166,7 +166,7 @@ describe("style flags: role=#3cc463+bold", () => {
   });
 
   it("bad flags give the one warning and the entry is ignored", () => {
-    const t = makeTheme({ KEEL_TUI_COLORS: "ok=#3cc463+shiny,gate=+bold+blink,warn=#e0a13a+bold,hint=" }, 3, undefined, { bad: { bold: "yes" } });
+    const t = makeTheme({ KEEL_TUI_THEME: "dark", KEEL_TUI_COLORS: "ok=#3cc463+shiny,gate=+bold+blink,warn=#e0a13a+bold,hint=" }, 3, undefined, { bad: { bold: "yes" } });
     expect(t.warnings).toHaveLength(1);
     expect(t.warnings[0]).toContain("ok=#3cc463+shiny");
     expect(t.warnings[0]).toContain("gate=+bold+blink");
@@ -182,7 +182,7 @@ describe("style flags: role=#3cc463+bold", () => {
   });
 
   it("/theme lists the flags", () => {
-    const t = makeTheme({ KEEL_TUI_COLORS: "ok=#3cc463+bold,gate=+nobold" }, 3);
+    const t = makeTheme({ KEEL_TUI_THEME: "dark", KEEL_TUI_COLORS: "ok=#3cc463+bold,gate=+nobold" }, 3);
     expect(describeOverrides(t.overrides, t.styles)).toEqual(["gate=+nobold", "ok=#3cc463+bold"]);
   });
 });

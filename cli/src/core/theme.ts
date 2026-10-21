@@ -4,9 +4,10 @@
 // (Solarized, Dracula, macOS Basic ...) decides the exact shade; a fixed shade only where the named colour is known to
 // be too pale (green and yellow on a light background, the quiet grey of meta text on a known background).
 //
-//   KEEL_TUI_THEME=dark|light|auto   which palette; auto (the default): COLORFGBG, else the background the terminal
-//                                    reports (OSC 11, termbg.ts), else a palette that reads on both
-//   /theme dark|light|auto           the same while keel TUI runs
+//   KEEL_TUI_THEME=keel|dark|light|auto   which palette. Unset (the default) or "terminal": keel's own palette, or light
+//                                    when COLORFGBG / the background the terminal reports (OSC 11, termbg.ts) is light.
+//                                    auto: follow the background (dark, light; a palette that reads on both if unknown)
+//   /theme keel|dark|light|auto      the same while keel TUI runs
 //   KEEL_TUI_COLORS="ok=#3cc463,gate=ansi:yellow"   per-role overrides on top of whichever palette is active (see
 //                                    parseColors); the same as a `colors` object in keel TUI's settings file (the env wins)
 //   NO_COLOR=1                       no colour at all (https://no-color.org); FORCE_COLOR=0|1|2|3 forces a level
@@ -46,6 +47,13 @@ const TEAL_LIGHT = "#0b6e6e";  // so is cyan
 
 const shared = { fg: "term:", keelbot: "term:", question: "term:", option: "term:", detail: "term:", bad: "ansi:red", del: "ansi:red" };
 
+const KEEL_GREEN = "#2fa84f";  // ok, recommended, success, diff add: ≥ 4.5:1 on dark, 3:1 on white
+const KEEL_AMBER = "#f2b84b";  // gate, warn
+const KEEL_META = "#9a958c";   // meta, dim, faint, comments: warm grey, ≥ 6:1 on near-black, 2.9:1 on white
+const KEEL_ACCENT = "#a48bff"; // keel's accent (the old pink), fixed so it does not depend on the terminal's magenta
+const KEEL_TEAL = "#2f9e9e";   // hints and attributes: readable on dark (5:1) and on white (3.3:1)
+const KEEL_NUM = "#c98a1a";    // numbers in code: readable on dark (7:1) and on white (3:1)
+
 /** A dark background: the terminal's normal colours (its theme makes them readable on its own background), bright blue
  *  for blue (normal blue is too dark on most dark themes). */
 export const DARK: Palette = {
@@ -69,6 +77,18 @@ export const LIGHT: Palette = {
   kw: "ansi:magenta", str: GREEN_LIGHT, num: AMBER_LIGHT, com: META_LIGHT, fn: "ansi:blue", attr: TEAL_LIGHT, type: "ansi:magenta",
 };
 
+/** keel's own look (the default): the light palette's choices (person blue bar, the named blue for paths and links, red
+ *  for errors) with fixed shades that read on a dark, warm background and are still acceptable on a light one. */
+export const KEEL: Palette = {
+  ...shared,
+  person: "ansi:blue", heading: KEEL_ACCENT, accent: KEEL_ACCENT,
+  gate: KEEL_AMBER, recommended: KEEL_GREEN, chosen: KEEL_GREEN, suggest: KEEL_ACCENT,
+  hint: KEEL_TEAL, meta: KEEL_META, dim: KEEL_META, faint: KEEL_META, border: KEEL_META,
+  ok: KEEL_GREEN, warn: KEEL_AMBER,
+  code: KEEL_ACCENT, path: "ansi:blue", link: "ansi:blue", run: "ansi:blue", add: KEEL_GREEN,
+  kw: KEEL_ACCENT, str: KEEL_GREEN, num: KEEL_NUM, com: KEEL_META, fn: "ansi:blue", attr: KEEL_TEAL, type: KEEL_ACCENT,
+};
+
 /** The background is not known: only what reads on dark and on light. Meta text is the terminal's own text colour,
  *  dimmed (no grey that can vanish on a grey background); hints are the text colour (their bold and their place say
  *  what they are); blue as bright blue (readable on both). */
@@ -87,6 +107,12 @@ export const AUTO: Palette = {
 export const BOLD: ReadonlySet<Role> = new Set<Role>(["person", "heading", "gate", "question", "chosen", "suggest"]);
 /** Roles drawn underlined with `strong` (paths and links: a sign beside the colour). */
 export const UNDERLINE: ReadonlySet<Role> = new Set<Role>(["path", "link"]);
+
+/** Bold that comes with a palette (the person's `+bold` / `+nobold` come on top). */
+export const PALETTE_STYLES: Record<ThemeName, Styles> = {
+  keel: { ok: { bold: true }, gate: { bold: true }, recommended: { bold: true }, warn: { bold: true } },
+  dark: {}, light: {}, auto: {},
+};
 
 type AnsiName = "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "redBright" | "greenBright" | "yellowBright" | "blueBright"
   | "magentaBright" | "cyanBright";
@@ -142,16 +168,18 @@ export function makePaint(p: Palette, level: 0 | 1 | 2 | 3, styles: Styles = {})
 export type Style = { bold?: boolean; underline?: boolean; italic?: boolean; dim?: boolean };
 export type Styles = Partial<Record<Role, Style>>;
 
-export type ThemeName = "dark" | "light" | "auto";
+export type ThemeName = "keel" | "dark" | "light" | "auto";
 /** `overrides`: the person's per-role colours (KEEL_TUI_COLORS, the settings file); `warnings`: what was ignored. */
-export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean; overrides: Partial<Palette>; styles: Styles; warnings: string[] };
+export type Theme = { name: ThemeName; palette: Palette; level: 0 | 1 | 2 | 3; paint: Paint; ascii: boolean; overrides: Partial<Palette>; styles: Styles;
+  /** only the person's flags (`styles` is the palette's flags with these on top) */
+  userStyles: Styles; warnings: string[] };
 
 type Env = Record<string, string | undefined>;
 
-/** "dark", "light" or "auto" from a word ("terminal", keel TUI 0.18's name for the terminal's own colours, is auto). */
+/** "keel", "dark", "light" or "auto" from a word ("terminal", keel TUI 0.18's name for the terminal's own colours, is keel). */
 export function parseThemeName(word: string | undefined): ThemeName | null {
   const w = (word ?? "").trim().toLowerCase();
-  return w === "dark" || w === "light" || w === "auto" ? w : w === "terminal" ? "auto" : null;
+  return w === "keel" || w === "dark" || w === "light" || w === "auto" ? w : w === "terminal" ? "keel" : null;
 }
 
 /** dark or light from COLORFGBG ("15;0" is light text on a dark background; the last number is the background). */
@@ -162,12 +190,24 @@ export function bgFromColorFgBg(v: string | undefined): "dark" | "light" | null 
   return bg === 7 || bg === 15 ? "light" : "dark";
 }
 
-/** The palette: KEEL_TUI_THEME (dark, light; auto or unset looks further), then COLORFGBG, then the background the
- *  terminal reported (`probed`), else auto. */
+/** The palette: KEEL_TUI_THEME keel, dark or light as asked. Unset, "terminal" (the old name) or an unknown word: keel,
+ *  or light when COLORFGBG, else the background the terminal reported (`probed`), says light. auto follows the
+ *  background (dark, light) and is the palette that reads on both when it is not known. */
 export function themeName(env: Env, probed?: "dark" | "light" | null): ThemeName {
-  const want = parseThemeName(env.KEEL_TUI_THEME);
+  const raw = (env.KEEL_TUI_THEME ?? "").trim().toLowerCase();
+  const want = parseThemeName(raw);
+  if (raw === "keel") return "keel";
   if (want === "dark" || want === "light") return want;
-  return bgFromColorFgBg(env.COLORFGBG) ?? probed ?? "auto";
+  const bg = bgFromColorFgBg(env.COLORFGBG) ?? probed ?? null;
+  if (want === "auto") return bg ?? "auto";
+  return bg === "light" ? "light" : "keel";
+}
+
+/** Whether keel TUI should ask the terminal for its background (OSC 11): the person did not pick dark, light or keel,
+ *  and COLORFGBG does not say. */
+export function needsProbe(env: Env): boolean {
+  const raw = (env.KEEL_TUI_THEME ?? "").trim().toLowerCase();
+  return raw !== "keel" && raw !== "dark" && raw !== "light" && bgFromColorFgBg(env.COLORFGBG) === null;
 }
 
 /** The colour level: 0 with NO_COLOR, else what chalk found (FORCE_COLOR, COLORTERM=truecolor, TERM). */
@@ -266,7 +306,14 @@ export const describeOverrides = (o: Partial<Palette>, st: Styles = {}): string[
   return `${r}=${o[r] ?? ""}${flags.map((f) => "+" + f).join("")}`;
 });
 
-export const paletteOf = (name: ThemeName): Palette => (name === "light" ? LIGHT : name === "dark" ? DARK : AUTO);
+export const paletteOf = (name: ThemeName): Palette => (name === "light" ? LIGHT : name === "dark" ? DARK : name === "keel" ? KEEL : AUTO);
+
+/** The palette's own flags with the person's on top (per role, the person's flag wins). */
+const mergeStyles = (name: ThemeName, user: Styles): Styles => {
+  const out: Styles = { ...PALETTE_STYLES[name] };
+  for (const r of Object.keys(user) as Role[]) out[r] = { ...out[r], ...user[r] };
+  return out;
+};
 
 /** The palette with the person's overrides on top. */
 const withOverrides = (name: ThemeName, o: Partial<Palette>): Palette => ({ ...paletteOf(name), ...o });
@@ -277,13 +324,15 @@ export function makeTheme(env: Env = process.env, detected?: number, probed?: "d
   const name = themeName(env, probed);
   const { overrides, styles, warnings } = parseColors(env.KEEL_TUI_COLORS, fileColors);
   const palette = withOverrides(name, overrides);
-  return { name, palette, level, paint: makePaint(palette, level, styles), ascii: asciiOnly(env), overrides, styles, warnings };
+  const all = mergeStyles(name, styles);
+  return { name, palette, level, paint: makePaint(palette, level, all), ascii: asciiOnly(env), overrides, styles: all, userStyles: styles, warnings };
 }
 
 /** The same theme with another palette (/theme): the colour level and the glyphs stay. */
 export function withPalette(t: Theme, name: ThemeName): Theme {
   const palette = withOverrides(name, t.overrides);
-  return { ...t, name, palette, paint: makePaint(palette, t.level, t.styles) };
+  const styles = mergeStyles(name, t.userStyles);
+  return { ...t, name, palette, styles, paint: makePaint(palette, t.level, styles) };
 }
 
 /** Make Ink (which colours with chalk's own instance) use the same level: none with NO_COLOR. */

@@ -7,7 +7,7 @@
 //
 //   npx vite-node --config vitest.config.ts test/colors-demo.tsx -- <out dir>
 //
-// It writes tui-colors-dark.txt / tui-colors-light.txt (cat them) and tui-colors-dark.html / tui-colors-light.html.
+// It writes tui-colors-{keel,dark,light}.txt (cat them) and .html (a keel one on a warm near-black terminal).
 
 import React from "react";
 import { Box } from "ink";
@@ -95,6 +95,9 @@ export function demoScreen(theme: Theme, width = 100, sidebar = false): string {
 const TERMS = {
   dark: { bg: "#1e1e1e", fg: "#cccccc", ansi: ["#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
     "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#e5e5e5"] },
+  // a warm near-black terminal with the blue of a common dark theme
+  keel: { bg: "#17150f", fg: "#d8d4ca", ansi: ["#000000", "#e0524d", "#2fa84f", "#f2b84b", "#4a86e8", "#a48bff", "#11a8cd", "#e5e5e5",
+    "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#a48bff", "#29b8db", "#e5e5e5"] },
   light: { bg: "#ffffff", fg: "#333333", ansi: ["#000000", "#cd3131", "#00bc00", "#949800", "#0451a5", "#bc05bc", "#0598bc", "#555555",
     "#666666", "#cd3131", "#14ce14", "#b5ba00", "#0451a5", "#bc05bc", "#0598bc", "#a5a5a5"] },
 };
@@ -141,7 +144,7 @@ async function main(dir: string) {
   const { writeFileSync, mkdirSync } = await import("node:fs");
   const { join } = await import("node:path");
   mkdirSync(dir, { recursive: true });
-  for (const name of ["dark", "light"] as const) {
+  for (const name of ["keel", "dark", "light"] as const) {
     const screen = demoScreen(makeTheme({ KEEL_TUI_THEME: name }, 3), 100, true);
     writeFileSync(join(dir, `tui-colors-${name}.txt`), screen + "\n");
     writeFileSync(join(dir, `tui-colors-${name}.html`), ansiToHtml(screen, name, `keel TUI colours (${name})`));

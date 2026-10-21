@@ -53,14 +53,17 @@ describe("the palette", () => {
     expect(color.paint.accent("x")).toBe("\x1b[95mx\x1b[39m");
     expect(light.paint.ok("x")).toBe(`${RGB("#1a7f37")}x\x1b[39m`);
     expect(makeTheme({ KEEL_TUI_THEME: "light" }, 2).paint.ok("x")).toMatch(/^\x1b\[38;5;\d+mx/);   // 256 colours: the nearest
-    expect(makeTheme({}, 3).name).toBe("auto");
-    expect(makeTheme({}, 3).paint.meta("x")).toBe("\x1b[2mx\x1b[22m");
+    expect(makeTheme({}, 3).name).toBe("keel");                            // the default
+    expect(makeTheme({ KEEL_TUI_THEME: "auto" }, 3).name).toBe("auto");
+    expect(makeTheme({ KEEL_TUI_THEME: "auto" }, 3).paint.meta("x")).toBe("\x1b[2mx\x1b[22m");
     expect(themeName({ COLORFGBG: "0;15" })).toBe("light");
-    expect(themeName({ COLORFGBG: "15;0" })).toBe("dark");
+    expect(themeName({ COLORFGBG: "15;0" })).toBe("keel");
+    expect(themeName({ KEEL_TUI_THEME: "auto", COLORFGBG: "15;0" })).toBe("dark");
     expect(themeName({ KEEL_TUI_THEME: "light", COLORFGBG: "15;0" })).toBe("light");
     expect(themeName({ KEEL_TUI_THEME: "auto", COLORFGBG: "0;15" })).toBe("light");
     expect(themeName({}, "light")).toBe("light");                          // OSC 11 said so
-    expect(themeName({ KEEL_TUI_THEME: "terminal" })).toBe("auto");        // keel TUI 0.18's word
+    expect(themeName({ KEEL_TUI_THEME: "terminal" })).toBe("keel");        // keel TUI 0.18's word
+    expect(themeName({ KEEL_TUI_THEME: "terminal" }, "light")).toBe("light");
     expect(withPalette(color, "light").paint.person("x")).toBe("\x1b[34mx\x1b[39m");
     expect(makeTheme({ LANG: "C" }).ascii).toBe(true);
     expect(makeTheme({ LANG: "en_US.UTF-8" }).ascii).toBe(false);

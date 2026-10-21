@@ -139,9 +139,11 @@ this branch's api, engine, plugins and keel TUI on top of 0.17.3's): captures in
 - **Colours**: semantic roles (`cli/src/core/theme.ts`: person, keelbot, heading, gate, question, option, recommended,
   chosen, suggest, hint, detail, meta, ok / warn / bad, code, path, link, add / del) on the terminal's own named ANSI
   colours, so its theme picks the shade; fixed shades only where a named colour is too pale (green and amber on light,
-  the meta grey on a known background). Palettes DARK, LIGHT and AUTO (background unknown: meta is the text colour
-  dimmed, nothing fixed). `KEEL_TUI_THEME=dark|light|auto`, else COLORFGBG, else the background the terminal reports
-  (OSC 11), else auto; `/theme dark|light|auto` while it runs; NO_COLOR and FORCE_COLOR. Colour is never the only sign:
+  the meta grey on a known background). Palettes KEEL (the default, 0.18.29: the light palette's role choices with fixed shades that read on a dark warm
+  background: green #2fa84f, amber #f2b84b, grey #9a958c, violet #a48bff; bold ok/gate/recommended/warn), DARK, LIGHT and
+  AUTO (background unknown: meta is the text colour dimmed, nothing fixed). `KEEL_TUI_THEME=keel|dark|light|auto`; unset
+  (or the old `terminal`) is keel, or light when COLORFGBG or the background the terminal reports (OSC 11) is light; auto
+  follows the background; `/theme keel|dark|light|auto` while it runs; NO_COLOR and FORCE_COLOR. Colour is never the only sign:
   the person's " › " is bold, gates and notices have "◆", suggestions "✦", questions "?" and their number.
 - **Code**: highlight.js (the web's highlighter) → the palette's code roles (`highlight.ts`); diffs with line numbers.
 - **Working**: a turning compass over a wave, a keel verb per turn, seconds, `~tokens`, `esc to interrupt` (Esc stops

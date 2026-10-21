@@ -66,7 +66,7 @@ type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
 /** 0.18.18 the prompt history keeps this many (as opencode's, MIT: the last 50) */
 const HISTORY_MAX = 50;
 /** What /theme says after it changed the palette. */
-const THEME_WORDS: Record<ThemeName, string> = { dark: "colours for a dark background", light: "colours for a light background",
+const THEME_WORDS: Record<ThemeName, string> = { keel: "keel's own colours (for a dark background)", dark: "colours for a dark background", light: "colours for a light background",
   auto: "colours that read on any background" };
 /** two presses on the same cell within this many ms: a double-click (the word under it) */
 const DOUBLE_MS = 400;

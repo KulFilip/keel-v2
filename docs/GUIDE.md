@@ -613,8 +613,18 @@ colours for single roles (below).
 ### keel TUI colours
 
 keel TUI draws every piece of text with a **role** (the person's message, a gate that waits, a hint ...), and a palette says how each role looks.
-`KEEL_TUI_THEME=dark|light|auto` (or `/theme dark|light|auto` while it runs) picks the palette. To change single roles
-on top of any palette, set `KEEL_TUI_COLORS`:
+`KEEL_TUI_THEME=keel|dark|light|auto` (or `/theme keel|dark|light|auto` while it runs) picks the palette:
+
+- `keel` is the default (also with `KEEL_TUI_THEME` unset or `terminal`): keel's own look for a dark or unknown
+  background. Green `#2fa84f` (ok, recommended, success, diff add), amber `#f2b84b` (gates, warnings), warm grey
+  `#9a958c` (meta, dim, faint, comments), violet `#a48bff` (accent, headings, suggestions, code, keywords; a fixed
+  shade, so it does not depend on your terminal's magenta), the terminal's blue for the person's bar, paths and links,
+  red for errors. ok, gate, recommended and warn are bold.
+- If `COLORFGBG` or the background the terminal reports says it is light, the default is `light` instead.
+- `dark` and `light` are the older palettes on the terminal's own colours. `auto` follows the background (dark or
+  light; colours that read on both when it is not known).
+
+To change single roles on top of any palette, set `KEEL_TUI_COLORS`:
 
 ```
 KEEL_TUI_COLORS="ok=#3cc463,gate=#e0a13a,recommended=ansi:green"
@@ -633,7 +643,7 @@ KEEL_TUI_COLORS="ok=#3cc463,gate=#e0a13a,recommended=ansi:green"
 - A bad entry is ignored and keel TUI prints one quiet warning at the start.
 - The same in the settings file `~/.config/keel2/tui.json`: `{ "colors": { "ok": "#3cc463", "gate": "ansi:yellow" } }`.
   The environment wins over the file.
-- `/theme` (no word) lists the active overrides and `/theme light` keeps them. `NO_COLOR` still turns all colour off.
+- `/theme` (no word) lists the active overrides and `/theme keel` or `/theme light` keeps them. `NO_COLOR` still turns all colour off.
 
 ## Thinking effort
 
