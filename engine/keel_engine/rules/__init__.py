@@ -45,10 +45,15 @@ RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/
 
 # v0.18.1 keel's own keys (api auth/LocalAuth): the internal token and the web key, in keel's data folder (Docker
 # /data/run/, native ~/.keel2/<name>/run/ and ~/.keel2/<name>/data/run/). Whoever reads one can act as keel or as the
-# person through plain HTTP, so no agent reads, prints, changes or sends them.
+# person through plain HTTP, so no agent reads, prints, changes or sends them. v0.18.33 the same for master.key (it
+# decrypts the stored logins) and keel.db (holds them) in that data folder.
+_DATA_SECRET = r"(?:master\.key|keel\.db(?:-wal|-shm|-journal)?)(?![\w.])"
 KEEL_KEY_FILES = re.compile(r"(?:^|/)run/(?:internal-token|web-key|token|hook-token)$|(?:^|/)\.keel2/[^/\s]+/(?:data/)?run(?:/|$)"
-                            r"|^/data/run(?:/|$)")
+                            r"|^/data/run(?:/|$)"
+                            r"|^/data/" + _DATA_SECRET + r"$|(?:^|/)\.keel2/[^/\s]+/(?:data/)?" + _DATA_SECRET + r"$")
 KEEL_KEY_WORDS = re.compile(r"/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/(?:data/)?run/|(?:^|[\s'\"=])/data/run/"
+                            r"|(?:^|[\s'\"=])/data/" + _DATA_SECRET + r"|\.keel2/[^/\s]+/(?:data/)?" + _DATA_SECRET
+                            + r"|\$\{?KEEL_DATA\}?/" + _DATA_SECRET + r"|\bKEEL_SECRET\b"
                             r"|\bKEEL_INTERNAL_TOKEN\b|\bKEEL_WEB_KEY\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\("
                             r"|\bkeel2\s+auth\s+key\b", re.I)
 
@@ -66,8 +71,12 @@ def keel_key_file(path: str | Path | None) -> bool:
         return True
     try:
         from .. import config
-        run = str((config.data_dir() / "run").resolve()).replace("\\", "/")
-        return p == run or p.startswith(run + "/")
+        data = config.data_dir()
+        run = str((data / "run").resolve()).replace("\\", "/")
+        if p == run or p.startswith(run + "/"):
+            return True
+        return any(p == str((data / n).resolve()).replace("\\", "/")
+                   for n in ("master.key", "keel.db", "keel.db-wal", "keel.db-shm", "keel.db-journal"))
     except Exception:  # noqa: BLE001 - the rule must never crash the guard
         return False
 
