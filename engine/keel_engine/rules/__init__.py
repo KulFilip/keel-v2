@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shlex
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -579,6 +580,49 @@ def push_gate(cfg: dict, cmd: str, blockers: list[dict] | None) -> Verdict | Non
                                  f'{str(first.get("fix") or "").rstrip(".")}.{more}')
 
 
+_SEGMENTS = re.compile(r"&&|\|\||[;|&\n`()]")
+_GIT_OPT_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+
+
+def _git_calls(cmd: str, depth: int = 0):
+    """(subcommand, args) of every `git` in a shell line: per sub-command (split on && || ; | & newline, $( ) and
+    backticks), global options skipped (`git -C dir push`), quoted strings (`bash -c "git ..."`) looked into."""
+    for seg in _SEGMENTS.split(cmd):
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            words = seg.split()
+        if depth < 3:
+            for w in words:
+                if " " in w.strip() and "git" in w:
+                    yield from _git_calls(w, depth + 1)
+        for i, w in enumerate(words):
+            if w.rsplit("/", 1)[-1] != "git":
+                continue
+            j = i + 1
+            while j < len(words) and words[j].startswith("-"):
+                j += 2 if words[j] in _GIT_OPT_WITH_VALUE else 1
+            if j < len(words):
+                yield words[j], words[j + 1:]
+
+
+def git_danger(cmd: str) -> str:
+    """The rule a git command breaks wherever its flags stand: a forced push (--force, -f, -fu, --force-with-lease,
+    a `+main` refspec) or a reset with --hard. "" when it is neither."""
+    for sub, args in _git_calls(cmd):
+        if sub == "push":
+            for a in args:
+                if a == "--force" or a.startswith(("--force-with-lease", "--force-if-includes")):
+                    return "git push --force"
+                if a.startswith("-") and not a.startswith("--") and "f" in a[1:]:
+                    return "git push -f"
+                if a.startswith("+") and len(a) > 1:
+                    return "git push --force"
+        elif sub == "reset" and "--hard" in args:
+            return "git reset --hard"
+    return ""
+
+
 # a redirect (`>f`, `> f`, `>>f`, `2>f`; `2>&1` has no file) or sed -i / tee / perl -pi with its target
 _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)")
 
@@ -594,6 +638,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
             continue
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is not allowed: it skips checks that keel relies on.')
+    danger = git_danger(cmd)   # the same rule, with the flag anywhere in the command
+    if danger.startswith("git push"):
+        return Verdict(False, reason=f'"{danger}" is not allowed: it skips checks that keel relies on.')
     env = prints_env_file(cmd)
     if env:
         return Verdict(False, reason=f"Printing {env} would put secrets in the conversation.")
@@ -616,6 +663,8 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     for pat in NEVER_DENY_IN_FLOW + [p for p in cfg["guards"]["bash_deny_in_flow"] if p not in NEVER_DENY_IN_FLOW]:
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is blocked during a keel flow.')
+    if danger == "git reset --hard":
+        return Verdict(False, reason=f'"{danger}" is blocked during a keel flow.')
     dep = None if is_off(cfg, "new-dependency") else adds_dependency(cmd)
     if dep:
         return Verdict(False, reason=f'adding "{dep}" is a dependency decision. Put it in the spec and take it through the gate.')
