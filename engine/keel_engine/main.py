@@ -16,6 +16,9 @@ def serve():
     from .app import create_app
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if not config.internal_token() and not config.engine_open():
+        raise SystemExit("keel-engine: KEEL_INTERNAL_TOKEN is not set, so every route would be refused. "
+                         "Set it (keel-start does), or KEEL_ENGINE_OPEN=1 for local development.")
     uvicorn.run(create_app(), host=config.host(), port=config.port(), log_level="info")
 
 
