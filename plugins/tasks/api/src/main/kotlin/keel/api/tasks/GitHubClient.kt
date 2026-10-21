@@ -32,9 +32,15 @@ data class PrReviews(val approved: List<String>, val changes: List<String>, val 
  * The two GitHub REST calls tasks need: ask for reviewers and read the reviews. [apiBase] overrides the API root (tests,
  * or an Enterprise server); otherwise github.com uses https://api.github.com and another host https://<host>/api/v3.
  */
-class GitHubClient(private val token: String, private val mapper: ObjectMapper, private val apiBase: String = "") {
+class GitHubClient(private val token: String, private val mapper: ObjectMapper, private val apiBase: String = "",
+                   /** the one host the token belongs to (github.com, or the Enterprise host set at sign-in) */
+                   private val tokenHost: String = "github.com") {
 
     private fun root(pr: PrRef): String = apiBase.trim().trimEnd('/').ifBlank {
+        // the PR link can come from an agent's note: the token goes only to the host it belongs to
+        if (!pr.host.equals(tokenHost, true)) {
+            throw GitHubException("keel sends its GitHub token only to $tokenHost, not to ${pr.host}")
+        }
         if (pr.host == "github.com") "https://api.github.com" else "https://${pr.host}/api/v3"
     }
 

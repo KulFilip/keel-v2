@@ -158,6 +158,9 @@ class PluginService(
     /** The GitHub token of Connections › GitHub (its own; the Copilot login is not used for git). */
     fun githubToken(): String? = secrets.get(GITHUB) ?: System.getenv(GITHUB)?.takeIf { it.isNotBlank() }
 
+    /** The host [githubToken] belongs to: github.com, or the Enterprise host set at sign-in. The token goes to it only. */
+    fun githubHost(): String = secrets.githubHost()
+
     companion object {
         const val GITHUB = "GITHUB_REPO_TOKEN"
     }

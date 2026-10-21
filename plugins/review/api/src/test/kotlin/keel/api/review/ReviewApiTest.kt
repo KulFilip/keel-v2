@@ -6,6 +6,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -31,6 +32,8 @@ class ReviewApiTest : ApiTest() {
             r.add("keel.review.inline-effects") { true }
         }
     }
+
+    @Autowired lateinit var secrets: keel.api.connections.SecretService
 
     private val remotes: Path = Files.createTempDirectory("keel-remotes")
 
@@ -310,6 +313,38 @@ class ReviewApiTest : ApiTest() {
         assertThat(hosts.calls("PUT", "/pulls/9/merge").last().body!!["merge_method"].asText()).isEqualTo("squash")
         assertThat(hosts.calls("DELETE", "/git/refs/heads/feat/paging")).hasSize(1)
         post("/api/projects/$pid/review/merge", mapOf("key" to "pr:9")).andExpect(status().isConflict)          // merged already
+    }
+
+    @Test
+    fun `a token goes only to github_com, gitlab_com or the host keel was told about, never to a name that looks like one`() {
+        put("/api/gitlab", mapOf("url" to "https://gitlab.test", "token" to hosts.gitlabToken)).andExpect(status().isOk)
+        listOf("github.evil.com", "gitlab.evil.com", "gitlab.test.evil.com", "ghe.test").forEachIndexed { i, host ->
+            val (pid, _, _) = repoWithChange("review-evil-$i", host, "acme/shop$i", "refs/pull/7/head")
+            val list = get("/api/projects/$pid/review/prs").andExpect(status().isOk).json()
+            assertThat(list["host"]["kind"].asText()).isEqualTo("other")
+            assertThat(list["prs"]).isEmpty()
+            assertThat(list["note"].asText()).contains(host).contains("only to github.com")
+        }
+        assertThat(hosts.calls).isEmpty()     // the stub never saw a request, so no token was sent anywhere
+    }
+
+    @Test
+    fun `the GitHub Enterprise host the person signed in to gets the token, and then github_com does not`() {
+        secrets.put("GITHUB_REPO_INFO", """{"login":"me","scopes":[],"host":"ghe.test","via":"gh"}""")
+        try {
+            val (ghe, _, head) = repoWithChange("review-ghe", "ghe.test", "acme/ghe-shop", "refs/pull/7/head")
+            hosts.github["acme/ghe-shop"] = mutableMapOf(7 to StubCodeHost.Pr(7, "On the Enterprise host", "ana", "feat/paging", "main", head, reviewers = listOf("me")))
+            val list = get("/api/projects/$ghe/review/prs").andExpect(status().isOk).json()
+            assertThat(list["host"]["kind"].asText()).isEqualTo("github")
+            assertThat(list["prs"].map { it["number"].asInt() }).containsExactly(7)
+            // the token belongs to ghe.test now: a github.com origin gets none
+            val (gh, _, _) = repoWithChange("review-gh-after-ghe", "github.com", "acme/gh-shop", "refs/pull/7/head")
+            hosts.calls.clear()
+            assertThat(get("/api/projects/$gh/review/prs").andExpect(status().isOk).json()["host"]["kind"].asText()).isEqualTo("other")
+            assertThat(hosts.calls).isEmpty()
+        } finally {
+            secrets.delete("GITHUB_REPO_INFO")
+        }
     }
 
     @Test

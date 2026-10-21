@@ -69,11 +69,16 @@ class ReviewService(
 
     // ---------------------------------------------------------------- the host
 
-    fun hostRef(root: Path): HostRef? = ReviewGit.identity(root, gitlab.host())
+    fun hostRef(root: Path): HostRef? = ReviewGit.identity(root, gitlab.host(), plugins.githubHost())
 
     /** The host to talk to, or null with the reason (no remote, no token). */
     private fun host(root: Path): Pair<CodeHost?, String?> {
         val ref = hostRef(root) ?: return null to "This project has no origin remote on GitHub or GitLab, so keel cannot list its pull requests."
+        if (ref.kind == "other") {
+            return null to "This project's origin is ${ref.host}. keel sends a GitHub or GitLab token only to github.com, gitlab.com, " +
+                "the GitHub host you signed in to or the GitLab server set in Connections, so it does not list pull requests here. " +
+                "Add GitLab (the server and a token) in Connections for a GitLab server, or sign in to GitHub Enterprise there."
+        }
         if (ref.kind == "gitlab") {
             val token = gitlab.token() ?: return null to "Add GitLab (the server and a token) in Connections to see the merge requests and post reviews."
             return GitLabHost(ref, token, mapper, props.gitlabApi) to null

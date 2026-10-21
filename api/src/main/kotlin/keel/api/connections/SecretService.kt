@@ -119,6 +119,15 @@ class SecretService(
         }.getOrNull()
     }
 
+    /**
+     * The host the saved GitHub repo token belongs to: github.com, or the Enterprise host the person signed in to
+     * (Connections › GitHub). keel sends that token to this host only.
+     */
+    fun githubHost(): String {
+        val host = get("GITHUB_REPO_INFO")?.let { runCatching { com.fasterxml.jackson.databind.ObjectMapper().readTree(it).path("host").asText("") }.getOrNull() }
+        return host?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "github.com"
+    }
+
     /** The API key for a provider: stored secret first, then the environment. */
     fun keyForProvider(provider: String): String? {
         val name = KEY_NAMES[provider] ?: return null
