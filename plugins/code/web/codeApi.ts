@@ -31,6 +31,8 @@ export type RepoInfo = {
   remote: string;
   worktrees: { branch: string; path: string }[];
   branches: { name: string; note: string }[];
+  /** remote-tracking branches ("origin/feature/x"), without HEAD; older engines do not send it */
+  remote_branches?: { name: string; note: string }[];
 };
 export type TreeNode = {
   path: string;

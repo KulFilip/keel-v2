@@ -472,3 +472,10 @@ button.sb-i:disabled:hover { background: none; }
 }
 /* v0.15.3 in Code it feels like an IDE: a panel that reaches its end keeps the wheel, the page behind does not move */
 .ide, .ide * { overscroll-behavior: contain; }
+/* branches as a tree: folder rows (Local, each remote, prefixes), the filter's match count */
+.scm-bfh { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding-right: 10px; border: 0; background: none; color: var(--fg); font-size: 12px; text-align: left; cursor: pointer; }
+.scm-bfh:hover { background: var(--ide-hover); }
+.scm-bfh.strong { font-weight: 700; }
+.scm-bfh:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.scm-bmatch { display: block; padding: 2px 2px 0; font-size: 11.5px; }
+.scm-base { border-color: var(--faint); color: var(--dim); }

@@ -26,6 +26,8 @@ data class RepoInfo(
     val remote: String?,
     val worktrees: List<Worktree>,
     val branches: List<BranchInfo>,
+    /** remote-tracking branches (`origin/feature/x`), without the `HEAD` symbolic refs; empty without a remote */
+    val remoteBranches: List<BranchInfo> = emptyList(),
 )
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -131,7 +133,7 @@ class RepoService(
         }
         val remote = gitOut(root, "remote", "get-url", "origin")?.ifBlank { null }
             ?: gitOut(root, "remote")?.lines()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { gitOut(root, "remote", "get-url", it) }
-        return RepoInfo(branch, base, ahead, behind, remote?.let(::redactRemote), worktrees(root), branches(root, branch, base))
+        return RepoInfo(branch, base, ahead, behind, remote?.let(::redactRemote), worktrees(root), branches(root, branch, base), remoteBranches(root))
     }
 
     /** Strips credentials from https remotes (`https://user:token@host/...`). */
@@ -168,6 +170,16 @@ class RepoService(
             }
             BranchInfo(name, note)
         }
+    }
+
+    private fun remoteBranches(root: Path): List<BranchInfo> {
+        val out = gitOut(root, "for-each-ref", "--sort=-committerdate", "--format=%(refname)\u001f%(subject)", "refs/remotes") ?: return emptyList()
+        return out.lines().filter { it.isNotBlank() }.mapNotNull { line ->
+            val parts = line.split('\u001f')
+            val name = parts[0].removePrefix("refs/remotes/")
+            // `origin/HEAD` is a symbolic ref to a branch that is listed on its own; a bare remote name has no branch
+            if (name.endsWith("/HEAD") || !name.contains('/')) null else BranchInfo(name, parts.getOrElse(1) { "" })
+        }.take(300)
     }
 
     /** `git status --porcelain` → path → A | M | D. Untracked counts as A. */

@@ -4,10 +4,11 @@
 // as a tab (Branch.tsx): its commits, the files it changed, and Switch. The Git plugin's panel (commit, push, the pull
 // request) comes from its part (slot code.activity, place "scm").
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { clock, ErrorBox, errorParts, SLOTS, useLoad, useSlot, type CodeActivityItem } from "@keel/web-sdk";
 import { codeApi as api, type Change, type CommitView, type RepoInfo } from "./codeApi";
 import { Chevron, FileIcon, Icon } from "./icons";
+import { buildBranchTree, defaultOpen, filterTree, loadOpen, saveOpen, type TreeLeaf, type TreeNode } from "./branchTree";
 import { acOf, decoOf, nameOf, parentOf } from "./model";
 
 type Props = {
@@ -97,44 +98,81 @@ export function aheadBehind(ahead: number, behind: number): string {
   return [a, b].filter(Boolean).join(", ");
 }
 
-/** The branches: the current one first and marked, a filter once there are many, each with its last commit. */
-function BranchList({ repo, gitOn, onOpenBranch, onOpenLog }: { repo: RepoInfo; gitOn: boolean; onOpenBranch?: Props["onOpenBranch"]; onOpenLog?: Props["onOpenLog"] }) {
+/** The branches as a tree (branchTree.ts): Local, then one group per remote, folders by "/" prefix, a filter, counts. */
+function BranchList({ pid, repo, gitOn, onOpenBranch, onOpenLog }: { pid: string; repo: RepoInfo; gitOn: boolean; onOpenBranch?: Props["onOpenBranch"]; onOpenLog?: Props["onOpenLog"] }) {
   const [q, setQ] = useState("");
-  const all = [...repo.branches].sort((x, y) => Number(y.name === repo.branch) - Number(x.name === repo.branch));
-  const shown = q.trim() ? all.filter((b) => b.name.toLowerCase().includes(q.trim().toLowerCase())) : all;
-  const body = (b: { name: string; note: string }) => (
-    <>
-      <Icon name="branch" size={14} />
-      <span className="scm-cm">
-        <span className="scm-bname"><b className="mono scm-msg">{b.name}</b>{b.name === repo.branch && <span className="scm-cur">current</span>}</span>
-        {b.note && <span className="scm-meta">{b.note}</span>}
-      </span>
-    </>
+  const [open, setOpen] = useState(() => loadOpen(pid));
+  const remotes = repo.remote_branches ?? [];
+  const total = repo.branches.length + remotes.length;
+  const tree = useMemo(() => buildBranchTree(repo.branches, remotes, repo.branch), [repo.branches, remotes, repo.branch]);
+  const filtering = q.trim().length > 0;
+  const { groups, matches } = useMemo(() => filterTree(tree, q), [tree, q]);
+  const isOpen = (id: string) => filtering || (open[id] ?? defaultOpen(id));
+  const toggle = (id: string) => {
+    const next = { ...open, [id]: !(open[id] ?? defaultOpen(id)) };
+    setOpen(next);
+    saveOpen(pid, next);
+  };
+  const row = (n: TreeLeaf, depth: number): ReactNode => {
+    const b = n.branch;
+    const isCur = !n.remote && b.name === repo.branch;
+    const isBase = !n.remote && !isCur && b.name === repo.base;
+    const body = (
+      <>
+        <Icon name="branch" size={14} />
+        <span className="scm-cm">
+          <span className="scm-bname">
+            <b className="mono scm-msg">{b.name}</b>
+            {isCur && <span className="scm-cur">current</span>}
+            {isBase && <span className="scm-cur scm-base">base</span>}
+          </span>
+          {b.note && <span className="scm-meta">{b.note}</span>}
+        </span>
+      </>
+    );
+    const style = { paddingLeft: 24 + Math.max(depth - 1, 0) * 12 };
+    const cls = `scm-row scm-br${isCur ? " on" : ""}`;
+    if (gitOn && onOpenBranch) {
+      return (
+        <button key={n.id} type="button" className={cls} style={style} onClick={() => onOpenBranch(b.name, false)} onDoubleClick={() => onOpenBranch(b.name, true)}
+          title={`${b.name}: its commits and changes against ${repo.base ?? "the base"}, and Switch`} aria-label={`Open the branch ${b.name}`}>
+          {body}
+        </button>
+      );
+    }
+    if (onOpenLog) {
+      return (
+        <button key={n.id} type="button" className={cls} style={style} onClick={() => onOpenLog(b.name)} title={`${b.name}: its commits in the Git log`}
+          aria-label={`Show the log of ${b.name}`}>
+          {body}
+        </button>
+      );
+    }
+    return <div key={n.id} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>;
+  };
+  const folder = (id: string, label: string, count: number, depth: number, kids: ReactNode, strong = false): ReactNode => (
+    <div key={id} className="scm-bt">
+      <button type="button" className={`scm-bfh${strong ? " strong" : ""}`} style={{ paddingLeft: 10 + depth * 12 }} aria-expanded={isOpen(id)} onClick={() => toggle(id)}
+        aria-label={`${label} ${count}`}>
+        <span className="ex-tw"><Chevron open={isOpen(id)} /></span>
+        <span className="scm-gt mono">{label}</span>
+        <span className="sr-count">{count}</span>
+      </button>
+      {isOpen(id) && kids}
+    </div>
   );
+  const nodes = (list: TreeNode[], depth: number): ReactNode[] =>
+    list.map((n) => (n.type === "leaf" ? row(n, depth) : folder(n.id, n.label, n.count, depth, nodes(n.children, depth + 1))));
   return (
     <>
-      {all.length > 8 && (
+      {total > 8 && (
         <div className="sv-filter scm-bf">
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${all.length} branches`} aria-label="Filter the branches" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${total} branches`} aria-label="Filter the branches" />
+          {filtering && <span className="sub scm-bmatch" role="status">{matches} match{matches === 1 ? "" : "es"}</span>}
         </div>
       )}
-      {shown.map((b) => gitOn && onOpenBranch
-        ? (
-          <button key={b.name} type="button" className={`scm-row scm-br${b.name === repo.branch ? " on" : ""}`} onClick={() => onOpenBranch(b.name, false)}
-            onDoubleClick={() => onOpenBranch(b.name, true)} title={`${b.name}: its commits and changes against ${repo.base ?? "the base"}, and Switch`}
-            aria-label={`Open the branch ${b.name}`}>
-            {body(b)}
-          </button>
-        )
-        : onOpenLog
-          ? (
-            <button key={b.name} type="button" className={`scm-row scm-br${b.name === repo.branch ? " on" : ""}`} onClick={() => onOpenLog(b.name)}
-              title={`${b.name}: its commits in the Git log`} aria-label={`Show the log of ${b.name}`}>
-              {body(b)}
-            </button>
-          )
-          : <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
-      {!shown.length && <p className="sub scm-none">No branch has “{q.trim()}” in its name.</p>}
+      {groups.map((g) => folder(g.id, g.remote ? `${g.title} (remote)` : g.title, g.count, 0, nodes(g.nodes, 1), true))}
+      {!groups.length && <p className="sub scm-none">No branch has “{q.trim()}” in its name.</p>}
     </>
   );
 }
@@ -205,8 +243,8 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
           </Group>
         )}
         {repo && repo.branches.length > 0 && (
-          <Group key={gitOn ? "git" : "ro"} title="Branches" count={repo.branches.length} start={gitOn}>
-            <BranchList repo={repo} gitOn={gitOn} onOpenBranch={onOpenBranch} onOpenLog={onOpenLog} />
+          <Group key={gitOn ? "git" : "ro"} title="Branches" count={repo.branches.length + (repo.remote_branches?.length ?? 0)} start={gitOn}>
+            <BranchList pid={pid} repo={repo} gitOn={gitOn} onOpenBranch={onOpenBranch} onOpenLog={onOpenLog} />
           </Group>
         )}
       </div>

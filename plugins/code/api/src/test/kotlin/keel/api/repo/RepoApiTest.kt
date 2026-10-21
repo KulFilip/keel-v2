@@ -33,6 +33,21 @@ class RepoApiTest : ApiTest() {
     )
 
     @Test
+    fun `repo info lists the remote branches of every remote, without HEAD, and keeps the local ones`() {
+        val (pid, root) = newProject("repo-remotes", files)
+        git(root, "checkout", "-q", "-b", "feature/ERPDM-1-x")
+        for (ref in listOf("origin/main", "origin/feature/a", "github/fix/b")) git(root, "update-ref", "refs/remotes/$ref", "HEAD")
+        git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+        val info = get("/api/projects/$pid/repo").andExpect(status().isOk).json()
+        assertThat(info["branches"].map { it["name"].asText() }).contains("main", "feature/ERPDM-1-x").noneMatch { it.startsWith("origin/") }
+        assertThat(info["remote_branches"].map { it["name"].asText() })
+            .containsExactlyInAnyOrder("origin/main", "origin/feature/a", "github/fix/b")
+        assertThat(info["remote_branches"].map { it["name"].asText() }).noneMatch { it.endsWith("/HEAD") }
+        assertThat(info["remote_branches"][0]["note"].asText()).isNotBlank()
+    }
+
+    @Test
     fun `repo info, tree, file and commits on a real git repo`() {
         val (pid, root) = newProject("repo-demo", files)
         // no flow yet: nothing is frozen and the project has no phase (keel v1's state file is not read since 0.4.1)
