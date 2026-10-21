@@ -136,7 +136,10 @@ case "${'$'}1 ${'$'}2" in
     sleep 1;;
   "auth token") echo "gho_fakefakefakefakefakefakefakefake1234";;
   "auth status") echo "github.com"; echo "  ✓ Logged in to github.com account mili-dev (hosts.yml)"; echo "  - Token scopes: 'read:org', 'repo', 'workflow'";;
-  "auth logout") echo "Logged out";;
+  "auth logout")
+    # a gh that never answers, with a child of its own (like gh waiting on a browser helper)
+    case "${'$'}*" in *hang.example.com*) sleep 600 & wait;; esac
+    echo "Logged out";;
 esac
 exit 0
 """)
