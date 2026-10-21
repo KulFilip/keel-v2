@@ -310,9 +310,10 @@ export function StackSetupLine() {
     look();
     return () => { stop = true; if (timer) clearTimeout(timer); };
   }, [up]);
-  if (!s || !s.line || (s.state !== "running" && s.state !== "failed" && s.state !== "missing")) return null;
-  const tone = s.state === "running" ? "p-warn" : "p-bad";
+  if (!s || !s.line || (s.state !== "running" && s.state !== "failed" && s.state !== "missing" && s.state !== "needs approval")) return null;
+  const tone = s.state === "running" || s.state === "needs approval" ? "p-warn" : "p-bad";
   const title = s.state === "running" ? "keel installs what the projects' stacks need (their setup: block), in the background"
+    : s.state === "needs approval" ? "A project's own stack lists setup commands. keel runs none of them until you approve them in the Inbox"
     : s.state === "failed" ? "keel could not install what a stack needs: flows that need it stop at a gate"
       : "Native mode installs nothing: install these yourself";
   return <span className={`pill ${tone} setup-line`} title={`${title}\n${s.line}`} data-testid="stack-setup">setup: {s.line}</span>;

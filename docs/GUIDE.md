@@ -772,6 +772,10 @@ setup:
 - `apt`: system packages (Debian and Ubuntu names). keel installs them as root in its container, in the background,
   when it starts, when a project is added and when a stack is saved. keel does not wait for it to start. The dashboard
   shows what it does ("setup: installing php8.3-cli for carrier-router…").
+- A stack that comes with the project (its own `.keel/stacks`, e.g. a cloned repo) never runs its `setup:` commands on
+  its own. keel asks in the Inbox ("Run the setup commands of stack X?") and shows the exact commands; until you
+  approve, the status says "needs approval". The approval is for those exact commands: change one and keel asks again.
+  keel's own stacks and a stack you install from the marketplace need no question.
 - After `keel2 update`, a restart or a restore the container is new, so the packages are gone. keel installs them
   again at start. The apt cache is root-owned (`/var/cache/keel-apt`, outside the data volume, so keel's user
   cannot plant packages in it), so a new container downloads the packages again.

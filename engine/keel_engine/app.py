@@ -315,6 +315,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         await engine.open(resume_running=resume_running)
         # keel 0.18.22 the system packages every registered project's stacks need (setup.apt): in the background, so
         # keel starts at once; a flow that needs them waits (runtime/stack_setup.py)
+        stack_setup.ASKER = stack_setup.make_asker(bus)
         stack_setup.SYSTEM.request()
         from .marketplace.routes import refresher   # the marketplace's catalogs, read while keel runs
 

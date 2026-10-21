@@ -50,6 +50,13 @@ def host_mode(monkeypatch):
     stacks.forget()
 
 
+@pytest.fixture(autouse=True)
+def approved(monkeypatch):
+    """These tests are about WHAT setup does. Since 0.18.33 a project's own stack runs its commands only after a person
+    approved them, so here every approval is given; tests/test_stack_setup_approval.py is about the approval itself."""
+    monkeypatch.setattr(stack_setup, "is_approved", lambda key: True)
+
+
 def _git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
 

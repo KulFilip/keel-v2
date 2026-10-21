@@ -23,6 +23,13 @@ Two parts:
   worktree  the stack's each_worktree commands in a flow's folder, once per worktree (recorded in the worktree's own git
             dir, so it goes with the worktree), shown as the flow's first step ("set up the stack").
 
+Approval (keel 0.18.33): a stack from the project's own .keel/stacks (a cloned repo can carry one) names commands that
+run on this machine, so none of its setup.apt / setup.run / setup.each_worktree runs until a person approved exactly
+those commands. The approval is keyed by a hash of (project, stack name, the command and package lists): a changed
+list is a new hash and asks again. keel's own stacks and packs need none. The ask is an Inbox card (approvals.py, kind
+"stack-setup"); installing a stack from the marketplace is itself the approval. Until then the status says
+"needs approval" and lists what waits.
+
     plan(union, present, ran, mode, found)   what the system part does now: pure, the unit tests' entry point
     SYSTEM.request(root?) / SYSTEM.status()  the background run and the line the dashboard shows
     prepare(root, progress)                  a flow's first step: wait for the system part, then each_worktree
@@ -131,6 +138,139 @@ def _sha(items: list[str]) -> str:
     return hashlib.sha256("\n".join(items).encode("utf-8")).hexdigest()[:16]
 
 
+# ------------------------------------------------------------------ approval of a project's own setup commands
+
+ASKER: Callable[[dict], None] | None = None     # set by the app: opens the Inbox card for one {project, stack, key, ...}
+_asked: set[str] = set()                        # keys asked in this process (a "no" is not asked again until a restart)
+_approval_lock = threading.Lock()
+
+
+def approval_key(project: str, stack: str, setup: dict) -> str:
+    """The hash an approval is for: the project, the stack and the exact lists. Any change is a new key."""
+    doc = [project, stack] + [list(setup.get(k) or []) for k in ("run", "each_worktree", "apt")]
+    return hashlib.sha256(json.dumps(doc, separators=(",", ":")).encode("utf-8")).hexdigest()[:24]
+
+
+def _approved_file() -> Path:
+    return config.data_dir() / "setup" / "approved.json"
+
+
+def _approved() -> dict:
+    try:
+        doc = json.loads(_approved_file().read_text())
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def is_approved(key: str) -> bool:
+    return key in _approved()
+
+
+def approve(key: str, project: str, stack: str, by: str = "person") -> None:
+    with _approval_lock:
+        doc = _approved()
+        doc[key] = {"project": project, "stack": stack, "by": by, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        f = _approved_file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f.name + ".tmp")
+        tmp.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, f)
+
+
+def project_id(root: str) -> str:
+    """The id keel knows this folder's project by (a worktree counts as its project), else the folder's name."""
+    main = os.path.realpath(root.split("/.keel/worktrees/", 1)[0])
+    for name, r in known_roots():
+        if os.path.realpath(r) == main:
+            return name
+    return Path(main).name
+
+
+def needs_approval(d: dict) -> bool:
+    """A stack from the project's own .keel/stacks with commands or packages to run. keel's stacks and packs are keel's."""
+    s = block(d)
+    return d.get("_source") == "project" and any(s[k] for k in stacks.SETUP_KEYS)
+
+
+def held(root: str, project: str | None = None) -> list[dict]:
+    """[{project, root, stack, key, apt, run, each_worktree}]: this folder's project stacks whose setup is not approved."""
+    out = []
+    pid = project or project_id(root)
+    for d in stacks.matched(root):
+        if needs_approval(d):
+            s = block(d)
+            key = approval_key(pid, d["name"], s)
+            if not is_approved(key):
+                out.append({"project": pid, "root": root, "stack": d["name"], "key": key, **s})
+    return out
+
+
+def approve_project_stack(root: str, name: str, by: str = "person") -> bool:
+    """The person installed this stack through keel (the marketplace): that counts as approving its commands as they are."""
+    for d in stacks.project_defs(root):
+        if d["name"] == name:
+            if needs_approval(d):
+                approve(approval_key(project_id(root), name, block(d)), project_id(root), name, by)
+            return True
+    return False
+
+
+def ask_approval(entries: list[dict]) -> None:
+    """Open the Inbox card of each waiting stack (once per key and process)."""
+    asker = ASKER
+    if not asker:
+        return
+    for e in entries:
+        with _approval_lock:
+            if e["key"] in _asked:
+                continue
+            _asked.add(e["key"])
+        try:
+            asker(e)
+        except Exception:       # noqa: BLE001 - not being able to ask never stops keel
+            log.exception("could not ask for the approval of stack %s", e.get("stack"))
+            _asked.discard(e["key"])
+
+
+def forget_asked(key: str) -> None:
+    with _approval_lock:
+        _asked.discard(key)
+
+
+def make_asker(bus) -> Callable[[dict], None]:
+    """The Inbox card for one waiting stack (approvals.py). once / always both approve these exact commands; a no is kept
+    until the process restarts; no answer in time asks again at the next look."""
+    from .. import approvals
+
+    def ask(e: dict) -> None:
+        def answered(_q: dict, said: str, _ans: dict) -> None:
+            if said in ("once", "always"):
+                approve(e["key"], e["project"], e["stack"])
+                SYSTEM.request()                    # run what was waiting
+            elif not said:
+                forget_asked(e["key"])
+
+        approvals.of(bus).open(
+            "stack-setup", e["project"], f"Run the setup commands of stack {e['stack']}?", describe(e),
+            source="stack-setup", on_answer=answered,
+            extra={"warning": "These commands come from this project's own .keel/stacks. They run on this machine "
+                              "(packages as root). Allow them only if you trust the project."})
+
+    return ask
+
+
+def describe(e: dict) -> str:
+    """The exact commands the person is asked to allow (what the Inbox card shows)."""
+    lines = []
+    for k, label in (("apt", "install system packages (as root)"), ("run", "run once, as keel's user"),
+                     ("each_worktree", "run in every new worktree")):
+        if e.get(k):
+            lines.append(f"{label}:")
+            lines += [f"  {x}" for x in e[k]]
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------------ where keel runs
 
 def mode() -> str:
@@ -220,7 +360,8 @@ def known_roots() -> list[tuple[str, str]]:
 
 
 def needs(projects: list[tuple[str, str]]) -> list[dict]:
-    """[{project, root, stack, apt, run, runtimes}] for every stack of these projects with setup.apt or setup.run."""
+    """[{project, root, stack, apt, run, runtimes}] for every stack of these projects with setup.apt or setup.run. A
+    project's own stack counts only once a person approved its commands (see held())."""
     out = []
     for name, root in projects:
         try:
@@ -230,7 +371,7 @@ def needs(projects: list[tuple[str, str]]) -> list[dict]:
             continue
         for d in matched:
             s = block(d)
-            if s["apt"] or s["run"]:
+            if (s["apt"] or s["run"]) and not (needs_approval(d) and not is_approved(approval_key(name, d["name"], s))):
                 out.append({"project": name, "root": root, "stack": d["name"], "apt": s["apt"], "run": s["run"],
                             "runtimes": runtimes(s)})
     return out
@@ -308,7 +449,7 @@ class SystemSetup:
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
         self.again = False
-        self._status: dict = {"state": "idle", "mode": None, "line": "", "missing": [], "failed": [], "log": [], "at": None}
+        self._status: dict = {"state": "idle", "mode": None, "line": "", "missing": [], "failed": [], "log": [], "approval": [], "at": None}
 
     # -- status
 
@@ -380,7 +521,36 @@ class SystemSetup:
                     return
                 self.again = False
 
+    def _waiting(self) -> list[dict]:
+        """The project stacks whose setup waits for a person; the Inbox cards are opened for them."""
+        out = []
+        for name, root in known_roots():
+            try:
+                out += held(root, name)
+            except Exception:   # noqa: BLE001 - one unreadable project never stops the others
+                log.exception("stack setup: could not read the stacks of %s", root)
+        ask_approval(out)
+        return out
+
     def run_once(self) -> dict:
+        waiting = self._waiting()
+        card = [{k: e[k] for k in ("project", "stack", "key", "apt", "run", "each_worktree")} for e in waiting]
+        try:
+            return self._run_once()
+        finally:
+            if waiting:
+                names = _short([f"{e['stack']} ({e['project']})" for e in waiting], 3)
+                with self.lock:
+                    state = self._status.get("state")
+                if state in ("idle", "ready", "missing"):
+                    self._set(state="needs approval", approval=card,
+                              line=f"waiting for your approval: the setup commands of {names} (see the Inbox)")
+                else:
+                    self._set(approval=card)
+            else:
+                self._set(approval=[])
+
+    def _run_once(self) -> dict:
         items = needs(known_roots())
         u = union(items)
         where = mode()
@@ -473,7 +643,7 @@ SYSTEM = SystemSetup()
 def system_check(root: str) -> tuple[bool, str, list[dict]]:
     """(ready, what is wrong, the stacks that need something) for one project's folder, right now, without waiting."""
     main = root.split("/.keel/worktrees/", 1)[0]
-    items = needs([(Path(main).name, root)])
+    items = needs([(project_id(main), root)])
     if not items:
         return True, "", items
     where = mode()
@@ -600,6 +770,8 @@ def worktree_jobs(root: str) -> list[dict]:
         cmds = block(d)["each_worktree"]
         if not cmds:
             continue
+        if needs_approval(d) and not is_approved(approval_key(project_id(root), d["name"], block(d))):
+            continue                # a repo's own commands wait for a person (held(), the Inbox card)
         rel = lane_dir(root, d)
         if (rel, tuple(cmds)) in seen:
             continue                # keel's pack and the project's own stack both say composer install: once
@@ -705,17 +877,25 @@ def prepare(root: str, progress: Callable[..., None] | None = None, runner=None)
     say = progress or (lambda *_a, **_k: None)
     ok, why = wait_system(root, say)
     jobs = worktree_jobs(root)
+    waiting = held(root)
+    pending = ""
+    if waiting:
+        ask_approval(waiting)
+        pending = (f"the setup commands of {_short([e['stack'] for e in waiting], 3)} are not approved yet (approve them "
+                   "in the Inbox)")
+        say(pending, tool="stack_setup", ok=False)
     if not ok and mode() == "container":
-        return {"ok": False, "note": why, "detail": "\n".join(SYSTEM.status().get("log") or [])[-3000:], "jobs": jobs}
+        return {"ok": False, "note": why + (f" ({pending})" if pending else ""),
+                "detail": "\n".join(SYSTEM.status().get("log") or [])[-3000:], "jobs": jobs}
     warn = ""
     if not ok:
         say(why, tool="stack_setup", ok=False)
         warn = why
     if not jobs:
-        return {"ok": True, "note": warn or "the stack is set up", "detail": "", "jobs": []}
+        return {"ok": True, "note": warn or pending or "the stack is set up", "detail": "", "jobs": []}
     r = run_jobs(root, jobs, say, runner)
-    if r["ok"] and warn:
-        r["note"] += f" (note: {warn})"
+    if r["ok"] and (warn or pending):
+        r["note"] += f" (note: {'; '.join(x for x in (warn, pending) if x)})"
     return {**r, "jobs": jobs}
 
 
