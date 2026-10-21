@@ -529,22 +529,25 @@ export function useLoad<T>(key: string | null, fn: () => Promise<T>, opts: { liv
   fnRef.current = fn;
   const keyRef = useRef(key);
   keyRef.current = key;
+  // each load takes a number; only the newest one may write (an older, slower answer is dropped)
+  const seq = useRef(0);
   const liveTick = opts.live === false ? 0 : tick;
 
   const reload = useCallback(async () => {
     const k = keyRef.current;
     if (k === null) return;
+    const mine = ++seq.current;
     setLoading(true);
     try {
       const d = await fnRef.current();
-      if (keyRef.current !== k) return;
+      if (keyRef.current !== k || seq.current !== mine) return;
       setData(d);
       setError(null);
     } catch (e) {
-      if (keyRef.current !== k) return;
+      if (keyRef.current !== k || seq.current !== mine) return;
       setError(errorParts(e));
     } finally {
-      if (keyRef.current === k) setLoading(false);
+      if (keyRef.current === k && seq.current === mine) setLoading(false);
     }
   }, []);
 
