@@ -5,7 +5,7 @@
 // both in their slots (plugins/jira).
 
 import { useEffect, useState } from "react";
-import { agoText, Confirm, EmptyState, ErrorBox, errorParts, Pill, Section, Skeleton, useApp, useLoad } from "@keel/web-sdk";
+import { agoText, Confirm, EmptyState, ErrorBox, errorParts, Pill, Section, Skeleton, Tabs, useApp, useLoad } from "@keel/web-sdk";
 import {
   jiraApi, STATUS_LABEL, TASK_STATUSES, type JiraDiscovery, type JiraSave, type JiraTest, type JiraView, type TaskStatus,
 } from "./jiraApi";
@@ -177,10 +177,7 @@ function JiraForm({ pid, view, onSaved, onRemoved }: { pid: string; view: JiraVi
 
   return (
     <div className="jr-form">
-      <div className="tabs" role="tablist" aria-label="Jira kind">
-        <button role="tab" type="button" aria-selected={kind === "cloud"} onClick={() => setKind("cloud")}>Jira Cloud</button>
-        <button role="tab" type="button" aria-selected={kind === "server"} onClick={() => setKind("server")}>Server / Data Center</button>
-      </div>
+      <Tabs value={kind} options={[["cloud", "Jira Cloud"], ["server", "Server / Data Center"]]} onChange={setKind} label="Jira kind" />
       <div className="jr-grid">
         <div className="field">
           <label htmlFor={id("url")}>{kind === "cloud" ? "Site URL" : "Jira URL"}</label>
