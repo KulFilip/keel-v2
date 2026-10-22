@@ -24,7 +24,33 @@ env:
   LEGACY_IMAGE: ghcr.io/miladnalbandi/keel-v2
   LEGACY_USER: MiladNalbandi
 jobs:
+  # 0.18.x nothing is published before ci passed for this very commit: ci runs on the push to main / release/** that
+  # a tag points at (a tag alone does not start ci). The gate waits (up to 40 minutes) for a ci run that is still going.
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: ci must have passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 80); do
+            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$SHA" --json status,conclusion --limit 20)"
+            ok="$(jq '[.[] | select(.conclusion == "success")] | length' <<< "$runs")"
+            pending="$(jq '[.[] | select(.status != "completed")] | length' <<< "$runs")"
+            if [ "$ok" -gt 0 ]; then echo "ci passed for $SHA."; exit 0; fi
+            if [ "$pending" -eq 0 ] && [ "$(jq length <<< "$runs")" -gt 0 ]; then
+              echo "::error::ci did not pass for $SHA: no image is published. Fix it and tag a new commit."; exit 1
+            fi
+            echo "ci for $SHA is not done yet (${i}/80)…"; sleep 30
+          done
+          echo "::error::There is no passing ci run for $SHA (ci runs on a push to main or release/**). Push the commit there first."; exit 1
   build:
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -134,6 +160,7 @@ jobs:
   # v0.16.1 the native release (keel2 start --native downloads it): keel-v2-<version>-native.tar.gz and its sha256,
   # attached to the GitHub release of the tag when there is one, else kept as the run's artifact
   native:
+    needs: gate
     # a pre-release tag (v0.18.2-rc.1) tests the images only: the native release needs the engine's own version
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest

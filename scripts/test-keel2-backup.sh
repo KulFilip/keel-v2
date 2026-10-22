@@ -109,6 +109,7 @@ check "keel.db is the new one" "$(cat "$vol/keel.db")" NEW-DB
 check "files only in the old data are gone" "$([ -e "$vol/old-only.txt" ] && echo there || echo gone)" gone
 check "the stacks' cache is kept" "$(cat "$vol/cache/apt.deb")" apt
 check "new folders arrive" "$(cat "$vol/stacks/n.txt")" n
+  # shellcheck disable=SC2010 # test file names are plain ascii
 check "no work files left" "$(ls -A "$vol" | grep -c '^\.restore' || true)" 0
 check "keel is running again" "$(cat "$FAKE_STATE")" true
 called "docker stop" && pass "keel was stopped for it" || fail "keel was not stopped"
@@ -131,6 +132,7 @@ check "exit 0" "$rc" 0
 check "file mode is 600" "$(mode_of "$scratch/out/b.tgz")" 600
 "$real_tar" -tzf "$scratch/out/b.tgz" | grep -q 'keel.db' && pass "the backup holds keel.db" || fail "keel.db missing in the backup"
 "$real_tar" -tzf "$scratch/out/b.tgz" | grep -q 'cache' && fail "the cache is in the backup" || pass "the cache is not in the backup"
+  # shellcheck disable=SC2010 # test file names are plain ascii
 check "no .part file left" "$(ls "$scratch/out" | grep -c part || true)" 0
 check "keel is running again" "$(cat "$FAKE_STATE")" true
 called "docker stop" && called "docker start" && pass "stopped for the copy, then started" || fail "stop/start missing"
@@ -172,6 +174,7 @@ run_k -- restore "$scratch/good.tgz"
 check "native good archive: exit 0" "$rc" 0
 check "native: keel.db is the new one" "$(cat "$data/keel.db")" NEW-DB
 check "native: old-only file gone" "$([ -e "$data/old-only.txt" ] && echo there || echo gone)" gone
+  # shellcheck disable=SC2010 # test file names are plain ascii
 check "native: no work files left" "$(ls -A "$data" | grep -c '^\.restore' || true)" 0
 reset_native
 run_k -- backup "$scratch/out/n.tgz"
