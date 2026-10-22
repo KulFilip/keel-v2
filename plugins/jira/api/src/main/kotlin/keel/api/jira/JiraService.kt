@@ -97,10 +97,27 @@ class JiraService(
         jdbc.query("SELECT json FROM jira_connections WHERE project_id = ?", { rs, _ -> rs.getString(1) }, pid).firstOrNull()
             ?.let { runCatching { Json.read<JiraSettings>(it) }.getOrNull() }
 
-    fun connectedProjects(): List<String> = jdbc.queryForList("SELECT project_id FROM jira_connections", String::class.java)
+    fun connectedProjects(): List<String> =
+        jdbc.queryForList("SELECT project_id FROM jira_connections WHERE project_id <> ?", String::class.java, KEEL_WIDE)
+
+    /** [KEEL_WIDE] is the one connection for every project (GET/PUT /api/jira); any other id is a keel project. */
+    private fun requireOwner(pid: String) {
+        if (pid != KEEL_WIDE) projects.require(pid)
+    }
+
+    private fun owner(pid: String) = if (pid == KEEL_WIDE) "keel" else "This project"
+
+    /**
+     * A client for work that belongs to [pid] but needs no connection of its own (keel Product's tickets): the project's
+     * own connection when it has one, else the keel-wide one. A project's sync and its tasks never use the keel-wide one.
+     */
+    fun siteClient(pid: String?): JiraClient? = pid?.let { client(it) } ?: client(KEEL_WIDE)
+
+    /** The settings that go with [siteClient]. */
+    fun siteSettings(pid: String?): JiraSettings? = pid?.takeIf { client(it) != null }?.let { settings(it) } ?: settings(KEEL_WIDE)
 
     fun view(pid: String): JiraView {
-        projects.require(pid)
+        requireOwner(pid)
         val s = settings(pid)
         val row = jdbc.query("SELECT me_json, last_sync_at, last_sync_error FROM jira_connections WHERE project_id = ?",
             { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, pid).firstOrNull()
@@ -115,7 +132,7 @@ class JiraService(
     }
 
     fun save(pid: String, body: JiraSave): JiraView {
-        projects.require(pid)
+        requireOwner(pid)
         val cur = settings(pid) ?: JiraSettings()
         val next = check(merge(cur, body))
         val token = body.token?.filterNot { it.isWhitespace() }?.takeIf { it.isNotEmpty() }
@@ -135,8 +152,8 @@ class JiraService(
     }
 
     fun delete(pid: String) {
-        projects.require(pid)
-        if (jdbc.update("DELETE FROM jira_connections WHERE project_id = ?", pid) == 0) throw NotFound("This project has no Jira connection")
+        requireOwner(pid)
+        if (jdbc.update("DELETE FROM jira_connections WHERE project_id = ?", pid) == 0) throw NotFound("${owner(pid)} has no Jira connection")
         if (secrets.has(secretName(pid))) secrets.delete(secretName(pid))
         jdbc.update("DELETE FROM mcp_servers WHERE name = ?", mcpName(pid))
     }
@@ -153,7 +170,7 @@ class JiraService(
 
     /** Tests the saved connection, or the unsaved one in [body] (its token, else the saved one). Never throws for Jira's answer. */
     fun test(pid: String, body: JiraSave?): JiraTestResult {
-        projects.require(pid)
+        requireOwner(pid)
         val client = if (body != null && (body.baseUrl != null || body.token != null)) {
             val saved = settings(pid)
             val s = check(merge(saved ?: JiraSettings(), body))
@@ -162,7 +179,7 @@ class JiraService(
             val token = body.token?.filterNot { it.isWhitespace() }?.takeIf { it.isNotEmpty() } ?: secrets.get(secretName(pid))?.takeIf { sameSite }
                 ?: return JiraTestResult(false, error = "The token is missing", hint = if (saved != null && !sameSite) "This is another Jira URL: paste its token, then test." else "Paste the token, then test.")
             JiraClient(s.kind, s.baseUrl, s.email, token, mapper, java.time.Duration.ofSeconds(timeoutSeconds))
-        } else client(pid) ?: return JiraTestResult(false, error = "This project has no Jira connection", hint = "Fill in the form and save it first.")
+        } else client(pid) ?: return JiraTestResult(false, error = "${owner(pid)} has no Jira connection", hint = "Fill in the form and save it first.")
         return try {
             val me = client.myself()
             if (settings(pid) != null && (body == null || body.baseUrl == null || body.baseUrl.trim().trimEnd('/') == settings(pid)?.baseUrl)) {
@@ -230,6 +247,7 @@ class JiraService(
     }
 
     private fun refreshMcp(pid: String) {
+        if (pid == KEEL_WIDE) return
         val s = settings(pid) ?: return
         jdbc.update("UPDATE mcp_servers SET env_json = ? WHERE name = ?", Json.write(mcpEnv(pid, s)), mcpName(pid))
     }
@@ -287,6 +305,8 @@ class JiraService(
     }
 
     companion object {
+        /** The id the keel-wide connection is kept under (not a project id: those never start with "_"). */
+        const val KEEL_WIDE = "_keel"
         const val DEFAULT_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC"
         val MCP_ARGS = listOf("mcp-atlassian")
 

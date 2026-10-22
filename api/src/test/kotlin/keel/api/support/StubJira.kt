@@ -48,10 +48,16 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
     /** v0.13.0 issue types this Jira has not (POST /rest/api/2/issue answers 400 for them), and the links made. */
     val missingTypes = ConcurrentHashMap.newKeySet<String>()
     val links = CopyOnWriteArrayList<Triple<String, String, String>>()
+
+    /** Issue types above an epic (Cloud's hierarchy level 2+), like Initiative; GET /rest/api/2/project/{key} lists them. */
+    val upperTypes = ConcurrentHashMap.newKeySet<String>()
+
+    /** Issue types that take no `parent` field (Jira Server's Story: it links its epic with the Epic Link field). */
+    val noParentFor = ConcurrentHashMap.newKeySet<String>()
     private val created = java.util.concurrent.atomic.AtomicInteger(100)
 
     fun reset() {
-        calls.clear(); issues.clear(); failures.clear(); noWayTo.clear(); enhancedSearch = true; missingTypes.clear(); links.clear()
+        calls.clear(); issues.clear(); failures.clear(); noWayTo.clear(); enhancedSearch = true; missingTypes.clear(); links.clear(); noParentFor.clear(); upperTypes.clear()
     }
 
     fun add(key: String, summary: String, status: String = "To Do", type: String = "Story", description: String = "", assignee: String? = "Dev One") {
@@ -126,7 +132,12 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
                 else 200 to listOf(mapOf("name" to "Story", "statuses" to statuses.keys.map { status(it) }),
                     mapOf("name" to "Bug", "statuses" to statuses.keys.take(3).map { status(it) }))
             }
+            Regex("^/rest/api/2/project/[^/]+$").matches(path) -> 200 to mapOf("key" to path.substringAfterLast('/'), "issueTypes" to
+                (upperTypes.map { mapOf("name" to it, "subtask" to false, "hierarchyLevel" to 2) } +
+                    listOf("Epic" to 1, "Story" to 0, "Task" to 0, "Bug" to 0, "Sub-task" to -1).filter { it.first !in missingTypes }
+                        .map { (n, l) -> mapOf("name" to n, "subtask" to (l < 0), "hierarchyLevel" to l) }))
             path == "/rest/api/2/field" -> 200 to listOf(
+                mapOf("id" to "customfield_10014", "name" to "Epic Link", "custom" to true, "schema" to mapOf("type" to "any")),
                 mapOf("id" to "summary", "name" to "Summary", "custom" to false, "schema" to mapOf("type" to "string")),
                 mapOf("id" to "customfield_10010", "name" to "Reviewers", "custom" to true, "schema" to mapOf("type" to "array", "items" to "user")),
                 mapOf("id" to "customfield_10020", "name" to "Tech lead", "custom" to true, "schema" to mapOf("type" to "user")),
@@ -139,10 +150,14 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
                 val project = f?.get("project")?.get("key")?.asText().orEmpty()
                 if (type in missingTypes || project.isEmpty()) return 400 to mapOf("errors" to mapOf("issuetype" to "Specify a valid issue type"))
                 val parent = f?.get("parent")?.get("key")?.asText()
+                if (parent != null && type in noParentFor) return 400 to mapOf("errors" to mapOf("parent" to "Field 'parent' cannot be set. It is not on the appropriate screen, or unknown."))
                 if (parent != null && issues[parent] == null) return 400 to mapOf("errors" to mapOf("parent" to "Could not find issue by id or key."))
                 val key = "$project-${created.incrementAndGet()}"
                 issues[key] = Issue(f?.get("summary")?.asText().orEmpty(), "To Do", type, null, null, f?.get("description")?.asText().orEmpty())
                 parent?.let { issues.getValue(key).fields["parent"] = it }
+                f?.fields()?.forEach { (k, v) ->
+                    if (k.startsWith("customfield_") || k == "labels" || k == "components") issues.getValue(key).fields[k] = mapper.convertValue(v, Any::class.java)
+                }
                 201 to mapOf("id" to "1${created.get()}", "key" to key)
             }
             path == "/rest/api/2/issueLink" && method == "POST" -> {

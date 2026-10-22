@@ -42,6 +42,7 @@ data class JiraIssue(
 
 data class JiraStatus(val name: String, val category: String?)
 data class JiraTransition(val id: String, val name: String, val to: String, val category: String?)
+data class JiraIssueType(val name: String, val subtask: Boolean, val level: Int?)
 data class JiraField(val id: String, val name: String, val type: String?, val items: String?, val custom: Boolean)
 
 /** The result of moving a ticket: [moved] false when it already was in that status. */
@@ -59,6 +60,7 @@ data class JiraMove(override val moved: Boolean, override val from: String?, ove
  * - transitions: GET/POST /rest/api/2/issue/{key}/transitions (both)
  * - comment: POST /rest/api/2/issue/{key}/comment with a plain-text body. v2 takes plain text (wiki markup) on Cloud
  *   and Server alike; Cloud's v3 would need ADF, so keel always uses v2 for comments.
+ * - issue types: GET /rest/api/2/project/{key} (its issueTypes, both)
  * - fields: GET /rest/api/2/field; a field is set with PUT /rest/api/2/issue/{key} (user pickers: accountId on Cloud,
  *   name on Server).
  */
@@ -162,6 +164,13 @@ class JiraClient(
         }
         return seen.values.toList()
     }
+
+    /** The issue types a project can create (GET /rest/api/2/project/{key}, both Cloud and Server); [JiraIssueType.level] is
+     *  Cloud's hierarchy level (1 = epic, 2+ = above epics, like an Initiative), null on Server. */
+    fun projectIssueTypes(projectKey: String): List<JiraIssueType> =
+        get("/rest/api/2/project/${enc(projectKey)}", "project $projectKey").get("issueTypes")?.mapNotNull { t ->
+            t.text("name")?.let { JiraIssueType(it, t.get("subtask")?.asBoolean() == true, t.get("hierarchyLevel")?.takeIf { l -> l.isInt }?.asInt()) }
+        }.orEmpty()
 
     /** Every status of the site (when no project key is set). */
     fun allStatuses(): List<JiraStatus> =

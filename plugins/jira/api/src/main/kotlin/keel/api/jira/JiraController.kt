@@ -76,3 +76,24 @@ class JiraController(private val jira: JiraService, private val mcp: McpService,
         return mcp.get(jira.addMcp(pid))
     }
 }
+
+/** The keel-wide Jira connection: one site and token for work that is not one project's (keel Product's tickets). */
+@RestController
+@RequestMapping("/api/jira")
+class JiraKeelController(private val jira: JiraService) {
+
+    @GetMapping
+    fun view(): JiraView = jira.view(JiraService.KEEL_WIDE)
+
+    @PutMapping
+    fun save(@RequestBody body: JiraSave): JiraView = jira.save(JiraService.KEEL_WIDE, body)
+
+    @DeleteMapping
+    fun delete(): Map<String, Boolean> {
+        jira.delete(JiraService.KEEL_WIDE)
+        return mapOf("ok" to true)
+    }
+
+    @PostMapping("/test")
+    fun test(@RequestBody(required = false) body: JiraSave?): JiraTestResult = jira.test(JiraService.KEEL_WIDE, body)
+}
