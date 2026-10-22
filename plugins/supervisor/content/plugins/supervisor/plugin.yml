@@ -1,0 +1,8 @@
+# The Supervisor plugin (plugins/supervisor, engine keel_plugin_supervisor). Turned on per project in Control › Plugins
+# (Off | This project | All projects); keel's own switches (keel-wide, project, flow) then decide whether it watches.
+# Without this file keel's per-project list did not know the plugin, so no project could turn it on.
+name: supervisor
+title: Supervisor
+installable: true
+description: A strong model that watches your flows, answers their gates from the project's own context, and calls you when it is unsure, stuck or out of budget.
+shows_in: [workflows, inbox]

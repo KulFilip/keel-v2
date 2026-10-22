@@ -14,6 +14,7 @@ parts:
   engine: { path: engine, package: keel_plugin_supervisor }
   api: { jars: [api/keel-plugin-supervisor.jar] }
   web: { entry: web/index.js }
+  content: content
 per_project: true
 contributes:
   tui:
