@@ -150,7 +150,11 @@ class StubEngine private constructor(private val server: HttpServer) {
             mapOf("name" to "review", "title" to "Code Review", "installable" to true, "needs" to listOf("github"), "actions" to emptyList<Any>()))
         path == "/plugins/db/test" -> 200 to (if (body?.path("connection")?.path("url")?.asText()?.contains("wrong") == true)
             mapOf("ok" to false, "error" to "keel could not reach local: password authentication failed", "hint" to "Check the password.")
-            else mapOf("ok" to true, "server" to "PostgreSQL 16.4", "tables" to 23))
+            else mapOf("ok" to true, "server" to "PostgreSQL 16.4", "tables" to 23, "ms" to 12))
+        path == "/plugins/db/databases" -> if (body?.path("connection")?.path("url")?.asText()?.contains("wrong") == true)
+            502 to mapOf("error" to "keel could not reach ${body.path("connection").path("name").asText()}: auth failed for " +
+                body.path("connection").path("url").asText(), "hint" to "Check the password.")
+            else 200 to mapOf("databases" to listOf(mapOf("name" to "app"), mapOf("name" to "scores")))
         path == "/plugins/db/suggest" -> 200 to listOf(
             mapOf("name" to "db", "kind" to "postgres", "url" to "postgres://app:app@localhost:15432/scores", "env" to "local", // keel:allow-secret
                 "source" to "docker-compose.yml (service db)", "shown" to "postgres://app:•••@localhost:15432/scores")) // keel:allow-secret
