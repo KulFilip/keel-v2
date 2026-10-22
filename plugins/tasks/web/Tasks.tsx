@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
-  linkAction, Loading, PageHead, Pill, RunModePicker, useApp, useLoad, useRoute, WorkspaceDoctor,
+  linkAction, Loading, PageHead, Pill, RunModePicker, Tabs, useApp, useLoad, useRoute, WorkspaceDoctor,
   type LauncherCtx as Ctx, type LauncherItem as Item, type LauncherSourceItem, type PillTone, type RunMode, type Workflow,
 } from "@keel/web-sdk";
 import {
@@ -442,10 +442,7 @@ export function TasksPage({ pid }: { pid: string }) {
         </>} />
       {r.data && <SyncLine data={r.data} busy={syncing} />}
       <div className="row tk-filters" role="group" aria-label="Filters">
-        <div className="tabs" role="tablist" aria-label="Whose tasks">
-          <button role="tab" type="button" aria-selected={who === "all"} onClick={() => setWho("all")}>All</button>
-          <button role="tab" type="button" aria-selected={who === "mine"} onClick={() => setWho("mine")}>Mine</button>
-        </div>
+        <Tabs value={who} options={[["all", "All"], ["mine", "Mine"]]} onChange={setWho} label="Whose tasks" />
         <label className="row" htmlFor="tk-source"><span className="sub">Source</span>
           <select id="tk-source" value={source} onChange={(e) => setSource(e.target.value as typeof source)}>
             <option value="">All</option><option value="jira">Jira</option><option value="local">Local</option>
