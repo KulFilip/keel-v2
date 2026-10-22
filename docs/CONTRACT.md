@@ -2470,9 +2470,13 @@ is saved, removed or turned off, and before a flow that needs it. It never block
   (`^[a-z0-9][a-z0-9+.-]*$`, checked before apt runs). Any other first argument is refused (exit 2).
   `/etc/sudoers.d/keel-stack-setup` is `keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup apt *`: nothing else
   runs as root. `setup.run` commands run as keel's own user (`bash -c`, in keel's home), never through sudo.
-  Packages already installed (`dpkg-query`) and run commands already run in this container (`~/.cache/keel-stack-setup/
-  <sha256[:16]>`) are left out. The apt cache is `/data/cache/apt` (archives and package
-  lists), owned by keel; `keel2 backup` excludes it.
+  A project's own stack (`_source` project) runs its setup.apt, setup.run and
+  setup.each_worktree only after a person approved them: an Inbox card of kind `stack-setup`, approval stored in
+  `<data>/setup/approved.json` keyed by sha256[:24] of (project, stack, run, each_worktree, apt); a marketplace install
+  (`/stacks/save` source marketplace) records it. `GET /setup/status` has `state: "needs approval"` and `approval: [...]`
+  while some wait. Packages already installed (`dpkg-query`) and run commands already run in this container (`~/.cache/keel-stack-setup/
+  <sha256[:16]>`) are left out. The apt cache is `/var/cache/keel-apt` (root-owned, outside the
+  data volume, lists fetched fresh each time, so keel's user cannot plant packages); a new container downloads again.
 - Native mode (`KEEL_NATIVE=1`) and any engine without the helper never install. The status says which programs are
   missing (a package's program: `php8.3-cli` → php, `golang-go` → go, `composer` → composer).
 - Status: `$KEEL_DATA/setup/status.json`, and `$KEEL_DATA/setup/packages.json` (what was installed, for whom).

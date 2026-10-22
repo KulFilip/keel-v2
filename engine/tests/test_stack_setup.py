@@ -50,6 +50,13 @@ def host_mode(monkeypatch):
     stacks.forget()
 
 
+@pytest.fixture(autouse=True)
+def approved(monkeypatch):
+    """These tests are about WHAT setup does. Since 0.18.33 a project's own stack runs its commands only after a person
+    approved them, so here every approval is given; tests/test_stack_setup_approval.py is about the approval itself."""
+    monkeypatch.setattr(stack_setup, "is_approved", lambda key: True)
+
+
 def _git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
 
@@ -218,7 +225,7 @@ def test_the_helper_refuses_anything_but_apt(args):
 
 
 @pytest.mark.parametrize("pkg", ["php8.3-cli;id", "-o", "--allow-unauthenticated", "Php", "php=1.0", "x y", "$(id)",
-                                 "../x", ""])
+                                 "../x", "", "sudo-", "a.+", "-oFoo", "a*", "a?", "a..b", "a+.b", "x" * 101])
 def test_the_helper_refuses_what_is_not_a_package_name(pkg):
     r = _helper("apt", "php8.3-cli", pkg)
     assert r.returncode == 2 and f"not a package name: {pkg}" in r.stderr     # before apt (or mkdir) runs
@@ -237,6 +244,14 @@ def test_sudo_allows_keels_user_only_the_helpers_apt():
     assert "visudo -cf /etc/sudoers.d/keel-stack-setup" in dockerfile
     text = HELPER_FILE.read_text()
     assert "bash -c" not in text and "\n  run)" not in text and "eval" not in text
+
+
+def test_the_helper_keeps_its_apt_cache_away_from_keels_user():
+    text = HELPER_FILE.read_text()
+    assert "CACHE=/var/cache/keel-apt" in text and "/data" not in text.replace("the data volume", "")
+    assert "-o root -g root" in text and "chown" not in text.split("usage()", 1)[1]
+    assert "apt-get update" in text and "-- \"$@\"" in text         # lists always fresh; names after "--"
+    assert "[ -L \"$CACHE\" ]" in text
 
 
 def test_the_background_request_runs_once_and_looks_again_when_asked(tmp_path, monkeypatch):

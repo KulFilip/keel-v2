@@ -735,6 +735,11 @@ def save(root: str, text: str, replace: bool = False, source: str = "project", m
         doc.pop(name, None)
     _write_installed(root, doc)
     stacks.forget(root)
+    if source == "marketplace" and market:
+        # the person installed it through keel: that approves its setup commands as they are (runtime/stack_setup.py)
+        from . import stack_setup
+
+        stack_setup.approve_project_stack(root, name)
     return {"name": name, "path": _rel(root, target), "replaced": bool(mine), "check": out}
 
 

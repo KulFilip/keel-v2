@@ -5,17 +5,18 @@
 # engine runs this helper in the background at every start, when a project is added and when a stack changes. keel's
 # user may run this one program as root, and only as `keel-stack-setup apt ...` (/etc/sudoers.d/keel-stack-setup).
 #
-#   keel-stack-setup apt <package>...   install system packages. Each name must be a Debian package name; anything
-#                                       else is refused before apt runs. The apt cache (downloaded packages and package
-#                                       lists) lives in the data volume, /data/cache/apt, so a re-created container
-#                                       (keel2 update, restart, restore) installs again from the cache.
+#   keel-stack-setup apt <package>...   install system packages. Each name must be an exact Debian package name;
+#                                       anything else is refused before apt runs. The apt cache (package lists and
+#                                       downloaded packages) lives in /var/cache/keel-apt, owned by root: keel's user
+#                                       cannot write there, so it cannot plant package lists or .debs that root would
+#                                       install. The lists are always fetched fresh (apt-get update), so a re-created
+#                                       container downloads again.
 #
 # It does nothing else: no other first argument, no shell commands. A stack's setup.run commands run as keel's own
 # user, never through this helper.
 set -euo pipefail
 
-CACHE=/data/cache/apt
-OWNER=keel
+CACHE=/var/cache/keel-apt
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8
 
 usage() {
@@ -23,29 +24,37 @@ usage() {
   exit 2
 }
 
-# the cache stays keel's (keel2 backup and restore read and delete the data volume as keel's user)
-give_back() { chown "$OWNER:$OWNER" "$(dirname "$CACHE")" 2>/dev/null || true; chown -R "$OWNER:$OWNER" "$CACHE" 2>/dev/null || true; }
+# a strict Debian package name; also nothing apt could read as a regex or a pattern ("a.+"), and no trailing "-"
+# (apt reads "name-" as "remove name")
+valid_name() {
+  local p=$1
+  [ "${#p}" -le 100 ] || return 1
+  [[ "$p" =~ ^[a-z0-9][a-z0-9+.-]*[a-z0-9+]$ ]] || return 1
+  case "$p" in *.+* | *+.* | *..*) return 1 ;; esac
+}
 
 case "${1:-}" in
   apt)
     shift
     [ "$#" -gt 0 ] || usage
     for p in "$@"; do
-      [[ "$p" =~ ^[a-z0-9][a-z0-9+.-]{0,99}$ ]] || { echo "keel-stack-setup: not a package name: $p" >&2; exit 2; }
+      valid_name "$p" || { echo "keel-stack-setup: not a package name: $p" >&2; exit 2; }
     done
-    mkdir -p "$CACHE/archives/partial" "$CACHE/lists/partial"
-    trap give_back EXIT
+    # root's own cache, outside the data volume (never a symlink, never keel's)
+    if [ -L "$CACHE" ] || { [ -e "$CACHE" ] && [ ! -d "$CACHE" ]; }; then
+      echo "keel-stack-setup: refusing $CACHE: not a plain directory" >&2; exit 1
+    fi
+    install -d -m 755 -o root -g root "$CACHE" "$CACHE/archives" "$CACHE/archives/partial" "$CACHE/lists" "$CACHE/lists/partial"
     opts=(-o "Dir::Cache::Archives=$CACHE/archives" -o "Dir::State::Lists=$CACHE/lists"
           -o APT::Keep-Downloaded-Packages=true -o APT::Sandbox::User=root -o Dpkg::Use-Pty=0)
-    install() { apt-get install -y -q --no-install-recommends "${opts[@]}" "$@"; }
-    # package lists from an earlier container: try them first (no network when every package is in the cache)
-    if compgen -G "$CACHE/lists/*_Packages*" > /dev/null && install "$@"; then
-      echo "keel-stack-setup: installed $* (package lists from the cache)"
-      exit 0
-    fi
     echo "keel-stack-setup: updating the package lists"
     apt-get update -q "${opts[@]}"
-    install "$@"
+    # exact names only: apt would also take a glob or a regex as a package name
+    names=$(apt-cache "${opts[@]}" pkgnames)
+    for p in "$@"; do
+      printf '%s\n' "$names" | grep -Fxq -- "$p" || { echo "keel-stack-setup: no such package: $p" >&2; exit 2; }
+    done
+    apt-get install -y -q --no-install-recommends "${opts[@]}" -- "$@"
     echo "keel-stack-setup: installed $*"
     ;;
   *) usage ;;

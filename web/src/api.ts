@@ -264,7 +264,7 @@ export type Health = { ok: boolean; engine: boolean; version: string; fake: bool
 /** keel 0.18.22 the stack setup (engine runtime/stack_setup.py): `line` says what it does now ("installing php8.3-cli for
  *  carrier-router…") or what is missing (native mode never installs). */
 export type StackSetup = {
-  state: "idle" | "running" | "ready" | "failed" | "missing";
+  state: "idle" | "running" | "ready" | "failed" | "missing" | "needs approval";
   mode: "container" | "native" | "host" | null;
   line: string;
   busy: boolean;
