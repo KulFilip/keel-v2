@@ -149,7 +149,7 @@ def test_spec_gate_review_first_shows_the_reviewer_word_for_word(client, repo, m
     tid = start(client, repo)
     wait(client, tid)
     s = decide(client, tid, payload={"choice": "review"})
-    rev = [r for r in seen if r.agent == "reviewer"]
+    rev = [r for r in seen if r.agent == "lens-reviewer"]
     assert len(rev) == 1 and rev[0].phase == "review" and SPEC in rev[0].prompt
     w = s["waiting"]
     assert w["step"] == "spec_gate" and "Spec review (you asked for it)" in w["detail"] and "AC-2 is vague" in w["detail"]
@@ -456,7 +456,7 @@ def test_the_ac_gate_shows_the_commits_the_review_and_the_board(client, repo, mo
     assert d.startswith("## Criterion\n\n`AC-1` [API] Player ranks: the main case works")
     assert f"**RED**: `{red}` `test(AC-1)" in d and "Test files:\n\n- `" in d
     assert f"**GREEN**: `{green}` `feat(AC-1)" in d and "changed" in d and "```text\n" in d, "the diffstat, fenced"
-    assert "**AC-REVIEW: pass**" in d and "The ac-reviewer's answer:" in d and "the test proves AC-1" in d
+    assert "**AC-REVIEW: pass**" in d and "The criterion-reviewer's answer:" in d and "the test proves AC-1" in d
     assert "Board: done - · now `AC-1` · todo `AC-2`" in d
     s = decide(client, tid)
     s = to(client, tid, s, "ac_gate")
@@ -541,12 +541,12 @@ def test_the_dependency_triager_runs_after_verify_deps_found_something(client, r
 
 
 def test_the_full_diff_review_sends_findings_back_twice_then_asks(client, repo, monkeypatch):
-    seen = answers(monkeypatch, {"code-reviewer": lambda r: "- `src/scores/ac_1.py:1` duplicates ac_2.py\nCODE-REVIEW: findings"})
+    seen = answers(monkeypatch, {"branch-reviewer": lambda r: "- `src/scores/ac_1.py:1` duplicates ac_2.py\nCODE-REVIEW: findings"})
     tid = start(client, repo)
     s = to(client, tid, wait(client, tid), "code_review__fix")
     fixes = [r for r in seen if r.step_name == "fix the full-diff review's findings"]
     assert len(fixes) == 2 and all(r.phase == "review-fix" and "duplicates ac_2.py" in r.feedback for r in fixes)
-    assert len([r for r in seen if r.agent == "code-reviewer"]) == 3
+    assert len([r for r in seen if r.agent == "branch-reviewer"]) == 3
     assert "the limit is 2" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="the duplication is deliberate")
     assert s["waiting"]["step"] == "ready_gate"
@@ -708,7 +708,7 @@ def test_e2e_and_smoke_criteria_are_criteria_but_not_built_in_the_loop(client, r
     s = to(client, tid, s, "ship_final_review", SHIP)
     red = {r.ac["id"] for r in seen if r.phase == "red"}
     assert red == {"AC-1", "AC-2"}, "the loop builds only the [API] criteria"
-    assert {r.ac["id"] for r in seen if r.agent == "ac-reviewer"} == {"AC-1", "AC-2"}
+    assert {r.ac["id"] for r in seen if r.agent == "criterion-reviewer"} == {"AC-1", "AC-2"}
     e2e = git(repo, "log", "--format=%s%n%b", "--grep=^e2e:", "-1").stdout
     assert "Covers: AC-3" in e2e and "AC-3" in (Path(repo) / "e2e/test_player_ranks_e2e.py").read_text()
     smoke = git(repo, "log", "--format=%s%n%b", "--grep=^test(smoke)", "-1").stdout
@@ -769,7 +769,7 @@ def test_red_and_green_prompts_carry_the_criterion_s_plan_row(tmp_path):
         p = prompts.task_prompt(agent=agent, phase=phase, step_name=phase, title="t", root=str(tmp_path), ac=ac,
                                 acs=[ac], feedback=None, spec="docs/ranks.md")
         assert "The plan for AC-1" in p and "src/scores/ranks.py" in p and "Built after: AC-10" in p, agent
-    p = prompts.task_prompt(agent="ac-reviewer", phase="gate", step_name="AC review", title="t", root=str(tmp_path),
+    p = prompts.task_prompt(agent="criterion-reviewer", phase="gate", step_name="AC review", title="t", root=str(tmp_path),
                             ac=ac, acs=[ac], feedback=None, spec="docs/ranks.md")
     assert "The plan for AC-1" not in p
 
@@ -778,7 +778,7 @@ def test_the_ac_reviewer_prompt_names_the_red_and_green_shas(client, repo, monke
     seen = by_step(monkeypatch, {})
     tid = start(client, repo)
     to(client, tid, wait(client, tid), "ac_gate", SHIP)
-    review = [r for r in seen if r.agent == "ac-reviewer"][0]
+    review = [r for r in seen if r.agent == "criterion-reviewer"][0]
     aid = review.ac["id"]
     red = git(repo, "log", "--format=%H", f"--grep=test({aid})", "-F", "-1").stdout.strip()
     green = git(repo, "log", "--format=%H", f"--grep=feat({aid})", "-F", "-1").stdout.strip()

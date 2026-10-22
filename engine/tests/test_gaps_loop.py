@@ -18,7 +18,7 @@ CRITIC_SAYS = ("Gaps:\n## Blocking\n- the ETA field is not confirmed\n- no sampl
                "Gaps:\n## Blocking\n- no sample payload\nGAPS: 0\nBLOCKING: no")
 
 
-def scout(branch: dict, agent: str = "reviewer"):
+def scout(branch: dict, agent: str = "lens-reviewer"):
     return wf([{"id": "research", "kind": "agent", "name": "research", "agent": "investigator", "phase": "spec"},
                {"id": "critic", "kind": "agent", "name": "critic", "agent": agent, "markers": ["GAPS"], "phase": "spec"},
                {"id": "gaps", "kind": "branch", "name": "gaps closed?", "no": "research", "rounds": 3, **branch},
@@ -27,7 +27,7 @@ def scout(branch: dict, agent: str = "reviewer"):
 
 def critic(monkeypatch, said=CRITIC_SAYS):
     n = itertools.count()
-    return answers(monkeypatch, {"reviewer": lambda r: said[min(next(n), len(said) - 1)]})
+    return answers(monkeypatch, {"lens-reviewer": lambda r: said[min(next(n), len(said) - 1)]})
 
 
 @pytest.mark.parametrize("when", [{"marker": "GAPS", "equals": "0", "step": "critic"},
@@ -39,7 +39,7 @@ def test_a_critic_with_gaps_loops_back_once_then_stops_at_the_gate(client, repo,
     tid = start(client, repo, workflow=w)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "decide", s["waiting"]           # not the critic's findings gate
-    assert [r.agent for r in seen] == ["investigator", "reviewer", "investigator", "reviewer"]
+    assert [r.agent for r in seen] == ["investigator", "lens-reviewer", "investigator", "lens-reviewer"]
     v = values(client, tid)
     assert v["markers"]["critic"]["GAPS"] == "0"
     notes = [e["data"].get("note") or "" for e in client.bus.of(tid, "step.finished") if e["step"] == "gaps"]
@@ -61,7 +61,7 @@ def test_the_spike_with_a_critic_step_loops(client, repo, monkeypatch):
     raw = get_template("spike").model_dump(exclude_none=True, by_alias=True)
     steps = raw["steps"]
     at = next(i for i, s in enumerate(steps) if s["id"] == "report")
-    steps[at:at] = [{"id": "critic", "kind": "agent", "name": "critic", "agent": "reviewer", "model": "default",
+    steps[at:at] = [{"id": "critic", "kind": "agent", "name": "critic", "agent": "lens-reviewer", "model": "default",
                      "phase": "spec", "markers": ["GAPS"]},
                     {"id": "gaps", "kind": "branch", "name": "gaps closed?", "when": {"marker": "GAPS", "lte": 0, "step": "critic"},
                      "no": "research", "rounds": 2, "phase": "spec"}]
@@ -86,6 +86,6 @@ def test_when_compares_numbers_and_a_zero_text_is_not_set():
 
 
 def test_validate_names_a_when_key_keel_does_not_know():
-    w = wf([{"id": "c", "kind": "agent", "name": "c", "agent": "reviewer", "markers": ["GAPS"]},
+    w = wf([{"id": "c", "kind": "agent", "name": "c", "agent": "lens-reviewer", "markers": ["GAPS"]},
             {"id": "b", "kind": "branch", "name": "b", "when": {"marker": "GAPS", "above": 0}, "no": "c"}])
     assert any("when does not know above" in e for e in validate(w))

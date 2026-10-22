@@ -636,7 +636,7 @@ def _branch_log(root: str, base: str | None) -> list[tuple[str, str, str]]:
 
 def ac_commits(root: str, ac_id: str, base: str | None = None) -> dict:
     """{"red": sha, "green": sha} of one criterion: its newest test(AC-n) and feat(AC-n) / fix(AC-n) commits (None when
-    there is none). The AC reviewer is given these two (content/agents/ac-reviewer.md)."""
+    there is none). The AC reviewer is given these two (content/agents/criterion-reviewer.md)."""
     if not ac_id or not git.is_repo(root):
         return {"red": None, "green": None}
     log = _branch_log(root, base)

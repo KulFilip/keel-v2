@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from . import config
+from . import agent_names, config
 
 log = logging.getLogger("keel.addons")
 NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -269,7 +269,8 @@ def folders(kind: str) -> list[tuple[str, Path]]:
 
 def _core_names(kind: str) -> set[str]:
     d = config.content_dir() / kind
-    builtin = set(BUILTIN_AGENTS) if kind == "agents" else set()
+    # an old agent name (agent_names.RENAMED) stays keel's: a plugin cannot take it
+    builtin = set(BUILTIN_AGENTS) | set(agent_names.OLD_NAMES) if kind == "agents" else set()
     if not d.is_dir():
         return builtin
     return builtin | {f.parent.name if kind == "plugins" else f.stem for f in d.glob(KINDS[kind])}
@@ -289,7 +290,9 @@ def refused(name: str) -> list[str]:
 
 
 def agent_file(agent: str) -> Path | None:
-    """An add-on's agent file, else a plugin's (a plugin's never for an agent keel has without a file)."""
+    """An add-on's agent file, else a plugin's (a plugin's never for an agent keel has without a file). An old agent
+    name (agent_names.RENAMED) gives the new agent's file."""
+    agent = agent_names.canonical(agent) or ""
     for _name, d in addon_folders("agents"):
         f = d / f"{agent}.md"
         if f.is_file():
@@ -304,7 +307,9 @@ def agent_file(agent: str) -> Path | None:
 
 
 def agent_path(agent: str) -> Path:
-    """keel's own agent file, else a loaded add-on's (the path may not exist: an agent with no file)."""
+    """keel's own agent file, else a loaded add-on's (the path may not exist: an agent with no file). An old agent name
+    (agent_names.RENAMED) gives the new agent's file."""
+    agent = agent_names.canonical(agent) or ""
     core = config.content_dir() / "agents" / f"{agent}.md"
     return core if core.is_file() else (agent_file(agent) or core)
 
@@ -313,7 +318,7 @@ def agent_files() -> list[Path]:
     """Every agent file: keel's own, then the add-ons' (an add-on cannot replace one of keel's), then the plugins'
     (each name once, never one keel or an add-on has)."""
     core = sorted((config.content_dir() / "agents").glob("*.md")) if (config.content_dir() / "agents").is_dir() else []
-    seen = {f.stem for f in core}
+    seen = {f.stem for f in core} | set(agent_names.OLD_NAMES)    # an old name is never an agent of its own
     more = [f for _n, d in addon_folders("agents") for f in sorted(d.glob("*.md")) if f.stem not in seen]
     seen |= {f.stem for f in more} | BUILTIN_AGENTS
     for _n, d in plugin_folders("agents"):

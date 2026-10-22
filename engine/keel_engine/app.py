@@ -399,6 +399,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         r = validate_yaml(body.yaml)
         # lines: each error at its line (the editor marks it); formatted: the file as keel saves it (the api stores it)
         out = {"ok": r["ok"], "errors": r["errors"], "lines": wf_editor.error_lines(body.yaml, r["errors"])}
+        if r.get("notes"):
+            out["notes"] = r["notes"]          # soft: an old agent name (it still works)
         if r.get("workflow") is not None:
             out["workflow"] = r["workflow"].model_dump()
             out["formatted"] = wf_editor.normalize(body.yaml)

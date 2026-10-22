@@ -45,9 +45,9 @@ steps:
   - { id: audit, kind: code, name: audit, action: audit, phase: ship, lock: true }
   - { id: trace, kind: code, name: trace --strict, action: trace_strict, phase: ship, lock: true }
   - { id: lenses, kind: code, name: review lenses, action: review_lenses, phase: ship, skippable: optional, group: reviewers }
-  - { id: review, kind: parallel, name: "ship review, one lens each", agent: reviewer, model: default, from: review_lenses, phase: ship,
+  - { id: review, kind: parallel, name: "ship review, one lens each", agent: lens-reviewer, model: default, from: review_lenses, phase: ship,
       rounds: 2, redo: verify, skippable: optional, group: reviewers }
-  - { id: spec_walk, kind: agent, name: "walk the diff against the spec: name behaviour no criterion asks for", agent: reviewer, model: default,
+  - { id: spec_walk, kind: agent, name: "walk the diff against the spec: name behaviour no criterion asks for", agent: lens-reviewer, model: default,
       phase: ship, rounds: 2, redo: verify, skippable: optional, when: { state: spec } }
   - { id: final_review, kind: gate, name: final review, phase: final-review, report: verdicts, back: verify_fix, lock: true }
   # keel v1 ship step 8: the knowledge update is asked, only when a file a section cites changed (update / skip + why)

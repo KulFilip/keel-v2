@@ -220,13 +220,13 @@ def test_already_passes_in_auto_mode_still_runs_the_ac_reviewer_on_the_test(clie
     s = wait(client, tid)
     while s["status"] == "waiting" and s["waiting"]["step"] not in ("ship_final_review",):
         s = decide(client, tid)
-    reviews = [r for r in seen if r.agent == "ac-reviewer" and (r.ac or {}).get("id") == "AC-1"]
+    reviews = [r for r in seen if r.agent == "criterion-reviewer" and (r.ac or {}).get("id") == "AC-1"]
     assert len(reviews) == 1 and "isolation" in reviews[0].prompt and "cleanup" in reviews[0].prompt
     suites = [e for e in client.bus.of(tid, "step.started") if e["step"] == "ac_suite" and e["data"].get("ac") == "AC-1"]
     assert suites
-    full = [r for r in seen if r.agent == "code-reviewer"]
+    full = [r for r in seen if r.agent == "branch-reviewer"]
     assert full and "Not reviewed per AC" in full[0].prompt and "AC-1" in full[0].prompt
-    assert "approved by the run mode; the ac-reviewer read its test" in full[0].prompt
+    assert "approved by the run mode; the criterion-reviewer read its test" in full[0].prompt
     assert next(a for a in s["acs"] if a["id"] == "AC-1")["status"] == "already-met"
 
 
@@ -238,10 +238,10 @@ def test_already_passes_approved_by_a_person_is_listed_for_the_full_diff_review(
     assert s["waiting"]["title"] == "AC-1 already passes"
     s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-2"        # AC-1: no per-AC review, no second stop
-    assert not [r for r in seen if r.agent == "ac-reviewer" and (r.ac or {}).get("id") == "AC-1"]
+    assert not [r for r in seen if r.agent == "criterion-reviewer" and (r.ac or {}).get("id") == "AC-1"]
     assert [e for e in client.bus.of(tid, "step.started") if e["step"] == "ac_suite" and e["data"].get("ac") == "AC-1"]
     s = to(client, tid, s, "ready_gate")
-    full = [r for r in seen if r.agent == "code-reviewer"]
+    full = [r for r in seen if r.agent == "branch-reviewer"]
     assert full and "AC-1" in full[-1].prompt and "approved by a person; no per-AC review" in full[-1].prompt
 
 

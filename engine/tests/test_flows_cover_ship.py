@@ -122,7 +122,7 @@ def test_new_step_keys_are_validated():
     assert any("must be an earlier step" in e for e in errs({"id": "b", "kind": "code", "name": "b", "action": "commit", "back": "b"}))
     assert any("only gates, code steps and review steps" in e for e in errs({"id": "b", "kind": "agent", "name": "b", "agent": "explorer", "back": "a"}))
     assert any("on_skip belongs to a gate inside a for_each" in e for e in errs({"id": "b", "kind": "gate", "name": "b", "on_skip": {}}))
-    assert errs({"id": "b", "kind": "agent", "name": "b", "agent": "reviewer", "back": "a", "rounds": 2}) == []
+    assert errs({"id": "b", "kind": "agent", "name": "b", "agent": "lens-reviewer", "back": "a", "rounds": 2}) == []
 
 
 # ------------------------------------------------------------------ cover
@@ -143,7 +143,7 @@ def test_cover_every_decision_review_round_and_the_round_limit(client, repo, mon
     def review(req):
         said["n"] += 1
         return BLOCK if req.item["id"] == "src/a.py:3-4" else CLEAN
-    seen = answers(monkeypatch, {"reviewer": review})
+    seen = answers(monkeypatch, {"lens-reviewer": review})
     script(monkeypatch, {"verify_coverage": [cov_fail("src/a.py:3-4", "src/b.py:10-10", "src/c.py:7-9"), cov_fail("src/d.py:1-2")]})
     tid = start(client, repo, workflow="cover")
     s = wait(client, tid)
@@ -155,7 +155,7 @@ def test_cover_every_decision_review_round_and_the_round_limit(client, repo, mon
     writes = [r for r in seen if r.agent == "test-author"]
     assert len(writes) == 3 and writes[0].item["decision"] == "test"
     assert "Fix these blocking findings" in writes[1].prompt and "round 2" in writes[2].prompt
-    assert all("assertions lens" in r.step_name for r in seen if r.agent == "reviewer")
+    assert all("assertions lens" in r.step_name for r in seen if r.agent == "lens-reviewer")
     assert s["waiting"]["step"] == "review__fix" and s["waiting"]["labels"]["approve"] == "Send back"
     assert "the limit is 2" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="it checks the rank order, which is the requirement")
@@ -209,7 +209,7 @@ def test_cover_says_so_when_the_coverage_command_fails(client, repo, monkeypatch
 
 
 def test_cover_stops_when_the_user_says_so_at_the_round_limit(client, repo, monkeypatch):
-    answers(monkeypatch, {"reviewer": lambda r: CLEAN})
+    answers(monkeypatch, {"lens-reviewer": lambda r: CLEAN})
     script(monkeypatch, {"verify_coverage": [cov_fail("src/a.py:1-1")]})
     tid = start(client, repo, workflow="cover")
     wait(client, tid)
@@ -311,7 +311,7 @@ def test_ship_end_to_end_with_skips_a_verify_fix_and_a_routed_review_fix(client,
             reviews["security"] += 1
             return BLOCK if reviews["security"] == 1 else CLEAN
         return CLEAN
-    seen = answers(monkeypatch, {"reviewer": review})
+    seen = answers(monkeypatch, {"lens-reviewer": review})
     calls = script(monkeypatch, ship_plan(verify_fast=[bad("Fast check: api compile failed."), ok("Fast check: passed")]))
     tid = start(client, repo, workflow="ship")
     s = wait(client, tid)
@@ -337,7 +337,7 @@ def test_ship_end_to_end_with_skips_a_verify_fix_and_a_routed_review_fix(client,
     fix = [r for r in seen if r.step_name.endswith("fix findings")][-1]
     assert fix.agent == "test-author" and fix.phase == "coverage-fix"
     assert calls.count("verify_fast") == 3, "redo: verify ran again after the review fix"
-    assert sorted(r.item["id"] for r in seen if r.agent == "reviewer") == ["correctness", "correctness", "security", "security"]
+    assert sorted(r.item["id"] for r in seen if r.agent == "lens-reviewer") == ["correctness", "correctness", "security", "security"]
     w = s["waiting"]
     assert w["step"] == "final_review"
     for want in ("## Exceptions (2)", "skipped: release (deferred): no browser surface — its push gate is still outstanding",
@@ -372,7 +372,7 @@ def test_ship_verify_gets_two_fix_rounds_then_asks(client, repo, monkeypatch):
 
 
 def test_ship_review_findings_past_the_limit_are_dismissed_and_shown(client, repo, monkeypatch):
-    seen = answers(monkeypatch, {"reviewer": lambda r: BLOCK})
+    seen = answers(monkeypatch, {"lens-reviewer": lambda r: BLOCK})
     script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="ship")
     wait(client, tid)
@@ -389,12 +389,12 @@ def test_ship_review_findings_past_the_limit_are_dismissed_and_shown(client, rep
 
 
 def test_ship_final_review_send_back_goes_to_the_implementer_and_runs_again(client, repo, monkeypatch):
-    seen = answers(monkeypatch, {"reviewer": lambda r: CLEAN})
+    seen = answers(monkeypatch, {"lens-reviewer": lambda r: CLEAN})
     calls = script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="ship")
     wait(client, tid)
     s = decide(client, tid, "approve", payload={"skip": {"reviewers": "tiny", **skip_all_but_reviews()}})
-    assert s["waiting"]["step"] == "final_review" and not [r for r in seen if r.agent == "reviewer"]
+    assert s["waiting"]["step"] == "final_review" and not [r for r in seen if r.agent == "lens-reviewer"]
     s = decide(client, tid, "reject", why="rename the endpoint to /ranks")
     fixers = [r for r in seen if r.agent == "implementer" and r.phase != "close"]
     assert len(fixers) == 1 and "rename the endpoint to /ranks" in fixers[0].prompt
@@ -470,14 +470,14 @@ def test_the_decide_gate_shows_the_code_and_a_delete_is_reviewed_for_reachabilit
         g = groups("src/a.py:3-4")
         g[0]["show"] = "Uncovered (marked >) in src/a.py:\n> 3 | if x:\n> 4 |     return 1"
         return ActionResult(False, "Coverage: api: changed lines 50.0% < 80%", "", {"data": {**a.data, "coverage_groups": g}})
-    seen = answers(monkeypatch, {"reviewer": lambda r: CLEAN})
+    seen = answers(monkeypatch, {"lens-reviewer": lambda r: CLEAN})
     script(monkeypatch, {"verify_coverage": [with_code, cov_pass]})
     tid = start(client, repo, workflow="cover")
     s = wait(client, tid)
     w = s["waiting"]
     assert w["step"] == "decide" and "> 4 |     return 1" in w["detail"] and "{" not in w["detail"].split("Last step")[0]
     s = decide(client, tid, "approve", payload={"choice": "delete"})
-    review = next(r for r in seen if r.agent == "reviewer")
+    review = next(r for r in seen if r.agent == "lens-reviewer")
     assert "really unreachable" in review.prompt and review.item["decision"] == "delete"
 
 

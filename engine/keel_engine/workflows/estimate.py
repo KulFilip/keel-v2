@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from statistics import mean, median
 
+from .. import agent_names
 from ..models import catalog
 from .model import Step, Workflow
 
@@ -32,7 +33,7 @@ def _model_for(step: Step, agent: str, models: dict) -> tuple[str, str, str]:
         prov = catalog.provider_of(step.model)
         if prov:
             return prov, step.model, "api"
-    m = models.get(agent) or models.get("default")
+    m = agent_names.lookup(models, agent) or models.get("default")
     if m:
         return m["provider"], m.get("model", ""), m.get("mode", "api")
     return "fake", "fake", "api"

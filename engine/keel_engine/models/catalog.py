@@ -50,11 +50,11 @@ DEFAULT_PRICES: dict[str, dict] = {
 # Typical tokens (thousands, in/out) and retry rate per agent, used until there is history.
 AGENT_DEFAULTS: dict[str, tuple[float, float, float]] = {
     "explorer": (40, 4, 0.1), "contract-author": (15, 3, 0.1), "test-author": (24, 3, 0.2),
-    "implementer": (31, 6, 0.35), "ac-reviewer": (18, 2, 0.0), "code-reviewer": (60, 5, 0.1),
-    "security-auditor": (45, 4, 0.0), "e2e-author": (35, 6, 0.3), "reviewer": (30, 3, 0.0),
+    "implementer": (31, 6, 0.35), "criterion-reviewer": (18, 2, 0.0), "branch-reviewer": (60, 5, 0.1),
+    "security-auditor": (45, 4, 0.0), "e2e-author": (35, 6, 0.3), "lens-reviewer": (30, 3, 0.0),
     "librarian": (20, 3, 0.0), "reproducer": (30, 4, 0.3), "investigator": (70, 6, 0.2),
     "web-researcher": (60, 5, 0.1),     # 0.18.20 fetched pages are most of its input
-    "ticket-reviewer": (35, 3, 0.0),    # review-pr: reads the diff and a few lines around each hunk
+    "pr-reviewer": (35, 3, 0.0),    # review-pr: reads the diff and a few lines around each hunk
 }
 FALLBACK_AGENT = (20, 3, 0.1)
 

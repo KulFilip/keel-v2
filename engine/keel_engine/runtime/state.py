@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
-from .. import config
+from .. import agent_names, config
 from ..events import EventBus
 from ..workflows.model import Workflow
 
@@ -88,6 +88,12 @@ class ThreadContext:
     running: dict[str, dict] = field(default_factory=dict)
     running_warned: str | None = None                    # the step whose running usage already passed the cap (one warning)
     memory: Any = None                                   # AgentMemory: agent sessions and trails on /data
+
+    def __post_init__(self):
+        # per-agent settings saved under an old agent name reach the new agent (agent_names.RENAMED; the new name wins)
+        self.models = agent_names.canonical_keys(self.models)
+        self.skills = agent_names.canonical_keys(self.skills)
+        self.agents = agent_names.canonical_keys(self.agents)
     # Unlocks granted through POST /threads/{id}/unlocks (stored in the engine DB; the next step merges them into the
     # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.
     api_unlocks: list[dict] = field(default_factory=list)

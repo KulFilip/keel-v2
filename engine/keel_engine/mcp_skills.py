@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import agent_names
 from .formats import FORMATS
 from .marketplace.kinds import PACK_NAME, split_front
 from .mcp_api import q
@@ -80,6 +81,7 @@ def _attach(api: KeelApi, pid: str, sid: str, agents: list[str], detach: bool = 
     """Put the skill on these agents (or take it off): the skill's own list, and the agents whose own skill list is set
     in the project (an override), which wins over the skill's list. Returns (the agents now, the changed ones)."""
     known = _agents(api, pid)
+    agents = list(dict.fromkeys(agent_names.canonical(a) or a for a in agents))     # an old agent name: the new agent
     bad = [a for a in agents if a not in known]
     if bad:
         raise ApiError(f"no agent {', '.join(bad)} on {pid}. The agents: {', '.join(known) or 'none'}.")

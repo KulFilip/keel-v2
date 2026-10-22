@@ -12,7 +12,7 @@ steps:
   - id: reviewers
     kind: parallel
     name: one reviewer per lens
-    agent: reviewer
+    agent: lens-reviewer
     model: default
     from: review_lenses
     phase: review

@@ -26,7 +26,7 @@ steps:
   - id: review
     kind: agent
     name: "review the coverage test: assertions lens"
-    agent: reviewer
+    agent: lens-reviewer
     model: default
     phase: coverage-fix
     per_item: true

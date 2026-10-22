@@ -8,7 +8,7 @@ import re
 from conftest import REPO, write
 
 from keel_plugin import template
-from keel_plugin.lint import KEEL_AGENTS, KEEL_WORKFLOWS, Report, _content_names, lint
+from keel_plugin.lint import KEEL_AGENTS, KEEL_RENAMED_AGENTS, KEEL_WORKFLOWS, Report, _content_names, lint
 from keel_plugin.manifest import read
 
 
@@ -20,7 +20,10 @@ def test_the_lists_are_keels_content():
     builtin = re.search(r"^BUILTIN_ROLES = \{(.*?)^\}", prompts, re.M | re.S).group(1)
     no_file = set(re.findall(r'^    "([a-z0-9-]+)":', builtin, re.M))
     assert no_file == {"contract-author"}
-    assert KEEL_AGENTS == {f.stem for f in (REPO / "content/agents").glob("*.md")} | no_file
+    assert KEEL_AGENTS == {f.stem for f in (REPO / "content/agents").glob("*.md")} | no_file | KEEL_RENAMED_AGENTS
+    names = (REPO / "engine/keel_engine/agent_names.py").read_text()
+    renamed = re.search(r"^RENAMED: dict\[str, str\] = \{(.*?)^\}", names, re.M | re.S).group(1)
+    assert KEEL_RENAMED_AGENTS == set(re.findall(r'^    "([a-z0-9-]+)":', renamed, re.M))
 
 
 def test_a_content_name_of_keels_is_an_error(tmp_path, run):

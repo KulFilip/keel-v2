@@ -179,7 +179,7 @@ def test_after_an_agent_step_formatters_run_and_findings_reach_the_next_agent(cl
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", plan)
     w = wf([{"id": "green", "kind": "agent", "name": "green", "agent": "implementer", "phase": "green"},
-            {"id": "look", "kind": "agent", "name": "look", "agent": "reviewer", "phase": "review"},
+            {"id": "look", "kind": "agent", "name": "look", "agent": "lens-reviewer", "phase": "review"},
             {"id": "g", "kind": "gate", "name": "check"}])
     tid = start(client, repo, workflow=w)
     s = wait(client, tid)

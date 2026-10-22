@@ -43,13 +43,13 @@ class Stub:
         if m == "GET" and path == "/api/projects/shop/agents":
             return ok([{"id": "reproducer", "overridden": [], "skills": []},
                        {"id": "investigator", "overridden": [], "skills": []},
-                       {"id": "reviewer", "overridden": ["skills"], "skills": self.reviewer_skills}])
+                       {"id": "lens-reviewer", "overridden": ["skills"], "skills": self.reviewer_skills}])
         if m == "PUT" and path.startswith("/api/projects/shop/skills/"):
             self.on[path.rsplit("/", 1)[1]] = body["agents"]
             return ok({"id": path.rsplit("/", 1)[1], "agents": body["agents"]})
-        if m == "PUT" and path == "/api/projects/shop/agents/reviewer":
+        if m == "PUT" and path == "/api/projects/shop/agents/lens-reviewer":
             self.reviewer_skills = body["skills"]
-            return ok({"id": "reviewer"})
+            return ok({"id": "lens-reviewer"})
         if path == "/api/projects/shop/skills/import":
             return ok({"id": "changelog-entries", "tokens": 30, "agents": []})
         if path == "/api/projects/shop/skills/market/install":
@@ -131,13 +131,15 @@ async def test_import_from_a_link(stub):
 
 
 async def test_attach_and_detach(stub):
+    # "reviewer" is the lens-reviewer's old name: it still names that agent
     done = await call(stub, "keel_skill_attach", {"skill": "debugging", "agents": ["investigator", "reviewer"]})
-    assert done == "put debugging on investigator, reviewer on shop; it is loaded by reproducer, investigator, reviewer now, from the next run."
+    assert done == ("put debugging on investigator, lens-reviewer on shop; it is loaded by reproducer, investigator, "
+                    "lens-reviewer now, from the next run.")
     assert stub.reviewer_skills == ["review", "debugging"]       # the reviewer's own list wins over the skill's, so it changes too
     again = await call(stub, "keel_skill_attach", {"skill": "debugging", "agents": ["investigator"]})
     assert again == "debugging was already on investigator: nothing changed."
-    off = await call(stub, "keel_skill_attach", {"skill": "debugging", "agents": ["reproducer", "reviewer"], "detach": True})
-    assert off.startswith("took debugging off reproducer, reviewer") and stub.on["debugging"] == ["investigator"]
+    off = await call(stub, "keel_skill_attach", {"skill": "debugging", "agents": ["reproducer", "lens-reviewer"], "detach": True})
+    assert off.startswith("took debugging off reproducer, lens-reviewer") and stub.on["debugging"] == ["investigator"]
     assert stub.reviewer_skills == ["review"]
     assert "no agent ghost on shop" in await call(stub, "keel_skill_attach", {"skill": "debugging", "agents": ["ghost"]})
 

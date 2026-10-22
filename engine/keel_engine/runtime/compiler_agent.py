@@ -7,7 +7,7 @@ import time
 import uuid
 
 from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, prompts, security_actions, spec_check, stacks, tools as tool_runner
-from .. import addons, extensions, models, rules
+from .. import addons, agent_names, extensions, models, rules
 from ..models import catalog, usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
 from ..models.stream import DeltaThrottle
@@ -125,22 +125,22 @@ class AgentMixin:
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
                                      pid=ctx.project_id or "", writes_spec=prompts.spec_writer(step),
                                      ac_commits=flow_actions.ac_commits(root, ac["id"], state.get("base_head"))
-                                     if ac and agent == "ac-reviewer" else None)
+                                     if ac and agent == "criterion-reviewer" else None)
         met = [a for a in state.get("acs") or [] if a.get("status") == _c.ALREADY_MET]
-        if agent == "ac-reviewer" and ac and ac.get("status") == _c.ALREADY_MET:
+        if agent == "criterion-reviewer" and ac and ac.get("status") == _c.ALREADY_MET:
             # 0.18.28 "already passes", approved by the run mode: the test is all there is to review
             prompt += (f"\n\n{ac['id']} passed before any code was written for it (\"already passes\"), so there is no "
                        "GREEN commit: review its test only. Focus on what lets a passing test lie or break others: "
                        "isolation (it depends on another test's data or order), cleanup (it writes to the database, files "
                        "or a cache and leaves them behind, also on a second connection or a committed transaction), and "
                        "assertions (it asserts something that was true before the criterion, or nothing at all).")
-        if agent == "code-reviewer" and met:
+        if agent == "branch-reviewer" and met:
             seen = (state.get("data") or {}).get("already_met") or {}
             prompt += ("\n\nNot reviewed per AC: these criteria passed before any code was written (\"already passes\"), so "
                        "their tests had no GREEN to prove them. Review each test here: isolation, cleanup of what it "
                        "writes (database rows, files), and whether its assertions prove the criterion.\n"
                        + "\n".join(f"- {a['id']} {a.get('title', '')}"
-                                   + (" (approved by the run mode; the ac-reviewer read its test)" if (seen.get(a["id"]) or {}).get("auto")
+                                   + (" (approved by the run mode; the criterion-reviewer read its test)" if (seen.get(a["id"]) or {}).get("auto")
                                       else " (approved by a person; no per-AC review)") for a in met))
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
@@ -738,10 +738,10 @@ class AgentMixin:
 
     def _item_agent(self, step: Step, item: dict) -> str:
         """The agent for one item of a fan-out: the item's own `agent` when the list was made by the flow's code
-        (review_scope: reviewer, code-reviewer or ac-reviewer), never when an agent's answer made the list."""
+        (review_scope: lens-reviewer, branch-reviewer or criterion-reviewer), never when an agent's answer made the list."""
         own = item.get("agent")
         if own and not any(s.collect == step.items_from for s in self.wf.steps):
-            return str(own)
+            return agent_names.canonical(str(own)) or ""
         return step.agent or ""
 
     @staticmethod

@@ -8,6 +8,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
+from .. import agent_names
+
 StepKind = Literal["agent", "code", "gate", "branch", "parallel"]
 OnLimit = Literal["pause", "cheaper", "stop"]
 
@@ -17,6 +19,12 @@ class Lane(BaseModel):
     name: str
     sub: str | None = None          # agent id (agent lane) or action (code lane)
     kind: Literal["agent", "code"]
+
+    @model_validator(mode="after")
+    def _current_agent_name(self):
+        if self.kind == "agent":
+            self.sub = agent_names.canonical(self.sub)    # an old agent name (agent_names.RENAMED) runs the new agent
+        return self
 
 
 class Step(BaseModel):
@@ -117,6 +125,15 @@ class Step(BaseModel):
     def _for_each_runs_per_item(self):
         if self.for_each:
             self.per_item = True       # the loop's first step is one of its steps
+        return self
+
+    @model_validator(mode="after")
+    def _current_agent_name(self):
+        """An old agent name (agent_names.RENAMED) runs the new agent; a step model that names an agent (its model
+        setting) follows it too."""
+        self.agent = agent_names.canonical(self.agent)
+        if agent_names.is_old(self.model):
+            self.model = agent_names.canonical(self.model)
         return self
 
     @property

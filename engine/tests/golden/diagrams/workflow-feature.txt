@@ -24,7 +24,7 @@ workflow feature "feature (keel)" - 126 steps, 19 gates
       \  o  edit the spec  (agent explorer)
       \  #  criteria + plan for the gate  (code spec_sync)
       \       then -> spec approval  (loops back)
-      \  o  review the spec before approving  (agent reviewer)
+      \  o  review the spec before approving  (agent lens-reviewer)
       \  #  criteria + plan + the review for the gate  (code spec_sync)
       \       then -> spec approval  (loops back)
       \  #  the interview starts again  (code spec_restart)

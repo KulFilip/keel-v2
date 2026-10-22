@@ -33,10 +33,13 @@ PYTHON_LIBRARIES = ("requirements.lock", "requirements.txt")
 # tests/test_lint_names.py checks the lists against keel-v2's content/.
 KEEL_WORKFLOWS = frozenset({"change", "clarify", "cover", "diagnose", "feature", "fix", "hunt", "hunt-next", "implement", "init",
                             "knowledge-refresh", "lint", "plugin", "quick", "review", "review-pr", "ship", "small", "spike"})
-KEEL_AGENTS = frozenset({"ac-reviewer", "arch-surveyor", "bulk-reader", "code-reviewer", "contract-author",
+# The review agents' old names (keel-v2's engine/keel_engine/agent_names.py RENAMED) stay keel's: a workflow that says
+# one still runs keel's agent, and a plugin cannot bring an agent with one.
+KEEL_RENAMED_AGENTS = frozenset({"ac-reviewer", "code-reviewer", "reviewer", "ticket-reviewer"})
+KEEL_AGENTS = frozenset({"arch-surveyor", "branch-reviewer", "bulk-reader", "contract-author", "criterion-reviewer",
                          "dependency-triager", "e2e-author", "explorer", "hunter", "implementer", "investigator",
-                         "lane-runner", "librarian", "prover", "reproducer", "reviewer", "security-auditor",
-                         "setup-doctor", "test-author", "ticket-reviewer", "web-researcher"})
+                         "lane-runner", "lens-reviewer", "librarian", "pr-reviewer", "prover", "reproducer",
+                         "security-auditor", "setup-doctor", "test-author", "web-researcher"}) | KEEL_RENAMED_AGENTS
 FRONT_NAME = re.compile(r"^name:\s*['\"]?([^'\"\s#]+)", re.M)
 WORKFLOW_ID = re.compile(r"^id:\s*['\"]?([^'\"\s#]+)", re.M)
 

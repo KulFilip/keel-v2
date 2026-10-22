@@ -1,6 +1,6 @@
 ---
-name: reviewer
-description: Reviews a diff against a spec or acceptance criteria in a fresh context, one lens at a time (correctness, security, performance, architecture, assertions). Use at an AC gate, in the coverage loop and in the ship blueprint.
+name: lens-reviewer
+description: Reviews a diff against the spec through one lens (correctness, security, performance, architecture or assertions) in a fresh context. Runs one per lens — in the ship review, the coverage loop and the review flow.
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high

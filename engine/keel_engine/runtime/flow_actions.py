@@ -134,10 +134,10 @@ def review_scope(a):
         return _ok(f"Review scope: {scope['scope']} ({len(files)} file(s)); {lint[0]}.", "\n".join(files[:60]),
                    {"data": {**a.data, "review_lenses": [], "lint_report": lint[1]}})
     if low == "code":
-        items = [{"id": "code", "title": "whole-branch code review", "agent": "code-reviewer", **scope}]
+        items = [{"id": "code", "title": "whole-branch code review", "agent": "branch-reviewer", **scope}]
     else:
         lenses = _all_lenses(cfg) if low == "all" else [low]
-        items = [{"id": lens, "title": f"{lens} lens", "agent": "reviewer", "lens": lens, **scope} for lens in lenses]
+        items = [{"id": lens, "title": f"{lens} lens", "agent": "lens-reviewer", "lens": lens, **scope} for lens in lenses]
     data = {**a.data, "review_lenses": items, **({"lint_report": lint[1]} if lint else {})}
     return _ok(f"Review scope: {scope['scope']} ({len(files)} file(s)); " + ", ".join(i["title"] for i in items)
                + (f"; {lint[0]}" if lint else "") + ".",
@@ -169,7 +169,7 @@ def _ac_scope(a, cfg: dict, ac_id: str):
     if missing:
         return _stop(f"{ac_id}: no {' and no '.join(missing)} commit found.",
                      "Reviewing half a criterion reads as a clean result; finish the criterion first.")
-    item = {"id": ac_id, "title": f"{ac_id} review", "agent": "ac-reviewer", "ac": ac_id, "green": green}
+    item = {"id": ac_id, "title": f"{ac_id} review", "agent": "criterion-reviewer", "ac": ac_id, "green": green}
     if single:
         item["single_commit"] = True
     else:
@@ -202,7 +202,7 @@ def ac_commit(root: str, prefix: str, ac_id: str, since: str | None = None) -> t
 
 def ac_evidence(root: str, ac: dict, acs: list[dict], review: str | None, note: str = "", since: str | None = None) -> str:
     """What the AC gate shows (keel v1's AC gate: the board, the review word for word), as Markdown sections: the
-    criterion, its RED commit and test files, its GREEN commit and diffstat, the ac-reviewer's verdict and answer, and
+    criterion, its RED commit and test files, its GREEN commit and diffstat, the criterion-reviewer's verdict and answer, and
     the board."""
     ac_id = ac["id"]
     parts = [md.section("Criterion", f"{md.code(ac_id)} [{ac.get('layer', 'API')}] {md.safe_words(ac.get('title', ''))}")]
@@ -229,7 +229,7 @@ def ac_evidence(root: str, ac: dict, acs: list[dict], review: str | None, note: 
         m = _AC_REVIEW.findall(text)
         verdict = m[-1].lower() if m else "no verdict line"
         body = text if len(text) <= REVIEW_MAX else text[:REVIEW_MAX] + "\n... (cut)"
-        parts.append(md.section("Review", f"**AC-REVIEW: {verdict}**", "The ac-reviewer's answer:", md.demote(body)))
+        parts.append(md.section("Review", f"**AC-REVIEW: {verdict}**", "The criterion-reviewer's answer:", md.demote(body)))
     else:
         parts.append(md.section("Review", "**AC-REVIEW: no review ran for this criterion**"))
     done = [a["id"] for a in acs if a.get("status") in ("done", "already-met") and a["id"] != ac_id]
