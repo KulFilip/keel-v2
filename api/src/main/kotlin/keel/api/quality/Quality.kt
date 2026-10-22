@@ -22,15 +22,6 @@ import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RestController
-import java.nio.file.Files
-import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
@@ -364,23 +355,4 @@ class QualityService(
         jdbc.update("UPDATE quality_schedule SET last_run_date = ? WHERE id = 1", today)
         runCatching { start(StartQuality(s.flows, s.models), "nightly") }.onFailure { log.info("nightly quality run not started: {}", it.message) }
     }
-}
-
-@RestController
-@RequestMapping("/api/quality")
-class QualityController(private val quality: QualityService) {
-    @GetMapping
-    fun view(): QualityView = quality.view()
-
-    @PostMapping("/runs")
-    fun start(@RequestBody body: StartQuality): QualityRun = quality.start(body)
-
-    @GetMapping("/runs/{id}")
-    fun run(@PathVariable id: String): QualityRun = quality.run(id)
-
-    @PostMapping("/runs/{id}/stop")
-    fun stop(@PathVariable id: String): QualityRun = quality.stop(id)
-
-    @PutMapping("/schedule")
-    fun schedule(@RequestBody body: QualitySchedule): QualitySchedule = quality.saveSchedule(body)
 }

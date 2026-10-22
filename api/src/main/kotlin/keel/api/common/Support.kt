@@ -139,6 +139,18 @@ class KvStore(private val jdbc: JdbcTemplate) {
 }
 
 object Db {
+    /** The saved JSON of one `settings` row (its scope), or null. (The `kv` table is [KvStore]'s.) */
+    fun settingsJson(jdbc: JdbcTemplate, scope: String): String? =
+        jdbc.query("SELECT json FROM settings WHERE scope = ?", { rs, _ -> rs.getString(1) }, scope).firstOrNull()
+
+    /** Writes one `settings` row as JSON, whether or not it exists yet. */
+    fun saveSettings(jdbc: JdbcTemplate, scope: String, value: Any?) {
+        jdbc.update(
+            "INSERT INTO settings(scope, json) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET json = excluded.json",
+            scope, Json.write(value),
+        )
+    }
+
     /** Runs an INSERT on one connection and returns the new rowid. */
     fun insertId(jdbc: JdbcTemplate, sql: String, vararg args: Any?): Long =
         jdbc.execute(org.springframework.jdbc.core.ConnectionCallback { con ->

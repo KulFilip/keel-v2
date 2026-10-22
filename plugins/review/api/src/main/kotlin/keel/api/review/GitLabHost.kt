@@ -2,14 +2,13 @@ package keel.api.review
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.common.RestClients
 import org.springframework.http.MediaType
-import org.springframework.http.client.JdkClientHttpRequestFactory
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
 import java.net.URI
 import java.net.URLEncoder
-import java.net.http.HttpClient
 import java.time.Duration
 import java.util.Base64
 
@@ -30,8 +29,7 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
     private val ownHost = Paging.sameHost(root)
 
     private val rest: RestClient by lazy {
-        val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(8)).build()
-        RestClient.builder().requestFactory(JdkClientHttpRequestFactory(http).apply { setReadTimeout(Duration.ofSeconds(30)) })
+        RestClients.builder(Duration.ofSeconds(8), Duration.ofSeconds(30))
             .defaultHeader("PRIVATE-TOKEN", token)
             .build()
     }

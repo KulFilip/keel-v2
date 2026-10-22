@@ -1,6 +1,7 @@
 package keel.api.events
 
 import keel.api.common.Forbidden
+import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -9,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
-import java.security.MessageDigest
 
 @RestController
 class EventController(
@@ -28,7 +28,7 @@ class EventController(
         @RequestBody body: List<EngineEvent>,
     ): Map<String, Any> {
         val expected = props.internalToken
-        val ok = expected.isNotEmpty() && token != null && MessageDigest.isEqual(token.toByteArray(), expected.toByteArray())
+        val ok = expected.isNotEmpty() && token != null && Hash.constantTimeEquals(token, expected)
         if (!ok) throw Forbidden("Wrong or missing X-Keel-Token", "Set KEEL_INTERNAL_TOKEN for the api and the engine (keel2 does).")
         val stored = events.ingest(body)
         return mapOf("ok" to true, "stored" to stored)

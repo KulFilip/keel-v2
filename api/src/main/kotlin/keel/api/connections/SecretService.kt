@@ -1,6 +1,7 @@
 package keel.api.connections
 
 import keel.api.common.BadRequest
+import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Time
@@ -8,7 +9,6 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.nio.file.Files
-import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -29,7 +29,7 @@ class SecretService(
 
     private val key: SecretKey by lazy {
         val bytes = if (props.secret.isNotBlank()) {
-            MessageDigest.getInstance("SHA-256").digest(props.secret.toByteArray())
+            Hash.sha256(props.secret.toByteArray())
         } else {
             val f = props.dataDir.resolve("master.key")
             if (Files.isRegularFile(f)) {

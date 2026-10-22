@@ -12,11 +12,6 @@ import keel.api.workflows.Step
 import keel.api.workflows.Workflow
 import keel.api.workflows.WorkflowService
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -253,16 +248,4 @@ class WikiService(
             return if (m.groupValues[1].toBigInteger() == number.toBigInteger()) m.groupValues[2].trim() else title
         }
     }
-}
-
-/** The Wiki page's reads: its table of contents and one page (kb:<section>, spec:<path>, wf:<id>, runbook, adr:<file>). */
-@RestController
-@RequestMapping("/api/projects/{pid}/wiki")
-class WikiController(private val wiki: WikiService) {
-
-    @GetMapping
-    fun wiki(@PathVariable pid: String): Wiki = wiki.wiki(pid)
-
-    @GetMapping("/page")
-    fun page(@PathVariable pid: String, @RequestParam id: String): WikiPage = wiki.page(pid, id)
 }

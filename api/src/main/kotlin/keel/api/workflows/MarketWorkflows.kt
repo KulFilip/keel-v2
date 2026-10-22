@@ -7,25 +7,15 @@ import keel.api.agents.AgentCatalog
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.NotFound
 import keel.api.common.Slug
 import keel.api.marketplace.Marketplace
 import keel.api.pluginhost.PluginHost
 import keel.api.projects.ProjectService
-import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
-import org.springframework.http.MediaType
-import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
 import java.io.ByteArrayOutputStream
-import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -372,7 +362,7 @@ class MarketWorkflows(
         private val SEMVER = Regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$")
 
         fun sha256(text: String): String =
-            MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+            Hash.sha256Hex(text)
 
         private fun and(words: List<String>) = if (words.size == 1) words[0] else words.dropLast(1).joinToString(", ") + " and " + words.last()
 
@@ -397,36 +387,5 @@ class MarketWorkflows(
          */
         fun exportYaml(yaml: String): String =
             Regex("(?m)^version:[ \\t]*+(?![0-9]+[ \\t]*(#.*)?$).*\\n?").replace(yaml, "")
-    }
-}
-
-/** The workflow marketplace's routes (docs/plugins/21-workflow-marketplace.md §9). */
-@RestController
-@RequestMapping("/api")
-class MarketWorkflowController(private val market: MarketWorkflows) {
-    @GetMapping("/marketplace/workflows")
-    fun search(@RequestParam(required = false) q: String?, @RequestParam(required = false) category: String?,
-               @RequestParam(required = false) project: String?): JsonNode = market.search(q, category, project)
-
-    @GetMapping("/marketplace/workflows/{name}")
-    fun detail(@PathVariable name: String, @RequestParam(required = false) project: String?): JsonNode = market.detail(name, project)
-
-    @PostMapping("/projects/{pid}/workflows/market/install")
-    fun install(@PathVariable pid: String, @RequestBody body: MarketInstallBody): MarketInstallResult = market.install(pid, body)
-
-    @PostMapping("/projects/{pid}/workflows/market/{wid}/update")
-    fun update(@PathVariable pid: String, @PathVariable wid: String, @RequestBody(required = false) body: MarketUpdateBody?): MarketUpdateResult =
-        market.update(pid, wid, body ?: MarketUpdateBody())
-
-    /** A zip: <name>-<version>.yaml, workflows/<name>.yml and PUBLISH.md. keel never signs: the person does. */
-    @GetMapping("/workflows/{wid}/publish")
-    fun publish(@PathVariable wid: String, @RequestParam(required = false) name: String?, @RequestParam(required = false) version: String?,
-                @RequestParam(required = false) summary: String?, @RequestParam(required = false) category: String?,
-                @RequestParam(required = false) publisher: String?): ResponseEntity<ByteArray> {
-        val (file, bytes) = market.publish(wid, name, version, summary, category, publisher)
-        return ResponseEntity.ok()
-            .contentType(MediaType.parseMediaType("application/zip"))
-            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=$file")
-            .body(bytes)
     }
 }

@@ -132,22 +132,10 @@ class LoginService(
     private fun view(s: Session) = LoginView(s.id, s.provider, s.status, s.url, s.code, s.message, s.hint)
 
     private fun read(s: Session) {
-        val buf = ByteArray(4096)
-        val input = s.proc.inputStream
-        while (true) {
-            val n = try { input.read(buf) } catch (e: Exception) { -1 }
-            if (n < 0) break
-            synchronized(s.out) {
-                s.out.append(String(buf, 0, n, Charsets.UTF_8))
-                if (s.out.length > 200_000) s.out.delete(0, s.out.length - 100_000)
-            }
-            parse(s)
-        }
+        PtyOutput.pump(s.proc, s.out, 200_000, 100_000) { parse(s) }
     }
 
-    private fun clean(s: Session): String = synchronized(s.out) {
-        s.out.toString().replace(Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]"), "").replace(Regex("\u001B][^\u0007]*\u0007"), "")
-    }
+    private fun clean(s: Session): String = PtyOutput.clean(s.out)
 
     private fun parse(s: Session) {
         if (s.status in setOf("done", "failed", "cancelled")) return

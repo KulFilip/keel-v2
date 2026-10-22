@@ -6,18 +6,13 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import keel.api.common.BadRequest
 import keel.api.common.ErrorBody
-import keel.api.common.Forbidden
+import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
-import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.filter.OncePerRequestFilter
-import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
@@ -46,32 +41,18 @@ class McpTokens(props: KeelProperties) {
     companion object {
         val LEVELS = listOf("read", "write", "admin")
         fun rank(level: String): Int = LEVELS.indexOf(level)
-        fun same(a: String, b: String): Boolean = MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
+        fun same(a: String, b: String): Boolean = Hash.constantTimeEquals(a, b)
         private val random = SecureRandom()
-        private fun newToken(): String = ByteArray(32).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        private fun newToken(): String = Hash.hex(ByteArray(32).also { random.nextBytes(it) })
         private fun hmac(key: String, text: String): String {
             val mac = javax.crypto.Mac.getInstance("HmacSHA256")
             mac.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(), "HmacSHA256"))
-            return mac.doFinal(text.toByteArray()).joinToString("") { "%02x".format(it) }
+            return Hash.hex(mac.doFinal(text.toByteArray()))
         }
     }
 }
 
 data class McpTokenRequest(val level: String = "")
-
-@RestController
-class McpTokenController(private val tokens: McpTokens, private val props: KeelProperties) {
-
-    /** The token of one MCP level, only for a caller with the internal token (keel2 mcp, the engine). */
-    @PostMapping("/api/mcp/token")
-    fun token(@RequestHeader("X-Keel-Token", required = false) internal: String?, @RequestBody body: McpTokenRequest): Map<String, String> {
-        val expected = props.internalToken
-        if (expected.isEmpty() || internal == null || !McpTokens.same(internal, expected)) {
-            throw Forbidden("Wrong or missing X-Keel-Token", "Only keel2 mcp and keel's engine can get an MCP level token.")
-        }
-        return mapOf("level" to body.level, "token" to tokens.tokenFor(body.level))
-    }
-}
 
 /**
  * v0.16.1 the api refuses an MCP call above the level its token proves. It only looks at requests that say they come

@@ -7,13 +7,6 @@ import keel.api.common.NotFound
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.DeleteMapping
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RestController
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -194,22 +187,10 @@ class GitHubLoginService(
     }
 
     private fun readGh(s: Session) {
-        val buf = ByteArray(4096)
-        val input = s.proc!!.inputStream
-        while (true) {
-            val n = try { input.read(buf) } catch (e: Exception) { -1 }
-            if (n < 0) break
-            synchronized(s.out) {
-                s.out.append(String(buf, 0, n, Charsets.UTF_8))
-                if (s.out.length > 100_000) s.out.delete(0, s.out.length - 50_000)
-            }
-            parseGh(s)
-        }
+        PtyOutput.pump(s.proc!!, s.out, 100_000, 50_000) { parseGh(s) }
     }
 
-    private fun cleanOut(s: Session): String = synchronized(s.out) {
-        s.out.toString().replace(Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]"), "").replace(Regex("\u001B][^\u0007]*\u0007"), "")
-    }
+    private fun cleanOut(s: Session): String = PtyOutput.clean(s.out)
 
     /** gh prints "! First copy your one-time code: ABCD-1234" and "Open this URL to continue in your web browser: https://…/login/device". */
     private fun parseGh(s: Session) {
@@ -403,23 +384,3 @@ class GitHubLoginService(
 }
 
 data class GitHubSignOut(val removed: Boolean, val revokedAtGitHub: Boolean, val note: String)
-
-@RestController
-@RequestMapping("/api/github")
-class GitHubLoginController(private val login: GitHubLoginService) {
-    @PostMapping("/login")
-    fun start(@RequestBody(required = false) body: GitHubLoginStart?): GitHubLoginView = login.start(body?.host.orEmpty())
-
-    @GetMapping("/login/{id}")
-    fun get(@PathVariable id: String): GitHubLoginView = login.get(id)
-
-    @DeleteMapping("/login/{id}")
-    fun cancel(@PathVariable id: String): GitHubLoginView = login.cancel(id)
-
-    /** Sign out: removes keel's saved token. It says plainly that GitHub is not told (revoked_at_github). */
-    @DeleteMapping
-    fun signOut(): Map<String, Any> {
-        val r = login.signOut()
-        return mapOf("ok" to true, "removed" to r.removed, "revoked_at_github" to r.revokedAtGitHub, "note" to r.note)
-    }
-}

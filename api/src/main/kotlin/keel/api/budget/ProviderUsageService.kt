@@ -11,10 +11,6 @@ import keel.api.notifications.NotificationService
 import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RestController
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -248,13 +244,4 @@ private fun Map<String, Any?>.num(key: String): Double? = when (val v = this[key
     is Number -> v.toDouble()
     is String -> v.toDoubleOrNull()
     else -> null
-}
-
-@RestController
-class ProviderUsageController(private val usage: ProviderUsageService) {
-    @GetMapping("/api/usage/providers")
-    fun list(): List<ProviderUsage> = usage.list()
-
-    @PostMapping("/api/usage/providers/{id}/refresh")
-    fun refresh(@PathVariable id: String): ProviderUsage = usage.refresh(id)
 }

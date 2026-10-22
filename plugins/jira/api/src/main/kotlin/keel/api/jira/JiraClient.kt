@@ -3,12 +3,12 @@ package keel.api.jira
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import keel.api.common.RestClients
 import keel.api.tasks.TicketClient
 import keel.api.tasks.TicketException
 import keel.api.tasks.TicketMove
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.MediaType
-import org.springframework.http.client.JdkClientHttpRequestFactory
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
@@ -78,9 +78,7 @@ class JiraClient(
     } else "Bearer $token"
 
     private val rest: RestClient by lazy {
-        val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(8))
-            .followRedirects(HttpClient.Redirect.NEVER).build()
-        RestClient.builder().requestFactory(JdkClientHttpRequestFactory(http).apply { setReadTimeout(timeout) })
+        RestClients.builder(Duration.ofSeconds(8), timeout, HttpClient.Redirect.NEVER)
             .defaultHeader("Authorization", auth)
             .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
             // Jira Server refuses some writes without it (XSRF check) when the call does not look like an API client.

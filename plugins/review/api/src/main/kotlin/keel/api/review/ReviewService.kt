@@ -3,6 +3,7 @@ package keel.api.review
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.events.EventHub
@@ -14,7 +15,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -93,7 +93,7 @@ class ReviewService(
     }
 
     private fun me(h: CodeHost): String {
-        val k = h.ref.host + ":" + MessageDigest.getInstance("SHA-256").digest(h.authHeader().toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+        val k = h.ref.host + ":" + Hash.sha256Hex(h.authHeader()).take(16)
         return logins.getOrPut(k) { h.me() }
     }
 

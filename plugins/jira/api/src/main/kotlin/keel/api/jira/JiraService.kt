@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.Json
 import keel.api.common.NotFound
 import keel.api.common.Time
@@ -14,7 +15,6 @@ import keel.api.tasks.TaskStatus
 import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import java.security.MessageDigest
 
 /** A project's Jira connection, without the token (that is a secret). */
 data class JiraSettings(
@@ -299,6 +299,6 @@ class JiraService(
             return if (p.length <= 35) "jira-$p" else "jira-${p.take(26)}-${sha(pid).take(8)}"
         }
 
-        private fun sha(s: String) = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
+        private fun sha(s: String) = Hash.sha256Hex(s)
     }
 }
