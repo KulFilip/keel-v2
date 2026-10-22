@@ -107,6 +107,9 @@ class Settings(BaseModel):
     plugins: list[str] | None = None
     push_pr: Literal["ask", "auto", "never"] | None = None
     branch_pattern: str | None = None
+    # the Supervisor plugin (plugins/supervisor): {on, mode, model, effort, cap_tokens, max_answers, policy}; its own
+    # route checks and changes it during a run
+    supervisor: dict[str, Any] | None = None
 
 
 class McpServerSpec(BaseModel):

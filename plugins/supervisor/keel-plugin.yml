@@ -1,0 +1,52 @@
+# The Supervisor as a plugin (docs/plans/supervisor.md). A general agent on a strong model that watches a project's
+# flows, looks at each gate from the project's context, and answers it or calls the person. The version must equal
+# VERSION in engine/keel_plugin_supervisor/__init__.py (engine/tests/test_supervisor.py checks it). Each part is
+# written on one line (scripts/build-plugin.sh reads them).
+schema: 1
+name: supervisor
+title: Supervisor
+version: 0.1.0
+publisher: keel
+summary: a strong model that watches your flows, answers their gates from the project's own context, and calls you when it is unsure, stuck or out of budget.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_supervisor }
+  api: { jars: [api/keel-plugin-supervisor.jar] }
+  web: { entry: web/index.js }
+per_project: false
+contributes:
+  tui:
+    commands:
+      - name: supervisor
+        args: "<log|status|on|off|shadow|act>"
+        summary: the Supervisor of the flow now - what it decided and why, or turn it on, off, shadow or act
+        sub:
+          log:
+            summary: its last decisions in this project, with their reasons
+            call: { path: "/projects/{pid}/supervisor/decisions?limit=15" }
+            show: { items: decisions, line: "{step} {ac}  {outcome} {decision}  ({confidence}, {tokens} tokens)  {summary}", empty: "it has not looked at anything yet", max: 15 }
+          status:
+            summary: is it on for the flow now, its mode and its tokens
+            call: { path: "/projects/{pid}/supervisor/flow" }
+            show: { title: "Supervisor on: {settings.on} · mode {settings.mode} · {used.tokens} of {settings.cap_tokens} tokens{note}" }
+          "on":
+            summary: turn it on for the flow now (shadow mode first, unless you set act)
+            confirm: Turn the Supervisor on for this flow? Its turns cost tokens.
+            call: { method: POST, path: "/projects/{pid}/supervisor/flow", body: { "on": true } }
+            show: { title: "Supervisor on: {settings.on} · mode {settings.mode}{note}" }
+          "off":
+            summary: turn it off for the flow now
+            confirm: Turn the Supervisor off for this flow?
+            call: { method: POST, path: "/projects/{pid}/supervisor/flow", body: { "on": false } }
+            show: { title: "Supervisor on: {settings.on}{note}" }
+          shadow:
+            summary: it only suggests; you answer every gate
+            confirm: Let the Supervisor only suggest from now on?
+            call: { method: POST, path: "/projects/{pid}/supervisor/flow", body: { mode: shadow } }
+            show: { title: "Supervisor mode {settings.mode}{note}" }
+          act:
+            summary: it answers the gates it may when it is sure, and asks you about the rest
+            confirm: Let the Supervisor answer gates by itself when it is sure?
+            call: { method: POST, path: "/projects/{pid}/supervisor/flow", body: { mode: act } }
+            show: { title: "Supervisor mode {settings.mode}{note}" }
