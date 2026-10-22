@@ -2,6 +2,7 @@ package keel.api.review
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.agents.AgentCatalog
+import keel.api.agents.AgentNames
 import keel.api.agents.AgentService
 import keel.api.common.BadRequest
 import keel.api.settings.Model
@@ -56,9 +57,8 @@ class ReviewThreadSettings(
 ) : SettingsSection {
     companion object {
         const val NAME = "review"
-        /** keel's quick checker today; another branch renames it pr-reviewer, so either name finds the other */
-        const val DEFAULT_AGENT = "ticket-reviewer"
-        val ALIASES = mapOf("pr-reviewer" to "ticket-reviewer", "ticket-reviewer" to "pr-reviewer")
+        /** keel's quick checker (ticket-reviewer before 0.18.38: a stored old name still finds it, see [agentId]) */
+        const val DEFAULT_AGENT = "pr-reviewer"
         val MODES = listOf("quick", "workflow")
         val EFFORTS = listOf("low", "medium", "high")
         const val MAX_BUTTONS = 6
@@ -94,7 +94,8 @@ class ReviewThreadSettings(
 
     fun config(values: Map<String, Any?>): ThreadConfig = ThreadConfig(
         judgeMode = (values["judge_mode"] as? String)?.takeIf { it in MODES } ?: "quick",
-        judgeAgent = (values["judge_agent"] as? String)?.trim()?.ifEmpty { null } ?: DEFAULT_AGENT,
+        // the agent's current name: a value saved under an old name (ticket-reviewer) stays as it is in the settings
+        judgeAgent = (values["judge_agent"] as? String)?.trim()?.ifEmpty { null }?.let(AgentNames::canonical) ?: DEFAULT_AGENT,
         judgeModel = model(values["judge_model"]),
         judgeEffort = (values["judge_effort"] as? String)?.takeIf { it in EFFORTS } ?: "low",
         judgeTokenCap = (values["judge_token_cap"] as? Number)?.toInt()?.coerceIn(MIN_CAP, MAX_CAP) ?: 25_000,
@@ -106,10 +107,11 @@ class ReviewThreadSettings(
 
     fun effective(pid: String): ThreadConfig = config(store().effective(pid))
 
-    /** The agent a name means here (the alias when the name itself is not there), or null. */
+    /** The agent a name means here (an old name gives its new one, keel's AgentNames), or null. */
     fun agentId(pid: String?, name: String): String? {
         val ids = agentIds(pid)
-        return name.takeIf { it in ids } ?: ALIASES[name]?.takeIf { it in ids }
+        return name.takeIf { it in ids } ?: AgentNames.canonical(name).takeIf { it in ids }
+            ?: AgentNames.oldNamesOf(name).firstOrNull { it in ids }
     }
 
     private fun agentIds(pid: String?): Set<String> =
@@ -212,7 +214,7 @@ class ReviewThreadSettings(
             "judge" to mapOf("mode" to c.judgeMode, "workflow" to c.judgeWorkflow, "allow_harder" to c.judgeAllowHarder, "token_cap" to c.judgeTokenCap,
                 "agent" to c.judgeAgent),
             "address_workflow" to c.addressWorkflow,
-            "buttons" to c.buttons.map { mapOf("id" to it.id, "label" to it.label, "mode" to it.mode, "agent" to it.agent, "workflow" to it.workflow) },
+            "buttons" to c.buttons.map { mapOf("id" to it.id, "label" to it.label, "mode" to it.mode, "agent" to AgentNames.canonicalOrNull(it.agent), "workflow" to it.workflow) },
         )
     }
 }

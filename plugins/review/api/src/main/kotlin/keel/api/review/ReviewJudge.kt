@@ -2,6 +2,7 @@ package keel.api.review
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.agents.AgentNames
 import keel.api.agents.AgentService
 import keel.api.common.Conflict
 import keel.api.common.NotFound
@@ -24,9 +25,9 @@ data class JudgeBody(val key: String = "", val again: Boolean = false, val harde
 
 /**
  * "Is the reviewer right?", made cheap on purpose: one model call with no tools and no chat history (the engine's
- * POST /agents/ask, as the Doctor uses it), as keel's ticket-reviewer agent doing its "check one claim" job. It gets
+ * POST /agents/ask, as the Doctor uses it), as keel's pr-reviewer agent doing its "check one claim" job. It gets
  * only the thread, the lines it is on ±30 from the head commit and the diff hunk; it reads nothing else. The cheap
- * model by default (the ticket-reviewer's own model when the project set one, else Settings' cheaper model), low
+ * model by default (the pr-reviewer's own model when the project set one, else Settings' cheaper model), low
  * effort; "think harder" takes the reviewer agents' model with high effort. One pass, no second check. A check that
  * would need more than keel.review.judge-cap-tokens does not run. The answer is kept per thread, last comment and head
  * commit: asking again shows it, only Check again runs the model. Its tokens are booked as an agent call (Budget).
@@ -304,7 +305,7 @@ class ReviewJudgeService(
         if (v.kind != "pr") throw Conflict("A branch has no threads", "Open its pull request.")
         val t = v.threads.firstOrNull { it.id == threadId } ?: throw NotFound("No thread $threadId on #${v.number}")
         if (t.comments.isEmpty()) throw Conflict("This thread has no comment")
-        val agent = btn.agent ?: cfg.judgeAgent
+        val agent = btn.agent?.let(AgentNames::canonical) ?: cfg.judgeAgent
         val cache = "${cacheKey(v, t)}|${keel.api.common.Hash.sha256Hex(btn.prompt + agent).take(10)}"
         val last = ai.latest(pid, key, kind, v.headSha)
         if (last?.status == "running") throw Conflict("keel is already on it", "Wait for it: it takes a few seconds.")

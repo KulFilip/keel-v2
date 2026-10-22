@@ -4,7 +4,7 @@
 // (PUT /review/settings, /projects/{pid}/review/settings); a project's own value can be reset to General.
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ErrorBox, errorParts, type SettingsSectionProps } from "@keel/web-sdk";
+import { agentName, ErrorBox, errorParts, type SettingsSectionProps } from "@keel/web-sdk";
 import {
   reviewApi,
   type ThreadButton,
@@ -13,6 +13,10 @@ import {
 } from "./reviewApi";
 
 type K = keyof ThreadSettingsValues;
+
+/** A value saved under an agent's old name stays as picked; the option says which agent it is now. */
+const agentLabel = (a: string) =>
+  agentName(a) === a ? a : `${a} (now ${agentName(a)})`;
 type Err = { message: string; hint?: string };
 
 const blankButton = (agent: string): ThreadButton => ({
@@ -184,7 +188,7 @@ export function ThreadSettings({ pid, scope }: SettingsSectionProps) {
             >
               {agents(e.judge_agent).map((a) => (
                 <option key={a} value={a}>
-                  {a}
+                  {agentLabel(a)}
                 </option>
               ))}
             </select>,
@@ -397,7 +401,7 @@ export function ThreadSettings({ pid, scope }: SettingsSectionProps) {
                   >
                     {agents(b.agent).map((a) => (
                       <option key={a} value={a}>
-                        {a}
+                        {agentLabel(a)}
                       </option>
                     ))}
                   </select>

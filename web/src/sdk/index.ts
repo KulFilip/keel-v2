@@ -54,6 +54,8 @@ export { go, useRoute } from "../state";
 // keel 0.18.6 the shared focus: the project and KeelBot chat every keel front end shows (api ui/UiFocus.kt)
 export { shareFocus, UI_FOCUS_EVENT, FOCUS_CLIENT, type UiFocus } from "../state";
 export type { Route } from "../routes";
+// agent names that changed (0.18.38: the review agents): an old name a setting still holds gives the agent's new name
+export { agentName } from "../agentNames";
 
 // keel's small ui pieces
 export {

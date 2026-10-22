@@ -122,9 +122,9 @@ export type Db = ReturnType<typeof createDb>;
 
 /** The Code Review plugin's thread settings as its api answers while nobody changed them. */
 export function reviewThreadSettings() {
-  const values = { judge_mode: "quick", judge_agent: "ticket-reviewer", judge_model: null, judge_effort: "low", judge_token_cap: 25000,
+  const values = { judge_mode: "quick", judge_agent: "pr-reviewer", judge_model: null, judge_effort: "low", judge_token_cap: 25000,
     judge_allow_harder: true, judge_workflow: "review", address_workflow: "small", thread_buttons: [] };
-  return { defaults: values, general: {}, overrides: {}, effective: values, agents: ["explorer", "ticket-reviewer"],
+  return { defaults: values, general: {}, overrides: {}, effective: values, agents: ["explorer", "pr-reviewer"],
     workflows: [{ id: "small", name: "small (keel)" }, { id: "review", name: "review (keel)" }], models: [],
     limits: { buttons: 6, label: 30, min_cap: 200, max_cap: 1000000, placeholders: ["diff", "file", "lines", "pr", "thread"] } };
 }

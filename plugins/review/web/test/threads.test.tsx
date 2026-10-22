@@ -180,7 +180,7 @@ const AI = (extra: Partial<AiState> = {}): AiState => ({
       workflow: "review",
       allow_harder: true,
       token_cap: 25000,
-      agent: "ticket-reviewer",
+      agent: "pr-reviewer",
     },
     address_workflow: "small",
     buttons: [],
@@ -567,7 +567,7 @@ describe("the review threads", () => {
             workflow: "review",
             allow_harder: false,
             token_cap: 25000,
-            agent: "ticket-reviewer",
+            agent: "pr-reviewer",
           },
           address_workflow: "fix",
           buttons: [
@@ -619,12 +619,12 @@ describe("the review threads", () => {
 });
 
 describe("Settings › Code Review threads", () => {
-  function settingsApi() {
+  function settingsApi(judge = "pr-reviewer") {
     const puts: unknown[] = [];
     let v: ThreadSettingsView = {
       defaults: {
         judge_mode: "quick",
-        judge_agent: "ticket-reviewer",
+        judge_agent: "pr-reviewer",
         judge_model: null,
         judge_effort: "low",
         judge_token_cap: 25000,
@@ -637,7 +637,7 @@ describe("Settings › Code Review threads", () => {
       overrides: {},
       effective: {
         judge_mode: "quick",
-        judge_agent: "ticket-reviewer",
+        judge_agent: judge,
         judge_model: null,
         judge_effort: "low",
         judge_token_cap: 25000,
@@ -646,7 +646,7 @@ describe("Settings › Code Review threads", () => {
         address_workflow: "small",
         thread_buttons: [],
       },
-      agents: ["explorer", "ticket-reviewer"],
+      agents: ["explorer", "pr-reviewer"],
       workflows: [
         { id: "small", name: "small" },
         { id: "fix", name: "fix" },
@@ -745,5 +745,16 @@ describe("Settings › Code Review threads", () => {
       ).toEqual(["Fix it|workflow|small", "Explain|ask|"]),
     );
     await act(async () => {});
+  });
+
+  it("keeps an agent saved under its old name as picked, and says which agent it is now", async () => {
+    settingsApi("ticket-reviewer");
+    render(<ThreadSettings pid={PID} scope="project" />);
+    const agent = (await screen.findByLabelText("Agent")) as HTMLSelectElement;
+    expect(agent.value).toBe("ticket-reviewer");
+    expect(
+      screen.getByRole("option", { name: "ticket-reviewer (now pr-reviewer)" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "pr-reviewer" })).toBeInTheDocument();
   });
 });
