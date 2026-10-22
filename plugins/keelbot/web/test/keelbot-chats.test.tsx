@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HelperSession } from "@keel/web-sdk";
+import { UI_FOCUS_EVENT, type HelperSession } from "@keel/web-sdk";
 // keel's own app and test harness: KeelBot runs inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import { KEELBOT_NOTES } from "../../../../web/src/notify";
@@ -132,6 +132,24 @@ describe("KeelBot keeps the chat when you leave", () => {
     await user.click(within(await chatList()).getByRole("button", { name: "New chat" }));
     expect(within(p).getByRole("textbox", { name: "Ask KeelBot" })).toHaveValue("a new idea");
   }, 20000);   // many steps (type, two page changes, scroll): slow CI runners need more than 5 s
+
+  it("a chat that another tab opens shows its own draft, and takes nothing of the text typed in the old chat", async () => {
+    const user = userEvent.setup();
+    db.helper.sessions = [chat("h_1", "First"), chat("h_2", "Second")];
+    localStorage.setItem(`keel2.helper.${PID}.session`, "h_1");
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    setDraft(PID, "h_2", { text: "second chat draft", mentions: [] });
+    render(<App />);
+    const p = await panel();
+    await within(p).findByText("About First.");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "typed in the first");
+    act(() => void window.dispatchEvent(new CustomEvent(UI_FOCUS_EVENT, { detail: { chats: { [PID]: "h_2" } } })));
+    await within(p).findByText("About Second.");
+    expect(within(p).getByRole("textbox", { name: "Ask KeelBot" })).toHaveValue("second chat draft");
+    expect(getDraft(PID, "h_2").text).toBe("second chat draft");
+    expect(getDraft(PID, "h_1").text).toBe("typed in the first");
+  });
 
   it("forgets a chat only when the server says it is gone, not when the server does not answer", async () => {
     db.helper.sessions = [chat("h_9", "Scores API")];

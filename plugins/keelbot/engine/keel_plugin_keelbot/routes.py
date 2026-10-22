@@ -315,9 +315,15 @@ async def post_helper_done(sid: str, body: HelperDone, request: Request):
     if runner(request).busy(sid):
         raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then press Done.")
     bus_ = request.app.state.bus
-    return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
-                                   lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message,
-                                   body.commit, body.paths)
+    r = runner(request)
+    r.committing.add(sid)             # the checks take a while: a message sent meanwhile waits, it does not start an answer
+    try:
+        return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
+                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message,
+                                       body.commit, body.paths)
+    finally:
+        r.committing.discard(sid)
+        r.send_queued(sid)
 
 
 @router.post("/helper/commands")

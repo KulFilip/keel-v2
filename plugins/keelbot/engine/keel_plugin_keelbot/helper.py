@@ -633,6 +633,22 @@ def turn_changes(sid: str, n: int) -> list[dict]:
     return out
 
 
+def _edited_since_last_turn(conn, s: dict, root: Path, paths: list[str]) -> list[str]:
+    """Of these files, the ones the person changed after KeelBot's last (not undone) answer left them: undoing the file
+    would write the old text over their edit (undo_turn checks the same). A file with no turn record is not checked."""
+    sid = s["id"]
+    _turn_table(conn)
+    reverted = {n for t in _turns(get(sid)["messages"]) if t["data"].get("reverted") for n in t["ns"]}
+    out = []
+    for rel in paths:
+        rows = conn.execute("select n, after_exists, after from helper_turn_files where session_id = ? and path = ? "
+                            "order by n desc", (sid, rel)).fetchall()
+        last = next((r for r in rows if r[0] not in reverted), None)
+        if last and _now_bytes(root, rel) != (last[2] if last[1] else None):
+            out.append(rel)
+    return out
+
+
 def undo(sid: str, path: str | None = None) -> list[dict]:
     """Put one file (or every file) back as it was before KeelBot changed it."""
     s = get(sid, messages=False)
@@ -653,6 +669,10 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
         rows = conn.execute(q, (sid, path) if path else (sid,)).fetchall()
         if path and not rows:
             raise HelperError(404, f"KeelBot did not change {path} in this chat.")
+        mine = _edited_since_last_turn(conn, s, root, [r[0] for r in rows])
+        if mine:
+            raise HelperError(409, f"You changed {', '.join(mine[:5])} after KeelBot's last answer, so keel did not undo it.",
+                              "Undo your own change first, or keep the file as it is.")
         for rel, existed, content in rows:
             f = root / rel
             if existed:
@@ -1301,6 +1321,10 @@ class HelperRunner:
         self.ask_keys: dict[str, str] = {}
         self.approvals = approvals.of(bus)
         self.commands: set[str] = set()          # 0.18.18 sessions whose person's `!command` runs now
+        # a turn that was accepted but has no task yet (it awaits a compact first), and a Done that runs the checks and
+        # commits: both make the chat busy, so a second message queues instead of starting a second answer
+        self.starting: set[str] = set()
+        self.committing: set[str] = set()
         # keel 0.18.18 the running turn's view of keel per session (its flows): the cards warn when a flow works in the
         # folder, and a flow's own branch is not KeelBot's to check out
         self.turn_keel: dict[str, dict] = {}
@@ -1390,7 +1414,7 @@ class HelperRunner:
 
     def busy(self, sid: str) -> bool:
         t = self.tasks.get(sid)
-        return bool(t and not t.done()) or sid in self.commands
+        return bool(t and not t.done()) or sid in self.commands or sid in self.starting or sid in self.committing
 
     async def run_command(self, sid: str, command: str, timeout: int = SHELL_TIMEOUT) -> dict:
         """0.18.18 keel TUI's `!command`: the person's own command, in the chat's folder (a side session's worktree),
@@ -1448,30 +1472,34 @@ class HelperRunner:
             self.bus.emit("helper.queued", sid, s["project"], step="helper",
                           data={"session": sid, "text": text[:2000], "position": len(q)})
             return {"session": sid, "queued": True, "position": len(q), "text": text}
-        if s["mode"] == "side" and not s.get("worktree"):
-            raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
-        if finalize_reverts(sid):         # 0.18.19 a new message makes /undo final (no /redo any more)
-            s = get(sid, messages=False)
-        if s["ctx_window"] and s["ctx_tokens"] / s["ctx_window"] >= COMPACT_RATIO:
-            s = await compact(sid)
-        if body.get("model"):
-            s = set_model(sid, body["model"])
-        question, command = plugins.expand(s["root"], text, body.get("plugins"))
-        # 0.18.18 the images the person named: the ones the model can see go with the turn, the others say why not
-        att = attach_images(s, models.effective(s["model"]), list(body.get("images") or []))
-        body["images_ok"] = att["images"]
-        n = add_message(sid, "user", text, data={k: v for k, v in {"command": command, "mentions": body.get("mentions"),
-                                                                    "selection": body.get("selection"),
-                                                                    "shell": body.get("shell"), "images": att["images"],
-                                                                    "images_skipped": att["skipped"]}.items() if v})
-        if s["title"] == "New chat" and s["turns"] == 0:
-            # named by the question until the first answer gives its own short title (0.18.19, _run)
-            body["auto_title"] = update(sid, title=short_title(text))["title"]
-        call_id = uuid.uuid4().hex
-        update(sid, status="running", error=None)
-        self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
-        return {"session": sid, "call_id": call_id, "n": n, "command": command, "images": att["images"],
-                "images_skipped": att["skipped"]}
+        self.starting.add(sid)      # busy from here: nothing below may let a second message start its own answer
+        try:
+            if s["mode"] == "side" and not s.get("worktree"):
+                raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
+            if finalize_reverts(sid):         # 0.18.19 a new message makes /undo final (no /redo any more)
+                s = get(sid, messages=False)
+            if s["ctx_window"] and s["ctx_tokens"] / s["ctx_window"] >= COMPACT_RATIO:
+                s = await compact(sid)
+            if body.get("model"):
+                s = set_model(sid, body["model"])
+            question, command = plugins.expand(s["root"], text, body.get("plugins"))
+            # 0.18.18 the images the person named: the ones the model can see go with the turn, the others say why not
+            att = attach_images(s, models.effective(s["model"]), list(body.get("images") or []))
+            body["images_ok"] = att["images"]
+            n = add_message(sid, "user", text, data={k: v for k, v in {"command": command, "mentions": body.get("mentions"),
+                                                                        "selection": body.get("selection"),
+                                                                        "shell": body.get("shell"), "images": att["images"],
+                                                                        "images_skipped": att["skipped"]}.items() if v})
+            if s["title"] == "New chat" and s["turns"] == 0:
+                # named by the question until the first answer gives its own short title (0.18.19, _run)
+                body["auto_title"] = update(sid, title=short_title(text))["title"]
+            call_id = uuid.uuid4().hex
+            update(sid, status="running", error=None)
+            self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
+            return {"session": sid, "call_id": call_id, "n": n, "command": command, "images": att["images"],
+                    "images_skipped": att["skipped"]}
+        finally:
+            self.starting.discard(sid)
 
     async def stop(self, sid: str) -> dict:
         self._drop_questions(sid, "The person stopped KeelBot.")
@@ -1602,31 +1630,34 @@ class HelperRunner:
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
             toolbox.readonly_label, toolbox.readonly_note = ASK_LABEL, ASK_NOTE
         self.turn_keel[sid] = dict(body.get("keel") or {})
-        if mode in ("fix", "side", "edit"):
-            # keel v1's push gate for KeelBot's own `git push` / `gh pr create` (rules.push_gate)
-            toolbox.push_blockers = await asyncio.to_thread(push_blockers_for, root, flow.get("base_head"), project)
         resumable = model.get("mode") != "api" and provider in RESUMABLE
         session = s["engine_session"] if resumable else None
         resume = bool(session)
         if resumable and not session and provider == "claude":
             session = str(uuid.uuid4())
-        hist = history(sid, before_n=n)
+        hist: list = []
         res: AgentResult | None = None
         status, err = "done", None
         before = None
         plugin_key = None
         t0 = time.monotonic()
         effort = catalog.effort_for(model)       # what the runner passes on (None: the engine's own default)
-        ev("helper.started", {"agent": AGENT, "provider": provider, "model": model.get("model"), "mode": model.get("mode"),
-                              "effort": effort,
-                              "phase": f"helper-{mode}", "session": sid, "n": n})
-        docs_before = doc_history.before_step(doc_emit, root, None, "helper")
+        docs_before: dict | None = None      # None: the turn failed before the setup read the docs
 
         def on_session(new: str):
             update(sid, engine_session=new)
 
         # everything that awaits sits in the try: a stop can come at any moment and is recorded the same way
         try:
+            # the setup sits in the try as well: an error or a Stop here must end the turn the same way (status, keys)
+            if mode in ("fix", "side", "edit"):
+                # keel v1's push gate for KeelBot's own `git push` / `gh pr create` (rules.push_gate)
+                toolbox.push_blockers = await asyncio.to_thread(push_blockers_for, root, flow.get("base_head"), project)
+            hist = history(sid, before_n=n)
+            ev("helper.started", {"agent": AGENT, "provider": provider, "model": model.get("model"), "mode": model.get("mode"),
+                                  "effort": effort,
+                                  "phase": f"helper-{mode}", "session": sid, "n": n})
+            docs_before = doc_history.before_step(doc_emit, root, None, "helper")
             before = await asyncio.to_thread(guard.snapshot, root)
             # the parts' own servers (the code graph's: the project's index, same paths), keel_engine/extensions.py
             specs, allow = await asyncio.to_thread(extensions.with_part_servers, list(body.get("mcp") or []),
@@ -1725,14 +1756,15 @@ class HelperRunner:
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
                tokens_in=cur["tokens_in"] + tin, tokens_out=cur["tokens_out"] + tout, tokens_cached=cur["tokens_cached"] + cached,
                cost_usd=round(cur["cost_usd"] + cost, 6), turns=cur["turns"] + 1, ctx_tokens=tin + tout + cached)
-        doc_history.after_step(doc_emit, root, docs_before, "keelbot", "KeelBot", None, "helper")
+        if docs_before is not None:
+            doc_history.after_step(doc_emit, root, docs_before, "keelbot", "KeelBot", None, "helper")
         ev("helper.finished", {"agent": AGENT, "status": status, "tokens_in": tin, "tokens_out": tout, "tokens_cached": cached,
                                "cost_usd": round(cost, 6), "premium_requests": int(used.get("premium_requests", 0)),
                                "result": answer[:2000], "session": sid, "n": n, "files": turn_files})
         self.tasks.pop(sid, None)
-        self._send_queued(sid)
+        self.send_queued(sid)
 
-    def _send_queued(self, sid: str) -> None:
+    def send_queued(self, sid: str) -> None:
         """0.18.28 the next message the person sent while the answer ran (in order), now that it ended."""
         q = self.queued.get(sid) or []
         if not q:

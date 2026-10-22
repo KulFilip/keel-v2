@@ -352,10 +352,18 @@ class HelperService(
             .map { it.substring(3).trim() }.filterNot { WorkspaceDoctor.isEngineFile(it) }
         if (dirty.isNotEmpty())
             throw Conflict("The project folder has uncommitted changes: ${dirty.take(5).joinToString()}", "Commit or stash them first: the folder checks out the side branch.")
-        engine.post("/helper/sessions/$sid/release", emptyMap<String, Any>())
         val branch = h.path("branch").asText()
-        val r = workspace.git(root, "checkout", "-q", branch)
+        // the checkout comes first: when it fails the session is still a side session with its worktree (the release
+        // cannot be taken back). The worktree still holds the branch, so git must be told that is fine.
+        val was = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").out.trim()
+        val r = workspace.git(root, "checkout", "-q", "--ignore-other-worktrees", branch)
         if (!r.ok) throw Conflict("Could not check out $branch", r.err.ifBlank { r.out }.take(300))
+        try {
+            engine.post("/helper/sessions/$sid/release", emptyMap<String, Any>())
+        } catch (e: Exception) {
+            if (was.isNotBlank() && was != "HEAD") workspace.git(root, "checkout", "-q", was)      // nothing changed after all
+            throw e
+        }
         val title = body.title.trim().ifBlank { h.path("title").asText() }.take(200)
         return flows.start(pid, body.workflowId.ifBlank { "change" }, title, null, request = handoverText(h))
     }
