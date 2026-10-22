@@ -73,6 +73,19 @@ data class ProcResult(val code: Int, val out: String, val err: String, val timed
 
 /** Runs a program with a timeout. Never uses a shell unless the caller passes one. */
 object Proc {
+    /** Kills a process and everything it started (the children are listed first: once the parent is gone they are lost). */
+    fun killTree(p: Process) {
+        runCatching { p.descendants().toList().forEach { it.destroyForcibly() } }
+        p.destroyForcibly()
+    }
+
+    /**
+     * The command line that runs [shellLine] inside a pseudo-terminal with `script`: GNU/Linux `script -qfec <line> /dev/null`,
+     * macOS (BSD) `script -q /dev/null sh -c <line>`.
+     */
+    fun inTerminal(shellLine: String, mac: Boolean = System.getProperty("os.name").orEmpty().lowercase().contains("mac")): List<String> =
+        if (mac) listOf("script", "-q", "/dev/null", "sh", "-c", shellLine) else listOf("script", "-qfec", shellLine, "/dev/null")
+
     fun run(cmd: List<String>, cwd: Path? = null, timeoutSec: Long = 10, env: Map<String, String> = emptyMap()): ProcResult {
         return try {
             val pb = ProcessBuilder(cmd)
@@ -86,7 +99,7 @@ object Proc {
                 val p = pb.start()
                 val done = p.waitFor(timeoutSec, TimeUnit.SECONDS)
                 if (!done) {
-                    p.destroyForcibly()
+                    killTree(p)
                     return ProcResult(-1, outFile.readText(), errFile.readText(), timedOut = true)
                 }
                 ProcResult(p.exitValue(), outFile.readText(), errFile.readText())
