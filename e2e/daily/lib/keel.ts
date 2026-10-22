@@ -98,7 +98,8 @@ export async function api(
 
 /** A browser signs in with a one-time link (POST /api/web/code). */
 export async function signIn(page: Page): Promise<void> {
-  const r = await raw("POST", "/api/web/code", { body: {} });
+  // the one-time link is for keel2 only: it asks for keel's internal token (native: $KEEL2_HOME/<name>/run/token)
+  const r = await raw("POST", "/api/web/code", { key: null, body: {}, headers: { "X-Keel-Token": process.env.KEEL_TOKEN || "" } });
   if (r.status !== 200 || !r.json?.path)
     throw new Error(`sign-in link: ${r.status} ${r.text.slice(0, 200)}`);
   await page.goto(URL_ + r.json.path);
@@ -324,6 +325,12 @@ export async function driveFlow(
       };
     }
     const r = await raw("POST", `/api/threads/${tid}/resume`, { body });
+    // 409 "running, not waiting": somebody else (the UI, the TUI) answered this gate a moment ago. Read the flow again
+    // (this still counts against the repeat limit above); every other refusal stops the driver.
+    if (r.status === 409 && /not waiting/i.test(r.text)) {
+      await sleep(2500);
+      continue;
+    }
     if (r.status < 200 || r.status >= 300)
       throw new Error(
         `resume refused (${r.status}) at ${key}: ${r.text.slice(0, 300)}`,

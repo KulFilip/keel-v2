@@ -17,7 +17,8 @@ test.describe("J0 Security", () => {
     for (const p of spellings) {
       const r = await raw("GET", p, { key: null });
       const leaks = r.json && JSON.stringify(r.json).includes(base.json[0].id);
-      if (![400, 401, 403, 404].includes(r.status) || leaks) bad.push(`${p} -> ${r.status}${leaks ? " LEAKS the project list" : ""}`);
+      const isPage = r.status === 200 && /^\s*<(!doctype|html)/i.test(r.text); // the web app's own page is public
+      if ((![400, 401, 403, 404].includes(r.status) && !isPage) || leaks) bad.push(`${p} -> ${r.status} ${r.headers["content-type"] ?? ""} ${r.text.slice(0, 80).replace(/\s+/g, " ")}${leaks ? " LEAKS the project list" : ""}`);
       // the two spellings named in the plan must be exactly 401 or 400
       if ((p === "/api;x=1/projects" || p === "/%61pi/projects") && ![400, 401].includes(r.status)) bad.push(`${p} must be 401/400, got ${r.status}`);
     }

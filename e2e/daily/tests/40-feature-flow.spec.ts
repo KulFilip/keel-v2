@@ -12,13 +12,10 @@ test.describe("J2 Feature flow", () => {
     await page.getByRole("button", { name: "Start a flow in shop" }).click();
     const dlg = page.getByRole("dialog").first();
     await expect(dlg).toBeVisible();
-    const feat = dlg.getByRole("radio", { name: /feature/i }).first();
-    if (await feat.count()) await feat.check().catch(() => feat.click());
-    const title = dlg.getByRole("textbox").first();
-    await title.fill("Save a score");
-    const fake = dlg.getByRole("checkbox", { name: /fake/i });
-    if (await fake.count()) await fake.check();
-    await dlg.getByRole("button", { name: /^start/i }).last().click();
+    await dlg.getByLabel("Workflow").selectOption({ label: await dlg.getByLabel("Workflow").locator("option", { hasText: /^feature\b/ }).first().innerText() });
+    await dlg.getByLabel(/what to build/i).fill("Save a score");
+    await dlg.getByLabel(/describe it for the agents/i).fill("A player's score is saved and shown on the shop page.");
+    await dlg.getByRole("button", { name: "Start flow" }).click();
 
     const th = await until("the flow", async () => {
       const t = (await api("GET", `/projects/${shop.id}/flow`)).thread;
@@ -34,7 +31,7 @@ test.describe("J2 Feature flow", () => {
       await expect(page.locator("main")).toContainText(r.thread.waiting!.title.slice(0, 20), { timeout: 20_000 });
       await page.goto("/#/inbox");
       await expect(page.locator('[data-testid="inbox-item"]').first()).toBeVisible();
-      const approve = page.locator('[data-testid="inbox-item"]').first().getByRole("button", { name: /^approve/i }).first();
+      const approve = page.locator('[data-testid="inbox-item"]').first().locator("button.warn, button.primary").first(); // the card's first action: Approve (or its first named choice)
       await expect(approve, "the spec gate offers an approve button").toBeVisible();
       await approve.click();
       await expect.poll(async () => (await api("GET", `/projects/${shop.id}/flow`)).thread?.waiting?.step, { timeout: 120_000 }).not.toBe(r.thread.waiting!.step);

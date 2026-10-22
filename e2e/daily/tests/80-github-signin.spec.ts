@@ -18,16 +18,16 @@ test.describe("J8 GitHub sign-in", () => {
     const errors = watchConsole(page);
     await signIn(page);
     await page.goto("/#/connections");
-    const gh = page.locator("section, article, div").filter({ hasText: /GitHub/ }).filter({ has: page.getByRole("button", { name: /sign in|log in|connect/i }) }).last();
-    await expect(gh, "a GitHub block with a sign-in button").toBeVisible({ timeout: 30_000 });
-    await gh.getByRole("button", { name: /sign in|log in|connect/i }).first().click();
+    await page.getByRole("button", { name: "Sign in with GitHub" }).click();
+    const drawer = page.getByRole("dialog", { name: /GitHub login/i });
+    await drawer.getByRole("button", { name: "Start login" }).click();
     const shown = page.getByText("AB12-CD34");
-    if (!(await shown.isVisible({ timeout: 40_000 }).catch(() => false))) {
+    if (!(await shown.waitFor({ timeout: 40_000 }).then(() => true, () => false))) {
       bug(info, { title: "GitHub sign-in does not show the one-time code", steps: ["Connections", "GitHub: Sign in"], expected: "code AB12-CD34 and a link to github.com/login/device", actual: "no code on the page after 40 s" });
     } else {
       await expect(page.locator('a[href*="github.com/login/device"]').first()).toBeVisible();
     }
-    const close = page.getByRole("button", { name: /cancel|close/i }).first();
+    const close = page.getByRole("dialog", { name: /GitHub login/i }).getByRole("button", { name: /cancel|close/i }).first();
     if (await close.isVisible().catch(() => false)) await close.click();
     await expectNoConsoleErrors(errors);
   });
