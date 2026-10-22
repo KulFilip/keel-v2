@@ -41,6 +41,7 @@ from . import contract_delta, md, prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
 from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
+from .gate_state import shallow_gates
 
 DONE = ("done", "already-met")
 AC_ID = re.compile(r"[A-Z][A-Z0-9]*-[\w.]+")
@@ -61,7 +62,7 @@ def _read(root: str, rel: str | None) -> str:
 
 
 def _gates(a) -> dict:
-    g = dict(a.state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+    g = shallow_gates(a.state)
     g["log"] = list(g.get("log") or [])
     g["skipped"] = dict(g.get("skipped") or {})
     return g
@@ -341,7 +342,7 @@ def spec_sync(a):
     answer = a.data.get("spec_gate_answer") or {}
     if a.step.startswith("spec_review") and answer.get("choice") == "review" and (a.state.get("last_answer") or "").strip():
         parts.append(md.section("Spec review (you asked for it)", "The reviewer's answer, word for word:", md.demote(a.state["last_answer"].strip()[:6000])))
-    parts.append(md.section("Your choice", 'Choose one (approve with payload {"choice": "<name>"} and a note):', md.bullets([
+    parts.append(md.section("Your choice", choices_mod.how_to(), md.bullets([
         "**approve**: freeze the spec (status frozen, approved and frozen today), commit it, go to the contract",
         "**edit**: change the criteria your note names, then come back here",
         "**rewrite**: rewrite the section your note names (goal, validation, auth, edge cases, out of scope)",
@@ -526,7 +527,7 @@ def _loop_text(a, amend: dict, last: dict | None, without=(), note: str = "") ->
         lines += ["", "The amendment said:", str(last["said"])[:1500]]
     if note:
         lines += ["", note]
-    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"} and a note):"]
+    lines += ["", choices_mod.how_to()]
     if nxt:
         lines.append(f"- first: build {_title(a, nxt)} first, then {ac}")
     lines += [f"- skip: move {ac} to the end of the list and go on with the next criterion",
@@ -622,7 +623,7 @@ def stuck(a):
             "stop": "- stop: stop the flow here (the commits so far stay)"}
     lines = [f"The {src} agent cannot go on with {ac}:", why or "(no reason given)", "",
              "Trying the same thing again will not help.",
-             f'Choose one (approve with payload {{"choice": "<name>"}} and a note; a plain approve is {choices[0]}):',
+             choices_mod.how_to(plain=f"is {choices[0]}"),
              *[says[c] for c in choices]]
     return ActionResult(False, f"{ac} is blocked: {why[:200]}", why, ask=choices_mod.for_question({
         "type": "blocked", "kind": "fix", "title": f"{ac} is blocked", "detail": "\n".join(lines), "choices": choices},
@@ -824,7 +825,7 @@ def spec_amendment(a):
     contract = str(((a.state.get("markers") or {}).get("*") or {}).get("CONTRACT") or "").lower().startswith("yes")
     if contract or amend.get("from") == "contract":
         lines.append("The API shape moves: the contract is done again before the loop goes on.")
-    lines += ["", "Choose one (approve with payload {\"choice\": \"<name>\"} and a note):",
+    lines += ["", choices_mod.how_to(),
               "- approve: commit the amendment, then back to the criteria (the contract first when the API shape moved)",
               "- context: tell keel what it was missing; the block is written again and comes back here",
               "- change: the block is close but wrong; say how",
@@ -1065,7 +1066,7 @@ def e2e_scope(a):
     data = {**a.data, "e2e": {"criteria": crit, "ids": ids, "command": cmd or None, "run": bool(cmd), "note": note},
             "e2e_tool_detail": "No e2e command is configured (commands.e2e in .keel/config.yml), so the E2E specs cannot "
                                "run here.\n\nCriteria:\n" + "\n".join(f"- {c}" for c in crit) +
-                               "\n\nChoose one (approve with payload {\"choice\": \"<name>\"}):\n"
+                               "\n\n" + choices_mod.how_to(note=False) + "\n"
                                "- write: the specs are written and committed but not run; the final review and the PR "
                                "body say so (an unrun test must not read as a passing one)\n"
                                "- check: you set commands.e2e now; keel looks again"}
@@ -1241,7 +1242,7 @@ def ship_ready(a):
     open_ += [f"- flaky: {md.code(f.get('label'))}" for f in a.state.get("flaky") or []]
     open_ += [f"- warning: {md.safe_words(w.get('text'))}" for w in a.data.get("warnings") or [] if isinstance(w, dict)]
     parts.append(md.section("Still open", "\n".join(open_[:30]) if open_ else "Still open: nothing."))
-    parts.append(md.section("Your choice", 'Choose one (approve with payload {"choice": "<name>"}; a plain approve ships):',
+    parts.append(md.section("Your choice", choices_mod.how_to(note=False, plain="ships"),
                             "\n".join(SHIP_CHOICES)))
     if a.step.endswith("_diff") and git.is_repo(a.root):
         base = a.base or "HEAD"

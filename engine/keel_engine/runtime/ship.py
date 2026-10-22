@@ -17,6 +17,7 @@ import re
 
 from .. import extensions, rules
 from ..tools import git
+from . import choices as choices_mod
 from . import blockers, bug, knowledge, run_mode, verdict_actions, verdicts
 
 DEFAULT_LENSES = ["correctness", "security", "performance"]
@@ -178,7 +179,7 @@ def _memory_plan(a):
     text = "\n".join(lines)
     show = "\n".join([f"The knowledge base is stale: {len(names)} section(s) cite files this branch changed"
                       + (f" since the last knowledge check ({str(since)[:7]})" if since else "") + ".", "", *lines, "",
-                      "Choose one (approve with payload {\"choice\": \"<name>\"}; a plain approve updates):", *MEMORY_CHOICES])
+                      choices_mod.how_to(note=False, plain="updates"), *MEMORY_CHOICES])
     plan = {"state": "stale", "ask": "yes", "run": "yes", "check": "yes", "text": text, "sections": names}
     return _result(True, f"Knowledge base stale: {', '.join(names)}.",
                    update={"show": show, "data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "update", "sections": names}}})

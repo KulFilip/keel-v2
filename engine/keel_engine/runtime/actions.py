@@ -186,7 +186,7 @@ def cannot_run(a: ActionInput, cmd: str, out: str, what: str) -> ActionResult:
     choices = ["recheck", "skip", "stop"] if a.ac else ["recheck", "stop"]
     lines = [f"keel could not start the test command for {label}, so it cannot check {what}. Sending it back to the agent "
              "will not help: the command or the folder it runs in is wrong.", "", detail, "",
-             'Choose one (approve with payload {"choice": "<name>"} and a note):',
+             choices_mod.how_to(),
              "- recheck: run the check again (after you fixed .keel/config.yml: the test commands, backend.dir / frontend.dir)"]
     if a.ac:
         lines.append(f"- skip: move {label} to the end of the list and go on with the next criterion")

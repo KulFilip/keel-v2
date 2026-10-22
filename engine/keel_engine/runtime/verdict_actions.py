@@ -22,7 +22,6 @@ import os
 import re
 import shlex
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import extensions, rules
@@ -38,8 +37,7 @@ TEST_FILE = checks.TEST_FILE
 DISABLED = checks.DISABLED
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+from ..clock import utc_iso as _now
 
 
 def record_verdict(project: str, kind: str, ok: bool | None, detail: dict | None = None, commit: str | None = None,

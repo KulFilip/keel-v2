@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
 
 import aiosqlite
 
@@ -35,8 +34,7 @@ create table if not exists agent_memory (
 TRAIL_MAX = 40
 
 
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+from ..clock import utc_iso as now
 
 
 class AgentMemory:

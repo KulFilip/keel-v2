@@ -12,12 +12,11 @@ from typing import Any
 
 from .formats import FORMATS
 from .marketplace.kinds import PACK_NAME
+from .mcp_api import q
 from .mcp_server import ApiError, KeelApi, _project
 
 
-def _q(x: str) -> str:
-    from urllib.parse import quote
-    return quote(str(x), safe="")
+_q = q
 
 
 def _where(s: dict) -> str:

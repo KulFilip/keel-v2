@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import posixpath
 from typing import Any
-from urllib.parse import quote
 
 from . import mcp_ask as ask_mod
+from .mcp_api import q
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project
 
 SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentials.json", "master.key", "secrets.yml", "secrets.yaml",
@@ -31,8 +31,7 @@ def is_secret(path: str) -> bool:
             or n.startswith(("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa")))
 
 
-def _q(x: str) -> str:
-    return quote(str(x), safe="")
+_q = q
 
 
 # ---------------------------------------------------------------- read
