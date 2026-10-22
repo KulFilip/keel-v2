@@ -168,10 +168,16 @@ class PluginRequests(
         }
         val p = approval.payload
         val name = p?.path("name")?.asText("").orEmpty()
-        val version = p?.path("version")?.asText(null)
+        val version = p?.path("version")?.asText(null)?.ifBlank { null }
         if (decision == "approve") {
-            // the person saw the permissions on the card: an update may add them
-            if (p?.path("update")?.asBoolean() == true) changes.update(name, version, allowMore = true, request = approval.id)
+            // the person saw the permissions on the card: an update may add them, for the version the card shows and no
+            // other (without one, "the newest" could be a version nobody looked at)
+            if (p?.path("update")?.asBoolean() == true) {
+                if (version == null) {
+                    throw Conflict("This update request does not say which version it is for", "Ask again so the card shows the version, or update in Control › Plugins.")
+                }
+                changes.update(name, version, allowMore = true, request = approval.id)
+            }
             else changes.install(name, version, by = PluginChanges.PERSON, request = approval.id)
             restarts.afterApprovedInstall(marketplace.ruleValues())
         }
@@ -300,6 +306,13 @@ class PluginRequests(
         const val MORE_HINT = "A request with the new permissions waits in the Inbox: approve it there to update."
         /** keel itself asks (an update that needs more permissions). */
         const val KEEL = "keel"
+
+        /** The sources a caller of the REST route may use (keel itself asks inside, with [KEEL]). */
+        private val ASKERS = setOf("agent", "keelbot", "workflow", "mcp")
+
+        /** The source an Inbox card shows for a caller: "mcp" for any MCP call, else the one it asked for when that is a known asker. */
+        fun callerSource(asked: String, viaMcp: Boolean): String =
+            if (viaMcp) "mcp" else asked.trim().lowercase().takeIf { it in ASKERS } ?: "agent"
 
         fun who(source: String) = when (source.lowercase()) {
             "keelbot" -> "KeelBot"

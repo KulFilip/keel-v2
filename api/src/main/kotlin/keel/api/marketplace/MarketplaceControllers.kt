@@ -92,7 +92,12 @@ class InstalledPluginsController(
         ResponseEntity.accepted().body(if (body?.now == true) restarts.now() else restarts.whenIdle())
 
     @PostMapping("/requests")
-    fun request(@RequestBody body: PluginRequestBody): PluginRequestAnswer = requests.ask(body)
+    fun request(@RequestBody body: PluginRequestBody, http: jakarta.servlet.http.HttpServletRequest): PluginRequestAnswer {
+        // who asks is decided here, not by the caller's words: an MCP call is "mcp", and the Inbox card never shows a
+        // name nobody checked (a caller cannot sign itself "keel" or "KeelBot")
+        val viaMcp = http.getAttribute(keel.api.auth.LocalAuth.WHO_ATTR) == "mcp" || http.getHeader("X-Keel-Via") == "mcp"
+        return requests.ask(body.copy(source = PluginRequests.callerSource(body.source, viaMcp)))
+    }
 
     @GetMapping("/sources")
     fun sources(): JsonNode = marketplace.sources()
