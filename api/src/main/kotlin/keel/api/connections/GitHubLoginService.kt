@@ -187,22 +187,10 @@ class GitHubLoginService(
     }
 
     private fun readGh(s: Session) {
-        val buf = ByteArray(4096)
-        val input = s.proc!!.inputStream
-        while (true) {
-            val n = try { input.read(buf) } catch (e: Exception) { -1 }
-            if (n < 0) break
-            synchronized(s.out) {
-                s.out.append(String(buf, 0, n, Charsets.UTF_8))
-                if (s.out.length > 100_000) s.out.delete(0, s.out.length - 50_000)
-            }
-            parseGh(s)
-        }
+        PtyOutput.pump(s.proc!!, s.out, 100_000, 50_000) { parseGh(s) }
     }
 
-    private fun cleanOut(s: Session): String = synchronized(s.out) {
-        s.out.toString().replace(Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]"), "").replace(Regex("\u001B][^\u0007]*\u0007"), "")
-    }
+    private fun cleanOut(s: Session): String = PtyOutput.clean(s.out)
 
     /** gh prints "! First copy your one-time code: ABCD-1234" and "Open this URL to continue in your web browser: https://…/login/device". */
     private fun parseGh(s: Session) {
