@@ -18,8 +18,31 @@ const row = (over: Partial<Decision>): Decision => ({
 });
 
 function api(decisions: Decision[], posted: unknown[] = []) {
-  let settings = { on: false, mode: "shadow", cap_tokens: 150000 };
+  let keel = false;
+  let own: boolean | null = null;
+  let flowOn: boolean | null = null;
+  let mode = "shadow";
+  const project = () => ({ on: keel && (own ?? keel), keel, project: own ?? keel, own, plugin: true });
+  const settings = () => {
+    const on = keel && (flowOn ?? own ?? keel);
+    return { on, mode, cap_tokens: 150000, switches: { keel, plugin: true, project: own ?? keel, flow: flowOn,
+      off_by: on ? null : !keel ? "keel" : flowOn === false ? "flow" : "project" } };
+  };
   server.use(
+    http.get("/api/supervisor/switch", () => HttpResponse.json({ on: keel })),
+    http.post("/api/supervisor/switch", async ({ request }) => {
+      const body = (await request.json()) as { on: boolean };
+      posted.push({ keel: body.on });
+      keel = body.on;
+      return HttpResponse.json({ on: keel });
+    }),
+    http.get("/api/projects/:pid/supervisor/switch", () => HttpResponse.json(project())),
+    http.post("/api/projects/:pid/supervisor/switch", async ({ request }) => {
+      const body = (await request.json()) as { on: boolean | null };
+      posted.push({ project: body.on });
+      own = body.on;
+      return HttpResponse.json(project());
+    }),
     // the plugin is on for the project (per project, Control › Plugins): Jobs shows its tab
     http.get("/api/projects/:pid/plugins", () =>
       HttpResponse.json([{ name: "supervisor", title: "Supervisor", description: "", needs: [], tools: {}, actions: [],
@@ -27,12 +50,13 @@ function api(decisions: Decision[], posted: unknown[] = []) {
     http.get("/api/projects/:pid/supervisor/decisions", () => HttpResponse.json({ decisions })),
     http.get("/api/projects/:pid/flow", () =>
       HttpResponse.json({ thread: { thread_id: "t-sup", title: "Player ranks", status: "waiting" } })),
-    http.get("/api/projects/:pid/flows/:tid/supervisor", () => HttpResponse.json({ settings, used: { tokens: 1234 } })),
+    http.get("/api/projects/:pid/flows/:tid/supervisor", () => HttpResponse.json({ settings: settings(), used: { tokens: 1234 } })),
     http.post("/api/projects/:pid/flows/:tid/supervisor", async ({ request }) => {
-      const body = (await request.json()) as Record<string, unknown>;
+      const body = (await request.json()) as { on?: boolean | null; mode?: string };
       posted.push(body);
-      settings = { ...settings, ...body };
-      return HttpResponse.json({ settings, used: { tokens: 1234 } });
+      if ("on" in body) flowOn = body.on ?? null;
+      if (body.mode) mode = body.mode;
+      return HttpResponse.json({ settings: settings(), used: { tokens: 1234 } });
     }),
   );
 }
@@ -52,20 +76,44 @@ describe("the Supervisor plugin's web part", () => {
     expect(outcomeText(row({ outcome: "stale" }))).toBe("too late (you answered)");
   });
 
-  it("lists its decisions and turns it on for the waiting flow", async () => {
-    const posted: unknown[] = [];
-    api([row({}), row({ id: "d2", outcome: "escalated", code: "low-confidence", summary: "Spec says 410, test 404." })], posted);
-    const user = userEvent.setup();
+  it("lists its decisions", async () => {
+    api([row({}), row({ id: "d2", outcome: "escalated", code: "low-confidence", summary: "Spec says 410, test 404." })]);
     location.hash = "#/jobs/supervisor";
     render(<App />);
     const table = await screen.findByRole("table", { name: "Supervisor decisions" });
     expect(within(table).getByText("answered approve")).toBeInTheDocument();
     expect(within(table).getByText("Spec says 410, test 404.")).toBeInTheDocument();
+  });
+
+  it("is off until you turn it on keel-wide; then a project and a flow may say otherwise", async () => {
+    const posted: unknown[] = [];
+    api([], posted);
+    const user = userEvent.setup();
+    location.hash = "#/jobs/supervisor";
+    render(<App />);
+    const sw = await screen.findByRole("region", { name: "Supervisor switches" });
+    expect(await within(sw).findByText(/does not run here: it is off keel-wide/)).toBeInTheDocument();
     const box = await screen.findByRole("region", { name: "Supervisor for this flow" });
-    await user.click(await within(box).findByRole("checkbox", { name: "Supervisor on" }));
-    await waitFor(() => expect(posted).toEqual([{ on: true }]));
+    expect(await within(box).findByText(/does not supervise this flow: it is off keel-wide/)).toBeInTheDocument();
+
+    await user.click(within(sw).getByRole("checkbox", { name: "On for the whole keel" }));
+    await waitFor(() => expect(posted).toEqual([{ keel: true }]));
+    expect(await within(sw).findByText("The Supervisor runs in this project.")).toBeInTheDocument();
+    expect(await within(box).findByText("It supervises this flow.")).toBeInTheDocument();
+
+    await user.selectOptions(within(sw).getByRole("combobox", { name: "This project" }), "off");
+    await waitFor(() => expect(posted).toContainEqual({ project: false }));
+    expect(await within(box).findByText(/does not supervise this flow: it is off for this project/)).toBeInTheDocument();
+
+    await user.selectOptions(within(box).getByRole("combobox", { name: "This flow" }), "on");
+    await waitFor(() => expect(posted).toContainEqual({ on: true }));
+    expect(await within(box).findByText("It supervises this flow.")).toBeInTheDocument();
     await user.selectOptions(within(box).getByRole("combobox", { name: "Mode" }), "act");
-    await waitFor(() => expect(posted).toEqual([{ on: true }, { mode: "act" }]));
+    await waitFor(() => expect(posted).toContainEqual({ mode: "act" }));
+
+    await user.click(within(sw).getByRole("checkbox", { name: "On for the whole keel" }));
+    await waitFor(() => expect(posted).toContainEqual({ keel: false }));
+    expect(await within(box).findByText(/does not supervise this flow: it is off keel-wide/)).toBeInTheDocument();
   });
 
   it("says what it does when it has not looked at anything yet", async () => {
