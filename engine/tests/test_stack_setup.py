@@ -254,6 +254,27 @@ def test_the_helper_keeps_its_apt_cache_away_from_keels_user():
     assert "[ -L \"$CACHE\" ]" in text
 
 
+def test_the_helper_finds_a_package_early_in_a_long_list(tmp_path):
+    # 0.18.33 piped the list into `grep -q` under pipefail: grep stopped at the first match, the writer got SIGPIPE
+    # (141) and every package that exists was "no such package" (php8.3-cli on Ubuntu 24.04)
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    log = tmp_path / "apt.log"
+    fakes = {
+        "install": "exit 0",
+        "apt-get": f'echo "apt-get $*" >> {log}',
+        "apt-cache": 'echo php8.3-cli; seq 1 200000 | sed "s/^/pkg-/"',
+    }
+    for name, body in fakes.items():
+        (bin_ / name).write_text(f"#!/usr/bin/env bash\n{body}\n")
+        (bin_ / name).chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}"}
+    r = subprocess.run(["bash", str(HELPER_FILE), "apt", "php8.3-cli"], capture_output=True, text=True, env=env, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert "no such package" not in r.stderr
+    assert "install -y" in log.read_text() and "php8.3-cli" in log.read_text()
+
+
 def test_the_background_request_runs_once_and_looks_again_when_asked(tmp_path, monkeypatch):
     runs = []
     monkeypatch.setattr(stack_setup.SystemSetup, "run_once", lambda self: runs.append(1) or {})
