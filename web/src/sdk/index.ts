@@ -167,6 +167,7 @@ export type {
   MapErQueryItem,
   NavBadgeItem,
   NotesSettingItem,
+  ScmPanelParts,
   ScmPanelProps,
   SettingKind,
   SettingRow,
