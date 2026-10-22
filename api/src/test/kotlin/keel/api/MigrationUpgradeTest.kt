@@ -94,9 +94,10 @@ class MigrationUpgradeTest {
         assertThat(track.validateWithResult().validationSuccessful).isTrue()
 
         val h = history(ds)
-        assertThat(h).hasSize(19)
+        assertThat(h).hasSize(20)
         assertThat(h.take(15).map { it.substringAfter(' ').substringBefore(' ') }).containsExactlyElementsOf(released)
-        assertThat(h.drop(15)).containsExactly("16 V16__approvals.sql 1", "17 V17__workflow_market.sql 1", "18 V18__skill_market.sql 1", "19 V19__agent_call_effort.sql 1")
+        assertThat(h.drop(15)).containsExactly("16 V16__approvals.sql 1", "17 V17__workflow_market.sql 1", "18 V18__skill_market.sql 1", "19 V19__agent_call_effort.sql 1",
+            "20 V20__review_line_range.sql 1")
         assertThat(tables(ds)).contains("approvals", "threads", "doc_versions", "flow_applied")
         ds.connection.use { c ->
             c.createStatement().executeQuery("SELECT hidden_at FROM threads WHERE id = 't1'").use { rs ->
