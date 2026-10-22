@@ -1114,6 +1114,9 @@ class Compiler:
         agent_results = [o for o in out if isinstance(o, tuple)]
         lane_notes = [o.note for o in out if isinstance(o, ActionResult)]
         for o in out:
+                # Try again = run this step again from the top (one interrupt per node run, like _answer_check): looping
+                # here would replay every earlier approval on resume, so approval k would cost k+1 runs.
+                return {**upd, "note": f"{step.name}: trying again"}, step.id
             if isinstance(o, ActionResult):
                 upd.update(o.update)
 
