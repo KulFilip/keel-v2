@@ -1,122 +1,33 @@
-// v0.10.0 Connections › Databases (the Database plugin): the project's databases. keel suggests what the project names
-// (docker compose, .env.example, Spring's config, a SQLite file); you confirm, keel tests it, and the password is saved
-// encrypted. local and test databases may get changes of data (always after your OK); staging and prod are read only.
+// The Database plugin's places for connections: Control › Databases (DatabasesPage: the global ones, and the chosen
+// project's own) and a project's Databases in Connections (DatabasesSection: what that project uses, while the plugin is
+// on for it). Both are DbManager: a grouped list with each database's logo and environment, and the editor. A local or
+// test database may get changes of data (always after an OK); staging and prod are read only for agents, always.
 // The Database plugin's part (plugins/db): it imports only react and @keel/web-sdk.
 
-import { useState } from "react";
-import { clock, ErrorBox, errorParts, Pill, Section, useApp, useLoad } from "@keel/web-sdk";
-import { dbApi, type DbConnection, type DbSuggestion } from "./dbApi";
-
-const KIND: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", sqlite: "SQLite" };
-const ENVS = ["local", "test", "staging", "prod"] as const;
-const EXAMPLE = "postgres://user:password@localhost:5432/app"; // keel:allow-secret
+import { PageHead, Section, useApp, useLoad } from "@keel/web-sdk";
+import { dbApi } from "./dbApi";
+import { DbManager } from "./DbManager";
 
 export function DatabasesSection({ pid }: { pid: string }) {
+  const { project } = useApp();
   const plugins = useLoad(pid ? `plugins:${pid}` : null, () => dbApi.plugins(pid), { live: false });
   const on = !!plugins.data?.find((p) => p.name === "db")?.enabled;
-  const conns = useLoad(on ? `db:${pid}` : null, () => dbApi.connections(pid), { live: false });
-  const sugg = useLoad(on ? `db-suggest:${pid}` : null, () => dbApi.suggest(pid), { live: false });
-  const { toast } = useApp();
-  const [form, setForm] = useState<{ name: string; url: string; env: string; source?: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   if (!on) return null;
-
-  const reload = () => { void conns.reload(); void sugg.reload(); };
-  const save = async () => {
-    if (!form) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const r = await dbApi.add(pid, form);
-      toast(r.test.ok ? `${r.connection.name} is connected: ${r.connection.server}, ${r.connection.tables} tables.`
-        : `${r.connection.name} is saved, but keel could not connect. ${r.test.error ?? ""}`);
-      setForm(null);
-      reload();
-    } catch (e) {
-      setErr(errorParts(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const act = async (what: string, fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      toast(what);
-      reload();
-    } catch (e) {
-      toast(errorParts(e).message);
-    }
-  };
-  const useSuggestion = (s: DbSuggestion) => setForm({ name: (conns.data?.length ? s.name : "local").replace(/[^A-Za-z0-9_-]/g, "") || "local",
-    url: s.url, env: "local", source: s.source });
-
   return (
-    <Section title="Databases" sub="The Database plugin: the project's databases for KeelBot, workflows and Map › Query. Staging and prod are read only, always."
-      actions={!form && <button type="button" className="btn sm primary" onClick={() => setForm({ name: conns.data?.length ? "" : "local", url: "", env: "local" })}>Add a database</button>}>
-      {conns.error && <ErrorBox error={conns.error} onRetry={reload} />}
-      <div className="db-list">
-        {(conns.data ?? []).map((c) => <ConnectionCard key={c.name} c={c}
-          onTest={() => void act(`Tested ${c.name}.`, () => dbApi.test(pid, c.name))}
-          onEnv={(env) => void act(`${c.name} is now ${env}.`, () => dbApi.update(pid, c.name, { env }))}
-          onRemove={() => void act(`${c.name} removed.`, () => dbApi.remove(pid, c.name))} />)}
-        {conns.data && !conns.data.length && !form && <p className="sub">No database yet. Add one, or use one keel found below.</p>}
-      </div>
-      {!form && !!sugg.data?.length && (
-        <div className="db-sugg" role="group" aria-label="Databases keel found in the project">
-          <span className="sub">keel found these in the project:</span>
-          {sugg.data.map((s) => (
-            <div key={s.shown} className="db-sugg-row">
-              <span className="mono">{s.shown}</span><span className="sub">{KIND[s.kind]} · {s.source}</span>
-              <button type="button" className="btn sm" onClick={() => useSuggestion(s)}>Use it</button>
-            </div>
-          ))}
-        </div>
-      )}
-      {form && (
-        <form className="db-form" onSubmit={(e) => { e.preventDefault(); void save(); }} aria-label="Add a database">
-          <label><span>Name</span><input className="inline-input" id="db-name" value={form.name} placeholder="local"
-            onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label className="db-url"><span>Address</span><input className="inline-input mono" id="db-url" value={form.url} autoComplete="off"
-            placeholder={EXAMPLE} onChange={(e) => setForm({ ...form, url: e.target.value })} /></label>
-          <label><span>Kind</span><select id="db-env" value={form.env} onChange={(e) => setForm({ ...form, env: e.target.value })}>
-            {ENVS.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
-          <p className="sub db-note">keel runs in Docker: <code>localhost</code> means your computer. The password is saved encrypted and never shown again.</p>
-          {err && <ErrorBox error={err} />}
-          <div className="row">
-            <button type="submit" className="btn sm primary" disabled={busy || !form.url.trim()}>{busy ? "Testing…" : "Save and test"}</button>
-            <button type="button" className="btn sm ghost" onClick={() => { setForm(null); setErr(null); }}>Cancel</button>
-          </div>
-        </form>
-      )}
+    <Section title="Databases"
+      sub="The databases this project uses: its own, and the ones for all projects (Control › Databases). For KeelBot, workflows and Map › Query.">
+      <DbManager pid={pid} projectName={project?.name ?? pid} place="project" />
     </Section>
   );
 }
 
-function ConnectionCard({ c, onTest, onEnv, onRemove }: { c: DbConnection; onTest: () => void; onEnv: (env: string) => void; onRemove: () => void }) {
-  const [sure, setSure] = useState(false);
+export function DatabasesPage({ pid }: { pid: string }) {
+  const { project } = useApp();
   return (
-    <article className="db-card" aria-label={`Database ${c.name}`}>
-      <div className="db-head">
-        <span className={`db-dot ${c.ok === true ? "ok" : c.ok === false ? "bad" : ""}`} aria-hidden="true" />
-        <b>{c.name}</b>
-        <Pill tone="idle">{c.server ?? KIND[c.kind]}</Pill>
-        {c.ok === true && <Pill tone="ok">connected · {c.tables} tables</Pill>}
-        {c.ok === false && <Pill tone="bad">cannot connect</Pill>}
-        <Pill tone={c.can_change ? "run" : "warn"}>{c.env}: {c.can_change ? "changes with your OK" : "read only, always"}</Pill>
-      </div>
-      <span className="mono sub db-shown">{c.shown}{c.source ? ` · found in ${c.source}` : ""}</span>
-      {c.ok === false && c.error && <p className="db-err">{c.error}</p>}
-      <div className="row">
-        <button type="button" className="btn sm" onClick={onTest}>Test</button>
-        <select aria-label={`Kind of ${c.name}`} value={c.env} onChange={(e) => onEnv(e.target.value)}>
-          {ENVS.map((x) => <option key={x} value={x}>{x}</option>)}
-        </select>
-        {sure ? <><button type="button" className="btn sm danger" onClick={onRemove}>Remove {c.name}</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSure(false)}>Keep it</button></>
-          : <button type="button" className="btn sm ghost" onClick={() => setSure(true)}>Remove</button>}
-        {c.checked_at && <span className="sub">tested {clock(c.checked_at, false)}</span>}
-      </div>
-    </article>
+    <>
+      <PageHead title="Databases"
+        sub="Database connections for all projects, or for one. keel keeps each password encrypted; agents never see it." />
+      <DbManager pid={pid} projectName={pid ? project?.name ?? pid : undefined} place="control" />
+    </>
   );
 }

@@ -93,46 +93,15 @@ describe("the Database plugin's web part", () => {
 });
 
 describe("Connections › Databases", () => {
-  it("uses a database keel found, saves and tests it", async () => {
-    const user = userEvent.setup();
-    db.plugins.db = true;
-    location.hash = "#/connections";
-    render(<App />);
-    const found = await screen.findByRole("group", {
-      name: "Databases keel found in the project",
-    });
-    expect(found).toHaveTextContent(
-      "postgres://app:•••@localhost:15432/scores",
-    ); // keel:allow-secret
-    await user.click(within(found).getByRole("button", { name: "Use it" }));
-    const form = screen.getByRole("form", { name: "Add a database" });
-    await user.click(
-      within(form).getByRole("button", { name: "Save and test" }),
-    );
-    await waitFor(() =>
-      expect(
-        calls("POST", "/api/projects/ludus-engine/db/connections")[0]?.body,
-      ).toMatchObject({
-        name: "local",
-        env: "local",
-        source: "docker-compose.yml (service db)",
-      }),
-    );
-    const card = await screen.findByRole("article", { name: "Database local" });
-    expect(card).toHaveTextContent("connected · 23 tables");
-    expect(card).toHaveTextContent("local: changes with your OK");
-  });
-
+  // the project's Databases view itself (DbManager) is tested in databases.test.tsx
   it("shows nothing while the plugin is off for the project", async () => {
     location.hash = "#/connections";
     render(<App />);
     expect(await screen.findByLabelText("GitHub token")).toBeInTheDocument();
     expect(
-      screen.queryByRole("group", {
-        name: "Databases keel found in the project",
-      }),
+      screen.queryByRole("complementary", { name: "Database connections" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add a database" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ Add" })).toBeNull();
   });
 });
 
