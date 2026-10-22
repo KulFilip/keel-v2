@@ -2,6 +2,7 @@ package keel.api.settings
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
+import keel.api.common.Db
 import keel.api.common.Json
 import keel.api.pluginhost.PluginHost
 import org.springframework.beans.factory.ObjectProvider
@@ -30,14 +31,10 @@ class SettingsService(
 
     /** A scope's saved values; a key keel no longer has (v0.17.2 keel_rules) is left out and dropped at the next save. */
     private fun raw(scope: String): Map<String, Any?> =
-        (jdbc.query("SELECT json FROM settings WHERE scope = ?", { rs, _ -> rs.getString(1) }, scope)
-            .firstOrNull()?.let { Json.readMap(it) } ?: emptyMap()).filterKeys { it in Settings.KEYS || isPluginKey(it) }
+        (Db.settingsJson(jdbc, scope)?.let { Json.readMap(it) } ?: emptyMap()).filterKeys { it in Settings.KEYS || isPluginKey(it) }
 
     private fun save(scope: String, value: Map<String, Any?>) {
-        jdbc.update(
-            "INSERT INTO settings(scope, json) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET json = excluded.json",
-            scope, Json.write(value),
-        )
+        Db.saveSettings(jdbc, scope, value)
     }
 
     /** Core's keys only: a plugin's own keys never reach [Settings]. */
