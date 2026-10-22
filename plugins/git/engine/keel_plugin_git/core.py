@@ -45,10 +45,14 @@ def github_token(keys: dict | None) -> str | None:
 
 
 class GitError(Exception):
-    def __init__(self, status: int, message: str, hint: str = ""):
+    """`transient`: GitHub did not answer (a network error that passes); the branch and its commits are fine and the
+    same call may work in a moment."""
+
+    def __init__(self, status: int, message: str, hint: str = "", transient: bool = False):
         super().__init__(message)
         self.status = status
         self.hint = hint
+        self.transient = transient
 
 
 def _need_repo(root: str):
@@ -91,15 +95,48 @@ def _tail(text: str, n: int = 1500) -> str:
 
 # ------------------------------------------------------------------ reading
 
+def _numstat(root: str) -> dict[str, tuple[int, int]]:
+    """{path: (lines added, lines deleted)} of the tracked changes against HEAD (staged and not); a binary file and an
+    untracked one are not in it. Empty when HEAD has no commit yet."""
+    r = git.git(root, "diff", "--numstat", "-z", "HEAD")
+    if r.returncode != 0:
+        return {}
+    out: dict[str, tuple[int, int]] = {}
+    parts = r.stdout.split("\0")
+    i = 0
+    while i < len(parts):
+        item = parts[i]
+        i += 1
+        fields = item.split("\t")
+        if len(fields) != 3:
+            continue
+        add, dele, path = fields
+        if not path:                     # a rename: the old path and the new one follow as their own items
+            path = parts[i + 1] if i + 1 < len(parts) else ""
+            i += 2
+        if path and add.isdigit() and dele.isdigit():
+            out[path] = (int(add), int(dele))
+    return out
+
+
 def status(root: str) -> dict:
-    """{branch, base, upstream, ahead, behind (the upstream), base_ahead, base_behind, changes: [{path, status}]}."""
+    """{branch, base, upstream, ahead, behind (the upstream), base_ahead, base_behind, changes: [{path, status,
+    added?, deleted?}]}: `added` and `deleted` are the lines of a tracked file against HEAD (not for a binary or an
+    untracked file)."""
     _need_repo(root)
     br = git.branch(root)
     b = base(root)
     up = git.git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     upstream = up.stdout.strip() if up.returncode == 0 else None
     # `status --porcelain -z` (git.dirty): paths are never quoted, and a rename reports its new path
-    changes = [{"path": path, "status": xy.strip() or "?"} for path, xy in git.dirty(root).items()]
+    dirty = git.dirty(root)
+    stats = _numstat(root) if dirty else {}
+    changes = []
+    for path, xy in dirty.items():
+        c = {"path": path, "status": xy.strip() or "?"}
+        if path in stats:
+            c["added"], c["deleted"] = stats[path]
+        changes.append(c)
     return {"branch": br, "base": b, "upstream": upstream,
             "ahead": _count(root, "@{u}..HEAD") if upstream else _count(root, f"{b}..HEAD") if b else 0,
             "behind": _count(root, "HEAD..@{u}") if upstream else 0,
@@ -108,17 +145,22 @@ def status(root: str) -> dict:
 
 
 def branches(root: str) -> list[dict]:
-    """Local branches, newest first: {name, current, ahead, behind (against the base), date, subject}."""
+    """Local branches, newest first: {name, current, ahead, behind (against the base), date, subject, author, mine?}.
+    `mine` (the last commit's author is the repository's git user.email) only when git has a user.email."""
     _need_repo(root)
     b = base(root)
     cur = git.branch(root)
+    me = git.git(root, "config", "user.email").stdout.strip().lower()
     out = []
-    fmt = "%(refname:short)%09%(committerdate:iso-strict)%09%(subject)"
+    fmt = "%(refname:short)%09%(committerdate:iso-strict)%09%(authorname)%09%(authoremail)%09%(subject)"
     for line in git.git(root, "for-each-ref", "--sort=-committerdate", f"--format={fmt}", "refs/heads").stdout.splitlines()[:60]:
-        name, date, subject = (line.split("\t") + ["", ""])[:3]
-        out.append({"name": name, "current": name == cur, "date": date, "subject": subject,
-                    "ahead": _count(root, f"{b}..{name}") if b and name != b else 0,
-                    "behind": _count(root, f"{name}..{b}") if b and name != b else 0})
+        name, date, author, email, subject = (line.split("\t", 4) + ["", "", "", ""])[:5]
+        item = {"name": name, "current": name == cur, "date": date, "subject": subject, "author": author,
+                "ahead": _count(root, f"{b}..{name}") if b and name != b else 0,
+                "behind": _count(root, f"{name}..{b}") if b and name != b else 0}
+        if me:
+            item["mine"] = email.strip("<>").lower() == me
+        out.append(item)
     return out
 
 
@@ -182,8 +224,29 @@ def _gh_env(token: str | None) -> dict:
     return {**command_env(), "GH_TOKEN": token, "GH_PROMPT_DISABLED": "1"}
 
 
-def _gh(root: str, token: str | None, cmd: str, timeout: int = 60) -> tuple[int, str]:
-    return testcmd.run(root, cmd, timeout, _gh_env(token))
+# What gh prints when GitHub did not answer, and not because of what was asked: worth one more try.
+TRANSIENT = re.compile(
+    r"tls handshake timeout|connection reset|connection refused|i/o timeout|timeout awaiting response headers"
+    r"|unexpected eof|http 50[234]\b|\b50[234] (?:bad gateway|service unavailable|gateway timeout)",
+    re.IGNORECASE)
+RETRY_AFTER_S = 2.0
+_sleep = time.sleep                      # the tests wait no time
+
+
+def transient(code: int, out: str) -> bool:
+    """A failed gh call that a moment later may work: a network error on the way to GitHub, or GitHub's 502/503/504."""
+    return code != 0 and bool(TRANSIENT.search(out or ""))
+
+
+def _gh(root: str, token: str | None, cmd: str, timeout: int = 60, retry: bool = True) -> tuple[int, str]:
+    """gh with the token. A read that failed on the network (`transient`) runs once more after ~2 s; a call that
+    changes something (retry=False: pr create) never runs twice, it may have reached GitHub."""
+    env = _gh_env(token)
+    code, out = testcmd.run(root, cmd, timeout, env)
+    if retry and transient(code, out):
+        _sleep(RETRY_AFTER_S)
+        code, out = testcmd.run(root, cmd, timeout, env)
+    return code, out
 
 
 def _json_arrays(text: str) -> list:
@@ -210,11 +273,15 @@ def pr_status(root: str, token: str | None) -> dict | None:
     """The branch's pull request: {number, title, url, state, draft, review, checks: [{name, state}], comments: [...]},
     or None when the branch has none."""
     _need_repo(root)
-    fields = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,comments,baseRefName,headRefName"
+    fields = ("number,title,url,state,isDraft,reviewDecision,statusCheckRollup,comments,baseRefName,headRefName,"
+              "reviewRequests,updatedAt")
     code, out = _gh(root, token, f"gh pr view --json {fields}")
     if code != 0:
         if "no pull requests found" in out.lower() or "no open pull requests" in out.lower():
             return None
+        if transient(code, out):
+            raise GitError(504, f"GitHub did not answer in time: {_tail(out, 300)}",
+                           "The branch and its commits are fine; keel tried twice. Try again in a moment.", transient=True)
         raise GitError(502, f"gh could not read the pull request: {_tail(out, 300)}")
     try:
         d = json.loads(out[out.index("{"):])
@@ -228,6 +295,9 @@ def pr_status(root: str, token: str | None) -> dict | None:
     comments = [{"author": (c.get("author") or {}).get("login", ""), "body": (c.get("body") or "")[:2000], "path": None, "line": None}
                 for c in d.get("comments") or []]
     code2, out2 = _gh(root, token, f"gh api repos/{{owner}}/{{repo}}/pulls/{d.get('number')}/comments --paginate")
+    if transient(code2, out2):
+        raise GitError(504, f"GitHub did not answer in time: {_tail(out2, 300)}",
+                       "The branch and its commits are fine; keel tried twice. Try again in a moment.", transient=True)
     if code2 == 0:
         try:
             inline = _json_arrays(out2)
@@ -238,10 +308,13 @@ def pr_status(root: str, token: str | None) -> dict | None:
                              "path": c.get("path"), "line": c.get("line") or c.get("original_line")})
     done = [c for c in checks_ if c["state"] not in ("pending", "queued", "in_progress", "expected", "waiting", "")]
     failed = [c for c in checks_ if c["state"] in ("failure", "failed", "error", "cancelled", "timed_out", "action_required")]
+    requests = [(r.get("login") or r.get("name") or r.get("slug") or "") for r in d.get("reviewRequests") or []
+                if isinstance(r, dict)]
     return {"number": d.get("number"), "title": d.get("title"), "url": d.get("url"), "state": d.get("state"),
             "draft": d.get("isDraft"), "review": d.get("reviewDecision"), "base": d.get("baseRefName"),
             "branch": d.get("headRefName"), "checks": checks_, "checks_done": len(done), "checks_failed": len(failed),
-            "comments": comments[-50:]}
+            "comments": comments[-50:], "comments_total": len(comments), "review_requests": [r for r in requests if r],
+            "updated_at": d.get("updatedAt")}
 
 
 # ------------------------------------------------------------------ acting
@@ -416,13 +489,14 @@ def pr(root: str, token: str | None, title: str, body: str, draft: bool = False)
         except GitError:
             pass
         if current and current.get("state") == "OPEN":
-            code, out = _gh(root, token, f"gh pr edit {current['number']} --title {shlex.quote(title)} --body-file {shlex.quote(path)}")
+            code, out = _gh(root, token, f"gh pr edit {current['number']} --title {shlex.quote(title)} --body-file {shlex.quote(path)}",
+                            retry=False)
             if code != 0:
                 raise GitError(502, f"gh pr edit failed: {_tail(out, 400)}")
             return {"number": current["number"], "url": current["url"], "updated": True}
         cmd = (f"gh pr create --title {shlex.quote(title)} --body-file {shlex.quote(path)} --head {shlex.quote(br)}"
                + (f" --base {shlex.quote(b)}" if b else "") + (" --draft" if draft else ""))
-        code, out = _gh(root, token, cmd, 120)
+        code, out = _gh(root, token, cmd, 120, retry=False)
         if code != 0:
             raise GitError(502, f"gh pr create failed: {_tail(out, 400)}")
         url = next((line for line in out.splitlines() if line.startswith("http")), "").strip()
@@ -435,7 +509,13 @@ def wait_checks(root: str, token: str | None, timeout_s: int = 1800, every_s: in
     """Wait until the pull request's checks are done: {ok, checks, failed}."""
     deadline = time.monotonic() + timeout_s
     while True:
-        st = pr_status(root, token)
+        try:
+            st = pr_status(root, token)
+        except GitError as exc:
+            if not exc.transient or time.monotonic() > deadline:
+                raise
+            sleep(every_s)               # GitHub did not answer: the checks are still there, ask again
+            continue
         if not st:
             raise GitError(404, "This branch has no pull request.", "Open it first (git:pr).")
         cks = st["checks"]
