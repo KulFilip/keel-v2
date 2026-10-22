@@ -26,32 +26,32 @@ contributes:
           status:
             summary: each switch - keel-wide, this project, the plugin - and whether it runs here
             call: { path: "/projects/{pid}/supervisor/switch" }
-            show: { title: "Supervisor here: {on} · keel-wide {keel} · project {project} (own: {own}) · plugin {plugin}" }
+            show: { title: "{text}" }
           "on":
             summary: turn it on for this project
             confirm: Turn the Supervisor on for this project? Its turns cost tokens.
             call: { method: POST, path: "/projects/{pid}/supervisor/switch", body: { "on": true } }
-            show: { title: "Supervisor here: {on} · keel-wide {keel} · project {project} · plugin {plugin}" }
+            show: { title: "{text}" }
           "off":
             summary: turn it off for this project (a running look stops at once)
             confirm: Turn the Supervisor off for this project?
             call: { method: POST, path: "/projects/{pid}/supervisor/switch", body: { "on": false } }
-            show: { title: "Supervisor here: {on} · project {project}" }
+            show: { title: "{text}" }
           follow:
             summary: this project follows the keel-wide switch again
             confirm: Let this project follow the keel-wide switch?
             call: { method: POST, path: "/projects/{pid}/supervisor/switch", body: { "on": null } }
-            show: { title: "Supervisor here: {on} · keel-wide {keel} · project {project}" }
+            show: { title: "{text}" }
           keel-on:
             summary: turn it on for the whole keel (each project follows, unless it says otherwise)
             confirm: Turn the Supervisor on for the whole keel? Its turns cost tokens.
             call: { method: POST, path: "/supervisor/switch", body: { "on": true } }
-            show: { title: "Supervisor keel-wide: {on}" }
+            show: { title: "{text}" }
           keel-off:
             summary: turn it off everywhere - nothing listens and no model is called
             confirm: Turn the Supervisor off for the whole keel?
             call: { method: POST, path: "/supervisor/switch", body: { "on": false } }
-            show: { title: "Supervisor keel-wide: {on}" }
+            show: { title: "{text}" }
           flow-on:
             summary: turn it on for the flow now only
             confirm: Turn the Supervisor on for the flow now?

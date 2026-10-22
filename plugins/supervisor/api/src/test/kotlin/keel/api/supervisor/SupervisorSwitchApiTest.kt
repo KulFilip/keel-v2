@@ -53,6 +53,19 @@ class SupervisorSwitchApiTest : ApiTest() {
     }
 
     @Test
+    fun `the status reads as one sentence - off or on here, why, and the command that changes it`() {
+        val (pid, _) = newProject("sup-switch-text")
+        val off = get("/api/projects/$pid/supervisor/switch").json()["text"].asText()
+        assertThat(off).startsWith("Supervisor: off here, ").doesNotContain("false").doesNotContain("(own: )")
+        assertThat(get("/api/supervisor/switch").json()["text"].asText()).startsWith("Supervisor keel-wide: off")
+        post("/api/projects/$pid/supervisor/switch", mapOf("on" to false))
+        assertThat(get("/api/projects/$pid/supervisor/switch").json()["text"].asText())
+            .contains("project off (this project's own choice)")
+        post("/api/supervisor/switch", mapOf("on" to true))
+        assertThat(get("/api/supervisor/switch").json()["text"].asText()).startsWith("Supervisor keel-wide: on")
+    }
+
+    @Test
     fun `a project's own switch wins over General, and null follows it again`() {
         val (pid, _) = newProject("sup-switch-project")
         post("/api/supervisor/switch", mapOf("on" to true))

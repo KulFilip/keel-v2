@@ -53,7 +53,27 @@ class SupervisorSwitch(
     fun view(pid: String): Map<String, Any?> = mapOf(
         "keel" to keelOn(), "own" to own(pid), "project" to projectOn(pid), "plugin" to pluginOn(pid),
         "on" to (keelOn() && pluginOn(pid) && projectOn(pid)),
+        "text" to text(pid),
     )
+
+    /** The switches in one plain sentence for the TUI and MCP: on here or not, why, and the command that changes it. */
+    fun text(pid: String): String {
+        val own = own(pid)
+        val project = when (own) { true -> "on (this project's own choice)"; false -> "off (this project's own choice)"
+            null -> "follows keel-wide" }
+        val switches = "keel-wide ${if (keelOn()) "on" else "off"} · project $project · plugin ${if (pluginOn(pid)) "on" else "off"}"
+        val why = when {
+            !pluginOn(pid) -> "the Supervisor plugin is off for this project: turn it on in Control › Plugins"
+            own == false -> "this project is switched off: /supervisor on (or follow)"
+            !projectOn(pid) -> "the keel-wide switch is off: /supervisor keel-on, or /supervisor on for this project only"
+            else -> null
+        }
+        return if (why == null) "Supervisor: on here, it watches this project's flows · $switches"
+        else "Supervisor: off here, $why · $switches"
+    }
+
+    fun keelText(): String = if (keelOn()) "Supervisor keel-wide: on (each project with the plugin on follows, unless it says otherwise)"
+        else "Supervisor keel-wide: off (nothing listens and no model is called)"
 
     fun setKeel(on: Boolean) {
         settings.updateGeneral(mapOf(SETTING to on))
@@ -110,7 +130,7 @@ class SupervisorSettings {
 class SupervisorSwitchController(private val switch: SupervisorSwitch, private val projects: ProjectService,
                                  private val engine: EngineClient) {
     @GetMapping("/supervisor/switch")
-    fun keel(): Map<String, Any?> = mapOf("on" to switch.keelOn(),
+    fun keel(): Map<String, Any?> = mapOf("on" to switch.keelOn(), "text" to switch.keelText(),
         "engine" to runCatching<JsonNode> { engine.get("/supervisor/switch") }.getOrNull())
 
     @PostMapping("/supervisor/switch")
