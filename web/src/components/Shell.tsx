@@ -4,8 +4,23 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { navGroups, saveView, useFeatures, useView, type View } from "../addons";
-import { FOCUS_EVENT, isMac, isTyping, KEYS, keyLabel, matchesAny, menuPageKey, menuPageOf } from "../keys";
+import {
+  navGroups,
+  saveView,
+  useFeatures,
+  useView,
+  type View,
+} from "../addons";
+import {
+  FOCUS_EVENT,
+  isMac,
+  isTyping,
+  KEYS,
+  keyLabel,
+  matchesAny,
+  menuPageKey,
+  menuPageOf,
+} from "../keys";
 import { hashFor, hashForScreen, type ScreenId } from "../routes";
 import { usePages, useSlot } from "../sdk/registry";
 import { SLOTS, type NavBadgeItem, type ShellWatchItem } from "../sdk/slots";
@@ -64,13 +79,29 @@ export function useTheme() {
 export function Bell({ onClick }: { onClick: () => void }) {
   const { unread, nset } = useApp();
   return (
-    <button type="button" className="bell" id="bell" onClick={onClick} aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}>
+    <button
+      type="button"
+      className="bell"
+      id="bell"
+      onClick={onClick}
+      aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}
+    >
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-          d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20a2 2 0 0 0 4 0" />
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20a2 2 0 0 0 4 0"
+        />
       </svg>
       {nset.quiet && <span className="bell-q">zz</span>}
-      {unread > 0 && <span className="bell-n" data-testid="unread">{unread}</span>}
+      {unread > 0 && (
+        <span className="bell-n" data-testid="unread">
+          {unread}
+        </span>
+      )}
     </button>
   );
 }
@@ -79,11 +110,29 @@ export function Bell({ onClick }: { onClick: () => void }) {
 function SearchButton({ className }: { className: string }) {
   const keys = keyLabel("meta+k");
   return (
-    <button type="button" className={className} onClick={() => openLauncher()} aria-label={`Search and actions (${keys})`}
-      title={`Search and actions (${keys})`}>
+    <button
+      type="button"
+      className={className}
+      onClick={() => openLauncher()}
+      aria-label={`Search and actions (${keys})`}
+      title={`Search and actions (${keys})`}
+    >
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.9" />
-        <path d="M20 20l-4-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <circle
+          cx="11"
+          cy="11"
+          r="6.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+        />
+        <path
+          d="M20 20l-4-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+        />
       </svg>
     </button>
   );
@@ -91,7 +140,10 @@ function SearchButton({ className }: { className: string }) {
 
 const Logo = () => (
   <svg viewBox="0 0 120 68" aria-hidden="true">
-    <path fill="var(--accent)" d="M4 0H116Q120 0 119.4 4C118 22 92 38 66.6 50Q64 51.5 64 54L62.2 64.5Q61.8 67 60 67Q58.2 67 57.8 64.5L56 54Q56 51.5 53.4 50C28 38 2 22 .6 4Q0 0 4 0Z" />
+    <path
+      fill="var(--accent)"
+      d="M4 0H116Q120 0 119.4 4C118 22 92 38 66.6 50Q64 51.5 64 54L62.2 64.5Q61.8 67 60 67Q58.2 67 57.8 64.5L56 54Q56 51.5 53.4 50C28 38 2 22 .6 4Q0 0 4 0Z"
+    />
   </svg>
 );
 
@@ -99,8 +151,15 @@ const Logo = () => (
 function BrandTag({ className }: { className?: string }) {
   const { bare } = useCoreOnly();
   return (
-    <span className={[className, bare ? "brand-core" : ""].filter(Boolean).join(" ") || undefined}
-      title={bare ? "keel with only its core: no plugins" : undefined}>{bare ? "core" : "v2 studio"}</span>
+    <span
+      className={
+        [className, bare ? "brand-core" : ""].filter(Boolean).join(" ") ||
+        undefined
+      }
+      title={bare ? "keel with only its core: no plugins" : undefined}
+    >
+      {bare ? "core" : "v2 studio"}
+    </span>
   );
 }
 
@@ -125,18 +184,33 @@ function keepVisible(box: HTMLElement, el: HTMLElement) {
 }
 
 /** v0.15.4 a menu link's tooltip names its key: ⌃1–⌃9 open the first nine pages. */
-const keyTip = (label: string, n: number) => (n <= 9 ? `${label} (${keyLabel(menuPageKey(n))})` : label);
+const keyTip = (label: string, n: number) =>
+  n <= 9 ? `${label} (${keyLabel(menuPageKey(n))})` : label;
 
 /** v0.15.2 a part's count on a menu page (slot nav.badge: KeelBot's new answers on KeelBot), in the menu or the rail. */
 function PartBadges({ page, kind }: { page: string; kind: "nav" | "rail" }) {
-  const items = useSlot<NavBadgeItem>(SLOTS.navBadge).filter((b) => b.page === page);
-  return <>{items.map((b) => <b.component key={b.id} kind={kind} />)}</>;
+  const items = useSlot<NavBadgeItem>(SLOTS.navBadge).filter(
+    (b) => b.page === page,
+  );
+  return (
+    <>
+      {items.map((b) => (
+        <b.component key={b.id} kind={kind} />
+      ))}
+    </>
+  );
 }
 
 /** v0.15.2 what the parts watch on every page (slot shell.watch: KeelBot counts its new answers and plays its sound). */
 function PartWatches() {
   const items = useSlot<ShellWatchItem>(SLOTS.shellWatch);
-  return <>{items.map((w) => <w.component key={w.id} />)}</>;
+  return (
+    <>
+      {items.map((w) => (
+        <w.component key={w.id} />
+      ))}
+    </>
+  );
 }
 
 /** The screens: All projects, then the four groups. `onPick` runs after a link is used (the phone menu closes). */
@@ -155,23 +229,60 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   // flows that wait for a person in every project (the project list follows the event stream)
   const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
   const badge = (id: ScreenId) =>
-    id === "inbox" ? (waitingAll > 0 ? <span className="count" data-testid={onPick ? undefined : "inbox-count"} title="waiting for you in all projects"
-      aria-label={`${waitingAll} waiting`}>{waitingAll}</span> : null)
-      : (id === "jobs" || id === "live") && running > 0 ? <span className="count run" title="running now" aria-label={`${running} running`}>{running}</span> : null;
+    id === "inbox" ? (
+      waitingAll > 0 ? (
+        <span
+          className="count"
+          data-testid={onPick ? undefined : "inbox-count"}
+          title="waiting for you in all projects"
+          aria-label={`${waitingAll} waiting`}
+        >
+          {waitingAll}
+        </span>
+      ) : null
+    ) : (id === "jobs" || id === "live") && running > 0 ? (
+      <span
+        className="count run"
+        title="running now"
+        aria-label={`${running} running`}
+      >
+        {running}
+      </span>
+    ) : null;
   let n = 1;
   return (
     <>
-      <a href={hashFor("projects")} className="nav-home" aria-current={page === "projects" ? "page" : undefined} onClick={onPick} title={keyTip("All projects", 1)}>
+      <a
+        href={hashFor("projects")}
+        className="nav-home"
+        aria-current={page === "projects" ? "page" : undefined}
+        onClick={onPick}
+        title={keyTip("All projects", 1)}
+      >
         <span className="nav-l">All projects</span>
-        {waitingAll > 0 && <span className="count" title="waiting for you in all projects">◆ {waitingAll}</span>}
+        {waitingAll > 0 && (
+          <span className="count" title="waiting for you in all projects">
+            ◆ {waitingAll}
+          </span>
+        )}
       </a>
       {navGroups(features, view).map((g) => (
         <Fragment key={g.id}>
-          <div className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
-            <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
+          <div
+            className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}
+          >
+            <div className="nav-h" title={g.hint}>
+              <span>{g.label}</span>
+              {hints && g.hint && <small>{g.hint}</small>}
+            </div>
             {g.pages.map((p) => (
-              <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id)} aria-current={current === p.id ? "page" : undefined}
-                onClick={onPick} title={keyTip(p.label, ++n)}>
+              <a
+                key={p.id}
+                href={p.addon ? hashForScreen(p.id) : hashFor(p.id)}
+                aria-current={current === p.id ? "page" : undefined}
+                onClick={onPick}
+                title={keyTip(p.label, ++n)}
+              >
                 <span className="nav-l">{p.label}</span>
                 {p.addon ? null : badge(p.id)}
                 <PartBadges page={p.id} kind="nav" />
@@ -197,12 +308,27 @@ function RailLinks() {
   const running = project?.running ?? 0;
   const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
   const count = (id: ScreenId) =>
-    id === "inbox" && waitingAll > 0 ? <span className="rail-count" aria-hidden="true">{waitingAll > 9 ? "9+" : waitingAll}</span>
-      : (id === "jobs" || id === "live") && running > 0 ? <span className="rail-count run" aria-hidden="true">{running}</span> : null;
+    id === "inbox" && waitingAll > 0 ? (
+      <span className="rail-count" aria-hidden="true">
+        {waitingAll > 9 ? "9+" : waitingAll}
+      </span>
+    ) : (id === "jobs" || id === "live") && running > 0 ? (
+      <span className="rail-count run" aria-hidden="true">
+        {running}
+      </span>
+    ) : null;
   let n = 0;
   const link = (id: string, label: string, addon?: string) => (
-    <a key={id} href={addon ? hashForScreen(id) : hashFor(id)} className="rail-link" aria-current={current === id ? "page" : undefined}
-      title={keyTip(label, ++n)} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
+    <a
+      key={id}
+      href={addon ? hashForScreen(id) : hashFor(id)}
+      className="rail-link"
+      aria-current={current === id ? "page" : undefined}
+      title={keyTip(label, ++n)}
+      aria-label={
+        id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label
+      }
+    >
       <NavIcon id={addon ? "addon" : id} />
       {addon ? null : count(id)}
       <PartBadges page={id} kind="rail" />
@@ -212,7 +338,9 @@ function RailLinks() {
     <nav className="rail-nav" aria-label="Screens (icons)">
       {link("projects", "All projects")}
       {navGroups(features, view).map((g) => (
-        <div key={g.id} className="rail-group" title={g.label}>{g.pages.map((p) => link(p.id, p.label, p.addon))}</div>
+        <div key={g.id} className="rail-group" title={g.label}>
+          {g.pages.map((p) => link(p.id, p.label, p.addon))}
+        </div>
       ))}
     </nav>
   );
@@ -245,7 +373,8 @@ function Nav() {
     };
     mark();
     box.addEventListener("scroll", mark, { passive: true });
-    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(mark);
+    const ro =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(mark);
     ro?.observe(box);
     return () => {
       box.removeEventListener("scroll", mark);
@@ -253,7 +382,13 @@ function Nav() {
     };
   }, []);
   return (
-    <nav className="nav" id="nav" aria-label="Screens" ref={ref} aria-keyshortcuts={KEYS.menuJump[0].toUpperCase()}>
+    <nav
+      className="nav"
+      id="nav"
+      aria-label="Screens"
+      ref={ref}
+      aria-keyshortcuts={KEYS.menuJump[0].toUpperCase()}
+    >
       <NavLinks />
     </nav>
   );
@@ -261,28 +396,88 @@ function Nav() {
 
 function LiveDot() {
   const { live } = useApp();
-  const label = live === "live" ? "Live" : live === "reconnecting" ? "Reconnecting" : live === "connecting" ? "Connecting" : live === "paused" ? "Paused (tab hidden)" : "Offline";
+  const label =
+    live === "live"
+      ? "Live"
+      : live === "reconnecting"
+        ? "Reconnecting"
+        : live === "connecting"
+          ? "Connecting"
+          : live === "paused"
+            ? "Paused (tab hidden)"
+            : "Offline";
   const tone = live === "live" ? "p-ok" : live === "off" ? "p-bad" : "p-warn";
-  return <span className={`pill ${tone}`} data-testid="live" title="Server events (SSE)">{label}</span>;
+  return (
+    <span
+      className={`pill ${tone}`}
+      data-testid="live"
+      title="Server events (SSE)"
+    >
+      {label}
+    </span>
+  );
+}
+
+/** The GitHub release page of a keel version: its notes list what changed. */
+export function releaseUrl(version: string): string {
+  return `https://github.com/MiladNalbandi/keel-v2/releases/tag/v${encodeURIComponent(version.replace(/^v/, ""))}`;
 }
 
 function Version() {
   const { health } = useApp();
-  return health?.version ? <span className="mono sub ver" title="keel v2 version">v{health.version.replace(/^v/, "")}</span> : null;
+  if (!health?.version) return null;
+  const v = health.version.replace(/^v/, "");
+  return (
+    <a
+      className="mono sub ver"
+      href={releaseUrl(v)}
+      target="_blank"
+      rel="noreferrer"
+      title="keel v2 version"
+      aria-label={`What's new in v${v} (opens GitHub)`}
+    >
+      v{v}
+    </a>
+  );
 }
 
 /** The engine in one pill: up (langgraph), the fake model, down, or still unknown; `version` adds keel's version. */
 function EngineStatus({ version }: { version?: boolean }) {
   const { health } = useApp();
-  const tone = !health ? "p-idle" : !health.engine ? "p-bad" : health.fake ? "p-warn" : "p-ok";
-  const label = !health ? "engine …" : !health.engine ? "engine down" : health.fake ? "fake model" : "engine";
-  const title = !health ? "Checking the engine" : !health.engine ? "The engine does not answer"
-    : health.fake ? "The engine answers with the fake model: it writes example files, not real code" : "The LangGraph engine is up";
+  const tone = !health
+    ? "p-idle"
+    : !health.engine
+      ? "p-bad"
+      : health.fake
+        ? "p-warn"
+        : "p-ok";
+  const label = !health
+    ? "engine …"
+    : !health.engine
+      ? "engine down"
+      : health.fake
+        ? "fake model"
+        : "engine";
+  const title = !health
+    ? "Checking the engine"
+    : !health.engine
+      ? "The engine does not answer"
+      : health.fake
+        ? "The engine answers with the fake model: it writes example files, not real code"
+        : "The LangGraph engine is up";
   return (
     <>
-      <span className={`pill ${tone}`} title={title} data-testid="engine">{label}</span>
+      <span className={`pill ${tone}`} title={title} data-testid="engine">
+        {label}
+      </span>
       {health?.native && (
-        <span className="pill p-idle" title="Native mode: keel's agents run as you and can read what you can." data-testid="native">native</span>
+        <span
+          className="pill p-idle"
+          title="Native mode: keel's agents run as you and can read what you can."
+          data-testid="native"
+        >
+          native
+        </span>
       )}
       {version && <Version />}
     </>
@@ -301,42 +496,102 @@ export function StackSetupLine() {
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const look = () => {
-      api.stackSetup().then((x) => {
-        if (stop) return;
-        setS(x);
-        timer = setTimeout(look, x.busy ? 4000 : 60000);
-      }, () => { if (!stop) timer = setTimeout(look, 60000); });
+      api.stackSetup().then(
+        (x) => {
+          if (stop) return;
+          setS(x);
+          timer = setTimeout(look, x.busy ? 4000 : 60000);
+        },
+        () => {
+          if (!stop) timer = setTimeout(look, 60000);
+        },
+      );
     };
     look();
-    return () => { stop = true; if (timer) clearTimeout(timer); };
+    return () => {
+      stop = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [up]);
-  if (!s || !s.line || (s.state !== "running" && s.state !== "failed" && s.state !== "missing" && s.state !== "needs approval")) return null;
-  const tone = s.state === "running" || s.state === "needs approval" ? "p-warn" : "p-bad";
-  const title = s.state === "running" ? "keel installs what the projects' stacks need (their setup: block), in the background"
-    : s.state === "needs approval" ? "A project's own stack lists setup commands. keel runs none of them until you approve them in the Inbox"
-    : s.state === "failed" ? "keel could not install what a stack needs: flows that need it stop at a gate"
-      : "Native mode installs nothing: install these yourself";
-  return <span className={`pill ${tone} setup-line`} title={`${title}\n${s.line}`} data-testid="stack-setup">setup: {s.line}</span>;
+  if (
+    !s ||
+    !s.line ||
+    (s.state !== "running" &&
+      s.state !== "failed" &&
+      s.state !== "missing" &&
+      s.state !== "needs approval")
+  )
+    return null;
+  const tone =
+    s.state === "running" || s.state === "needs approval" ? "p-warn" : "p-bad";
+  const title =
+    s.state === "running"
+      ? "keel installs what the projects' stacks need (their setup: block), in the background"
+      : s.state === "needs approval"
+        ? "A project's own stack lists setup commands. keel runs none of them until you approve them in the Inbox"
+        : s.state === "failed"
+          ? "keel could not install what a stack needs: flows that need it stop at a gate"
+          : "Native mode installs nothing: install these yourself";
+  return (
+    <span
+      className={`pill ${tone} setup-line`}
+      title={`${title}\n${s.line}`}
+      data-testid="stack-setup"
+    >
+      setup: {s.line}
+    </span>
+  );
 }
 
 function ThemeIcon({ dark }: { dark: boolean }) {
   return dark ? (
-    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" /></svg>
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <circle
+        cx="12"
+        cy="12"
+        r="4.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"
+      />
+    </svg>
   ) : (
-    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+        d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"
+      />
+    </svg>
   );
 }
 
 /** Phones: everything the compact bar has no room for — the project, every screen, status and theme. */
-function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<typeof useTheme> }) {
+function MenuSheet({
+  onClose,
+  theme,
+}: {
+  onClose: () => void;
+  theme: ReturnType<typeof useTheme>;
+}) {
   const { project } = useApp();
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
-    (ref.current?.querySelector<HTMLElement>(".ms-nav [aria-current=page]") ?? ref.current?.querySelector<HTMLElement>(".ms-nav a"))?.focus();
+    (
+      ref.current?.querySelector<HTMLElement>(".ms-nav [aria-current=page]") ??
+      ref.current?.querySelector<HTMLElement>(".ms-nav a")
+    )?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeRef.current();
     };
@@ -349,23 +604,47 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
   return createPortal(
     <>
       <div className="scrim" onClick={onClose} />
-      <div className="menu-sheet" role="dialog" aria-modal="true" aria-label="Menu" id="menu-sheet" ref={ref}>
+      <div
+        className="menu-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        id="menu-sheet"
+        ref={ref}
+      >
         <header className="ms-head">
-          <span className="brand"><Logo /><b>keel</b><BrandTag /></span>
-          <button className="btn sm ghost" type="button" onClick={onClose}>Close</button>
+          <span className="brand">
+            <Logo />
+            <b>keel</b>
+            <BrandTag />
+          </span>
+          <button className="btn sm ghost" type="button" onClick={onClose}>
+            Close
+          </button>
         </header>
         {project && (
           <div className="ms-proj">
             <b>{project.name}</b>
             <span className="sub mono">{projectLine(project, true)}</span>
-            {project.waiting > 0 && <span className="amber">◆ {project.waiting} waiting for you</span>}
+            {project.waiting > 0 && (
+              <span className="amber">◆ {project.waiting} waiting for you</span>
+            )}
           </div>
         )}
-        <nav className="ms-nav" aria-label="All screens"><NavLinks onPick={onClose} hints /></nav>
+        <nav className="ms-nav" aria-label="All screens">
+          <NavLinks onPick={onClose} hints />
+        </nav>
         <div className="ms-foot">
-          <div className="row"><LiveDot /><EngineStatus version /></div>
+          <div className="row">
+            <LiveDot />
+            <EngineStatus version />
+          </div>
           <StackSetupLine />
-          <button className="btn" type="button" onClick={theme.toggle}>{theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}</button>
+          <button className="btn" type="button" onClick={theme.toggle}>
+            {theme.dark
+              ? "Switch to the light theme"
+              : "Switch to the dark theme"}
+          </button>
         </div>
       </div>
     </>,
@@ -381,11 +660,21 @@ function ViewSwitch() {
   const view = useView();
   if (features.mode !== "both") return null;
   const opt = (v: View, label: string) => (
-    <button key={v} type="button" className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => saveView(v)}>{label}</button>
+    <button
+      key={v}
+      type="button"
+      className={view === v ? "on" : ""}
+      aria-pressed={view === v}
+      onClick={() => saveView(v)}
+    >
+      {label}
+    </button>
   );
   return (
     <div className="view-switch" role="group" aria-label="View">
-      {opt("all", "All")}{opt("product", "Product")}{opt("dev", "Dev")}
+      {opt("all", "All")}
+      {opt("product", "Product")}
+      {opt("dev", "Dev")}
     </div>
   );
 }
@@ -397,15 +686,28 @@ export function Shell({ children }: { children: ReactNode }) {
   const theme = useTheme();
   // a big screen can fold the menu into a thin strip (☰ opens it again, ⌘\ toggles); a phone keeps its own bar
   const [navHidden, setNavHidden] = useState<boolean>(() => {
-    try { return localStorage.getItem(NAV_KEY) === "1"; } catch { return false; }
+    try {
+      return localStorage.getItem(NAV_KEY) === "1";
+    } catch {
+      return false;
+    }
   });
   useEffect(() => {
-    try { localStorage.setItem(NAV_KEY, navHidden ? "1" : "0"); } catch { /* private window */ }
+    try {
+      localStorage.setItem(NAV_KEY, navHidden ? "1" : "0");
+    } catch {
+      /* private window */
+    }
   }, [navHidden]);
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       // KEYS.menuToggle (⌘\); ⌘ or Ctrl on every system, as before
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "\\") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.key === "\\"
+      ) {
         e.preventDefault();
         setNavHidden((h) => !h);
       }
@@ -420,16 +722,23 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     let back: HTMLElement | null = null;
     const shown = (el: Element | null): el is HTMLElement =>
-      !!el && (typeof (el as HTMLElement).checkVisibility !== "function" || (el as HTMLElement).checkVisibility());
+      !!el &&
+      (typeof (el as HTMLElement).checkVisibility !== "function" ||
+        (el as HTMLElement).checkVisibility());
     const box = () => {
       const rail = document.querySelector(".side-rail .rail-nav");
       const nav = document.getElementById("nav");
       return [navHiddenRef.current ? rail : nav, rail, nav].find(shown) ?? null;
     };
-    const links = (b: Element) => [...b.querySelectorAll<HTMLAnchorElement>("a[href]")];
+    const links = (b: Element) => [
+      ...b.querySelectorAll<HTMLAnchorElement>("a[href]"),
+    ];
     const jumpIn = () => {
       const b = box();
-      (b?.querySelector<HTMLElement>('a[aria-current="page"]') ?? (b && links(b)[0]))?.focus();
+      (
+        b?.querySelector<HTMLElement>('a[aria-current="page"]') ??
+        (b && links(b)[0])
+      )?.focus();
     };
     const on = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
@@ -448,14 +757,17 @@ export function Shell({ children }: { children: ReactNode }) {
       if (page) {
         // off a Mac Ctrl+Alt is AltGr, which types { [ @ in a text field
         if (!isMac && isTyping(e.target)) return;
-        const h = links(document.getElementById("nav") ?? document.body)[page - 1]?.getAttribute("href");
+        const h = links(document.getElementById("nav") ?? document.body)[
+          page - 1
+        ]?.getAttribute("href");
         if (!h) return;
         e.preventDefault();
         if (location.hash !== h) location.hash = h;
         return;
       }
       const b = at?.closest("#nav, .rail-nav, .ms-nav");
-      if (!b || at?.tagName !== "A" || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!b || at?.tagName !== "A" || e.altKey || e.ctrlKey || e.metaKey)
+        return;
       const list = links(b);
       const i = list.indexOf(at as HTMLAnchorElement);
       const move = (j: number) => {
@@ -486,9 +798,21 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className={`app${navHidden ? " nav-hidden" : ""}`}>
       {navHidden && (
         <div className="side-rail">
-          <button className="rail-btn" type="button" onClick={() => setNavHidden(false)} aria-label="Show the menu" title={`Show the menu (${menuKeys})`}>
+          <button
+            className="rail-btn"
+            type="button"
+            onClick={() => setNavHidden(false)}
+            aria-label="Show the menu"
+            title={`Show the menu (${menuKeys})`}
+          >
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                d="M4 7h16M4 12h16M4 17h16"
+              />
             </svg>
           </button>
           {/* v0.15.7 the project switcher in the folded rail too */}
@@ -497,8 +821,21 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="rail-foot">
             <SearchButton className="rail-btn" />
             <Bell onClick={() => setNotesOpen(true)} />
-            <button className="rail-btn" type="button" onClick={theme.toggle}
-              aria-label={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"} title={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}>
+            <button
+              className="rail-btn"
+              type="button"
+              onClick={theme.toggle}
+              aria-label={
+                theme.dark
+                  ? "Switch to the light theme"
+                  : "Switch to the dark theme"
+              }
+              title={
+                theme.dark
+                  ? "Switch to the light theme"
+                  : "Switch to the dark theme"
+              }
+            >
               <ThemeIcon dark={theme.dark} />
             </button>
           </div>
@@ -506,19 +843,62 @@ export function Shell({ children }: { children: ReactNode }) {
       )}
       <aside className="side">
         <div className="side-head">
-          <button className="menu-btn" type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen} aria-controls="menu-sheet"
-            title={live === "live" ? "Menu" : `Menu (server events: ${live})`}>
+          <button
+            className="menu-btn"
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            aria-controls="menu-sheet"
+            title={live === "live" ? "Menu" : `Menu (server events: ${live})`}
+          >
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                d="M4 7h16M4 12h16M4 17h16"
+              />
             </svg>
             {/* the phone bar has no Live pill: a dot says when the event stream is not live */}
-            {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
+            {live !== "live" && (
+              <span
+                className={`menu-dot ${live === "off" ? "bad" : "warn"}`}
+                aria-hidden="true"
+              />
+            )}
           </button>
-          <span className="brand"><Logo /><b>keel</b><BrandTag className="brand-v" /></span>
-          <span className="side-tools"><Mascot /><SearchButton className="bell" /><Bell onClick={() => setNotesOpen(true)} />
-            <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title={`Hide the menu (${menuKeys})`}>
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+          <span className="brand">
+            <Logo />
+            <b>keel</b>
+            <BrandTag className="brand-v" />
+          </span>
+          <span className="side-tools">
+            <Mascot />
+            <SearchButton className="bell" />
+            <Bell onClick={() => setNotesOpen(true)} />
+            <button
+              className="hide-nav"
+              type="button"
+              onClick={() => setNavHidden(true)}
+              aria-label="Hide the menu"
+              title={`Hide the menu (${menuKeys})`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                aria-hidden="true"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15 6l-6 6 6 6"
+                />
               </svg>
             </button>
           </span>
@@ -528,10 +908,27 @@ export function Shell({ children }: { children: ReactNode }) {
         <Nav />
         <div className="side-foot">
           {/* v0.15.3 the version shows here: the head row is often too full for it */}
-          <div className="row"><LiveDot /><EngineStatus version /></div>
+          <div className="row">
+            <LiveDot />
+            <EngineStatus version />
+          </div>
           <StackSetupLine />
-          <button className="btn sm ghost theme-btn" id="theme" type="button" onClick={theme.toggle}
-            aria-label={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"} title={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}>
+          <button
+            className="btn sm ghost theme-btn"
+            id="theme"
+            type="button"
+            onClick={theme.toggle}
+            aria-label={
+              theme.dark
+                ? "Switch to the light theme"
+                : "Switch to the dark theme"
+            }
+            title={
+              theme.dark
+                ? "Switch to the light theme"
+                : "Switch to the dark theme"
+            }
+          >
             <ThemeIcon dark={theme.dark} />
           </button>
         </div>
@@ -539,12 +936,21 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* the budget bar stays on top while the page scrolls (a phone scrolls it away under its own header) */}
       <div className="app-col">
         <BudgetBar />
-        <main id="main" tabIndex={-1}>{children}</main>
+        <main id="main" tabIndex={-1}>
+          {children}
+        </main>
       </div>
-      {menuOpen && <MenuSheet onClose={() => setMenuOpen(false)} theme={theme} />}
+      {menuOpen && (
+        <MenuSheet onClose={() => setMenuOpen(false)} theme={theme} />
+      )}
       {notesOpen && <NotificationDrawer onClose={() => setNotesOpen(false)} />}
       <Popups />
-      <Launcher dark={theme.dark} toggleTheme={theme.toggle} toggleNav={() => setNavHidden((h) => !h)} openNotes={() => setNotesOpen(true)} />
+      <Launcher
+        dark={theme.dark}
+        toggleTheme={theme.toggle}
+        toggleNav={() => setNavHidden((h) => !h)}
+        openNotes={() => setNotesOpen(true)}
+      />
       <KeySheet />
       {/* v0.15.2 the parts' watchers (KeelBot: a number on KeelBot and its own sound for an answer you did not see) */}
       <PartWatches />
