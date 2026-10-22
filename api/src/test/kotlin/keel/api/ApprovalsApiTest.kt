@@ -176,6 +176,26 @@ class ApprovalsApiTest : ApiTest() {
     }
 
     @Test
+    fun `the stack setup's question is an Inbox card of its own kind with the commands and the warning, answered by the engine`() {
+        val (pid, _) = newProject("appr-stack")
+        val q = mapOf("id" to "p_g00000000001", "kind" to "stack-setup", "project" to pid, "title" to "Run the setup commands of stack node?",
+            "command" to "install system packages (as root):\n  nodejs", "path" to "", "source" to "stack-setup", "thread_id" to null,
+            "session" to null, "at" to Instant.now().toString(), "warning" to "These commands come from this project's own .keel/stacks.")
+        engine.helperQuestions += q
+        send(ev("approval.asked", pid, q, tid = "p_g00000000001"))
+        val item = get("/api/inbox?project=$pid").json()["items"].single()
+        assertThat(item["kind"].asText()).isEqualTo("stack-setup")
+        assertThat(item["title"].asText()).isEqualTo("Run the setup commands of stack node?")
+        assertThat(item["payload"]["command"].asText()).contains("nodejs")
+        assertThat(item["payload"]["warning"].asText()).contains(".keel/stacks")
+        assertThat(item["options"].map { it.asText() }).containsExactly("once", "always", "deny")
+        assertThat(item.path("permission").isNull || item.path("permission").isMissingNode).isTrue()
+        // the person's answer goes to the engine, and the card is gone (it must not stay for the tests after this one)
+        post("/api/approvals/p_g00000000001/decide", mapOf("decision" to "once")).andExpect(status().isOk)
+        assertThat(get("/api/inbox?project=$pid").json()["items"].size()).isEqualTo(0)
+    }
+
+    @Test
     fun `approval events reach the web on the one generic channel, KeelBot's keep their own name`() {
         val (pid, _) = newProject("appr-sse")
         val stream = mvc.perform(MockMvcRequestBuilders.get("/api/events?project=$pid")).andExpect(request().asyncStarted()).andReturn()

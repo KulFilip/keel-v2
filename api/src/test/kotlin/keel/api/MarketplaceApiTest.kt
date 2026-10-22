@@ -289,7 +289,7 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(notes().first { it["title"].asText() == "KeelBot asks to install Database" }["link"].asText()).isEqualTo("/inbox")
         assertThat(get("/api/projects/$pid").json()["waiting"].asInt()).isEqualTo(1)
         // a flow's step that renders an inbox item never sees the payload field on other kinds
-        assertThat(get("/api/inbox").json()["items"].filter { it["kind"].asText() != "plugin-install" }.none { it.has("payload") }).isTrue()
+        assertThat(get("/api/inbox").json()["items"].filter { it["kind"].asText() !in setOf("plugin-install", "stack-setup") }.none { it.has("payload") }).isTrue()
 
         val second = request("db", "The flow fix-login needs read-only SQL.", source = "agent", project = pid).andExpect(status().isOk).json()
         assertThat(second["id"].asText()).isEqualTo(id)

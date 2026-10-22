@@ -23,10 +23,11 @@ import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
-  permission: "may it run?", "plugin-install": "install request",
+  permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
 const PLUGIN_INSTALL = "plugin-install";
+const STACK_SETUP = "stack-setup";
 /** One waiting question: its id, else the step with the AC and the time it began to wait, so a gate that comes back to the
  *  same step is a new card (not the old one with its buttons stuck disabled). */
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? `${it.step}|${it.ac ?? ""}|${it.since ?? ""}`}`;
@@ -111,6 +112,46 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
         {!mcp && chat && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go(chat); }}
           aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>}
+      </div>
+      {err && <ErrorBox error={err} />}
+    </article>
+  );
+}
+
+/** keel 0.18.22 a stack's setup commands (apt packages, run once, each worktree) wait for the person's OK: the commands as
+ *  code, the engine's warning, then Approve once / Always / Deny. Once and Always both approve these exact commands. */
+function StackSetupCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
+  const p = (it.payload ?? {}) as { command?: string; warning?: string };
+  const commands = p.command || it.detail;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const hid = `inbox-stack-${it.id}`;
+  const answer = async (decision: "once" | "always" | "deny") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await inboxApi.decide(it.id ?? "", decision, decision === "deny" ? "The person said no to these setup commands." : "");
+      await onDone(decision === "deny" ? "Refused: the setup commands will not run." : "Approved: the setup commands run now.");
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="inbox-item k-stack-setup" aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
+      <div className="inbox-meta">
+        <Pill tone="warn">{kindLabel(it.kind)}</Pill>
+        <span className="sub"><b>{it.project_name}</b></span>
+        {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
+      </div>
+      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      {p.warning && <p className="hint" role="note">{p.warning}</p>}
+      <pre className="code inbox-cmd">{commands}</pre>
+      <div className="row inbox-actions">
+        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>Approve once</button>
+        <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for these commands</button>
+        <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
       </div>
       {err && <ErrorBox error={err} />}
     </article>
@@ -238,14 +279,14 @@ export function InboxPage() {
   const groups = useMemo(() => {
     const flowsOf = new Map<string, Set<string>>();
     for (const it of items) {
-      if (it.task || it.permission || it.kind === PLUGIN_INSTALL) continue;
+      if (it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP) continue;
       flowsOf.set(it.project_id, (flowsOf.get(it.project_id) ?? new Set<string>()).add(it.thread_id));
     }
     if (![...flowsOf.values()].some((x) => x.size > 1)) return null;
     const order: string[] = [];
     const by = new Map<string, InboxItem[]>();
     for (const it of items) {
-      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
+      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
       if (!by.has(g)) { by.set(g, []); order.push(g); }
       by.get(g)!.push(it);
     }
@@ -286,6 +327,7 @@ export function InboxPage() {
     const Card = cardOf(it.kind)?.component;
     if (Card) return <Card key={keyOf(it)} item={it} cardKey={keyOf(it)} kindLabel={labelOf(it.kind)} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.permission) return <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
+    if (it.kind === STACK_SETUP) return <StackSetupCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.kind === PLUGIN_INSTALL) return <InstallRequestCard key={keyOf(it)} it={it} cardKey={keyOf(it)} onDone={(msg) => done(msg, keyOf(it))} />;
     // a task's item whose part has not loaded yet: it shows when its card registers
     if (it.task) return null;

@@ -282,6 +282,42 @@ describe("KeelBot's commands in the Inbox", () => {
     expect(await screen.findByText("Allowed: Claude Code runs it now.")).toBeInTheDocument();
   });
 
+  const stackItem = (over: Partial<InboxItem> = {}): InboxItem => ({
+    project_id: "ludus-engine", project_name: "ludus-engine", thread_id: "p_s1", flow: "stack-setup", workflow_id: null,
+    step: "approval", kind: "stack-setup", title: "Run the setup commands of stack node?",
+    detail: "install system packages (as root):\n  nodejs", more: false, options: ["once", "always", "deny"], id: "p_s1", since: ago(30),
+    payload: { command: "install system packages (as root):\n  nodejs\nrun once, as keel's user:\n  npm ci",
+      warning: "These commands come from this project's own .keel/stacks. Allow them only if you trust the project." }, ...over,
+  });
+
+  it("a stack's setup commands show as code with the warning, and Approve once answers the engine", async () => {
+    const user = userEvent.setup();
+    const state = inboxServer([stackItem()]);
+    decideServer(state);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "Run the setup commands of stack node?" });
+    expect(within(card).getByText("stack setup")).toBeInTheDocument();
+    expect(within(card).getByText(/install system packages \(as root\)/)).toBeInTheDocument();
+    expect(within(card).getByText(/npm ci/).tagName).toBe("PRE");
+    expect(within(card).getByRole("note")).toHaveTextContent("Allow them only if you trust the project.");
+    expect(within(card).getByRole("button", { name: "Always for these commands" })).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Approve once" }));
+    await waitFor(() => expect(calls("POST", "/api/approvals/p_s1/decide")[0]?.body).toEqual({ decision: "once", why: "" }));
+    expect(await screen.findByText("Approved: the setup commands run now.")).toBeInTheDocument();
+  });
+
+  it("Deny on a stack's setup card refuses the commands", async () => {
+    const user = userEvent.setup();
+    const state = inboxServer([stackItem()]);
+    decideServer(state);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "Run the setup commands of stack node?" });
+    await user.click(within(card).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(calls("POST", "/api/approvals/p_s1/decide")[0]?.body)
+      .toEqual({ decision: "deny", why: "The person said no to these setup commands." }));
+    expect(await screen.findByText("Refused: the setup commands will not run.")).toBeInTheDocument();
+  });
+
   it("an approval event on the generic channel reloads the Inbox", async () => {
     const state = inboxServer([]);
     await openInbox();

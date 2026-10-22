@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component
 /**
  * The approvals that wait, as Inbox items. The engine's questions are commands that wait for the person's OK, so they
  * keep kind "permission" (the web shows them as before: Allow once, Always, Deny); the api's own show with their kind.
+ * The stack setup's question (engine kind "stack-setup") also shows with its own kind: its card lists the setup commands
+ * and the warning, with the engine's decisions (once, always, deny).
  * Answered with POST /api/approvals/{id}/decide.
  */
 @Component
@@ -20,7 +22,7 @@ class ApprovalInboxSource(private val approvals: ApprovalService) : InboxSource 
     // an engine question always has a project; the api's own may have none (keel-wide: a plugin install request)
     override fun items(pid: String?): List<InboxItem> =
         approvals.list(ApprovalService.WAITING, pid).mapNotNull {
-            if (!approvals.engineOwned(it)) item(it) else if (it.projectId.isBlank()) null else permission(it)
+            if (!approvals.engineOwned(it) || it.kind == STACK_SETUP) item(it) else if (it.projectId.isBlank()) null else permission(it)
         }
 
     override fun waiting(pid: String?): Int = approvals.waitingCount(pid)
@@ -51,5 +53,8 @@ class ApprovalInboxSource(private val approvals: ApprovalService) : InboxSource 
     companion object {
         /** The engine's session for keel2 mcp's questions: Claude Code asks, with no KeelBot chat behind it. */
         const val MCP = "mcp"
+
+        /** The engine's kind for a stack's setup commands (engine runtime/stack_setup.py). */
+        const val STACK_SETUP = "stack-setup"
     }
 }
