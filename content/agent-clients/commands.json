@@ -436,6 +436,10 @@
       "does": "scroll (also Shift+Up / Down, the wheel, Home and End)"
     },
     {
+      "key": "Mouse",
+      "does": "drag over text to put it on the clipboard (past the top or bottom it scrolls); Option-drag (Shift-drag) for the terminal's own selection; /mouse off gives the mouse to the terminal; /copy copies the last answer"
+    },
+    {
       "key": "Esc",
       "does": "stop KeelBot's answer, or cancel a choice"
     },

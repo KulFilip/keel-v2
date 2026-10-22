@@ -362,9 +362,10 @@ export function statusSegments(s: Snapshot, meter = true): Seg[] {
 /** The status line's words (tests, and front ends without colour). */
 export const statusParts = (s: Snapshot) => statusSegments(s).map((x) => x.text.replace(/^● /, ""));
 
-export function StatusLine({ s, meter = true }: { s: Snapshot; meter?: boolean }) {
+/** `hint`: a quiet last segment (the full screen with the mouse on: how to select with the terminal itself). */
+export function StatusLine({ s, meter = true, hint }: { s: Snapshot; meter?: boolean; hint?: string }) {
   const { color, look } = useTheme();
-  const segs = statusSegments(s, meter);
+  const segs = [...statusSegments(s, meter), ...(hint ? [{ text: hint, role: "faint" as const }] : [])];
   return (
     <Text wrap="truncate-end">
       {" "}

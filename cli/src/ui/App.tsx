@@ -29,7 +29,7 @@ import { CTRL_PANEL, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, t
 import { headerLine, isMouse, MOUSE, SCREEN, view, wheel, wrap } from "../core/lines";
 import { isNewline, moveRow } from "../core/prompt";
 import { editText, findEditor } from "../core/editor";
-import { osc52, pickCopy } from "../core/clipboard";
+import { copyText, NATIVE_SELECT, pickCopy } from "../core/clipboard";
 import { colsOn, highlight } from "../core/select";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
@@ -256,7 +256,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       else {
         stdout?.write(on ? MOUSE.on : MOUSE.off);
         setMouse(on);
-        push({ kind: "ok", text: on ? "the wheel scrolls keel TUI; select text with the mouse and it is copied (Shift, or Option on a Mac, gives the terminal's own selection; or /copy, or /mouse off)" : "the wheel is the terminal's again: select text as usual; PgUp / PgDn scroll" });
+        push({ kind: "ok", text: on ? `the wheel scrolls keel TUI; drag over text and it is copied (${NATIVE_SELECT}; /copy copies the last answer; /mouse off gives the mouse back)`
+          : "the mouse is the terminal's again: select text and scroll back as usual (PgUp / PgDn scroll keel TUI); /mouse on takes it back" });
       }
     }
     if (reply.copy !== undefined) {
@@ -265,10 +266,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
       const b = pickCopy(blocks, reply.copy);
       if (!b) push({ kind: "error", text: reply.copy === 1 ? "Nothing to copy yet." : `There are not ${reply.copy} blocks to copy.` });
       else {
-        stdout?.write(osc52(b.text));
-        const lines = b.text.split("\n").length;
-        push({ kind: "ok", text: `copied ${lines} line${lines === 1 ? "" : "s"} to your clipboard` });
-        push({ kind: "dim", text: "  Nothing arrived? Your terminal ignores clipboard requests (macOS Terminal does): /mouse off, then select the text." });
+        const c = copyText(b.text, stdout);
+        push({ kind: "ok", text: `copied ${c.lines} line${c.lines === 1 ? "" : "s"} to your clipboard` });
+        if (c.note) push({ kind: "dim", text: `  ${c.note}` });
+        else if (!c.via) push({ kind: "dim", text: "  Nothing arrived? Your terminal ignores clipboard requests (macOS Terminal does): /mouse off, then select the text." });
       }
     }
     if (reply.start) setItems((xs) => [...xs, { id: nextId.current++, kind: "start", s: core.snapshot }]);
@@ -515,14 +516,14 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   };
 
   const { cache, owners, lines } = useTranscript(items, width, screen, t.paint);
-  const { offset, setOffset, viewH, viewRef, scroll } = useScroll(lines.length, height, screen);
+  const { offset, setOffset, viewH, viewRef, scroll, shown } = useScroll(lines.length, height, screen);
   // the mode's area, after Ink laid the screen out (a question KeelBot asks meanwhile shows under it)
   useEffect(() => {
     if (!screen || !modeRef.current) return;
     const h = measureElement(modeRef.current).height;
     if (h > 0 && h !== modeH) setModeH(h);
   });
-  const { shownRef } = useMouse({ screen, mode, stdout, lines, line, owners, viewRef, promptRef, clicks, toggleToolRef, selRef, setSel, setFlash, scroll, setOffset });
+  const { shownRef } = useMouse({ screen, mode, stdout, lines, line, owners, viewRef, promptRef, clicks, toggleToolRef, selRef, setSel, setFlash, scroll, shown, setOffset });
 
   useInput((input, key) => {
     // the mouse's reports are read below, from the raw input; never typed into the prompt
@@ -917,7 +918,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             {comps.length > 0 && <Completions items={comps} index={compIdx} />}
           </Box>
         )}
-        <Clickable act={answerWaiting}><StatusLine s={snap} meter={!side} /></Clickable>
+        <Clickable act={answerWaiting}><StatusLine s={snap} meter={!side} hint={screen && mouse ? "Option/Shift-drag: terminal selection" : undefined} /></Clickable>
       </>
     );
   }

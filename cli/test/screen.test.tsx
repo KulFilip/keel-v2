@@ -120,7 +120,7 @@ describe("the full screen", () => {
     expect(s).toContain("Ask KeelBot anything");
     expect(s).not.toContain("Type a question for KeelBot");
     await t.run("/mouse off");
-    expect(t.lines().join("\n")).toContain("the wheel is the terminal's again");
+    expect(t.lines().join("\n")).toContain("the mouse is the terminal's again");
     expect(t.r.stdout.frames.join("")).toContain("\x1b[?1000l");
   });
 });
