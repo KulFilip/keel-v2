@@ -20,6 +20,7 @@ import {
   type ReviewAction,
 } from "./keymap";
 import { neighbour } from "./ReviewSide";
+import { SubmitForm } from "./PendingTab";
 import * as R from "./store";
 
 export function ReviewLayer({
@@ -562,102 +563,20 @@ function SubmitDialog({
   onClose: () => void;
   onDone: (msg: string) => void;
 }) {
-  const r = R.review(pid, reviewKey);
-  const v = r.view!;
-  const own = !!v.mine;
-  const [event, setEvent] = useState<SubmitEvent>(
-    initial && !own ? initial : "COMMENT",
-  );
-  const [body, setBody] = useState("");
-  const gitlab = v.host?.kind === "gitlab";
-  const opts: [SubmitEvent, string, string][] = [
-    ["COMMENT", "Comment", "General feedback, no decision."],
-    [
-      "APPROVE",
-      "Approve",
-      own ? "You cannot approve your own change." : "Ready to merge.",
-    ],
-    [
-      "REQUEST_CHANGES",
-      "Request changes",
-      own
-        ? "You cannot request changes on your own change."
-        : gitlab
-          ? "Sent as a note, and your approval is taken back."
-          : "Must be fixed before merging.",
-    ],
-  ];
-  const lines = v.drafts.filter((d) => d.path && d.line).length;
-  const send = async () => {
-    const res = await R.submit(pid, reviewKey, event, body);
-    if (res)
-      onDone(
-        `Review sent: ${res.posted} line comment${res.posted === 1 ? "" : "s"}${res.in_body ? `, ${res.in_body} in the text` : ""}.`,
-      );
-  };
+  const v = R.review(pid, reviewKey).view!;
   return (
     <Modal
       title={`Submit your review of ${prLabel(v.host, v.number)}`}
       onClose={onClose}
     >
-      <form
-        className="rv-submit"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <textarea
-          className="rv-ta"
-          aria-label="Your review"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          autoFocus
-          placeholder="A summary for the author (optional)"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              e.stopPropagation();
-              void send();
-            }
-          }}
-        />
-        {opts.map(([k, l, t]) => (
-          <label key={k} className="rv-radio">
-            <input
-              type="radio"
-              name="rv-event"
-              checked={event === k}
-              disabled={own && k !== "COMMENT"}
-              onChange={() => setEvent(k)}
-            />
-            <span>
-              <b>{l}</b>
-              <br />
-              <span className="rv-dim">{t}</span>
-            </span>
-          </label>
-        ))}
-        <span className="rv-dim">
-          {lines} line comment{lines === 1 ? "" : "s"} and{" "}
-          {v.drafts.length - lines} general comment
-          {v.drafts.length - lines === 1 ? "" : "s"} go with it.
-        </span>
-        {r.err && <ErrorBox error={r.err} />}
-        <div className="rv-row">
-          <button
-            type="submit"
-            className="btn sm primary"
-            disabled={r.running.includes("submit")}
-          >
-            {r.running.includes("submit") ? "Sending…" : "Submit review"}
-          </button>
-          <button type="button" className="btn sm ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <span className="rv-dim">{keysFor("submit", keymap)}</span>
-        </div>
-      </form>
+      <SubmitForm
+        pid={pid}
+        reviewKey={reviewKey}
+        initial={initial}
+        keymap={keymap}
+        onClose={onClose}
+        onDone={onDone}
+      />
     </Modal>
   );
 }

@@ -297,13 +297,50 @@ function reviewServer() {
         id: `dr_${views[k].drafts.length + 1}`,
         path: (b.path as string) ?? null,
         line: (b.line as number) ?? null,
-        side: "RIGHT",
+        side: (b.side as Draft["side"]) ?? "RIGHT",
         body: b.body as string,
         finding_id: (b.finding_id as string) ?? null,
         created_at: "",
+        start_line: (b.start_line as number) ?? null,
+        start_side: (b.start_side as Draft["side"]) ?? null,
       };
       views[k] = { ...views[k], drafts: [...views[k].drafts, d] };
       return HttpResponse.json(d);
+    }),
+    http.post(`${R}/drafts/move`, async ({ request }) => {
+      const b = await rec(request);
+      const from = b.from as string;
+      const to = b.to as string;
+      views[to] = {
+        ...views[to],
+        drafts: [...views[to].drafts, ...views[from].drafts],
+      };
+      views[from] = { ...views[from], drafts: [] };
+      return HttpResponse.json(views[to]);
+    }),
+    http.put(`${R}/drafts/:id`, async ({ request, params }) => {
+      const b = await rec(request);
+      const k = Object.keys(views).find((x) =>
+        views[x].drafts.some((d) => d.id === params.id),
+      )!;
+      const d = {
+        ...views[k].drafts.find((x) => x.id === params.id)!,
+        body: b.body as string,
+      };
+      views[k] = {
+        ...views[k],
+        drafts: views[k].drafts.map((x) => (x.id === d.id ? d : x)),
+      };
+      return HttpResponse.json(d);
+    }),
+    http.delete(`${R}/drafts/:id`, async ({ request, params }) => {
+      await rec(request);
+      for (const k of Object.keys(views))
+        views[k] = {
+          ...views[k],
+          drafts: views[k].drafts.filter((x) => x.id !== params.id),
+        };
+      return HttpResponse.json({ ok: true });
     }),
     http.post(`${R}/viewed`, async ({ request }) => {
       const b = await rec(request);
@@ -390,6 +427,7 @@ function reviewServer() {
   );
   return {
     calls,
+    views,
     setAi: (a: AiState) => {
       ai = a;
     },
@@ -668,7 +706,7 @@ describe("Code › Review, IDE style", () => {
       within(dlg).getByRole("radio", { name: /Request changes/ }),
     );
     await userEvent.click(
-      within(dlg).getByRole("button", { name: "Submit review" }),
+      within(dlg).getByRole("button", { name: "Submit and request changes" }),
     );
     await waitFor(() =>
       expect(s.calls.find((c) => c.path.endsWith("/submit"))?.body).toEqual({
@@ -925,5 +963,277 @@ describe("Code › Review, IDE style", () => {
     } finally {
       registerSlot(SLOTS.codeActivity, view);
     }
+  });
+});
+
+describe("Code › Review: comments on several lines and the Pending tab", () => {
+  it("picks several lines with shift-click and with a drag, in the diff and in the whole file, and shows a thread over its range", async () => {
+    const s = reviewServer();
+    s.views["pr:7"] = {
+      ...s.views["pr:7"],
+      threads: s.views["pr:7"].threads.map((t) => ({
+        ...t,
+        start_line: 2,
+        start_side: "RIGHT" as const,
+      })),
+    };
+    const side = await openPr(7);
+    const tab = await openFile(side, "src/Prefs.kt");
+    // the thread on lines 2–3 sits under line 3 and marks both rows
+    expect(await within(tab).findByText("lines 2–3")).toBeInTheDocument();
+    expect(tab.querySelectorAll(".rng").length).toBe(2);
+
+    // click line 2, shift-click line 4: one comment on lines 2–4
+    await userEvent.click(
+      within(tab).getByRole("button", { name: "Comment on line 2" }),
+    );
+    fireEvent.click(
+      within(tab).getByRole("button", { name: "Comment on line 4" }),
+      { shiftKey: true },
+    );
+    const box = await within(tab).findByRole("textbox", {
+      name: "Comment on src/Prefs.kt:2–4",
+    });
+    expect(tab.querySelectorAll(".sel").length).toBe(3);
+    await userEvent.type(box, "Move these three lines to a store");
+    await userEvent.click(
+      within(tab).getByRole("button", { name: "Add comment" }),
+    );
+    await waitFor(() =>
+      expect(
+        s.calls.find((c) => c.path.endsWith("/drafts"))?.body,
+      ).toMatchObject({
+        key: "pr:7",
+        path: "src/Prefs.kt",
+        start_line: 2,
+        start_side: "RIGHT",
+        line: 4,
+        side: "RIGHT",
+      }),
+    );
+    expect(await within(tab).findByText("lines 2–4")).toBeInTheDocument();
+
+    // drag over the numbers from line 3 to line 5
+    fireEvent.mouseDown(
+      within(tab).getByRole("button", { name: "Comment on line 3" }),
+    );
+    fireEvent.mouseOver(
+      within(tab).getByRole("button", { name: "Comment on line 5" }),
+    );
+    fireEvent.mouseUp(
+      within(tab).getByRole("button", { name: "Comment on line 5" }),
+    );
+    expect(
+      await within(tab).findByRole("textbox", {
+        name: "Comment on src/Prefs.kt:3–5",
+      }),
+    ).toBeInTheDocument();
+    await userEvent.click(within(tab).getByRole("button", { name: "Cancel" }));
+
+    // the whole file: its line numbers take a range too
+    await userEvent.click(
+      within(tab).getByRole("button", { name: "Whole file" }),
+    );
+    await userEvent.click(
+      await within(tab).findByRole("button", { name: "Comment on line 1" }),
+    );
+    fireEvent.click(
+      within(tab).getByRole("button", { name: "Comment on line 3" }),
+      { shiftKey: true },
+    );
+    await userEvent.type(
+      await within(tab).findByRole("textbox", {
+        name: "Comment on src/Prefs.kt:1–3",
+      }),
+      "The class does two things",
+    );
+    await userEvent.click(
+      within(tab).getByRole("button", { name: "Add comment" }),
+    );
+    await waitFor(() =>
+      expect(
+        s.calls.filter((c) => c.path.endsWith("/drafts")).at(-1)?.body,
+      ).toMatchObject({ start_line: 1, line: 3, side: "RIGHT" }),
+    );
+  });
+
+  it("lists every pending comment in the Pending tab, edits and deletes them, and sends them with Approve as one review", async () => {
+    const s = reviewServer();
+    s.views["pr:7"] = {
+      ...s.views["pr:7"],
+      drafts: [
+        {
+          id: "dr_a",
+          path: "src/Prefs.kt",
+          line: 4,
+          side: "RIGHT",
+          start_line: 2,
+          start_side: "RIGHT",
+          body: "Move these to a store",
+          created_at: "",
+        },
+        {
+          id: "dr_b",
+          path: null,
+          line: null,
+          side: "RIGHT",
+          body: "Nice tests",
+          created_at: "",
+        },
+      ],
+      threads: [
+        ...s.views["pr:7"].threads,
+        {
+          id: "PRRT_9",
+          path: "src/Prefs.kt",
+          line: 5,
+          side: "RIGHT",
+          resolved: false,
+          outdated: false,
+          pending: true,
+          reply_to: "91",
+          comments: [
+            { id: "91", author: "me", body: "Started on github.com", at: "" },
+          ],
+        },
+      ],
+    };
+    const side = await openPr(7);
+    // the pending comments are one click away, from the tab and from the Changes footer
+    expect(
+      within(side).getByRole("button", { name: "Submit review (3)" }),
+    ).toBeInTheDocument();
+    await userEvent.click(within(side).getByRole("tab", { name: /Pending/ }));
+    const list = within(side).getByRole("region", { name: "Pending comments" });
+    expect(within(list).getByText("Lines 2–4")).toBeInTheDocument();
+    expect(within(list).getByText("Move these to a store")).toBeInTheDocument();
+    expect(within(list).getByText("Nice tests")).toBeInTheDocument();
+    expect(
+      within(list).getByText("In your pending review on GitHub"),
+    ).toBeInTheDocument();
+    expect(within(list).getByText("Started on github.com")).toBeInTheDocument();
+
+    // edit one, delete another
+    await userEvent.click(within(list).getAllByRole("button", { name: "Edit" })[0]);
+    const edit = within(list).getByRole("textbox", {
+      name: "Edit the pending comment",
+    });
+    await userEvent.clear(edit);
+    await userEvent.type(edit, "Move these to the repository");
+    await userEvent.click(within(list).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(
+        s.calls.find((c) => c.method === "PUT" && c.path.endsWith("/drafts/dr_a"))
+          ?.body,
+      ).toEqual({ body: "Move these to the repository" }),
+    );
+    await userEvent.click(within(list).getAllByRole("button", { name: "Delete" })[1]);
+    await waitFor(() =>
+      expect(
+        s.calls.some(
+          (c) => c.method === "DELETE" && c.path.endsWith("/drafts/dr_b"),
+        ),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(within(list).queryByText("Nice tests")).not.toBeInTheDocument(),
+    );
+
+    // a comment on the whole change
+    await userEvent.type(
+      within(list).getByRole("textbox", { name: "A comment on the whole change" }),
+      "Thanks!",
+    );
+    await userEvent.click(
+      within(list).getByRole("button", { name: "Add pending comment" }),
+    );
+    await waitFor(() =>
+      expect(
+        s.calls.filter((c) => c.path.endsWith("/drafts")).at(-1)?.body,
+      ).toMatchObject({ key: "pr:7", path: null, line: null, body: "Thanks!" }),
+    );
+
+    // submit them all with Approve, as one review
+    const form = within(side).getByRole("form", { name: "Submit your review" });
+    expect(form).toHaveTextContent(
+      "1 line comment and 1 general comment, and 1 from your pending review on GitHub, go with it.",
+    );
+    await userEvent.click(within(form).getByRole("radio", { name: /Approve/ }));
+    await userEvent.type(
+      within(form).getByRole("textbox", { name: "Your review" }),
+      "Good, two notes.",
+    );
+    await userEvent.click(
+      within(form).getByRole("button", { name: "Submit and approve" }),
+    );
+    await waitFor(() =>
+      expect(s.calls.find((c) => c.path.endsWith("/submit"))?.body).toEqual({
+        key: "pr:7",
+        event: "APPROVE",
+        body: "Good, two notes.",
+      }),
+    );
+    expect(await within(side).findByText("approved by me")).toBeInTheDocument();
+  });
+
+  it("says why your own pull request cannot be approved", async () => {
+    reviewServer();
+    const side = await openTool();
+    await userEvent.click(await within(side).findByRole("tab", { name: /Mine/ }));
+    await userEvent.click(
+      await within(side).findByRole("button", { name: "#8 My paging" }),
+    );
+    await userEvent.click(
+      await within(side).findByRole("tab", { name: /Pending/ }),
+    );
+    const form = within(side).getByRole("form", { name: "Submit your review" });
+    expect(form).toHaveTextContent("This is your own pull request");
+    expect(within(form).getByRole("radio", { name: /Approve/ })).toBeDisabled();
+    expect(within(form).getByRole("radio", { name: /Comment/ })).toBeChecked();
+  });
+
+  it("moves a branch review's pending comments to its pull request, where they can be sent", async () => {
+    const s = reviewServer();
+    s.views["branch:feat/paging"] = {
+      ...s.views["pr:7"],
+      key: "branch:feat/paging",
+      kind: "branch",
+      number: null,
+      can_post: false,
+      threads: [],
+      branch_pr: 7,
+      drafts: [
+        {
+          id: "dr_x",
+          path: "src/Prefs.kt",
+          line: 4,
+          side: "RIGHT",
+          body: "Written on the branch",
+          created_at: "",
+        },
+      ],
+    };
+    const side = await openTool();
+    await userEvent.click(
+      await within(side).findByRole("button", { name: "Commits only" }),
+    );
+    await userEvent.click(
+      await within(side).findByRole("button", { name: "Pending (1)" }),
+    );
+    expect(within(side).getByText("Written on the branch")).toBeInTheDocument();
+    await userEvent.click(
+      within(side).getByRole("button", { name: "Move to #7 and review it" }),
+    );
+    await waitFor(() =>
+      expect(
+        s.calls.find((c) => c.path.endsWith("/drafts/move"))?.body,
+      ).toEqual({ from: "branch:feat/paging", to: "pr:7" }),
+    );
+    expect(
+      await within(side).findByRole("button", { name: "Submit review (1)" }),
+    ).toBeInTheDocument();
+    expect(
+      within(side).getByRole("form", { name: "Submit your review" }),
+    ).toBeInTheDocument();
   });
 });

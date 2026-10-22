@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
 import {
+  linesLabel,
   prLabel,
   type AiState,
   type Finding,
@@ -12,7 +13,7 @@ import {
   type ReviewView,
 } from "./reviewApi";
 
-export type PanelTab = "changes" | "commits" | "overview" | "findings" | "threads" | "checklist";
+export type PanelTab = "changes" | "pending" | "commits" | "overview" | "findings" | "threads" | "checklist";
 
 const SEV: Record<string, [string, PillTone]> = {
   blocking: ["blocking", "bad"],
@@ -647,8 +648,11 @@ export function ThreadCard({
           onClick={() => onOpen(t.path!, t.line, t.side)}
         >
           {t.path}
-          {t.line ? `:${t.line}` : ""}
+          {t.line ? `:${linesLabel(t)}` : ""}
         </button>
+      )}
+      {compact && t.start_line != null && (
+        <span className="rv-dim">lines {linesLabel(t)}</span>
       )}
       {t.comments.map((c, i) => (
         <div key={c.id} className="rv-comment">
@@ -662,11 +666,13 @@ export function ThreadCard({
                 <Pill tone="warn">open</Pill>
               ))}
             {i === 0 && t.outdated && <Pill tone="idle">outdated</Pill>}
+            {i === 0 && t.pending && <Pill tone="run">pending</Pill>}
           </div>
           <Markdown text={c.body} fold={10} />
         </div>
       ))}
       {canPost &&
+        !t.pending &&
         (replying ? (
           <form
             className="rv-reply"

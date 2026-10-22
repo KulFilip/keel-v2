@@ -21,6 +21,9 @@ export type Place = {
   view: FileView;
   line: number | null;
   side: Side;
+  /** a comment on several lines: its first line (the place's line is its last) */
+  startLine?: number | null;
+  startSide?: Side | null;
 };
 export type Popup =
   | { kind: "places"; title: string; places: Places; key: string }
@@ -64,6 +67,8 @@ const ui = {
   changes: 0,
   history: { list: [] as Place[], at: -1 },
   findingIdx: -1,
+  /** show the Review window's Pending tab (n changes every time) */
+  pendingTab: 0,
 };
 let version = 0;
 const subs = new Set<() => void>();
@@ -124,6 +129,7 @@ export function resetReviews() {
     popup: null,
     history: { list: [], at: -1 },
     findingIdx: -1,
+    pendingTab: 0,
   });
   opener = null;
   emit();
@@ -231,7 +237,13 @@ export async function addDraft(
   pid: string,
   key: string,
   body: string,
-  at: { path: string; line: number; side: Side } | null,
+  at: {
+    path: string;
+    line: number;
+    side: Side;
+    startLine?: number | null;
+    startSide?: Side | null;
+  } | null,
   findingId?: string,
 ) {
   const d = await act(pid, key, "draft", () =>
@@ -242,6 +254,9 @@ export async function addDraft(
       side: at?.side ?? "RIGHT",
       body,
       finding_id: findingId,
+      ...(at?.startLine != null
+        ? { start_line: at.startLine, start_side: at.startSide ?? at.side }
+        : {}),
     }),
   );
   if (d) {
@@ -273,6 +288,17 @@ export async function deleteDraft(pid: string, key: string, d: Draft) {
       ...v,
       drafts: v.drafts.filter((x) => x.id !== d.id),
     }));
+}
+
+/** A branch review's pending comments go to its pull request; the pull request's review is loaded with them. */
+export async function moveDrafts(pid: string, from: string, to: string) {
+  const v = await act(pid, from, "move", () =>
+    reviewApi.moveDrafts(pid, from, to),
+  );
+  if (!v) return false;
+  patchView(pid, from, (x) => ({ ...x, drafts: [] }));
+  set(pid, to, { view: v, error: null });
+  return true;
 }
 
 export async function toggleViewed(pid: string, key: string, path: string) {
