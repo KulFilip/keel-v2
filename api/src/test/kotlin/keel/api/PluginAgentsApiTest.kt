@@ -55,6 +55,7 @@ class PluginAgentsApiTest {
                 "explorer" to agent("explorer", "not keel's explorer"),          // keel's file name: never shown
                 "sneaky" to agent("implementer", "not keel's implementer"),      // keel's id in another file: never shown
                 "contract-author" to agent("contract-author", "not keel's contract author"),   // keel's, without a file
+                "reviewer" to agent("reviewer", "not keel's reviewer"),          // an old name of keel's lens-reviewer: never shown
             ))
             val tools = content("tools", mapOf("tools-helper" to agent("tools-helper", "the tools helper"),
                 "notes-agent" to agent("notes-agent", "a second notes agent")))  // an earlier plugin has it
@@ -101,8 +102,8 @@ class PluginAgentsApiTest {
         val agents = get("/api/projects/$pid/agents").andExpect(status().isOk).json()
         val ids = agents.map { it["id"].asText() }
         // keel's fixture agents, then the installed plugins' agents, one list in file-name order
-        assertThat(ids).containsExactly("explorer", "helper", "implementer", "notes-agent", "reviewer", "test-author", "tools-helper")
-        assertThat(ids).doesNotContain("imaged-agent", "contract-author")
+        assertThat(ids).containsExactly("explorer", "helper", "implementer", "lens-reviewer", "notes-agent", "test-author", "tools-helper")
+        assertThat(ids).doesNotContain("imaged-agent", "contract-author", "reviewer")
         val notes = agents.first { it["id"].asText() == "notes-agent" }
         assertThat(notes["about"].asText()).isEqualTo("the notes agent")
         assertThat(notes["custom"].asBoolean()).isFalse()

@@ -1,5 +1,6 @@
 package keel.api.skills
 
+import keel.api.agents.AgentNames
 import keel.api.agents.FrontMatter
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
@@ -122,7 +123,7 @@ class SkillService(
     private fun view(d: SkillDef, pid: String?): Skill {
         val a = pid?.let { assignment(it, d.id) }
         return Skill(
-            d.id, d.kind, d.source, d.stack, d.version, (d.bytes / 4).toInt(), a?.agents ?: d.agents,
+            d.id, d.kind, d.source, d.stack, d.version, (d.bytes / 4).toInt(), (a?.agents ?: d.agents).let(AgentNames::canonicalList),
             a?.`when` ?: d.`when`, a?.enabled ?: true, d.about, d.market,
         )
     }
@@ -219,7 +220,8 @@ class SkillService(
         }
         if (agents != null || whenText != null || enabled != null) {
             val prev = assignment(pid, sid) ?: SkillAssign()
-            val next = SkillAssign(agents ?: prev.agents, whenText ?: prev.`when`, enabled ?: prev.enabled)
+            // an old agent name (AgentNames.RENAMED) is saved as the new one
+            val next = SkillAssign((agents ?: prev.agents)?.let(AgentNames::canonicalList), whenText ?: prev.`when`, enabled ?: prev.enabled)
             jdbc.update(
                 "INSERT INTO skill_assign(project_id, skill_id, json) VALUES (?, ?, ?) ON CONFLICT(project_id, skill_id) DO UPDATE SET json = excluded.json",
                 pid, sid, Json.write(next),
@@ -316,7 +318,7 @@ class SkillService(
             id == "spec-writing" -> listOf("explorer") to "spec"
             id == "memory" -> listOf("librarian") to "memory"
             id == "playwright" -> listOf("e2e-author") to "e2e"
-            id == "review" -> listOf("reviewer") to "ship"
+            id == "review" -> listOf("lens-reviewer") to "ship"
             id in FLOW_SKILLS -> emptyList<String>() to "the $id flow"
             else -> emptyList<String>() to "on demand"
         }

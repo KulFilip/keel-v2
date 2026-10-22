@@ -105,15 +105,17 @@ class AgentCatalog(
     fun defaults(): List<AgentDef> {
         val dir = props.contentDir.resolve("agents")
         val own = if (Files.isDirectory(dir)) Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") }.toList() } else emptyList()
-        val names = own.map { it.fileName.toString() }.toSet()
+        // an old agent name (AgentNames.RENAMED) is never an agent of its own: a part or plugin cannot bring one
+        val names = own.map { it.fileName.toString() }.toSet() + AgentNames.OLD.map { "$it.md" }
         val more = parts.orderedStream().toList()
             .flatMap { runCatching { it.files() }.getOrDefault(emptyList()) }
             .filter { it.fileName.toString().endsWith(".md") && it.fileName.toString() !in names && Files.isRegularFile(it) }
             .distinctBy { it.fileName.toString() }
         // one list in file-name order, as keel's own folder listed them
         val base = (own + more).sortedBy { it.fileName.toString() }.mapNotNull { f -> read(f)?.let { f to it } }
+            .filter { (_, d) -> !AgentNames.isOld(d.id) }
         val taken = names + more.map { it.fileName.toString() }
-        val ids = (base.map { it.second.id } + BUILTIN).toMutableSet()
+        val ids = (base.map { it.second.id } + BUILTIN + AgentNames.OLD).toMutableSet()
         val installed = installedPluginFiles()
             .filter { it.fileName.toString() !in taken }
             .distinctBy { it.fileName.toString() }
@@ -131,7 +133,8 @@ class AgentCatalog(
             else Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") && Files.isRegularFile(it) }.sorted().toList() }
         }
 
-    fun find(id: String): AgentDef? = defaults().firstOrNull { it.id == id }
+    /** The agent by its id; an old name (AgentNames.RENAMED) finds the new agent. */
+    fun find(id: String): AgentDef? = AgentNames.canonical(id).let { cid -> defaults().firstOrNull { it.id == cid } }
 
     private fun read(file: Path): AgentDef? = runCatching {
         val (fm, body) = FrontMatter.split(Files.readString(file))
@@ -150,7 +153,7 @@ class AgentCatalog(
 
     /** True when an agent can change files (it has Write or Edit). */
     fun writes(id: String, customTools: List<String>? = null): Boolean {
-        val tools = customTools ?: find(id)?.tools ?: return id in WRITERS
+        val tools = customTools ?: find(id)?.tools ?: return AgentNames.canonical(id) in WRITERS
         return tools.any { it.equals("Write", true) || it.equals("Edit", true) || it.contains("write", true) }
     }
 
@@ -164,12 +167,12 @@ class AgentCatalog(
             "explorer" to listOf("spec", "contract"),
             "test-author" to listOf("red"),
             "implementer" to listOf("green"),
-            "ac-reviewer" to listOf("gate"),
-            "code-reviewer" to listOf("integration"),
+            "criterion-reviewer" to listOf("gate"),
+            "branch-reviewer" to listOf("integration"),
             "security-auditor" to listOf("security"),
             "dependency-triager" to listOf("security"),
             "e2e-author" to listOf("e2e"),
-            "reviewer" to listOf("ship"),
+            "lens-reviewer" to listOf("ship"),
             "librarian" to listOf("memory"),
             "reproducer" to listOf("bug-repro"),
             "investigator" to listOf("bug-investigate"),
@@ -181,7 +184,7 @@ class AgentCatalog(
             "bulk-reader" to listOf("any"),
             "lane-runner" to listOf("any"),
         )
-        val REVIEWERS = setOf("ac-reviewer", "code-reviewer", "reviewer", "security-auditor")
+        val REVIEWERS = setOf("criterion-reviewer", "branch-reviewer", "lens-reviewer", "security-auditor")
         val WRITERS = setOf("implementer", "test-author", "e2e-author", "lane-runner", "reproducer", "librarian", "prover")
     }
 }

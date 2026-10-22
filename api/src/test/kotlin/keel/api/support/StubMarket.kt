@@ -97,6 +97,9 @@ class StubMarket {
         "runs-tests" to Triple("Runs the tests", "quality", listOf(Triple("2.0.0", workflowYaml("Runs the tests", "2.0.0", command = "make test"),
             review(steps = 3, commands = listOf("make test"), edits = true) to mapOf<String, Any?>()))),
         "old-one" to Triple("An old one", "other", listOf(Triple("0.1.0", workflowYaml("An old one", "0.1.0"), review() to mapOf<String, Any?>()))),
+        // published before keel renamed its review agents: "reviewer" is the lens-reviewer's old name
+        "old-agent-names" to Triple("Old agent names", "other", listOf(Triple("1.0.0", workflowYaml("Old agent names", "1.0.0", agent = "reviewer"),
+            review(agent = "reviewer") to mapOf<String, Any?>("agents" to listOf("reviewer"))))),
     )
 
     /** name → the version the stub catalog offers as the newest that fits (a test lowers it, as if 1.3.0 were not out yet). */
