@@ -5,7 +5,7 @@ calls the person.
                                                              at most MAX_PARALLEL turns in the whole keel
     look: policy -> repeat limits -> budget -> brief -> model turn (read-only) -> verdict -> checks -> answer | escalate
 
-A flow is supervised when its settings say so: settings.supervisor = {on, mode, model, effort, cap_tokens, policy,
+A flow is supervised when the plugin is on for its project (settings.plugins) and its settings say so: settings.supervisor = {on, mode, model, effort, cap_tokens, policy,
 max_answers, estimate} (routes.py sets it during a run). Mode "shadow" (the default) never answers: each verdict is a
 suggestion for the person. Mode "act" answers through Engine.resume(by="supervisor"), as a person would; a 409 there
 means the person answered first, and that is final.
@@ -23,7 +23,7 @@ import tempfile
 import time
 import uuid
 
-from keel_engine import models
+from keel_engine import extensions, models
 from keel_engine.models.base import AgentRequest, ModelError
 from keel_engine.runtime import side_usage
 from keel_engine.runtime.compiler import budget_tokens
@@ -110,8 +110,12 @@ class Supervisor:
     # ------------------------------------------------------------ settings
 
     async def settings(self, tid: str) -> dict:
+        """The flow's Supervisor settings; it is on only while the plugin is on for the flow's project too."""
         ctx = await self.engine._context(tid)
-        return settings_of((ctx.settings or {}).get("supervisor"))
+        s = settings_of((ctx.settings or {}).get("supervisor"))
+        s["plugin_on"] = extensions.on(ctx.settings, "supervisor")
+        s["on"] = bool(s["on"] and s["plugin_on"])
+        return s
 
     # ------------------------------------------------------------ one look
 

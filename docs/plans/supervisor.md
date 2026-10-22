@@ -1,7 +1,8 @@
 # keel v2 — the Supervisor (plan, not built yet)
 
-Branch `feat/supervisor`, on `fix/bughunt` (main 0.18.32 + the bug-hunt fixes, `c2169245`). Status: **plan only**.
-Nothing is built until the person says yes to this plan and its open questions (section 16).
+Branch `feat/supervisor`, on `fix/bughunt` (main 0.18.32 + the bug-hunt fixes, `c2169245`). Status: **P0, P1, P2 and
+most of P4 are built** (section 17). The open questions (section 16) use the defaults in section 17 until the person
+changes them.
 
 The person's request: a general supervisor agent, on a strong model with deep thinking, that watches the flows that
 run, checks them, answers and acts from the project's own context, and calls a person when it really cannot find or
@@ -550,3 +551,44 @@ separate commit series; nothing is merged into main or released without the pers
    P2 lets it answer?
 9. **Version.** This branch already has "0.19.0" work (named choices, `choices.py`). Ship the Supervisor as the next
    minor after that (0.20.0), after the bug-hunt branch lands on main?
+
+---
+
+## 17. Status: what is built (2026-10-22)
+
+```
+ P0 core seams ✔ ── P1 shadow ✔ ── P2 answers ✔ ── P3 acts ✗ ── P5 real check ✗
+                       └── P4 UI: Jobs tab ✔, TUI ✔, MCP ✔, flow chip / Inbox note ✗, settings page ✗
+```
+
+| part | where | what |
+|---|---|---|
+| core seams | `engine/keel_engine/events`, `runtime/side_usage.py`, `runtime/compiler.py`, `runtime/state.py`, `runtime/service.py`, `app.py` | `EventBus.listen`; `Engine.resume(by=…)` → `gate.decided.by`; the side-usage ledger counted by the flow's caps; `settings.supervisor` at start |
+| engine part | `plugins/supervisor/engine/keel_plugin_supervisor` | watcher, policy, brief, verdict, audit log, routes, MCP tools, PR body lines, fake verdicts |
+| api part | `plugins/supervisor/api` | routes pass through for the flow's own project; turns are agent calls (Budget page); escalations that need the person are notifications |
+| web part | `plugins/supervisor/web` | Jobs › Supervisor: the waiting flow's on/off and mode, the audit log |
+| TUI | `keel-plugin.yml` `contributes.tui` | `/supervisor log|status|on|off|shadow|act` |
+| MCP | `mcp_tools.py` | `keel_supervisor` (read), `keel_supervisor_set` (--write; `act` asks the person first) |
+
+### Defaults picked for the open questions
+
+| # | question | default now | where to change it |
+|---|---|---|---|
+| 1 | spec and contract approval | only suggested (`escalate`) | `settings.supervisor.policy: {spec: may}` per flow |
+| 2 | confidence bar | `high` only | code (`supervisor.py`) |
+| 3 | code fixes | none: it answers, retries through offered choices, sends back with a reason; it never edits | P3, not built |
+| 4 | stop or rewind a flow | never | — |
+| 5 | budget | 150,000 tokens per flow for its own turns; its tokens count toward the flow's cap; a turn is skipped when it would pass the flow's cap (30,000 estimate) | `settings.supervisor.cap_tokens`, `estimate` |
+| 6 | model and effort | the flow's `supervisor` model if set, else its default model, with effort `high` | `settings.supervisor.model`, `effort` |
+| 7 | plugin or core | a plugin (`plugins/supervisor`) | — |
+| 8 | shadow mode first | yes: mode `shadow` is the default; `act` must be chosen | `/supervisor act`, the Jobs tab, `keel_supervisor_set` |
+| 9 | version | plugin 0.1.0; keel's version not bumped | release time |
+
+### Not built yet
+
+- P3: diagnosing a failed thread, the stall timer, small fixes under KeelBot's fix rules.
+- The per-project daily cap (500,000).
+- "The person's past answers" across flows in the brief (it has this flow's gate log and its own earlier looks).
+- The dashboard's flow-header chip and the note on the flow's own Inbox item (no web slot for them yet: core change).
+- keel-wide and per-project Supervisor settings (today: per flow, in the thread's settings).
+- The real-model check (P5): only with the person's OK.

@@ -74,6 +74,8 @@ async def set_settings(tid: str, body: SupervisorBody, request: Request):
         row = await eng._row(tid)
     except EngineError as exc:
         raise HTTPException(exc.status, exc.error) from exc
+    if body.on and not (await sup.settings(tid))["plugin_on"]:
+        raise HTTPException(409, "The Supervisor plugin is off for this project: turn it on in Control › Plugins first.")
     patch = body.model_dump(exclude_none=True)
     data = json.loads(row["body"])
     settings = dict(data.get("settings") or {})

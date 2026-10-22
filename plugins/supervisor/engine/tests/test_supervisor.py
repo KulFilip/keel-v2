@@ -14,7 +14,7 @@ from keel_engine.runtime import side_usage
 from keel_engine.workflows.model import from_dict
 from keel_plugin_supervisor import VERSION, ledger, policy, verdict
 
-SETTINGS = {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause"}
+SETTINGS = {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "plugins": ["supervisor"]}
 GOOD = {"action": "answer", "decision": "approve", "why": "the check passed and matches the spec", "confidence": "high",
         "evidence": ["knowledge:conventions"], "summary": "Looks right."}
 
@@ -81,6 +81,17 @@ def test_it_is_off_unless_a_flow_turns_it_on(client, repo, script):
     script(GOOD)
     tid, s = run(client, repo)
     assert s["status"] == "waiting" and rows(tid) == []
+
+
+def test_it_stays_off_while_the_plugin_is_off_for_the_project(client, repo, script):
+    script(GOOD)
+    tid = start(client, repo, workflow=wf(GATED), settings={**SETTINGS, "plugins": [], "supervisor": {"on": True, "mode": "act"}})
+    wait(client, tid)
+    idle(client)
+    assert wait(client, tid)["status"] == "waiting" and rows(tid) == []
+    r = client.post(f"/threads/{tid}/supervisor", json={"on": True})
+    assert r.status_code == 409 and "Control › Plugins" in r.text
+    assert client.get(f"/threads/{tid}/supervisor").json()["settings"]["on"] is False
 
 
 def test_shadow_mode_only_suggests(client, repo, script):
