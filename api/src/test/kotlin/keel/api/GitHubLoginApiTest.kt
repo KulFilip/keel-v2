@@ -10,6 +10,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.mockito.Mockito.mock
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.net.InetSocketAddress
@@ -82,14 +83,6 @@ class GitHubLoginApiTest : ApiTest() {
     }
 
     @Test
-    fun `a gh that hangs on sign-out is stopped at the timeout, with its children`() {
-        val secrets = mock(SecretService::class.java)
-        org.mockito.Mockito.`when`(secrets.get("GITHUB_REPO_INFO")).thenReturn("""{"login":"x","scopes":[],"host":"hang.example.com","via":"gh"}""")
-        val service = GitHubLoginService(secrets, ObjectMapper(), false, dataDir.resolve("fake-gh").toString(), "", "", 2, 2)
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(15)) { service.signOut() }
-    }
-
-    @Test
     fun `an Enterprise host goes to gh as --hostname, and a bad host is refused`() {
         val v = post("/api/github/login", mapOf("host" to "GHE.Example.com")).json()
         assertThat(waitFor(v["id"].asText())["status"].asText()).isEqualTo("done")
@@ -99,14 +92,38 @@ class GitHubLoginApiTest : ApiTest() {
     }
 
     @Test
-    fun `sign out removes the token and runs gh auth logout`() {
+    fun `sign out removes the token, does not touch gh, and says GitHub is not told`() {
         val v = post("/api/github/login", mapOf("host" to "github.com")).json()
         waitFor(v["id"].asText())
-        delete("/api/github").andExpect(status().isOk)
+        val out = delete("/api/github").andExpect(status().isOk).json()
+        assertThat(out["ok"].asBoolean()).isTrue()
+        assertThat(out["removed"].asBoolean()).isTrue()
+        assertThat(out["revoked_at_github"].asBoolean()).isFalse()
+        assertThat(out["note"].asText()).contains("github.com/settings/applications")
         val gh = get("/api/github").json()
         assertThat(gh["set"].asBoolean()).isFalse()
         assertThat(gh["login"].isNull).isTrue()
-        assertThat(Files.readAllLines(ghLog)).contains("auth logout --hostname github.com")
+        assertThat(Files.readAllLines(ghLog)).noneMatch { it.startsWith("auth logout") }
+        assertThat(delete("/api/github").json()["removed"].asBoolean()).isFalse()
+    }
+
+    @Autowired lateinit var service: GitHubLoginService
+
+    @Test
+    fun `finished sign-ins are forgotten after a while`() {
+        val v = post("/api/github/login", mapOf("host" to "github.com")).json()
+        waitFor(v["id"].asText())
+        get("/api/github/login/${v["id"].asText()}").andExpect(status().isOk)
+        service.evictOld(java.time.Duration.ofHours(1))
+        get("/api/github/login/${v["id"].asText()}").andExpect(status().isOk)    // young: kept
+        service.evictOld(java.time.Duration.ZERO)
+        get("/api/github/login/${v["id"].asText()}").andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `script is called the GNU way on Linux and the BSD way on a Mac`() {
+        assertThat(keel.api.common.Proc.inTerminal("exec gh", mac = false)).containsExactly("script", "-qfec", "exec gh", "/dev/null")
+        assertThat(keel.api.common.Proc.inTerminal("exec gh", mac = true)).containsExactly("script", "-q", "/dev/null", "sh", "-c", "exec gh")
     }
 
     @Test

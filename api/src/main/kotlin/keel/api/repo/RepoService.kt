@@ -258,12 +258,15 @@ class RepoService(
         if (Files.exists(target) && !target.toRealPath().startsWith(realRoot)) {
             throw Forbidden("That path is outside the project", "It is a link to a file outside the repo.")
         }
-        val relNorm = root.relativize(target).toString().replace('\\', '/')
-        if (relNorm == ".git" || relNorm.startsWith(".git/") || relNorm.contains("/.git/")) {
-            throw Forbidden("keel does not show files inside .git")
-        }
-        if (isSecret(target.fileName?.toString() ?: "")) {
-            throw Forbidden("keel does not show secret files", "Files like .env, keys and certificates stay private.")
+        // the name as written, and (when it exists) where it really points: a link `notes.txt -> .env` or `x -> .git`
+        // must not get past the checks, and `.GIT` is .git on a case-insensitive disk
+        val names = mutableListOf<List<String>>(root.relativize(target).map { it.toString() })
+        if (Files.exists(target)) names += realRoot.relativize(target.toRealPath()).map { it.toString() }
+        for (parts in names) {
+            if (parts.any { it.equals(".git", ignoreCase = true) }) throw Forbidden("keel does not show files inside .git")
+            if (isSecret(parts.lastOrNull() ?: "")) {
+                throw Forbidden("keel does not show secret files", "Files like .env, keys and certificates stay private.")
+            }
         }
         return target
     }

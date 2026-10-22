@@ -32,8 +32,8 @@ abstract class ApiTest {
 
     fun get(url: String): ResultActions = mvc.perform(MockMvcRequestBuilders.get(url))
     fun post(url: String, body: Any? = null, headers: Map<String, String> = emptyMap()) = send(MockMvcRequestBuilders.post(url), body, headers)
-    fun put(url: String, body: Any?) = send(MockMvcRequestBuilders.put(url), body)
-    fun delete(url: String): ResultActions = mvc.perform(MockMvcRequestBuilders.delete(url))
+    fun put(url: String, body: Any?, headers: Map<String, String> = emptyMap()) = send(MockMvcRequestBuilders.put(url), body, headers)
+    fun delete(url: String, headers: Map<String, String> = emptyMap()): ResultActions = send(MockMvcRequestBuilders.delete(url), null, headers)
 
     private fun send(b: MockHttpServletRequestBuilder, body: Any?, headers: Map<String, String> = emptyMap()): ResultActions {
         headers.forEach { (k, v) -> b.header(k, v) }

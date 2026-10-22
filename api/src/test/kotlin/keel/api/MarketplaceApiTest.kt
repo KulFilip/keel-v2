@@ -20,6 +20,7 @@ import java.time.Instant
 class MarketplaceApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
     @Autowired lateinit var host: PluginHost
+    @Autowired lateinit var approvals: keel.api.approvals.ApprovalService
 
     @BeforeEach
     fun clean() {
@@ -238,6 +239,26 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(body["allow_more_permissions"].asBoolean()).isTrue()
         assertThat(get("/api/plugins/installed").json()["plugins"].first { it["name"].asText() == "db" }["version"].asText()).isEqualTo("1.4.0")
         assertThat(events("plugin.updated").last()["request"].asText()).isEqualTo(id)
+    }
+
+    @Test
+    fun `the source on an Inbox card is the caller's kind, not its words`() {
+        val spoof = mapOf("name" to "db", "reason" to "I need SQL.", "source" to "KeelBot")
+        val viaMcp = post("/api/plugins/requests", spoof, mapOf("X-Keel-Via" to "mcp")).andExpect(status().isOk).json()["id"].asText()
+        assertThat(get("/api/inbox").json()["items"].first { it["id"].asText() == viaMcp }["payload"]["source"].asText()).isEqualTo("mcp")
+        jdbc.update("UPDATE approvals SET status = 'closed' WHERE kind = 'plugin-install' AND status = 'waiting'")
+        val odd = post("/api/plugins/requests", spoof + mapOf("source" to "keel")).andExpect(status().isOk).json()["id"].asText()
+        assertThat(get("/api/inbox").json()["items"].first { it["id"].asText() == odd }["payload"]["source"].asText()).isEqualTo("agent")
+    }
+
+    @Test
+    fun `approving an update request that names no version installs nothing`() {
+        post("/api/plugins/install", mapOf("name" to "db", "version" to "1.3.0")).andExpect(status().isOk)
+        val a = approvals.create("plugin-install", "", "Update Database?", "more permissions",
+            mapOf("name" to "db", "title" to "Database", "update" to true, "source" to "keel"), requestedBy = "keel", source = "keel")
+        val before = engine.calls.size
+        post("/api/approvals/${a.id}/decide", mapOf("decision" to "approve")).andExpect(status().isConflict)
+        assertThat(engine.calls.drop(before).none { it.path.endsWith("/update") }).isTrue()
     }
 
     @Test

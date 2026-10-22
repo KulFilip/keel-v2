@@ -73,6 +73,7 @@ class V02FlowApiTest : ApiTest() {
             ex.close()
         }
         server.start()
+        System.setProperty(keel.api.common.HttpFetch.ALLOW_LOOPBACK_PROPERTY, "true")   // this server is on 127.0.0.1
         try {
             val base = "http://127.0.0.1:${server.address.port}"
             val linked = post("/api/projects/$pid/skills/import", mapOf("url" to "$base/skills/payments/SKILL.md")).andExpect(status().isOk).json()
@@ -82,6 +83,7 @@ class V02FlowApiTest : ApiTest() {
             post("/api/projects/$pid/skills/import", mapOf("url" to "$base/skills/huge/SKILL.md")).andExpect(status().isBadRequest)
             post("/api/projects/$pid/skills/import", mapOf("url" to "$base/skills/missing/SKILL.md")).andExpect(status().isBadRequest)
         } finally {
+            System.clearProperty(keel.api.common.HttpFetch.ALLOW_LOOPBACK_PROPERTY)
             server.stop(0)
         }
     }

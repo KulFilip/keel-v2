@@ -80,6 +80,7 @@ class GitHubLoginService(
         @Volatile var answered = 0      // yes/no prompts already answered
         @Volatile var cursorAsked = 0   // cursor-position requests (ESC [ 6 n) already answered
         @Volatile var cancelled = false
+        val started: java.time.Instant = java.time.Instant.now()
     }
 
     private val sessions = ConcurrentHashMap<String, Session>()
@@ -87,12 +88,26 @@ class GitHubLoginService(
     fun start(rawHost: String): GitHubLoginView {
         val host = rawHost.trim().ifEmpty { "github.com" }.lowercase()
         if (!Regex("^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$").matches(host)) throw BadRequest("\"$rawHost\" is not a host name", "Use github.com or your GitHub Enterprise host, like github.example.com.")
+        evictOld(Duration.ofHours(1))
         sessions.values.filter { it.status in ACTIVE }.forEach { cancel(it.id) }
         val s = if (ghAvailable()) startGh(host) else startOAuth(host)
         // the code can come a moment after the link
         repeat(40) { if (s.status == "starting" && (s.url == null || s.code == null)) Thread.sleep(250) }
         return view(s)
     }
+
+    /** Forgets the sign-ins older than [maxAge]: a running one is stopped with its children, and its scratch HOME goes. */
+    internal fun evictOld(maxAge: Duration) {
+        val cutoff = java.time.Instant.now().minus(maxAge)
+        sessions.values.filter { !it.started.isAfter(cutoff) }.forEach { s ->
+            sessions.remove(s.id)
+            if (s.status in ACTIVE) { s.cancelled = true; s.status = "cancelled"; s.message = "Sign-in cancelled." }
+            s.proc?.let { keel.api.common.Proc.killTree(it) }
+            runCatching { s.home?.toFile()?.deleteRecursively() }
+        }
+    }
+
+    internal fun sessionCount(): Int = sessions.size
 
     fun get(id: String): GitHubLoginView = view(sessions[id] ?: throw NotFound("No sign-in called $id", "Start the sign-in again."))
 
@@ -103,25 +118,24 @@ class GitHubLoginService(
             s.status = "cancelled"
             s.message = "Sign-in cancelled."
         }
-        s.proc?.destroyForcibly()
+        s.proc?.let { keel.api.common.Proc.killTree(it) }
         return view(s)
     }
 
     /** Who is connected, or null when no token is saved by keel. */
     fun who(): GitHubWho? = secrets.get(INFO)?.let { runCatching { mapper.readValue(it, GitHubWho::class.java) }.getOrNull() }
 
-    /** Sign out: the token and who it was go; `gh auth logout` runs when gh made the login. */
-    fun signOut() {
-        val who = who()
-        listOf(TOKEN, INFO).forEach { if (secrets.has(it)) secrets.delete(it) }
-        if (who?.via == "gh") {
-            val home = Files.createTempDirectory("keel-gh-logout-")
-            try {
-                runGh(home, "auth", "logout", "--hostname", who.host)
-            } finally {
-                home.toFile().deleteRecursively()
-            }
-        }
+    /**
+     * Sign out: the token keel saved and who it was are deleted. keel never keeps a gh login: gh runs with a scratch HOME
+     * that is deleted after the sign-in, so there is nothing for `gh auth logout` to remove (and the person's own gh
+     * login is not touched). The token itself stays valid at GitHub until they remove keel's access there.
+     */
+    fun signOut(): GitHubSignOut {
+        val had = listOf(TOKEN, INFO).filter { secrets.has(it) }
+        had.forEach { secrets.delete(it) }
+        return GitHubSignOut(removed = had.isNotEmpty(), revokedAtGitHub = false,
+            note = if (had.isEmpty()) "keel had no GitHub token saved."
+            else "keel forgot the token. GitHub still counts it as valid until you remove keel's access at github.com/settings/applications (or delete the token there).")
     }
 
     // ---- gh ------------------------------------------------------------------------------
@@ -143,8 +157,7 @@ class GitHubLoginService(
         val out = java.io.ByteArrayOutputStream()
         val reader = thread(isDaemon = true, name = "gh-capture") { runCatching { p.inputStream.copyTo(out) } }
         if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-            p.descendants().forEach { it.destroyForcibly() }
-            p.destroyForcibly()
+            keel.api.common.Proc.killTree(p)
             reader.join(2000)
             return null
         }
@@ -165,7 +178,7 @@ class GitHubLoginService(
         val home = Files.createTempDirectory("keel-gh-login-")
         Files.createDirectories(home.resolve(".config/gh"))
         val login = ghCmd() + listOf("auth", "login", "--hostname", host, "--git-protocol", "https", "--web", "--scopes", "repo,read:org,workflow", "--insecure-storage")
-        val argv = if (usePty) listOf("script", "-qfec", "stty cols 1000 rows 50 2>/dev/null; exec " + login.joinToString(" "), "/dev/null") else login
+        val argv = if (usePty) keel.api.common.Proc.inTerminal("stty cols 1000 rows 50 2>/dev/null; exec " + login.joinToString(" ")) else login
         val pb = ProcessBuilder(argv).directory(home.toFile()).redirectErrorStream(true)
         pb.environment().clear()
         pb.environment().putAll(env(home).filterKeys { it != "GH_PROMPT_DISABLED" })
@@ -236,7 +249,7 @@ class GitHubLoginService(
             parseGh(s)
             if (s.code == null && !s.cancelled) {
                 val tail = scrub(cleanOut(s).trim().takeLast(300))
-                s.proc.destroyForcibly()
+                keel.api.common.Proc.killTree(s.proc)
                 fail(s, "gh did not show a sign-in code after $codeTimeoutSeconds seconds. It printed: ${tail.ifEmpty { "(nothing)" }}")
                 s.home?.toFile()?.deleteRecursively()
                 return
@@ -248,7 +261,7 @@ class GitHubLoginService(
         try {
             if (s.cancelled) return
             if (!ended) {
-                s.proc.destroyForcibly()
+                keel.api.common.Proc.killTree(s.proc)
                 fail(s, "The sign-in took longer than 15 minutes and was stopped. Start it again.")
             } else if (s.proc.exitValue() != 0) {
                 fail(s, cleanOut(s).lines().map { it.trim() }.lastOrNull { it.length in 4..200 }?.let { "GitHub sign-in did not finish: ${scrub(it)}" } ?: "GitHub sign-in did not finish. Start it again.")
@@ -389,6 +402,8 @@ class GitHubLoginService(
     }
 }
 
+data class GitHubSignOut(val removed: Boolean, val revokedAtGitHub: Boolean, val note: String)
+
 @RestController
 @RequestMapping("/api/github")
 class GitHubLoginController(private val login: GitHubLoginService) {
@@ -401,10 +416,10 @@ class GitHubLoginController(private val login: GitHubLoginService) {
     @DeleteMapping("/login/{id}")
     fun cancel(@PathVariable id: String): GitHubLoginView = login.cancel(id)
 
-    /** Sign out: removes keel's saved token (and runs `gh auth logout` when gh made the login). */
+    /** Sign out: removes keel's saved token. It says plainly that GitHub is not told (revoked_at_github). */
     @DeleteMapping
-    fun signOut(): Map<String, Boolean> {
-        login.signOut()
-        return mapOf("ok" to true)
+    fun signOut(): Map<String, Any> {
+        val r = login.signOut()
+        return mapOf("ok" to true, "removed" to r.removed, "revoked_at_github" to r.revokedAtGitHub, "note" to r.note)
     }
 }

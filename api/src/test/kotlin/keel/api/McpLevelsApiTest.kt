@@ -81,6 +81,32 @@ class McpLevelsApiTest : ApiTest() {
     }
 
     @Test
+    fun `configuration, secrets, sign-in and approvals need the admin token, not write`() {
+        val routes = listOf(
+            "POST" to "/api/plugins/install", "POST" to "/api/plugins/install-file", "POST" to "/api/plugins/restart",
+            "POST" to "/api/plugins/lv-hello/update", "POST" to "/api/plugins/lv-hello/rollback",
+            "PUT" to "/api/plugins/sources", "PUT" to "/api/plugins/rules", "PUT" to "/api/plugins/lv-hello", "DELETE" to "/api/plugins/lv-hello",
+            "PUT" to "/api/secrets/TOKEN_X", "DELETE" to "/api/secrets/TOKEN_X", "PUT" to "/api/settings/general",
+            "PUT" to "/api/connections/github", "POST" to "/api/connections/github/test", "POST" to "/api/logins",
+            "POST" to "/api/github/login", "DELETE" to "/api/github", "DELETE" to "/api/github/login/x",
+            "POST" to "/api/approvals/q1/decide",
+        )
+        for ((method, path) in routes) {
+            val req = when (method) {
+                "POST" -> post(path, emptyMap<String, Any>(), mcp("write"))
+                "PUT" -> put(path, emptyMap<String, Any>(), mcp("write"))
+                else -> delete(path, mcp("write"))
+            }
+            assertThat(req.andReturn().response.status).describedAs("$method $path at the write level").isEqualTo(403)
+        }
+        // the admin level gets past the guard (the route itself may still refuse the empty body)
+        assertThat(post("/api/approvals/q1/decide", mapOf("decision" to "deny"), mcp("admin")).andReturn().response.status).isNotEqualTo(403)
+        // what the write tools need still works at write
+        val (pid, _) = newProject("lv-still-write")
+        post("/api/projects/$pid/flows", flow, mcp("write")).andExpect(status().isOk)
+    }
+
+    @Test
     fun `the read actions are the engine's`() {
         // Twin of engine tests/test_mcp.py test_read_actions_match_the_api: both pin action_docs.ACTION_LEVELS.
         assertThat(McpLevelGuard.READ_ACTIONS).containsExactlyInAnyOrder("audit", "trace", "trace_strict", "arch", "arch_detect",

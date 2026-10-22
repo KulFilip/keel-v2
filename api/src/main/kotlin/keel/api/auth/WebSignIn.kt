@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Duration
@@ -55,8 +54,8 @@ class WebKey(private val props: KeelProperties) {
         Files.createDirectories(f.parent)
         val made = hex(ByteArray(32).also { random.nextBytes(it) })
         val tmp = f.resolveSibling("web-key.tmp")
-        Files.writeString(tmp, made + "\n")
-        runCatching { Files.setPosixFilePermissions(tmp, PosixFilePermissions.fromString("rw-------")) }
+        Files.deleteIfExists(tmp)
+        keel.api.common.OwnerOnly.create(tmp, (made + "\n").toByteArray())
         Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         return made
     }
@@ -143,7 +142,11 @@ class WebSignInController(private val key: WebKey, private val codes: SignInCode
         /** Only a path on this keel ("/flow?x=1"), never another site ("//evil", "https://…"). */
         fun safeNext(next: String?): String {
             val n = next?.trim().orEmpty()
-            return if (n.startsWith("/") && !n.startsWith("//") && !n.contains('\\') && !n.contains("://")) n else "/"
+            // what the browser will see: it decodes %XX and drops tab and newline, so "/%09/evil.com" becomes "//evil.com"
+            var seen = n
+            repeat(3) { seen = runCatching { java.net.URLDecoder.decode(seen.replace("+", "%2B"), Charsets.UTF_8) }.getOrElse { return "/" } }
+            if (seen.any { it < ' ' || it == '\u007f' || it == '\\' }) return "/"
+            return if (n.startsWith("/") && seen.startsWith("/") && !seen.startsWith("//") && !seen.contains("://")) n else "/"
         }
     }
 }

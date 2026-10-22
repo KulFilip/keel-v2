@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service
 import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -65,6 +66,7 @@ class LoginService(
             "copilot" -> copilotCmd
             else -> throw BadRequest("No login helper for \"$provider\"", "Use claude, codex or copilot.")
         }
+        evictOld(Duration.ofHours(1))
         sessions.values.filter { it.provider == provider && it.status in setOf("starting", "waiting", "code_needed") }.forEach { cancel(it.id) }
         val home = Files.createTempDirectory("keel-login-")
         val env = mapOf(
@@ -73,7 +75,7 @@ class LoginService(
             "BROWSER" to "/bin/false", "COLUMNS" to "1000",
         )
         Files.createDirectories(home.resolve(".codex"))
-        val argv = if (usePty) listOf("script", "-qfec", "stty cols 1000 rows 50 2>/dev/null; exec $cmd", "/dev/null") else listOf("sh", "-c", cmd)
+        val argv = if (usePty) keel.api.common.Proc.inTerminal("stty cols 1000 rows 50 2>/dev/null; exec $cmd") else listOf("sh", "-c", cmd)
         val pb = ProcessBuilder(argv).directory(home.toFile()).redirectErrorStream(true)
         pb.environment().clear()
         pb.environment().putAll(env)
@@ -89,6 +91,18 @@ class LoginService(
         repeat(40) { if ((s.url == null || (provider != "claude" && s.code == null)) && s.status == "starting") Thread.sleep(250) }
         return view(s)
     }
+
+    /** Forgets the logins older than [maxAge]: a running one is stopped with its children, and its scratch HOME goes. */
+    internal fun evictOld(maxAge: Duration) {
+        val cutoff = Instant.now().minus(maxAge)
+        sessions.values.filter { !it.started.isAfter(cutoff) }.forEach { s ->
+            sessions.remove(s.id)
+            if (s.status !in setOf("done", "failed", "cancelled")) { s.status = "cancelled"; keel.api.common.Proc.killTree(s.proc) }
+            runCatching { s.home.toFile().deleteRecursively() }
+        }
+    }
+
+    internal fun sessionCount(): Int = sessions.size
 
     fun get(id: String): LoginView = view(sessions[id] ?: throw NotFound("No login called $id", "Start the login again."))
 
@@ -111,7 +125,7 @@ class LoginService(
             s.status = "cancelled"
             s.message = "Login cancelled."
         }
-        s.proc.destroyForcibly()
+        keel.api.common.Proc.killTree(s.proc)
         return view(s)
     }
 
@@ -183,7 +197,7 @@ class LoginService(
             ended = s.proc.waitFor(2, TimeUnit.SECONDS)
             if (!ended) collect(s)
         }
-        if (!ended && s.status != "done") s.proc.destroyForcibly()
+        if (!ended && s.status != "done") keel.api.common.Proc.killTree(s.proc)
         Thread.sleep(200)
         parse(s)
         collect(s)
