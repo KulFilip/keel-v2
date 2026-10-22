@@ -1,7 +1,7 @@
-# keel v2 — the Supervisor (plan, not built yet)
+# keel v2 — the Supervisor (plan and status)
 
 Branch `feat/supervisor`, on `fix/bughunt` (main 0.18.32 + the bug-hunt fixes, `c2169245`). Status: **P0, P1, P2 and
-most of P4 are built** (section 17). The open questions (section 16) use the defaults in section 17 until the person
+most of P4 are built, with keel-wide, project and flow switches (off by default)** (section 17). The open questions (section 16) use the defaults in section 17 until the person
 changes them.
 
 The person's request: a general supervisor agent, on a strong model with deep thinking, that watches the flows that
@@ -557,18 +557,43 @@ separate commit series; nothing is merged into main or released without the pers
 ## 17. Status: what is built (2026-10-22)
 
 ```
- P0 core seams ✔ ── P1 shadow ✔ ── P2 answers ✔ ── P3 acts ✗ ── P5 real check ✗
-                       └── P4 UI: Jobs tab ✔, TUI ✔, MCP ✔, flow chip / Inbox note ✗, settings page ✗
+ P0 core seams ✔ ── P1 shadow ✔ ── P2 answers ✔ ── switches ✔ ── P3 acts ✗ ── P5 real check ✗
+                       └── P4 UI: Jobs tab ✔, TUI ✔, MCP ✔, flow chip / Inbox note ✗, Settings page row ✗
 ```
 
 | part | where | what |
 |---|---|---|
 | core seams | `engine/keel_engine/events`, `runtime/side_usage.py`, `runtime/compiler.py`, `runtime/state.py`, `runtime/service.py`, `app.py` | `EventBus.listen`; `Engine.resume(by=…)` → `gate.decided.by`; the side-usage ledger counted by the flow's caps; `settings.supervisor` at start |
-| engine part | `plugins/supervisor/engine/keel_plugin_supervisor` | watcher, policy, brief, verdict, audit log, routes, MCP tools, PR body lines, fake verdicts |
-| api part | `plugins/supervisor/api` | routes pass through for the flow's own project; turns are agent calls (Budget page); escalations that need the person are notifications |
-| web part | `plugins/supervisor/web` | Jobs › Supervisor: the waiting flow's on/off and mode, the audit log |
-| TUI | `keel-plugin.yml` `contributes.tui` | `/supervisor log|status|on|off|shadow|act` |
-| MCP | `mcp_tools.py` | `keel_supervisor` (read), `keel_supervisor_set` (--write; `act` asks the person first) |
+| core api events | `api/.../settings/SettingsService.kt`, `api/.../plugins/Plugins.kt` | `SettingsChanged`, `PluginSwitched` (SDK events a plugin may listen to) |
+| engine part | `plugins/supervisor/engine/keel_plugin_supervisor` | watcher, switches, policy, brief, verdict, audit log, routes, MCP tools, PR body lines, fake verdicts |
+| api part | `plugins/supervisor/api` | the switches in keel's settings, sent to the engine on every change; routes for a flow's Supervisor and the log; turns are agent calls; escalations that need the person are notifications |
+| web part | `plugins/supervisor/web` | Jobs › Supervisor: the three switches, the flow's mode, why it is off, the audit log |
+| TUI | `keel-plugin.yml` `contributes.tui` | `/supervisor status|on|off|follow|keel-on|keel-off|flow-on|flow-off|flow-follow|shadow|act|log` |
+| MCP | `mcp_tools.py` | `keel_supervisor` (read), `keel_supervisor_set` (--write: scope keel, project or flow; `act` asks the person first) |
+
+### On and off
+
+```
+ keel-wide   plugins.supervisor.on in Settings › General          default OFF
+   │ off ─► the engine part listens to nothing, calls no model, makes no Inbox card; running looks are cancelled
+   ▼
+ plugin      Control › Plugins, per project                         default off (a per-project plugin)
+   ▼
+ project     plugins.supervisor.on in the project's settings        default: follows keel-wide
+   ▼
+ flow        settings.supervisor.on of the flow                     default: follows the project
+```
+
+The Supervisor runs for a flow when keel-wide is on, the plugin is on for its project, and the flow's own switch (else
+the project's, else keel-wide) is on. Turning any of them off while it looks cancels the look: the model call stops,
+`supervisor.finished` says `cancelled`, the audit log says `cancelled / turned-off`, and nothing is answered.
+
+| where | keel-wide | project | flow |
+|---|---|---|---|
+| dashboard | Jobs › Supervisor: "On for the whole keel" | Jobs › Supervisor: "This project" (follows / on / off); Control › Plugins for the plugin | Jobs › Supervisor: "This flow" (follows / on / off) and Mode |
+| keel TUI | `/supervisor keel-on`, `keel-off` | `/supervisor on`, `off`, `follow` | `/supervisor flow-on`, `flow-off`, `flow-follow`, `shadow`, `act` |
+| MCP | `keel_supervisor_set(scope="keel", on=…)` | `keel_supervisor_set(on=…)` or `follow=true` | `keel_supervisor_set(scope="flow", on=…, mode=…)` |
+| api | `POST /api/supervisor/switch {on}` | `POST /api/projects/{pid}/supervisor/switch {on: true/false/null}` | `POST /api/projects/{pid}/flows/{tid}/supervisor {on, mode}` |
 
 ### Defaults picked for the open questions
 
@@ -578,17 +603,19 @@ separate commit series; nothing is merged into main or released without the pers
 | 2 | confidence bar | `high` only | code (`supervisor.py`) |
 | 3 | code fixes | none: it answers, retries through offered choices, sends back with a reason; it never edits | P3, not built |
 | 4 | stop or rewind a flow | never | — |
-| 5 | budget | 150,000 tokens per flow for its own turns; its tokens count toward the flow's cap; a turn is skipped when it would pass the flow's cap (30,000 estimate) | `settings.supervisor.cap_tokens`, `estimate` |
+| 5 | budget | 150,000 tokens per flow for its own turns, 500,000 per project per day; its tokens count toward the flow's cap; a turn is skipped when it would pass the flow's cap (30,000 estimate) | `settings.supervisor.cap_tokens`, `day_cap_tokens`, `estimate` |
 | 6 | model and effort | the flow's `supervisor` model if set, else its default model, with effort `high` | `settings.supervisor.model`, `effort` |
-| 7 | plugin or core | a plugin (`plugins/supervisor`) | — |
+| 7 | plugin or core | a plugin (`plugins/supervisor`), per project | — |
 | 8 | shadow mode first | yes: mode `shadow` is the default; `act` must be chosen | `/supervisor act`, the Jobs tab, `keel_supervisor_set` |
 | 9 | version | plugin 0.1.0; keel's version not bumped | release time |
+| — | on or off | off keel-wide until the person turns it on | the table above |
 
-### Not built yet
+### Postponed
 
 - P3: diagnosing a failed thread, the stall timer, small fixes under KeelBot's fix rules.
-- The per-project daily cap (500,000).
-- "The person's past answers" across flows in the brief (it has this flow's gate log and its own earlier looks).
+- "The person's past answers" across flows in the brief (it has this flow's gate log and its own earlier looks): the
+  engine keeps no event history of other flows; it needs a query on the api's events.
+- The switch as a row on the Settings page: the page shows core keys only (a plugin's own keys are not in its
+  General/project values yet), so the switches are in Jobs › Supervisor, the TUI and MCP.
 - The dashboard's flow-header chip and the note on the flow's own Inbox item (no web slot for them yet: core change).
-- keel-wide and per-project Supervisor settings (today: per flow, in the thread's settings).
 - The real-model check (P5): only with the person's OK.
