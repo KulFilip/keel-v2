@@ -52,6 +52,7 @@ from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts,
 from . import blockers as push_gates
 from . import choices as choices_mod
 from . import flow_actions
+from .gate_state import deep_gates
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
@@ -1428,7 +1429,7 @@ class Compiler:
         rounds = dict(state.get("review_rounds") or {})
         key = self._rounds_key(review, item)
         done_rounds = rounds.get(key, 0)
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         data = dict(state.get("data") or {})
         # 0.18.22 a finding the person already accepted or called not a finding for this review is not asked again
         gone = {finding_key(t) for d in data.get("dismissed_findings") or []
@@ -1845,7 +1846,7 @@ class Compiler:
         state = {**state, **extra}
         decision = answer.get("decision", "reject")
         why = (answer.get("why") or "").strip()
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         gates["log"].append(f"ac {ac['id']} already-met {decision}" + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why, "ac": ac["id"]})
         key = f"{step.id}:{ac['id']}"
@@ -1903,7 +1904,7 @@ class Compiler:
         choices = ["retry", "skip"] + (["edit"] if edit else []) + ["stop"]
         lines = [f"{step.name} failed {rounds} times for {ac['id']}: the same agent, an investigator's proposal and a "
                  "stronger model did not fix it.", "", r.note, "", r.detail[-1500:], "",
-                 'Choose one (approve with payload {"choice": "<name>"} and a note):',
+                 choices_mod.how_to(),
                  "- retry: one more round, with your note for the agent",
                  f"- skip: move {ac['id']} to the end of the list and go on with the next criterion"]
         if edit:
@@ -1938,7 +1939,7 @@ class Compiler:
         upd = {**upd, **extra}
         why = (answer.get("why") or "").strip()
         choice = str((answer.get("payload") or {}).get("choice") or (names[0] if answer.get("decision") == "approve" else "stop"))
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         gates["log"].append(f"{q['type']} {choice}" + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": choice, "why": why})
         key = f"{step.id}:{(ac or {}).get('id')}"
@@ -1993,7 +1994,7 @@ class Compiler:
         upd = {**upd, **extra}
         decision = answer.get("decision", "reject")
         why = (answer.get("why") or "").strip()
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         if q["type"] in ("secrets", "readonly"):
             # A secret in the staged diff (every mode stops for it), or a read-only run's commit: the user decides.
             self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
@@ -2098,7 +2099,7 @@ class Compiler:
         count = retries.get(key, 0) + 1
         rounds = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
         problems = (r.detail or "").strip()
-        gates = copy.deepcopy(upd.get("gates") or state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(upd, state)
         base = {**upd, "last_failure": r.note[:300]}
         if count <= rounds:
             fixer = step.model_copy(update={"id": f"{step.id}_fix", "kind": "agent", "name": f"{step.name}: fix the pages",
@@ -2190,7 +2191,7 @@ class Compiler:
             retries[key] = count
             if ladder:
                 fb, more, did = await self._ladder(count, i, step, {**state, **upd}, target, feedback)
-                gates = copy.deepcopy(base.get("gates") or state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+                gates = deep_gates(base, state)
                 gates["log"].append(f"stall {ac['id']} round {count}: {did}"[:300])
                 return {**base, **more, "gates": gates, "feedback": fb, "retries": retries,
                         "note": f"{r.note} · round {count}: {did}"[:300]}, target
@@ -2282,7 +2283,7 @@ class Compiler:
         choice = str(payload.get("choice") or (q["choices"][0] if answer.get("decision") == "approve" else q["reject_choice"]))
         if choice not in q["choices"]:
             choice = q["reject_choice"]
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         gates["log"].append(f"suite {step.id} {choice}" + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": answer.get("decision"),
                                                           "choice": choice, "why": why})
@@ -2337,7 +2338,7 @@ class Compiler:
         ac = _ac(state) if step.per_ac else None
         item = self._item(state, step)
         acs = state.get("acs") or []
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         if ac and self._met_by_person(state, ac):
             gates["log"].append(f"ac {ac['id']} approve: already met, approved at \"already passes\"")
             return {"gates": gates, "note": f"{ac['id']}: already met (approved at \"already passes\")"}, self.nav.after(i)
@@ -2938,7 +2939,7 @@ class Compiler:
                       f"the gate log and shown at the final review). Reject to stop the flow here.",
             "options": OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}}, gate="rounds")
         why = (answer.get("why") or "").strip()
-        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = deep_gates(state)
         decision = answer.get("decision", "reject")
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": decision, "why": why})
         rounds.pop(step.id, None)

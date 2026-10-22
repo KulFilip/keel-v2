@@ -20,6 +20,7 @@ from pathlib import Path
 from .. import rules
 from ..tools import git
 from . import bug, md, spike_report, verdict_actions
+from .gate_state import shallow_gates
 
 LENSES = ["correctness", "security", "performance", "architecture", "assertions"]
 # How often one gate may be sent back in a row before keel asks (settings.sendback_limit). 0.18.12: a fix question that
@@ -341,7 +342,7 @@ def bug_intake(a):
     found = bug.of(update["acs"]) or {}
     notes = [f"bug report noted as {found.get('id')} [{found.get('layer', 'API')}]"]
     if why:
-        gates = dict(a.state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates = shallow_gates(a.state)
         gates["skipped"] = {**(gates.get("skipped") or {}), "gate-r": f"bug gates waived ({why})",
                             "gate-f": f"bug gates waived ({why})"}
         gates["log"] = list(gates.get("log") or []) + [f"bug gates waived: {why}"]
@@ -419,7 +420,7 @@ def change_start(a):
     if not a.acs:
         return _fail("A small change needs 1 to 3 acceptance criteria; triage wrote none.",
                      "List the criteria (- **AC-1** [API] <what must be true>), or choose trivial.")
-    gates = dict(a.state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+    gates = shallow_gates(a.state)
     gates["mode"] = "end"
     gates["log"] = list(gates.get("log") or [])
     note = f"small change: {len(a.acs)} criteria, one gate at the end"

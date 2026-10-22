@@ -286,3 +286,14 @@ def plain_effects(question: dict) -> dict:
         if k in ("approve", "reject") and isinstance(v, dict):
             out[k] = {**out.get(k, {}), **v}
     return out
+
+
+def how_to(*, note: bool = True, plain: str | None = None) -> str:
+    """The line that tells how to answer a gate with named choices:
+    'Choose one (approve with payload {"choice": "<name>"} and a note; a plain approve is retry):'"""
+    out = 'Choose one (approve with payload {"choice": "<name>"}'
+    if note:
+        out += " and a note"
+    if plain:
+        out += f"; a plain approve {plain}"
+    return out + "):"
