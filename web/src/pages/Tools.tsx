@@ -6,7 +6,7 @@
 import { Fragment, useState } from "react";
 import { api, errorParts, type JobStep, type McpAllow, type McpServer, type Plugin } from "../api";
 import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components/page";
-import { Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
+import { Confirm, Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type ToolsCardItem } from "../sdk/slots";
@@ -89,6 +89,7 @@ export function ToolsPage({ pid }: { pid: string }) {
   const calls = useLoad(`calls:${pid}`, () => recentCalls(pid));
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const [q, setQ] = useState("");
   const cards = useSlot<ToolsCardItem>(SLOTS.toolsCard);
@@ -176,11 +177,17 @@ export function ToolsPage({ pid }: { pid: string }) {
                         <td className="rt-end"><div className="row" style={{ flexWrap: "nowrap", gap: 4, justifyContent: "flex-end" }}>
                           <button className="btn sm" type="button" onClick={() => void test(s)} disabled={t?.busy}>{t?.busy ? "Testing…" : "Test"}</button>
                           <button className="btn sm ghost" type="button" onClick={() => void setEnabled(s, !s.enabled)}>{s.enabled ? "Turn off" : "Turn on"}</button>
-                          {!s.builtin && <button className="btn sm ghost" type="button" aria-label={`Remove ${s.name}`} onClick={async () => {
-                            try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void mcpServers.reload(); } catch (er) { toast(errorParts(er).message); }
-                          }}>×</button>}
+                          {!s.builtin && <button className="btn sm ghost" type="button" aria-label={`Remove ${s.name}`} onClick={() => setRemoving(s.name)}>×</button>}
                         </div></td>
                       </tr>
+                      {removing === s.name && (
+                        <tr className="tl-tools"><td colSpan={4}>
+                          <Confirm text={`Remove ${s.name}? Agents lose its tools.`} yes="Remove" onNo={() => setRemoving(null)} onYes={async () => {
+                            setRemoving(null);
+                            try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void mcpServers.reload(); } catch (er) { toast(errorParts(er).message); }
+                          }} />
+                        </td></tr>
+                      )}
                       {open === s.name && (
                         <tr className="tl-tools"><td colSpan={4}><div className="chips">
                           {s.tools.length ? s.tools.map((x) => <span key={x} className={`chip ${s.name === "keel" ? "c-mcp" : ""}`}>{x}</span>) : <span className="sub">No tools known yet. Press Test.</span>}

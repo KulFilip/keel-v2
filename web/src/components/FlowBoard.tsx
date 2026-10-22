@@ -2,9 +2,10 @@
 // their own): each flow's state, branch and files, the files two flows both change, the branches that conflict, and an
 // order to merge them in. A card opens that flow on the Flow page.
 
+import { useState } from "react";
 import { api, errorParts, type BoardFlow, type FlowBoard } from "../api";
 import { go, useApp } from "../state";
-import { StatusPill } from "./ui";
+import { Confirm, StatusPill } from "./ui";
 
 /** The board is worth showing once a flow runs in a worktree, or two flows exist at once. */
 export function showBoard(b: FlowBoard | null | undefined): boolean {
@@ -13,10 +14,13 @@ export function showBoard(b: FlowBoard | null | undefined): boolean {
 
 export function FlowBoardView({ board, selected, onChanged }: { board: FlowBoard; selected?: string | null; onChanged: () => void }) {
   const { toast } = useApp();
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const byId = new Map(board.flows.map((f) => [f.thread_id, f]));
   const name = (tid: string) => byId.get(tid)?.title ?? tid;
   const shared = (f: BoardFlow) => board.overlaps.filter((o) => o.flows.includes(f.thread_id)).length;
   const remove = async (f: BoardFlow) => {
+    setBusy(true);
     try {
       await api.removeWorktree(f.thread_id);
       toast(`The worktree of "${f.title}" is gone; its branch ${f.branch ?? ""} stays.`);
@@ -24,6 +28,9 @@ export function FlowBoardView({ board, selected, onChanged }: { board: FlowBoard
     } catch (e) {
       const p = errorParts(e);
       toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+    } finally {
+      setBusy(false);
+      setRemoving(null);
     }
   };
   return (
@@ -44,8 +51,12 @@ export function FlowBoardView({ board, selected, onChanged }: { board: FlowBoard
               {f.branch && <span className="fb-branch mono">{f.branch}</span>}
               {f.waiting?.title && f.status === "waiting" && <span className="fb-wait">waits: {f.waiting.title}</span>}
               <span className="sub">{f.files.length} file{f.files.length === 1 ? "" : "s"} changed{shared(f) ? ` · ${shared(f)} shared with another flow` : ""}</span>
-              {f.worktree_left && (
-                <button type="button" className="btn sm" onClick={() => void remove(f)}>Remove the worktree</button>
+              {f.worktree_left && removing !== f.thread_id && (
+                <button type="button" className="btn sm" onClick={() => setRemoving(f.thread_id)}>Remove the worktree</button>
+              )}
+              {f.worktree_left && removing === f.thread_id && (
+                <Confirm text={`Remove the worktree of "${f.title}"? Its branch stays.`} yes="Remove" busy={busy}
+                  onYes={() => void remove(f)} onNo={() => setRemoving(null)} />
               )}
             </article>
           </li>

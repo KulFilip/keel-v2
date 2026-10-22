@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api, errorParts, KNOWLEDGE_SECTIONS, type Agent, type AgentKnowledge, type AgentLane, type Catalog, type CustomAgent, type McpServer, type Model } from "../api";
 import { effortsOf, MODES_FOR, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
 import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
-import { Drawer, ErrorBox, GoButton, PageHead, Tabs } from "../components/ui";
+import { Confirm, Drawer, ErrorBox, GoButton, PageHead, Tabs } from "../components/ui";
 import { kfmt, PROV, slug } from "../format";
 import { useApp, useLoad } from "../state";
 
@@ -115,6 +115,7 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<string>("");
   const [err, setErr] = useState<Err>(null);
+  const [deleting, setDeleting] = useState(false);
   const save = async () => {
     setBusy(true);
     setErr(null);
@@ -159,7 +160,9 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
   return (
     <Drawer title={a.label || a.id} onClose={onClose}
       footer={<>
-        {a.custom && <button className="btn ghost" type="button" style={{ marginRight: "auto" }} onClick={async () => {
+        {a.custom && !deleting && <button className="btn ghost" type="button" style={{ marginRight: "auto" }} onClick={() => setDeleting(true)}>Delete</button>}
+        {a.custom && deleting && <div style={{ marginRight: "auto" }}><Confirm text={`Delete ${a.label || a.id}? This cannot be undone.`} yes="Delete" onNo={() => setDeleting(false)} onYes={async () => {
+          setDeleting(false);
           try {
             await api.deleteAgent(pid, a.id);
             toast(`${a.label || a.id} deleted.`);
@@ -168,7 +171,7 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
           } catch (e) {
             setErr(errorParts(e));
           }
-        }}>Delete</button>}
+        }} /></div>}
         <button className="btn" type="button" onClick={runTest}>Test</button>
         <button className="btn primary" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
       </>}>
@@ -285,12 +288,14 @@ export function AgentsPage({ pid }: { pid: string }) {
   const [open, setOpen] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [askTestAll, setAskTestAll] = useState(false);
   const all = agents.data ?? [];
   const keel = all.filter((a) => !a.custom), custom = all.filter((a) => a.custom);
   const needle = q.trim().toLowerCase();
   const list = (tab === "keel" ? keel : custom).filter((a) => !needle || [a.id, a.label, a.about, ...a.phases, a.model?.model ?? ""].join(" ").toLowerCase().includes(needle));
   const count = (n: number) => (agents.data ? ` (${n})` : "");
   const testAll = async () => {
+    setAskTestAll(false);
     setTesting(true);
     const results = await Promise.all(all.filter((a) => a.enabled).map((a) => api.testAgent(a.id, pid).then((r) => r.ok, () => false)));
     const ok = results.filter(Boolean).length;
@@ -301,9 +306,11 @@ export function AgentsPage({ pid }: { pid: string }) {
     <>
       <PageHead title="Agents" sub={`What each agent does, the model it runs on and what it may touch, for ${project?.name ?? pid}. A change here is for this project only.`}
         actions={<>
-          <button className="btn" type="button" onClick={testAll} disabled={testing || !all.length}>{testing ? "Testing…" : "Test all"}</button>
+          <button className="btn" type="button" onClick={() => setAskTestAll(true)} disabled={testing || !all.length}>{testing ? "Testing…" : "Test all"}</button>
           <button className="btn primary" type="button" id="newAgent" onClick={() => setCreating(true)}>New agent</button>
         </>} />
+      {askTestAll && <Confirm text={`Send one test message to ${all.filter((a) => a.enabled).length} agents? Each one is a paid model call.`} yes="Test all"
+        onYes={() => void testAll()} onNo={() => setAskTestAll(false)} />}
       <Toolbar>
         <Tabs value={tab} onChange={setTab} label="Agents" options={[["keel", `keel agents${count(keel.length)}`], ["custom", `Custom${count(custom.length)}`]]} />
         <SearchBox value={q} onChange={setQ} label="Search agents" />
