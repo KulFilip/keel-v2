@@ -237,7 +237,7 @@ class CodeMixin:
             notes.append(res.note)
         acs = _c._set_ac(st.get("acs") or [], ac["id"], _c.ALREADY_MET)
         # 0.18.28 never skipped silently: who said "already passes" (a person, or the run mode) decides whether the
-        # ac-reviewer still reads the test; the tests outside it run either way, and the full-diff review lists it
+        # criterion-reviewer still reads the test; the tests outside it run either way, and the full-diff review lists it
         data = dict(upd.get("data") or st.get("data") or {})
         data["already_met"] = {**(data.get("already_met") or {}), ac["id"]: {"auto": bool(answer.get("auto")), "why": why}}
         upd.update(acs=acs, gates=gates, retries=retries, feedback=None, last_failure=None, data=data,

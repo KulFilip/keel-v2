@@ -35,7 +35,7 @@ from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from .. import addons, extensions, models, rules
+from .. import addons, agent_names, extensions, models, rules
 from . import doc_history, md
 from ..models import catalog
 from ..models import usage as provider_usage
@@ -472,7 +472,7 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                 while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].skippable and ship_mod.unit_of(self.wf.steps[j + 1]) == unit:
                     j += 1
                 return f"{unit} skipped: {skip.get('reason') or 'no reason given'}", self.nav.after(j)
-        if step.per_ac and step.kind in ("agent", "parallel") and (step.agent or "") == "ac-reviewer" \
+        if step.per_ac and step.kind in ("agent", "parallel") and (step.agent or "") == "criterion-reviewer" \
                 and self._met_by_person(state, _ac(state)):
             # 0.18.28 a person approved "already passes" with the test in front of them: listed for the full-diff review
             return (f"{state.get('ac')}: already met (a person approved it); not reviewed per AC, the full-diff review "
@@ -569,12 +569,12 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         m = None
         if state.get("model_override"):
             m = state["model_override"]
-        elif (state.get("agent_models") or {}).get(agent):
-            m = state["agent_models"][agent]
+        elif agent_names.lookup(state.get("agent_models"), agent):
+            m = agent_names.lookup(state.get("agent_models"), agent)    # a flow from before a rename: its old key
         elif step.model and step.model != "default" and step.model in self.ctx.models:
             m = self.ctx.models[step.model]
-        elif agent in self.ctx.models:
-            m = self.ctx.models[agent]
+        elif agent_names.lookup(self.ctx.models, agent):
+            m = agent_names.lookup(self.ctx.models, agent)
         elif "default" in self.ctx.models:
             m = self.ctx.models["default"]
         return models.effective(m)
@@ -635,7 +635,7 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         kind = run_mode.classify(question, step, flow=self.wf.flow, prev_actions=prev.actions() if prev else (), per_ac=bool(ac))
         review = None
         if kind == "ac" and prev and prev.per_ac and prev.kind in ("agent", "parallel") and \
-                (prev.agent or "") in ("ac-reviewer", "reviewer", "code-reviewer"):
+                (prev.agent or "") in ("criterion-reviewer", "lens-reviewer", "branch-reviewer"):
             review = state.get("last_answer") or ""
         return kind, review
 

@@ -103,7 +103,7 @@
    "id": "ac_review",
    "kind": "agent",
    "name": "AC review",
-   "agent": "ac-reviewer",
+   "agent": "criterion-reviewer",
    "model": "default",
    "phase": "gate",
    "per_ac": true
@@ -251,7 +251,7 @@
    "id": "code_review",
    "kind": "agent",
    "name": "plugin review",
-   "agent": "code-reviewer",
+   "agent": "branch-reviewer",
    "model": "default",
    "phase": "gate",
    "back": "review_fix",

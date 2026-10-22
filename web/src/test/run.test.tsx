@@ -56,7 +56,7 @@ describe("Jobs", () => {
     jobsServer(fx.jobs);
     await at("#/jobs");
     const now = await main().findByRole("region", { name: /Running now/ });
-    expect(within(now).getByText("ac-reviewer")).toBeInTheDocument();
+    expect(within(now).getByText("criterion-reviewer")).toBeInTheDocument();
     expect(within(now).getByRole("link", { name: "Watch live" })).toHaveAttribute("href", "#/live/j-482");
     expect(main().getByText("1 running now")).toBeInTheDocument();
     await user.click(main().getByRole("tab", { name: /Finished/ }));
@@ -112,7 +112,7 @@ describe("Live agents", () => {
 
   it("while an agent works, its feed is the one shown", async () => {
     await at("#/live");
-    expect(await main().findByRole("heading", { name: "ac-reviewer · AC-002" })).toBeInTheDocument();
+    expect(await main().findByRole("heading", { name: "criterion-reviewer · AC-002" })).toBeInTheDocument();
     expect(main().queryByText(/This is the last one that ran/)).not.toBeInTheDocument();
     expect(main().getByText("1 agent working now")).toBeInTheDocument();
   });

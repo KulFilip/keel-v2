@@ -145,8 +145,8 @@ def test_a_missing_result_marker_is_asked_for_once(client, repo, monkeypatch):
     def reviewer(req):
         said.append(req.feedback or "")
         return "Looks fine." if len(said) == 1 else "Looks fine: two small notes, nothing blocking.\nBLOCKING: no"
-    answers(monkeypatch, {"reviewer": reviewer})
-    tid = start(client, repo, workflow=wf([{"id": "rev", "kind": "agent", "name": "review", "agent": "reviewer",
+    answers(monkeypatch, {"lens-reviewer": reviewer})
+    tid = start(client, repo, workflow=wf([{"id": "rev", "kind": "agent", "name": "review", "agent": "lens-reviewer",
                                              "markers": ["BLOCKING"]}]))
     s = wait(client, tid)
     assert s["status"] == "done", s
@@ -159,8 +159,8 @@ def test_the_marker_is_asked_for_only_once(client, repo, monkeypatch):
     from test_flows_base import answers, wf
 
     said = []
-    answers(monkeypatch, {"reviewer": lambda req: said.append(1) or "Looks fine."})
-    tid = start(client, repo, workflow=wf([{"id": "rev", "kind": "agent", "name": "review", "agent": "reviewer",
+    answers(monkeypatch, {"lens-reviewer": lambda req: said.append(1) or "Looks fine."})
+    tid = start(client, repo, workflow=wf([{"id": "rev", "kind": "agent", "name": "review", "agent": "lens-reviewer",
                                              "markers": ["BLOCKING"]}]))
     wait(client, tid)
     assert len(said) == 2

@@ -91,7 +91,7 @@
    "id": "review",
    "kind": "agent",
    "name": "review the change",
-   "agent": "code-reviewer",
+   "agent": "branch-reviewer",
    "model": "default",
    "phase": "gate",
    "back": "review_fix",

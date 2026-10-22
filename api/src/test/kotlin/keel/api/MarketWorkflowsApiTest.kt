@@ -100,6 +100,16 @@ class MarketWorkflowsApiTest : ApiTest() {
     // ---------- install
 
     @Test
+    fun `a catalog workflow that names an agent by its old name installs and runs the renamed agent`() {
+        val (pid, _) = newProject("mw-old-names")
+        val res = install(pid, "old-agent-names").andExpect(status().isOk).json()
+        assertThat(res["review"]["agents"].map { it.asText() }).containsExactly("lens-reviewer")
+        val wid = res["workflow"]["id"].asText()
+        assertThat(listed(pid, wid)["steps"][0]["agent"].asText()).isEqualTo("lens-reviewer")
+        assertThat(listed(pid, wid)["yaml"].asText()).contains("agent: reviewer")       // the catalog's text, unchanged
+    }
+
+    @Test
     fun `install into this project, then into all projects, and the same name again in the same scope is refused`() {
         val (pid, _) = newProject("mw-install")
         val (other, _) = newProject("mw-install-other")

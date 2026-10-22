@@ -419,7 +419,7 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   question first, it pauses again on that one instead of using the answer.
 - **`waiting.labels`** `{approve?, reject?}`: the button texts the engine wants, when they are not the usual ones.
 - **`gate_log`** on the thread state: the last 50 gate decisions as text lines.
-- **Review findings.** After a review step (agent `code-reviewer`, `security-auditor` or `reviewer`, not per AC), the
+- **Review findings.** After a review step (agent `branch-reviewer`, `security-auditor` or `lens-reviewer`, not per AC), the
   engine reads the "Blocking" section of each answer (and `E2E-RESULT: fail`). If there are blocking findings, the
   flow goes to the node `<step id>__fix` and pauses: `kind: gate`, title `"<step name>: N blocking finding(s)"`,
   labels `Fix them` / `Go on anyway`.
@@ -658,7 +658,7 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
   approve, payload `{skip: {<unit>: "<reason>"}, lenses?: ["correctness", ...]}`; a skip without a reason or of an
   unknown unit asks again. Skips go to `data.ship_skipped` `[{step, band, reason}]` (PR body "Ship steps skipped",
   final review "Exceptions"), lenses to `data.lenses_chosen`. A unit is a step id or a `group`.
-- **Review findings** (reviewer, code-reviewer, security-auditor steps): with `back`, findings go to that step as
+- **Review findings** (lens-reviewer, branch-reviewer, security-auditor steps): with `back`, findings go to that step as
   feedback without a question for `rounds` (default 2) rounds. Without it the question is as before, plus: payload
   `route` = review-fix (implementer, verify_green + fix commit; default) | coverage-fix (test-author, verify_green +
   coverage commit) | red (test-author, red commit); after the fix the flow goes on from `redo`; past `rounds` the
@@ -680,7 +680,7 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
   `verify_deps` blocks only when an audit's worst severity is at or above `security.deps.fail_on` (default high;
   an output with no readable severity blocks).
 - **AC gate detail** (0.18.22): the criterion line, `RED: <sha> test(<AC>) ...` with its test files, `GREEN: <sha>
-  feat(<AC>) ...` with its diffstat (commits since the flow started), `AC-REVIEW: pass|findings` and the ac-reviewer's
+  feat(<AC>) ...` with its diffstat (commits since the flow started), `AC-REVIEW: pass|findings` and the criterion-reviewer's
   answer word for word, `Board: done ... · now <AC> · todo ...`, and `Last step:`.
 - **Choice gate** (`choices` on a per-item gate): options `["approve"]`, the question carries `choices`; payload
   `{choice}` (plain approve = the first); stored on the item (`decision`, `reason`) and as `markers[<id>].CHOICE`.
@@ -701,7 +701,7 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
 
 - **review** (read-only, phase `review`): `review_scope` reads `data.lens` (code | all | correctness | security | performance |
   architecture | assertions | ac <ID>) and `data.base` (default base_branch, main, master) and builds `data.review_lenses`
-  (one item per reviewer, each naming its `agent`: code-reviewer, reviewer, ac-reviewer); an empty diff, an unknown lens, a
+  (one item per reviewer, each naming its `agent`: branch-reviewer, lens-reviewer, criterion-reviewer); an empty diff, an unknown lens, a
   missing base or a criterion without its test/feat commits **stops** the flow (`ActionResult.stop`). One reviewer per item
   in parallel → `report` → gate showing every answer verbatim + tally (`2 of 4 blocking`). Reviews in a read-only phase never
   start the findings fix loop. Send back = review again.
@@ -717,9 +717,9 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   one `all` job (400 changed lines or less) or ticket / team / bugs (up to two groups) / quality. → `ticket_build`: compile
   (`commands.api_compile`, `web_typecheck`) and the check tools (no fixers, no sonar) in a throwaway `git worktree` outside
   the project; only messages naming a changed file count (fake model: only `.keel/config.yml` tools, no compile) →
-  `ticket-reviewer` per job (result lines `T1 | met | file:line | why | to do`, `F | blocking|minor | ...`, `Q | ...`,
+  `pr-reviewer` per job (result lines `T1 | met | file:line | why | to do`, `F | blocking|minor | ...`, `Q | ...`,
   `S | ...`, `TICKET-REVIEW: done`) → `ticket_claims`: one `check` job per not-met item and blocking finding →
-  `ticket-reviewer` per claim (`CHECK | confirmed|rejected | why`) → `ticket_record`: a rejected finding is dropped, a
+  `pr-reviewer` per claim (`CHECK | confirmed|rejected | why`) → `ticket_record`: a rejected finding is dropped, a
   rejected not-met becomes unclear, an item no reviewer judged becomes unclear (named in the note); verdict not done (a
   not-met item, a blocking bug, a compile error in a changed file) / needs a check / done; the report (next steps last) is
   the gate's text → gate `share` `choices: {done: end, share: share_text}` with the multi-select question `sections`
@@ -853,7 +853,7 @@ the spec is committed, `docs: spec and plan: <title>`) → `options` (skip menu:
 then the amendment) → AC loop (red/green may end with `AMEND: <why>` → `red_to_amend`/`green_to_amend`) → `integration` →
 `integration_commit` (`fix(integration)`) → `integration_gate` → `security_deps` (verify_deps, soft) → `security_scope` →
 `security` (fan-out: security-auditor, plus dependency-triager when verify deps failed; findings → the findings question) →
-`review_fix` (retry_only) → `review_fix_commit` → `code_review` (code-reviewer, back review_fix, 2 rounds) → `e2e_scope` ([E2E]
+`review_fix` (retry_only) → `review_fix_commit` → `code_review` (branch-reviewer, back review_fix, 2 rounds) → `e2e_scope` ([E2E]
 criteria or needs_e2e; marker TOOL) → `e2e_tool` (only when commands.e2e is missing: write → specs written unrun, recorded in
 data.ship_skipped `e2e-run` | check → look again) → `e2e` → `e2e_commit` (verify_e2e) → `e2e_gate` → `smoke_scope` ([SMOKE] or a
 Smoke checks section) → `smoke` → `smoke_commit` (verify_smoke: smoke/*.sh + commands.smoke_e2e) → `smoke_gate` → ship_* → `adr`
@@ -972,7 +972,7 @@ The caller logs an automatic answer like any other, so the gate log reads `gate 
 
 | kind (`classify`) | what it is | manual | important | auto | readonly |
 |---|---|---|---|---|---|
-| `ac` | a per-criterion AC gate | ask | approve when `last_failure` is empty and the AC review before it (ac-reviewer/reviewer) has no `AC-REVIEW: findings` and no Blocking items | approve | ask |
+| `ac` | a per-criterion AC gate | ask | approve when `last_failure` is empty and the AC review before it (criterion-reviewer/lens-reviewer) has no `AC-REVIEW: findings` and no Blocking items | approve | ask |
 | `spec` | spec / triage gate, amendments | ask | ask | approve (never when only a send-back fits: no criteria) | ask |
 | `clarify` | the explorer's questions | ask | ask | approve with each question's recommended option | ask |
 | `contract`, `final-review`, `pr` | contract gate, `report: verdicts`, the gate after a `pr` step | ask | ask | approve | ask |
@@ -2527,10 +2527,10 @@ installs it at start" (native: "install it yourself", with the packages).
   `data.after_green[<AC>] = {ok, ran: none|changed|suite, why, failing?}`; the AC gate shows it under "Outside this
   criterion". A failing code step now keeps `suite_failure`, `data` and `unlocks` of its result.
 - **Already met**: approving "already passes" sets `data.already_met[<AC>] = {auto, why}` and goes to the criterion's
-  `verify_after_green` step (else, as before, the loop's end). Approved by a person (`auto: false`): the ac-reviewer
+  `verify_after_green` step (else, as before, the loop's end). Approved by a person (`auto: false`): the criterion-reviewer
   step is skipped and the AC gate passes through (log `ac <AC> approve: already met, approved at "already passes"`).
-  Approved by the run mode: the ac-reviewer reads the test (isolation, cleanup, assertions) and the gate is the run
-  mode's. The status stays `already-met`. The code-reviewer's prompt lists every already-met criterion under "Not
+  Approved by the run mode: the criterion-reviewer reads the test (isolation, cleanup, assertions) and the gate is the run
+  mode's. The status stays `already-met`. The branch-reviewer's prompt lists every already-met criterion under "Not
   reviewed per AC".
 - **A failing whole suite** (`verify_green` without a criterion): the detail is `$ cmd`, `exit N`, the runner's own
   failure report (`runtime/suite_failure.excerpt`), and when the output names no failure (or is empty) a second run with
@@ -2607,3 +2607,28 @@ installs it at start" (native: "install it yourself", with the packages).
   installing a stack publishes `project.changed {id, stacks: true}`.
 - Web: `highlight.ts` builds in its base languages and loads the others with `import()` on first use
   (`loadLanguage`, `useLanguage`); `setStackLanguages` maps the project's stack endings first, the static map after.
+
+## Review agents' names (feat/review-agent-names)
+
+The four review agents have names that say when each one runs. Their prompts did not change.
+
+| old name          | new name             | runs                                                                 |
+|-------------------|----------------------|----------------------------------------------------------------------|
+| `ac-reviewer`     | `criterion-reviewer` | one criterion's RED and GREEN commits, at its AC gate, during a flow |
+| `code-reviewer`   | `branch-reviewer`    | the whole branch diff, once, at the end of a flow                    |
+| `reviewer`        | `lens-reviewer`      | a diff against the spec through one lens (ship, cover, review)       |
+| `ticket-reviewer` | `pr-reviewer`        | someone else's PR: checklist items, a bug hunt, or one claim         |
+
+- One alias table on each side: engine `keel_engine/agent_names.py` (`RENAMED`, `canonical`, `canonical_keys`, `lookup`)
+  and api `keel.api.agents.AgentNames`; the web and keel TUI share `web/src/agentNames.ts` for names a person types.
+- An old name is never listed (Agents page, `GET /api/projects/{pid}/agents`, `keel_agent_definitions`), and a plugin
+  cannot bring an agent file with one. An old name passed in still works: a workflow step's `agent`, an agent lane's
+  `sub` and a step `model` that names an agent (engine `Step`/`Lane`, api `WorkflowDoc.parse`), `PUT
+  /api/projects/{pid}/agents/{old}` (saves under the new name), skill assignments, `keel_agent_model`,
+  `keel_skill_attach`, a marketplace workflow's review and `requires.agents`, and the engine's agent file lookup
+  (`addons.agent_path`, role, maxTurns, knowledge).
+- Engine `POST /workflows/validate` stays `ok` for an old name and adds `notes: ["Step '<id>': agent '<old>' is now called
+  '<new>'; the old name still works."]` (only when there is one).
+- Stored settings: api migration `V21__review_agent_names.sql` moves `agent_overrides` rows and the names in
+  `skill_assign` once; a row already under the new name wins. Reading still maps an old key to the new name (new wins),
+  and so does the engine for a thread's `models`, `skills`, `agents` and `state.agent_models` (a flow started before).

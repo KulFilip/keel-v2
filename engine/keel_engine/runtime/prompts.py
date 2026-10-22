@@ -9,7 +9,7 @@ from pathlib import Path
 from ..tools import testcmd
 from functools import lru_cache
 
-from .. import addons, config, extensions, rules
+from .. import addons, agent_names, config, extensions, rules
 from . import agent_knowledge, spec_check, stacks
 
 # Roles for agents that have no file in content/agents.
@@ -88,7 +88,7 @@ COMMIT_LINE = "Commits are made by the engine after a check, never by you. Do no
 def system_prompt(agent: str, skills: dict[str, str] | None, commits: str | None = None) -> str:
     """The agent's role, its skills and keel's commit line (`commits`: another line in its place, KeelBot's Edit mode)."""
     parts = [role_text(agent)]
-    extra = (skills or {}).get(agent)
+    extra = agent_names.lookup(skills, agent)
     if extra:
         parts.append("## Skills\n\n" + skill_paths(extra) + "\n\nSkill files are under "
                      f"{config.v2_skills()}/; open them by that path, never search the disk for them.")
@@ -197,7 +197,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                     "there)" if phase == "red" else "for the files to change and the pattern to follow")
             lines.append(f"The plan for {ac['id']} ({what}):\n" + (row or "(no row of its own in the plan)")
                          + (f"\nBuilt after: {', '.join(deps)}" if deps else ""))
-    if agent == "ac-reviewer" and ac:
+    if agent == "criterion-reviewer" and ac:
         lines.append(review_commits(ac["id"], ac_commits))
     if phase == "red":
         lines.append("Write the failing test for the current criterion only. "
@@ -319,7 +319,7 @@ def plan_row(text: str, ac_id: str) -> str:
 
 
 def review_commits(ac_id: str, commits: dict | None) -> str:
-    """The AC reviewer's two commits (content/agents/ac-reviewer.md: "the prompt names the AC and the two shas")."""
+    """The AC reviewer's two commits (content/agents/criterion-reviewer.md: "the prompt names the AC and the two shas")."""
     red, green = (commits or {}).get("red"), (commits or {}).get("green")
     lines = [f"RED commit of {ac_id}: {red or 'none found (no test(' + ac_id + ') commit on this branch)'}",
              f"GREEN commit of {ac_id}: {green or 'none found (no feat(' + ac_id + ') or fix(' + ac_id + ') commit on this branch)'}"]

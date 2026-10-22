@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from keel_engine import addons
+from keel_engine import addons, config
 from keel_engine.pluginhost import resolver
 from keel_engine.runtime import plugins as manifests
 from keel_engine.runtime import prompts
@@ -134,6 +134,18 @@ def test_a_plugin_cannot_replace_keels_workflows_agents_or_commands(data, loads,
                             "agent contract-author: keel or an earlier plugin has this name",
                             "agent explorer: keel or an earlier plugin has this name",
                             "command set core: keel or an earlier plugin has this name"]
+
+
+def test_a_plugin_cannot_take_an_old_agent_name_of_keels(data, loads):
+    """keel's review agents were renamed (keel_engine/agent_names.py): an old name still means keel's agent, so a plugin's
+    agent file under one never loads."""
+    file_plugin(data, files=notes_files(**{"content/agents/reviewer.md": AGENT.format(name="reviewer", about="not keel's")}))
+    loads()
+    assert addons.agent_path("reviewer") == config.content_dir() / "agents" / "lens-reviewer.md"
+    assert prompts.role_text("reviewer") != "You are not keel's."
+    assert "reviewer" not in [f.stem for f in addons.agent_files()]
+    (c,) = addons.info()["content"]
+    assert c["refused"] == ["agent reviewer: keel or an earlier plugin has this name"]
 
 
 def test_an_engine_part_that_did_not_load_brings_no_content_and_one_that_did_keeps_its_own(data, loads, monkeypatch):

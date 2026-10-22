@@ -86,9 +86,9 @@ class GateMixin:
             # A gate that pauses on a data value shows it (cover: why coverage could not be measured).
             detail = self._seed_value(f"$data.{step.when['data']}", state, None)
         elif ac:
-            # keel v1's AC gate: the criterion, its RED and GREEN commits, the ac-reviewer's answer, the board
+            # keel v1's AC gate: the criterion, its RED and GREEN commits, the criterion-reviewer's answer, the board
             prev = self.wf.steps[i - 1] if i else None
-            reviewed = prev is not None and prev.per_ac and (prev.agent or "") in ("ac-reviewer", "reviewer", "code-reviewer")
+            reviewed = prev is not None and prev.per_ac and (prev.agent or "") in ("criterion-reviewer", "lens-reviewer", "branch-reviewer")
             detail = await asyncio.to_thread(flow_actions.ac_evidence, ctx.root, ac, acs,
                                              state.get("last_answer") if reviewed else None, state.get("note", ""),
                                              state.get("base_head"))

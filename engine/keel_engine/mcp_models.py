@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import agent_names
 from .mcp_api import q
 from .mcp_server import ApiError, KeelApi, _project
 
@@ -82,7 +83,7 @@ def agent_model(api: KeelApi, agent: str, provider: str | None = None, mode: str
         nxt = _next_model(catalog, s.get("model") or {}, provider, mode, model, effort)
         api.patch(f"/projects/{p['id']}/helper/sessions/{_q(chat)}", {"model": nxt})
         return f"KeelBot's chat {chat} now answers with {model_text(nxt)}."
-    aid = "helper" if agent.strip().lower() in KEELBOT else agent.strip()
+    aid = "helper" if agent.strip().lower() in KEELBOT else (agent_names.canonical(agent.strip()) or "")   # old name: new agent
     rows = api.get(f"/projects/{p['id']}/agents") or []
     row = next((a for a in rows if a.get("id") == aid), None)
     if row is None:

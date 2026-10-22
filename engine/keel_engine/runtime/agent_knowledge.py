@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import addons, config, extensions, rules
+from .. import addons, agent_names, config, extensions, rules
 
 SECTIONS = rules.KNOWLEDGE_SECTIONS
 CODEGRAPH = "codegraph"   # the MCP server name of the code graph (stage 5b): the code_graph setting gives it or not
@@ -74,7 +74,8 @@ def default_for(agent: str) -> dict:
 
 def for_agent(agent: str, sent: dict | None) -> dict:
     """What the agent uses in this thread: StartThread.agents[agent].knowledge over the default."""
-    k = ((sent or {}).get(agent) or {}).get("knowledge")
+    agent = agent_names.canonical(agent) or ""
+    k = (agent_names.lookup(sent, agent) or {}).get("knowledge")
     return normalize(k, default_for(agent)) if isinstance(k, dict) else default_for(agent)
 
 

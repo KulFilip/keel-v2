@@ -32,14 +32,14 @@ async def test_a_full_buffer_drops_the_oldest_events_not_the_newest(monkeypatch)
 
 def branch_flow():
     return wf([{"id": "ask", "kind": "agent", "name": "ask", "agent": "explorer"},
-               {"id": "br", "kind": "branch", "name": "blocked?", "agent": "reviewer", "no": "done"},
+               {"id": "br", "kind": "branch", "name": "blocked?", "agent": "lens-reviewer", "no": "done"},
                {"id": "mid", "kind": "gate", "name": "yes path"},
                {"id": "done", "kind": "gate", "name": "no path"}])
 
 
 @pytest.mark.parametrize("said,waits", [("Nothing blocks, yes", "no path"), ("No, nothing", "no path")])
 def test_a_branch_answer_is_no_only_when_it_says_the_word_no(client, repo, monkeypatch, said, waits):
-    answers(monkeypatch, {"reviewer": lambda r: said})
+    answers(monkeypatch, {"lens-reviewer": lambda r: said})
     tid = start(client, repo, workflow=branch_flow())
     s = wait(client, tid)
     # "Nothing blocks, yes" is a yes: it goes on to the next step, "mid"; "No, nothing" jumps to "done"

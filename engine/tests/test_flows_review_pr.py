@@ -64,7 +64,7 @@ def test_the_template_is_valid_read_only_and_ends_without_posting_by_default():
     share, post = t.step("share"), t.step("post")
     assert list(share.choices) == ["done", "share"] and share.choices["done"] == "end"
     assert list(post.choices) == ["keep", "post"] and post.choices["keep"] == "end"   # a plain approve posts nothing
-    assert {t.step("reviewers").agent, t.step("check").agent} == {"ticket-reviewer"}
+    assert {t.step("reviewers").agent, t.step("check").agent} == {"pr-reviewer"}
 
 
 # ------------------------------------------------------------------ input and checklist
@@ -122,7 +122,7 @@ def test_a_full_review_of_a_branch_shares_only_the_chosen_sections_and_posts_not
     tid = review(client, repo)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "share" and s["phase"] == "review", s
-    agents = [r for r in seen if r.agent == "ticket-reviewer"]
+    agents = [r for r in seen if r.agent == "pr-reviewer"]
     assert len(agents) == 1 and agents[0].item["job"] == "all"          # a small change: one agent does every job
     job = agents[0].item
     assert [i["id"] for i in job["items"]][:2] == ["T1", "T2"]
@@ -164,7 +164,7 @@ def test_problems_are_checked_again_and_the_verdict_follows_the_checks(client, r
                   "F | blocking | src/scores/ranks.py:2 | reverse sort breaks ties | use a stable key",
                   "F | minor | src/scores/ranks.py:1 | no docstring | add one", "S | Ranks players.", "TICKET-REVIEW: done"]
         return "\n".join(lines)
-    seen = answers(monkeypatch, {"ticket-reviewer": reviewer})
+    seen = answers(monkeypatch, {"pr-reviewer": reviewer})
     tid = review(client, repo)
     s = wait(client, tid)
     checks = [r.item for r in seen if r.item and r.item.get("job") == "check"]

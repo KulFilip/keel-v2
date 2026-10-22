@@ -32,7 +32,7 @@ loop: For each criterion (each criterion)  id=ac
   :  #  verify + refactor commit  (code verify_green+commit)
   :  #  the tests outside this criterion  (code verify_after_green)
   :       fails -> green  (loops back)
-  :  o  AC review  (agent ac-reviewer)
+  :  o  AC review  (agent criterion-reviewer)
   : [?] AC gate  (gate, you decide)
   :       send back -> red  (loops back)
   `-- end of loop

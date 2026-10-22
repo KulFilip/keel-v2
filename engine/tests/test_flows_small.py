@@ -99,7 +99,7 @@ def test_small_plans_then_runs_test_first_per_criterion_one_review_and_one_look(
     s = decide(client, tid)
     assert s["status"] == "done", s
     agents = [r.agent for r in seen]
-    assert agents.count("test-author") == n and agents.count("implementer") == n and "code-reviewer" in agents
+    assert agents.count("test-author") == n and agents.count("implementer") == n and "branch-reviewer" in agents
     commits = [c.split(":")[0] for c in log(repo)]
     assert "test(AC-1)" in commits and "feat(AC-1)" in commits
     assert not any(a in agents for a in ("e2e-author", "security-auditor", "librarian"))   # nothing of ship

@@ -132,7 +132,7 @@ describe("StepView", () => {
 
 const note = (over: Partial<Notification> = {}): Notification => ({
   id: `m${Math.random()}`, type: "review", project_id: "ludus-engine", title: "AC gate waits for you",
-  body: "AC-002 — ac-reviewer says PASS", link: "#/jobs", at: new Date().toISOString(), read: false, ...over,
+  body: "AC-002 — criterion-reviewer says PASS", link: "#/jobs", at: new Date().toISOString(), read: false, ...over,
 });
 async function ready() {
   // v0.15.0 keel is off until the person turns it on

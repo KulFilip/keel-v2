@@ -66,10 +66,10 @@ export const featureWorkflow: Workflow = {
     { id: "s4", kind: "code", name: "verify_red", per_ac: true, lock: true, action: "verify_red" },
     { id: "s5", kind: "agent", name: "green", agent: "implementer", model: "default", per_ac: true, phase: "green" },
     { id: "s6", kind: "code", name: "verify_green + commit", per_ac: true, lock: true, action: "verify_green" },
-    { id: "s7", kind: "agent", name: "AC review", agent: "ac-reviewer", model: "default", per_ac: true },
+    { id: "s7", kind: "agent", name: "AC review", agent: "criterion-reviewer", model: "default", per_ac: true },
     { id: "s8", kind: "gate", name: "AC gate", per_ac: true, lock: true, back: "s3", phase: "ac-gate" },
-    { id: "s9", kind: "agent", name: "integration", agent: "code-reviewer", model: "default" },
-    { id: "s10", kind: "parallel", name: "ship review", agent: "reviewer", model: "default", parallel: 4 },
+    { id: "s9", kind: "agent", name: "integration", agent: "branch-reviewer", model: "default" },
+    { id: "s10", kind: "parallel", name: "ship review", agent: "lens-reviewer", model: "default", parallel: 4 },
     { id: "s11", kind: "gate", name: "final review", lock: true },
     { id: "s12", kind: "agent", name: "memory", agent: "librarian", model: "default" },
   ],
@@ -106,7 +106,7 @@ export const thread: ThreadState = {
     { id: "AC-002", layer: "API", title: "Refuse a negative score with 400", status: "green" },
     { id: "AC-003", layer: "WEB", title: "Show the top 10 scores", status: "todo" },
   ],
-  waiting: { step: "s8", kind: "gate", title: "AC gate", detail: "RED 4be12d9 · GREEN a81c3f0 · tests 2/2 pass · ac-reviewer: PASS", options: ["approve", "reject"] },
+  waiting: { step: "s8", kind: "gate", title: "AC gate", detail: "RED 4be12d9 · GREEN a81c3f0 · tests 2/2 pass · criterion-reviewer: PASS", options: ["approve", "reject"] },
   usage: { tokens_in: 160000, tokens_out: 22000, cost_usd: 2.86, premium_requests: 41, cap_tokens: 600000 },
   checkpoints: 31, updated_at: ago(30),
   blockers: [
@@ -128,7 +128,7 @@ export const estimate: Estimate = {
 };
 
 export const jobs: Job[] = [
-  { id: "j-482", project_id: "ludus-engine", thread_id: "th_7f3a", agent: "ac-reviewer", provider: "codex", model: "gpt-5.6-sol", step: "s7", phase: "ac-gate", ac: "AC-002",
+  { id: "j-482", project_id: "ludus-engine", thread_id: "th_7f3a", agent: "criterion-reviewer", provider: "codex", model: "gpt-5.6-sol", step: "s7", phase: "ac-gate", ac: "AC-002",
     status: "running", started_at: ago(74), ended_at: null, tokens_in: 18000, tokens_out: 2000, cost_usd: 0, premium_requests: 0, steps_count: 3, mcp_calls: 1 },
   { id: "j-480", project_id: "ludus-engine", thread_id: "th_7f3a", agent: "implementer", provider: "copilot", model: "gpt-5", step: "s5", phase: "green", ac: "AC-002",
     status: "done", started_at: ago(900), ended_at: ago(650), tokens_in: 31000, tokens_out: 6000, cost_usd: 0, premium_requests: 6, steps_count: 9, mcp_calls: 2 },
@@ -376,7 +376,7 @@ export const connections: Connections = {
 };
 
 export const notifications: Notification[] = [
-  { id: "n1", type: "review", project_id: "ludus-engine", title: "AC gate waits for you", body: "AC-002 — ac-reviewer says PASS", link: "#/flow", at: ago(60), read: false },
+  { id: "n1", type: "review", project_id: "ludus-engine", title: "AC gate waits for you", body: "AC-002 — criterion-reviewer says PASS", link: "#/flow", at: ago(60), read: false },
   { id: "n2", type: "finished", project_id: "platform", title: "Lit-Check finished", body: "0 issues", link: "#/live", at: ago(3600), read: true },
 ];
 export const notificationSettings: NotificationSettings = {

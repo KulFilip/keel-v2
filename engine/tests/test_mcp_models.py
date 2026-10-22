@@ -35,6 +35,8 @@ class Stub:
              "model": {"provider": "claude", "mode": "subscription", "model": "haiku"}},
             {"id": "helper", "label": "KeelBot", "custom": False, "tools": ["Read"], "phases": ["any"],
              "model": {"provider": "claude", "mode": "subscription", "model": "sonnet"}},
+            {"id": "lens-reviewer", "label": "lens-reviewer", "custom": False, "tools": ["Read"], "phases": ["ship"],
+             "model": {"provider": "claude", "mode": "subscription", "model": "opus", "effort": "high"}},
         ]
         self.session = {"id": "s-1", "title": "docs", "mode": "ask", "status": "idle",
                         "model": {"provider": "codex", "mode": "subscription", "model": "gpt-5.5", "effort": "low"}, "messages": []}
@@ -127,6 +129,13 @@ async def test_agent_model_another_provider_starts_on_its_default_and_drops_an_e
     stub.agents[0]["model"] = {"provider": "claude", "mode": "subscription", "model": "sonnet", "effort": "xhigh"}
     await call(server(stub), "keel_agent_model", {"agent": "implementer", "model": "haiku"})
     assert puts(stub)[-1][1] == {"model": {"provider": "claude", "mode": "subscription", "model": "haiku"}}
+
+
+async def test_agent_model_with_an_agents_old_name_changes_the_renamed_agent(stub):
+    text = await call(server(stub), "keel_agent_model", {"agent": "reviewer", "effort": "low"})
+    assert puts(stub) == [("/api/projects/shop/agents/lens-reviewer",
+                           {"model": {"provider": "claude", "mode": "subscription", "model": "opus", "effort": "low"}})]
+    assert "the agent lens-reviewer now uses claude/opus (subscription) · effort low on shop" in text
 
 
 async def test_agent_model_refuses_an_effort_the_model_does_not_have(stub):

@@ -86,11 +86,11 @@ def test_fan_out_from_a_state_list_with_cap_and_batch(client, repo, monkeypatch)
 
 def test_parallel_copies_still_work_and_an_empty_list_runs_nobody(client, repo, monkeypatch):
     seen = answers(monkeypatch, {})
-    w = wf([{"id": "lenses", "kind": "parallel", "name": "lenses", "agent": "reviewer", "parallel": 2},
+    w = wf([{"id": "lenses", "kind": "parallel", "name": "lenses", "agent": "lens-reviewer", "parallel": 2},
             {"id": "none", "kind": "parallel", "name": "nobody", "agent": "investigator", "from": "missing"}])
     s = wait(client, start(client, repo, workflow=w))
     assert s["status"] == "done"
-    assert [r.agent for r in seen] == ["reviewer", "reviewer"]
+    assert [r.agent for r in seen] == ["lens-reviewer", "lens-reviewer"]
 
 
 # ------------------------------------------------------------------ for_each

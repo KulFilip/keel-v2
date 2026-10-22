@@ -204,7 +204,7 @@ def test_important_stops_at_the_big_gates_and_approves_clean_ac_gates(client, re
 
 
 def test_important_stops_at_an_ac_gate_whose_review_found_something(client, repo, monkeypatch):
-    answers(monkeypatch, {"ac-reviewer": lambda r: f"The test asserts nothing for {r.ac['id']}.\nAC-REVIEW: findings"
+    answers(monkeypatch, {"criterion-reviewer": lambda r: f"The test asserts nothing for {r.ac['id']}.\nAC-REVIEW: findings"
                           if r.ac["id"] == "AC-1" else "AC-REVIEW: pass"})
     tid = start(client, repo, settings=mode_settings("important"))
     s = wait(client, tid)

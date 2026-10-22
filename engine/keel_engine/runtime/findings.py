@@ -1,4 +1,4 @@
-"""Blocking findings in a reviewer's answer (code-reviewer, security-auditor, the ship review lenses).
+"""Blocking findings in a reviewer's answer (branch-reviewer, security-auditor, the ship review lenses).
 
 keel's reviewer agents answer with a "Blocking" section (a heading, a bold label, or "Blocking: none") and a
 "Non-blocking" one. Only the blocking items stop the flow; "none" means there are none. An agent that ends with its own
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-REVIEWERS = {"code-reviewer", "security-auditor", "reviewer"}
+REVIEWERS = {"branch-reviewer", "security-auditor", "lens-reviewer"}
 
 # "## Blocking", "**Blocking**", "**Blocking:** none.", "Blocking findings:", "### Blocking (2)" — not "Non-blocking".
 _HEAD = re.compile(r"^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\s*(?<![-\w])blocking\b(?:\s+(?:findings?|issues?))?\s*(?:\(\d+\))?\s*"
@@ -19,7 +19,7 @@ _NONE = re.compile(r"^\s*(?:\*\*|__)?\s*(?:none|nothing|no (?:blocking )?(?:find
 _VERDICT = re.compile(r"^\s*(?:\*\*|__|`)?\s*BLOCKING\s*:\s*(?:\*\*|__)?\s*(yes|no)\b", re.I | re.M)
 _REF = re.compile(r"`?([\w./-]+\.\w+:\d+(?:-\d+)?)`?")
 _E2E_FAIL = re.compile(r"^\s*E2E-RESULT:\s*fail\b(.*)$", re.I | re.M)
-# The other reviewers' verdict lines (code-reviewer, security-auditor, dependency-triager): "findings" without a Blocking
+# The other reviewers' verdict lines (branch-reviewer, security-auditor, dependency-triager): "findings" without a Blocking
 # section still stops the flow; their findings are the answer's list items.
 _OWN_VERDICT = re.compile(r"^\s*(?:\*\*|__|`)?\s*(?:CODE-REVIEW|SECURITY|DEPS)\s*:\s*(?:\*\*|__)?\s*(pass|clean|findings)\b",
                           re.I | re.M)

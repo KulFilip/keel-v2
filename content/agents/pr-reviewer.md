@@ -1,6 +1,6 @@
 ---
-name: ticket-reviewer
-description: Read-only reviewer for the review-pr flow. Judges the checklist items it is given against someone else's change, or hunts bugs in its files, or checks code quality, or confirms one claim, and answers in result lines, never files. Use from the review-pr flow only, one per job in the plan.
+name: pr-reviewer
+description: Reviews someone else's pull request in the review-pr flow, read-only — judges the checklist items it is given, hunts bugs in its files, checks code quality, or confirms one claim, and answers in result lines, never files. One per job in the review-pr plan.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 effort: medium

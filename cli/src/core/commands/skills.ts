@@ -2,6 +2,7 @@
 
 import { api, get, post } from "../sdk";
 import { rulesApi } from "../../../../web/src/rulesApi";
+import { agentName } from "../../../../web/src/agentNames";
 import * as fmt from "../format";
 import { type Paint } from "../theme";
 import { stackComplete, stackRun, stacksRun } from "../stacks";
@@ -40,8 +41,9 @@ function skillsText(rows: SkillRow[], project: string, p: Paint): string {
 }
 
 /** Put a skill on agents (or take it off): the skill's own list, and the agents whose own skill list is set here (it wins). */
-async function attachSkill(ctx: Ctx, sid: string, agents: string[], detach: boolean): Promise<Reply> {
+async function attachSkill(ctx: Ctx, sid: string, given: string[], detach: boolean): Promise<Reply> {
   const pid = needProject(ctx).id;
+  const agents = [...new Set(given.map(agentName))];      // an old agent name means the new agent
   if (!sid || !agents.length) return fail(`Name the skill and the agents: /skill ${detach ? "detach" : "attach"} <id> <agent…>`);
   const all = await api.agents(pid);
   const bad = agents.filter((a) => !all.some((x) => x.id === a));

@@ -47,7 +47,7 @@ describe("Flow steps: a click shows the step", () => {
     const block = await screen.findByRole("button", { name: /AC gate, wait for you, keel rule, waiting for you/ });
     await within(await side()).findAllByTestId("event-checkpoint");   // the stream is open
     push(ev("step.finished", "s8", { status: "ok" }));                 // the gate of the criterion before
-    push(ev("agent.started", "s7", { agent: "ac-reviewer" }));
+    push(ev("agent.started", "s7", { agent: "criterion-reviewer" }));
     push(ev("step.started", "s8"));
     push(ev("gate.waiting", "s8", { title: "AC gate" }));
     await user.click(block);
@@ -60,7 +60,7 @@ describe("Flow steps: a click shows the step", () => {
     expect(lines).toHaveTextContent("AC gate waits for you");
     expect(lines).toHaveTextContent("s8 started");
     expect(lines).not.toHaveTextContent("s8 finished");
-    expect(lines).not.toHaveTextContent("ac-reviewer start");
+    expect(lines).not.toHaveTextContent("criterion-reviewer start");
     expect(within(events).queryAllByTestId("event-checkpoint")).toHaveLength(0);
     expect(within(s).queryByRole("region", { name: "Last run" })).not.toBeInTheDocument();
     expect(within(s).queryByRole("region", { name: "Rules" })).not.toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("Flow steps: a click shows the step", () => {
     expect(card).toHaveTextContent("running AC review — AC-002");
     expect(card).not.toHaveTextContent("node");
     expect(within(card).getByRole("link", { name: "Watch live" })).toHaveAttribute("href", "#/live/j-482");
-    const works = within(s).getByRole("region", { name: "ac-reviewer works" });
+    const works = within(s).getByRole("region", { name: "criterion-reviewer works" });
     expect(await within(works).findByText(/Looking at what the gate needs/)).toBeInTheDocument();
     expect(within(s).getByRole("region", { name: "Events of AC review" })).toHaveTextContent("Nothing happened in this step yet.");
   });
@@ -113,12 +113,12 @@ describe("Flow side panels: hide and open big", () => {
     const user = userEvent.setup();
     const first = render(<App />);
     const s = await side();
-    const works = await within(s).findByRole("region", { name: "ac-reviewer works" });
+    const works = await within(s).findByRole("region", { name: "criterion-reviewer works" });
     await within(works).findByText(/Looking at what the gate needs/);
-    await user.click(within(works).getByRole("button", { name: "Hide ac-reviewer works" }));
+    await user.click(within(works).getByRole("button", { name: "Hide criterion-reviewer works" }));
     expect(within(works).queryByText(/Looking at what the gate needs/)).not.toBeInTheDocument();
     expect(within(works).queryByRole("link", { name: "Watch live" })).not.toBeInTheDocument();
-    expect(within(works).getByRole("button", { name: "Show ac-reviewer works" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(works).getByRole("button", { name: "Show criterion-reviewer works" })).toHaveAttribute("aria-expanded", "false");
     expect(localStorage.getItem("keel2.fold.flow.works")).toBe("1");
     const events = within(s).getByRole("region", { name: "Events" });
     await within(events).findAllByTestId("event-checkpoint");
@@ -131,8 +131,8 @@ describe("Flow side panels: hide and open big", () => {
     first.unmount();
     render(<App />);
     const s2 = await side();
-    const works2 = await within(s2).findByRole("region", { name: "ac-reviewer works" });
-    expect(within(works2).getByRole("button", { name: "Show ac-reviewer works" })).toBeInTheDocument();
+    const works2 = await within(s2).findByRole("region", { name: "criterion-reviewer works" });
+    expect(within(works2).getByRole("button", { name: "Show criterion-reviewer works" })).toBeInTheDocument();
     const events2 = within(s2).getByRole("region", { name: "Events" });
     expect(within(events2).queryAllByTestId("event-checkpoint")).toHaveLength(0);
     await user.click(within(events2).getByRole("button", { name: "Show Events" }));
@@ -167,12 +167,12 @@ describe("Flow side panels: hide and open big", () => {
     server.use(http.get("/api/jobs/:id/steps", () => HttpResponse.json({ steps: many, running: false })));
     const user = userEvent.setup();
     render(<App />);
-    const works = await within(await side()).findByRole("region", { name: "ac-reviewer works" });
+    const works = await within(await side()).findByRole("region", { name: "criterion-reviewer works" });
     await within(works).findByText("step number 9");
     expect(within(works).queryByText("step number 3")).not.toBeInTheDocument();   // the panel: the newest 6
-    await user.click(within(works).getByRole("button", { name: "Open ac-reviewer works big" }));
-    const big = screen.getByRole("dialog", { name: "ac-reviewer works" });
-    const feed = within(big).getByLabelText("Every step of ac-reviewer");
+    await user.click(within(works).getByRole("button", { name: "Open criterion-reviewer works big" }));
+    const big = screen.getByRole("dialog", { name: "criterion-reviewer works" });
+    const feed = within(big).getByLabelText("Every step of criterion-reviewer");
     expect(within(feed).getByText("step number 1")).toBeInTheDocument();
     expect(within(feed).getByText("step number 9")).toBeInTheDocument();
     expect(within(big).getByRole("link", { name: "Open job" })).toHaveAttribute("href", "#/jobs/j-482");
@@ -188,11 +188,11 @@ describe("Flow side panels: hide and open big", () => {
       render(<App />);
       await user.click(await screen.findByRole("button", { name: /^AC review, agent/ }));
       const drawer = await screen.findByRole("dialog", { name: "AC review now" });
-      const works = await within(drawer).findByRole("region", { name: "ac-reviewer works" });
-      await user.click(within(works).getByRole("button", { name: "Open ac-reviewer works big" }));
-      expect(screen.getByRole("dialog", { name: "ac-reviewer works" })).toBeInTheDocument();
+      const works = await within(drawer).findByRole("region", { name: "criterion-reviewer works" });
+      await user.click(within(works).getByRole("button", { name: "Open criterion-reviewer works big" }));
+      expect(screen.getByRole("dialog", { name: "criterion-reviewer works" })).toBeInTheDocument();
       await user.keyboard("{Escape}");
-      expect(screen.queryByRole("dialog", { name: "ac-reviewer works" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "criterion-reviewer works" })).not.toBeInTheDocument();
       expect(screen.getByRole("dialog", { name: "AC review now" })).toBeInTheDocument();
       await user.click(within(screen.getByRole("dialog", { name: "AC review now" })).getByRole("button", { name: "Details" }));
       expect(await screen.findByRole("dialog", { name: "What red does" })).toBeInTheDocument();

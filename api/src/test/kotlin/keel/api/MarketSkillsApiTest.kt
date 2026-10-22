@@ -101,6 +101,7 @@ class MarketSkillsApiTest : ApiTest() {
     @Test
     fun `install saves the verified text for the agents, update needs replace, remove takes it away`() {
         val (pid, _) = newProject("ms-install")
+        // "reviewer" is the lens-reviewer's old name: the skill goes on the lens-reviewer
         val done = post("/api/projects/$pid/skills/market/install", mapOf("name" to "changelog", "version" to "1.0.0", "agents" to listOf("reviewer")))
             .andExpect(status().isOk).json()
         assertThat(engine.lastBody("/marketplace/skills/changelog/fetch")!!["version"].asText()).isEqualTo("1.0.0")
@@ -108,13 +109,13 @@ class MarketSkillsApiTest : ApiTest() {
         assertThat(sid).isEqualTo("changelog")
         assertThat(done["skill"]["source"].asText()).isEqualTo("marketplace")
         assertThat(done["skill"]["version"].asText()).isEqualTo("1.0.0")
-        assertThat(done["skill"]["agents"].map { it.asText() }).containsExactly("reviewer")
+        assertThat(done["skill"]["agents"].map { it.asText() }).containsExactly("lens-reviewer")
         assertThat(done["skill"]["market"]["catalog"].asText()).isEqualTo("keel")
         assertThat(done["market"]["version"].asText()).isEqualTo("1.0.0")
         // the project's skills list it, the reviewer agent loads it, the search says installed + update
         val listed = get("/api/projects/$pid/skills").json().first { it["id"].asText() == sid }
         assertThat(listed["market"]["edited"].asBoolean()).isFalse()
-        assertThat(get("/api/projects/$pid/agents").json().first { it["id"].asText() == "reviewer" }["skills"].map { it.asText() }).contains(sid)
+        assertThat(get("/api/projects/$pid/agents").json().first { it["id"].asText() == "lens-reviewer" }["skills"].map { it.asText() }).contains(sid)
         val hit = get("/api/marketplace/skills?project=$pid").json()["skills"].single()
         assertThat(hit["installed"]["version"].asText()).isEqualTo("1.0.0")
         assertThat(hit["installed"]["sid"].asText()).isEqualTo(sid)
@@ -130,7 +131,7 @@ class MarketSkillsApiTest : ApiTest() {
         assertThat(upd["installed"]["edited"].asBoolean()).isTrue()
         val replaced = post("/api/projects/$pid/skills/market/install", mapOf("name" to "changelog", "replace" to true)).andExpect(status().isOk).json()
         assertThat(replaced["skill"]["version"].asText()).isEqualTo("1.1.0")
-        assertThat(replaced["skill"]["agents"].map { it.asText() }).containsExactly("reviewer")
+        assertThat(replaced["skill"]["agents"].map { it.asText() }).containsExactly("lens-reviewer")
         assertThat(get("/api/skills/$sid?project=$pid").json()["body"].asText()).isEqualTo(text("1.1.0"))
 
         // a fetch the engine refuses installs nothing

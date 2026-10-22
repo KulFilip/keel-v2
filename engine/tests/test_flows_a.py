@@ -82,7 +82,7 @@ def test_review_all_runs_one_reviewer_per_lens_and_reports_verbatim(client, repo
     on_branch(repo)
     configure(repo, "version: 4\narchitecture: {style: hexagonal}\n")
     said = {"security": "- src/scores/ranks.py:2 trusts its input\nBLOCKING: yes"}
-    seen = answers(monkeypatch, {"reviewer": lambda r: f"{r.item['lens']} says hi.\n" + said.get(r.item["lens"], "BLOCKING: no")})
+    seen = answers(monkeypatch, {"lens-reviewer": lambda r: f"{r.item['lens']} says hi.\n" + said.get(r.item["lens"], "BLOCKING: no")})
     tid = start(client, repo, workflow="review", title="Review", data={"lens": "all"})
     s = wait(client, tid)
     assert s["waiting"]["step"] == "read_report" and s["phase"] == "review"
@@ -103,10 +103,10 @@ def test_review_code_and_one_lens_pick_their_agent(client, repo, monkeypatch):
     on_branch(repo)
     seen = answers(monkeypatch, {})
     s = wait(client, start(client, repo, workflow="review", title="Review"))
-    assert [r.agent for r in seen] == ["code-reviewer"] and "CODE-REVIEW: pass" in s["waiting"]["detail"]
+    assert [r.agent for r in seen] == ["branch-reviewer"] and "CODE-REVIEW: pass" in s["waiting"]["detail"]
     seen.clear()
     wait(client, start(client, repo, workflow="review", title="Review", data={"lens": "performance", "base": "main"}))
-    assert [(r.agent, r.item["lens"]) for r in seen] == [("reviewer", "performance")]
+    assert [(r.agent, r.item["lens"]) for r in seen] == [("lens-reviewer", "performance")]
 
 
 def test_review_one_criterion_needs_its_commits(client, repo, monkeypatch):
@@ -119,7 +119,7 @@ def test_review_one_criterion_needs_its_commits(client, repo, monkeypatch):
     write(repo, "src/scores/ac1.py", "X = 1\n")
     commit_all(repo, "feat(AC-1): ranks sort")
     s = wait(client, start(client, repo, workflow="review", title="Review", data={"lens": "ac ac-1"}))
-    assert [r.agent for r in seen] == ["ac-reviewer"]
+    assert [r.agent for r in seen] == ["criterion-reviewer"]
     assert seen[0].item["red"] and seen[0].item["green"] and "AC-REVIEW: PASS" in s["waiting"]["detail"]
 
 

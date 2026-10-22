@@ -60,7 +60,7 @@ async function at(hash: string) {
 
 describe("search words", () => {
   it("match what a row shows: agent, provider name, model, step, AC, status, project name; every word must match", () => {
-    const j = fx.jobs[0]; // ac-reviewer · codex gpt-5.6-sol · s7 · ac-gate · AC-002 · running · ludus-engine
+    const j = fx.jobs[0]; // criterion-reviewer · codex gpt-5.6-sol · s7 · ac-gate · AC-002 · running · ludus-engine
     const m = (q: string, name?: string) => jobMatches(j, searchWords(q), name);
     expect(PROV.codex).toBe("GPT / Codex");
     expect(m("")).toBe(true);
@@ -71,7 +71,7 @@ describe("search words", () => {
     expect(m("ac-gate ac-002")).toBe(true);
     expect(m("s7 running")).toBe(true);
     expect(m("zebra", "Zebra Shop")).toBe(true);
-    expect(m("ac-reviewer done")).toBe(false);
+    expect(m("criterion-reviewer done")).toBe(false);
     expect(m("implementer")).toBe(false);
   });
 });
@@ -85,7 +85,7 @@ describe("Jobs: Running and Finished tabs", () => {
     expect(running).toHaveAttribute("aria-selected", "true");
     // the panel can come a moment after its tab on a slow machine (CI): wait for it too
     const now = await main().findByRole("region", { name: "Running now" }, { timeout: 5000 });
-    expect(within(now).getByText("ac-reviewer")).toBeInTheDocument();
+    expect(within(now).getByText("criterion-reviewer")).toBeInTheDocument();
     expect(within(now).queryByText("implementer")).toBeNull();
     // the count comes from the api: all 61 finished calls, past the list's limit of 50
     const fin = await main().findByRole("tab", { name: "Finished 61" });
@@ -93,7 +93,7 @@ describe("Jobs: Running and Finished tabs", () => {
     expect(fin).toHaveAttribute("aria-selected", "true");
     const table = await main().findByRole("table", { name: "Agent calls" });
     await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(51));
-    expect(within(table).queryByText("ac-reviewer")).toBeNull();
+    expect(within(table).queryByText("criterion-reviewer")).toBeNull();
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent("implementer");
     expect(await main().findByText("The newest 50 of 61 finished calls. Search to find an older one.")).toBeInTheDocument();
     expect(main().getByLabelText("Filter by status")).toBeInTheDocument();
@@ -165,11 +165,11 @@ describe("Live agents: Working now and Finished tabs", () => {
     const user = userEvent.setup();
     const seen = jobsApi();
     await at("#/live");
-    expect(await main().findByRole("heading", { name: "ac-reviewer · AC-002" })).toBeInTheDocument();
+    expect(await main().findByRole("heading", { name: "criterion-reviewer · AC-002" })).toBeInTheDocument();
     const working = await main().findByRole("tab", { name: "Working now 1" });
     expect(working).toHaveAttribute("aria-selected", "true");
     // the list may come a moment after the tab's count (CI is slower)
-    expect(await within(main().getByRole("region", { name: "Working now" })).findByRole("button", { name: /ac-reviewer/ })).toBeInTheDocument();
+    expect(await within(main().getByRole("region", { name: "Working now" })).findByRole("button", { name: /criterion-reviewer/ })).toBeInTheDocument();
 
     const fin = await main().findByRole("tab", { name: "Finished 61" });
     await user.click(fin);
@@ -185,7 +185,7 @@ describe("Live agents: Working now and Finished tabs", () => {
     await waitFor(() => expect(main().getByRole("tab", { name: "Working now 0" })).toBeInTheDocument());
     await waitFor(() => expect(seen.some((u) => u.searchParams.get("q") === "implementer" && u.searchParams.get("status") === "finished" && u.searchParams.get("limit") === "30")).toBe(true));
     // the feed does not jump to the first match
-    expect(main().getByRole("heading", { name: "ac-reviewer · AC-002" })).toBeInTheDocument();
+    expect(main().getByRole("heading", { name: "criterion-reviewer · AC-002" })).toBeInTheDocument();
 
     // an agent past the list's limit: the api finds it, and a click opens its feed
     await user.clear(main().getByRole("searchbox", { name: "Search agents" }));
@@ -212,7 +212,7 @@ describe("Live agents: Working now and Finished tabs", () => {
     localStorage.setItem("keel2.live.tab", "finished");
     jobsApi();
     await at("#/live");
-    expect(await main().findByRole("heading", { name: "ac-reviewer · AC-002" })).toBeInTheDocument();
+    expect(await main().findByRole("heading", { name: "criterion-reviewer · AC-002" })).toBeInTheDocument();
     await waitFor(() => expect(main().getByRole("tab", { name: "Working now 1" })).toHaveAttribute("aria-selected", "false"));
     expect(main().getByRole("tab", { name: /^Finished/ })).toHaveAttribute("aria-selected", "true");
   });

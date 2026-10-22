@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from .. import extensions
+import yaml
+
+from .. import agent_names, extensions
 from ..addons import NAME
 from ..rules import PHASES
 from ..runtime.findings import REVIEWERS
@@ -283,10 +285,34 @@ def _locked_steps(wf: Workflow) -> list[str]:
     return errs
 
 
+def old_agent_notes(text: str) -> list[str]:
+    """A soft note per step that names an agent by its old name (agent_names.RENAMED): it still runs the new agent,
+    so the workflow stays valid; the note only says the new name."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return []
+    steps = data.get("steps") if isinstance(data, dict) else None
+    out: list[str] = []
+    for s in steps if isinstance(steps, list) else []:
+        if not isinstance(s, dict):
+            continue
+        names = [s.get("agent")] + [ln.get("sub") for ln in s.get("lanes") or [] if isinstance(ln, dict) and ln.get("kind", "agent") == "agent"]
+        for n in names:
+            if isinstance(n, str) and agent_names.is_old(n):
+                out.append(f"Step '{s.get('id')}': agent '{n}' is now called '{agent_names.canonical(n)}'; "
+                           "the old name still works.")
+    return out
+
+
 def validate_yaml(text: str) -> dict:
     try:
         wf = load_yaml(text)
     except WorkflowError as exc:
         return {"ok": False, "errors": [str(exc)]}
     errors = validate(wf)
-    return {"ok": not errors, "errors": errors, "workflow": wf}
+    out = {"ok": not errors, "errors": errors, "workflow": wf}
+    notes = old_agent_notes(text)
+    if notes:
+        out["notes"] = notes
+    return out

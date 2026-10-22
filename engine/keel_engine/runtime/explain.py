@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from .. import addons, rules
+from .. import addons, agent_names, rules
 from ..tools import git
 from ..workflows.model import Step, Workflow, from_dict
 from ..workflows.templates import get_template, templates
@@ -458,8 +458,8 @@ def model_info(step: Step, agent: str, fm: dict, ctx, state: dict | None) -> dic
     out = {"step": step.model or "default", "agent_file": fm.get("model"), "effort": fm.get("effort"), "rule": rule}
     if ctx is not None:
         models = ctx.models or {}
-        m = ((state or {}).get("model_override") or ((state or {}).get("agent_models") or {}).get(agent)
-             or (models.get(step.model) if step.model and step.model != "default" else None) or models.get(agent)
+        m = ((state or {}).get("model_override") or agent_names.lookup((state or {}).get("agent_models"), agent)
+             or (models.get(step.model) if step.model and step.model != "default" else None) or agent_names.lookup(models, agent)
              or models.get("default"))
         if m:
             out["now"] = {k: m.get(k) for k in ("provider", "mode", "model", "effort") if m.get(k)}

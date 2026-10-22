@@ -2,6 +2,7 @@ package keel.api.workflows
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
+import keel.api.agents.AgentNames
 import keel.api.common.BadRequest
 import keel.api.common.Yaml
 
@@ -76,6 +77,14 @@ data class Step(
     val keep: Boolean? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
+
+    /** This step with an old agent name (AgentNames.RENAMED) replaced by the new one: in `agent`, an agent lane's `sub`,
+     *  and a `model` that names an agent's model setting. Any other step stays as it is. */
+    fun withCurrentAgentNames(): Step {
+        val newLanes = lanes?.map { if (it.kind == "agent" && AgentNames.isOld(it.sub)) it.copy(sub = AgentNames.canonicalOrNull(it.sub)) else it }
+        if (!AgentNames.isOld(agent) && !AgentNames.isOld(model) && newLanes == lanes) return this
+        return copy(agent = AgentNames.canonicalOrNull(agent), model = AgentNames.canonicalOrNull(model), lanes = newLanes)
+    }
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -119,7 +128,8 @@ data class WorkflowDoc(
             }
             val dup = doc.steps.groupBy { it.id }.filter { it.value.size > 1 }.keys
             if (dup.isNotEmpty()) throw BadRequest("Two steps share the id ${dup.joinToString()}")
-            return doc
+            // an old agent name still runs the new agent (a project's own or a marketplace workflow from before the rename)
+            return doc.copy(steps = doc.steps.map { it.withCurrentAgentNames() })
         }
     }
 }

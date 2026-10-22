@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import keel.api.agents.AgentCatalog
+import keel.api.agents.AgentNames
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
@@ -168,7 +169,7 @@ class MarketWorkflows(
         }
         val review = workflows.review(doc, "marketplace")
         if (needs) {
-            val wanted = (fetched.path("requires").path("agents").map { it.asText() } + review.agents).distinct()
+            val wanted = (fetched.path("requires").path("agents").map { AgentNames.canonical(it.asText()) } + review.agents).distinct()
             val missing = wanted.filter { agents.find(it) == null && it !in AgentCatalog.BUILTIN }
             if (missing.isNotEmpty()) {
                 throw ApiException(HttpStatus.CONFLICT, "$title needs agents keel does not have: ${missing.joinToString()}.",
@@ -198,7 +199,8 @@ class MarketWorkflows(
             if (mine.toSet() != theirs) add("$what: keel finds ${mine.toSet().sorted().ifEmpty { listOf("none") }.joinToString()}, " +
                 "the catalog says ${theirs.sorted().ifEmpty { listOf("none") }.joinToString()}")
         }
-        compare("agents", keel.agents, words("agents"))
+        // a catalog that still says an old agent name (AgentNames.RENAMED) means the new agent
+        compare("agents", keel.agents.map(AgentNames::canonical), words("agents").map(AgentNames::canonical).toSet())
         compare("MCP servers", keel.mcp, words("mcp"))
         compare("commands", keel.commands, words("commands"))
         if (keel.editsFiles && !catalog.path("edits_files").asBoolean(false)) add("edits files: keel finds it changes files, the catalog says it does not")

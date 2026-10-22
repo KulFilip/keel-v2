@@ -1,6 +1,6 @@
 ---
-name: ac-reviewer
-description: Reviews one acceptance criterion's RED and GREEN commits — is the criterion met, does the test prove it, is the code good and consistent with this codebase. Use at the AC gate.
+name: criterion-reviewer
+description: Reviews one acceptance criterion's RED and GREEN commits during a flow — is the criterion met, does the test prove it, is the code good and consistent with this codebase. Runs once per criterion, at its AC gate.
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: medium
@@ -43,7 +43,7 @@ it was a decision rather than an omission.
 
 **Stay inside the two commits.** Open a file the diff touches to see the surrounding conventions —
 that is question 3 — but do not read beyond them, and never `git diff main...HEAD`. Security,
-architecture boundaries and performance are **out of scope**: `reviewer` re-runs all three
+architecture boundaries and performance are **out of scope**: `lens-reviewer` re-runs all three
 over the whole branch at ship, and duplicating them here is what made this review slow enough to
 skip.
 

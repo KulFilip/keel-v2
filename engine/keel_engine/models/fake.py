@@ -293,12 +293,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         cite = first_source(req.root)
         return f"{kdir}/{section}.md", f"# {section.title()}\n\nThe code starts in `{cite}:1`.\n", \
             f"Knowledge section {section} written with citations.", {}
-    if agent == "ac-reviewer":
+    if agent == "criterion-reviewer":
         return None, "", f"AC-REVIEW: PASS — the test proves {ac_id}.", {"verdict": "pass"}
-    if agent == "reviewer":
+    if agent == "lens-reviewer":
         lens = LENSES[req.index % len(LENSES)]
         return None, "", f"REVIEW ({lens}): no findings.\nBLOCKING: no", {"verdict": "pass", "lens": lens}
-    if agent == "code-reviewer":
+    if agent == "branch-reviewer":
         return None, "", "No findings across the branch diff.\nCODE-REVIEW: pass", {"verdict": "pass"}
     if agent == "security-auditor":
         return None, "", "SECURITY: no findings.", {"verdict": "pass"}
@@ -321,7 +321,7 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                           "| search: example webhook eta | 3 hits |\n| https://docs.example.com/webhooks | found |\n\n"
                           "Unconfirmed: whether it can be null; a sample payload from the sandbox would settle it.\n"
                           "CONFIDENCE: medium"), {}
-    if agent == "ticket-reviewer":
+    if agent == "pr-reviewer":
         # review-pr: result lines for its job (every item met, one minor finding, one quality note), or a confirmed check
         item = req.item or {}
         if item.get("job") == "check":

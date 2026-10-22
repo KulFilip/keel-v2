@@ -184,6 +184,6 @@ invisible the moment it reaches the code: the implementation looks deliberate, n
 trade, and the person who made it never finds out what it bought. Written down once, it is a
 decision the reviewer at ship can see; left unwritten, it is an omission nobody can audit.
 
-This is the same rule GREEN applies while writing and `ac-reviewer` applies at the gate. It
+This is the same rule GREEN applies while writing and `criterion-reviewer` applies at the gate. It
 belongs here too, because the spec is where the constraint is first stated and the cheapest place
 to say what it means.

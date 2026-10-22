@@ -13,10 +13,10 @@ wherever it comes from. This skill says what that scope is and how the answer is
 
 | Review | Agent | Scope |
 |---|---|---|
-| whole branch | `code-reviewer` | the whole branch diff |
-| one lens: `correctness`, `security`, `performance`, `architecture` or `assertions` | `reviewer`, that one lens | the whole branch diff |
-| all lenses | `reviewer`, one per lens, in parallel | the whole branch diff |
-| one criterion | `ac-reviewer` | that criterion's RED and GREEN commits |
+| whole branch | `branch-reviewer` | the whole branch diff |
+| one lens: `correctness`, `security`, `performance`, `architecture` or `assertions` | `lens-reviewer`, that one lens | the whole branch diff |
+| all lenses | `lens-reviewer`, one per lens, in parallel | the whole branch diff |
+| one criterion | `criterion-reviewer` | that criterion's RED and GREEN commits |
 
 **The lenses for "all"** are `correctness`, `security` and `performance` by default, plus
 `architecture` when the project names an architecture style. Ship runs that set; a review that

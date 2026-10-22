@@ -75,16 +75,17 @@ class AgentService(
     private val secrets: SecretService,
 ) {
     /** The model an agent gets from settings: implementer / reviewers / everyone else. */
-    fun baseModel(id: String, s: Settings): Model = when {
-        id == "implementer" -> s.implementerModel
-        id in AgentCatalog.REVIEWERS -> s.reviewerModel
+    fun baseModel(id: String, s: Settings): Model = when (AgentNames.canonical(id)) {
+        "implementer" -> s.implementerModel
+        in AgentCatalog.REVIEWERS -> s.reviewerModel
         else -> s.defaultModel
     }
 
+    /** The project's overrides by agent; one saved under an old agent name applies to the new agent (the new one wins). */
     private fun overrides(pid: String): Map<String, AgentOverride> =
-        jdbc.query("SELECT agent_id, json FROM agent_overrides WHERE project_id = ?", { rs, _ ->
+        AgentNames.canonicalKeys(jdbc.query("SELECT agent_id, json FROM agent_overrides WHERE project_id = ?", { rs, _ ->
             rs.getString(1) to (runCatching { Json.read<AgentOverride>(rs.getString(2)) }.getOrNull() ?: AgentOverride())
-        }, pid).toMap()
+        }, pid).toMap())
 
     private fun customs(pid: String): List<CustomAgent> =
         jdbc.query("SELECT json FROM custom_agents WHERE project_id = ? ORDER BY id", { rs, _ -> Json.read<CustomAgent>(rs.getString(1)) }, pid)
@@ -135,19 +136,23 @@ class AgentService(
         "knowledge".takeIf { o.knowledge != null },
     )
 
-    fun get(pid: String, aid: String): Agent = list(pid).firstOrNull { it.id == aid } ?: throw NotFound("No agent called \"$aid\"")
+    /** One agent; an old agent name (AgentNames.RENAMED) gives the new agent. */
+    fun get(pid: String, aid: String): Agent =
+        AgentNames.canonical(aid).let { id -> list(pid).firstOrNull { it.id == id } } ?: throw NotFound("No agent called \"$aid\"")
 
     /** Merges the given fields into the project's override. Sending a field as JSON null clears it. */
-    fun override(pid: String, aid: String, patch: Map<String, Any?>): Agent {
-        get(pid, aid)
+    fun override(pid: String, given: String, patch: Map<String, Any?>): Agent {
+        val aid = get(pid, given).id                  // an old agent name saves under the new one
         val allowed = setOf("model", "tools", "skills", "prompt", "enabled", "lane", "knowledge")
         val unknown = patch.keys - allowed
         if (unknown.isNotEmpty()) throw BadRequest("Unknown field: ${unknown.joinToString()}", "You can change: ${allowed.joinToString()}")
         val lane = patch["lane"]
         if (lane != null && lane.toString() !in LANES) throw BadRequest("lane cannot be \"$lane\"", "Pick one of: ${LANES.joinToString()}")
         patch["knowledge"]?.let { checkKnowledge(it) }
-        val prev = jdbc.query("SELECT json FROM agent_overrides WHERE project_id = ? AND agent_id = ?", { rs, _ -> rs.getString(1) }, pid, aid)
-            .firstOrNull()?.let { Json.readMap(it) } ?: emptyMap()
+        // the override saved under its name, else under an old name of it (one from before the rename)
+        val prev = (listOf(aid) + AgentNames.oldNamesOf(aid)).firstNotNullOfOrNull { id ->
+            jdbc.query("SELECT json FROM agent_overrides WHERE project_id = ? AND agent_id = ?", { rs, _ -> rs.getString(1) }, pid, id).firstOrNull()
+        }?.let { Json.readMap(it) } ?: emptyMap()
         val next = prev.toMutableMap()
         for ((k, v) in patch) if (v == null) next.remove(k) else next[k] = v
         val parsed = try { Json.mapper.convertValue(next, AgentOverride::class.java) } catch (e: IllegalArgumentException) {
@@ -157,6 +162,7 @@ class AgentService(
             "INSERT INTO agent_overrides(project_id, agent_id, json) VALUES (?, ?, ?) ON CONFLICT(project_id, agent_id) DO UPDATE SET json = excluded.json",
             pid, aid, Json.write(parsed),
         )
+        for (old in AgentNames.oldNamesOf(aid)) jdbc.update("DELETE FROM agent_overrides WHERE project_id = ? AND agent_id = ?", pid, old)
         return get(pid, aid)
     }
 

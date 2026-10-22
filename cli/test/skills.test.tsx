@@ -68,15 +68,25 @@ describe("keel TUI's skills (0.18.6)", () => {
   it("/skill attach and detach: the skill's agents, and an agent's own skill list too", async () => {
     const t = setup();
     await waitFor(() => t.probe.started);
-    await t.run("/skill attach debugging investigator reviewer");
-    expect(t.frame()).toContain("✓ put debugging on investigator, reviewer; loaded by reproducer, investigator, reviewer now");
-    expect(t.stub.state.skillAgents.debugging).toEqual(["reproducer", "investigator", "reviewer"]);
+    await t.run("/skill attach debugging investigator lens-reviewer");
+    expect(t.frame()).toContain("✓ put debugging on investigator, lens-reviewer; loaded by reproducer, investigator, lens-reviewer now");
+    expect(t.stub.state.skillAgents.debugging).toEqual(["reproducer", "investigator", "lens-reviewer"]);
     expect(t.stub.state.reviewerSkills).toEqual(["review", "debugging"]);
-    await t.run("/skill detach debugging reviewer");
+    await t.run("/skill detach debugging lens-reviewer");
     expect(t.stub.state.skillAgents.debugging).toEqual(["reproducer", "investigator"]);
     expect(t.stub.state.reviewerSkills).toEqual(["review"]);
     await t.run("/skill attach debugging ghost");
     expect(t.frame()).toContain("No agent ghost here");
+    t.r.unmount();
+  });
+
+  it("/skill attach with an agent's old name puts the skill on the renamed agent", async () => {
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run("/skill attach debugging reviewer");
+    expect(t.frame()).toContain("✓ put debugging on lens-reviewer");
+    expect(t.stub.state.skillAgents.debugging).toEqual(["reproducer", "lens-reviewer"]);
+    expect(t.stub.state.reviewerSkills).toEqual(["review", "debugging"]);
     t.r.unmount();
   });
 

@@ -15,7 +15,7 @@ steps:
   - id: reviewers
     kind: parallel
     name: one reviewer per job
-    agent: ticket-reviewer
+    agent: pr-reviewer
     model: default
     from: ticket_jobs
     phase: review
@@ -28,7 +28,7 @@ steps:
   - id: check
     kind: parallel
     name: check each problem again
-    agent: ticket-reviewer
+    agent: pr-reviewer
     model: default
     from: ticket_checks
     phase: review

@@ -66,7 +66,7 @@ steps:
       Make this criterion's test pass with the least code, inside plugins/<name>/ only. keel's own code (engine/, api/,
       web/src) stays as it is: a plugin reaches keel through its parts and keel's SDK, never by changing keel.
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
-  - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
+  - { id: ac_review, kind: agent, name: AC review, agent: criterion-reviewer, model: default, phase: gate, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
   # keel-plugin lint on the package the plugin builds to; up to 2 fix rounds, then keel asks
   - { id: lint, kind: code, name: "keel-plugin lint (scripts/plugin-check.sh lint)", action: "run: scripts/plugin-check.sh lint", soft: true, phase: review-fix }
@@ -112,7 +112,7 @@ steps:
   - id: code_review
     kind: agent
     name: plugin review
-    agent: code-reviewer
+    agent: branch-reviewer
     model: default
     phase: gate
     back: review_fix
