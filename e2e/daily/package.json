@@ -1,0 +1,13 @@
+{
+  "name": "keel-e2e-daily",
+  "private": true,
+  "version": "0.0.0",
+  "description": "keel v2 daily-use end-to-end journeys (Playwright). Install on the test server only: cd e2e/daily && npm ci && npx playwright install chromium",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report ${KEEL_E2E_OUT:-report}/html"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  }
+}

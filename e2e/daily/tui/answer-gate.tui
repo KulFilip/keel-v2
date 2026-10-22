@@ -1,0 +1,9 @@
+# J4: answer a waiting gate from keel TUI (the flow was started through the api by the journey). Steered lines: cli/src/script.ts
+@snap 01-start
+/next
+@snap 02-next
+/approve
+@snap 03-approved
+@sleep 1500
+/status
+@snap 04-status
