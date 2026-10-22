@@ -13,6 +13,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type Agent, type Workflow } from "../api";
+import { bytes } from "../format";
 import { CodeEditor } from "../components/CodeEditor";
 import { Graph } from "../components/Graph";
 import { TrustTag } from "../components/Permissions";
@@ -517,8 +518,6 @@ export function MarketInstallDialog({
 
 // ---------- a workflow's page ----------
 
-const bytes = (n?: number) =>
-  !n ? null : n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 
 function Section({ id, title, extra, children, body = true }: {
   id: string; title: string; extra?: ReactNode; children: ReactNode; body?: boolean;

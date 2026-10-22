@@ -25,6 +25,50 @@ export function dur(ms: number): string {
   return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
+/** Milliseconds → "1h 12m", "12m", "40s" (rounded to the second). */
+export function shortDur(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
+}
+
+/** Bytes → "300 KB" / "1.5 MB"; null when there is no size. */
+export const bytes = (n?: number) =>
+  !n
+    ? null
+    : n >= 1024 * 1024
+      ? `${(n / 1024 / 1024).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+/** 1200 → "1.2k", 800 → "800". */
+export const k1 = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+/** A provider window with no percentage: its status in words ("ok", "full", "no % yet"). */
+export const statusWord = (status: string | null | undefined) =>
+  status === "allowed" ? "ok" : status === "rejected" ? "full" : status ? status.replace(/_/g, " ") : "no % yet";
+
+/** "1h 12m", "41 min", "3 days" until an ISO time; "" when unknown or past. */
+export function untilText(iso?: string | null, now = Date.now()): string {
+  if (!iso) return "";
+  const mins = Math.floor((Date.parse(iso) - now) / 60_000);
+  if (Number.isNaN(mins) || mins < 0) return "";
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h < 48) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${Math.floor(h / 24)} days`;
+}
+
+/** "just now", "12 min ago", "3h ago". */
+export function agoText(iso?: string | null, now = Date.now()): string {
+  if (!iso) return "";
+  const mins = Math.floor((now - Date.parse(iso)) / 60_000);
+  if (Number.isNaN(mins)) return "";
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 48 * 60) return `${Math.floor(mins / 60)}h ago`;
+  return `${Math.floor(mins / 1440)} days ago`;
+}
+
 export function since(iso: string | null | undefined, end?: string | null): string {
   if (!iso) return "—";
   const a = Date.parse(iso);

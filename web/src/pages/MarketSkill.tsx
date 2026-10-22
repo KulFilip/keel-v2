@@ -13,6 +13,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts } from "../api";
+import { k1 } from "../format";
 import { TrustTag } from "../components/Permissions";
 import { Confirm, Drawer, ErrorBox, Loading, Pill } from "../components/ui";
 import {
@@ -48,7 +49,6 @@ const pub = (h: { publisher_title?: string; publisher?: string; verified?: boole
   verified: Boolean(h.verified),
 });
 const refusedText = (r: Refusal | null) => (r ? [r.error, r.hint].filter(Boolean).join(" ") : "");
-const k1 = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 /** "1.2k tokens · 3 sections". */
 export function SkillShort({ review }: { review: SkillReview | null | undefined }) {

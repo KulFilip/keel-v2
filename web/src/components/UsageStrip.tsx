@@ -4,33 +4,13 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type ProviderUsage, type UsageWindow } from "../api";
-import { usd } from "../format";
+import { agoText, statusWord, untilText, usd } from "../format";
+
+export { agoText, untilText };
 import { useApp, useLoad } from "../state";
 
 const SHORT: Record<string, string> = { five_hour: "5h", seven_day: "week", month: "month" };
 const REFRESH_MS = 60_000;
-
-/** "1h 12m", "41 min", "3 days" until an ISO time; "" when unknown or past. */
-export function untilText(iso?: string | null, now = Date.now()): string {
-  if (!iso) return "";
-  const mins = Math.floor((Date.parse(iso) - now) / 60_000);
-  if (Number.isNaN(mins) || mins < 0) return "";
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60), m = mins % 60;
-  if (h < 48) return m ? `${h}h ${m}m` : `${h}h`;
-  return `${Math.floor(h / 24)} days`;
-}
-
-/** "just now", "12 min ago", "3h ago". */
-export function agoText(iso?: string | null, now = Date.now()): string {
-  if (!iso) return "";
-  const mins = Math.floor((now - Date.parse(iso)) / 60_000);
-  if (Number.isNaN(mins)) return "";
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  if (mins < 48 * 60) return `${Math.floor(mins / 60)}h ago`;
-  return `${Math.floor(mins / 1440)} days ago`;
-}
 
 const pct = (w: UsageWindow) => (w.used_pct == null ? null : Math.round(w.used_pct * 100));
 const tone = (p: number | null) => (p == null ? "ok" : p >= 95 ? "bad" : p >= 80 ? "warn" : "ok");
@@ -48,7 +28,7 @@ export function usageLine(u: ProviderUsage, now = Date.now()): string {
     if (w.window === "month" && w.cap != null && w.used != null) return `${Math.round(w.used)} / ${Math.round(w.cap)} premium`;
     const p = pct(w);
     // Claude's subscription often reports only a status (allowed / rejected), no percentage: say that, not "?".
-    const said = w.status === "allowed" ? "ok" : w.status === "rejected" ? "full" : w.status ? w.status.replace(/_/g, " ") : "no % yet";
+    const said = statusWord(w.status);
     return `${SHORT[w.window] ?? w.label} ${p == null ? said : `${p}%`}`;
   });
   const first = live[0];

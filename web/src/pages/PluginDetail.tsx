@@ -10,6 +10,7 @@
 import { useState, type ReactNode } from "react";
 import { refreshFeatures } from "../addons";
 import { errorParts } from "../api";
+import { bytes } from "../format";
 import { PermissionList, TrustTag } from "../components/Permissions";
 import { Confirm, ErrorBox, Loading, Pill } from "../components/ui";
 import {
@@ -210,13 +211,6 @@ function Section({
     </section>
   );
 }
-
-const bytes = (n?: number) =>
-  !n
-    ? null
-    : n >= 1024 * 1024
-      ? `${(n / 1024 / 1024).toFixed(1)} MB`
-      : `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const repoText = (url: string) => url.replace(/^https?:\/\//, "");
 

@@ -4,6 +4,7 @@
 // (replace), remove. A skill is one of the project's skills: no restart, an agent reads it at its next run.
 
 import { del, get, post, put, type Skill } from "./api";
+import { k1 } from "./format";
 import type { SourceStatus } from "./marketplaceApi";
 
 /** What keel (and the catalog) says a skill is: its size in tokens, its ## sections, what it is for. */
@@ -121,7 +122,7 @@ export const skillMarketApi = {
 /** "1.2k tokens · 3 sections". */
 export function skillShort(r: SkillReview | null | undefined): string {
   if (!r) return "";
-  const t = r.tokens >= 1000 ? `${(r.tokens / 1000).toFixed(1)}k` : String(r.tokens);
+  const t = k1(r.tokens);
   const n = r.sections?.length ?? 0;
   return `${t} tokens · ${n} ${n === 1 ? "section" : "sections"}`;
 }

@@ -38,7 +38,7 @@ import { Zoom } from "../components/Zoom";
 import { useJobSteps } from "./Live";
 import { useWide } from "../components/useWide";
 import { Async, Confirm, Drawer, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
-import { acLabel, clock, kfmt, usd } from "../format";
+import { acLabel, clock, kfmt, shortDur, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 import { useHasPage } from "../sdk/registry";
 import { askAssistant } from "../sdk/assistant";
@@ -192,13 +192,6 @@ function useThreadBits(pid: string, thread: ThreadState, workflow: Workflow) {
   return { history, est, job, jobs, actual, facts, totals, perAc, visited, started };
 }
 
-/** "1h 12m", "12m", "40s". */
-function elapsed(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
-}
-
 const STATUS_PILL: Record<string, [PillTone, string]> = {
   running: ["run", "running"], waiting: ["warn", "waiting for you"], done: ["ok", "done"], failed: ["bad", "failed"], stopped: ["idle", "stopped"],
 };
@@ -250,7 +243,7 @@ function NowLine({ thread, workflow, started, onJump }: { thread: ThreadState; w
       <span className="fl-now-m">
         <span className="fl-now-p">{at ? `phase ${at} · ${phaseTitle(thread.phase)}` : phaseTitle(thread.phase)}</span>
         {step && <span className="fl-now-s">{step.name}{thread.ac ? ` (${thread.ac})` : ""}</span>}
-        <span className="fl-now-n">{[started ? elapsed((live ? Date.now() : Date.parse(thread.updated_at)) - started) : null, `${kfmt(used)} tokens · ${usd(u.cost_usd)}`]
+        <span className="fl-now-n">{[started ? shortDur((live ? Date.now() : Date.parse(thread.updated_at)) - started) : null, `${kfmt(used)} tokens · ${usd(u.cost_usd)}`]
           .filter(Boolean).join(" · ")}</span>
       </span>
       {live && <button type="button" className={thread.status === "waiting" ? "btn sm warn" : "btn sm"} onClick={onJump}>{thread.status === "waiting" ? "Go to it" : "Jump to current"}</button>}
@@ -294,7 +287,7 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, 
             {estimate !== null && <em style={{ left: `${Math.min(100, (estimate / cap) * 100)}%` }} />}</span>
         </div>
         <div className="fl-stat"><span className="fl-stat-l">cost</span><span className="fl-stat-v"><b>{usd(u.cost_usd)}</b></span></div>
-        <div className="fl-stat"><span className="fl-stat-l">time</span><span className="fl-stat-v"><b>{started ? elapsed(end - started) : "—"}</b></span></div>
+        <div className="fl-stat"><span className="fl-stat-l">time</span><span className="fl-stat-v"><b>{started ? shortDur(end - started) : "—"}</b></span></div>
       </div>
       <div className="actions">
         {extra}
