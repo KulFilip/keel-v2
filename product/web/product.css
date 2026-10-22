@@ -79,6 +79,21 @@
 .pd-facts dd { margin: 0; overflow-wrap: anywhere; }
 .pd-history li { display: grid; grid-template-columns: 130px 60px minmax(0, 1fr); gap: 10px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .pd-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+/* teams: projects, Jira, ticket keys; the plan's drafts; the Jira ticket preview */
+.pd-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+.pd-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.pd-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pd-h3 { font-size: 13px; margin: 6px 0 4px; }
+.pd-form .bad, .pd-form .sub.bad { color: var(--bad); }
+.pd-form select, .pd-form input[type=text], .pd-form input[type=password] { border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 7px; padding: 6px 9px; min-width: 0; }
+.pd-text.short { min-height: 64px; }
+.pd-draft { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; background: var(--panel-2); }
+.pd-jira { display: grid; gap: 10px; }
+.pd-lv-initiative { font-weight: 600; }
+.pd-lv-epic { padding-left: 20px !important; font-weight: 600; }
+.pd-lv-story { padding-left: 36px !important; }
+.pd-lv-subtask { padding-left: 52px !important; color: var(--dim); }
+.pd-sent { border-left: 3px solid var(--ok); padding-left: 10px; }
 @media (max-width: 1000px) {
   .pd-main { grid-template-columns: minmax(0, 1fr); }
   .pd-track { grid-template-columns: repeat(3, minmax(0, 1fr)); }

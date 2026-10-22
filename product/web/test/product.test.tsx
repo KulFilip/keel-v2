@@ -10,7 +10,15 @@ import { setAddonImporter } from "../../../web/src/addons";
 import { App } from "../../../web/src/App";
 import type { Features } from "../../../web/src/api";
 import { db, server } from "../../../web/src/test/setup";
-import type { BoardItem, Detail, Team, TeamKnowledge } from "../productApi";
+import type {
+  BoardItem,
+  Detail,
+  InitiativeJira,
+  JiraView,
+  Team,
+  TeamKnowledge,
+  TeamTickets,
+} from "../productApi";
 
 const PRODUCT: Features = {
   mode: "both",
@@ -164,14 +172,16 @@ function productApi(answers: Record<string, unknown>): Call[] {
         { error: `no answer for ${key}` },
         { status: 404 },
       );
-    return HttpResponse.json(
-      (typeof a === "function" ? (a as (b: unknown) => unknown)(body) : a) as Record<string, unknown>,
-    );
+    const v = typeof a === "function" ? (a as (b: unknown) => unknown)(body) : a;
+    // an api error ({error, hint} with its status) is answered as it is
+    if (v instanceof Response) return v;
+    return HttpResponse.json(v as Record<string, unknown>);
   };
   server.use(
     http.all("/api/initiatives*", ({ request }) => answer(request)),
     http.all("/api/teams*", ({ request }) => answer(request)),
     http.all("/api/product*", ({ request }) => answer(request)),
+    http.all("/api/jira*", ({ request }) => answer(request)),
   );
   return calls;
 }
@@ -866,5 +876,269 @@ describe("keel Product in keel's web", () => {
     expect(ask).toHaveTextContent("Delete the team payments?");
     await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("a team gets its projects, its own Jira and a ticket-key pattern it can try first", async () => {
+    let team: Team = {
+      id: "erp",
+      name: "ERP DM",
+      lead: "Sara",
+      jira_project: "ERPDM",
+      members: [],
+      source: "manual",
+      owns: [
+        { team_id: "erp", project_id: "erp-core", glob: "**", source: "manual" },
+      ],
+      created_at: "",
+      updated_at: "",
+      jira: { connection: null, labels: [] },
+      key_pattern: null,
+      keys: "ERPDM-\\d+",
+      projects: ["erp-core"],
+    };
+    const k = (): TeamKnowledge => ({ team, pages: [], suggestions: [] });
+    const owns = (pids: string[]) =>
+      pids.map((p) => ({
+        team_id: "erp",
+        project_id: p,
+        glob: "**",
+        source: "manual",
+      }));
+    const calls = await open("#/teams/erp", {
+      "GET /api/teams/erp": () => k(),
+      "/api/initiatives/repos": [
+        { project_id: "erp-core", name: "erp-core", root: "/r/c", teams: ["erp"] },
+        { project_id: "erp-ui", name: "erp-ui", root: "/r/u", teams: [] },
+      ],
+      "PUT /api/teams/erp/projects/erp-ui": () =>
+        (team = { ...team, owns: owns(["erp-core", "erp-ui"]) }),
+      "DELETE /api/teams/erp/projects/erp-core": () =>
+        (team = { ...team, owns: owns(["erp-ui"]) }),
+      "PATCH /api/teams/erp": (b: Partial<Team>) =>
+        (team = { ...team, ...b, keys: b.key_pattern || team.keys }),
+      "POST /api/teams/key-pattern/test": (b: { pattern: string; text: string }) =>
+        b.pattern === "ERPDM-("
+          ? HttpResponse.json(
+              { error: "The pattern does not compile", hint: "Close the bracket." },
+              { status: 400 },
+            )
+          : { pattern: b.pattern, keys: ["ERPDM-1234"] },
+    });
+    await userEvent.click(
+      await main().findByRole("tab", { name: "Projects and Jira" }),
+    );
+    // projects: add one, take one out
+    const projects = main().getByRole("heading", { name: "Projects" }).closest("section")!;
+    expect(projects).toHaveTextContent("erp-core");
+    await userEvent.selectOptions(
+      within(projects).getByLabelText("Add a project"),
+      "erp-ui",
+    );
+    await userEvent.click(within(projects).getByRole("button", { name: "Add" }));
+    await waitFor(() =>
+      expect(within(projects).getByRole("list")).toHaveTextContent("erp-ui"),
+    );
+    await userEvent.click(
+      within(projects).getByRole("button", { name: "Remove erp-core" }),
+    );
+    await waitFor(() =>
+      expect(within(projects).getByRole("list")).not.toHaveTextContent(
+        "erp-core",
+      ),
+    );
+    expect(
+      calls.filter((c) => c.path.startsWith("/api/teams/erp/projects")).map((c) => `${c.method} ${c.path}`),
+    ).toEqual([
+      "PUT /api/teams/erp/projects/erp-ui",
+      "DELETE /api/teams/erp/projects/erp-core",
+    ]);
+
+    // its Jira
+    const jira = main().getByRole("heading", { name: "Jira" }).closest("section")!;
+    await userEvent.selectOptions(
+      within(jira).getByLabelText("Jira connection"),
+      "erp-ui",
+    );
+    await userEvent.type(within(jira).getByLabelText("Sub-task type"), "Subtask");
+    await userEvent.type(
+      within(jira).getByLabelText("Epic Link field (Jira Server)"),
+      "customfield_10014",
+    );
+    await userEvent.type(within(jira).getByLabelText("Labels"), "erp, euro");
+    await userEvent.type(within(jira).getByLabelText("Component"), "Prices");
+    await userEvent.click(
+      within(jira).getByRole("button", { name: "Save the Jira settings" }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({
+        jira_project: "ERPDM",
+        jira: {
+          connection: "erp-ui",
+          initiative_type: null,
+          epic_type: null,
+          story_type: null,
+          subtask_type: "Subtask",
+          epic_link_field: "customfield_10014",
+          labels: ["erp", "euro"],
+          component: "Prices",
+        },
+      }),
+    );
+    expect(await within(jira).findByText("Saved.")).toBeInTheDocument();
+
+    // its ticket keys: the placeholder is the pattern keel uses now; try a branch name, then a broken pattern
+    const keys = main().getByRole("heading", { name: "Ticket keys" }).closest("section")!;
+    const pattern = within(keys).getByLabelText("Ticket-key pattern");
+    expect(pattern).toHaveAttribute("placeholder", "ERPDM-\\d+");
+    await userEvent.type(
+      within(keys).getByLabelText("A branch name or commit message"),
+      "feature/erpdm-1234-vat",
+    );
+    await userEvent.click(within(keys).getByRole("button", { name: "Try it" }));
+    expect(await within(keys).findByLabelText("Keys found")).toHaveTextContent(
+      "Found ERPDM-1234",
+    );
+    expect(
+      calls.find((c) => c.path === "/api/teams/key-pattern/test")?.body,
+    ).toEqual({ pattern: "ERPDM-\\d+", text: "feature/erpdm-1234-vat" });
+    await userEvent.type(pattern, "ERPDM-(");
+    await userEvent.click(within(keys).getByRole("button", { name: "Try it" }));
+    expect(await within(keys).findByRole("alert")).toHaveTextContent(
+      "The pattern does not compile",
+    );
+  });
+
+  it("a team's Tickets list the keys keel found in git, what has no key, and scan again", async () => {
+    const team: Team = {
+      id: "erp",
+      name: "ERP DM",
+      members: [],
+      source: "manual",
+      owns: [],
+      created_at: "",
+      updated_at: "",
+    };
+    const link = (kind: string, ref: string, key: string, title?: string) => ({
+      project_id: "erp-core",
+      kind,
+      ref,
+      key,
+      team_id: "erp",
+      title,
+      at: "2026-10-20T10:00:00Z",
+    });
+    const tickets: TeamTickets = {
+      team: "erp",
+      tickets: [
+        {
+          key: "ERPDM-1234",
+          team: "erp",
+          branches: [link("branch", "feature/erpdm-1234-vat", "ERPDM-1234")],
+          commits: [
+            link("commit", "abc12345ff", "ERPDM-1234", "ERPDM-1234 add vat"),
+            link("commit", "def67890aa", "ERPDM-1234", "ERPDM-1234 tests"),
+          ],
+          last_at: "2026-10-20T10:00:00Z",
+        },
+      ],
+      unlinked: [link("branch", "fix-typo", "")],
+      scans: [
+        {
+          project_id: "erp-core",
+          at: "2026-10-21T08:00:00Z",
+          branches: 2,
+          commits: 3,
+          linked: 3,
+        },
+      ],
+    };
+    const calls = await open("#/teams/erp", {
+      "GET /api/teams/erp": { team, pages: [], suggestions: [] },
+      "/api/initiatives/repos": [],
+      "GET /api/product/tickets": tickets,
+      "POST /api/product/tickets/scan": { projects: tickets.scans },
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Tickets" }));
+    const table = await main().findByRole("table", { name: "Tickets" });
+    expect(table).toHaveTextContent("ERPDM-1234");
+    expect(table).toHaveTextContent("feature/erpdm-1234-vat");
+    const none = main().getByRole("region", { name: "No ticket key" });
+    expect(none).toHaveTextContent("No ticket key (1)");
+    expect(none).toHaveTextContent("branch fix-typo in erp-core");
+    expect(main().getByLabelText("Scans")).toHaveTextContent(
+      "erp-core: 2 branches, 3 commits, 3 with a key",
+    );
+    const loads = () =>
+      calls.filter((c) => c.path === "/api/product/tickets").length;
+    const before = loads();
+    await userEvent.click(main().getByRole("button", { name: "Scan now" }));
+    await waitFor(() => expect(loads()).toBe(before + 1));
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/product/tickets/scan")).toBe(true);
+  });
+
+  it("saves the keel-wide Jira connection after a test, never shows its token, and where initiatives go", async () => {
+    let view: JiraView = {
+      connected: false,
+      settings: { kind: "cloud", base_url: "", email: null, project_key: null },
+      token_set: false,
+      token_hint: null,
+      me: null,
+    };
+    let ij: InitiativeJira = { connection: null, project: null, type: null };
+    const calls = await open("#/teams", {
+      "GET /api/teams": [],
+      "/api/initiatives/repos": [],
+      "GET /api/jira": () => view,
+      "POST /api/jira/test": { ok: true, user: { name: "Sara" } },
+      "PUT /api/jira": (b: { base_url: string; email: string; project_key: string }) =>
+        (view = {
+          connected: true,
+          settings: { kind: "cloud", base_url: b.base_url, email: b.email, project_key: b.project_key },
+          token_set: true,
+          token_hint: "…x9Q",
+          me: null,
+        }),
+      "GET /api/product/jira": () => ij,
+      "PUT /api/product/jira": (b: typeof ij) => (ij = b),
+    });
+    const card = (await main().findByRole("heading", { name: "Jira for every project" })).closest("section")!;
+    expect(await within(card).findByText("Not connected.")).toBeInTheDocument();
+    await userEvent.type(within(card).getByLabelText("Site URL"), "https://acme.atlassian.net");
+    await userEvent.type(within(card).getByLabelText("Email"), "sara@acme.io");
+    await userEvent.type(within(card).getByLabelText("API token"), "tok-123");
+    await userEvent.type(within(card).getByLabelText("Project key"), "ERPDM");
+    await userEvent.click(within(card).getByRole("button", { name: "Test" }));
+    expect(await within(card).findByText("Test OK: logged in as Sara.")).toBeInTheDocument();
+    await userEvent.click(within(card).getByRole("button", { name: "Save" }));
+    const body = {
+      kind: "cloud",
+      base_url: "https://acme.atlassian.net",
+      email: "sara@acme.io",
+      project_key: "ERPDM",
+      token: "tok-123",
+    };
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT" && c.path === "/api/jira")?.body).toEqual(body),
+    );
+    expect(calls.find((c) => c.path === "/api/jira/test")?.body).toEqual(body);
+    expect(
+      await within(card).findByText("Connected: Jira Cloud · https://acme.atlassian.net"),
+    ).toBeInTheDocument();
+    const token = within(card).getByLabelText("API token");
+    expect(token).toHaveValue("");
+    expect(token).toHaveAttribute("placeholder", "…x9Q (saved)");
+    expect(within(card).getByRole("button", { name: "Remove" })).toBeInTheDocument();
+
+    const ini = main().getByRole("heading", { name: "Initiatives in Jira" }).closest("section")!;
+    expect(ini).toHaveTextContent("the initiative id goes on every ticket as a label");
+    await userEvent.type(await within(ini).findByLabelText("Initiative project key"), "PORT");
+    await userEvent.click(within(ini).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT" && c.path === "/api/product/jira")?.body).toEqual({
+        connection: null,
+        project: "PORT",
+        type: null,
+      }),
+    );
   });
 });
