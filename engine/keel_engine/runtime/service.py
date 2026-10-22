@@ -522,13 +522,15 @@ class Engine:
             self.ctxs[tid].keys = dict(keys)
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
-                     question_id: str | None = None) -> dict:
+                     question_id: str | None = None, by: str | None = None) -> dict:
+        """`by` names who answers when it is not the person (an in-process caller only, the Supervisor: no route passes
+        it); the step's gate.decided events carry it (ThreadContext.answer_by)."""
         # The checks below await; without the lock two calls both pass "not running" and start two drivers on one thread.
         async with self._resuming.setdefault(tid, asyncio.Lock()):
-            return await self._resume(tid, decision, why, payload, question_id)
+            return await self._resume(tid, decision, why, payload, question_id, by)
 
     async def _resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
-                      question_id: str | None = None) -> dict:
+                      question_id: str | None = None, by: str | None = None) -> dict:
         # The question the answer is for: a field, or `payload.question_id` (the api passes the payload through as it is).
         if payload and "question_id" in payload:
             payload = dict(payload)
@@ -557,7 +559,10 @@ class Engine:
         asked = self._waiting(snap).get("id")
         # The user answers this question: a run mode changed while it waited does not answer it instead (Compiler._ask).
         (await self._context(tid)).resume_qid = asked
-        self._launch(tid, Command(resume={"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}))
+        resume = {"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}
+        if by:
+            resume["by"] = by
+        self._launch(tid, Command(resume=resume))
         return await self.state(tid)
 
     async def set_mode(self, tid: str, mode: str) -> dict:

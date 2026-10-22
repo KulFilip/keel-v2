@@ -52,6 +52,7 @@ from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts,
 from . import blockers as push_gates
 from . import choices as choices_mod
 from . import flow_actions
+from . import side_usage
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
@@ -583,8 +584,10 @@ class Compiler:
         Returns (answer, state update). An unlock is added to state.unlocks and logged as a gate event.
         """
         answer = self._auto_answer(state, question, gate, review)
+        self.ctx.answer_by = None
         if answer is None:
             answer = ask_once(question)
+            self.ctx.answer_by = answer.get("by") or None
         payload = answer.get("payload") or {}
         new = normalize_unlocks(payload.get("unlock"), state.get("phase") or "none", "user")
         if not new:
@@ -913,6 +916,9 @@ class Compiler:
         used = budget_tokens(usage)
         cap_usd = float(usage.get("cap_usd") or 0)
         cost = float(usage.get("cost_usd") or 0)
+        if cap or cap_usd:      # what side agents spent for this flow (the Supervisor) counts toward its caps too
+            side = side_usage.total(ctx.thread_id)
+            used, cost = used + side["tokens"], cost + side["cost_usd"]
         step_cap, own_cap = _step_cap(step, ctx.settings)
         step_used = int((state.get("step_tokens") or {}).get(step.id, 0))
         over_step = bool(step_cap) and step_used >= step_cap
