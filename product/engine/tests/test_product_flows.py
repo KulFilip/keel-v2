@@ -88,3 +88,22 @@ def test_outcome_compares_the_metric_with_the_target(client, product_repo):
     (doc,) = docs_of(client, tid, "outcome")
     assert "## Result" in doc["text"]
     assert decide(client, tid)["status"] == "done"
+
+
+def test_flows_run_one_read_only_analyst_per_repo_and_keep_only_real_cites(client, product_repo, tmp_path):
+    from product_support import git_repo
+
+    shop = git_repo(tmp_path / "shop", {"src/cart.ts": "export const cart = []\n", "src/checkout.ts": "export const pay = 1\n"})
+    repos = [{"id": "shop", "title": "shop", "root": str(shop), "team": "web"}]
+    tid = start(client, product_repo, "product-flows", {"repos": repos})
+    s = wait(client, tid)
+    assert s["status"] == "done"
+    (ev,) = [e["data"] for e in client.bus.of(tid, "product.flows")]
+    assert ev["project"] == "shop" and ev["team"] == "web" and ev["path"] == "flows/shop.json" and ev["sha"]
+    assert [f["id"] for f in ev["flows"]] == ["cart", "checkout"]
+    # the fake analyst cites a real line and one guess: the guess is dropped, the step stays
+    assert ev["flows"][0]["steps"] == [{"text": "It starts in cart.ts", "cite": "src/cart.ts:1"}, {"text": "A guess", "cite": None}]
+    assert ev["dropped"] == 2
+    kept = json.loads((Path(product_repo) / "flows/shop.json").read_text())
+    assert kept["flows"] == ev["flows"]
+    assert sorted(p.name for p in (shop / "src").iterdir()) == ["cart.ts", "checkout.ts"]     # only read

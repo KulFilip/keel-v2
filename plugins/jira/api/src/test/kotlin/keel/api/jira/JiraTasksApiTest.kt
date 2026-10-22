@@ -36,6 +36,30 @@ class JiraTasksApiTest : ApiTest() {
             .andExpect(status().isOk).json()
 
     @Test
+    fun `the keel-wide connection is one site for every project, and a project's sync never uses it`() {
+        cloud.reset()
+        delete("/api/jira")
+        val (pid, _) = newProject("no-own-jira")
+        put("/api/jira", mapOf("kind" to "cloud", "base_url" to cloud.url, "email" to cloud.email, "token" to cloud.token, "project_key" to "ERPDM"))
+            .andExpect(status().isOk)
+        val v = get("/api/jira").andExpect(status().isOk).json()
+        assertThat(v["connected"].asBoolean()).isTrue()
+        assertThat(v["settings"]["project_key"].asText()).isEqualTo("ERPDM")
+        assertThat(v.toString()).doesNotContain(cloud.token)
+        assertThat(post("/api/jira/test").json()["ok"].asBoolean()).isTrue()
+
+        // the project still has no connection of its own: its tasks do not sync from the keel-wide site
+        assertThat(get("/api/projects/$pid/jira").json()["connected"].asBoolean()).isFalse()
+        cloud.add("ERPDM-1", "Should not arrive")
+        post("/api/projects/$pid/tasks/sync")
+        assertThat(get("/api/projects/$pid/tasks").json()["tasks"].map { it["external_key"]?.asText() }).doesNotContain("ERPDM-1")
+
+        delete("/api/jira").andExpect(status().isOk)
+        assertThat(get("/api/jira").json()["connected"].asBoolean()).isFalse()
+        delete("/api/jira").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `a Jira Cloud ticket goes from To do to production, keel moving the real ticket and asking reviewers`() {
         cloud.reset()
         github.reset()

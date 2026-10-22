@@ -6,7 +6,8 @@
     python3 product/e2e/e2e.py --running                                             the fake model, on a running keel-lab
                                                                                      (e2e/plugins installs Product into it)
 
-It starts the container keel-lab (port 8099, volume keel-lab-data), makes two git repos with CODEOWNERS, and walks one
+It starts the container keel-lab (port 8099, volume keel-lab-data; KEEL_E2E_NAME, KEEL_E2E_VOLUME and KEEL_E2E_PORT
+change them), makes two git repos with CODEOWNERS, and walks one
 initiative through every stage over the HTTP api, the way a person clicks it: keel's questions, the brief (sent back
 once), the impact (read only, one analyst per repo), the decision (a disagreement, then Go), the plan (agreed), the
 hand-off to keel Tasks, the release, the outcome and the lesson for the team. Every step checks what keel wrote.
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -28,7 +30,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-NAME, VOLUME, PORT = "keel-lab", "keel-lab-data", 8099
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "e2e"))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+from stub_jira import EPIC_LINK, TOKEN, StubJira  # noqa: E402  (product/e2e/stub_jira.py: a Jira Server on the host)
+
+# KEEL_E2E_NAME, KEEL_E2E_VOLUME, KEEL_E2E_PORT: another throw-away keel next to a keel-lab that is in use
+NAME = os.environ.get("KEEL_E2E_NAME", "keel-lab")
+VOLUME = os.environ.get("KEEL_E2E_VOLUME", f"{NAME}-data")
+PORT = int(os.environ.get("KEEL_E2E_PORT", "8099"))
 BASE = f"http://127.0.0.1:{PORT}/api"
 CHECKS: list[str] = []
 
@@ -42,7 +51,7 @@ def sh(*args: str, cwd: Path | None = None, check: bool = True) -> str:
 
 def call(method: str, path: str, body: object | None = None, ok: tuple[int, ...] = (200,)) -> object:
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(BASE + path, data=data, method=method, headers={"content-type": "application/json"} if data else {})
+    req = urllib.request.Request(BASE + path, data=data, method=method, headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             text = r.read().decode()
@@ -88,7 +97,8 @@ def repo(root: Path, name: str, files: dict[str, str]) -> Path:
 def start(image: str, ws: Path) -> None:
     sh("docker", "rm", "-f", NAME, check=False)
     sh("docker", "volume", "rm", VOLUME, check=False)
-    sh("docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-v", f"{VOLUME}:/data", "-v", f"{ws}:/workspace", image)
+    sh("docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-e", "KEEL_FAKE=1",
+       "--add-host=host.docker.internal:host-gateway", "-v", f"{VOLUME}:/data", "-v", f"{ws}:/workspace", image)
 
     def healthy():
         try:
@@ -99,6 +109,7 @@ def start(image: str, ws: Path) -> None:
 
 
 REAL = {"on": False}
+STUBS: list[StubJira] = []
 
 
 def STAGE_WAIT() -> float:  # noqa: N802
@@ -255,14 +266,77 @@ def main() -> int:
         check(d["initiative"]["option"] == "B", "the plan follows option B")
         call("POST", f"/initiatives/{iid}/approve")
 
-        print("8. delivery: the stories go to keel Tasks")
+        print("8a. the drafts: the product manager edits the plan before anything is sent")
         wait_until("delivery", lambda: detail(iid)["initiative"]["stage"] == "delivery", timeout=STAGE_WAIT())
+        pay_epic = next(e for e in plan["epics"] if e["team"] == "payments")
+        first = pay_epic["stories"][0]["id"]
+        call("PATCH", f"/initiatives/{iid}/plan/stories/{first}", {"title": "Agree the prices API contract"})
+        call("PATCH", f"/initiatives/{iid}/plan/stories/{first}", {"criteria": ["not a criterion"]}, ok=(400,))
+        d = call("POST", f"/initiatives/{iid}/plan/stories", {"epic": pay_epic["id"], "title": "Refunds keep the currency",
+                                                              "criteria": ["AC-1 [API] a refund keeps the currency"], "repo": pay})
+        stories = [s for e in d["plan"]["epics"] for s in e["stories"]]
+        check(d["plan"]["edited"] and len(stories) == len(plan["epics"][0]["stories"]) + len(plan["epics"][1]["stories"]) + 1
+              and any(s["title"] == "Agree the prices API contract" for s in stories), "the drafts were edited: a story changed, one added")
+
+        print("8b. Jira: each team's project, a preview, then Initiative → Epic → Story → Sub-task")
+        jira = StubJira.start()
+        STUBS.append(jira)
+        call("PUT", "/jira", {"kind": "server", "base_url": f"http://host.docker.internal:{jira.port}", "token": TOKEN})
+        check(call("POST", "/jira/test")["ok"], "the keel-wide Jira connection works")
+        call("PATCH", "/teams/payments", {"jira_project": "PAY", "jira": {"labels": ["payments"]}})
+        call("PATCH", "/teams/web", {"jira_project": "WEB"})
+        call("PUT", "/product/jira", {"project": "PORT"})
+        pv = call("GET", f"/initiatives/{iid}/tickets/preview")
+        check(not pv["problems"] and {r["level"] for r in pv["rows"]} == {"initiative", "epic", "story", "subtask"} and not jira.issues,
+              f"the preview lists {len(pv['rows'])} tickets and sends nothing")
+        call("POST", f"/initiatives/{iid}/tickets/send", {})
+        epics = jira.of("Epic")
+        check(len(jira.of("Initiative")) == 1 and {f["project"]["key"] for f in epics.values()} == {"PAY", "WEB"}, "one Initiative, an Epic per team")
+        made = jira.of("Story")
+        check(len(made) == len(stories) and all(f.get(EPIC_LINK) in epics for f in made.values()), "every story names its epic (Epic Link)")
+        check(all(iid in f["labels"] for f in jira.issues.values()) and all("payments" in f["labels"] for f in made.values() if f["project"]["key"] == "PAY"),
+              "every ticket has the initiative's label, the payments tickets the team's")
+        n = len(jira.issues)
+        check(not call("POST", f"/initiatives/{iid}/tickets/send", {})["jira"] and len(jira.issues) == n, "a second send makes no twin")
+        call("POST", f"/initiatives/{iid}/plan/stories", {"epic": pay_epic["id"], "title": "Old rates when the provider is down",
+                                                          "criteria": ["AC-1 [API] old rates are used when the provider is down"], "repo": pay})
+        asked = call("POST", f"/initiatives/{iid}/tickets/ask", {"by": "KeelBot", "why": "the leads agreed"})
+        check(asked["kind"] == "product-jira-send" and len(jira.issues) == n, "an agent's send waits in the Inbox as an approval")
+        call("POST", f"/approvals/{asked['id']}/decide", {"decision": "approve", "why": "go"})
+        check(len(jira.of("Story")) == len(stories) + 1 and len(jira.of("Epic")) == 2, "approved: the new story went under its epic")
+
+        print("8c. delivery: the stories go to keel Tasks, with their ticket keys")
+        stories = [s for e in detail(iid)["plan"]["epics"] for s in e["stories"]]
         sent = call("POST", f"/initiatives/{iid}/handoff", {"target": "tasks"})
         check(len(sent["tasks"]) == len(stories) and not sent["skipped"], f"{len(sent['tasks'])} tasks were created")
         tasks = call("GET", f"/projects/{pay}/tasks")["tasks"]
         check(tasks and all("```keel-criteria" in t["description"] for t in tasks), "each task carries its criteria for keel's flow")
+        check(all(t.get("external_key") for t in tasks), "each task carries its Jira key")
         board = [b for b in call("GET", "/initiatives") if b["id"] == iid][0]
         check(board["progress"] == {"done": 0, "total": len(stories)}, "the board shows the delivery progress")
+
+        print("8d. ticket keys: the payments team's branches and commits")
+        pay_key = next(s["jira_key"] for s in stories if s["jira_key"] and s["jira_key"].startswith("PAY-"))
+        branch = f"feature/{pay_key.lower()}-euro"
+        git = ["git", "-c", "user.name=e2e", "-c", "user.email=e2e@localhost", "-c", "commit.gpgsign=false"]
+        sh(*git, "checkout", "-q", "-b", branch, cwd=ws / "payments-api")
+        (ws / "payments-api" / "src/Prices.kt").write_text("fun price(n: Int, euro: Boolean) = n\n")
+        sh(*git, "commit", "-q", "-am", f"{pay_key}: prices in euro", cwd=ws / "payments-api")
+        call("PATCH", "/teams/payments", {"key_pattern": "PAY-\\d+"})
+        call("POST", "/product/tickets/scan")
+        work = {w["key"]: w for w in call("GET", "/product/tickets?team=payments")["tickets"]}
+        check(pay_key in work and [b["ref"] for b in work[pay_key]["branches"]] == [branch] and work[pay_key]["commits"],
+              f"{pay_key} is linked to its branch and its commit")
+        story = next(s for e in detail(iid)["plan"]["epics"] for s in e["stories"] if s["jira_key"] == pay_key)
+        check(story["work"] and story["work"]["commits"], "the plan shows the work done on the story")
+
+        print("8e. the Product map: the business flows keel found in the code")
+        call("POST", "/product/flows/run", {})
+        m = wait_until("the flows", lambda: (lambda x: x if x["runs"] and x["runs"][0]["status"] != "running" else None)(call("GET", "/product/map")),
+                       timeout=STAGE_WAIT())
+        check(m["runs"][0]["status"] == "done" and {f["project_id"] for f in m["flows"]} == {web, pay}, f"{len(m['flows'])} business flows on the map")
+        check(REAL["on"] or any(pay_key in f["tickets"] for f in m["flows"] if f["project_id"] == pay), f"the flow in src/Prices.kt shows {pay_key}")
+        check(sh("git", "status", "--porcelain", cwd=ws / "web-shop") == "" if not REAL["on"] else True, "the flow analysts only read")
 
         print("9. release and outcome")
         call("POST", f"/initiatives/{iid}/released")
@@ -291,6 +365,8 @@ def main() -> int:
         print(sh("docker", "logs", "--tail", "60", NAME, check=False)[-4000:], file=sys.stderr)
         return 1
     finally:
+        for stub in STUBS:
+            stub.stop()
         if not args.keep and not args.real and not args.running:
             sh("docker", "rm", "-f", NAME, check=False)
             sh("docker", "volume", "rm", VOLUME, check=False)

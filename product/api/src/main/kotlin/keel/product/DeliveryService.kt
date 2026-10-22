@@ -3,9 +3,6 @@ package keel.product
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.NotFound
-import keel.api.jira.JiraClient
-import keel.api.jira.JiraException
-import keel.api.jira.JiraService
 import keel.api.projects.ProjectService
 import keel.api.tasks.NewTask
 import keel.api.tasks.TaskService
@@ -27,9 +24,11 @@ data class StoryView(
     val taskId: String?,
     val taskStatus: String?,
     val jiraKey: String?,
+    /** The branches and commits whose names carry its Jira key (TicketLinks). */
+    val work: TicketWork? = null,
 )
 
-data class EpicView(val id: String, val team: String?, val title: String, val stories: List<StoryView>)
+data class EpicView(val id: String, val team: String?, val title: String, val stories: List<StoryView>, val jiraKey: String? = null)
 
 data class PlanView(
     val version: Int,
@@ -41,6 +40,9 @@ data class PlanView(
     val totalDays: Any?,
     val epics: List<EpicView>,
     val progress: Progress?,
+    val initiativeKey: String? = null,
+    /** The plan was changed by hand after keel checked it (its critical path and totals may be old). */
+    val edited: Boolean = false,
 )
 
 data class HandoffBody(
@@ -57,9 +59,10 @@ data class HandoffResult(val tasks: List<String>, val jira: List<String>, val sk
 class DeliveryService(
     private val store: ProductStore,
     private val tasks: TaskService,
-    private val jira: JiraService,
     private val projects: ProjectService,
     private val teams: TeamService,
+    private val sender: TicketSender,
+    private val links: TicketLinks,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -73,14 +76,18 @@ class DeliveryService(
 
         fun project(repo: String) = (own.firstOrNull { it.id == repo } ?: own.firstOrNull { it.name.equals(repo, true) }
             ?: rows.firstOrNull { it.id == repo } ?: rows.firstOrNull { it.name.equals(repo, true) })?.id
+        // a story of an earlier version that was sent already keeps its ticket and its task (same id = same story)
+        val before = (version - 1 downTo 1).asSequence().map { store.items(id, it) }.firstOrNull { it.isNotEmpty() }.orEmpty().associateBy { it.id }
         for (e in epics) {
+            val eid = e["id"] as? String ?: "EP"
+            store.saveEpic(PlanEpic(id, version, eid, e["team"] as? String, (e["title"] as? String)?.ifBlank { null }?.take(300) ?: eid))
             val stories = e["stories"] as? List<Map<String, Any?>> ?: continue
             for (s in stories) {
                 val sid = s["id"] as? String ?: continue
                 val repo = s["repo"] as? String
                 val pid = repo?.let { project(it) }
-                store.saveItem(PlanItem(id, version, sid, e["id"] as? String ?: "EP", e["team"] as? String, repo, (s["title"] as? String ?: sid).take(300),
-                    s, null, pid, null))
+                store.saveItem(PlanItem(id, version, sid, eid, e["team"] as? String, repo, (s["title"] as? String ?: sid).take(300),
+                    s, before[sid]?.jiraKey, pid, before[sid]?.taskId))
             }
         }
     }
@@ -90,16 +97,27 @@ class DeliveryService(
         val d = doc.data as? Map<String, Any?> ?: emptyMap()
         val items = store.items(i.id, doc.version)
         val statuses = items.mapNotNull { it.taskId }.associateWith { tid -> runCatching { tasks.get(tid).status }.getOrNull() }
+        val work = links.forKeys(items.mapNotNull { it.jiraKey })
         val stories = items.map { p ->
             val b = p.body
             StoryView(p.id, p.epic, p.team, p.repo, p.projectId, p.title, strings(b["criteria"]), strings(b["tasks"]), strings(b["depends_on"]),
-                days(b["estimate_days"]), p.taskId, p.taskId?.let { statuses[it] }, p.jiraKey)
+                days(b["estimate_days"]), p.taskId, p.taskId?.let { statuses[it] }, p.jiraKey, p.jiraKey?.let { work[it] })
         }
+        val tickets = store.tickets(i.id)
         val epicTitles = ((d["plan"] as? Map<String, Any?>)?.get("epics") as? List<Map<String, Any?>>).orEmpty()
             .associate { (it["id"] as? String ?: "") to (it["title"] as? String ?: "") }
-        val epics = stories.groupBy { it.epic }.map { (eid, list) -> EpicView(eid, list.first().team, epicTitles[eid]?.ifBlank { null } ?: eid, list) }
+        // the epics as the product manager left them (an epic with no story yet is listed too)
+        val drafts = store.epics(i.id, doc.version)
+        val byEpic = stories.groupBy { it.epic }
+        val epics = (drafts.map { it.id } + byEpic.keys).distinct().map { eid ->
+            val e = drafts.firstOrNull { it.id == eid }
+            val list = byEpic[eid].orEmpty()
+            EpicView(eid, e?.team ?: list.firstOrNull()?.team, e?.title ?: epicTitles[eid]?.ifBlank { null } ?: eid, list,
+                tickets.lastOrNull { it.level == "epic" && it.ref == eid }?.jiraKey)
+        }
         return PlanView(doc.version, d["ok"] == true, strings(d["problems"]), strings(d["critical_path"]), (d["critical_days"] as? Number)?.toDouble(),
-            d["teams"], d["total_days"], epics, if (items.any { it.taskId != null }) progress(items).let { Progress(it.first, it.second) } else null)
+            d["teams"], d["total_days"], epics, if (items.any { it.taskId != null }) progress(items).let { Progress(it.first, it.second) } else null,
+            tickets.lastOrNull { it.level == "initiative" }?.jiraKey, store.events(i.id).any { it.kind == "edited" && it.data.planVersion() == doc.version })
     }
 
     /** (done, total) over the stories handed to keel Tasks. */
@@ -118,10 +136,11 @@ class DeliveryService(
         val notes = mutableListOf<String>()
         val jiraKeys = mutableListOf<String>()
         if (b.target != "tasks") {
-            items = toJira(i, items.filter { it.jiraKey == null }, notes, jiraKeys).let { done ->
-                val byId = done.associateBy { it.id }
-                items.map { byId[it.id] ?: it }
-            }
+            val sent = sender.send(i, items.map { it.id }.takeIf { b.stories.isNotEmpty() }.orEmpty())
+            notes += sent.notes
+            jiraKeys += sent.jira
+            val now = store.items(i.id, doc.version).associateBy { it.id }
+            items = items.map { now[it.id] ?: it }
         }
         val made = mutableListOf<String>()
         val skipped = mutableListOf<String>()
@@ -149,77 +168,8 @@ class DeliveryService(
         return HandoffResult(made, jiraKeys, skipped, notes)
     }
 
-    /** One Jira epic per plan epic, a story under it, sub-tasks for its tasks, and "Blocks" links for what waits. */
-    private fun toJira(i: Initiative, items: List<PlanItem>, notes: MutableList<String>, keys: MutableList<String>): List<PlanItem> {
-        val out = mutableListOf<PlanItem>()
-        for ((epic, list) in items.groupBy { it.epic }) {
-            val pid = list.firstNotNullOfOrNull { it.projectId }
-            val client = pid?.let { jira.client(it) }
-            if (client == null) {
-                notes += "epic $epic: the repo's keel project has no Jira connection"
-                continue
-            }
-            val team = list.first().team?.let { store.team(it) }
-            val project = team?.jiraProject ?: jira.settings(pid)?.projectKey
-            if (project.isNullOrBlank()) {
-                notes += "epic $epic: no Jira project (set it on the team ${team?.name ?: list.first().team ?: "?"})"
-                continue
-            }
-            val epicKey = runCatching { create(client, project, "Epic", "${i.id} · $epic · ${i.title}", "Part of ${i.id}: ${i.idea}", null) }
-                .getOrElse { ex ->
-                    notes += "epic $epic: Jira refused an Epic (${msg(ex)}), the stories go without one"
-                    null
-                }
-            epicKey?.let { keys += it }
-            for (p in list) {
-                val made = runCatching { create(client, project, "Story", "${p.id} · ${p.title}", description(i, p), epicKey) }
-                    .recoverCatching { create(client, project, "Story", "${p.id} · ${p.title}", description(i, p), null) }
-                val key = made.getOrNull()
-                if (key == null) {
-                    notes += "${p.id}: ${msg(made.exceptionOrNull()!!)}"
-                    continue
-                }
-                keys += key
-                for (t in strings(p.body["tasks"])) {
-                    runCatching { create(client, project, "Sub-task", t.take(250), "", key) }.onSuccess { keys += it }
-                        .onFailure { ex -> notes += "${p.id} sub-task: ${msg(ex)}" }
-                }
-                val saved = p.copy(jiraKey = key)
-                store.saveItem(saved)
-                out += saved
-            }
-            val byStory = out.associate { it.id to it.jiraKey }
-            for (p in list) {
-                val key = byStory[p.id] ?: continue
-                for (dep in strings(p.body["depends_on"])) {
-                    val before = byStory[dep] ?: store.items(i.id, p.version).firstOrNull { it.id == dep }?.jiraKey ?: continue
-                    runCatching { client.linkIssues("Blocks", key, before) }.onFailure { ex -> notes += "${p.id} waits for $dep: ${msg(ex)}" }
-                }
-            }
-        }
-        return out
-    }
-
-    private fun create(c: JiraClient, project: String, type: String, summary: String, description: String, parent: String?): String =
-        c.createIssue(mapOf("project" to mapOf("key" to project), "issuetype" to mapOf("name" to type), "summary" to summary.take(250),
-            "description" to description, "parent" to parent?.let { mapOf("key" to it) }).filterValues { it != null })
-
-    private fun msg(ex: Throwable) = when (ex) {
-        is JiraException -> ex.message
-        else -> ex.message ?: ex.javaClass.simpleName
-    }.take(200)
-
     /** The task text: the story, its criteria as a keel-criteria block (the flow starts with them) and where it comes from. */
-    fun description(i: Initiative, p: PlanItem): String = buildString {
-        append("${p.title}\n\nPart of ${i.id}: ${i.title}. ${i.idea}\n")
-        p.team?.let { append("Team: $it\n") }
-        val deps = strings(p.body["depends_on"])
-        if (deps.isNotEmpty()) append("Waits for: ${deps.joinToString()}\n")
-        val todo = strings(p.body["tasks"])
-        if (todo.isNotEmpty()) append("\nTasks:\n").append(todo.joinToString("\n") { "- $it" }).append("\n")
-        val criteria = strings(p.body["criteria"])
-        if (criteria.isNotEmpty()) append("\n```keel-criteria\n").append(criteria.joinToString("\n")).append("\n```\n")
-    }
+    fun description(i: Initiative, p: PlanItem): String = storyText(i, p)
 
     /** After the outcome: a lesson for each team in play goes to its knowledge, as a suggestion they accept or not. */
     fun learn(i: Initiative) {
@@ -240,3 +190,20 @@ class DeliveryService(
         else -> emptyList()
     }
 }
+
+/** A story as text for a keel task or a Jira ticket: the story, its tasks, its criteria as a keel-criteria block (a flow
+ *  started from it begins with them) and where it comes from. */
+fun storyText(i: Initiative, p: PlanItem): String = buildString {
+    fun strings(v: Any?): List<String> = (v as? List<*>).orEmpty().mapNotNull { it?.toString()?.takeIf { s -> s.isNotBlank() } }
+    append("${p.title}\n\nPart of ${i.id}: ${i.title}. ${i.idea}\n")
+    p.team?.let { append("Team: $it\n") }
+    val deps = strings(p.body["depends_on"])
+    if (deps.isNotEmpty()) append("Waits for: ${deps.joinToString()}\n")
+    val todo = strings(p.body["tasks"])
+    if (todo.isNotEmpty()) append("\nTasks:\n").append(todo.joinToString("\n") { "- $it" }).append("\n")
+    val criteria = strings(p.body["criteria"])
+    if (criteria.isNotEmpty()) append("\n```keel-criteria\n").append(criteria.joinToString("\n")).append("\n```\n")
+}
+
+/** The plan version an "edited" event (PlanDrafts) was about. */
+private fun Any?.planVersion(): Int? = ((this as? Map<*, *>)?.get("version") as? Number)?.toInt()

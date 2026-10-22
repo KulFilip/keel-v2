@@ -16,6 +16,10 @@ data class TeamBody(
     val capacityDays: Double? = null,
     val members: List<String>? = null,
     val owns: List<OwnsBody>? = null,
+    /** The team's own Jira; null keeps it. */
+    val jira: TeamJira? = null,
+    /** The ticket-key pattern; null keeps it, "" goes back to the Jira project key's. */
+    val keyPattern: String? = null,
 )
 
 data class OwnsBody(val projectId: String = "", val glob: String = "**")
@@ -60,17 +64,51 @@ class TeamService(private val store: ProductStore, private val repo: ProductRepo
         var n = 2
         while (store.team(id) != null) id = "${Slug.of(name)}-${n++}"
         val now = Time.now()
-        store.saveTeam(Team(id, name, b.lead?.trim(), b.jiraProject?.trim()?.uppercase(), b.capacityDays, b.members.orEmpty(), "manual", emptyList(), now, now))
+        store.saveTeam(Team(id, name, b.lead?.trim(), jiraKey(b.jiraProject), b.capacityDays, b.members.orEmpty(), "manual", emptyList(), now, now,
+            b.jira?.let { checkJira(it) } ?: TeamJira(), TicketKeys.check(b.keyPattern)))
         b.owns?.let { setOwns(id, it) }
         return get(id)
     }
 
     fun update(id: String, b: TeamBody): Team {
         val t = get(id)
-        store.saveTeam(t.copy(name = b.name?.trim()?.ifEmpty { null } ?: t.name, lead = b.lead ?: t.lead,
-            jiraProject = b.jiraProject?.trim()?.uppercase() ?: t.jiraProject, capacityDays = b.capacityDays ?: t.capacityDays,
-            members = b.members ?: t.members, updatedAt = Time.now()))
+        store.saveTeam(t.copy(name = b.name?.trim()?.ifEmpty { null } ?: t.name, lead = if (b.lead != null) b.lead.trim().ifEmpty { null } else t.lead,
+            jiraProject = if (b.jiraProject != null) jiraKey(b.jiraProject) else t.jiraProject, capacityDays = b.capacityDays ?: t.capacityDays,
+            members = b.members ?: t.members, updatedAt = Time.now(), jira = b.jira?.let { checkJira(it) } ?: t.jira,
+            keyPattern = if (b.keyPattern != null) TicketKeys.check(b.keyPattern) else t.keyPattern))
         b.owns?.let { setOwns(id, it) }
+        return get(id)
+    }
+
+    private fun jiraKey(v: String?): String? {
+        val k = v?.trim()?.uppercase()?.ifEmpty { null } ?: return null
+        if (!Regex("^[A-Z][A-Z0-9_]{0,29}$").matches(k)) throw BadRequest("The Jira project key is not valid", "Like ERPDM (the letters before the number in ERPDM-12).")
+        return k
+    }
+
+    private fun checkJira(j: TeamJira): TeamJira {
+        fun name(v: String?, what: String) = v?.trim()?.ifEmpty { null }?.also { if (it.length > 60) throw BadRequest("The $what issue type name is too long") }
+        val connection = j.connection?.trim()?.ifEmpty { null }?.also { projects.require(it) }
+        val field = j.epicLinkField?.trim()?.ifEmpty { null }
+        if (field != null && !Regex("^customfield_\\d{1,12}$").matches(field)) throw BadRequest("The Epic Link field is a field id", "Like customfield_10014.")
+        val labels = j.labels.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (labels.size > 10) throw BadRequest("At most 10 labels")
+        labels.firstOrNull { it.length > 50 || it.any(Char::isWhitespace) }?.let { throw BadRequest("\"$it\" is not a Jira label", "One word each, no spaces.") }
+        return TeamJira(connection, name(j.initiativeType, "initiative"), name(j.epicType, "epic"), name(j.storyType, "story"), name(j.subtaskType, "sub-task"),
+            field, labels, j.component?.trim()?.ifEmpty { null }?.take(100))
+    }
+
+    /** Puts a whole keel project in the team (its files: glob **). Its CODEOWNERS paths, if any, stay. */
+    fun addProject(id: String, projectId: String): Team {
+        get(id)
+        projects.require(projectId)
+        store.addPath(TeamPath(id, projectId, "**", "manual"))
+        return get(id)
+    }
+
+    fun removeProject(id: String, projectId: String): Team {
+        get(id)
+        if (store.removeProject(id, projectId) == 0) throw NotFound("$projectId is not in the team $id")
         return get(id)
     }
 

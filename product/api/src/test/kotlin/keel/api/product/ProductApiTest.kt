@@ -24,7 +24,8 @@ class ProductApiTest : ApiTest() {
 
     companion object {
         val jira: StubJira = StubJira.start("cloud")
-        val WORKFLOWS = listOf("product-discover", "product-impact", "product-decide", "product-plan", "product-outcome")
+        val server: StubJira = StubJira.start("server")
+        val WORKFLOWS = listOf("product-discover", "product-impact", "product-decide", "product-plan", "product-outcome", "product-flows")
 
         @JvmStatic
         @DynamicPropertySource
@@ -70,6 +71,9 @@ class ProductApiTest : ApiTest() {
         engine.overrides.clear()
         engine.nextThreadIds.clear()
         jira.reset()
+        server.reset()
+        delete("/api/jira")
+        put("/api/product/jira", mapOf("project" to null))
         put("/api/settings/general", mapOf("keel_mode" to "auto"))
     }
 
@@ -82,6 +86,11 @@ class ProductApiTest : ApiTest() {
 
     private fun send(vararg events: Map<String, Any?>) =
         post("/internal/events", events.toList(), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+
+    private fun patch(url: String, body: Any) = mvc.perform(
+        org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(url)
+            .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(body)),
+    )
 
     private fun detail(id: String): JsonNode = get("/api/initiatives/$id").andExpect(status().isOk).json()
 
@@ -357,8 +366,8 @@ class ProductApiTest : ApiTest() {
 
         val res = post("/api/initiatives/$id/handoff", mapOf("target" to "both")).andExpect(status().isOk).json()
         val notes = res["notes"].map { it.asText() }
-        assertThat(notes).anyMatch { it.startsWith("epic PAY: Jira refused an Epic") }
-            .anyMatch { it == "epic WEB: the repo's keel project has no Jira connection" }
+        assertThat(notes).anyMatch { it == "epic PAY: the project PAY has no Epic issue type" }
+            .anyMatch { it.startsWith("epic WEB: keel has no Jira connection for it") }
         val stories = jira.issues.filterValues { it.type == "Story" }
         assertThat(stories.values.map { it.summary }).containsExactlyInAnyOrder("PAY-S1 · Prices in euro", "PAY-S2 · Rates job")
         val s1 = stories.entries.first { it.value.summary.startsWith("PAY-S1") }.key
@@ -375,6 +384,271 @@ class ProductApiTest : ApiTest() {
         assertThat(res["tasks"].size()).isEqualTo(3)
         val plan = detail(id)["plan"]["epics"].flatMap { e -> e["stories"].map { it["id"].asText() to it["jira_key"]?.takeIf { k -> !k.isNull }?.asText() } }
         assertThat(plan).contains("PAY-S1" to s1, "WEB-S1" to null)
+    }
+
+    @Test
+    fun `stories sent in two goes share one Jira epic, and a story Jira will not put under it says so`() {
+        val (_, pay) = repos()
+        put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token))
+            .andExpect(status().isOk)
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Twice", "idea" to "Send the plan in two goes.", "repos" to listOf(pay)))
+            .json()["initiative"]["id"].asText()
+        toDelivery(id)
+
+        val first = post("/api/initiatives/$id/handoff", mapOf("target" to "jira", "stories" to listOf("PAY-S1"))).andExpect(status().isOk).json()
+        val epic = jira.issues.entries.single { it.value.type == "Epic" }.key
+        assertThat(first["jira"].map { it.asText() }).contains(epic)
+
+        jira.noParentFor += "Story"
+        val second = post("/api/initiatives/$id/handoff", mapOf("target" to "jira", "stories" to listOf("PAY-S2"))).andExpect(status().isOk).json()
+        assertThat(jira.issues.filterValues { it.type == "Epic" }.keys).containsExactly(epic)
+        assertThat(second["jira"].map { it.asText() }).doesNotContain(epic)
+        val s2 = jira.issues.entries.single { it.value.summary.startsWith("PAY-S2") }
+        assertThat(s2.value.fields["parent"]).isNull()
+        assertThat(second["notes"].map { it.asText() }).anyMatch { it.startsWith("PAY-S2: sent without its epic $epic (Jira refused the link:") }
+    }
+
+    @Test
+    fun `a keel project is added to a team, which has its own Jira and ticket-key pattern`() {
+        val (web, pay) = repos()
+        val (erp, _) = newProject("erp-core")
+        delete("/api/teams/erp-dm")
+        val t = post("/api/teams", mapOf("name" to "ERP DM", "lead" to "Sara", "jira_project" to "erpdm")).andExpect(status().isOk).json()
+        assertThat(t["id"].asText()).isEqualTo("erp-dm")
+        assertThat(t["jira_project"].asText()).isEqualTo("ERPDM")
+        assertThat(t["keys"].asText()).isEqualTo("ERPDM-\\d+")
+        assertThat(t["projects"]).isEmpty()
+
+        // tomorrow: the project joins someone's team (a project may be in two teams)
+        put("/api/teams/erp-dm/projects/$erp", null).andExpect(status().isOk)
+        val joined = put("/api/teams/erp-dm/projects/$pay", null).andExpect(status().isOk).json()
+        assertThat(joined["projects"].map { it.asText() }).containsExactlyInAnyOrder(erp, pay)
+        assertThat(get("/api/initiatives/repos").json().single { it["project_id"].asText() == pay }["teams"].map { it.asText() })
+            .containsExactlyInAnyOrder("payments", "erp-dm")
+        put("/api/teams/erp-dm/projects/nope", null).andExpect(status().isNotFound)
+        delete("/api/teams/erp-dm/projects/$pay").andExpect(status().isOk)
+        delete("/api/teams/erp-dm/projects/$pay").andExpect(status().isNotFound)
+        assertThat(get("/api/teams/erp-dm").json()["team"]["projects"].map { it.asText() }).containsExactly(erp)
+
+        // its own Jira: the connection of one of keel's projects (or keel's keel-wide one), types, labels, its key pattern
+        val saved = patch("/api/teams/erp-dm", mapOf("jira" to mapOf("connection" to web, "story_type" to "User Story", "labels" to listOf("erp", "keel")),
+            "key_pattern" to "(ERPDM|ERP)-\\d+")).andExpect(status().isOk).json()
+        assertThat(saved["jira"]["connection"].asText()).isEqualTo(web)
+        assertThat(saved["jira"]["story_type"].asText()).isEqualTo("User Story")
+        assertThat(saved["keys"].asText()).isEqualTo("(ERPDM|ERP)-\\d+")
+        patch("/api/teams/erp-dm", mapOf("lead" to "Sara K")).andExpect(status().isOk)
+        assertThat(patch("/api/teams/erp-dm", mapOf("lead" to "")).json()["lead"].isNull).isTrue()
+        assertThat(get("/api/teams/erp-dm").json()["team"]["jira"]["labels"].map { it.asText() }).containsExactly("erp", "keel")
+        patch("/api/teams/erp-dm", mapOf("key_pattern" to "(ERPDM-\\d+)+")).andExpect(status().isBadRequest)
+        patch("/api/teams/erp-dm", mapOf("jira" to mapOf("labels" to listOf("two words")))).andExpect(status().isBadRequest)
+        patch("/api/teams/erp-dm", mapOf("jira" to mapOf("connection" to "nope"))).andExpect(status().isNotFound)
+        patch("/api/teams/erp-dm", mapOf("jira_project" to "erp dm")).andExpect(status().isBadRequest)
+        assertThat(patch("/api/teams/erp-dm", mapOf("key_pattern" to "")).json()["keys"].asText()).isEqualTo("ERPDM-\\d+")
+
+        val tried = post("/api/teams/key-pattern/test", mapOf("pattern" to "SW-\\d+", "text" to "feature/sw-12-login, SW-12 and SW-13")).json()
+        assertThat(tried["keys"].map { it.asText() }).containsExactly("SW-12", "SW-13")
+        post("/api/teams/key-pattern/test", mapOf("pattern" to "(a+)+", "text" to "aaa")).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `keel links each team's branches and commits to its ticket keys, and lists what has no key`() {
+        val (erp, root) = newProject("erp-ui")
+        val (sw, swRoot) = newProject("sw-shop")
+        listOf("erp-dm", "sw").forEach { delete("/api/teams/$it") }
+        post("/api/teams", mapOf("name" to "ERP DM", "jira_project" to "ERPDM")).andExpect(status().isOk)
+        post("/api/teams", mapOf("name" to "SW", "key_pattern" to "SW-\\d+")).andExpect(status().isOk)
+        put("/api/teams/erp-dm/projects/$erp", null).andExpect(status().isOk)
+        put("/api/teams/sw/projects/$sw", null).andExpect(status().isOk)
+
+        fun commit(r: java.nio.file.Path, file: String, msg: String) {
+            Files.writeString(r.resolve(file), msg)
+            git(r, "add", "-A")
+            git(r, "commit", "-q", "-m", msg)
+        }
+        git(root, "checkout", "-q", "-b", "feature/erpdm-1234-vat")
+        commit(root, "vat.kt", "ERPDM-1234: add VAT\n\nAlso touches ERPDM-1240.")
+        git(root, "checkout", "-q", "main")
+        commit(root, "typo.md", "fix a typo")
+        commit(root, "sw.md", "SW-9 is not this team's key")
+        git(swRoot, "checkout", "-q", "-b", "SW-77-login")
+        commit(swRoot, "login.ts", "login form (SW-77)")
+
+        val scan = post("/api/product/tickets/scan").andExpect(status().isOk).json()["projects"]
+        assertThat(scan.map { it["project_id"].asText() }).contains(erp, sw)
+        assertThat(scan.single { it["project_id"].asText() == erp }["linked"].asInt()).isEqualTo(3)   // branch + commit (2 keys)
+
+        val t = get("/api/product/tickets?team=erp-dm").andExpect(status().isOk).json()
+        val work = t["tickets"].associateBy { it["key"].asText() }
+        assertThat(work.keys).containsExactlyInAnyOrder("ERPDM-1234", "ERPDM-1240")
+        assertThat(work.getValue("ERPDM-1234")["branches"].map { it["ref"].asText() }).containsExactly("feature/erpdm-1234-vat")
+        val c = work.getValue("ERPDM-1234")["commits"].single()
+        assertThat(c["title"].asText()).isEqualTo("ERPDM-1234: add VAT")
+        assertThat(c["files"].map { it.asText() }).containsExactly("vat.kt")
+        assertThat(t["unlinked"].map { it["title"].asText() }).contains("fix a typo", "SW-9 is not this team's key")
+        assertThat(t["unlinked"].map { it["ref"].asText() }).doesNotContain("main")
+
+        val swWork = get("/api/product/tickets?team=sw").json()["tickets"]
+        assertThat(swWork.map { it["key"].asText() }).containsExactly("SW-77")
+        assertThat(swWork.single()["branches"].single()["ref"].asText()).isEqualTo("SW-77-login")
+        get("/api/product/tickets?team=nope").andExpect(status().isNotFound)
+
+        // a new pattern, a new scan: the old links go
+        patch("/api/teams/erp-dm", mapOf("key_pattern" to "VAT-\\d+")).andExpect(status().isOk)
+        post("/api/product/tickets/scan?project=$erp").andExpect(status().isOk)
+        assertThat(get("/api/product/tickets?team=erp-dm").json()["tickets"]).isEmpty()
+    }
+
+    @Test
+    fun `the product manager edits the drafts, previews them, and sends Initiative, Epics and Stories to each team's Jira`() {
+        val (webPid, payPid) = repos()
+        put("/api/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "WEB"))
+            .andExpect(status().isOk)
+        jira.upperTypes += "Initiative"
+        put("/api/product/jira", mapOf("project" to "port")).andExpect(status().isOk)
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Drafts", "idea" to "Edit, then send.", "repos" to listOf(webPid, payPid))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+
+        // the drafts: change a story, add one, change an epic; bad input is refused
+        patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("title" to "Rates job, daily", "criteria" to listOf("AC-1 [API] rates refresh at 06:00"),
+            "estimate_days" to listOf(2))).andExpect(status().isOk)
+        patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("criteria" to listOf("rates refresh"))).andExpect(status().isBadRequest)
+        patch("/api/initiatives/$id/plan/stories/PAY-S1", mapOf("depends_on" to listOf("PAY-S2"))).andExpect(status().isBadRequest)   // a loop
+        patch("/api/initiatives/$id/plan/stories/NOPE", mapOf("title" to "x")).andExpect(status().isNotFound)
+        fun teamOf(r: org.springframework.test.web.servlet.ResultActions) = r.andExpect(status().isOk).json()["plan"]["epics"]
+            .flatMap { it["stories"] }.single { it["id"].asText() == "WEB-S1" }["team"]
+        assertThat(teamOf(patch("/api/initiatives/$id/plan/stories/WEB-S1", mapOf("team" to ""))).isNull).isTrue()
+        assertThat(teamOf(patch("/api/initiatives/$id/plan/stories/WEB-S1", mapOf("team" to "WEB"))).asText()).isEqualTo("web")   // by name
+        patch("/api/initiatives/$id/plan/stories/WEB-S1", mapOf("team" to "nobody")).andExpect(status().isNotFound)
+        val added = post("/api/initiatives/$id/plan/stories", mapOf("epic" to "WEB", "title" to "Euro in the cart",
+            "criteria" to listOf("AC-1 [WEB] the cart shows euro"), "depends_on" to listOf("PAY-S1"), "repo" to "web-shop")).andExpect(status().isOk).json()
+        assertThat(added["plan"]["epics"].single { it["id"].asText() == "WEB" }["stories"].map { it["id"].asText() }).containsExactly("WEB-S1", "WEB-S2")
+        val plan = patch("/api/initiatives/$id/plan/epics/WEB", mapOf("title" to "Euro on the web")).andExpect(status().isOk).json()["plan"]
+        assertThat(plan["edited"].asBoolean()).isTrue()
+        val web = plan["epics"].single { it["id"].asText() == "WEB" }
+        assertThat(web["title"].asText()).isEqualTo("Euro on the web")
+        assertThat(web["stories"].map { it["id"].asText() }).containsExactly("WEB-S1", "WEB-S2")
+        val s2 = plan["epics"].single { it["id"].asText() == "PAY" }["stories"].single { it["id"].asText() == "PAY-S2" }
+        assertThat(s2["title"].asText()).isEqualTo("Rates job, daily")
+        assertThat(s2["estimate_days"].map { it.asDouble() }).containsExactly(2.0, 2.0)
+
+        // the preview: what goes where, nothing sent yet
+        val pv = get("/api/initiatives/$id/tickets/preview").andExpect(status().isOk).json()
+        assertThat(jira.issues).isEmpty()
+        assertThat(pv["problems"]).isEmpty()
+        val rows = pv["rows"].associateBy { it["level"].asText() + " " + it["ref"].asText() }
+        assertThat(rows.getValue("initiative $id")["project"].asText()).isEqualTo("PORT")
+        assertThat(rows.getValue("initiative $id")["type"].asText()).isEqualTo("Initiative")
+        assertThat(rows.getValue("epic PAY")["project"].asText()).isEqualTo("PAY")
+        assertThat(rows.getValue("epic WEB")["project"].asText()).isEqualTo("WEB")       // no key on the team: the connection's
+        assertThat(rows.getValue("story WEB-S2")["parent"].asText()).isEqualTo("WEB")
+        assertThat(rows.getValue("subtask PAY-S1/1")["type"].asText()).isEqualTo("Sub-task")
+        assertThat(pv["rows"].all { it["action"].asText() == "create" }).isTrue()
+
+        // send: top-down, every key kept
+        val sent = post("/api/initiatives/$id/tickets/send", mapOf("stories" to emptyList<String>())).andExpect(status().isOk).json()
+        val ini = jira.issues.entries.single { it.value.type == "Initiative" }
+        assertThat(ini.key).startsWith("PORT-")
+        val epics = jira.issues.filterValues { it.type == "Epic" }
+        assertThat(epics.values.map { it.fields["parent"] }).containsOnly(ini.key)
+        val payEpic = epics.entries.single { it.value.summary.contains("PAY") }.key
+        val pay1 = jira.issues.entries.single { it.value.summary.startsWith("PAY-S1") }
+        assertThat(pay1.value.fields["parent"]).isEqualTo(payEpic)
+        assertThat(pay1.value.fields["labels"] as List<*>).containsExactly(id)
+        assertThat(jira.issues.values.single { it.summary.startsWith("WEB-S2") }.description).contains("AC-1 [WEB] the cart shows euro")
+        assertThat(jira.links).contains(Triple("Blocks", jira.issues.entries.single { it.value.summary.startsWith("WEB-S2") }.key, pay1.key))
+        assertThat(sent["jira"].size()).isEqualTo(jira.issues.size)
+        val after = detail(id)["plan"]
+        assertThat(after["initiative_key"].asText()).isEqualTo(ini.key)
+        assertThat(after["epics"].single { it["id"].asText() == "PAY" }["jira_key"].asText()).isEqualTo(payEpic)
+        patch("/api/initiatives/$id/plan/stories/PAY-S1", mapOf("title" to "late")).andExpect(status().isConflict)
+
+        // again: nothing new; a story added later goes under the epic that is there
+        val count = jira.issues.size
+        assertThat(post("/api/initiatives/$id/tickets/send").json()["jira"]).isEmpty()
+        assertThat(jira.issues.size).isEqualTo(count)
+        post("/api/initiatives/$id/plan/stories", mapOf("epic" to "PAY", "title" to "Refunds in euro", "criteria" to listOf("AC-1 [API] refunds keep the currency")))
+            .andExpect(status().isOk)
+
+        // an agent may only ask: an approval in the Inbox, sent when the product manager approves
+        val asked = post("/api/initiatives/$id/tickets/ask", mapOf("by" to "KeelBot", "why" to "the leads agreed")).andExpect(status().isOk).json()
+        assertThat(asked["kind"].asText()).isEqualTo("product-jira-send")
+        assertThat(asked["title"].asText()).isEqualTo("Send 1 tickets of $id to Jira")
+        assertThat(jira.issues.size).isEqualTo(count)
+        post("/api/approvals/${asked["id"].asText()}/decide", mapOf("decision" to "approve", "why" to "ok")).andExpect(status().isOk)
+        val refund = jira.issues.values.single { it.summary.startsWith("PAY-S3") }
+        assertThat(refund.fields["parent"]).isEqualTo(payEpic)
+        assertThat(jira.issues.filterValues { it.type == "Epic" }).hasSize(2)
+        post("/api/initiatives/$id/tickets/ask", mapOf("by" to "KeelBot")).andExpect(status().isConflict)        // nothing left
+    }
+
+    @Test
+    fun `on Jira Server a story names its epic with the Epic Link field, and the team's own connection is used`() {
+        val (_, pay) = repos()
+        put("/api/projects/$pay/jira", mapOf("kind" to "server", "base_url" to server.url, "token" to server.token)).andExpect(status().isOk)
+        patch("/api/teams/payments", mapOf("jira" to mapOf("connection" to pay, "labels" to listOf("payments")), "key_pattern" to "PAY-\\d+"))
+            .andExpect(status().isOk)
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Server", "idea" to "Send to Jira Server.", "repos" to listOf(pay))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+
+        val pv = get("/api/initiatives/$id/tickets/preview?stories=PAY-S1").json()
+        assertThat(pv["rows"].map { it["level"].asText() + " " + it["ref"].asText() }).containsExactly("epic PAY", "story PAY-S1", "subtask PAY-S1/1", "subtask PAY-S1/2")
+        get("/api/initiatives/$id/tickets/preview?stories=NOPE").andExpect(status().isBadRequest)
+
+        post("/api/initiatives/$id/tickets/send", mapOf("stories" to listOf("PAY-S1", "PAY-S2"))).andExpect(status().isOk)
+        val epic = server.issues.entries.single { it.value.type == "Epic" }.key
+        val story = server.issues.values.single { it.summary.startsWith("PAY-S1") }
+        assertThat(story.fields["parent"]).isNull()
+        assertThat(story.fields["customfield_10014"]).isEqualTo(epic)
+        assertThat(story.fields["labels"] as List<*>).containsExactly(id, "payments")
+        assertThat(jira.issues).isEmpty()                                                        // not the cloud stub
+    }
+
+    @Test
+    fun `the Product map shows each team's business flows and the tickets whose commits changed them`() {
+        val (web, pay) = repos()
+        val payRoot = java.nio.file.Paths.get(get("/api/projects").json().single { it["id"].asText() == pay }["root"].asText())
+        post("/api/product/flows/run", mapOf("projects" to listOf("nope"))).andExpect(status().isNotFound)
+        val tid = "t-flows-${java.util.UUID.randomUUID().toString().take(8)}".also { engine.nextThreadIds += it }
+        val run = post("/api/product/flows/run").andExpect(status().isOk).json()
+        assertThat(run["thread_id"].asText()).isEqualTo(tid)
+        assertThat(run["projects"].map { it.asText() }).contains(web, pay)
+        post("/api/product/flows/run").andExpect(status().isConflict)                   // one run at a time
+
+        fun flows(vararg f: Map<String, Any?>) = send(ev("product.flows", tid, mapOf("project" to pay, "team" to "payments", "flows" to f.toList(),
+            "path" to "flows/$pay.json", "sha" to "f1")))
+        val checkout = mapOf("id" to "checkout", "name" to "Checkout", "summary" to "A visitor pays.",
+            "steps" to listOf(mapOf("text" to "prices", "cite" to "src/Prices.kt:1"), mapOf("text" to "a guess", "cite" to null)),
+            "endpoints" to listOf("POST /orders"), "tables" to listOf("orders"))
+        flows(checkout, mapOf("id" to "refund", "name" to "Refund", "steps" to emptyList<Any>()))
+        send(ev("thread.done", tid, mapOf("status" to "done")))
+
+        Files.createDirectories(payRoot.resolve("src"))
+        Files.writeString(payRoot.resolve("src/Prices.kt"), "fun price() = 1\n")
+        git(payRoot, "add", "-A")
+        git(payRoot, "commit", "-q", "-m", "PAY-12: prices in euro")
+        post("/api/product/tickets/scan?project=$pay").andExpect(status().isOk)
+
+        val m = get("/api/product/map").andExpect(status().isOk).json()
+        assertThat(m["runs"][0]["status"].asText()).isEqualTo("done")
+        assertThat(m["teams"].map { it["id"].asText() }).contains("payments", "web")
+        val f = m["flows"].associateBy { it["id"].asText() }
+        assertThat(f.getValue("checkout")["tickets"].map { it.asText() }).containsExactly("PAY-12")
+        assertThat(f.getValue("checkout")["endpoints"].map { it.asText() }).containsExactly("POST /orders")
+        assertThat(f.getValue("refund")["tickets"]).isEmpty()
+        assertThat(m["not_analysed"].map { it.asText() }).contains(web).doesNotContain(pay)
+        assertThat(m["tickets"]["tickets"].map { it["key"].asText() }).contains("PAY-12")
+        assertThat(get("/api/product/map?team=web").json()["flows"]).isEmpty()
+
+        // the product manager's name stays when the flows are found again; a flow gone from the code goes
+        patch("/api/product/flows/$pay/checkout", mapOf("name" to "Pay for an order", "hidden" to false)).andExpect(status().isOk)
+        patch("/api/product/flows/$pay/nope", mapOf("name" to "x")).andExpect(status().isNotFound)
+        flows(checkout + ("name" to "Checkout v2"))
+        val again = get("/api/product/map?team=payments").json()["flows"]
+        assertThat(again.map { it["id"].asText() to it["name"].asText() }).containsExactly("checkout" to "Pay for an order")
+        assertThat(again.single()["edited"].asBoolean()).isTrue()
     }
 
     @Test

@@ -1,5 +1,6 @@
 // keel Product's api (product/api ProductController): initiatives, their stages, questions, disagreements, follow-ups,
-// the plan and its hand-off, and the teams with their knowledge.
+// the plan (its drafts, its Jira tickets) and its hand-off, the teams with their knowledge, projects, Jira and ticket
+// keys, and the Jira plugin's keel-wide connection (/api/jira).
 
 import { del, get, getText, patch, post, put } from "@keel/web-sdk";
 
@@ -184,12 +185,15 @@ export type Story = {
   task_id?: string | null;
   task_status?: string | null;
   jira_key?: string | null;
+  /** The branches and commits whose names carry its Jira key. */
+  work?: TicketWork | null;
 };
 export type Epic = {
   id: string;
   team?: string | null;
   title: string;
   stories: Story[];
+  jira_key?: string | null;
 };
 export type PlanView = {
   version: number;
@@ -201,6 +205,57 @@ export type PlanView = {
   total_days?: number[] | null;
   epics: Epic[];
   progress?: Progress | null;
+  /** The initiative's own Jira ticket, when it has one. */
+  initiative_key?: string | null;
+  /** Changed by hand after keel checked it (its critical path and totals may be old). */
+  edited?: boolean;
+};
+
+/** A change to a story draft: a field left out stays as it is. */
+export type StoryEdit = {
+  epic?: string;
+  title?: string;
+  criteria?: string[];
+  tasks?: string[];
+  depends_on?: string[];
+  estimate_days?: number[];
+  team?: string;
+  repo?: string;
+};
+export type EpicEdit = { id?: string; title?: string; team?: string };
+
+/** One ticket of the Jira tree: what a send makes (create), what is there (exists), what cannot go (blocked). */
+export type TicketRow = {
+  level: "initiative" | "epic" | "story" | "subtask" | string;
+  ref: string;
+  title: string;
+  team?: string | null;
+  project?: string | null;
+  site?: string | null;
+  type?: string | null;
+  parent?: string | null;
+  key?: string | null;
+  action: "create" | "exists" | "blocked" | string;
+  problem?: string | null;
+};
+export type TicketPreview = {
+  rows: TicketRow[];
+  problems: string[];
+  notes: string[];
+  creates?: number;
+  ok?: boolean;
+};
+export type SendResult = {
+  created: TicketRow[];
+  jira: string[];
+  notes: string[];
+  preview: TicketPreview;
+};
+/** Where an initiative's own Jira ticket goes; no project = no initiative ticket. */
+export type InitiativeJira = {
+  connection?: string | null;
+  project?: string | null;
+  type?: string | null;
 };
 
 export type RepoOwner = {
@@ -230,6 +285,17 @@ export type TeamPath = {
   glob: string;
   source: string;
 };
+/** A team's own Jira. Blank issue types are found in Jira; connection null = the keel-wide one. */
+export type TeamJira = {
+  connection?: string | null;
+  initiative_type?: string | null;
+  epic_type?: string | null;
+  story_type?: string | null;
+  subtask_type?: string | null;
+  epic_link_field?: string | null;
+  labels: string[];
+  component?: string | null;
+};
 export type Team = {
   id: string;
   name: string;
@@ -241,6 +307,12 @@ export type Team = {
   owns: TeamPath[];
   created_at: string;
   updated_at: string;
+  jira?: TeamJira;
+  /** The ticket-key pattern as the team saved it (null: the Jira project key's). */
+  key_pattern?: string | null;
+  /** The pattern keel matches branches and commits with. */
+  keys?: string | null;
+  projects?: string[];
 };
 export type TeamPage = { name: string; title: string; text: string };
 export type Suggestion = {
@@ -264,7 +336,118 @@ export type TeamBody = {
   capacity_days?: number | null;
   members?: string[];
   owns?: { project_id: string; glob: string }[];
+  jira?: TeamJira;
+  /** "" goes back to the Jira project key's pattern. */
+  key_pattern?: string;
 };
+export type KeyTest = { pattern?: string | null; keys: string[] };
+
+/** A branch or a commit keel read in a team's git. */
+export type TicketLink = {
+  project_id: string;
+  kind: "branch" | "commit" | string;
+  ref: string;
+  key: string;
+  team_id?: string | null;
+  title?: string | null;
+  author?: string | null;
+  at?: string | null;
+  files?: string[];
+};
+export type TicketWork = {
+  key: string;
+  team?: string | null;
+  branches: TicketLink[];
+  commits: TicketLink[];
+  last_at?: string | null;
+};
+export type ProjectScan = {
+  project_id: string;
+  at: string;
+  branches: number;
+  commits: number;
+  linked: number;
+  error?: string | null;
+};
+export type TeamTickets = {
+  team?: string | null;
+  tickets: TicketWork[];
+  unlinked: TicketLink[];
+  scans: ProjectScan[];
+};
+export type ScanResult = { projects: ProjectScan[] };
+
+/** The Jira plugin's keel-wide connection (GET/PUT/DELETE /api/jira): one site and token for every project. */
+export type JiraKind = "cloud" | "server";
+export type JiraUser = { name: string; email?: string | null };
+export type JiraView = {
+  connected: boolean;
+  settings: {
+    kind: JiraKind;
+    base_url: string;
+    email?: string | null;
+    project_key?: string | null;
+  };
+  token_set: boolean;
+  token_hint?: string | null;
+  me?: JiraUser | null;
+};
+export type JiraSave = {
+  kind?: JiraKind;
+  base_url?: string;
+  email?: string;
+  token?: string;
+  project_key?: string;
+};
+export type JiraTest = {
+  ok: boolean;
+  user?: JiraUser | null;
+  error?: string | null;
+  hint?: string | null;
+};
+/** One step of a business flow; cite is path:line in the repo (null: keel found no file for it). */
+export type FlowStep = { text: string; cite?: string | null; repo?: string | null };
+export type FlowView = {
+  project_id: string;
+  id: string;
+  name: string;
+  summary?: string | null;
+  team?: string | null;
+  steps?: FlowStep[] | null;
+  endpoints?: string[] | null;
+  tables?: string[] | null;
+  edited: boolean;
+  hidden: boolean;
+  updated_at: string;
+  /** The ticket keys whose commits changed a file this flow cites. */
+  tickets: string[];
+};
+export type MapTeam = {
+  id: string;
+  name: string;
+  lead?: string | null;
+  projects: string[];
+  jira_project?: string | null;
+  keys?: string | null;
+};
+export type FlowRun = {
+  thread_id: string;
+  projects: string[];
+  status: "running" | "done" | "failed" | "stopped" | string;
+  error?: string | null;
+  started_at: string;
+  ended_at?: string | null;
+};
+export type ProductMap = {
+  teams: MapTeam[];
+  flows: FlowView[];
+  tickets: TeamTickets;
+  runs: FlowRun[];
+  /** The team projects with no flows yet. */
+  not_analysed: string[];
+};
+export type FlowEdit = { name?: string; summary?: string; hidden?: boolean };
+
 export type ImportResult = {
   teams: string[];
   paths: number;
@@ -345,6 +528,24 @@ export const productApi = {
     post<Detail>(`${I(id)}/outcome`, { metric }),
   handoff: (id: string, target: "tasks" | "jira" | "both") =>
     post<Handoff>(`${I(id)}/handoff`, { target }),
+  editStory: (id: string, sid: string, b: StoryEdit) =>
+    patch<Detail>(`${I(id)}/plan/stories/${e(sid)}`, b),
+  addStory: (id: string, b: StoryEdit) =>
+    post<Detail>(`${I(id)}/plan/stories`, b),
+  deleteStory: (id: string, sid: string) =>
+    del<Detail>(`${I(id)}/plan/stories/${e(sid)}`),
+  editEpic: (id: string, eid: string, b: EpicEdit) =>
+    patch<Detail>(`${I(id)}/plan/epics/${e(eid)}`, b),
+  addEpic: (id: string, b: EpicEdit) => post<Detail>(`${I(id)}/plan/epics`, b),
+  deleteEpic: (id: string, eid: string) =>
+    del<Detail>(`${I(id)}/plan/epics/${e(eid)}`),
+  ticketPreview: (id: string) =>
+    get<TicketPreview>(`${I(id)}/tickets/preview`),
+  ticketSend: (id: string, stories: string[] = []) =>
+    post<SendResult>(`${I(id)}/tickets/send`, { stories }),
+  initiativeJira: () => get<InitiativeJira>("/product/jira"),
+  saveInitiativeJira: (b: InitiativeJira) =>
+    put<InitiativeJira>("/product/jira", b),
   doc: (id: string, kind: string, version: number) =>
     get<ProductDoc>(`${I(id)}/docs/${e(kind)}/${version}`),
   deckUrl: (id: string, version?: number) =>
@@ -361,4 +562,23 @@ export const productApi = {
     put<TeamPage>(`/teams/${e(id)}/pages/${e(page)}`, { text }),
   decideSuggestion: (id: string, sid: string, accept: boolean) =>
     post<TeamKnowledge>(`/teams/${e(id)}/suggestions/${e(sid)}`, { accept }),
+  addProject: (id: string, pid: string) =>
+    put<Team>(`/teams/${e(id)}/projects/${e(pid)}`, {}),
+  removeProject: (id: string, pid: string) =>
+    del<Team>(`/teams/${e(id)}/projects/${e(pid)}`),
+  testKeyPattern: (pattern: string | null, text: string) =>
+    post<KeyTest>("/teams/key-pattern/test", { pattern, text }),
+  tickets: (team?: string) =>
+    get<TeamTickets>(`/product/tickets${team ? `?team=${e(team)}` : ""}`),
+  scanTickets: () => post<ScanResult>("/product/tickets/scan"),
+  map: (team?: string) =>
+    get<ProductMap>(`/product/map${team ? `?team=${e(team)}` : ""}`),
+  findFlows: (projects: string[] = []) =>
+    post<FlowRun>("/product/flows/run", { projects }),
+  editFlow: (pid: string, fid: string, b: FlowEdit) =>
+    patch<FlowView>(`/product/flows/${e(pid)}/${e(fid)}`, b),
+  keelJira: () => get<JiraView>("/jira"),
+  saveKeelJira: (b: JiraSave) => put<JiraView>("/jira", b),
+  removeKeelJira: () => del<{ ok: boolean }>("/jira"),
+  testKeelJira: (b: JiraSave) => post<JiraTest>("/jira/test", b),
 };

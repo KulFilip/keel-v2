@@ -28,6 +28,22 @@ problems), so a keel upgrade never runs a plugin that was not made for it. keel'
 Product: the plugin uses keel's extension points (engine add-on, api `KeelAddon` and Spring auto-configuration, web
 `product/web/index.tsx`), and keel's jar, engine and web bundle stay the same size without it.
 
+## Teams, Jira and the Product map
+
+The design is docs/product/pm-jira-teams-design.md. In short:
+
+- **Teams** own keel projects (`PUT /api/teams/{id}/projects/{pid}`, or CODEOWNERS paths). Each team has its own Jira:
+  which connection (a project's, else keel's keel-wide one: `PUT /api/jira`), its project key, issue types, Epic Link
+  field, labels and component; and a **ticket-key pattern** (`ERPDM-\d+`; default: its Jira project key).
+- **Ticket keys in git**: keel reads each team project's branches and commits (last 90 days, every 15 minutes or
+  `POST /api/product/tickets/scan`) and links them to the keys of the team's pattern (`GET /api/product/tickets`).
+- **Drafts**: the plan's epics and stories can be edited (`/api/initiatives/{id}/plan/…`) until a story is sent.
+  `GET …/tickets/preview` shows what goes where; `POST …/tickets/send` makes Initiative (when `PUT /api/product/jira`
+  says where) → Epic → Story → Sub-task and keeps every key, so a second send makes no twin. An agent can only ask
+  (`POST …/tickets/ask`): an approval in the Inbox.
+- **Product map** (`GET /api/product/map`): the business flows a flow analyst found in each team repo
+  (`POST /api/product/flows/run`, read only, the `product-flows` workflow), with the tickets whose commits changed them.
+
 ## Modes
 
 Settings › General › _What this keel does_: **Dev only**, **Product only** or **Product and Dev** (auto = both when
@@ -38,11 +54,11 @@ off deletes nothing; the product api answers 409 while Product is off.
 
     product/keel-plugin.yml   the plugin manifest (name, version, what keel it needs, its parts)
     product/build-plugin.sh   builds the parts and packs them (see below)
-    product/content/          workflows (product-discover, -impact, -decide, -plan, -outcome) and the 4 agents
+    product/content/          workflows (product-discover, -impact, -decide, -plan, -outcome, -flows) and the 5 agents
     product/engine/           keel_product: actions (documents, plan check, presentation, decision), fake answers, routes
     product/api/              Spring auto-configuration: initiatives, teams, delivery, follow-ups (own tables, own Flyway
                               history); built as a thin jar (cd api && ./gradlew productPluginJar)
-    product/web/              the Initiatives and Teams pages (built on their own: npm run build:product in web/)
+    product/web/              the Product map, Initiatives and Teams pages (built on their own: npm run build:product in web/)
     product/e2e/              the end-to-end script
 
 ## Build the plugin package
@@ -68,6 +84,7 @@ start.
     cd api && ./gradlew productTest
     cd web && npx vitest run ../product/web
     docker build --build-arg EDITION=product -t keel-v2:product .
-    python3 product/e2e/e2e.py --image keel-v2:product            # a throw-away keel-lab with the fake model
+    python3 product/e2e/e2e.py --image keel-v2:product            # a throw-away keel-lab with the fake model and a stub Jira
+    KEEL_E2E_NAME=keel-pj KEEL_E2E_PORT=8097 python3 product/e2e/e2e.py --image keel-v2:product   # next to a keel-lab in use
 
 `product/e2e/e2e.py --real claude` runs the same walk on a running keel-lab with a real model.
