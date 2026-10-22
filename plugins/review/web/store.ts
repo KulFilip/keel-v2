@@ -428,3 +428,51 @@ export async function lookUp(
   });
   return null;
 }
+
+// ---- the review threads: keel's check, Address it, the extra buttons
+
+export async function judge(
+  pid: string,
+  key: string,
+  threadId: string,
+  opts: { again?: boolean; harder?: boolean } = {},
+) {
+  const s = await act(pid, key, `judge:${threadId}`, () =>
+    reviewApi.judge(pid, key, threadId, opts),
+  );
+  if (s) set(pid, key, { ai: s });
+  return s;
+}
+
+export async function judgeAll(pid: string, key: string) {
+  const s = await act(pid, key, "judge-all", () => reviewApi.judgeAll(pid, key));
+  if (s) set(pid, key, { ai: s });
+  return s;
+}
+
+export async function address(
+  pid: string,
+  key: string,
+  threadId: string,
+  note?: string,
+) {
+  const r = await act(pid, key, `address:${threadId}`, () =>
+    reviewApi.address(pid, key, threadId, note),
+  );
+  if (r) set(pid, key, { ai: r.state });
+  return r;
+}
+
+export async function runButton(
+  pid: string,
+  key: string,
+  threadId: string,
+  buttonId: string,
+  opts: { again?: boolean; harder?: boolean } = {},
+) {
+  const s = await act(pid, key, `button:${buttonId}|${threadId}`, () =>
+    reviewApi.button(pid, key, threadId, buttonId, opts),
+  );
+  if (s) set(pid, key, { ai: s });
+  return s;
+}

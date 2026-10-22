@@ -6,7 +6,6 @@ import { useState } from "react";
 import { ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
 import {
   linesLabel,
-  prLabel,
   type AiState,
   type Finding,
   type ReviewThread,
@@ -548,57 +547,6 @@ export function FindingsTab({
           {view.host?.kind === "gitlab" ? "merge" : "pull"} request to post
           them.
         </p>
-      )}
-    </div>
-  );
-}
-
-export function ThreadsTab({
-  view,
-  onOpen,
-  onReply,
-  onResolve,
-}: {
-  view: ReviewView;
-  onOpen: (path: string, line?: number | null, side?: "RIGHT" | "LEFT") => void;
-  onReply: (t: ReviewThread, body: string) => Promise<void>;
-  onResolve: (t: ReviewThread, resolved: boolean) => Promise<void>;
-}) {
-  const sorted = [...view.threads].sort(
-    (a, b) => Number(a.resolved) - Number(b.resolved),
-  );
-  if (!view.threads.length && !view.conversation.length) {
-    return (
-      <p className="rv-dim">
-        {view.kind === "pr"
-          ? `No comments on ${prLabel(view.host, view.number)} yet.`
-          : "A branch has no threads. Its pull request does."}
-      </p>
-    );
-  }
-  return (
-    <div className="rv-stack">
-      {sorted.map((t) => (
-        <ThreadCard
-          key={t.id}
-          t={t}
-          canPost={view.can_post}
-          onOpen={onOpen}
-          onReply={onReply}
-          onResolve={onResolve}
-        />
-      ))}
-      {view.conversation.length > 0 && (
-        <section className="rv-group">
-          <h4>Conversation</h4>
-          {view.conversation.map((c) => (
-            <div key={c.id} className="rv-comment">
-              <b>{c.author}</b>{" "}
-              <span className="rv-dim">{c.at.slice(0, 10)}</span>
-              <Markdown text={c.body} fold={10} />
-            </div>
-          ))}
-        </section>
       )}
     </div>
   );

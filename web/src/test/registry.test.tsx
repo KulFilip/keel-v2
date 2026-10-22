@@ -167,7 +167,8 @@ describe("registerSlot and useSlot", () => {
     expect(ids(SLOTS.codeTab).sort()).toEqual(["branch", "db", "review"]);
     expect(ids(SLOTS.assistant)).toEqual(["keelbot"]);
     expect(ids(SLOTS.launcherSource)).toEqual(["review", "code", "tasks"]);
-    expect(ids(SLOTS.settingsSection)).toEqual([]);
+    // the Code Review plugin's thread settings (a section that draws itself)
+    expect(ids(SLOTS.settingsSection)).toEqual(["review-threads"]);
     // step 3: the Tasks plugin's cards in the Inbox
     expect(ids(SLOTS.inboxCard)).toEqual(["tasks"]);
   });
@@ -200,9 +201,10 @@ describe("registerSlot and useSlot", () => {
       const names = within(nav)
         .getAllByRole("button")
         .map((b) => b.textContent);
-      expect(names.indexOf("Demo part")).toBe(
-        names.indexOf("This browser") - 1,
-      );
+      // after keel's own sections, with the other parts' (Code Review threads), before This browser
+      expect(names.indexOf("Demo part")).toBeGreaterThan(names.indexOf("Budget"));
+      expect(names.indexOf("Demo part")).toBeLessThan(names.indexOf("This browser"));
+      expect(names).toContain("Code Review threads");
     } finally {
       act(() => off());
     }
