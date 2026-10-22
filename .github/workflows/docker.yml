@@ -1,4 +1,4 @@
-# Builds keel v2's images on a version tag (v*) and pushes them to
+# Builds keel v2's images and pushes them to
 #   ghcr.io/<owner>/<repo>          always: the repo's own name
 #   ghcr.io/miladnalbandi/keel-v2   the old name, while the secret LEGACY_GHCR_TOKEN exists (a token of MiladNalbandi
 #                                   with write:packages), so installs made before a move keep getting updates
@@ -9,12 +9,27 @@
 #   product  :<version>-product-beta, :product-beta (never :latest; not moved by a pre-release)  keel Product, beta
 #
 # v0.18.2 fast builds: every edition × architecture builds at the same time on its OWN kind of machine (arm64 on
-# GitHub's arm runners: no QEMU emulation), pushed by digest; a short merge job per edition joins the two digests
-# into one multi-arch tag set. The build cache lives in the registry (<image>:buildcache-<edition>-<arch>), not in
-# GitHub's 10 GB Actions cache, and every edition also reads the full edition's cache (the stages they share).
+# GitHub's arm runners: no QEMU emulation); a short merge job per edition joins the two architectures into one
+# multi-arch tag set. The build cache lives in the registry (<image>:buildcache-<edition>-<arch>), not in GitHub's
+# 10 GB Actions cache, and every edition also reads the full edition's cache (the stages they share).
+#
+# 0.18.34 the images build WHILE ci runs, and get their release tags only after ci passed:
+#
+#   push to release/**   plan → build (all 6, NO gate)   each image is pushed under a staging tag only:
+#                        ghcr.io/<owner>/<repo>:stage-<sha>-<edition>-<arch>   (never a version, latest, core or product tag)
+#   push of tag v*       plan (are the 6 staging tags of this sha there? a staging build that still runs is awaited)
+#                        gate (ci must have passed for this sha) → build (only what is missing: the old path)
+#                        → merge (the staging images become the version / minor / latest / core / product-beta tags)
+#
+# So a release script that pushes release/<x> first (ci and this workflow start together) and tags when ci is green
+# finds the images ready: the tag run only gates and tags (about a minute). A tag made without the release-branch push
+# builds as before. Nothing gets a release tag unless the gate saw a passing ci run for that exact commit.
+# Staging tags are never deleted by this workflow: a package version IS the image digest, which the release tags use
+# too (see docker-stage-cleanup.yml for the guarded clean-up).
 name: docker
 on:
   push:
+    branches: ["release/**"]
     tags: ["v*"]
   workflow_dispatch:
 permissions:
@@ -24,9 +39,68 @@ env:
   LEGACY_IMAGE: ghcr.io/miladnalbandi/keel-v2
   LEGACY_USER: MiladNalbandi
 jobs:
+  # What has to be built: on a release branch (or a manual run on a branch) everything, as staging images; on a tag
+  # only the edition × architecture pairs without a staging image for this commit. Output: the matrix for `build`.
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+      count: ${{ steps.p.outputs.count }}
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          image="$(echo "ghcr.io/$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          release=0; case "$GITHUB_REF" in refs/tags/*) release=1 ;; esac
+          missing=()
+          find_missing() {
+            missing=()
+            for e in full core product; do for a in amd64 arm64; do
+              if [ "$release" = 1 ] && docker buildx imagetools inspect "$image:stage-$SHA-$e-$a" > /dev/null 2>&1; then
+                echo "staging image there: $e $a"
+              else
+                missing+=("$e:$a")
+              fi
+            done; done
+          }
+          find_missing
+          # a staging build of this commit that is still running (the release-branch push) is awaited, up to 40 minutes,
+          # instead of building everything twice
+          if [ "$release" = 1 ] && [ "${#missing[@]}" -gt 0 ]; then
+            for i in $(seq 1 80); do
+              running="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --commit "$SHA" --json databaseId,status,headBranch --limit 20 \
+                | jq --argjson me "$GITHUB_RUN_ID" '[.[] | select(.databaseId != $me and .status != "completed" and (.headBranch | startswith("release/")))] | length')"
+              [ "$running" -gt 0 ] || break
+              echo "the staging build for $SHA is still running (${i}/80)…"; sleep 30
+            done
+            find_missing
+          fi
+          matrix="$(for m in "${missing[@]}"; do
+            e="${m%%:*}"; a="${m##*:}"
+            case "$a" in amd64) p=linux/amd64; r=ubuntu-latest ;; *) p=linux/arm64; r=ubuntu-24.04-arm ;; esac
+            jq -nc --arg e "$e" --arg a "$a" --arg p "$p" --arg r "$r" '{edition: $e, arch: $a, platform: $p, runner: $r}'
+          done | jq -sc '{include: .}')"
+          echo "to build: ${#missing[@]} of 6"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "count=${#missing[@]}" >> "$GITHUB_OUTPUT"
+
   # 0.18.x nothing is published before ci passed for this very commit: ci runs on the push to main / release/** that
   # a tag points at (a tag alone does not start ci). The gate waits (up to 40 minutes) for a ci run that is still going.
+  # Only a tag needs it: a release-branch run builds staging images, which no one installs.
   gate:
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,15 +124,13 @@ jobs:
           done
           echo "::error::There is no passing ci run for $SHA (ci runs on a push to main or release/**). Push the commit there first."; exit 1
   build:
-    needs: gate
+    needs: [plan, gate]
+    # gate is skipped on a release-branch run (no gate there), and must have passed on a tag run
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     strategy:
       fail-fast: false
-      matrix:
-        edition: [full, core, product]
-        arch:
-          - { name: amd64, platform: linux/amd64, runner: ubuntu-latest }
-          - { name: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.arch.runner }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -73,9 +145,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{ matrix.arch.platform }}
-          # pushed by digest only: the merge job puts the tags on
-          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          platforms: ${{ matrix.platform }}
+          # a staging tag only (the exact commit, edition and architecture): the merge job puts the release tags on
+          tags: ${{ steps.image.outputs.name }}:stage-${{ github.sha }}-${{ matrix.edition }}-${{ matrix.arch }}
+          push: true
           build-args: |
             INSTALL_CLIS=1
             EDITION=${{ matrix.edition }}
@@ -83,20 +156,15 @@ jobs:
             org.opencontainers.image.title=keel v2 (${{ matrix.edition }})
             org.opencontainers.image.licenses=MIT
           cache-from: |
-            type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.edition }}-${{ matrix.arch.name }}
-            type=registry,ref=${{ steps.image.outputs.name }}:buildcache-full-${{ matrix.arch.name }}
-          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.edition }}-${{ matrix.arch.name }},mode=max,image-manifest=true,oci-mediatypes=true
-      - run: |
-          mkdir -p /tmp/digests
-          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.arch.name }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.edition }}-${{ matrix.arch.name }}
-          path: /tmp/digests/*
-          retention-days: 1
+            type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.edition }}-${{ matrix.arch }}
+            type=registry,ref=${{ steps.image.outputs.name }}:buildcache-full-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.edition }}-${{ matrix.arch }},mode=max,image-manifest=true,oci-mediatypes=true
+      - run: echo "${{ steps.image.outputs.name }}:stage-${{ github.sha }}-${{ matrix.edition }}-${{ matrix.arch }} ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
   merge:
-    needs: build
+    needs: [plan, gate, build]
+    # a tag run only; ci passed (gate); every image that had to be built was built (a skipped build = all were there)
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') && needs.plan.result == 'success' && needs.gate.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,11 +174,6 @@ jobs:
       HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
       HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: digest-${{ matrix.edition }}-*
-          path: /tmp/digests
-          merge-multiple: true
       - uses: docker/setup-buildx-action@v3
       # one login per registry: the legacy token can push both names, the workflow's token only the repo's own
       - uses: docker/login-action@v3
@@ -130,10 +193,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: tag the two digests as one multi-arch image
+      - name: tag the two staging images as one multi-arch image
         env:
           EDITION: ${{ matrix.edition }}
           REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           image="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
@@ -151,7 +215,13 @@ jobs:
               product) tags+=("$n:$version-product-beta"); [ $pre = 1 ] || tags+=("$n:product-beta") ;;
             esac
           done
-          sources=(); for f in /tmp/digests/*; do sources+=("$image@$(cat "$f")"); done
+          # the sources: the staging image of THIS commit for each architecture (built by the release-branch push or by build above)
+          sources=()
+          for a in amd64 arm64; do
+            s="$image:stage-$SHA-$EDITION-$a"
+            docker buildx imagetools inspect "$s" > /dev/null || { echo "::error::The staging image $s is missing: nothing is tagged."; exit 1; }
+            sources+=("$s")
+          done
           args=(); for tg in "${tags[@]}"; do args+=(-t "$tg"); done
           docker buildx imagetools create "${args[@]}" "${sources[@]}"
           for tg in "${tags[@]}"; do echo "$tg"; done

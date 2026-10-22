@@ -1,0 +1,75 @@
+# Cleans up the staging images that docker.yml pushes on a release-branch push (ghcr tag stage-<sha>-<edition>-<arch>).
+#
+# Why this is careful: in GitHub Packages a "version" IS an image digest. The version that carries a staging tag is
+# the very image a release tag (:0.18.34, :latest, ...) points at, so deleting it would break installs. This job
+# therefore deletes a staging version only when ALL of these are true:
+#   - every tag of the version starts with "stage-" (a version that also has any other tag is never touched)
+#   - it is older than <days> (default 14)
+#   - neither its digest nor any image it contains is part of ANY other tagged image (a release tag, :latest, :core ...)
+#   - the check itself ran without a single error (one failed lookup = nothing is deleted)
+# It never touches untagged versions, version / latest / core / product-beta tags, or buildcache-* tags.
+#
+# DRY RUN BY DEFAULT: it only lists what it would delete. To really delete, run it by hand with delete=true, or set the
+# repository variable STAGE_CLEANUP_DELETE to "true" (then the weekly run deletes). If the workflow token cannot manage
+# the package (package settings → "Manage Actions access"), the job says so and stops: the staging tags are harmless.
+name: docker-stage-cleanup
+on:
+  schedule:
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "delete staging images older than this many days"
+        default: "14"
+      delete:
+        description: "really delete (false = only list)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  packages: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: list (and maybe delete) old staging images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS: ${{ inputs.days || '14' }}
+          DELETE: ${{ (github.event_name == 'workflow_dispatch' && inputs.delete) || (github.event_name == 'schedule' && vars.STAGE_CLEANUP_DELETE == 'true') }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"; pkg="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          case "$(gh api "users/$owner" --jq .type)" in Organization) base="orgs/$owner" ;; *) base="users/$owner" ;; esac
+          if ! versions="$(gh api --paginate "$base/packages/container/$pkg/versions?per_page=100" --jq '.[] | {id, name, created_at, tags: .metadata.container.tags}' | jq -sc .)"; then
+            echo "::notice::The workflow token cannot list the package versions: nothing to do (the staging tags are harmless)."; exit 0
+          fi
+          cutoff="$(date -u -d "$DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
+          # every digest that a NON-staging tagged image holds: its own digest and the images inside it
+          protected="$(mktemp)"
+          while read -r tag; do
+            echo "protect :$tag"
+            docker buildx imagetools inspect --raw "$image:$tag" | jq -r '(.manifests // [])[].digest' >> "$protected"
+          done < <(jq -r '.[].tags[]? | select((startswith("stage-") or startswith("buildcache-")) | not)' <<< "$versions" | sort -u)
+          # ... and the digests of those tagged versions themselves
+          jq -r '.[] | select((.tags // []) | any(startswith("stage-") or startswith("buildcache-") | not)) | .name' <<< "$versions" >> "$protected"
+          # candidates: all tags are stage-*, older than the cutoff
+          jq -c --arg cutoff "$cutoff" '.[] | select((.tags // []) | length > 0 and all(startswith("stage-"))) | select(.created_at < $cutoff)' <<< "$versions" | while read -r v; do
+            id="$(jq -r .id <<< "$v")"; digest="$(jq -r .name <<< "$v")"; tags="$(jq -r '.tags | join(",")' <<< "$v")"
+            inside="$(docker buildx imagetools inspect --raw "$image@$digest" | jq -r '(.manifests // [])[].digest')" || { echo "::error::cannot read $digest: stopping, nothing more is deleted."; exit 1; }
+            used=0
+            for d in "$digest" $inside; do if grep -qxF "$d" "$protected"; then used=1; fi; done
+            if [ "$used" = 1 ]; then echo "keep   $tags (used by a release tag)"; continue; fi
+            if [ "$DELETE" = true ]; then
+              gh api -X DELETE "$base/packages/container/$pkg/versions/$id" && echo "deleted $tags ($digest)"
+            else
+              echo "would delete $tags ($digest), created $(jq -r .created_at <<< "$v")"
+            fi
+          done
