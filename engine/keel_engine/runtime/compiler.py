@@ -2167,7 +2167,7 @@ class Compiler:
         else:
             stall = {"fingerprint": fp, "count": 1, "step": 0}
         feedback = f"{r.note}\n{r.detail[-4000:]}".strip()
-        limit = rules.load_config(self.ctx.root).get("loops", {}).get("stall_repeats", 3)
+        limit = (rules.load_config(self.ctx.root).get("loops") or {}).get("stall_repeats", 3)
         if stall["count"] >= limit:
             stall["step"] = min(stall.get("step", 0) + 1, len(rules.LADDER))
             feedback += "\n\nStall ladder: " + rules.LADDER[stall["step"] - 1]

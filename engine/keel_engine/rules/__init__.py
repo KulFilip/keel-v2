@@ -179,6 +179,8 @@ def is_off(cfg: dict | None, rule_id: str) -> bool:
 def _merge(base: dict, over: dict) -> dict:
     out = copy.deepcopy(base)
     for k, v in (over or {}).items():
+        if v is None and isinstance(out.get(k), dict):
+            continue            # `backend:` with no value is an empty section: the defaults stay (None broke every .get())
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = _merge(out[k], v)
         else:
