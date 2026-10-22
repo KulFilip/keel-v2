@@ -6,7 +6,8 @@
     python3 product/e2e/e2e.py --running                                             the fake model, on a running keel-lab
                                                                                      (e2e/plugins installs Product into it)
 
-It starts the container keel-lab (port 8099, volume keel-lab-data), makes two git repos with CODEOWNERS, and walks one
+It starts the container keel-lab (port 8099, volume keel-lab-data; KEEL_E2E_NAME, KEEL_E2E_VOLUME and KEEL_E2E_PORT
+change them), makes two git repos with CODEOWNERS, and walks one
 initiative through every stage over the HTTP api, the way a person clicks it: keel's questions, the brief (sent back
 once), the impact (read only, one analyst per repo), the decision (a disagreement, then Go), the plan (agreed), the
 hand-off to keel Tasks, the release, the outcome and the lesson for the team. Every step checks what keel wrote.
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -28,7 +30,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-NAME, VOLUME, PORT = "keel-lab", "keel-lab-data", 8099
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "e2e"))
+import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+
+# KEEL_E2E_NAME, KEEL_E2E_VOLUME, KEEL_E2E_PORT: another throw-away keel next to a keel-lab that is in use
+NAME = os.environ.get("KEEL_E2E_NAME", "keel-lab")
+VOLUME = os.environ.get("KEEL_E2E_VOLUME", f"{NAME}-data")
+PORT = int(os.environ.get("KEEL_E2E_PORT", "8099"))
 BASE = f"http://127.0.0.1:{PORT}/api"
 CHECKS: list[str] = []
 
@@ -42,7 +50,7 @@ def sh(*args: str, cwd: Path | None = None, check: bool = True) -> str:
 
 def call(method: str, path: str, body: object | None = None, ok: tuple[int, ...] = (200,)) -> object:
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(BASE + path, data=data, method=method, headers={"content-type": "application/json"} if data else {})
+    req = urllib.request.Request(BASE + path, data=data, method=method, headers={**({"content-type": "application/json"} if data else {}), **keelauth.headers(NAME)})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             text = r.read().decode()
@@ -88,7 +96,7 @@ def repo(root: Path, name: str, files: dict[str, str]) -> Path:
 def start(image: str, ws: Path) -> None:
     sh("docker", "rm", "-f", NAME, check=False)
     sh("docker", "volume", "rm", VOLUME, check=False)
-    sh("docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-v", f"{VOLUME}:/data", "-v", f"{ws}:/workspace", image)
+    sh("docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-e", "KEEL_FAKE=1", "-v", f"{VOLUME}:/data", "-v", f"{ws}:/workspace", image)
 
     def healthy():
         try:
