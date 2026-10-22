@@ -123,6 +123,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         if (method == "POST" && path == PLUGIN_REQUESTS) return "read"
         if (method == "POST" && READ_POSTS.any { it.matches(path) }) return "read"
         if (ADMIN.any { (m, re) -> m == method && re.matches(path) }) return "admin"
+        if (ADMIN_PREFIXES.any { path == it || path.startsWith("$it/") }) return "admin"
         return "write"
     }
 
@@ -166,7 +167,27 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             // 0.18.6 skills: a new one, an import, the agents it is on and a marketplace install are write (each MCP tool
             // asks the person first); removing one is admin
             "DELETE" to Regex("^/api/projects/[^/]+/skills/[^/]+$"),
+            // keel's own configuration and what can reach the machine or the account: an agent with MCP write must not
+            // install a plugin, store a secret, sign in somewhere, change a setting or approve a plugin install. No MCP
+            // tool calls these except keel_connect_github, which is an admin tool.
+            "POST" to Regex("^/api/plugins/(install|install-file|restart)$"),
+            "POST" to Regex("^/api/plugins/[^/]+/(update|rollback)$"),
+            "PUT" to Regex("^/api/plugins/(sources|rules)$"),
+            "PUT" to Regex("^/api/plugins/[^/]+$"),
+            "DELETE" to Regex("^/api/plugins/[^/]+$"),
+            "POST" to Regex("^/api/marketplace/refresh$"),
+            "PUT" to Regex("^/api/secrets/[^/]+$"),
+            "DELETE" to Regex("^/api/secrets/[^/]+$"),
+            "PUT" to Regex("^/api/settings/general$"),
+            "PUT" to Regex("^/api/connections/[^/]+$"),
+            "POST" to Regex("^/api/connections/[^/]+/test$"),
+            "POST" to Regex("^/api/logins$"),
+            "POST" to Regex("^/api/logins/[^/]+/code$"),
+            "DELETE" to Regex("^/api/logins/[^/]+$"),
+            "POST" to Regex("^/api/approvals/[^/]+/decide$"),
         )
+        /** Every method under these prefixes needs admin (all of /api/github: sign-in, sign-out, tokens). */
+        private val ADMIN_PREFIXES = listOf("/api/github")
         /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
         private val READ_POSTS = listOf(
             Regex("^/api/projects/[^/]+/rules/check$"),
