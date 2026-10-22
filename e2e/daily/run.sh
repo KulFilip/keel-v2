@@ -27,7 +27,7 @@ if [ -z "${KEEL_E2E_IN_MISE:-}" ] && command -v mise >/dev/null 2>&1; then
   exec env KEEL_E2E_IN_MISE=1 mise exec node@20 java@21 -- "$0" "$@"
 fi
 
-real=0 keep=0 only=""
+real=0 keep=0 only="${KEEL_E2E_ONLY:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --real) real=1 ;;
@@ -79,7 +79,6 @@ trap cleanup EXIT
 echo "== seed the sample projects"
 projects="$work/projects"
 python3 "$here/seed.py" "$projects" >/dev/null
-printf '%s\n' "$projects" > "$XDG_CONFIG_HOME/keel2/$NAME.folders"   # "Add projects" ticks repos from this folder
 export KEEL_E2E_SHOP="$projects/shop" KEEL_E2E_NOTES="$projects/notes" KEEL_E2E_WORK="$work"
 
 echo "== native build (cached in $DIST)"
@@ -91,9 +90,11 @@ if [ "$stale" = 1 ]; then rm -f "$DIST"/keel-v2-*; "$src/scripts/build-native.sh
 
 echo "== start the throw-away keel: $NAME on port $PORT (fake model: $([ $real = 1 ] && echo NO || echo yes))"
 "$src/keel2" start --native --from-tarball "$tgz" "$projects/shop" > "$work/start.log" 2>&1 || { tail -30 "$work/start.log" >&2; exit 1; }
-"$src/keel2" status | grep -q "running natively" || { echo "keel is not running natively" >&2; exit 1; }
+st="$("$src/keel2" status 2>&1 || true)"   # (not "| grep -q": pipefail + SIGPIPE)
+case "$st" in *"running natively"*) ;; *) echo "keel is not running natively: $st" >&2; exit 1 ;; esac
 export KEEL_URL="http://127.0.0.1:$PORT"
 export KEEL_KEY="$("$src/keel2" auth key)"
+export KEEL_TOKEN="$(cat "$KEEL2_HOME/$NAME/run/token" 2>/dev/null || true)"   # keel's internal token: only keel2 may make sign-in links
 for _ in $(seq 1 60); do curl -fs "$KEEL_URL/api/health" >/dev/null 2>&1 && break; sleep 2; done
 curl -fs "$KEEL_URL/api/health" >/dev/null || { echo "keel does not answer on $KEEL_URL" >&2; exit 1; }
 

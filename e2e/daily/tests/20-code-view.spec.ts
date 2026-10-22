@@ -61,8 +61,13 @@ test.describe("J5 Code view", () => {
     expect(await top(page, ".cv"), "scrolls back to the top").toBeLessThan(5);
     // the line numbers shown follow the scroll (the virtual list renders the visible lines)
     await wheelOver(page, ".cv", 400, 12);
-    const first = await page.locator(".cv .cv-row").first().getAttribute("data-line");
-    expect(Number(first), "the first rendered line moved on").toBeGreaterThan(20);
+    // the line at the top edge of the file body follows the scroll (the list may render every line: look at the viewport)
+    const first = await page.locator(".cv").first().evaluate((cv: HTMLElement) => {
+      const top = cv.getBoundingClientRect().top;
+      const row = [...cv.querySelectorAll<HTMLElement>(".cv-row")].find((r) => r.getBoundingClientRect().bottom > top + 4);
+      return row?.dataset.line;
+    });
+    expect(Number(first), "the line at the top of the file body moved on").toBeGreaterThan(20);
     await expectNoConsoleErrors(errors);
   });
 
@@ -156,7 +161,7 @@ test.describe("J5 Code view", () => {
     const tree = page.getByRole("tree", { name: "Files" });
     await expect(tree).toBeVisible({ timeout: 30_000 });
     await tree.locator('[data-path="big"]').click();
-    await tree.locator('[data-path="big/inventory.py"]').click();
+    await tree.locator('[data-path="big/inventory.py"]').dblclick(); // a double click keeps the tab (a single click is a preview tab that the next click replaces)
     await expect(page.locator(".crumbs .crumb-f")).toHaveText("inventory.py");
     await expect(page.locator('.ed-tabs [role=tab][aria-selected="true"]')).toContainText("inventory.py");
     await tree.locator('[data-path="big/Stock.kt"]').click();
