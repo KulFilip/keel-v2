@@ -112,7 +112,7 @@ abstract class ApiTest {
                     "printf 'System keychain unavailable. Store token in plaintext config file? (y/N) '; read answer; " +
                     "if [ \"\$answer\" != y ]; then echo 'Login succeeded, but the token was not saved.'; exit 1; fi; " +
                     "mkdir -p \"\$HOME/.copilot\"; echo '{\"token\":\"gho_abcdefghijklmnopqrstuvwxyz123456\"}' > \"\$HOME/.copilot/config.json\"; " +
-                    "echo 'Signed in successfully'; sleep 600"
+                    "echo 'Signed in successfully'; exec sleep 600"
             }
             // GitHub sign-in: a stand-in gh (it writes its arguments to gh.log) and no real GitHub
             val fakeGh = dataDir.resolve("fake-gh")
@@ -121,10 +121,10 @@ echo "${'$'}*" >> "${'$'}(dirname "${'$'}0")/gh.log"
 case "${'$'}1 ${'$'}2" in
   "auth login")
     # like gh 2.102 in a container: the plain prompter needs GH_ACCESSIBLE_PROMPTER, else gh waits for terminal answers forever
-    if [ "${'$'}GH_ACCESSIBLE_PROMPTER" != true ]; then sleep 600; fi
+    if [ "${'$'}GH_ACCESSIBLE_PROMPTER" != true ]; then exec sleep 600; fi
     case "${'$'}*" in
-      *cpr.example.com*) printf '\033[6n'; reply=${'$'}(dd bs=1 count=6 2>/dev/null); case "${'$'}reply" in *"[1;1R"*) ;; *) sleep 600;; esac;;
-      *hang.example.com*) sleep 600;;
+      *cpr.example.com*) printf '\033[6n'; reply=${'$'}(dd bs=1 count=6 2>/dev/null); case "${'$'}reply" in *"[1;1R"*) ;; *) exec sleep 600;; esac;;
+      *hang.example.com*) exec sleep 600;;
     esac
     # exactly what gh 2.102's accessible prompter prints (square brackets, no newline)
     printf 'Authenticate Git with your GitHub credentials? (default: yes) [Y/n] '
@@ -137,7 +137,7 @@ case "${'$'}1 ${'$'}2" in
   "auth token") echo "gho_fakefakefakefakefakefakefakefake1234";;
   "auth status") echo "github.com"; echo "  ✓ Logged in to github.com account mili-dev (hosts.yml)"; echo "  - Token scopes: 'read:org', 'repo', 'workflow'";;
   "auth logout")
-    # a gh that never answers, with a child of its own (like gh waiting on a browser helper)
+    # a gh that never answers, with a child of its own (like gh waiting on a browser helper); the service kills the whole tree
     case "${'$'}*" in *hang.example.com*) sleep 600 & wait;; esac
     echo "Logged out";;
 esac
