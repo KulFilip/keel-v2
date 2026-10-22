@@ -282,7 +282,7 @@ export function ReviewDiff({
                     />
                   </div>
                   {under(s.right?.new, "RIGHT")}
-                  {s.left?.kind === "del" && under(s.left.old, "LEFT")}
+                  {(s.left?.kind === "del" || s.left?.kind === "ctx") && under(s.left.old, "LEFT")}
                 </Fragment>
               );
             })}

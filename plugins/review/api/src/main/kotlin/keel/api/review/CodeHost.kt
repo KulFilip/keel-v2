@@ -4,7 +4,7 @@ import keel.api.common.ApiException
 import org.springframework.http.HttpStatus
 
 /** A line comment that goes out with a review: on the new side (RIGHT) or the old side (LEFT) of the diff. */
-data class OutComment(val path: String, val line: Int, val side: String, val body: String)
+data class OutComment(val path: String, val line: Int, val side: String, val body: String, val draftId: String? = null)
 
 class HostException(message: String, hint: String? = null, status: Int = 502) :
     ApiException(HttpStatus.valueOf(status), message, hint)
@@ -41,7 +41,10 @@ interface CodeHost {
     fun resolve(number: Int, thread: ReviewThread, resolved: Boolean)
 
     /** One review: line comments plus COMMENT, APPROVE or REQUEST_CHANGES. Returns a link to it, when the host gives one. */
-    fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>): String?
+    fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>, onPosted: (OutComment?) -> Unit = {}): String?
+
+    // [onPosted] is called for each line comment once the host has it, and with null once the review's own text is
+    // there: a host that sends a review in several calls (GitLab) lets a retry skip what went out already.
 
     /** Merges it (merge, squash or rebase) at [PrDetail.headSha]; the host refuses when it moved on. Returns the host's message. */
     fun merge(pr: PrDetail, method: String, deleteBranch: Boolean): String
@@ -50,4 +53,10 @@ interface CodeHost {
     fun fetchUrl(): String
     fun authHeader(): String
     fun headRef(number: Int): String
+
+    /**
+     * What the calls so far could not say in their result: a list cut at the page maximum ("the oldest comments are not
+     * shown"). Reads and clears them; the review shows them as notes.
+     */
+    fun takeNotes(): List<String> = emptyList()
 }

@@ -36,7 +36,10 @@ type One = {
   error: Err | null;
   ai: AiState | null;
   aiError: Err | null;
+  /** the action that started last and still runs (several can run at once: see running) */
   busy: string | null;
+  /** every action that runs now: a button is busy for its own action only */
+  running: string[];
   err: Err | null;
   loading: boolean;
 };
@@ -89,6 +92,7 @@ const blank = (): One => ({
   ai: null,
   aiError: null,
   busy: null,
+  running: [],
   err: null,
   loading: false,
 });
@@ -111,6 +115,7 @@ export function setUi(patch: Partial<typeof ui>) {
 /** Tests: forget everything. */
 export function resetReviews() {
   reviews.clear();
+  loadSeq.clear();
   Object.assign(ui, {
     current: null,
     composing: null,
@@ -151,16 +156,27 @@ export function openPlace(
 
 const inflight = new Map<string, Promise<void>>();
 
+// the newest load of a review wins: an older one that answers late (a slow refresh, then a quick reload) is dropped
+const loadSeq = new Map<string, number>();
+
 export function load(pid: string, key: string, refresh = false): Promise<void> {
-  const k = id(pid, key) + (refresh ? "|r" : "");
+  const base = id(pid, key);
+  const k = base + (refresh ? "|r" : "");
   const running = inflight.get(k);
   if (running) return running;
+  const mine = (loadSeq.get(base) ?? 0) + 1;
+  loadSeq.set(base, mine);
+  const latest = () => loadSeq.get(base) === mine;
   set(pid, key, { loading: true });
   const p = reviewApi
     .view(pid, key, refresh)
     .then(
-      (view) => set(pid, key, { view, error: null, loading: false }),
-      (e) => set(pid, key, { error: errorParts(e), loading: false }),
+      (view) => {
+        if (latest()) set(pid, key, { view, error: null, loading: false });
+      },
+      (e) => {
+        if (latest()) set(pid, key, { error: errorParts(e), loading: false });
+      },
     )
     .finally(() => inflight.delete(k));
   inflight.set(k, p);
@@ -181,13 +197,21 @@ async function act<T>(
   name: string,
   fn: () => Promise<T>,
 ): Promise<T | undefined> {
-  set(pid, key, { busy: name, err: null });
+  const start = (review(pid, key).running ?? []).concat(name);
+  set(pid, key, { busy: name, running: start, err: null });
+  // this action ends: one entry of its name goes, the others keep running
+  const end = (patch: Partial<One> = {}) => {
+    const left = [...review(pid, key).running];
+    const at = left.indexOf(name);
+    if (at >= 0) left.splice(at, 1);
+    set(pid, key, { busy: left[left.length - 1] ?? null, running: left, ...patch });
+  };
   try {
     const r = await fn();
-    set(pid, key, { busy: null });
+    end();
     return r;
   } catch (e) {
-    set(pid, key, { busy: null, err: errorParts(e) });
+    end({ err: errorParts(e) });
     return undefined;
   }
 }

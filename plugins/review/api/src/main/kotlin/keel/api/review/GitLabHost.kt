@@ -24,6 +24,11 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
     private val root: String = apiBase.trim().trimEnd('/').ifBlank { "https://${ref.host}/api/v4" }
     private val project = "$root/projects/${enc(ref.path)}"
 
+    private val notes = java.util.Collections.synchronizedList(mutableListOf<String>())
+    override fun takeNotes(): List<String> = synchronized(notes) { notes.toList().also { notes.clear() } }
+    private fun note(text: String) { synchronized(notes) { if (text !in notes) notes += text } }
+    private val ownHost = Paging.sameHost(root)
+
     private val rest: RestClient by lazy {
         val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(8)).build()
         RestClient.builder().requestFactory(JdkClientHttpRequestFactory(http).apply { setReadTimeout(Duration.ofSeconds(30)) })
@@ -35,8 +40,11 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
         throw HostException("GitLab did not say who the token belongs to.")
     }
 
-    override fun list(me: String): List<PrSummary> =
-        get("$project/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100", "the merge requests").map { summary(it, me) }
+    override fun list(me: String): List<PrSummary> {
+        val all = getAll("$project/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100", "the merge requests")
+        if (all.truncated) note("Only the ${all.items.size} most recently updated open merge requests are listed; the counts cover those.")
+        return all.items.map { summary(it, me) }
+    }
 
     override fun forBranch(branch: String, me: String): PrSummary? =
         get("$project/merge_requests?state=opened&source_branch=${enc(branch)}&per_page=5", "the merge request of $branch").firstOrNull()?.let { summary(it, me) }
@@ -79,8 +87,10 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
     override fun checks(pr: PrDetail): List<CheckRun> {
         val pipes = get("$project/merge_requests/${pr.number}/pipelines?per_page=1", "the pipelines")
         val p = pipes.firstOrNull() ?: return emptyList()
-        val jobs = runCatching { get("$project/pipelines/${p.path("id").asLong()}/jobs?per_page=100", "the jobs") }.getOrNull()
-        val list = jobs?.map { j -> CheckRun(j.path("name").asText(), state(j.path("status").asText()), j.path("web_url").asText(null)) }.orEmpty()
+        // an error is an error ("keel could not read the checks"), never "no checks"
+        val jobs = getAll("$project/pipelines/${p.path("id").asLong()}/jobs?per_page=100", "the jobs")
+        if (jobs.truncated) note("Only the first ${Paging.MAX_PAGES * 100} jobs of the pipeline are listed.")
+        val list = jobs.items.map { j -> CheckRun(j.path("name").asText(), state(j.path("status").asText()), j.path("web_url").asText(null)) }
         return list.ifEmpty { listOf(CheckRun("pipeline", state(p.path("status").asText()), p.path("web_url").asText(null))) }
     }
 
@@ -91,22 +101,36 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
         return Decisions(a.path("approved_by").map { it.path("user").path("username").asText() }, emptyList())
     }
 
-    private fun discussions(number: Int): JsonNode = get("$project/merge_requests/$number/discussions?per_page=100", "the discussions")
+    /** Oldest first: when the list is cut, the newest discussions are the ones kept. */
+    private fun discussions(number: Int): List<JsonNode> {
+        val all = getAll("$project/merge_requests/$number/discussions?per_page=100", "the discussions", newest = true)
+        if (all.truncated) note("Only the newest ${all.items.size} discussions are shown; the oldest are left out.")
+        return all.items
+    }
 
-    override fun threads(number: Int): List<ReviewThread> = discussions(number).mapNotNull { d ->
+    override fun threads(number: Int): List<ReviewThread> {
+        val found = discussions(number)
+        // GitLab moves a thread's position to the new code when the line is still there; a position that stayed on an
+        // older commit is outdated (GitLab's own "active" test: the position's diff refs are the merge request's)
+        val head = if (found.any { d -> d.path("notes").any { !it.path("position").isMissingNode && !it.path("position").isNull } })
+            get("$project/merge_requests/$number", "merge request !$number").path("diff_refs").path("head_sha").asText(null) else null
+        return found.mapNotNull { d -> thread(d, head) }
+    }
+
+    private fun thread(d: JsonNode, head: String?): ReviewThread? {
         val notes = d.path("notes").filter { !it.path("system").asBoolean(false) }
-        val first = notes.firstOrNull() ?: return@mapNotNull null
+        val first = notes.firstOrNull() ?: return null
         val pos = first.path("position")
-        if (pos.isMissingNode || pos.isNull) return@mapNotNull null
+        if (pos.isMissingNode || pos.isNull) return null
         val newLine = pos.path("new_line").takeIf { it.isInt }?.asInt()
         val oldLine = pos.path("old_line").takeIf { it.isInt }?.asInt()
-        ReviewThread(
+        return ReviewThread(
             id = d.path("id").asText(),
             path = pos.path("new_path").asText(null) ?: pos.path("old_path").asText(null),
             line = newLine ?: oldLine,
             side = if (newLine == null && oldLine != null) "LEFT" else "RIGHT",
             resolved = notes.all { !it.path("resolvable").asBoolean(false) || it.path("resolved").asBoolean(false) },
-            outdated = false,
+            outdated = head != null && pos.path("head_sha").asText("").let { it.isNotEmpty() && it != head },
             comments = notes.map { comment(it) },
             replyTo = d.path("id").asText(),
         )
@@ -132,29 +156,42 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
         }
     }
 
-    override fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>): String? {
+    override fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>, onPosted: (OutComment?) -> Unit): String? {
         val m = get("$project/merge_requests/${pr.number}", "merge request !${pr.number}")
         val refs = m.path("diff_refs")
-        for (c in comments) {
-            val position = linkedMapOf<String, Any?>(
-                "position_type" to "text",
-                "base_sha" to refs.path("base_sha").asText(),
-                "start_sha" to refs.path("start_sha").asText(),
-                "head_sha" to refs.path("head_sha").asText(),
-                "new_path" to c.path,
-                "old_path" to c.path,
-            )
-            if (c.side == "LEFT") position["old_line"] = c.line else position["new_line"] = c.line
-            post("$project/merge_requests/${pr.number}/discussions", mapOf("body" to c.body, "position" to position), "a line comment on ${c.path}:${c.line}")
-        }
-        val text = when (event) {
-            "REQUEST_CHANGES" -> listOf("**Changes requested.**", body).filter { it.isNotBlank() }.joinToString("\n\n")
-            else -> body
-        }
-        if (text.isNotBlank()) post("$project/merge_requests/${pr.number}/notes", mapOf("body" to text), "your review note")
-        when (event) {
-            "APPROVE" -> post("$project/merge_requests/${pr.number}/approve", mapOf("sha" to pr.headSha), "your approval")
-            "REQUEST_CHANGES" -> runCatching { post("$project/merge_requests/${pr.number}/unapprove", emptyMap<String, Any>(), "taking back the approval") }
+        var posted = 0
+        try {
+            for (c in comments) {
+                val position = linkedMapOf<String, Any?>(
+                    "position_type" to "text",
+                    "base_sha" to refs.path("base_sha").asText(),
+                    "start_sha" to refs.path("start_sha").asText(),
+                    "head_sha" to refs.path("head_sha").asText(),
+                    "new_path" to c.path,
+                    "old_path" to c.path,
+                )
+                if (c.side == "LEFT") position["old_line"] = c.line else position["new_line"] = c.line
+                post("$project/merge_requests/${pr.number}/discussions", mapOf("body" to c.body, "position" to position), "a line comment on ${c.path}:${c.line}")
+                posted++
+                onPosted(c)               // this one is on GitLab: a retry must not post it again
+            }
+            val text = when (event) {
+                "REQUEST_CHANGES" -> listOf("**Changes requested.**", body).filter { it.isNotBlank() }.joinToString("\n\n")
+                else -> body
+            }
+            if (text.isNotBlank()) {
+                post("$project/merge_requests/${pr.number}/notes", mapOf("body" to text), "your review note")
+                onPosted(null)
+            }
+            when (event) {
+                "APPROVE" -> post("$project/merge_requests/${pr.number}/approve", mapOf("sha" to pr.headSha), "your approval")
+                "REQUEST_CHANGES" -> runCatching { post("$project/merge_requests/${pr.number}/unapprove", emptyMap<String, Any>(), "taking back the approval") }
+            }
+        } catch (e: HostException) {
+            // GitLab has no one-call review: say what went out, so the person knows a retry sends the rest only
+            if (posted == 0) throw e
+            throw HostException(e.message, "$posted of ${comments.size} line comments are on GitLab already; submit again to send the rest. ${e.hint.orEmpty()}".trim(),
+                e.status.value())
         }
         return pr.url
     }
@@ -178,6 +215,11 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
 
     // ---- http
 
+    private fun getAll(url: String, what: String, newest: Boolean = false): Paged =
+        Paging.all(url, newest, ownHost, { it }) { u ->
+            call(what) { rest.get().uri(URI.create(u)).retrieve().toEntity(JsonNode::class.java) }
+        }
+
     private fun get(url: String, what: String): JsonNode = call(what) {
         rest.get().uri(URI.create(url)).retrieve().body(JsonNode::class.java) ?: mapper.createObjectNode()
     }
@@ -187,12 +229,16 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
             .retrieve().body(JsonNode::class.java) ?: mapper.createObjectNode()
     }
 
-    private fun call(what: String, block: () -> JsonNode): JsonNode = try {
+    private fun <T> call(what: String, block: () -> T): T = try {
         block()
     } catch (e: RestClientResponseException) {
         val msg = runCatching { mapper.readTree(e.responseBodyAsString).let { it.path("message").toString().trim('"').ifBlank { it.path("error").asText() } } }
             .getOrNull().orEmpty()
         val clean = msg.replace(token, "***").take(200)
+        if (e.statusCode.value() == 429) {
+            val at = e.responseHeaders?.let { Paging.resetTime(it, "RateLimit-Reset") }
+            throw HostException("GitLab is rate limiting this token ($what).", if (at != null) "Rate limited, try again at $at." else "Rate limited, try again in a minute.", 429)
+        }
         when (e.statusCode.value()) {
             401 -> throw HostException("GitLab refused the token ($what).", "Check the GitLab token in Connections (scope api).", 409)
             403 -> throw HostException("GitLab did not allow $what: $clean", "The token needs the api scope, and your role must allow it.", 409)

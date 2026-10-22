@@ -31,6 +31,11 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
     private val name = ref.path.substringAfter('/')
     private val repo = "$root/repos/${enc(owner)}/${enc(name)}"
 
+    private val notes = java.util.Collections.synchronizedList(mutableListOf<String>())
+    override fun takeNotes(): List<String> = synchronized(notes) { notes.toList().also { notes.clear() } }
+    private fun note(text: String) { synchronized(notes) { if (text !in notes) notes += text } }
+    private val ownHost = Paging.sameHost(root)
+
     private val rest: RestClient by lazy {
         val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(8)).build()
         RestClient.builder().requestFactory(JdkClientHttpRequestFactory(http).apply { setReadTimeout(Duration.ofSeconds(30)) })
@@ -44,8 +49,11 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
         throw HostException("GitHub did not say who the token belongs to.")
     }
 
-    override fun list(me: String): List<PrSummary> =
-        get("$repo/pulls?state=open&sort=updated&direction=desc&per_page=100", "the pull requests").map { summary(it, me) }
+    override fun list(me: String): List<PrSummary> {
+        val all = getAll("$repo/pulls?state=open&sort=updated&direction=desc&per_page=100", "the pull requests")
+        if (all.truncated) note("Only the ${all.items.size} most recently updated open pull requests are listed; the counts cover those.")
+        return all.items.map { summary(it, me) }
+    }
 
     override fun forBranch(branch: String, me: String): PrSummary? =
         get("$repo/pulls?state=open&head=${enc("$owner:$branch")}&per_page=5", "the pull request of $branch").firstOrNull()?.let { summary(it, me) }
@@ -86,19 +94,24 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
     }
 
     override fun checks(pr: PrDetail): List<CheckRun> {
-        val runs = runCatching { get("$repo/commits/${pr.headSha}/check-runs?per_page=100", "the checks") }.getOrNull()
-        val out = runs?.path("check_runs")?.map { c ->
+        // an error is an error ("keel could not read the checks"), never "no checks"
+        val runs = getAll("$repo/commits/${pr.headSha}/check-runs?per_page=100", "the checks") { it.path("check_runs") }
+        val out = runs.items.map { c ->
             CheckRun(c.path("name").asText(), (c.path("conclusion").asText("").ifBlank { c.path("status").asText("pending") }).lowercase(),
                 c.path("html_url").asText(null))
-        }.orEmpty()
-        val status = runCatching { get("$repo/commits/${pr.headSha}/status", "the commit status") }.getOrNull()
-        val more = status?.path("statuses")?.map { s -> CheckRun(s.path("context").asText(), s.path("state").asText().lowercase(), s.path("target_url").asText(null)) }.orEmpty()
+        }
+        val status = getAll("$repo/commits/${pr.headSha}/status?per_page=100", "the commit status") { it.path("statuses") }
+        val more = status.items.map { s -> CheckRun(s.path("context").asText(), s.path("state").asText().lowercase(), s.path("target_url").asText(null)) }
+        if (runs.truncated || status.truncated) note("Only the first ${Paging.MAX_PAGES * 100} checks are listed.")
         return out + more
     }
 
     override fun decisions(number: Int): Decisions {
         val latest = linkedMapOf<String, String>()
-        for (r in get("$repo/pulls/$number/reviews?per_page=100", "the reviews")) {
+        // oldest first, the latest state of a person counts: when the list is cut, the newest reviews are the ones kept
+        val reviews = getAll("$repo/pulls/$number/reviews?per_page=100", "the reviews", newest = true)
+        if (reviews.truncated) note("Only the newest ${reviews.items.size} reviews were read, so an older approval may be missing.")
+        for (r in reviews.items) {
             val state = r.path("state").asText()
             if (state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "DISMISSED") latest[r.path("user").path("login").asText()] = state
         }
@@ -106,31 +119,57 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
     }
 
     override fun threads(number: Int): List<ReviewThread> {
-        val q = """
-            query(${'$'}o: String!, ${'$'}r: String!, ${'$'}n: Int!) {
-              repository(owner: ${'$'}o, name: ${'$'}r) { pullRequest(number: ${'$'}n) { reviewThreads(first: 100) { nodes {
-                id isResolved isOutdated path line originalLine diffSide
-                comments(first: 50) { nodes { id databaseId body createdAt url author { login } } }
-              } } } }
+        val nodes = mutableListOf<JsonNode>()
+        var cursor: String? = null
+        var pages = 0
+        do {
+            if (pages >= Paging.MAX_PAGES) {
+                note("Only the first ${nodes.size} review threads are shown.")
+                break
             }
-        """.trimIndent()
-        val d = graph(q, mapOf("o" to owner, "r" to name, "n" to number), "the review threads")
-        return d.path("repository").path("pullRequest").path("reviewThreads").path("nodes").map { t ->
-            val comments = t.path("comments").path("nodes").map { c ->
+            val d = graph(THREADS, mapOf("o" to owner, "r" to name, "n" to number, "c" to cursor), "the review threads")
+            val rt = d.path("repository").path("pullRequest").path("reviewThreads")
+            rt.path("nodes").forEach { nodes.add(it) }
+            pages++
+            cursor = nextCursor(rt)
+        } while (cursor != null)
+        return nodes.map { t ->
+            val first = t.path("comments")
+            val raw = first.path("nodes").toMutableList()
+            var after = nextCursor(first)
+            var more = 0
+            while (after != null && more < Paging.MAX_PAGES) {
+                val c = graph(THREAD_COMMENTS, mapOf("id" to t.path("id").asText(), "c" to after), "the comments of a thread")
+                    .path("node").path("comments")
+                raw.addAll(c.path("nodes").toList())
+                after = nextCursor(c)
+                more++
+            }
+            if (after != null) note("A thread has more comments than keel reads (${raw.size}).")
+            val comments = raw.map { c ->
                 ReviewComment(c.path("databaseId").asText(), c.path("author").path("login").asText("ghost"), c.path("body").asText(),
                     c.path("createdAt").asText(), c.path("url").asText(null))
             }
+            // an outdated thread has no line in the current diff (line is null); originalLine is where it was, for the
+            // list. The thread says outdated: the diff does not draw it at that line.
             val line = t.path("line").takeIf { it.isInt }?.asInt() ?: t.path("originalLine").takeIf { it.isInt }?.asInt()
             ReviewThread(t.path("id").asText(), t.path("path").asText(null), line, t.path("diffSide").asText("RIGHT"),
                 t.path("isResolved").asBoolean(), t.path("isOutdated").asBoolean(), comments, comments.firstOrNull()?.id)
         }
     }
 
-    override fun conversation(number: Int): List<ReviewComment> =
-        get("$repo/issues/$number/comments?per_page=100", "the conversation").map { c ->
+    private fun nextCursor(connection: JsonNode): String? =
+        if (connection.path("pageInfo").path("hasNextPage").asBoolean(false)) connection.path("pageInfo").path("endCursor").asText(null) else null
+
+    override fun conversation(number: Int): List<ReviewComment> {
+        // oldest first: when the list is cut, the newest comments are the ones kept
+        val all = getAll("$repo/issues/$number/comments?per_page=100", "the conversation", newest = true)
+        if (all.truncated) note("Only the newest ${all.items.size} conversation comments are shown; the oldest are left out.")
+        return all.items.map { c ->
             ReviewComment(c.path("id").asText(), c.path("user").path("login").asText(), c.path("body").asText(), c.path("created_at").asText(),
                 c.path("html_url").asText(null))
         }
+    }
 
     override fun reply(number: Int, thread: ReviewThread, body: String) {
         val to = thread.replyTo ?: throw HostException("This thread has no comment to reply to.", status = 409)
@@ -143,7 +182,7 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
             if (resolved) "resolving the thread" else "opening the thread again")
     }
 
-    override fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>): String? {
+    override fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>, onPosted: (OutComment?) -> Unit): String? {
         val out = post("$repo/pulls/${pr.number}/reviews", mapOf(
             "commit_id" to pr.headSha,
             "event" to event,
@@ -177,6 +216,11 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
 
     // ---- http
 
+    private fun getAll(url: String, what: String, newest: Boolean = false, items: (JsonNode) -> JsonNode = { it }): Paged =
+        Paging.all(url, newest, ownHost, items) { u ->
+            call(what) { rest.get().uri(URI.create(u)).retrieve().toEntity(JsonNode::class.java) }
+        }
+
     private fun get(url: String, what: String): JsonNode = call(what) {
         rest.get().uri(URI.create(url)).retrieve().body(JsonNode::class.java) ?: mapper.createObjectNode()
     }
@@ -195,11 +239,17 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
         return out.path("data")
     }
 
-    private fun call(what: String, block: () -> JsonNode): JsonNode = try {
+    private fun <T> call(what: String, block: () -> T): T = try {
         block()
     } catch (e: RestClientResponseException) {
         val msg = runCatching { mapper.readTree(e.responseBodyAsString).path("message").asText() }.getOrNull().orEmpty()
         val clean = msg.replace(token, "***").take(200)
+        val limited = e.statusCode.value() == 429 ||
+            (e.statusCode.value() == 403 && (e.responseHeaders?.getFirst("X-RateLimit-Remaining") == "0" || msg.contains("rate limit", true)))
+        if (limited) {
+            val at = e.responseHeaders?.let { Paging.resetTime(it, "X-RateLimit-Reset") }
+            throw HostException("GitHub is rate limiting this token ($what).", if (at != null) "Rate limited, try again at $at." else "Rate limited, try again in a few minutes.", 429)
+        }
         when (e.statusCode.value()) {
             401 -> throw HostException("GitHub refused the token ($what).", "Check the GitHub token in Connections.", 409)
             403 -> throw HostException("GitHub did not allow $what: $clean", "The token needs repo access (and pull request write access to comment).", 409)
@@ -210,6 +260,24 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
         }
     } catch (e: ResourceAccessException) {
         throw HostException("Could not reach GitHub at ${URI.create(root).host} for $what.", "Check the network of keel's container.")
+    }
+
+    companion object {
+        private const val COMMENT_FIELDS = "id databaseId body createdAt url author { login }"
+        private const val PAGE_INFO = "pageInfo { hasNextPage endCursor }"
+        val THREADS = """
+            query(${'$'}o: String!, ${'$'}r: String!, ${'$'}n: Int!, ${'$'}c: String) {
+              repository(owner: ${'$'}o, name: ${'$'}r) { pullRequest(number: ${'$'}n) { reviewThreads(first: 100, after: ${'$'}c) { $PAGE_INFO nodes {
+                id isResolved isOutdated path line originalLine diffSide
+                comments(first: 100) { $PAGE_INFO nodes { $COMMENT_FIELDS } }
+              } } } }
+            }
+        """.trimIndent()
+        val THREAD_COMMENTS = """
+            query(${'$'}id: ID!, ${'$'}c: String) {
+              node(id: ${'$'}id) { ... on PullRequestReviewThread { comments(first: 100, after: ${'$'}c) { $PAGE_INFO nodes { $COMMENT_FIELDS } } } }
+            }
+        """.trimIndent()
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8).replace("+", "%20")
