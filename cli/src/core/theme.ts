@@ -44,6 +44,8 @@ const META_LIGHT = "#5c5c5c";  // ≥ 4.5:1 on white and on Solarized light
 const GREEN_LIGHT = "#1a7f37"; // the named greens of many light themes are under 3:1 on white
 const AMBER_LIGHT = "#8a5a00"; // the named yellows of many light themes are under 2:1 on white
 const TEAL_LIGHT = "#0b6e6e";  // so is cyan
+const SAND_DARK = "#d7af87";   // inline code in KeelBot's answers: warm sand, ≥ 9:1 on black, apart from the lilac paths
+const SAND_LIGHT = "#86622e";  // the same on white (≥ 5:1)
 
 const shared = { fg: "term:", keelbot: "term:", question: "term:", option: "term:", detail: "term:", bad: "ansi:red", del: "ansi:red" };
 
@@ -53,6 +55,7 @@ const KEEL_META = "#9a958c";   // meta, dim, faint, comments: warm grey, ≥ 6:1
 const KEEL_ACCENT = "#a48bff"; // keel's accent (the old pink), fixed so it does not depend on the terminal's magenta
 const KEEL_TEAL = "#2f9e9e";   // hints and attributes: readable on dark (5:1) and on white (3.3:1)
 const KEEL_NUM = "#c98a1a";    // numbers in code: readable on dark (7:1) and on white (3:1)
+const KEEL_SAND = "#d9b382";   // inline code: sand, ≥ 9:1 on near-black, 2:1 on white (as keel's amber)
 
 /** A dark background: the terminal's normal colours (its theme makes them readable on its own background), bright blue
  *  for blue (normal blue is too dark on most dark themes). */
@@ -62,7 +65,7 @@ export const DARK: Palette = {
   gate: "ansi:yellow", recommended: "ansi:green", chosen: "ansi:green", suggest: "ansi:magentaBright",
   hint: "ansi:cyan", meta: META_DARK, dim: META_DARK, faint: META_DARK, border: META_DARK,
   ok: "ansi:green", warn: "ansi:yellow",
-  code: "ansi:magentaBright", path: "ansi:blueBright", link: "ansi:blueBright", run: "ansi:blueBright", add: "ansi:green",
+  code: SAND_DARK, path: "ansi:magentaBright", link: "ansi:blueBright", run: "ansi:blueBright", add: "ansi:green",
   kw: "ansi:magentaBright", str: "ansi:green", num: "ansi:yellow", com: META_DARK, fn: "ansi:blueBright", attr: "ansi:cyan", type: "ansi:cyan",
 };
 
@@ -73,7 +76,7 @@ export const LIGHT: Palette = {
   gate: AMBER_LIGHT, recommended: GREEN_LIGHT, chosen: GREEN_LIGHT, suggest: "ansi:magenta",
   hint: TEAL_LIGHT, meta: META_LIGHT, dim: META_LIGHT, faint: META_LIGHT, border: META_LIGHT,
   ok: GREEN_LIGHT, warn: AMBER_LIGHT,
-  code: "ansi:magenta", path: "ansi:blue", link: "ansi:blue", run: "ansi:blue", add: GREEN_LIGHT,
+  code: SAND_LIGHT, path: "ansi:magenta", link: "ansi:blue", run: "ansi:blue", add: GREEN_LIGHT,
   kw: "ansi:magenta", str: GREEN_LIGHT, num: AMBER_LIGHT, com: META_LIGHT, fn: "ansi:blue", attr: TEAL_LIGHT, type: "ansi:magenta",
 };
 
@@ -85,7 +88,7 @@ export const KEEL: Palette = {
   gate: KEEL_AMBER, recommended: KEEL_GREEN, chosen: KEEL_GREEN, suggest: KEEL_ACCENT,
   hint: KEEL_TEAL, meta: KEEL_META, dim: KEEL_META, faint: KEEL_META, border: KEEL_META,
   ok: KEEL_GREEN, warn: KEEL_AMBER,
-  code: KEEL_ACCENT, path: "ansi:blue", link: "ansi:blue", run: "ansi:blue", add: KEEL_GREEN,
+  code: KEEL_SAND, path: KEEL_ACCENT, link: "ansi:blue", run: "ansi:blue", add: KEEL_GREEN,
   kw: KEEL_ACCENT, str: KEEL_GREEN, num: KEEL_NUM, com: KEEL_META, fn: "ansi:blue", attr: KEEL_TEAL, type: KEEL_ACCENT,
 };
 
@@ -98,7 +101,7 @@ export const AUTO: Palette = {
   gate: "ansi:yellow", recommended: "ansi:green", chosen: "ansi:green", suggest: "ansi:magenta",
   hint: "term:", meta: "dim:", dim: "dim:", faint: "dim:", border: "dim:",
   ok: "ansi:green", warn: "ansi:yellow",
-  code: "ansi:magenta", path: "ansi:blueBright", link: "ansi:blueBright", run: "ansi:blueBright", add: "ansi:green",
+  code: "ansi:yellow", path: "ansi:magenta", link: "ansi:blueBright", run: "ansi:blueBright", add: "ansi:green",
   kw: "ansi:magenta", str: "ansi:green", num: "ansi:yellow", com: "dim:", fn: "ansi:blueBright", attr: "ansi:yellow", type: "ansi:magenta",
 };
 

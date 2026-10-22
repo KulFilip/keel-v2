@@ -13,7 +13,7 @@
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { highlight } from "./highlight";
-import { PLAIN, type Paint } from "./theme";
+import { PLAIN, type Paint, type Role } from "./theme";
 
 export type Style = Paint;
 /** No styles (pipes, tests, NO_COLOR). */
@@ -46,7 +46,13 @@ const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 const BOLD = /\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<![\w\uE001])__(?=\S)(.+?)(?<=\S)__(?![\w\uE000])/g;
 const ITALIC = /(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])|(?<![_\w])_([^_\s][^_]*?)_(?![_\w])/g;
 
-function inline(text: string, p: Paint): string {
+/** A verdict tag after a bold lead-in ("**Comment 1: …** [valid] …") and its role; another tag stays plain text. */
+const VERDICT: Record<string, Role> = { valid: "ok", partly: "warn", "not valid": "bad", optional: "dim", unclear: "dim" };
+const LEAD_IN = /^(\s*)\*\*(?=\S)(.+?)(?<=\S)\*\*(\s*\[(valid|partly|not valid|optional|unclear)\])?/i;
+
+/** One line's inline styles; `lead`: a line of prose or a list item, where a bold start is a lead-in (the heading's
+ *  look) and may carry a verdict tag. */
+function inline(text: string, p: Paint, lead = false): string {
   const held: string[] = [];
   const hold = (s: string) => `${HOLD_OPEN}${held.push(s) - 1}${HOLD_CLOSE}`;
   const open = (s: string): string => s.replace(HELD, (_, i: string) => open(held[Number(i)]));
@@ -55,11 +61,20 @@ function inline(text: string, p: Paint): string {
   t = t.replace(FILE_LINE, (m: string) => hold(p.strong("path", m)));
   t = t.replace(LINK, (_, x: string, u: string) => hold(x === u ? p.strong("link", u) : `${p.strong("link", open(x))} ${p.meta(`(${u})`)}`));
   const italic = (s: string) => s.replace(ITALIC, (_, a?: string, b?: string) => hold(p.italic(open(a ?? b ?? ""))));
+  if (lead) t = t.replace(LEAD_IN, (_, sp: string, x: string, tag?: string, word?: string) => {
+    const head = hold(p.strong("heading", open(italic(x))));
+    if (!tag || !word) return sp + head;
+    const w = word.toLowerCase();
+    const shown = p.colored ? p.bold(p[VERDICT[w]](word)) : `[${word}]`;
+    return sp + head + hold(tag.slice(0, tag.indexOf("[")) + shown);
+  });
   t = t.replace(BOLD, (_, a?: string, b?: string) => hold(p.bold(open(italic(a ?? b ?? "")))));
   return open(italic(t));
 }
 
 const BULLETS = ["•", "◦", "▪", "·"];
+/** What an answer says it did not do ("Not verified", "I did not run …", "I changed no files"): the whole line quiet. */
+const quiet = (line: string) => /^\s*(not verified|i did not run|i changed no files)\b/i.test(line);
 
 /** Column widths that fit `target`: the widest shrinks first, then the most cramped grows (xal's fitColumns). */
 export function fitColumns(natural: number[], target: number): number[] {
@@ -148,16 +163,16 @@ export function renderMarkdown(md: string, p: Paint = PLAIN, width = 100): strin
     const li = /^(\s*)[-*+]\s+(?:\[( |x|X)\]\s+)?(.*)$/.exec(line);
     if (li) {
       const depth = Math.min(3, Math.floor(li[1].length / 2));
-      const box = li[2] === undefined ? (depth ? p.faint(BULLETS[depth]) : p.accent(BULLETS[0])) : li[2] === " " ? p.dim("☐") : p.ok("☑");
-      out.push(`${li[1]}  ${box} ${inline(li[3], p)}`);
+      const box = li[2] === undefined ? p.accent(BULLETS[depth]) : li[2] === " " ? p.dim("☐") : p.ok("☑");
+      out.push(quiet(li[3]) ? `${li[1]}  ${box} ${p.meta(inline(li[3], PLAIN))}` : `${li[1]}  ${box} ${inline(li[3], p, true)}`);
       continue;
     }
     const ol = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(line);
     if (ol) {
-      out.push(`${ol[1]}  ${p.accent(ol[2] + ".")} ${inline(ol[3], p)}`);
+      out.push(quiet(ol[3]) ? `${ol[1]}  ${p.accent(ol[2] + ".")} ${p.meta(inline(ol[3], PLAIN))}` : `${ol[1]}  ${p.accent(ol[2] + ".")} ${inline(ol[3], p, true)}`);
       continue;
     }
-    out.push(inline(line, p));
+    out.push(quiet(line) ? p.meta(inline(line, PLAIN)) : inline(line, p, true));
   }
   flush();
   endTable();

@@ -98,8 +98,8 @@ describe("code", () => {
     const md = "## Where\n\nSee `run()` in src/app.ts:3.\n\n```ts\nconst x: number = 1;\n```";
     const out = renderMarkdown(md, color.paint);
     expect(out).toContain(`${SGR(DARK.accent)}Where`);
-    expect(out).toContain(`${SGR(DARK.kw)}run()`);
-    expect(out).toContain(`${SGR(DARK.run)}src/app.ts:3`);
+    expect(out).toContain(`${SGR(DARK.code)}run()`);
+    expect(out).toContain(`${SGR(DARK.path)}src/app.ts:3`);
     expect(out).toContain(`${SGR(DARK.kw)}const`);
     expect(stripAnsi(out)).toBe("Where\n\nSee run() in src/app.ts:3.\n\n  ts\n  │ const x: number = 1;");
     // an answer still being written: the open code block is code already
@@ -287,7 +287,7 @@ describe("markdown and paths", () => {
     const md = "- **entry**: `run()` in src/scores/__init__.py:1 and __bold__ here";
     const out = renderMarkdown(md, color.paint);
     expect(stripAnsi(out)).toBe("  • entry: run() in src/scores/__init__.py:1 and bold here");
-    expect(out).toContain(`${SGR(DARK.run)}src/scores/__init__.py:1`);
+    expect(out).toContain(`${SGR(DARK.path)}src/scores/__init__.py:1`);
     expect(out).not.toMatch(/[^\x1b]\[\d+m/);                      // every colour code is whole
   });
 });
