@@ -54,7 +54,7 @@ def server(api: Api, write: bool = False):
 
 @pytest.fixture(autouse=True)
 def here(monkeypatch):
-    monkeypatch.delenv("KEEL_PROJECT", raising=False)
+    monkeypatch.setenv("KEEL_PROJECT", "shop")      # a write needs its project named when the folder matches none
     monkeypatch.chdir("/")
 
 

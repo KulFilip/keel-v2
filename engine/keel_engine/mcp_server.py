@@ -126,6 +126,8 @@ class KeelApi:
             res = self.http.post("/mcp/token", json={"level": p["level"]}, headers={"X-Keel-Token": p["internal"]})
         except httpx.HTTPError:
             return                                          # the api is not up yet: ask again on the next request
+        if res.status_code != 200:
+            return                                          # the api is starting or said no: ask again on the next request
         p["asked"] = True
         try:
             token = res.json().get("token") if res.status_code == 200 else None
@@ -196,6 +198,10 @@ def _project(api: KeelApi, project: str | None) -> dict:
     inside = [p for p in projects if p.get("root") and (cwd == p["root"] or cwd.startswith(p["root"].rstrip("/") + "/"))]
     if inside:
         return max(inside, key=lambda p: len(p["root"]))
+    if api.tool and len(projects) > 1:
+        # a write must not land on a project the caller did not pick: the folder matches none, so name the project
+        raise ApiError(f"this folder is in none of keel's projects, so keel does not guess which one to change. Pass "
+                       f'project (one of: {", ".join(p["id"] for p in projects)}).')
     return projects[0]
 
 
@@ -617,15 +623,15 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
     body: dict[str, Any] = {"decision": decision}
     if why:
         body["why"] = why
+    if question_id:
+        # in the payload: the api passes the payload through to the engine as it is
+        payload = {**(payload or {}), "question_id": question_id}
     if payload:
         body["payload"] = payload
     state = api.post(f"/threads/{tid}/resume", body) or {}
     what = f" {before.get('title')}" if before else ""
     after = f"{state.get('status')} at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})"
     if state.get("waiting"):
-    if question_id:
-        # in the payload: the api passes the payload through to the engine as it is
-        payload = {**(payload or {}), "question_id": question_id}
         after += f"; now waiting: {state['waiting'].get('title')}"
     done = "approved" if decision == "approve" else "sent back"
     return f"{done}{what} on thread {tid}. The flow is {after}."
@@ -793,6 +799,7 @@ CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_pause", "keel_stop_flows",
            "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
 # 0.18.9 a new stack, a removed one and one from the marketplace (turning one off is easy to undo: no question)
 CONFIRM |= {"keel_stack_create", "keel_stack_remove", "keel_stack_market_install"}
+CONFIRM_ACTIONS = {"open_pr", "pr"}        # keel_run_action actions that publish something: the person is asked first
 NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
              "it without asking, or do it in keel's dashboard.")
 
@@ -1000,7 +1007,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         if isinstance(got, str):
             return got
         d, y, payload = got
-        return d, y or why, payload.get("answers"), payload.get("choice"), tid
+        return d, y or why, payload.get("answers"), payload.get("choice"), tid, w.get("id")
 
     # ---------------------------------------------------------------- read
 
@@ -1114,7 +1121,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         lv = action_docs.action_level(action)
         if lv == "read":
             return await anyio.to_thread.run_sync(lambda: guard(more.run_action, api, action, lvl, args, project))
-        return await act(ctx, "keel_run_action", f"run the action {action}", more.run_action, api, action, lvl, args, project)
+        # an action that opens a pull request is asked about first, like keel_git_push (CONFIRM lists tools, not actions)
+        return await act(ctx, "keel_run_action", f"run the action {action}", more.run_action, api, action, lvl, args, project,
+                         confirm=True if action in CONFIRM_ACTIONS else None)
 
     # ---------------------------------------------------------------- write
 

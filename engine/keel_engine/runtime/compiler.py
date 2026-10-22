@@ -963,10 +963,16 @@ class Compiler:
         payload = (answer or {}).get("payload") or {}
         upd: dict = {"warned": False, **extra}
         if over_cap:
-            usage["cap_tokens"] = int(payload.get("cap_tokens") or new_cap)
+            try:
+                usage["cap_tokens"] = int(payload.get("cap_tokens") or new_cap)
+            except (TypeError, ValueError):
+                usage["cap_tokens"] = int(new_cap)      # not a number: keep keel's suggestion, not a crash
             upd["usage"] = usage
         if over_usd:
-            usage["cap_usd"] = round(float(payload.get("cap_usd") or new_usd), 4)
+            try:
+                usage["cap_usd"] = round(float(payload.get("cap_usd") or new_usd), 4)
+            except (TypeError, ValueError):
+                usage["cap_usd"] = round(float(new_usd), 4)
             upd["usage"] = usage
         if over_step:
             st = dict(state.get("step_tokens") or {})
@@ -1108,15 +1114,15 @@ class Compiler:
                 if (answer or {}).get("decision") != "approve":
                     return {**upd, **self._booked(state), "status": "failed", "error": str(exc)[:500],
                             "note": f"{step.name} failed"}, END
+                # Try again = run this step again from the top (one interrupt per node run, like _answer_check): looping
+                # here would replay every earlier approval on resume, so approval k would cost k+1 runs.
+                return {**upd, "note": f"{step.name}: trying again"}, step.id
 
         for key in [key for key in done if key.startswith(attempt + "|")]:
             del done[key]
         agent_results = [o for o in out if isinstance(o, tuple)]
         lane_notes = [o.note for o in out if isinstance(o, ActionResult)]
         for o in out:
-                # Try again = run this step again from the top (one interrupt per node run, like _answer_check): looping
-                # here would replay every earlier approval on resume, so approval k would cost k+1 runs.
-                return {**upd, "note": f"{step.name}: trying again"}, step.id
             if isinstance(o, ActionResult):
                 upd.update(o.update)
 
@@ -2895,7 +2901,7 @@ class Compiler:
             yes, note = r.ok, r.note
         elif step.agent:
             res, _m, _tb = await self._run_agent(state, step, step.agent, 0)
-            yes = not res.text.strip().lower().startswith("no")
+            yes = not re.match(r"no(?![\w-])", res.text.strip(), flags=re.I)      # the word "no", not "Nothing blocks"
             note = res.text.strip()[:160]
         if step.rounds:
             return self._branch_rounds(i, step, state, yes, note)

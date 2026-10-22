@@ -387,7 +387,7 @@ def _source_pr(a, n: int, force: bool) -> tuple[dict | None, str | None]:
         return None, f"PR #{n} is a draft: review it when it is ready (data force: true reviews it anyway)."
     ref, base_ref = f"refs/keel/review-pr/{n}", f"refs/keel/review-pr/{n}-base"
     specs = [f"+pull/{n}/head:{ref}"] + ([f"+{src['base']}:{base_ref}"] if src["base"] else [])
-    f = git.git(a.root, "fetch", "-q", "origin", *specs)
+    f = git.git(a.root, "fetch", "-q", "origin", "--", *specs)
     if f.returncode != 0 or not _ref_ok(a.root, ref):
         return None, f"could not fetch PR #{n} from origin: {(f.stderr or f.stdout or '').strip()[:200]}"
     if not src["base"] or not _ref_ok(a.root, base_ref):
@@ -397,8 +397,10 @@ def _source_pr(a, n: int, force: bool) -> tuple[dict | None, str | None]:
 
 def _source_branch(a, cfg: dict, branch: str, base: str | None) -> tuple[dict | None, str | None]:
     ref = branch
+    if str(branch).startswith("-"):
+        return None, f'"{branch}" is not a branch name (it starts with "-", which git would read as an option).'
     if not _ref_ok(a.root, ref):
-        git.git(a.root, "fetch", "-q", "origin", branch)
+        git.git(a.root, "fetch", "-q", "origin", "--", branch)
         ref = f"origin/{branch}"
         if not _ref_ok(a.root, ref):
             return None, f'No branch "{branch}" here or on origin.'

@@ -115,8 +115,11 @@ class EventBus:
             self._down_logged = False
             return True
         except Exception as exc:
-            # Put them back in order; the deque drops the oldest when full.
-            self._pending.extendleft(reversed(batch))
+            # Put them back in front, in order. extendleft on a full deque would drop the NEWEST from the right:
+            # rebuild instead, so it is the oldest that go when the buffer is full.
+            kept = [*batch, *self._pending]
+            self._pending.clear()
+            self._pending.extend(kept)       # maxlen drops from the left
             if not self._down_logged:
                 log.info("api not reachable at %s (%s); keeping events and retrying", url, exc)
                 self._down_logged = True
