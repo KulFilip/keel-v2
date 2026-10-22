@@ -8,13 +8,13 @@ import { inboxApi, type InboxItem } from "../../../web/src/inboxApi";
 import { kb } from "../../../plugins/keelbot/web/keelbotApi";
 import { connect, setCommand, viaHeaders } from "./transport";
 import { subscribe, type LiveState, type SseMessage, type Subscription } from "./sse";
-import { notice } from "./notices";
 import { Mentions } from "./mentions";
 import { loadPlugins, type TuiPlugins } from "./plugins";
 import { get, post, put } from "./sdk";
 import type { HelperChange, HelperDone, HelperMention } from "./sdk";
 import type { Profiler } from "./profile";
-import { toolFromEvent, toolFromStep, upsertTool, type ToolCall } from "./tools";
+import type { ToolCall } from "./tools";
+import { handleMessage, type StreamHost } from "./stream";
 
 export type ChatState = {
   session: HelperSession | null;
@@ -94,7 +94,7 @@ export type CoreEvents = {
 /** How long a project picked in this window wins over a focus from another front end that names another one. */
 const PICK_HOLD_MS = 3000;
 
-type Focus = { project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null };
+export type Focus = { project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null };
 
 export type CoreOptions = {
   url: string;
@@ -109,7 +109,6 @@ export type CoreOptions = {
   profiler?: Profiler;
 };
 
-const STEP_KEEP = 200;
 
 export class KeelCore {
   snapshot: Snapshot;
@@ -348,116 +347,30 @@ export class KeelCore {
 
   /** One message of the stream (public for tests and other front ends that bring their own stream). */
   onMessage(m: SseMessage) {
-    if (m.event === "ui.focus") {
-      try {
-        const f = JSON.parse(m.data) as Focus;
-        if (f && f.client !== this.client) void this.followFocus(f);
-      } catch {
-        /* not ours to read */
-      }
-      return;
-    }
-    if (m.event === "notification" || m.event === "notification.done" || m.event === "project.changed") {
-      if (m.event === "project.changed") void this.loadProjects().catch(() => undefined);
-      this.bump();
-      return;
-    }
-    let ev: EngineEvent;
-    try {
-      ev = JSON.parse(m.data) as EngineEvent;
-    } catch {
-      return;
-    }
-    if (!ev || typeof ev.type !== "string") return;
-    this.opts.profiler?.event(ev.at);
-    const chat = this.snapshot.chat;
-    // live text: KeelBot's answer, or an agent's, as it is written (never a notice, never a refresh)
-    // 0.18.23 KeelBot's thinking as the model writes it: shown apart from the answer, never stored here
-    if (ev.type === "helper.thinking.delta" && ev.call_id) {
-      if (ev.call_id === chat.callId && chat.busy) this.setChat({ thinking: String((ev.data as { text?: unknown }).text ?? ""), thoughtAt: Date.now() });
-      return;
-    }
-    // KeelBot's tool calls, one record each (keel TUI's tool lines): the richer record of a step that came before it
-    if (ev.type === "helper.tool" && ev.call_id) {
-      const t = ev.call_id === chat.callId && chat.busy ? toolFromEvent((ev.data ?? {}) as Record<string, unknown>) : null;
-      if (t) this.setChat({ tools: upsertTool(chat.tools, t) });
-      return;
-    }
-    if ((ev.type === "helper.delta" || ev.type === "agent.delta") && ev.call_id) {
-      const text = String((ev.data as { text?: unknown }).text ?? "");
-      if (ev.type === "agent.delta") this.set({ liveText: { ...this.snapshot.liveText, [ev.call_id]: text } });
-      else if (ev.call_id === chat.callId && chat.busy) {
-        const grew = Math.max(0, text.length - chat.stream.length);
-        this.setChat({ stream: text, wrote: chat.wrote + grew });
-      }
-      return;
-    }
-    if ((ev.type === "helper.step" || ev.type === "agent.step" || ev.type === "code.step") && ev.call_id) {
-      const d = ev.data as Partial<JobStep>;
-      const step: JobStep = { n: Number(d.n) || 0, at: ev.at, kind: String(d.kind ?? "text"), text: String(d.text ?? ""),
-        tool: d.tool, server: d.server, path: d.path, ms: d.ms, ok: d.ok, ...(d.diff ? { diff: d.diff } : {}) };
-      if (ev.type === "agent.step" || ev.type === "code.step") this.set({ lastStep: { ...this.snapshot.lastStep, [ev.call_id]: step } });
-      if (ev.type === "agent.step" && (step.kind === "text" || step.kind === "answer") && ev.call_id in this.snapshot.liveText) {
-        const { [ev.call_id]: _done, ...rest } = this.snapshot.liveText;
-        this.set({ liveText: rest });
-      }
-      if (!chat.callId && chat.busy && ev.type === "helper.step" && chat.session && ev.thread_id === chat.session.id) {
-        this.setChat({ callId: ev.call_id });
-        chat.callId = ev.call_id;
-      }
-      if (ev.call_id === chat.callId && !chat.steps.some((x) => x.n === step.n)) {
-        // a whole message arrived: the streamed block is in it now
-        const whole = step.kind === "text" || step.kind === "answer";
-        const tool = ev.type === "helper.step" && !chat.tools.some((x) => x.n === step.n) ? toolFromStep({ ...step, ...(d.output ? { output: String(d.output) } : {}) }) : null;
-        this.setChat({ steps: [...chat.steps, step].slice(-STEP_KEEP), ...(whole ? { stream: "" } : {}), ...(tool ? { tools: upsertTool(chat.tools, tool) } : {}),
-          wrote: chat.wrote + (whole && !chat.stream ? step.text.length : 0) });
-      }
-      // 0.18.15 a code step's commands (the ladder's rungs, a suite) show as lines too: keel is not silent while they run
-      if (ev.type === "code.step" && !(ev.project_id && this.pid && ev.project_id !== this.pid)) {
-        const text = notice(ev);
-        if (text) this.emit("notice", text, ev);
-      }
-      return;
-    }
-    // KeelBot's calls are among keel's running agents too: a finished one leaves the list at once, and the list is read
-    // again (helper events never reach the refresh at the end)
-    if (ev.type === "helper.started" || ev.type === "helper.finished") {
-      if (ev.type === "helper.finished" && ev.call_id) this.dropRunning(ev.call_id);
-      this.bump();
-    }
-    // 0.18.6 the person asked in this chat from the dashboard: their words, then KeelBot's answer as it is written
-    if (ev.type === "helper.started" && chat.session && ev.thread_id === chat.session.id && !chat.busy && !this.sending && ev.call_id) {
-      this.setChat({ busy: true, callId: ev.call_id, steps: [], tools: [], stream: "", startedAt: Date.now(), wrote: 0, thinking: "", thoughtAt: null });
-      const pid = this.pid;
-      void (pid ? kb.session(pid, chat.session.id) : Promise.reject(new Error("no project"))).then((s) => {
-        const last = [...(s.messages ?? [])].reverse().find((x) => x.role === "user");
-        if (last) this.emit("remote", last.text, "the dashboard");
-      }).catch(() => undefined);
-      if (this.pollTimer) clearInterval(this.pollTimer);
-      this.pollTimer = setInterval(() => void this.pollTurn(), 3000);
-      return;
-    }
-    if (ev.type === "helper.finished" && chat.session && ev.thread_id === chat.session.id && chat.busy) {
-      void this.finishTurn();
-      return;
-    }
-    // KeelBot asks the person's OK for a command: a yes/no in the TUI (the dashboard shows the same card)
-    if (ev.type === "helper.permission" && (!this.pid || ev.project_id === this.pid)) {
-      const q = ev.data as { id?: string; command?: string; title?: string; path?: string | null; warning?: string; always?: string };
-      if (q.id) this.emit("question", { id: q.id, command: String(q.command ?? ""), title: String(q.title ?? "KeelBot asks to run a command"), path: q.path,
-        ...(q.warning ? { warning: String(q.warning) } : {}), ...(q.always !== undefined ? { always: String(q.always ?? "") } : {}) });
-    }
-    // keel 0.18.18 answered in the dashboard, or closed when KeelBot's turn ended: the card here goes too
-    if (ev.type === "helper.permission.answered") {
-      const id = (ev.data as { id?: string }).id;
-      if (id) this.emit("questionGone", String(id));
-    }
-    if (ev.type.startsWith("helper.") && ev.type !== "helper.permission") return;
-    if (ev.type === "tui.call") return;                     // the TUI's own writes: the person saw them already
-    if (ev.project_id && this.pid && ev.project_id !== this.pid) return;
-    const text = notice(ev);
-    if (text) this.emit("notice", text, ev);
-    this.bump();
+    handleMessage(this.streamHost(), m);
+  }
+
+  private streamHost(): StreamHost {
+    const k = this;
+    return {
+      get client() { return k.client; },
+      get pid() { return k.pid; },
+      get snapshot() { return k.snapshot; },
+      get sending() { return k.sending; },
+      get profiler() { return k.opts.profiler; },
+      followFocus: (f) => k.followFocus(f),
+      loadProjects: () => k.loadProjects(),
+      bump: () => k.bump(),
+      set: (p) => k.set(p),
+      setChat: (p) => k.setChat(p),
+      emit: (e, ...args) => k.emit(e, ...args),
+      dropRunning: (id) => k.dropRunning(id),
+      startPolling: () => {
+        if (k.pollTimer) clearInterval(k.pollTimer);
+        k.pollTimer = setInterval(() => void k.pollTurn(), 3000);
+      },
+      finishTurn: (s) => k.finishTurn(s),
+    };
   }
 
   // ------------------------------------------------------------------ KeelBot

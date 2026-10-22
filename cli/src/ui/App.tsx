@@ -8,68 +8,48 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
-import { complete, follow, pickMatches, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
-import type { KeelCore, PermissionQuestion, Snapshot } from "../core/keel";
+import { complete, follow, pickMatches, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
+import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
 import { applyLevel, describeOverrides, makeTheme, withPalette, type Theme, type ThemeName } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
-import { modelName, modelText } from "../core/effort";
-import { answeredBy, thinkingLines, thoughtLine, THINKING_HEAD } from "../core/thinking";
+import { thinkingLines, thoughtLine, THINKING_HEAD } from "../core/thinking";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
-import { COMMANDS, THEME_HELP, messageBlock, setChanged, setPluginCommands } from "../core/commands";
-import { renderDiff } from "../core/diff";
-import { inboxApi } from "../../../web/src/inboxApi";
+import { COMMANDS, THEME_HELP, setPluginCommands } from "../core/commands";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
-import { modelCatalog } from "../core/effort";
-import { Clickable, ClicksProvider, makeClicks, placeOf } from "./click";
-import { answersMessage, blockedByChanges, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
-import { fixRequest } from "../../../web/src/askFix";
-import { errorParts } from "../core/sdk";
-import { api } from "../core/sdk";
-import { blockLines, headerLine, isMouse, MOUSE, SCREEN, startLines, view, wheel, wrap } from "../core/lines";
-import { isNewline, moveRow, promptRows } from "../core/prompt";
+import { Clickable, ClicksProvider, makeClicks } from "./click";
+import { makeGatePick } from "./gatePick";
+import { diffLines, promptView } from "./promptView";
+import { CTRL_PANEL, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Question } from "./hooks/types";
+import { headerLine, isMouse, MOUSE, SCREEN, view, wheel, wrap } from "../core/lines";
+import { isNewline, moveRow } from "../core/prompt";
 import { editText, findEditor } from "../core/editor";
 import { osc52, pickCopy } from "../core/clipboard";
-import { colsOn, highlight, mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../core/select";
+import { colsOn, highlight } from "../core/select";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
-import { canOpen, toolBody, toolLines, type ToolCall } from "../core/tools";
+import { canOpen, toolBody, toolLines } from "../core/tools";
 import { memorySettings, type SettingsStore } from "../core/settings";
 import { filesOfSteps, Sidebar, SIDEBAR_MIN, SIDEBAR_WIDTH, type ChangedFile } from "./sidebar";
 import type { KeelbotServer } from "../core/keel";
-
-/** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
-type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
+import { usePending } from "./hooks/usePending";
+import { useButtonAsks } from "./hooks/useButtonAsks";
+import { useCoreEvents } from "./hooks/useCoreEvents";
+import { useAskQueue } from "./hooks/useAskQueue";
+import { useSelection } from "./hooks/useSelection";
+import { usePromptHistory } from "./hooks/usePromptHistory";
+import { useTranscript } from "./hooks/useTranscript";
+import { useScroll } from "./hooks/useScroll";
+import { useMouse } from "./hooks/useMouse";
 
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
 export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boolean; chatBusy: boolean; answers: number };
 
-/** `qid`: the KeelBot permission question this pick shows (it goes when the question ends elsewhere) */
-type Pending = { cmd: string; pick?: Pick; ask?: Ask; qid?: string };
-
-const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", n: "inbox" };
-/** An open tool call in the live area shows at most this many of its last lines. */
-const LIVE_TOOL_ROWS = 12;
-/** a plugin's mode without the full screen (--inline, tests): this many rows */
-const INLINE_MODE_ROWS = 20;
-/** keel's panels, and a plugin's ("plugin:git") */
-type PanelId = PanelName | `plugin:${string}` | `job:${string}`;
-type Question = PermissionQuestion;
-/** A selection with the mouse: in the transcript (`line` is the transcript's line) or in the prompt (line 0); `moved`
- *  once it covers more than the pressed cell (a plain click selects nothing). */
-type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
-/** 0.18.18 the prompt history keeps this many (as opencode's, MIT: the last 50) */
-const HISTORY_MAX = 50;
-/** What /theme says after it changed the palette. */
-const THEME_WORDS: Record<ThemeName, string> = { keel: "keel's own colours (for a dark background)", dark: "colours for a dark background", light: "colours for a light background",
-  auto: "colours that read on any background" };
-/** two presses on the same cell within this many ms: a double-click (the word under it) */
-const DOUBLE_MS = 400;
 
 /** keel TUI in keel's colours (the theme: core/theme.ts, NO_COLOR, KEEL_TUI_THEME; /theme changes the palette). */
 export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean;
@@ -121,23 +101,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [started, setStarted] = useState(false);
   const [line, setLine] = useState("");
   const [cursor, setCursor] = useState(0);
-  // 0.18.18 the person's earlier prompts, newest first: keel's (the project's KeelBot chats), with what was sent here
-  // since on top; hIdx: the one shown while ↑ / ↓ walk them (-1: not walking)
-  const [history, setHistory] = useState<string[]>([]);
-  const [hIdx, setHIdx] = useState(-1);
-  const [pending, setPending] = useState<Pending | null>(null);
-  const pendingRef = useRef<Pending | null>(null);
-  pendingRef.current = pending;
-  const [pickIdx, setPickIdx] = useState(0);
-  const [pickFilter, setPickFilter] = useState("");
-  // keel 0.18.9 a pick of several: what is ticked (Space), sent with Enter
-  const [ticked, setTicked] = useState<Set<string>>(() => new Set());
+  const { pending, setPending, pendingRef, pickIdx, setPickIdx, pickFilter, setPickFilter, ticked, setTicked } = usePending();
   const [panels, setPanels] = useState<PanelId[]>([]);
   const pastes = useRef(new Pastes());
   const questions = useRef<Question[]>([]);
   // KeelBot's buttons (start a flow, decide a gate, stop flows, a run mode): a yes / no each, after its answer
-  const buttonAsks = useRef<Pick[]>([]);
-  const [qTick, setQTick] = useState(0);
   const [running, setRunningState] = useState<string | null>(null);
   const runningSince = useRef<number | null>(null);
   const setRunning = (v: string | null) => {
@@ -154,27 +122,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const ctrlX = useRef(0);
   const { stdin: inkStdin } = useStdin();
   // the full screen's scroll: lines up from the newest, the transcript area's height, and the wheel on or off
-  const [offset, setOffset] = useState(0);
-  const [viewH, setViewH] = useState(Math.max(3, height - 8));
-  const viewRef = useRef<DOMElement>(null);
   const [mouse, setMouse] = useState(mouseAtStart);
   // select with the mouse and it is copied: the selection, and "copied N characters" for a few seconds
-  const [sel, setSelState] = useState<Sel | null>(null);
-  const selRef = useRef<Sel | null>(null);
-  const setSel = (x: Sel | null) => {
-    selRef.current = x;
-    setSelState(x);
-  };
-  const [flash, setFlashState] = useState<string | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setFlash = (x: string | null) => {
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = x ? setTimeout(() => setFlashState(null), 4000) : null;
-    setFlashState(x);
-  };
-  useEffect(() => () => void (flashTimer.current && clearTimeout(flashTimer.current)), []);
+  const { sel, selRef, setSel, flash, setFlash } = useSelection();
   const promptRef = useRef<DOMElement>(null);
-  const lastPress = useRef({ t: 0, col: -1, row: -1 });
   const nextId = useRef(1);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
@@ -219,213 +170,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     });
   }, []);
 
-  useEffect(() => {
-    const offs = [
-      core.on("change", (s) => setSnap(s)),
-      core.on("notice", (t) => push({ kind: "notice", text: t })),
-      // 0.18.6 the chat the dashboard has open (at the start, or when it opens another): its last messages
-      core.on("chat", (s, why) => {
-        const blocks: Block[] = [{ kind: "dim", text: `  ${why}: KeelBot chat "${s.title || s.id}" · ${s.mode}` }];
-        (s.messages ?? []).slice(-4).forEach((m) => blocks.push(messageBlock(m)));
-        push(...blocks);
-      }),
-      // 0.18.6 a question asked in this chat from the dashboard: shown as the person's own, then KeelBot answers here too
-      core.on("remote", (text, by) => push({ kind: "user", text }, { kind: "dim", text: `  asked in ${by}` })),
-      // 0.18.28 typed while KeelBot answered: dim until it goes, then the person's message as usual
-      core.on("queued", (m) => push(m.sent ? { kind: "user", text: m.text }
-        : { kind: "dim", text: `  ⧗ will send after this answer${m.position > 1 ? ` (#${m.position})` : ""}: ${m.text.split("\n")[0].slice(0, 200)}  · Esc stops the answer and sends it now` })),
-      // KeelBot asks the person's OK for a command: an amber yes/no, one after the other
-      core.on("question", (q) => {
-        if (questions.current.some((x) => x.id === q.id)) return;
-        questions.current.push(q);
-        setQTick((n) => n + 1);
-      }),
-      // keel 0.18.18 answered in the dashboard, or KeelBot's turn ended: its card goes (an answer here does nothing more)
-      core.on("questionGone", (id) => {
-        questions.current = questions.current.filter((x) => x.id !== id);
-        if (pendingRef.current?.qid === id) {
-          setPending(null);
-          push({ kind: "dim", text: "  KeelBot's question ended (answered elsewhere, or its answer ended)" });
-        }
-      }),
-      core.on("answer", (a) => {
-        const d = a.message?.data;
-        const { paint, width: w } = look.current;
-        const used = d ? [d.provider && d.model ? modelText(d) : "", d.tokens_in || d.tokens_out ? `${fmt.short((d.tokens_in ?? 0) + (d.tokens_out ?? 0))} tokens` : "",
-          d.cost_usd ? `$${d.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
-        // what it did (one line per tool call, its output folded), the answer, then how the turn ended and what it used
-        const calls = core.snapshot.chat.tools;
-        const lastOpenable = calls.map(canOpen).lastIndexOf(true);
-        const toolBlocks: Block[] = calls.map((c, i) => ({ kind: "tool", text: c.output, tool: c, ...(i === lastOpenable ? { hint: "Ctrl+O to show" } : {}) }));
-        const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
-        const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
-        const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
-        // 0.18.23 its thinking, folded to one line (Ctrl+T or /thinking shows it), then the answer and who answered
-        const thought = typeof d?.thinking === "string" && d.thinking.trim() ? d.thinking : core.snapshot.chat.thinking || "";
-        const thoughtMs = typeof d?.thinking_ms === "number" ? d.thinking_ms : 0;
-        lastThought.current = thought ? { text: thought, ms: thoughtMs } : null;
-        setShowThink(false);
-        push(...(thought ? [{ kind: "dim" as const, text: thoughtLine(thoughtMs) }] : []),
-          ...toolBlocks, { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
-          ...(d?.model ? [{ kind: "dim" as const, text: answeredBy(d.mode ?? core.snapshot.chat.mode, modelName(d), ms) }] : []));
-        setLiveOpen(null);
-        // keel 0.18.8 "✓ Finished …" sits on the prompt (the last turn's), with room between it and the answer above
-        setFooter(fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint));
-        turnStart.current = null;
-        if (buttons.length) void askButtons(buttons);
-        setAnswers((n) => n + 1);
-        // Edit, Fix and Side: the files THIS answer changed, with their diffs, and how to keep or undo them. Never the
-        // folder's other uncommitted files (the person's, what keel init left): the answer's data names its own files
-        // (0.18.20), and an answer that changed none (or an engine that does not say) shows no block at all.
-        const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
-        const files = Array.isArray(d?.files) ? d.files : [];
-        setTurnFiles([]);
-        if ((mode === "fix" || mode === "side" || mode === "edit") && typeof d?.turn === "number" && files.length) {
-          const sid = core.snapshot.chat.session?.id ?? "";
-          void core.changes().then((all) => setChanged(sid, all.map((c) => c.path))).catch(() => undefined);   // /keep's Tab
-          void core.changes(d.turn).then((ch) => {
-            setTurnFiles(ch.map((c) => ({ path: c.path, status: c.status, added: c.added, removed: c.removed })));
-            if (!ch.length) return;
-            const p = look.current.paint;
-            push({ kind: "text", text: `${p.bold(p.warn(`${ch.length} file(s) changed`))} ${p.dim("· not kept yet")}\n${fmt.changesText(ch, p, 16)}\n`
-              + `${p.accent("/keep")} [path|all] ${p.dim("runs the checks and commits")} · ${p.accent("/undo")} [path|all] · ${p.accent("/changes")}` });
-          }).catch(() => undefined);
-        }
-      }),
-    ];
-    let alive = true;
-    void core.start().then((s) => {
-      if (!alive) return;
-      setItems([{ id: nextId.current++, kind: "start", s }]);
-      setStarted(true);
-      profiler?.ready();
-      void core.keelbotCommands().then((c) => alive && setBotCmds(c));
-      void modelCatalog().catch(() => undefined);          // read early: /model opens at once (0.18.9)
-    });
-    return () => {
-      alive = false;
-      offs.forEach((o) => o());
-      core.stop();
-    };
-  }, [core, push]);
+  const { buttonAsks, qTick, setQTick, askButtons } = useButtonAsks(core, push);
+  useCoreEvents({ core, push, profiler, questions, pendingRef, setPending, setQTick, look, turnStart, lastThought, nextId, askButtons, setSnap, setItems,
+    setStarted, setBotCmds, setShowThink, setLiveOpen, setFooter, setAnswers, setTurnFiles });
 
-  /** After a failed button: stash and switch (a git switch the folder's changes block), ask KeelBot to find the fix, or
-   *  leave it. */
-  const fixPick = (b: Button, err: { message: string; hint?: string }, pid: string, name: (tid: string) => string): Pick => ({
-    title: "It did not work. Find a fix?",
-    choices: [
-      ...(blockedByChanges(b, err.message) ? [{ label: "Stash my changes and switch", value: "stash", hint: "git stash pop on your branch brings them back" }] : []),
-      { label: "Ask KeelBot to find a fix", value: "ask", hint: "it reads the error and the project, and proposes a fix you press" },
-      { label: "No", value: "no" },
-    ],
-    then: async (v) => {
-      if (v === "ask") return { blocks: [], chat: fixRequest(buttonWords(b), err) };
-      if (v === "stash" && b.kind === "git") {
-        try {
-          const said = await pressButton({ ...b, stash: true }, pid, name);
-          await core.refresh().catch(() => undefined);
-          return { blocks: [{ kind: "ok", text: said }] };
-        } catch (e) {
-          const again = errorParts(e);
-          return { blocks: [{ kind: "error", text: again.message }], pick: fixPick({ ...b, stash: true }, again, pid, name) };
-        }
-      }
-      return { blocks: [{ kind: "dim", text: "  left as it is" }] };
-    },
-  });
-
-  /** Each of KeelBot's buttons as a yes / no; one only the dashboard has says where to press it. */
-  const askButtons = useCallback(async (buttons: Button[]) => {
-    const pid = core.snapshot.project?.id;
-    if (!pid) return;
-    const rows = await api.runs(pid, undefined, 30).catch(() => []);
-    const name = (tid: string) => {
-      const r = rows.find((x) => x.thread_id === tid);
-      return r ? `"${r.title}"` : `flow ${tid.slice(0, 8)}`;
-    };
-    for (const b of buttons) {
-      // keel 0.18.9 KeelBot asks the person to choose: the questions one after the other, the answers back to it
-      if (b.kind === "questions") {
-        const first = await questionChain(b.questions, (a) => ({ blocks: [], chat: answersMessage(b.questions, a) }));
-        if (first.blocks.length) push(...first.blocks);
-        if (first.pick) buttonAsks.current.push(first.pick);
-        continue;
-      }
-      // a new workflow or rule pack: keel's check first (it saves nothing), so the question says what it would be
-      const prep = await prepare(b, pid, name).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-      if (!prep) {
-        push({ kind: "dim", text: "  " + elsewhere(b) });
-        continue;
-      }
-      if ("error" in prep) {
-        push({ kind: "error", text: prep.error });
-        continue;
-      }
-      if (prep.detail) push({ kind: "dim", text: prep.detail.split("\n").map((l) => "  " + l).join("\n") });
-      const title = prep.title;
-      buttonAsks.current.push({ title, choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }], newMessage: NOT_SENT_NEW_MESSAGE,
-        then: async (v) => {
-          if (v !== "yes") return { blocks: [{ kind: "dim", text: "  Suggestion not sent: you chose No." }] };
-          try {
-            const said = await pressButton(b, pid, name);
-            await core.refresh().catch(() => undefined);
-            return { blocks: [{ kind: "ok", text: said }] };
-          } catch (e) {
-            // keel 0.18.9 a button that failed: a way out (stash and switch, when that is it) or KeelBot finds the fix
-            const err = errorParts(e);
-            return { blocks: [{ kind: "error", text: err.hint ? `${err.message} ${err.hint}` : err.message }], pick: fixPick(b, err, pid, name) };
-          }
-        } });
-    }
-    setQTick((n) => n + 1);
-  }, [core, push]);
-
-  // the next question KeelBot asks, when nothing else is being asked; then KeelBot's buttons
-  useEffect(() => {
-    if (!pending && !questions.current.length && buttonAsks.current.length) {
-      setPending({ cmd: "KeelBot", pick: buttonAsks.current.shift()! });
-      setPickIdx(0);
-      setPickFilter("");
-      return;
-    }
-    if (pending || !questions.current.length) return;
-    const q = questions.current.shift()!;
-    const deny = async (why: string) => {
-      await inboxApi.decide(q.id, "deny", why);
-      return { blocks: [{ kind: "dim" as const, text: `  refused: ${q.command}${why ? ` (${why})` : ""}` }] };
-    };
-    // keel 0.18.18 the warning (it throws work away, a flow works in this folder), what "in this chat" keeps (its
-    // family: git checkout *), a deny with the person's reason (KeelBot reads it), and Esc says no
-    setPending({ cmd: "KeelBot", qid: q.id, pick: { title: `KeelBot asks to run: ${q.command}${q.path ? ` (${q.path})` : ""}?${q.warning ? ` ⚠ ${q.warning}` : ""}`,
-      choices: [{ label: "Allow once", value: "once" },
-        ...(q.always !== "" ? [{ label: q.always && q.always !== q.command ? `Allow ${q.always} in this chat` : "Allow in this chat", value: "always",
-          hint: q.always && q.always !== q.command ? "this command and its kind, for the rest of the chat" : "this command, for the rest of the chat" }] : []),
-        { label: "Deny", value: "deny" },
-        { label: "Deny, and say why", value: "why", hint: "KeelBot reads your reason and goes on from it" }],
-      then: async (v) => {
-        if (v === "why") return { blocks: [], ask: { prompt: `Why not ${q.command}? (KeelBot reads it)`, then: (why: string) => deny(why.trim()) } };
-        if (v === "deny") return deny("");
-        await inboxApi.decide(q.id, v);
-        const kept = v === "always" && q.always && q.always !== q.command ? ` (${q.always})` : "";
-        return { blocks: [{ kind: "ok", text: `allowed ${v === "always" ? "in this chat" : "once"}: ${q.command}${kept}` }] };
-      },
-      onCancel: () => deny("The person closed the question without an answer.") } });
-    setPickIdx(0);
-    setPickFilter("");
-  }, [pending, qTick]);
+  useAskQueue({ pending, qTick, questions, buttonAsks, setPending, setPickIdx, setPickFilter });
 
   // 0.18.18 the prompt history comes from keel (it survives a restart, it is the same on another computer)
   const pidNow = snap.project?.id ?? null;
-  useEffect(() => {
-    if (!started || !pidNow) return;
-    let alive = true;
-    void core.prompts().then((ps) => {
-      if (!alive) return;
-      setHistory((h) => [...new Set([...h.filter((x) => !ps.includes(x)), ...ps])].slice(0, HISTORY_MAX));
-      setHIdx(-1);
-    }).catch(() => undefined);
-    return () => void (alive = false);
-  }, [core, started, pidNow]);
+  const { history, hIdx, setHIdx, remember } = usePromptHistory(core, started, pidNow);
 
   // the sidebar's MCP servers: read when it shows, and again for another project
   useEffect(() => {
@@ -693,7 +446,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     setOffset(0);
     // 0.18.28 a message to KeelBot while it answers waits (shown dim by the "queued" event), it is not refused
     if (!(core.snapshot.chat.busy && !/^[/!]/.test(text))) push({ kind: "user", text });
-    setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, HISTORY_MAX));
+    remember(text);
     setHIdx(-1);
     const name = text.startsWith("/") ? text.split(/\s+/)[0] : "";
     if (name) setRunning(name);
@@ -740,47 +493,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     if (pending || running) return;
     void submit(cmd);
   };
-  /** A gate (this flow's, or inbox item n): a choice first, never a decision on one click. */
-  const gatePick = (n?: number): Pick | null => {
-    const item = n ? snap.inbox[n - 1] : null;
-    const thread = snap.flow?.thread;
-    const w = item ? { title: item.title, options: item.options, kind: item.kind } : thread?.waiting;
-    if (!w) return null;
-    const at = n ? ` ${n}` : "";
-    const tid = item ? item.thread_id : thread!.thread_id;
-    const flow = item ? `${item.project_name || item.project_id} · ${item.flow || item.thread_id.slice(0, 8)}` : `"${thread!.title}"`;
-    const opts = w.options ?? ["approve", "reject"];
-    // keel 0.18.13 this flow's named choices with the engine's words: one row each, the default marked
-    const named = !n && thread?.waiting?.choice_info?.length ? thread.waiting.choice_info : null;
-    const choices = named ? [
-      ...named.map((x) => ({ label: `${x.label || x.name}${x.default ? " (default)" : ""}${x.why === "required" ? " · needs a reason" : ""}`,
-        value: `choice:${x.name}`, hint: x.description || `/answer ${x.name}` })),
-    ] : [
-      ...(w.kind !== "clarify" && opts.includes("approve") ? [{ label: "Approve", value: "approve", hint: `/approve${at}` }] : []),
-      ...(opts.includes("reject") ? [{ label: "Send back…", value: "reject", hint: "you say why; the agent gets your words" }] : []),
-      ...(!n || w.kind === "clarify" ? [{ label: "Answer… (its questions or choices)", value: "answer", hint: "/answer" }] : []),
-      { label: "Stop the flow", value: "stop", hint: "agents stop; every finished step stays saved" },
-      { label: "Read it first", value: "status", hint: n ? "/inbox" : "/status" },
-    ];
-    return { title: `${flow} · ${w.title}: what do you do?`, choices, index: named ? Math.max(0, named.findIndex((x) => x.default)) : 0, then: (v) => {
-      const c = v.startsWith("choice:") ? named?.find((x) => `choice:${x.name}` === v) : undefined;
-      if (c) return c.why === "none" ? run(ctx, `/answer ${c.name}`, botCmds) : { blocks: [], ask: {
-        prompt: c.why === "required" ? `Why ${c.label || c.name}? (needed)` : `Why ${c.label || c.name}? (optional: Enter sends without)`,
-        then: (why) => run(ctx, `/answer ${c.name} ${why}`.trim(), botCmds) } };
-      if (v === "approve") return run(ctx, `/approve${at}`, botCmds);
-      if (v === "answer") return item && item.project_id !== snap.project?.id
-        ? { blocks: [{ kind: "dim", text: `  It is on ${item.project_id}: /project ${item.project_id}, then /answer.` }] } : run(ctx, "/answer", botCmds);
-      if (v === "status") return run(ctx, n ? "/inbox" : "/status", botCmds);
-      if (v === "stop") return { blocks: [], pick: { title: `Stop ${flow}?`, choices: [{ label: "Yes, stop it", value: "yes" }, { label: "No", value: "no" }],
-        then: async (y) => {
-          if (y !== "yes") return { blocks: [{ kind: "dim", text: "  not stopped" }] };
-          const said = await pressButton({ kind: "stop", flows: [tid] }, snap.project?.id ?? "", () => flow);
-          await core.refresh().catch(() => undefined);
-          return { blocks: [{ kind: "ok", text: said }] };
-        } } };
-      return { blocks: [], ask: { prompt: "Why send it back? (the agent gets your words)", then: (why) => run(ctx, `/reject${at} ${why}`, botCmds) } };
-    } };
-  };
+  const gatePick = (n?: number): Pick | null => makeGatePick({ ctx, snap, core, botCmds }, n);
   const ask = (pick: Pick | null) => {
     if (!pick || pending || running) return;
     setPending({ cmd: "gate", pick });
@@ -800,131 +513,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     } });
   };
 
-  // the full screen's transcript as lines (each block's lines kept until the width changes)
-  const cache = useRef(new Map<number, { w: number; paint: unknown; lines: string[] }>());
-  // each line's item (a click on a tool call's line opens it)
-  const owners = useRef<number[]>([]);
-  const lines = useMemo(() => {
-    if (!screen) return [];
-    const out: string[] = [];
-    const own: number[] = [];
-    for (const it of items) {
-      let c = cache.current.get(it.id);
-      if (!c || c.w !== width || c.paint !== t.paint) {
-        c = { w: width, paint: t.paint, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : [...(it.gap ? [""] : []), ...blockLines(it.b, width, t.paint)] };
-        cache.current.set(it.id, c);
-      }
-      out.push(...c.lines);
-      for (let k = 0; k < c.lines.length; k++) own.push(it.id);
-    }
-    owners.current = own;
-    return out;
-  }, [items, width, screen, t.paint]);
-  // scrolled up while new lines come: the view stays where the person is reading
-  const seen = useRef(0);
-  useEffect(() => {
-    const grew = lines.length - seen.current;
-    seen.current = lines.length;
-    if (grew > 0) setOffset((o) => (o > 0 ? o + grew : 0));
-  }, [lines.length]);
-  const scroll = useCallback((by: number) => setOffset((o) => Math.max(0, Math.min(o + by, Math.max(0, lines.length - viewH)))), [lines.length, viewH]);
-  // the transcript area's height, after Ink laid the screen out
-  useEffect(() => {
-    if (!screen || !viewRef.current) return;
-    const h = measureElement(viewRef.current).height;
-    if (h > 0 && h !== viewH) setViewH(h);
-  });
+  const { cache, owners, lines } = useTranscript(items, width, screen, t.paint);
+  const { offset, setOffset, viewH, viewRef, scroll } = useScroll(lines.length, height, screen);
   // the mode's area, after Ink laid the screen out (a question KeelBot asks meanwhile shows under it)
   useEffect(() => {
     if (!screen || !modeRef.current) return;
     const h = measureElement(modeRef.current).height;
     if (h > 0 && h !== modeH) setModeH(h);
   });
-  // select with the mouse: where a cell of the screen is in the transcript shown (after scrolling) or in the prompt
-  const shownRef = useRef({ above: 0, count: 0 });
-  const linesRef = useRef<string[]>([]);
-  linesRef.current = lines;
-  const lineRef = useRef("");
-  lineRef.current = line;
-  /** The transcript's or the prompt's cell at a column and row of the screen; with `keep`, a cell outside it is moved
-   *  to its nearest edge (a drag past the transcript's top or bottom, or off the prompt's line). */
-  const cellAt = (col: number, row: number, keep?: Sel["area"]): { area: Sel["area"]; at: Point } | null => {
-    const vp = viewRef.current && placeOf(viewRef.current);
-    const { above, count } = shownRef.current;
-    if (vp && count && keep !== "prompt") {
-      const i = row - (vp.top + vp.height - count);      // the lines sit at the bottom of the transcript's area
-      const c = Math.max(0, col - vp.left);
-      if (i >= 0 && i < count && col >= vp.left && col < vp.left + vp.width) return { area: "view", at: { line: above + i, col: c } };
-      if (keep === "view") return { area: "view", at: i < 0 ? { line: above, col: 0 } : i >= count ? { line: above + count - 1, col: 1e6 } : { line: above + i, col: c } };
-    }
-    const pp = promptRef.current && placeOf(promptRef.current);
-    // the prompt's text starts after its border, its padding and "› "
-    if (pp && lineRef.current && (keep === "prompt" || row === pp.top + 1)) return { area: "prompt", at: { line: 0, col: Math.max(0, col - pp.left - 4) } };
-    return null;
-  };
-  const onMouse = useCallback((e: MouseEv) => {
-    if (e.kind === "press") {
-      const hit = cellAt(e.col, e.row);
-      if (!hit) {
-        setSel(null);
-        clicks.hit(e.col, e.row)?.act();
-        return;
-      }
-      const lp = lastPress.current;
-      const now = Date.now();
-      lastPress.current = { t: now, col: e.col, row: e.row };
-      if (now - lp.t < DOUBLE_MS && lp.col === e.col && lp.row === e.row) {
-        // a double-click: the word under it
-        const text = hit.area === "view" ? linesRef.current[hit.at.line] ?? "" : lineRef.current;
-        const w = wordAt(plain(text), hit.at.col);
-        if (w) return setSel({ area: hit.area, a: { line: hit.at.line, col: w[0] }, b: { line: hit.at.line, col: w[1] }, moved: true });
-      }
-      setSel({ area: hit.area, a: hit.at, b: hit.at, moved: false });
-      return;
-    }
-    const cur = selRef.current;
-    if (!cur) return;
-    if (e.kind === "drag") {
-      const hit = cellAt(e.col, e.row, cur.area);
-      if (!hit) return;
-      const moved = cur.moved || hit.at.line !== cur.a.line || hit.at.col !== cur.a.col;
-      if (moved !== cur.moved || hit.at.line !== cur.b.line || hit.at.col !== cur.b.col) setSel({ ...cur, b: hit.at, moved });
-      return;
-    }
-    // the release: what is selected goes to the clipboard at once; a plain click selects nothing (on a tool call's
-    // line it opens or folds its output)
-    if (!cur.moved) {
-      setSel(null);
-      const id = cur.area === "view" ? owners.current[cur.a.line] : undefined;
-      if (id !== undefined) toggleToolRef.current(id);
-      return;
-    }
-    const text = selectedText(cur.area === "view" ? linesRef.current : [lineRef.current], cur.a, cur.b);
-    if (!text.trim()) return setSel(null);
-    stdout?.write(osc52(text));
-    const n = [...text].length;
-    setFlash(`copied ${n} character${n === 1 ? "" : "s"}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clicks, stdout]);
-  // the wheel, Home and End: read from the raw input (Ink gives no key for them)
-  const { internal_eventEmitter: rawInput } = useStdin() as unknown as { internal_eventEmitter?: NodeJS.EventEmitter };
-  useEffect(() => {
-    if (!screen || !rawInput) return;
-    const on = (chunk: string | Buffer) => {
-      const s = String(chunk);
-      const n = wheel(s);
-      if (n && mode) return mode.wheel(n * 3);
-      if (n) return scroll(n * 3);
-      for (const e of mouseEvents(s)) onMouse(e);
-      const end = /^\x1b(\[(F|4~|8~)|OF)$/.test(s);
-      const home = /^\x1b(\[(H|1~|7~)|OH)$/.test(s);
-      if (mode && (end || home)) void mode.press(end ? "end" : "home");
-      else if (end) setOffset(0);
-      else if (home) setOffset(Number.MAX_SAFE_INTEGER);
-    };
-    rawInput.on("input", on);
-    return () => void rawInput.off("input", on);
-  }, [rawInput, screen, scroll, clicks, mode, onMouse]);
+  const { shownRef } = useMouse({ screen, mode, stdout, lines, line, owners, viewRef, promptRef, clicks, toggleToolRef, selRef, setSel, setFlash, scroll, setOffset });
 
   useInput((input, key) => {
     // the mouse's reports are read below, from the raw input; never typed into the prompt
@@ -1165,10 +762,6 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const verb = useMemo(() => pickVerb(), [chat.callId]);
   // Fix and Side: each change as KeelBot makes it (the last two), as a diff with line numbers
   const edits = steps.filter((x) => (x.kind === "write" || x.kind === "edit") && x.diff).slice(-2);
-  const diffLines = (d: string) => {
-    const all = renderDiff(d.replace(/\n$/, ""), t.paint).filter((l) => !/(---|\+\+\+) /.test(l.replace(/\x1b\[[0-9;]*m/g, "").trimStart()));
-    return all.length > 12 ? [...all.slice(0, 12), t.paint.faint(`… ${all.length - 12} more lines`)] : all;
-  };
   const flowWaits = snap.flow?.thread?.status === "waiting";
   const border = pending?.ask || line ? t.color("accent") : flowWaits ? t.color("gate") : t.color("border");
   const agentsHere = panels.includes("agents") ? [] : snap.running.slice(0, 3);
@@ -1262,7 +855,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             })}
             {edits.map((e) => (
               <Box key={e.n} flexDirection="column" marginLeft={4}>
-                {diffLines(e.diff ?? "").map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
+                {diffLines(e.diff ?? "", t.paint).map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
               </Box>
             ))}
             {chat.thinking ? (
@@ -1308,7 +901,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
               : footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
             <Box ref={promptRef} borderStyle="round" borderColor={border} paddingX={1} marginTop={flash || (footer && !chat.busy) ? 0 : 1}
               flexDirection="column">
-              {line ? promptText() : (
+              {line ? promptView(t, line, cursor) : (
                 <Text>
                   <Text {...t.look("person")} bold>{"› "}</Text>
                   <Text inverse> </Text><Text {...t.look("dim")}>{pending?.ask ? "type the answer, Enter sends"
@@ -1322,36 +915,5 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         <Clickable act={answerWaiting}><StatusLine s={snap} meter={!side} /></Clickable>
       </>
     );
-  }
-
-  /** 0.18.18 The prompt's rows (it grows with Alt+Enter up to PROMPT_ROWS rows, then shows the cursor's), the cursor
-   *  inverse, and how many rows are hidden above or below. */
-  function promptText() {
-    const pv = promptRows(line, cursor);
-    // 0.18.18 `!` at the start: a shell command keel runs in the project folder (as opencode's shell mode, MIT)
-    const shellLine = line.startsWith("!");
-    const more = (n: number, where: string) => (
-      <Text {...t.look("dim")} wrap="truncate-end">{`  ${n} more line${n === 1 ? "" : "s"} ${where}`}</Text>
-    );
-    return (
-      <>
-        {pv.above > 0 && more(pv.above, "above")}
-        {pv.rows.map((r, i) => (
-          <Text key={pv.above + i}>
-            <Text {...t.look(shellLine ? "warn" : "person")} bold>{pv.above + i === 0 ? (shellLine ? "shell › " : "› ") : shellLine ? "        " : "  "}</Text>
-            {r.cursor === null ? inputText(r.text || " ")
-              : <>{inputText(r.text.slice(0, r.cursor))}<Text inverse>{r.text[r.cursor] ?? " "}</Text>{inputText(r.text.slice(r.cursor + 1))}</>}
-          </Text>
-        ))}
-        {pv.below > 0 && more(pv.below, "below")}
-      </>
-    );
-  }
-
-  /** The prompt's text: a command's name in the accent colour while it is typed. */
-  function inputText(x: string) {
-    const m = /^(\/\S*)(.*)$/s.exec(x);
-    if (!m || x !== line.slice(0, x.length) || !line.startsWith("/")) return <Text>{x}</Text>;
-    return <><Text {...t.look("accent")} bold>{m[1]}</Text><Text>{m[2]}</Text></>;
   }
 }
