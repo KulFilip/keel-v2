@@ -13,7 +13,8 @@ import org.springframework.web.bind.annotation.RestController
 /** The Code Review plugin: Code › Review (docs/CONTRACT.md "v0.14.0: Code Review"). Every call needs the plugin on. */
 @RestController
 @RequestMapping("/api/projects/{pid}/review")
-class ReviewController(private val reviews: ReviewService, private val ai: ReviewAiService) {
+class ReviewController(private val reviews: ReviewService, private val ai: ReviewAiService, private val addressing: ReviewAddressService,
+                       private val judging: ReviewJudgeService, private val threadSettings: ReviewThreadSettings) {
 
     @GetMapping("/prs")
     fun prs(@PathVariable pid: String, @RequestParam(defaultValue = "review") filter: String) = reviews.prs(pid, filter)
@@ -83,6 +84,41 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @PostMapping("/ai/{kind}")
     fun aiStart(@PathVariable pid: String, @PathVariable kind: String, @RequestBody b: KeyBody) = ai.start(pid, b.key, kind)
 
+    /** "Is the reviewer right?": one cheap model call checks the thread against its lines (kept per last comment). Posts nothing. */
+    @PostMapping("/threads/{threadId}/judge")
+    fun judge(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: JudgeBody) = judging.judge(pid, b.key, threadId, b)
+
+    /** An extra thread button (Settings › Code Review threads): ask (one cheap call) or workflow (a flow). */
+    @PostMapping("/threads/{threadId}/buttons/{buttonId}")
+    fun button(@PathVariable pid: String, @PathVariable threadId: String, @PathVariable buttonId: String, @RequestBody b: JudgeBody) =
+        judging.button(pid, b.key, threadId, buttonId, b)
+
+    /** The thread settings that apply to this project (and what the pickers offer); PUT overrides them here (null: follow General). */
+    @GetMapping("/settings")
+    fun settings(@PathVariable pid: String) = threadSettings.view(pid)
+
+    @PutMapping("/settings")
+    fun saveSettings(@PathVariable pid: String, @RequestBody patch: Map<String, Any?>) = threadSettings.update(pid, patch)
+
+    /** Check all open threads: one call for every open thread without an answer for its last comment. */
+    @PostMapping("/threads/judge")
+    fun judgeAll(@PathVariable pid: String, @RequestBody b: JudgeBody) = judging.judgeAll(pid, b.key, b)
+
+    /** "Address it": a small flow makes the change the thread asks for, on the pull request's branch. Never pushes. */
+    @PostMapping("/threads/{threadId}/address")
+    fun address(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: AddressBody) = addressing.address(pid, b.key, threadId, b)
+
     @PostMapping("/ai/findings/{findingId}")
     fun decide(@PathVariable pid: String, @PathVariable findingId: String, @RequestBody b: FindingDecision) = ai.decide(pid, b.key, findingId, b)
+}
+
+/** The Code Review thread settings keel-wide (General): GET what applies, PUT a checked patch (null removes a key). */
+@RestController
+@RequestMapping("/api/review/settings")
+class ReviewSettingsController(private val threadSettings: ReviewThreadSettings) {
+    @GetMapping
+    fun view() = threadSettings.view(null)
+
+    @PutMapping
+    fun save(@RequestBody patch: Map<String, Any?>) = threadSettings.update(null, patch)
 }

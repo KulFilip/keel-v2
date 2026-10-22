@@ -39,7 +39,21 @@ data class AiRun(
     val updatedAt: String,
 )
 
-data class AiState(val overview: AiRun?, val findings: AiRun?, val decisions: Map<String, Map<String, String?>>)
+/**
+ * [judges]: per thread, keel's latest check of "is the reviewer right?"; [addressed]: per thread, the small flow that
+ * makes the change it asks for (flow_id, title, branch).
+ */
+data class AiState(
+    val overview: AiRun?,
+    val findings: AiRun?,
+    val decisions: Map<String, Map<String, String?>>,
+    val judges: Map<String, AiRun> = emptyMap(),
+    val addressed: Map<String, Map<String, Any?>> = emptyMap(),
+    /** per "<button id>|<thread>": the latest run of an extra thread button (an answer, or the flow it started) */
+    val buttons: Map<String, AiRun> = emptyMap(),
+    /** what the threads view draws: the judge's mode, Address it's workflow, the extra buttons (Settings) */
+    val config: Map<String, Any?> = emptyMap(),
+)
 
 /**
  * keel's AI on a review, as read-only KeelBot runs (Ask mode: it reads the code with git, never edits). Overview: what
@@ -57,6 +71,7 @@ class ReviewAiService(
     private val mapper: ObjectMapper,
     private val props: ReviewProperties,
     private val hub: EventHub,
+    private val conf: ReviewThreadSettings,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "review-ai").apply { isDaemon = true } }
@@ -68,6 +83,9 @@ class ReviewAiService(
         const val MAX_CHECKED = 12
         const val PER_VERIFY = 4
         const val MAX_NITS = 5
+        const val JUDGE = "judge:"
+        const val ADDRESS = "address:"
+        const val BUTTON = "button:"
         private val BLOCK = Regex("```[ \\t]*(keel-review[a-z-]*)[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
     }
 
@@ -82,7 +100,7 @@ class ReviewAiService(
         rs.getString("created_at"), rs.getString("updated_at"),
     )
 
-    private fun latest(pid: String, key: String, kind: String, head: String?): AiRun? = jdbc.query(
+    internal fun latest(pid: String, key: String, kind: String, head: String?): AiRun? = jdbc.query(
         "SELECT * FROM review_runs WHERE project_id = ? AND review_key = ? AND kind = ? ORDER BY created_at DESC LIMIT 1",
         { rs, _ -> row(rs, head) }, pid, key, kind).firstOrNull()
 
@@ -95,7 +113,21 @@ class ReviewAiService(
         val decisions = jdbc.query("SELECT finding_id, decision, why FROM review_decisions WHERE project_id = ? AND review_key = ?", { rs, _ ->
             rs.getString(1) to mapOf("decision" to rs.getString(2), "why" to rs.getString(3))
         }, pid, key).toMap()
-        return AiState(latest(pid, key, "overview", head), latest(pid, key, "findings", head), decisions)
+        val judges = latestByPrefix(pid, key, JUDGE, head)
+        val addressed = latestByPrefix(pid, key, ADDRESS, head).mapValues { (_, r) ->
+            @Suppress("UNCHECKED_CAST")
+            (r.result?.let { mapper.convertValue(it, Map::class.java) as Map<String, Any?> } ?: emptyMap()) + mapOf("at" to r.createdAt)
+        }
+        return AiState(latest(pid, key, "overview", head), latest(pid, key, "findings", head), decisions, judges, addressed,
+            latestByPrefix(pid, key, BUTTON, head), runCatching { conf.client(pid) }.getOrDefault(emptyMap()))
+    }
+
+    /** The newest run of each kind that starts with [prefix] ("judge:<thread>"), by the thread id after it. */
+    private fun latestByPrefix(pid: String, key: String, prefix: String, head: String?): Map<String, AiRun> {
+        val out = linkedMapOf<String, AiRun>()
+        jdbc.query("SELECT * FROM review_runs WHERE project_id = ? AND review_key = ? AND kind LIKE ? ORDER BY created_at DESC, rowid DESC",
+            { rs, _ -> row(rs, head) }, pid, key, "$prefix%").forEach { r -> out.putIfAbsent(r.kind.removePrefix(prefix), r) }
+        return out
     }
 
     fun decide(pid: String, key: String, findingId: String, b: FindingDecision): AiState {
