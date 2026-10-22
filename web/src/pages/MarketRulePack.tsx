@@ -12,7 +12,7 @@
 // A pack installs into the project's .keel/rules/ through the rules api (source "marketplace"): no restart, the guard reads
 // it at the next tool call. A pack only refuses; it can never allow what keel's own rules forbid.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { errorParts } from "../api";
 import { TrustTag } from "../components/Permissions";
 import { Confirm, Drawer, ErrorBox, Loading, Pill } from "../components/ui";
@@ -26,28 +26,19 @@ import {
   whoEnforces,
   type MarketRulePack,
   type ReadRule,
-  type Refusal,
   type RulePackHit,
   type RulePackReview,
   type RulePackSearch,
   type RulePackVersion,
 } from "../rulePackMarketApi";
 import { KIND_WORDS } from "../rulesApi";
+import { PanelSection } from "../components/PanelSection";
+import { useDebounced } from "../hooks";
+import { type Err, refusedText } from "../marketHttp";
+import { publisherOf } from "../marketplaceApi";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
-function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
-const pub = (h: RulePackHit) => ({ name: h.publisher_title || h.publisher || "", verified: Boolean(h.verified) });
-const refusedText = (r: Refusal | null) => (r ? [r.error, r.hint].filter(Boolean).join(" ") : "");
 
 /** "3 rules · bash 1 · edit 2 · every phase". */
 export function PackShort({ review }: { review: RulePackReview | null | undefined }) {
@@ -79,7 +70,7 @@ export function RulesMarket() {
   const none = !!r.error || down || (!!data && !statuses.length && !all.length);
 
   const card = (h: RulePackHit) => {
-    const p = pub(h);
+    const p = publisherOf(h);
     const title = h.title || h.name;
     const shown = h.version ?? h.latest;
     return (
@@ -354,7 +345,7 @@ export function PackInstallDialog({
     >
       <div className="row">
         <span className="mk-by">
-          <Publisher {...pub(hit)} />
+          <Publisher {...publisherOf(hit)} />
         </span>
         <TrustTag trust="content" />
       </div>
@@ -482,23 +473,6 @@ export function PackUpdateDialog({
 
 const bytes = (n?: number) => (!n ? null : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-function Section({ id, title, extra, children, body = true }: {
-  id: string;
-  title: string;
-  extra?: ReactNode;
-  children: ReactNode;
-  body?: boolean;
-}) {
-  return (
-    <section className="panel" aria-labelledby={id}>
-      <div className="panel-head">
-        <h2 id={id}>{title}</h2>
-        {extra}
-      </div>
-      {body ? <div className="panel-body">{children}</div> : children}
-    </section>
-  );
-}
 
 const list = (xs?: string[]) => (xs?.length ? xs.join(", ") : "—");
 const phasesCell = (p: string | string[]) =>
@@ -632,7 +606,7 @@ export function MarketRulePackPage({ name }: { name: string }) {
       </div>
     );
   const title = w.title || w.name;
-  const p = pub(w);
+  const p = publisherOf(w);
   const v = w.versions?.find((x) => x.version === w.version) ?? w.versions?.[0];
   const requires = w.pack?.requires ?? w.requires;
   const plugins = Object.entries(requires?.plugins ?? {});
@@ -743,7 +717,7 @@ export function MarketRulePackPage({ name }: { name: string }) {
         </p>
       )}
       <div className="wfm-steps">
-        <Section id="rpm-rules" title="Rules" extra={<PackShort review={w.review} />} body={false}>
+        <PanelSection id="rpm-rules" title="Rules" extra={<PackShort review={w.review} />} body={false}>
           <div className="panel-body">
             {w.summary && <p className="mk-about">{w.summary}</p>}
             {!w.rules.length && (
@@ -763,18 +737,18 @@ export function MarketRulePackPage({ name }: { name: string }) {
               </details>
             </div>
           )}
-        </Section>
+        </PanelSection>
       </div>
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="rpm-who" title="Who enforces it" extra={<span className="sub">from each engine's real support</span>}>
+          <PanelSection id="rpm-who" title="Who enforces it" extra={<span className="sub">from each engine's real support</span>}>
             {w.rules.length ? <Enforcers w={w} /> : <p className="sub" style={{ margin: 0 }}>—</p>}
             <p className="mk-quote">
               A pack only refuses: it never allows what keel's own rules forbid. The refusal the agent reads ends with
               (rule {w.name}/&lt;rule&gt;).
             </p>
-          </Section>
-          <Section id="rpm-versions" title="Versions" extra={<span className="sub">Newest first</span>} body={false}>
+          </PanelSection>
+          <PanelSection id="rpm-versions" title="Versions" extra={<span className="sub">Newest first</span>} body={false}>
             <div className="table-wrap">
               <table className="mk-table mk-vtable">
                 <thead>
@@ -801,10 +775,10 @@ export function MarketRulePackPage({ name }: { name: string }) {
                 </tbody>
               </table>
             </div>
-          </Section>
+          </PanelSection>
         </div>
         <div className="mk-stack">
-          <Section id="rpm-requires" title="Requires">
+          <PanelSection id="rpm-requires" title="Requires">
             <div className="mk-checklist" aria-label="What it needs">
               <div>
                 <span className="mk-ok" aria-hidden="true">✓</span>
@@ -841,9 +815,9 @@ export function MarketRulePackPage({ name }: { name: string }) {
               <dt>From</dt>
               <dd className="mono">{w.source}</dd>
             </dl>
-          </Section>
+          </PanelSection>
           {!!w.checks?.length && (
-            <Section id="rpm-checks" title="Checks keel runs before install">
+            <PanelSection id="rpm-checks" title="Checks keel runs before install">
               <div className="mk-checklist">
                 {w.checks.map((c, i) => (
                   <div key={i}>
@@ -852,7 +826,7 @@ export function MarketRulePackPage({ name }: { name: string }) {
                   </div>
                 ))}
               </div>
-            </Section>
+            </PanelSection>
           )}
         </div>
       </div>

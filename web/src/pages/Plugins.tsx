@@ -90,6 +90,7 @@ import {
   usePluginAct,
   type Err,
 } from "./PluginDetail";
+import { useDebounced } from "../hooks";
 import { ProjectPlace, useProjectPlugins } from "./PluginProjects";
 import {
   CHIPS,
@@ -983,14 +984,6 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
 
 // ---------- Marketplace ----------
 
-function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
 
 /** An installed plugin as a card, when no catalog answers: what keel's image (or its copy) knows. */
 const localHit = (p: InstalledPlugin): MarketHit => ({

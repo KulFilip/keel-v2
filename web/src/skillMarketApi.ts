@@ -4,13 +4,14 @@
 // (replace), remove. A skill is one of the project's skills: no restart, an agent reads it at its next run.
 
 import { del, get, post, put, type Skill } from "./api";
+import { e, query, type Refusal } from "./marketHttp";
 import { k1 } from "./format";
 import type { SourceStatus } from "./marketplaceApi";
 
 /** What keel (and the catalog) says a skill is: its size in tokens, its ## sections, what it is for. */
 export type SkillReview = { tokens: number; sections: string[]; description: string };
 
-export type Refusal = { error: string; hint?: string };
+export type { Refusal } from "./marketHttp";
 
 /** One skill of a catalog (GET /api/marketplace/skills → skills). */
 export type SkillHit = {
@@ -98,11 +99,6 @@ export type MarketSkill = Omit<SkillHit, "installed" | "update"> & {
   refs?: { path: string; tokens: number }[];
 };
 
-const e = encodeURIComponent;
-const query = (p: Record<string, string | null | undefined>) => {
-  const s = new URLSearchParams(Object.entries(p).filter((x): x is [string, string] => !!x[1])).toString();
-  return s ? `?${s}` : "";
-};
 
 export const skillMarketApi = {
   search: (q = "", category = "", project: string | null = null) =>

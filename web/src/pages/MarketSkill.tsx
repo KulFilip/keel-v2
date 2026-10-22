@@ -11,7 +11,7 @@
 // A skill only adds words to an agent's prompt: keel's rules and the phase still decide what the agent may do. It is
 // saved as one of the project's skills (source "marketplace"): no restart, an agent reads it at its next run.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { api, errorParts } from "../api";
 import { k1 } from "../format";
 import { TrustTag } from "../components/Permissions";
@@ -23,7 +23,6 @@ import {
   skillShort,
   type BuiltinSkill,
   type MarketSkill,
-  type Refusal,
   type SkillHit,
   type SkillReview,
   type SkillSearch,
@@ -31,24 +30,13 @@ import {
 } from "../skillMarketApi";
 import { useApp, useLoad } from "../state";
 import { Markdown } from "../components/Markdown";
+import { PanelSection } from "../components/PanelSection";
+import { useDebounced } from "../hooks";
+import { type Err, refusedText } from "../marketHttp";
+import { publisherOf } from "../marketplaceApi";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
-function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
-const pub = (h: { publisher_title?: string; publisher?: string; verified?: boolean }) => ({
-  name: h.publisher_title || h.publisher || "",
-  verified: Boolean(h.verified),
-});
-const refusedText = (r: Refusal | null) => (r ? [r.error, r.hint].filter(Boolean).join(" ") : "");
 
 /** "1.2k tokens · 3 sections". */
 export function SkillShort({ review }: { review: SkillReview | null | undefined }) {
@@ -112,7 +100,7 @@ export function SkillsMarket() {
   const noCatalog = !!data && (!!data.catalog_error || !statuses.length || statuses.every((s) => s.ok === false)) && !hits.length;
 
   const card = (h: SkillHit) => {
-    const p = pub(h);
+    const p = publisherOf(h);
     const title = h.title || h.name;
     const shown = h.version ?? h.latest;
     return (
@@ -375,7 +363,7 @@ export function SkillInstallDialog({ hit, versions, pid, project, onClose, onDon
     >
       <div className="row">
         <span className="mk-by">
-          <Publisher {...pub(hit)} />
+          <Publisher {...publisherOf(hit)} />
         </span>
         <TrustTag trust="content" />
       </div>
@@ -543,17 +531,6 @@ export function SkillAgentsDialog({ sid, title, now, pid, onClose, onDone }: {
 
 // ---------- a skill's page ----------
 
-function Section({ id, title, extra, children }: { id: string; title: string; extra?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="panel" aria-labelledby={id}>
-      <div className="panel-head">
-        <h2 id={id}>{title}</h2>
-        {extra}
-      </div>
-      <div className="panel-body">{children}</div>
-    </section>
-  );
-}
 
 export function MarketSkillPage({ name }: { name: string }) {
   const [raw, setRaw] = useState(false);          // 0.18.9 SKILL.md rendered, or as the file is
@@ -583,7 +560,7 @@ export function MarketSkillPage({ name }: { name: string }) {
       </div>
     );
   const title = w.title || w.name;
-  const p = pub(w);
+  const p = publisherOf(w);
   const sid = w.builtin ? w.name : w.installed?.sid;
   const agentsNow = w.builtin ? (w.agents ?? []) : (w.installed?.agents ?? []);
   const remove = async () => {
@@ -700,7 +677,7 @@ export function MarketSkillPage({ name }: { name: string }) {
       )}
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="skm-text" title="SKILL.md" extra={<span className="sub">{w.builtin ? "keel's own" : "as published, verified"}
+          <PanelSection id="skm-text" title="SKILL.md" extra={<span className="sub">{w.builtin ? "keel's own" : "as published, verified"}
             {w.text && <button type="button" className="btn sm ghost" style={{ marginLeft: 8 }} onClick={() => setRaw((r) => !r)}>{raw ? "Rendered" : "Raw"}</button>}</span>}>
             {w.summary && <p className="mk-about">{w.summary}</p>}
             {w.text ? (raw ? (
@@ -718,10 +695,10 @@ export function MarketSkillPage({ name }: { name: string }) {
                 keel did not read the file, so it shows no text: {w.fetch_error || w.refused ? "see above." : "the catalog sends none."}
               </p>
             )}
-          </Section>
+          </PanelSection>
         </div>
         <div className="mk-stack">
-          <Section id="skm-review" title="keel's review">
+          <PanelSection id="skm-review" title="keel's review">
             <dl className="mk-kv">
               <dt>Size</dt>
               <dd className="mono">{k1(w.review?.tokens ?? 0)} tokens</dd>
@@ -739,9 +716,9 @@ export function MarketSkillPage({ name }: { name: string }) {
               )}
             </dl>
             <p className="mk-quote">A skill only adds words to an agent's prompt. It never lets an agent do more: keel's rules and the phase decide that.</p>
-          </Section>
+          </PanelSection>
           {!!w.versions?.length && (
-            <Section id="skm-versions" title="Versions" extra={<span className="sub">Newest first</span>}>
+            <PanelSection id="skm-versions" title="Versions" extra={<span className="sub">Newest first</span>}>
               <ul className="mk-checklist">
                 {w.versions.map((x) => (
                   <li key={x.version}>
@@ -752,10 +729,10 @@ export function MarketSkillPage({ name }: { name: string }) {
                   </li>
                 ))}
               </ul>
-            </Section>
+            </PanelSection>
           )}
           {!!w.checks?.length && (
-            <Section id="skm-checks" title={w.builtin ? "Where it comes from" : "Checks keel runs before install"}>
+            <PanelSection id="skm-checks" title={w.builtin ? "Where it comes from" : "Checks keel runs before install"}>
               <div className="mk-checklist">
                 {w.checks.map((c, i) => (
                   <div key={i}>
@@ -764,7 +741,7 @@ export function MarketSkillPage({ name }: { name: string }) {
                   </div>
                 ))}
               </div>
-            </Section>
+            </PanelSection>
           )}
         </div>
       </div>

@@ -11,7 +11,7 @@
 // Install asks: this project (the default) or all projects. A 409 that names missing plugins offers their pages (the
 // plugin path installs them; this dialog never does); missing agents are named.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { api, errorParts, type Agent, type Workflow } from "../api";
 import { bytes } from "../format";
 import { CodeEditor } from "../components/CodeEditor";
@@ -38,23 +38,13 @@ import {
 import { MARKET_RULES } from "../rulePackMarketApi";
 import { MARKET_SKILLS } from "../skillMarketApi";
 import { MARKET_STACKS } from "../stackMarketApi";
+import { PanelSection } from "../components/PanelSection";
+import { useDebounced } from "../hooks";
+import { type Err } from "../marketHttp";
+import { publisherOf } from "../marketplaceApi";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
-function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
-const pub = (h: WorkflowHit) => ({
-  name: h.publisher_title || h.publisher || "",
-  verified: Boolean(h.verified),
-});
 
 /** An installed workflow as the update dialog needs it (its id here, its name, the version it has, the update). */
 const asInstalled = (h: WorkflowHit): Workflow =>
@@ -146,7 +136,7 @@ export function WorkflowsMarket({ view }: { view: PluginsView | null }) {
   const plugins = new Map((view?.plugins ?? []).map((p) => [p.name, p]));
 
   const card = (h: WorkflowHit) => {
-    const p = pub(h);
+    const p = publisherOf(h);
     const title = h.title || h.name;
     const needs = neededPlugins(h);
     const agents = h.needs?.agents ?? [];
@@ -445,7 +435,7 @@ export function MarketInstallDialog({
     >
       <div className="row">
         <span className="mk-by">
-          <Publisher {...pub(hit)} />
+          <Publisher {...publisherOf(hit)} />
         </span>
         <TrustTag trust="content" />
       </div>
@@ -519,19 +509,6 @@ export function MarketInstallDialog({
 // ---------- a workflow's page ----------
 
 
-function Section({ id, title, extra, children, body = true }: {
-  id: string; title: string; extra?: ReactNode; children: ReactNode; body?: boolean;
-}) {
-  return (
-    <section className="panel" aria-labelledby={id}>
-      <div className="panel-head">
-        <h2 id={id}>{title}</h2>
-        {extra}
-      </div>
-      {body ? <div className="panel-body">{children}</div> : children}
-    </section>
-  );
-}
 
 export function MarketWorkflowPage({ name, view }: { name: string; view: PluginsView | null }) {
   const { pid, project, health, projectsLoaded } = useApp();
@@ -559,7 +536,7 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
       </div>
     );
   const title = w.title || w.name;
-  const p = pub(w);
+  const p = publisherOf(w);
   const needs = neededPlugins(w);
   const wantAgents = w.needs?.agents ?? [];
   const have = new Set((agents.data ?? []).map((a) => a.id));
@@ -626,7 +603,7 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
       )}
       {/* the steps take the page's width: the graph reads as on the builder */}
       <div className="wfm-steps">
-        <Section id="wfm-steps" title="Steps" extra={<ReviewShort h={w} />}>
+        <PanelSection id="wfm-steps" title="Steps" extra={<ReviewShort h={w} />}>
           {w.summary && <p className="mk-about">{w.summary}</p>}
           {w.steps?.length ? (
             <Zoom id="market-workflow">
@@ -639,11 +616,11 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
             <summary>The YAML</summary>
             <CodeEditor id="wfm-yaml" label={`YAML of ${title}`} value={w.yaml ?? ""} onChange={() => undefined} readOnly rows={18} />
           </details>
-        </Section>
+        </PanelSection>
       </div>
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="wfm-versions" title="Versions" extra={<span className="sub">Newest first</span>} body={false}>
+          <PanelSection id="wfm-versions" title="Versions" extra={<span className="sub">Newest first</span>} body={false}>
             <div className="table-wrap">
               <table className="mk-table mk-vtable">
                 <thead>
@@ -669,9 +646,9 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
                 </tbody>
               </table>
             </div>
-          </Section>
+          </PanelSection>
           {!!w.checks?.length && (
-            <Section id="wfm-checks" title="Checks keel runs before install">
+            <PanelSection id="wfm-checks" title="Checks keel runs before install">
               <div className="mk-checklist">
                 {w.checks.map((c, i) => (
                   <div key={i}>
@@ -680,18 +657,18 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
                   </div>
                 ))}
               </div>
-            </Section>
+            </PanelSection>
           )}
         </div>
         <div className="mk-stack">
-          <Section id="wfm-review" title="Install review" extra={<span className="sub">what it does when it runs</span>}>
+          <PanelSection id="wfm-review" title="Install review" extra={<span className="sub">what it does when it runs</span>}>
             <ReviewList review={w.review} />
             <p className="mk-quote">
               Content only: it runs through keel's flows, agents and gates. Signed by its publisher, but read the shell
               commands before you install it.
             </p>
-          </Section>
-          <Section id="wfm-needs" title="Needs">
+          </PanelSection>
+          <PanelSection id="wfm-needs" title="Needs">
             <div className="mk-checklist" aria-label="What it needs">
               <div>
                 <span className="mk-ok" aria-hidden="true">✓</span>
@@ -753,7 +730,7 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
               <dt>From</dt>
               <dd className="mono">{w.source}</dd>
             </dl>
-          </Section>
+          </PanelSection>
         </div>
       </div>
       {installing && pid && (
