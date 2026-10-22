@@ -72,7 +72,7 @@ class TeamService(private val store: ProductStore, private val repo: ProductRepo
 
     fun update(id: String, b: TeamBody): Team {
         val t = get(id)
-        store.saveTeam(t.copy(name = b.name?.trim()?.ifEmpty { null } ?: t.name, lead = b.lead ?: t.lead,
+        store.saveTeam(t.copy(name = b.name?.trim()?.ifEmpty { null } ?: t.name, lead = if (b.lead != null) b.lead.trim().ifEmpty { null } else t.lead,
             jiraProject = if (b.jiraProject != null) jiraKey(b.jiraProject) else t.jiraProject, capacityDays = b.capacityDays ?: t.capacityDays,
             members = b.members ?: t.members, updatedAt = Time.now(), jira = b.jira?.let { checkJira(it) } ?: t.jira,
             keyPattern = if (b.keyPattern != null) TicketKeys.check(b.keyPattern) else t.keyPattern))

@@ -438,6 +438,7 @@ class ProductApiTest : ApiTest() {
         assertThat(saved["jira"]["story_type"].asText()).isEqualTo("User Story")
         assertThat(saved["keys"].asText()).isEqualTo("(ERPDM|ERP)-\\d+")
         patch("/api/teams/erp-dm", mapOf("lead" to "Sara K")).andExpect(status().isOk)
+        assertThat(patch("/api/teams/erp-dm", mapOf("lead" to "")).json()["lead"].isNull).isTrue()
         assertThat(get("/api/teams/erp-dm").json()["team"]["jira"]["labels"].map { it.asText() }).containsExactly("erp", "keel")
         patch("/api/teams/erp-dm", mapOf("key_pattern" to "(ERPDM-\\d+)+")).andExpect(status().isBadRequest)
         patch("/api/teams/erp-dm", mapOf("jira" to mapOf("labels" to listOf("two words")))).andExpect(status().isBadRequest)
@@ -515,6 +516,11 @@ class ProductApiTest : ApiTest() {
         patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("criteria" to listOf("rates refresh"))).andExpect(status().isBadRequest)
         patch("/api/initiatives/$id/plan/stories/PAY-S1", mapOf("depends_on" to listOf("PAY-S2"))).andExpect(status().isBadRequest)   // a loop
         patch("/api/initiatives/$id/plan/stories/NOPE", mapOf("title" to "x")).andExpect(status().isNotFound)
+        fun teamOf(r: org.springframework.test.web.servlet.ResultActions) = r.andExpect(status().isOk).json()["plan"]["epics"]
+            .flatMap { it["stories"] }.single { it["id"].asText() == "WEB-S1" }["team"]
+        assertThat(teamOf(patch("/api/initiatives/$id/plan/stories/WEB-S1", mapOf("team" to ""))).isNull).isTrue()
+        assertThat(teamOf(patch("/api/initiatives/$id/plan/stories/WEB-S1", mapOf("team" to "WEB"))).asText()).isEqualTo("web")   // by name
+        patch("/api/initiatives/$id/plan/stories/WEB-S1", mapOf("team" to "nobody")).andExpect(status().isNotFound)
         val added = post("/api/initiatives/$id/plan/stories", mapOf("epic" to "WEB", "title" to "Euro in the cart",
             "criteria" to listOf("AC-1 [WEB] the cart shows euro"), "depends_on" to listOf("PAY-S1"), "repo" to "web-shop")).andExpect(status().isOk).json()
         assertThat(added["plan"]["epics"].single { it["id"].asText() == "WEB" }["stories"].map { it["id"].asText() }).containsExactly("WEB-S1", "WEB-S2")

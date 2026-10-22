@@ -123,7 +123,9 @@ class PlanDrafts(private val store: ProductStore, private val projects: ProjectS
         ?: plan.items.firstOrNull { it.epic == eid }?.let { PlanEpic(plan.i.id, plan.version, eid, it.team, eid) }
         ?: throw NotFound("No epic $eid in the plan of ${plan.i.id}")
 
-    private fun team(id: String): String? = id.trim().ifEmpty { null }?.also { store.team(it) ?: throw NotFound("No team $it") }
+    private fun team(ref: String): String? = ref.trim().ifEmpty { null }?.let { r ->
+        (store.team(r) ?: store.teams().firstOrNull { it.name.equals(r, true) })?.id ?: throw NotFound("No team $r")
+    }
 
     private fun apply(plan: Plan, p: PlanItem, b: StoryEdit): PlanItem {
         val epic = b.epic?.trim()?.let { epic(plan, it) }
@@ -156,7 +158,8 @@ class PlanDrafts(private val store: ProductStore, private val projects: ProjectS
         deps?.let { body["depends_on"] = it }
         est?.let { body["estimate_days"] = if (it.size == 1) listOf(it[0], it[0]) else listOf(it.min(), it.max()) }
         if (b.repo != null) body["repo"] = repo
-        val team = b.team?.let { team(it) } ?: epic?.team ?: p.team
+        // "" takes the story's team away; a team is named by its id or its name (an agent's plan may use the name)
+        val team = if (b.team != null) team(b.team) else epic?.team ?: p.team
         return p.copy(epic = epic?.id ?: p.epic, team = team, repo = if (b.repo != null) repo else p.repo, title = title, body = body, projectId = pid)
     }
 
