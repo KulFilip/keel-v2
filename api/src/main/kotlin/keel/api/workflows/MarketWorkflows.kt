@@ -7,6 +7,7 @@ import keel.api.agents.AgentCatalog
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.NotFound
 import keel.api.common.Slug
 import keel.api.marketplace.Marketplace
@@ -25,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.io.ByteArrayOutputStream
-import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -372,7 +372,7 @@ class MarketWorkflows(
         private val SEMVER = Regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$")
 
         fun sha256(text: String): String =
-            MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+            Hash.sha256Hex(text)
 
         private fun and(words: List<String>) = if (words.size == 1) words[0] else words.dropLast(1).joinToString(", ") + " and " + words.last()
 

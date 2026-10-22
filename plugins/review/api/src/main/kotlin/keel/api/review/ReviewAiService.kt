@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.Time
 import keel.api.events.EngineEvent
 import keel.api.events.EngineEventStored
@@ -18,7 +19,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -231,8 +231,7 @@ class ReviewAiService(
     }
 
     private fun fid(path: String, line: Int?, title: String): String =
-        "f_" + MessageDigest.getInstance("SHA-256").digest("$path:${line ?: 0}:${title.lowercase().take(60)}".toByteArray())
-            .joinToString("") { "%02x".format(it) }.take(10)
+        "f_" + Hash.sha256Hex("$path:${line ?: 0}:${title.lowercase().take(60)}").take(10)
 
     private fun candidates(answer: String, reviewer: String): Pair<List<MutableMap<String, Any?>>, Map<String, String>> {
         val b = block(answer, "keel-review-findings") ?: return emptyList<MutableMap<String, Any?>>() to emptyMap()

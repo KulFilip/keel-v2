@@ -2,6 +2,7 @@ package keel.api.knowledge
 
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.Json
 import keel.api.common.NotFound
 import keel.api.common.Time
@@ -18,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.util.UUID
 
 data class DocVersion(
@@ -226,7 +226,7 @@ class DocHistoryService(private val jdbc: JdbcTemplate, private val projects: Pr
         private const val SELECT = "SELECT id, path, kind, version, sha256, size, deleted, masked, by_kind, by_name, via, thread_id, step, phase, " +
             "commit_sha, at, content FROM doc_versions"
 
-        fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        fun sha256(bytes: ByteArray): String = Hash.sha256Hex(bytes)
 
         fun kindOf(path: String): String = when {
             path.contains("/specs/") || path.startsWith("specs/") -> "spec"

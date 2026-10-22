@@ -3,6 +3,7 @@ package keel.api.skills
 import keel.api.agents.FrontMatter
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.Json
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
@@ -298,8 +299,7 @@ class SkillService(
 
         const val MAX_IMPORT = 256 * 1024
 
-        fun sha256(text: String): String = java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
-            .joinToString("") { "%02x".format(it) }
+        fun sha256(text: String): String = Hash.sha256Hex(text)
 
         /** keel's own skills ship with keel v2 (content/), so they carry its version line. */
         const val VERSION = "v2"

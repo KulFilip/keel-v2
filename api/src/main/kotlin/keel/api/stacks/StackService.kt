@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Yaml
@@ -25,7 +26,6 @@ import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
-import java.security.MessageDigest
 
 data class StackCommand(val name: String, val cmd: String)
 /** One `tools:` entry of a stack (v0.4.1: the engine runs them; see docs/CONTRACT.md "lint and static checks"). */
@@ -145,7 +145,7 @@ class StackService(
     }
 
     private fun sha256(text: String): String =
-        MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+        Hash.sha256Hex(text)
 
     private data class Origin(val origin: String, val removable: Boolean, val why: String?, val market: Map<String, Any?>?)
 

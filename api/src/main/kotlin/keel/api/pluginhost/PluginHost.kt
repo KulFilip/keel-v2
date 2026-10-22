@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.KotlinFeature
 import com.fasterxml.jackson.module.kotlin.KotlinModule
+import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -131,8 +132,7 @@ class PluginHost(props: KeelProperties) {
             val size = Files.size(file)
             val modified = Files.getLastModifiedTime(file).toMillis()
             hashes[file]?.takeIf { it.size == size && it.modified == modified }?.hash
-                ?: java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file))
-                    .joinToString("") { "%02x".format(it) }.take(12)
+                ?: Hash.sha256Hex(Files.readAllBytes(file)).take(12)
                     .also { hashes[file] = Stamp(size, modified, it) }
         }.getOrNull()
     }

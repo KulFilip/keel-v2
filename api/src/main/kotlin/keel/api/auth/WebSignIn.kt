@@ -3,6 +3,7 @@ package keel.api.auth
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import keel.api.common.Forbidden
+import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import org.springframework.http.HttpHeaders
 import org.springframework.http.ResponseCookie
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
@@ -35,7 +35,7 @@ class WebKey(private val props: KeelProperties) {
 
     val cookieName: String by lazy { "keel_" + sha256(value).take(8) }
 
-    fun matches(candidate: String?): Boolean = !candidate.isNullOrEmpty() && MessageDigest.isEqual(candidate.toByteArray(), value.toByteArray())
+    fun matches(candidate: String?): Boolean = !candidate.isNullOrEmpty() && Hash.constantTimeEquals(candidate, value)
 
     fun cookieOf(request: HttpServletRequest): String? = request.cookies?.firstOrNull { it.name == cookieName }?.value
 
@@ -62,8 +62,8 @@ class WebKey(private val props: KeelProperties) {
 
     companion object {
         private val random = SecureRandom()
-        fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
-        fun sha256(s: String): String = hex(MessageDigest.getInstance("SHA-256").digest(s.toByteArray()))
+        fun hex(b: ByteArray): String = Hash.hex(b)
+        fun sha256(s: String): String = Hash.sha256Hex(s)
     }
 }
 
