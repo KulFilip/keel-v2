@@ -32,7 +32,7 @@
 #                               from the clipboard in one piece: pbpaste | keel2 token claude
 #   keel2 tokens                which logins and keys are saved (hints only)
 #   keel2 backup [file]         save keel's data (database, logins, history) to a .tgz file
-#   keel2 restore <file>        put a backup back (keel is stopped first)
+#   keel2 restore <file>        put a backup back (the file is checked first; keel is stopped, asks when agents work, and starts again)
 #   keel2 sql                   open keel's SQLite database
 #   keel2 mcp [--write|--admin] keel's MCP server on stdio, for Claude Code / Claude Desktop to start: read-only by
 #                               default, --write decides gates and starts flows, --admin also stops flows and changes
@@ -49,7 +49,7 @@
 # KEEL_VOLUME (default keel-data for keel-v2, <KEEL_NAME>-data for any other name), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
 # KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none). KEEL_IMAGE wins over
 # --core.
-# Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning), KEEL_NATIVE_CLIS=0 (no agent CLIs),
+# Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning, and to restore's question), KEEL_NATIVE_CLIS=0 (no agent CLIs),
 # KEEL_RELEASE_URL (where releases are downloaded from).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
@@ -795,18 +795,87 @@ for p in json.load(sys.stdin)["providers"]:
     print("%-14s login %-24s %-10s  api key: %s" % (p["label"], p.get("login_secret") or "-", login, key))'
 }
 
+# ---- backup and restore (docker and native share these) ----
+# keel started again whatever happens: a backup or restore stops keel, and an error, Ctrl-C or kill must not leave it stopped.
+KEEL_RESTART_CMD=""   # what starts keel again; empty = keel was not stopped by us
+KEEL_TMPFILE=""       # a half-written backup file, removed when the command ends early
+keel_cleanup() {
+  [ -z "$KEEL_TMPFILE" ] || { rm -f -- "$KEEL_TMPFILE"; KEEL_TMPFILE=""; }
+  [ -z "$KEEL_RESTART_CMD" ] || {
+    local c="$KEEL_RESTART_CMD"; KEEL_RESTART_CMD=""
+    eval "$c" >/dev/null 2>&1 || bad "keel could not be started again. Start it yourself: keel2 start"
+  }
+}
+keel_guard_exit() { trap keel_cleanup EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; }
+
+# backup_check <file>: is it a keel backup? Reads the archive only; nothing on the disk changes.
+backup_check() {
+  local list
+  list="$(tar -tzf "$1" 2>/dev/null)" || die "$1 is not a readable keel backup (a .tgz file made by keel2 backup)." "Nothing was changed."
+  if grep -qE '(^|/)\.\.(/|$)|^/' <<<"$list"; then die "$1 holds unsafe paths, so it is not a keel backup." "Nothing was changed."; fi
+  grep -qxE '(\./)?keel\.db' <<<"$list" || die "$1 has no keel.db inside, so it is not a keel backup." "Nothing was changed."
+}
+
+# RESTORE_SH <data dir> <archive>: the swap, run by sh (in keel's container, or on this computer for native).
+# The archive is unpacked next to the data first; the old data is moved aside, the new data moved in, and if that fails
+# the old data is moved back. Exit 0 = restored, 1 = failed and nothing changed, 3 = failed and the old data is in .restore-old.
+# shellcheck disable=SC2016  # the script is for sh, not for this shell
+RESTORE_SH='
+data="$1"; arc="$2"; tmp="$data/.restore-tmp"; old="$data/.restore-old"; names="$data/.restore-names"
+cd "$data" || exit 1
+rm -rf "$tmp" "$old" "$names"
+mkdir "$tmp" || exit 1
+if ! tar -xzf "$arc" -C "$tmp" || [ ! -f "$tmp/keel.db" ]; then echo "the backup could not be unpacked" >&2; rm -rf "$tmp"; exit 1; fi
+rm -rf "$tmp/cache"
+(cd "$tmp" && ls -A) > "$names"
+mkdir "$old" || { rm -rf "$tmp" "$names"; exit 1; }
+skip() { case "${1##*/}" in cache|.restore-tmp|.restore-old|.restore-names) return 0 ;; esac; return 1; }
+back() {
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    if { [ -e "$data/$n" ] || [ -L "$data/$n" ]; } && [ ! -e "$tmp/$n" ]; then rm -rf "$data/$n"; fi
+  done < "$names"
+  for e in "$old"/* "$old"/.[!.]* "$old"/..?*; do
+    { [ -e "$e" ] || [ -L "$e" ]; } || continue
+    mv "$e" "$data/" || { echo "could not put the old data back; it is in $old" >&2; exit 3; }
+  done
+  rm -rf "$tmp" "$old" "$names"
+}
+for e in "$data"/* "$data"/.[!.]* "$data"/..?*; do
+  { [ -e "$e" ] || [ -L "$e" ]; } || continue
+  skip "$e" && continue
+  mv "$e" "$old/" || { back; exit 1; }
+done
+for e in "$tmp"/* "$tmp"/.[!.]* "$tmp"/..?*; do
+  { [ -e "$e" ] || [ -L "$e" ]; } || continue
+  mv "$e" "$data/" || { back; exit 1; }
+done
+rm -rf "$tmp" "$old" "$names"
+'
+
 cmd_backup() {
   need_docker
   resolve_volume
   local file="${1:-keel-backup-$(date +%Y%m%d-%H%M%S).tgz}"
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
   docker volume inspect "$VOLUME" >/dev/null 2>&1 || die "There is no keel data yet (volume $VOLUME)."
+  [ -d "$(dirname "$file")" ] || die "There is no folder $(dirname "$file") to save the backup in."
   local was=0; container_running && was=1
+  [ "$was" = 1 ] && guard_busy "back up"
+  # the file is made private (600) before keel's data goes into it; it is renamed only when the copy is complete
+  local tmp="$file.part.$$"
+  (umask 077; : > "$tmp") || die "Could not write $tmp."
+  KEEL_TMPFILE="$tmp"
+  keel_guard_exit
   # The database is copied while keel is stopped, so the copy is consistent.
-  [ "$was" = 1 ] && docker stop "$NAME" >/dev/null
-  docker run --rm -v "$VOLUME:/data:ro" -v "$(dirname "$file"):/out" --entrypoint tar "$IMAGE" -czf "/out/$(basename "$file")" --exclude=./cache -C /data . \
-    || { [ "$was" = 1 ] && docker start "$NAME" >/dev/null; die "Backup failed."; }
-  [ "$was" = 1 ] && docker start "$NAME" >/dev/null
+  if [ "$was" = 1 ]; then KEEL_RESTART_CMD="docker start $NAME"; docker stop "$NAME" >/dev/null; fi
+  if ! docker run --rm -v "$VOLUME:/data:ro" -v "$(dirname "$file"):/out" --entrypoint tar "$IMAGE" -czf "/out/$(basename "$tmp")" --exclude=./cache -C /data . \
+     || ! tar -tzf "$tmp" >/dev/null 2>&1; then
+    die "Backup failed." "No backup file was left behind; keel's data is unchanged."
+  fi
+  chmod 600 "$tmp" && mv -f "$tmp" "$file" || die "Backup failed."
+  KEEL_TMPFILE=""
+  keel_cleanup
   ok "saved $file  ($(du -h "$file" | cut -f1)). It holds your encrypted logins and their key: keep it private."
 }
 
@@ -817,13 +886,16 @@ cmd_restore() {
   resolve_volume
   volume_guard
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
-  ask_yes "Replace keel's current data (volume $VOLUME) with $file?" || die "Nothing changed."
+  backup_check "$file"   # before anything is stopped or deleted: a wrong or damaged file must not cost the data
+  ask_yes "Replace keel's current data (volume $VOLUME) with $file?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing changed."
   # the apt cache of the stacks' setup (/data/cache) is not in a backup, so it stays: keel installs from it again
   local was=0; container_running && was=1
-  [ "$was" = 1 ] && docker stop "$NAME" >/dev/null
-  docker run --rm -v "$VOLUME:/data" -v "$(dirname "$file"):/in:ro" --entrypoint sh "$IMAGE" -c \
-    "find /data -mindepth 1 ! -path /data/cache ! -path '/data/cache/*' -delete && tar -xzf \"/in/$(basename "$file")\" -C /data" || die "Restore failed."
-  [ "$was" = 1 ] && docker start "$NAME" >/dev/null
+  [ "$was" = 1 ] && guard_busy restore
+  keel_guard_exit
+  if [ "$was" = 1 ]; then KEEL_RESTART_CMD="docker start $NAME"; docker stop "$NAME" >/dev/null; fi
+  docker run --rm -v "$VOLUME:/data" -v "$(dirname "$file"):/in:ro" --entrypoint sh "$IMAGE" -c "$RESTORE_SH" sh /data "/in/$(basename "$file")" \
+    || die "Restore failed." "keel's old data was kept (if it is not back in place, it is in /data/.restore-old of volume $VOLUME)."
+  keel_cleanup
   ok "restored from $file"
 }
 
@@ -1131,16 +1203,36 @@ native_update() {
 native_backup() {
   local file="${1:-keel2-backup-$(date +%Y%m%d-%H%M%S).tgz}"
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
+  [ -d "$ND/data" ] || die "There is no keel data yet ($ND/data)."
+  [ -d "$(dirname "$file")" ] || die "There is no folder $(dirname "$file") to save the backup in."
   native_running && warn "keel is running: the backup is taken while it works (stop it first for a quiet copy)."
-  tar -C "$ND/data" -czf "$file" . && ok "saved keel's data to $file"
+  # private (600) from the first byte, and renamed only when the copy is complete
+  local tmp="$file.part.$$"
+  KEEL_TMPFILE="$tmp"; keel_guard_exit
+  if ! (umask 077; tar -C "$ND/data" -czf "$tmp" .) || ! tar -tzf "$tmp" >/dev/null 2>&1; then
+    die "Backup failed." "No backup file was left behind."
+  fi
+  chmod 600 "$tmp" && mv -f "$tmp" "$file" || die "Backup failed."
+  KEEL_TMPFILE=""
+  ok "saved keel's data to $file"
 }
+
+native_start_again() { native_start "$(cat "$ND/project")" "" ""; }
 
 native_restore() {
   local file="${1:-}"; [ -f "$file" ] || die "usage: keel2 restore <backup.tgz>"
+  case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
+  backup_check "$file"   # before anything is stopped or deleted: a wrong or damaged file must not cost the data
   ask_yes "Replace keel's data in $ND/data with $file?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing changed."
-  local was=0; native_running && { was=1; native_stop_quiet; }
-  mkdir -p "$ND/data" && find "$ND/data" -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar -C "$ND/data" -xzf "$file" && ok "restored from $file"
-  [ "$was" = 1 ] && native_start "$(cat "$ND/project")" "" ""
+  local was=0; native_running && was=1
+  [ "$was" = 1 ] && guard_busy restore
+  keel_guard_exit
+  if [ "$was" = 1 ]; then KEEL_RESTART_CMD=native_start_again; native_stop_quiet; fi
+  mkdir -p "$ND/data" || die "Restore failed." "Could not make $ND/data."
+  sh -c "$RESTORE_SH" sh "$ND/data" "$file" \
+    || die "Restore failed." "keel's old data was kept (if it is not back in place, it is in $ND/data/.restore-old)."
+  ok "restored from $file"
+  if [ "$was" = 1 ]; then KEEL_RESTART_CMD=""; native_start_again; fi
   return 0
 }
 
