@@ -2,6 +2,7 @@
 
     record(**row) -> row      list_rows(thread_id=None, project_id=None, limit=100)
     answered(thread_id, question_id) / answered_title(thread_id, key) / answers(thread_id): the repeat limits read these
+    tokens_today(project_id): the daily cap reads it
 """
 
 from __future__ import annotations
@@ -87,6 +88,12 @@ def answered(thread_id: str, question_id: str) -> int:
 def answered_title(thread_id: str, key: str) -> int:
     return _count("select count(*) from supervisor_decisions where thread_id = ? and title_key = ? and outcome = 'applied'",
                   (thread_id, key))
+
+
+def tokens_today(project_id: str) -> int:
+    """What its turns used in this project today (UTC): the daily cap reads it."""
+    return _count("select sum(tokens) from supervisor_decisions where project_id = ? and at >= ?",
+                  (project_id, db.now()[:10]))
 
 
 def answers(thread_id: str) -> int:

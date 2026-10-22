@@ -35,6 +35,14 @@ GATED = [agent(1), gate(), agent(2)]
 
 
 @pytest.fixture
+def client(client):
+    """keel's client with the Supervisor's keel-wide switch on (it is off until the person turns it on); projects stay
+    off, so each test's flow turns it on for itself (test_switch.py tests the switches)."""
+    client.portal.call(lambda: client.app.state.supervisor.set_switch(keel=True))
+    return client
+
+
+@pytest.fixture
 def script(tmp_path, monkeypatch):
     """What the fake Supervisor answers: one verdict, a list (one per turn) or {kind: verdict}."""
     def put(v):

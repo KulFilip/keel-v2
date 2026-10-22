@@ -1,10 +1,15 @@
 """The Supervisor's engine routes.
 
     GET  /supervisor/decisions?thread_id=&project_id=&limit=   its audit log, newest first
+    GET  /supervisor/switch?project_id=                         the keel-wide switch (and a project's), what it looks at now
+    POST /supervisor/switch  {keel, projects: {pid: {on, plugin}}}
+                                    keel's api sends every change of its switches (Settings, Control › Plugins); off
+                                    stops at once (switch.py)
     GET  /threads/{tid}/supervisor                              the flow's Supervisor settings, its tokens, its last rows
     POST /threads/{tid}/supervisor  {on, mode, model, effort, cap_tokens, max_answers, policy}
                                     changes them during a run (stored with the thread's settings, like the run mode);
-                                    turned on while the flow waits, it looks at the waiting gate at once
+                                    `on: null` follows the project again; off stops its look at once; turned on while the
+                                    flow waits, it looks at the waiting gate at once
 """
 
 from __future__ import annotations
@@ -21,6 +26,11 @@ from . import ledger, policy
 from .supervisor import MODES, SOURCE, settings_of
 
 router = APIRouter()
+
+
+class SwitchBody(BaseModel):
+    keel: bool | None = None
+    projects: dict[str, dict[str, bool | None]] | None = None
 
 
 class SupervisorBody(BaseModel):
@@ -51,6 +61,16 @@ async def decisions(thread_id: str | None = None, project_id: str | None = None,
     return {"decisions": ledger.list_rows(thread_id=thread_id, project_id=project_id, limit=max(1, min(limit, 500)))}
 
 
+@router.get("/supervisor/switch")
+async def get_switch(request: Request, project_id: str | None = None):
+    return _sup(request).switch_view(project_id)
+
+
+@router.post("/supervisor/switch")
+async def set_switch(body: SwitchBody, request: Request):
+    return await _sup(request).set_switch(body.keel, body.projects)
+
+
 @router.get("/threads/{tid}/supervisor")
 async def get_settings(tid: str, request: Request):
     sup = _sup(request)
@@ -76,7 +96,7 @@ async def set_settings(tid: str, body: SupervisorBody, request: Request):
         raise HTTPException(exc.status, exc.error) from exc
     if body.on and not (await sup.settings(tid))["plugin_on"]:
         raise HTTPException(409, "The Supervisor plugin is off for this project: turn it on in Control › Plugins first.")
-    patch = body.model_dump(exclude_none=True)
+    patch = body.model_dump(exclude_unset=True)      # on: null = follow the project's switch again
     data = json.loads(row["body"])
     settings = dict(data.get("settings") or {})
     settings["supervisor"] = {**(settings.get("supervisor") or {}), **patch}
@@ -86,6 +106,8 @@ async def set_settings(tid: str, body: SupervisorBody, request: Request):
     ctx = await eng._context(tid)
     ctx.settings = {**(ctx.settings or {}), "supervisor": settings["supervisor"]}
     ctx.emit("supervisor.settings", data={"settings": settings_of(settings["supervisor"])})
-    if settings_of(settings["supervisor"])["on"]:
+    if (await sup.settings(tid))["on"]:
         sup._spawn(sup.look(tid, trigger="turned-on"))
+    else:
+        sup.stop_where(thread=tid)
     return await _view(sup, tid)

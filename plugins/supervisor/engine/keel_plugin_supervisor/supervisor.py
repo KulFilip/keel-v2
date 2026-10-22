@@ -5,8 +5,14 @@ calls the person.
                                                              at most MAX_PARALLEL turns in the whole keel
     look: policy -> repeat limits -> budget -> brief -> model turn (read-only) -> verdict -> checks -> answer | escalate
 
-A flow is supervised when the plugin is on for its project (settings.plugins) and its settings say so: settings.supervisor = {on, mode, model, effort, cap_tokens, policy,
-max_answers, estimate} (routes.py sets it during a run). Mode "shadow" (the default) never answers: each verdict is a
+Switches (switch.py; all off until the person turns them on):
+
+    keel-wide off  -> nothing at all: no event listener, no model call, no Inbox card; turning it off cancels every look
+    flow on        =  keel-wide on AND the plugin on for the project (Control › Plugins)
+                      AND (the flow's own switch when it has one, else the project's)
+
+Turning a project or a flow off cancels its running look at once (the model call stops; nothing is answered after it).
+The flow's settings.supervisor = {on, mode, model, effort, cap_tokens, max_answers, policy, estimate} (routes.py). Mode "shadow" (the default) never answers: each verdict is a
 suggestion for the person. Mode "act" answers through Engine.resume(by="supervisor"), as a person would; a 409 there
 means the person answered first, and that is final.
 
@@ -30,12 +36,13 @@ from keel_engine.runtime.compiler import budget_tokens
 from keel_engine.runtime.service import EngineError
 from keel_engine.tools.agent_tools import ToolBox
 
-from . import brief, ledger, policy, verdict
+from . import brief, ledger, policy, switch, verdict
 
 log = logging.getLogger("keel.supervisor")
 
 MODES = ("shadow", "act")
-DEFAULTS = {"on": False, "mode": "shadow", "effort": "high", "cap_tokens": 150_000, "max_answers": 20, "estimate": 30_000}
+DEFAULTS = {"on": None, "mode": "shadow", "effort": "high", "cap_tokens": 150_000, "max_answers": 20, "estimate": 30_000,
+            "day_cap_tokens": 500_000}
 MAX_SAME_QUESTION = 2       # answers to the very same question in one flow, then it asks
 MAX_SAME_TITLE = 3          # answers to the same step + criterion + title (a loop whose question id changes)
 MAX_PARALLEL = 2
@@ -59,22 +66,72 @@ class Supervisor:
         self.locks: dict[str, asyncio.Lock] = {}
         self.seen: set[tuple] = set()          # (thread, question id, checkpoints): one look per pause
         self.tasks: set[asyncio.Task] = set()
+        self.looks: dict[asyncio.Task, tuple[str, str]] = {}   # running look -> (thread, project): what an off cancels
         self.worker: asyncio.Task | None = None
+        self.active = False                    # the keel-wide switch: listening or not
 
     # ------------------------------------------------------------ life
 
     def start(self) -> None:
         self.loop = asyncio.get_running_loop()
-        self.bus.listen(self._hear)
         self.worker = asyncio.create_task(self._work())
-        self._spawn(self._waiting_now())      # a restart: the flows that wait now are looked at once
+        if switch.get_keel():
+            self._activate()                   # a restart: listen again, and look at the flows that wait now
 
     async def close(self) -> None:
+        self.active = False
         self.bus.unlisten(self._hear)
         for t in [self.worker, *self.tasks]:
             if t:
                 t.cancel()
         await asyncio.gather(*[t for t in [self.worker, *self.tasks] if t], return_exceptions=True)
+
+    def _activate(self) -> None:
+        self.active = True
+        self.bus.listen(self._hear)
+        self._spawn(self._waiting_now())
+
+    def _deactivate(self) -> None:
+        """Keel-wide off: stop listening, forget what waited in the queue, cancel every look."""
+        self.active = False
+        self.bus.unlisten(self._hear)
+        while not self.queue.empty():
+            self.queue.get_nowait()
+        self.seen.clear()
+        for t in list(self.looks):
+            t.cancel()
+
+    def stop_where(self, thread: str | None = None, project: str | None = None) -> int:
+        """Cancels the running looks of one flow or one project (its switch went off). Returns how many."""
+        n = 0
+        for t, (tid, pid) in list(self.looks.items()):
+            if (thread and tid == thread) or (project and pid == project):
+                t.cancel()
+                n += 1
+        return n
+
+    async def set_switch(self, keel: bool | None = None, projects: dict | None = None) -> dict:
+        """The api's switches changed (routes.py POST /supervisor/switch)."""
+        switch.put(keel, projects)
+        now = switch.get_keel()
+        if now and not self.active:
+            self._activate()
+        elif not now and self.active:
+            self._deactivate()
+        elif now:
+            for pid in projects or {}:
+                p = switch.project(pid) or {}
+                if not p.get("on") or p.get("plugin") is False:
+                    self.stop_where(project=pid)
+            self._spawn(self._waiting_now())   # a project that went on: its waiting flow is looked at now
+        return self.switch_view()
+
+    def switch_view(self, pid: str | None = None) -> dict:
+        out: dict = {"keel": switch.get_keel(), "active": self.active,
+                     "looking": sorted({tid for tid, _ in self.looks.values()})}
+        if pid:
+            out["project"] = switch.project(pid)
+        return out
 
     async def idle(self, timeout: float = 30.0) -> None:
         """Waits until no look runs or waits in the queue (tests)."""
@@ -83,7 +140,7 @@ class Supervisor:
             await asyncio.sleep(0.02)
 
     def _hear(self, ev: dict) -> None:
-        if ev.get("type") in WAKE and self.loop and not self.loop.is_closed():
+        if self.active and ev.get("type") in WAKE and self.loop and not self.loop.is_closed():
             self.loop.call_soon_threadsafe(self.queue.put_nowait, ev)
 
     def _spawn(self, coro) -> None:
@@ -98,6 +155,8 @@ class Supervisor:
                 self._spawn(self.look(ev["thread_id"]))
 
     async def _waiting_now(self) -> None:
+        if not self.active:
+            return
         try:
             async with self.engine.conn.execute("select thread_id from keel_threads where status = 'waiting'") as cur:
                 tids = [r[0] for r in await cur.fetchall()]
@@ -110,24 +169,45 @@ class Supervisor:
     # ------------------------------------------------------------ settings
 
     async def settings(self, tid: str) -> dict:
-        """The flow's Supervisor settings; it is on only while the plugin is on for the flow's project too."""
+        """The flow's Supervisor settings, `on` = whether it supervises this flow now (see the switches above), and
+        `switches` = each switch and, when it is off, the first one that is off (`off_by`)."""
         ctx = await self.engine._context(tid)
         s = settings_of((ctx.settings or {}).get("supervisor"))
-        s["plugin_on"] = extensions.on(ctx.settings, "supervisor")
-        s["on"] = bool(s["on"] and s["plugin_on"])
+        proj = switch.project(ctx.project_id) or {}
+        plugin = proj.get("plugin")
+        if plugin is None:                     # the api has not said: the plugins the flow started with
+            plugin = extensions.on(ctx.settings, "supervisor")
+        sw = {"keel": switch.get_keel(), "plugin": bool(plugin), "project": bool(proj.get("on")), "flow": s["on"]}
+        own = sw["flow"] if sw["flow"] is not None else sw["project"]
+        s["on"] = bool(sw["keel"] and sw["plugin"] and own)
+        sw["off_by"] = None if s["on"] else ("keel" if not sw["keel"] else "plugin" if not sw["plugin"]
+                                             else "flow" if sw["flow"] is False else "project")
+        s["plugin_on"] = sw["plugin"]
+        s["switches"] = sw
         return s
 
     # ------------------------------------------------------------ one look
 
     async def look(self, tid: str, trigger: str = "gate.waiting") -> dict | None:
+        if not self.active:
+            return None
+        me = asyncio.current_task()
         try:
+            ctx = await self.engine._context(tid)
+            if me:
+                self.looks[me] = (tid, ctx.project_id)
             async with self.locks.setdefault(tid, asyncio.Lock()):
                 return await self._look(tid, trigger)
+        except EngineError:
+            return None
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("supervisor look at %s failed", tid)
             return None
+        finally:
+            if me:
+                self.looks.pop(me, None)
 
     async def _look(self, tid: str, trigger: str) -> dict | None:
         try:
@@ -167,6 +247,9 @@ class Supervisor:
         flow_cap = int(usage.get("cap_tokens") or 0)
         flow_used = budget_tokens(usage) + side_usage.total(tid)["tokens"]
         money = {"flow_used": flow_used, "flow_cap": flow_cap, "own_used": own, "own_cap": int(sset["cap_tokens"])}
+        today = ledger.tokens_today(st["project_id"])
+        if today >= int(sset["day_cap_tokens"]):
+            return self._escalate(row, "budget-day", summary=f"My budget for this project today is used up ({today:,} of {int(sset['day_cap_tokens']):,} tokens).")
         if own >= int(sset["cap_tokens"]):
             return self._escalate(row, "budget-own", summary=f"My budget for this flow is used up ({own:,} of {int(sset['cap_tokens']):,} tokens).")
         if flow_cap and flow_used + int(sset["estimate"]) > flow_cap:
@@ -176,7 +259,12 @@ class Supervisor:
         text = brief.build(st, q, kind, rule, (await self.engine._context(tid)).root, money, earlier)
         self._emit(row, "supervisor.looking", {"kind": kind, "rule": rule, "mode": sset["mode"]})
         call_id = uuid.uuid4().hex
-        v, spent, model, ms, err = await self._turn(tid, st, sset, text, row, call_id)
+        try:
+            v, spent, model, ms, err = await self._turn(tid, st, sset, text, row, call_id)
+        except asyncio.CancelledError:
+            # a switch went off while it thought: nothing is answered; the turn's tokens are booked by _turn
+            self._record({**row, "action": "escalate", "summary": "Turned off while it was looking."}, "cancelled", "turned-off")
+            raise
         row.update(tokens=spent["tokens"], cost_usd=spent["cost_usd"], ms=ms, model=model.get("model"),
                    effort=model.get("effort"))
         if err:
@@ -203,6 +291,8 @@ class Supervisor:
         if code:
             return self._escalate(row, code, suggestion={"decision": decision, "why": why, "payload": payload}
                                   if v["action"] != "escalate" else None)
+        if not (await self.settings(tid))["on"]:      # switched off while it thought
+            return self._record({**row, "summary": "Turned off before it answered."}, "cancelled", "turned-off")
         return await self._apply(row, st, q, decision, why, payload)
 
     async def _kind(self, tid: str, st: dict, q: dict) -> str:
@@ -232,7 +322,7 @@ class Supervisor:
         tmp = tempfile.mkdtemp(prefix="keel-supervisor-")
         spent = {"tokens": 0, "cost_usd": 0.0}
         used: dict = {}
-        status = "failed"
+        status = "cancelled"
         t0 = time.monotonic()
         try:
             async with self.sem:
@@ -246,6 +336,7 @@ class Supervisor:
                 try:
                     res = await models.runner_for(model).run(req, lambda *a, **k: None)
                 except ModelError as exc:
+                    status = "failed"
                     used = dict(exc.usage or {})
                     spent = {"tokens": side_usage.record(tid, SOURCE, used), "cost_usd": float(used.get("cost_usd") or 0)}
                     return None, spent, model, int((time.monotonic() - t0) * 1000), f"{exc} {exc.hint}".strip()

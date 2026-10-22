@@ -41,6 +41,8 @@ CODES = {
     "too-many": "it answered too many gates in this flow",
     "budget-flow": "its next turn would pass the flow's token cap",
     "budget-own": "its own token cap is used up",
+    "budget-day": "its token cap for this project today is used up",
+    "turned-off": "it was turned off while it was looking",
     "shadow": "shadow mode: it only suggests",
     "model-error": "its model failed",
     "stale": "the flow moved on before it answered",
