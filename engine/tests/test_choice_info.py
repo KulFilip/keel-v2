@@ -86,7 +86,8 @@ def test_a_required_reason_is_enforced_where_choice_info_says_so():
                                 "item")
     assert answer_problem(item, "approve", None, {"choice": "skip"})
     assert answer_problem(item, "approve", None, {"choice": "skip", "reason": "generated code"}) is None
-    assert answer_problem(item, "approve", None, {"skip": True}) is None          # the old payload keeps working
+    assert answer_problem(item, "approve", None, {"skip": True})                  # the old payload needs the reason too
+    assert answer_problem(item, "approve", "generated code", {"skip": True}) is None
     # an optional reason is never enforced
     stuck = choices.for_question({"kind": "fix", "title": "s", "options": ["approve", "reject"], "choices": ["retry", "stop"]}, "stuck")
     assert answer_problem(stuck, "approve", None, {"choice": "stop"}) is None
