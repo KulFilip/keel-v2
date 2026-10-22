@@ -44,6 +44,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @PostMapping("/drafts")
     fun addDraft(@PathVariable pid: String, @RequestBody b: DraftBody) = reviews.addDraft(pid, b)
 
+    /** A branch review's pending comments move to its pull request (body: from, to). */
+    @PostMapping("/drafts/move")
+    fun moveDrafts(@PathVariable pid: String, @RequestBody b: MoveDrafts) = reviews.moveDrafts(pid, b)
+
     @PutMapping("/drafts/{id}")
     fun editDraft(@PathVariable pid: String, @PathVariable id: String, @RequestBody b: DraftEdit) = reviews.editDraft(pid, id, b.body)
 

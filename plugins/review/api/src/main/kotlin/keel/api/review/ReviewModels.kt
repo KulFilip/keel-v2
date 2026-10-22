@@ -62,7 +62,11 @@ data class CheckRun(val name: String, val state: String, val url: String?)
 
 data class ReviewComment(val id: String, val author: String, val body: String, val at: String, val url: String?)
 
-/** A discussion on the code. `replyTo` is what a reply needs (GitHub: the first comment's id; GitLab: the discussion). */
+/**
+ * A discussion on the code. `replyTo` is what a reply needs (GitHub: the first comment's id; GitLab: the discussion).
+ * A thread on several lines starts at [startLine] on [startSide] and ends at [line]. [pending]: it is in your own
+ * pending review on the host (started on GitHub's site), not sent yet; it goes out with your next review.
+ */
 data class ReviewThread(
     val id: String,
     val path: String?,
@@ -72,12 +76,16 @@ data class ReviewThread(
     val outdated: Boolean,
     val comments: List<ReviewComment>,
     val replyTo: String?,
+    val startLine: Int? = null,
+    val startSide: String? = null,
+    val pending: Boolean = false,
 )
 
 data class Decisions(val approved: List<String>, val changes: List<String>)
 
 data class ChangedFile(val path: String, val status: String, val from: String?, val added: Int, val removed: Int, val binary: Boolean)
 
+/** Your pending comment, kept in keel until you submit. On several lines: from [startLine] on [startSide] to [line]. */
 data class Draft(
     val id: String,
     val path: String?,
@@ -86,6 +94,8 @@ data class Draft(
     val body: String,
     val findingId: String?,
     val createdAt: String,
+    val startLine: Int? = null,
+    val startSide: String? = null,
 )
 
 /** One review tab: a pull request (`pr:12`) or a local branch (`branch:feat/x`) against its base. */
@@ -124,6 +134,8 @@ data class ReviewView(
     val mine: Boolean = false,
     val mergeable: Boolean? = null,
     val mergeState: String? = null,
+    /** a branch review: the number of the branch's open pull request (its pending comments can move there) */
+    val branchPr: Int? = null,
 )
 
 /** The branch the project folder is on, against its base: Review › This branch. */
@@ -139,7 +151,8 @@ data class BranchSummary(
 )
 
 data class DraftBody(val key: String = "", val path: String? = null, val line: Int? = null, val side: String = "RIGHT",
-                     val body: String = "", val findingId: String? = null)
+                     val body: String = "", val findingId: String? = null, val startLine: Int? = null, val startSide: String? = null)
+data class MoveDrafts(val from: String = "", val to: String = "")
 data class DraftEdit(val body: String = "")
 data class ViewedBody(val key: String = "", val path: String = "", val viewed: Boolean = true)
 data class ReplyBody(val key: String = "", val body: String = "")

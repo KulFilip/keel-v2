@@ -146,23 +146,36 @@ object ReviewGit {
 
     /** The lines a comment can sit on: new-side lines (RIGHT) and old-side lines (LEFT) inside the diff's hunks. */
     fun commentable(diff: String): Pair<Set<Int>, Set<Int>> {
-        val right = mutableSetOf<Int>()
-        val left = mutableSetOf<Int>()
+        val all = lines(diff)
+        return all.keys.filter { it[0] == 'R' }.map { it.drop(1).toInt() }.toSet() to all.keys.filter { it[0] == 'L' }.map { it.drop(1).toInt() }.toSet()
+    }
+
+    /**
+     * Every line inside the diff's hunks by side and number: "R5" is new-side line 5, "L3" old-side line 3 (an unchanged
+     * line is both). Each has both counts as GitLab gives them (an added line keeps the old count it sits at, a removed
+     * one the new count), its type (new, old, or null when unchanged) and its hunk: a range must stay in one hunk.
+     */
+    fun lines(diff: String): Map<String, DiffLine> {
+        val out = mutableMapOf<String, DiffLine>()
         var old = 0
         var new = 0
+        var hunk = -1
         var inHunk = false
         for (line in diff.lines()) {
             val h = Regex("^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@").find(line)
             when {
-                h != null -> { old = h.groupValues[1].toInt(); new = h.groupValues[2].toInt(); inHunk = true }
+                h != null -> { old = h.groupValues[1].toInt(); new = h.groupValues[2].toInt(); hunk++; inHunk = true }
                 !inHunk -> {}
-                line.startsWith("+") -> { right += new; new++ }
-                line.startsWith("-") -> { left += old; old++ }
-                line.startsWith(" ") -> { right += new; left += old; new++; old++ }
+                line.startsWith("+") -> { out["R$new"] = DiffLine(old, new, "new", hunk); new++ }
+                line.startsWith("-") -> { out["L$old"] = DiffLine(old, new, "old", hunk); old++ }
+                line.startsWith(" ") -> { DiffLine(old, new, null, hunk).let { out["R$new"] = it; out["L$old"] = it }; new++; old++ }
                 line.startsWith("\\") -> {}
                 else -> inHunk = false
             }
         }
-        return right to left
+        return out
     }
 }
+
+/** One line of a diff (ReviewGit.lines): old and new counts, type new / old / null (unchanged), and its hunk. */
+data class DiffLine(val old: Int, val new: Int, val type: String?, val hunk: Int)

@@ -3,8 +3,15 @@ package keel.api.review
 import keel.api.common.ApiException
 import org.springframework.http.HttpStatus
 
-/** A line comment that goes out with a review: on the new side (RIGHT) or the old side (LEFT) of the diff. */
-data class OutComment(val path: String, val line: Int, val side: String, val body: String, val draftId: String? = null)
+/**
+ * A line comment that goes out with a review: on the new side (RIGHT) or the old side (LEFT) of the diff. On several
+ * lines it starts at [startLine] on [startSide]; [start] and [end] are both ends' places in the diff (GitLab's range
+ * needs both sides' numbers).
+ */
+data class OutComment(
+    val path: String, val line: Int, val side: String, val body: String, val draftId: String? = null,
+    val startLine: Int? = null, val startSide: String? = null, val start: DiffLine? = null, val end: DiffLine? = null,
+)
 
 class HostException(message: String, hint: String? = null, status: Int = 502) :
     ApiException(HttpStatus.valueOf(status), message, hint)

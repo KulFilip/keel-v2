@@ -191,7 +191,7 @@ class ReviewService(
             return ReviewView(key, "branch", null, v, null, null, r.baseLabel, v, r.base, r.head, pr?.url, null, false, true,
                 emptyList(), emptyList(), emptyList(), files, files.sumOf { it.added }, files.sumOf { it.removed },
                 repo.commits(root, 100, null, "${r.base}..${r.head}"), emptyList(), emptyList(), drafts(pid, key), viewed(pid, key, r.head),
-                false, h?.ref, h?.let { me(it) }, notes)
+                false, h?.ref, h?.let { me(it) }, notes, branchPr = pr?.number)
         }
         val n = v.toInt()
         val h = needHost(root)
@@ -293,11 +293,12 @@ class ReviewService(
 
     // ---------------------------------------------------------------- your pending comments and viewed files
 
+    private fun draftOf(rs: java.sql.ResultSet) = Draft(rs.getString("id"), rs.getString("path"), rs.getObject("line")?.let { (it as Number).toInt() },
+        rs.getString("side"), rs.getString("body"), rs.getString("finding_id"), rs.getString("created_at"),
+        rs.getObject("start_line")?.let { (it as Number).toInt() }, rs.getString("start_side"))
+
     fun drafts(pid: String, key: String): List<Draft> = jdbc.query(
-        "SELECT * FROM review_drafts WHERE project_id = ? AND review_key = ? ORDER BY created_at, id", { rs, _ ->
-            Draft(rs.getString("id"), rs.getString("path"), rs.getObject("line")?.let { (it as Number).toInt() }, rs.getString("side"), rs.getString("body"),
-                rs.getString("finding_id"), rs.getString("created_at"))
-        }, pid, key)
+        "SELECT * FROM review_drafts WHERE project_id = ? AND review_key = ? ORDER BY created_at, id", { rs, _ -> draftOf(rs) }, pid, key)
 
     fun addDraft(pid: String, b: DraftBody): Draft {
         root(pid)
@@ -307,9 +308,21 @@ class ReviewService(
         val path = b.path?.let { cleanPath(it) }
         if ((path == null) != (b.line == null)) throw BadRequest("A line comment needs both the file and the line")
         if (b.line != null && b.line < 1) throw BadRequest("line starts at 1")
-        val d = Draft("dr_" + UUID.randomUUID().toString().replace("-", "").take(12), path, b.line, b.side, body, b.findingId, Time.now())
-        jdbc.update("INSERT INTO review_drafts(id, project_id, review_key, path, line, side, body, finding_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            d.id, pid, b.key, d.path, d.line, d.side, d.body, d.findingId, d.createdAt)
+        // a range: from start_line on start_side down to line on side (the old side may start a range that ends on the
+        // new side, as in a unified diff; never the other way)
+        val startSide = b.startSide ?: b.side
+        val start = b.startLine?.takeUnless { it == b.line && startSide == b.side }
+        if (start != null) {
+            if (b.line == null) throw BadRequest("A range needs the file and its last line")
+            if (startSide !in setOf("RIGHT", "LEFT")) throw BadRequest("start_side is RIGHT or LEFT")
+            if (start < 1) throw BadRequest("start_line starts at 1")
+            if (startSide == b.side && start > b.line) throw BadRequest("A range starts before its last line")
+            if (startSide == "RIGHT" && b.side == "LEFT") throw BadRequest("A range that starts on the new side ends there too")
+        }
+        val d = Draft("dr_" + UUID.randomUUID().toString().replace("-", "").take(12), path, b.line, b.side, body, b.findingId, Time.now(),
+            start, start?.let { startSide })
+        jdbc.update("INSERT INTO review_drafts(id, project_id, review_key, path, line, side, body, finding_id, created_at, start_line, start_side) " +
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)", d.id, pid, b.key, d.path, d.line, d.side, d.body, d.findingId, d.createdAt, d.startLine, d.startSide)
         return d
     }
 
@@ -317,10 +330,7 @@ class ReviewService(
         root(pid)
         val text = body.trim().ifEmpty { throw BadRequest("Write the comment") }.take(20_000)
         if (jdbc.update("UPDATE review_drafts SET body = ? WHERE project_id = ? AND id = ?", text, pid, id) == 0) throw NotFound("No pending comment $id")
-        return jdbc.query("SELECT * FROM review_drafts WHERE id = ?", { rs, _ ->
-            Draft(rs.getString("id"), rs.getString("path"), rs.getObject("line")?.let { (it as Number).toInt() }, rs.getString("side"), rs.getString("body"),
-                rs.getString("finding_id"), rs.getString("created_at"))
-        }, id).first()
+        return jdbc.query("SELECT * FROM review_drafts WHERE id = ?", { rs, _ -> draftOf(rs) }, id).first()
     }
 
     private fun dropDraft(pid: String, id: String) {
@@ -330,6 +340,16 @@ class ReviewService(
     fun deleteDraft(pid: String, id: String) {
         root(pid)
         if (jdbc.update("DELETE FROM review_drafts WHERE project_id = ? AND id = ?", pid, id) == 0) throw NotFound("No pending comment $id")
+    }
+
+    /** A branch review's pending comments go to its pull request: a branch takes no review, its pull request does. */
+    fun moveDrafts(pid: String, b: MoveDrafts): ReviewView {
+        root(pid)
+        val (fromKind, _) = parse(b.from)
+        prNumber(b.to)
+        if (fromKind != "branch") throw BadRequest("Pending comments move from a branch review to its pull request")
+        jdbc.update("UPDATE review_drafts SET review_key = ? WHERE project_id = ? AND review_key = ?", b.to.trim(), pid, b.from.trim())
+        return view(pid, b.to.trim())
     }
 
     fun viewed(pid: String, key: String, head: String): List<String> = jdbc.queryForList(
@@ -385,21 +405,26 @@ class ReviewService(
         val r = refs(pid, b.key)
         if (r.head != pr.headSha) throw Conflict("#$n has new commits", "Open it again (Refresh) so your comments sit on the code that is there now.")
         val pending = drafts(pid, b.key)
-        if (b.event == "REQUEST_CHANGES" && b.body.isBlank() && pending.isEmpty()) throw BadRequest("Say what must change", "Write a comment, or a line comment.")
-        if (b.event == "COMMENT" && b.body.isBlank() && pending.isEmpty()) throw BadRequest("Nothing to send", "Write a comment, or add a line comment first.")
+        // comments in your pending review on the host (started on its site) go out with this review too
+        val onHost = if (b.body.isBlank() && pending.isEmpty()) runCatching { h.threads(n).count { it.pending } }.getOrDefault(0) else 0
+        if (b.event == "REQUEST_CHANGES" && b.body.isBlank() && pending.isEmpty() && onHost == 0) throw BadRequest("Say what must change", "Write a comment, or a line comment.")
+        if (b.event == "COMMENT" && b.body.isBlank() && pending.isEmpty() && onHost == 0) throw BadRequest("Nothing to send", "Write a comment, or add a line comment first.")
         val files = ReviewGit.files(root, r.base, r.head).associateBy { it.path }
-        val lines = mutableMapOf<String, Pair<Set<Int>, Set<Int>>>()
+        val lines = mutableMapOf<String, Map<String, DiffLine>>()
         val out = mutableListOf<OutComment>()
         val extra = mutableListOf<String>()
         val extraIds = mutableListOf<String>()
         for (d in pending) {
             val f = d.path?.let { files[it] }
-            val ok = f != null && d.line != null && lines.getOrPut(f.path) {
-                ReviewGit.commentable(ReviewGit.fileDiff(root, r.base, r.head, f, "").diff)
-            }.let { (right, left) -> if (d.side == "LEFT") d.line in left else d.line in right }
-            if (ok) out += OutComment(d.path!!, d.line!!, d.side, d.body, d.id)
+            val diff = if (f != null && d.line != null) lines.getOrPut(f.path) { ReviewGit.lines(ReviewGit.fileDiff(root, r.base, r.head, f, "").diff) } else null
+            val end = diff?.get((if (d.side == "LEFT") "L" else "R") + d.line)
+            val start = d.startLine?.let { diff?.get((if (d.startSide == "LEFT") "L" else "R") + it) }
+            // a range goes out as one when both ends are in the diff, in the same hunk (GitHub's rule)
+            val ok = end != null && (d.startLine == null || (start != null && start.hunk == end.hunk))
+            if (ok) out += OutComment(d.path!!, d.line!!, d.side, d.body, d.id, d.startLine, d.startLine?.let { d.startSide ?: d.side }, start, end)
             else {
-                extra += (if (d.path != null) "**`${d.path}${d.line?.let { ":$it" } ?: ""}`** " else "") + d.body
+                val at = d.line?.let { l -> ":" + (d.startLine?.let { "$it-" } ?: "") + l } ?: ""
+                extra += (if (d.path != null) "**`${d.path}$at`** " else "") + d.body
                 extraIds += d.id
             }
         }
