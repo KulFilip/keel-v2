@@ -102,7 +102,7 @@ describe("the transcript's lines", () => {
     const stub = stubKeel();
     const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true });
     const probe: Probe = { started: false, busy: false, pick: false, ask: false, chatBusy: false, answers: 0 };
-    const r = renderAt(<App core={core} probe={probe} rows={40} mouse theme={makeTheme({ FORCE_COLOR: "3" } as never)} />, 100);
+    const r = renderAt(<App core={core} probe={probe} rows={40} mouse theme={makeTheme({ KEEL_TUI_THEME: "dark" }, 3)} />, 100);
     await waitFor(() => probe.started);
     r.stdin.write("hi");
     await tick(30);

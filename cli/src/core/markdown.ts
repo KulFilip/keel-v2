@@ -10,6 +10,8 @@
 // The table layout (fitColumns) and the bullets by depth are adapted from xal (https://github.com/xal-sh/xal,
 // apps/cli/src/plugins/tui/markdown/render.ts), MIT License, Copyright (c) 2026 Saeed Vaziry. See THIRD_PARTY_NOTICES.md.
 
+import stringWidth from "string-width";
+import wrapAnsi from "wrap-ansi";
 import { highlight } from "./highlight";
 import { PLAIN, type Paint } from "./theme";
 
@@ -32,36 +34,32 @@ const isFileLine = (s: string) => {
   return ok;
 };
 
-// a code span, or a file:line: both are kept as they are (no bold or italic inside a path like __init__.py:1)
-const SPANS = /(`[^`]+`)|(\*\*)?((?<![\w/.-])(?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][\w]{0,7}:\d+(?::\d+)?(?![\w]))(\*\*)?/g;
+// Inline styles nest: a code span, a file:line or a link inside **bold** (or *italic*) keeps its own style and the bold
+// goes around it. The spans that must stay whole (code, file:line, links) are styled first and held behind a
+// placeholder, so the bold and italic rules never see their insides (no bold inside a path like __init__.py:1) and
+// pair up across them; an outer style gets the inner styled text, so its colour codes nest (chalk re-opens the outer).
+const HOLD_OPEN = "\uE000";
+const HOLD_CLOSE = "\uE001";
+const HELD = /\uE000(\d+)\uE001/g;
+const CODE_SPAN = /`([^`]+)`/g;
+const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+const BOLD = /\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<![\w\uE001])__(?=\S)(.+?)(?<=\S)__(?![\w\uE000])/g;
+const ITALIC = /(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])|(?<![_\w])_([^_\s][^_]*?)_(?![_\w])/g;
 
 function inline(text: string, p: Paint): string {
-  let out = "";
-  let i = 0;
-  for (const m of text.matchAll(SPANS)) {
-    out += prose(text.slice(i, m.index), p);
-    if (m[1]) {
-      const inner = m[1].slice(1, -1);
-      out += isFileLine(inner) ? p.strong("path", inner) : p.code(inner);
-    } else {
-      // **path:line** is a bold link; a lone ** next to a path stays as it was written
-      const link = p.strong("path", m[3]);
-      out += m[2] && m[4] ? p.bold(link) : (m[2] ?? "") + link + (m[4] ?? "");
-    }
-    i = (m.index ?? 0) + m[0].length;
-  }
-  return out + prose(text.slice(i), p);
-}
-
-function prose(t: string, p: Paint): string {
-  return t
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, x: string, u: string) => (x === u ? p.strong("link", u) : `${p.strong("link", x)} ${p.meta(`(${u})`)}`))
-    .replace(/\*\*([^*]+)\*\*|(?<!\w)__([^_]+)__(?!\w)/g, (_, a?: string, b?: string) => p.bold(a ?? b ?? ""))
-    .replace(/(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])|(?<![_\w])_([^_\s][^_]*?)_(?![_\w])/g, (_, a?: string, b?: string) => p.italic(a ?? b ?? ""));
+  const held: string[] = [];
+  const hold = (s: string) => `${HOLD_OPEN}${held.push(s) - 1}${HOLD_CLOSE}`;
+  const open = (s: string): string => s.replace(HELD, (_, i: string) => open(held[Number(i)]));
+  let t = text.replace(CODE_SPAN, (_, inner: string) => hold(isFileLine(inner) ? p.strong("path", inner) : p.code(inner)));
+  FILE_LINE.lastIndex = 0;
+  t = t.replace(FILE_LINE, (m: string) => hold(p.strong("path", m)));
+  t = t.replace(LINK, (_, x: string, u: string) => hold(x === u ? p.strong("link", u) : `${p.strong("link", open(x))} ${p.meta(`(${u})`)}`));
+  const italic = (s: string) => s.replace(ITALIC, (_, a?: string, b?: string) => hold(p.italic(open(a ?? b ?? ""))));
+  t = t.replace(BOLD, (_, a?: string, b?: string) => hold(p.bold(open(italic(a ?? b ?? "")))));
+  return open(italic(t));
 }
 
 const BULLETS = ["•", "◦", "▪", "·"];
-const visible = (s: string) => [...s.replace(/\x1b\[[0-9;]*m/g, "")].length;
 
 /** Column widths that fit `target`: the widest shrinks first, then the most cramped grows (xal's fitColumns). */
 export function fitColumns(natural: number[], target: number): number[] {
@@ -76,15 +74,21 @@ export function fitColumns(natural: number[], target: number): number[] {
   return widths;
 }
 
+/** A table in a box that fits `width`: a cell longer than its column folds onto more lines of its row (never cut). */
 function table(rows: string[][], p: Paint, width: number): string[] {
   const count = Math.max(...rows.map((r) => r.length));
   const cells = rows.map((r, i) => Array.from({ length: count }, (_, c) => (i === 0 ? p.strong("heading", inline(r[c] ?? "", PLAIN)) : inline(r[c] ?? "", p))));
-  const natural = Array.from({ length: count }, (_, c) => Math.max(...cells.map((r) => visible(r[c]))));
+  const natural = Array.from({ length: count }, (_, c) => Math.max(...cells.map((r) => stringWidth(r[c]))));
   const widths = fitColumns(natural, Math.max(count, width - (3 * count + 1)));
-  const cut = (s: string, w: number) => (visible(s) <= w ? s + " ".repeat(w - visible(s)) : [...s.replace(/\x1b\[[0-9;]*m/g, "")].slice(0, Math.max(1, w - 1)).join("") + "…");
+  const fold = (s: string, w: number) => (s ? wrapAnsi(s, w, { hard: true, trim: true }).split("\n") : [""]);
+  const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - stringWidth(s)));
   const rule = (l: string, j: string, r: string) => p.border(l + widths.map((w) => "─".repeat(w + 2)).join(j) + r);
-  const row = (r: string[]) => p.border("│") + r.map((c, i) => ` ${cut(c, widths[i])} `).join(p.border("│")) + p.border("│");
-  return [rule("┌", "┬", "┐"), row(cells[0]), rule("├", "┼", "┤"), ...cells.slice(1).map(row), rule("└", "┴", "┘")];
+  const row = (r: string[]): string[] => {
+    const parts = r.map((c, i) => fold(c, widths[i]));
+    const h = Math.max(...parts.map((x) => x.length));
+    return Array.from({ length: h }, (_, k) => p.border("│") + parts.map((x, i) => ` ${pad(x[k] ?? "", widths[i])} `).join(p.border("│")) + p.border("│"));
+  };
+  return [rule("┌", "┬", "┐"), ...row(cells[0]), rule("├", "┼", "┤"), ...cells.slice(1).flatMap(row), rule("└", "┴", "┘")];
 }
 
 const tableCells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());

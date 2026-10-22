@@ -36,8 +36,11 @@ export function wrap(text: string, width: number): string[] {
     const col = /^[✗✓◆] /.test(raw) ? 2 : /^(\s*\S.*?\s{2,})\S/.exec(raw)?.[1].length ?? 0;
     const hang = col && col <= w * 0.6 ? col : Math.min(raw.length - raw.trimStart().length, Math.floor(w / 2));
     const [first, ...rest] = wrapAnsi(line, w, { hard: true, trim: false }).split("\n");
-    if (!hang || !rest.length) return [first, ...rest];
-    const more = wrapAnsi(rest.map((r) => r.replace(/^\s+/, "")).join(" "), w - hang, { hard: true, trim: false }).split("\n");
+    // the space a row broke at goes with neither row (wrap-ansi keeps it at the next row's start: " it would break")
+    const lead = (r: string) => r.replace(/^((?:\x1b\[[0-9;]*m)*) +/, "$1");
+    if (!rest.length) return [first];
+    if (!hang) return [first, ...rest.map(lead)];
+    const more = wrapAnsi(rest.map(lead).join(" "), w - hang, { hard: true, trim: false }).split("\n");
     return [first.replace(/ +((?:\x1b\[[0-9;]*m)*)$/, "$1"), ...more.map((r) => " ".repeat(hang) + r)];
   });
 }
