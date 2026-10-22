@@ -258,23 +258,31 @@ class FlowService(
         refuseFake(start, root, allowFake)
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
         val wt = if (inWorktree(pid, where)) worktreeFor(pid, root, title, workflowId) else null
+        var madeBranch: MadeBranch? = null
         if (wt == null) {
             refuseDirty(root, allowDirty)
             // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on
-            if (ownBranch) ownBranch(pid, root, title, workflowId)
+            if (ownBranch) madeBranch = ownBranch(pid, root, title, workflowId)
         } else {
             start = start.copy(root = wt.path)
         }
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
         // cheaper model's too, so a cap that switches to it mid-flow can run it.
-        val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + contributedKeys(pid)
-        val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
-            data = options?.takeIf { it.isNotEmpty() })
-        val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
+        val body = try {
+            val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + contributedKeys(pid)
+            val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
+                data = options?.takeIf { it.isNotEmpty() })
+            if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
+        } catch (e: Exception) {
+            wt?.let { removeWorktreeAt(root, it.name) }
+            madeBranch?.let { undoBranch(root, it) }
+            throw e
+        }
         val res = try {
             engine.startThread(body)
         } catch (e: Exception) {
             wt?.let { removeWorktreeAt(root, it.name) }
+            madeBranch?.let { undoBranch(root, it) }
             // v0.16.0 a part may answer the refusal better (needs_plugins: install requests for the missing plugins)
             if (e is EngineError) {
                 val name = start.workflow.name.ifBlank { workflowId }
@@ -399,17 +407,32 @@ class FlowService(
     }
 
     /** Never work on main/master: a flow gets its own branch from the branch pattern in Settings (feat/{slug}). */
-    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String) {
-        if (isDemo(root)) return
-        val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return
-        val base = workspace.base(root) ?: return
-        if (current != base) return
+    /** The branch [ownBranch] made in the person's checkout, with where it came from (to undo it if the start fails). */
+    private data class MadeBranch(val name: String, val from: String, val tip: String)
+
+    /** Puts the checkout back on the branch it was on and drops the new branch, when nothing was committed on it. */
+    private fun undoBranch(root: Path, made: MadeBranch) {
+        runCatching {
+            val back = workspace.git(root, "checkout", "-q", made.from)
+            if (!back.ok) { log.warn("could not switch {} back to {}: {}", root, made.from, back.err.take(200)); return }
+            val tipNow = workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/${made.name}").takeIf { it.ok }?.out?.trim()
+            if (tipNow == made.tip) workspace.git(root, "branch", "-D", made.name)   // no new commits: nothing to lose
+        }.onFailure { log.warn("could not undo the branch {} in {}: {}", made.name, root, it.message) }
+    }
+
+    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String): MadeBranch? {
+        if (isDemo(root)) return null
+        val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
+        val base = workspace.base(root) ?: return null
+        if (current != base) return null
+        val tip = workspace.git(root, "rev-parse", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var name = first
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
         val r = workspace.git(root, "checkout", "-q", "-b", name)
         if (!r.ok) throw Conflict("Could not create the branch $name", r.err.ifBlank { r.out }.take(300))
+        return MadeBranch(name, current, tip)
     }
 
     /** Stores the latest ThreadState we saw, so the UI has something when the engine is down. */

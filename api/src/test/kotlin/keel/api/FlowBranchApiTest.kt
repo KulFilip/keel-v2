@@ -36,6 +36,22 @@ class FlowBranchApiTest : ApiTest() {
     }
 
     @Test
+    fun `a start the engine refuses leaves the checkout on its own branch and drops the new one`() {
+        val fix = engine.featureTemplate + mapOf("id" to "fix", "name" to "fix (keel)")
+        engine.extraTemplates += fix
+        engine.threadRefusal = 409 to mapOf("error" to "This workflow needs Database.")
+        try {
+            val (pid, root) = newProject("branch-undo")
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "fix", "title" to "Average is wrong")).andExpect(status().is4xxClientError)
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("main")
+            assertThat(git(root, "branch", "--list", "fix/*").trim()).isEmpty()
+        } finally {
+            engine.threadRefusal = null
+            engine.extraTemplates -= fix
+        }
+    }
+
+    @Test
     fun `a flow the engine gave its own worktree records it instead of the parent's`() {
         val (pid, _) = newProject("fix-own-worktree")
         engine.nextThreadIds.add("t-hunt-next")
