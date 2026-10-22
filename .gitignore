@@ -23,3 +23,5 @@ docs/screens/
 
 # a local code tool's settings
 .serena/
+.venv
+node_modules
