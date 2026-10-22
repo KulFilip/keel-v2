@@ -102,7 +102,7 @@ class PluginAgentsApiTest {
         val agents = get("/api/projects/$pid/agents").andExpect(status().isOk).json()
         val ids = agents.map { it["id"].asText() }
         // keel's fixture agents, then the installed plugins' agents, one list in file-name order
-        assertThat(ids).containsExactly("explorer", "helper", "implementer", "lens-reviewer", "notes-agent", "test-author", "tools-helper")
+        assertThat(ids).containsExactly("explorer", "helper", "implementer", "lens-reviewer", "notes-agent", "pr-reviewer", "test-author", "tools-helper")
         assertThat(ids).doesNotContain("imaged-agent", "contract-author", "reviewer")
         val notes = agents.first { it["id"].asText() == "notes-agent" }
         assertThat(notes["about"].asText()).isEqualTo("the notes agent")
