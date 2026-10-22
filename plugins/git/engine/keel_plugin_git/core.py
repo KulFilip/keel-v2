@@ -319,8 +319,16 @@ def pr_status(root: str, token: str | None) -> dict | None:
 
 # ------------------------------------------------------------------ acting
 
+def _remote_twins(root: str, name: str) -> list[str]:
+    """The remote-tracking branches named `name` (origin/<name>, …): with exactly one, `git switch <name>` checks it out
+    as a new local branch that tracks it (a teammate's branch from Source control's remote list)."""
+    out = git.git(root, "for-each-ref", "--format=%(refname)", "refs/remotes").stdout.splitlines()
+    return [r for r in out if r.count("/") >= 3 and r.split("/", 3)[3] == name]
+
+
 def switch(root: str, branch: str, create: bool = False, stash: bool = False) -> dict:
-    """Switch (or create and switch). keel 0.18.9 `stash`: the folder's uncommitted changes go into git's stash first
+    """Switch (or create and switch). A name only one remote has (origin/<name>) becomes a local branch that tracks it
+    (0.18.38, Check out in Source control). keel 0.18.9 `stash`: the folder's uncommitted changes go into git's stash first
     (with a message that names the branch they were on), so a switch git refuses because of them can go on; `git stash
     pop` on that branch brings them back."""
     _need_repo(root)
@@ -330,7 +338,7 @@ def switch(root: str, branch: str, create: bool = False, stash: bool = False) ->
     exists = git.git(root, "rev-parse", "--verify", "-q", f"refs/heads/{name}").returncode == 0
     if create and exists:
         raise GitError(409, f"The branch {name} exists already.", "Switch to it instead.")
-    if not create and not exists:
+    if not create and not exists and len(_remote_twins(root, name)) != 1:
         raise GitError(404, f"There is no branch {name}.", "Create it instead.")
     stashed = None
     if stash and git.git(root, "status", "--porcelain").stdout.strip():
