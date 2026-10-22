@@ -28,6 +28,8 @@ class FetchTexts(
  * size, and puts a time limit on the whole download (headers and body).
  */
 object HttpFetch {
+    /** A JVM property for tests that serve a file from 127.0.0.1; nothing sets it in keel (the rest of the rules stay on). */
+    const val ALLOW_LOOPBACK_PROPERTY = "keel.test.fetch-allow-loopback"
     private const val MAX_HOPS = 5
     private val REDIRECTS = setOf(301, 302, 303, 307, 308)
 
@@ -52,7 +54,7 @@ object HttpFetch {
     fun get(
         url: String, maxBytes: Int, texts: FetchTexts,
         connectTimeout: Duration = Duration.ofSeconds(5), totalTimeout: Duration = Duration.ofSeconds(20),
-        allowLoopback: Boolean = false,
+        allowLoopback: Boolean = System.getProperty(ALLOW_LOOPBACK_PROPERTY) == "true",
     ): String {
         var uri = parse(url, texts)
         val deadline = System.nanoTime() + totalTimeout.toNanos()
