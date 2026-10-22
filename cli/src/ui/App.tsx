@@ -8,43 +8,39 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, measureElement, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
-import { complete, follow, pickMatches, questionChain, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
-import type { KeelCore, PermissionQuestion, Snapshot } from "../core/keel";
+import { complete, follow, pickMatches, run, type Ask, type Block, type Completion, type Ctx, type PanelName, type Pick, type Reply } from "../core/commands";
+import type { KeelCore, Snapshot } from "../core/keel";
 import { renderMarkdown } from "../core/markdown";
 import { applyLevel, describeOverrides, makeTheme, withPalette, type Theme, type ThemeName } from "../core/theme";
 import { ThemeProvider, useTheme } from "./theme";
 import { pickVerb, Thinking } from "./thinking";
 import * as fmt from "../core/format";
-import { modelName, modelText } from "../core/effort";
-import { answeredBy, thinkingLines, thoughtLine, THINKING_HEAD } from "../core/thinking";
+import { thinkingLines, thoughtLine, THINKING_HEAD } from "../core/thinking";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
-import { COMMANDS, THEME_HELP, messageBlock, setChanged, setPluginCommands } from "../core/commands";
-import { renderDiff } from "../core/diff";
-import { inboxApi } from "../../../web/src/inboxApi";
+import { COMMANDS, THEME_HELP, setPluginCommands } from "../core/commands";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
-import { modelCatalog } from "../core/effort";
 import { Clickable, ClicksProvider, makeClicks, placeOf } from "./click";
-import { answersMessage, blockedByChanges, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
 import { makeGatePick } from "./gatePick";
 import { diffLines, promptView } from "./promptView";
-import { CTRL_PANEL, DOUBLE_MS, HISTORY_MAX, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Pending, type Question, type Sel } from "./hooks/types";
-import { fixRequest } from "../../../web/src/askFix";
-import { errorParts } from "../core/sdk";
-import { api } from "../core/sdk";
+import { CTRL_PANEL, DOUBLE_MS, HISTORY_MAX, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Question, type Sel } from "./hooks/types";
 import { blockLines, headerLine, isMouse, MOUSE, SCREEN, startLines, view, wheel, wrap } from "../core/lines";
-import { isNewline, moveRow, promptRows } from "../core/prompt";
+import { isNewline, moveRow } from "../core/prompt";
 import { editText, findEditor } from "../core/editor";
 import { osc52, pickCopy } from "../core/clipboard";
 import { colsOn, highlight, mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../core/select";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
-import { canOpen, toolBody, toolLines, type ToolCall } from "../core/tools";
+import { canOpen, toolBody, toolLines } from "../core/tools";
 import { memorySettings, type SettingsStore } from "../core/settings";
 import { filesOfSteps, Sidebar, SIDEBAR_MIN, SIDEBAR_WIDTH, type ChangedFile } from "./sidebar";
 import type { KeelbotServer } from "../core/keel";
+import { usePending } from "./hooks/usePending";
+import { useButtonAsks } from "./hooks/useButtonAsks";
+import { useCoreEvents } from "./hooks/useCoreEvents";
+import { useAskQueue } from "./hooks/useAskQueue";
 
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
 export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boolean; chatBusy: boolean; answers: number };
@@ -104,19 +100,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   // since on top; hIdx: the one shown while ↑ / ↓ walk them (-1: not walking)
   const [history, setHistory] = useState<string[]>([]);
   const [hIdx, setHIdx] = useState(-1);
-  const [pending, setPending] = useState<Pending | null>(null);
-  const pendingRef = useRef<Pending | null>(null);
-  pendingRef.current = pending;
-  const [pickIdx, setPickIdx] = useState(0);
-  const [pickFilter, setPickFilter] = useState("");
-  // keel 0.18.9 a pick of several: what is ticked (Space), sent with Enter
-  const [ticked, setTicked] = useState<Set<string>>(() => new Set());
+  const { pending, setPending, pendingRef, pickIdx, setPickIdx, pickFilter, setPickFilter, ticked, setTicked } = usePending();
   const [panels, setPanels] = useState<PanelId[]>([]);
   const pastes = useRef(new Pastes());
   const questions = useRef<Question[]>([]);
   // KeelBot's buttons (start a flow, decide a gate, stop flows, a run mode): a yes / no each, after its answer
-  const buttonAsks = useRef<Pick[]>([]);
-  const [qTick, setQTick] = useState(0);
   const [running, setRunningState] = useState<string | null>(null);
   const runningSince = useRef<number | null>(null);
   const setRunning = (v: string | null) => {
@@ -198,200 +186,11 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     });
   }, []);
 
-  useEffect(() => {
-    const offs = [
-      core.on("change", (s) => setSnap(s)),
-      core.on("notice", (t) => push({ kind: "notice", text: t })),
-      // 0.18.6 the chat the dashboard has open (at the start, or when it opens another): its last messages
-      core.on("chat", (s, why) => {
-        const blocks: Block[] = [{ kind: "dim", text: `  ${why}: KeelBot chat "${s.title || s.id}" · ${s.mode}` }];
-        (s.messages ?? []).slice(-4).forEach((m) => blocks.push(messageBlock(m)));
-        push(...blocks);
-      }),
-      // 0.18.6 a question asked in this chat from the dashboard: shown as the person's own, then KeelBot answers here too
-      core.on("remote", (text, by) => push({ kind: "user", text }, { kind: "dim", text: `  asked in ${by}` })),
-      // 0.18.28 typed while KeelBot answered: dim until it goes, then the person's message as usual
-      core.on("queued", (m) => push(m.sent ? { kind: "user", text: m.text }
-        : { kind: "dim", text: `  ⧗ will send after this answer${m.position > 1 ? ` (#${m.position})` : ""}: ${m.text.split("\n")[0].slice(0, 200)}  · Esc stops the answer and sends it now` })),
-      // KeelBot asks the person's OK for a command: an amber yes/no, one after the other
-      core.on("question", (q) => {
-        if (questions.current.some((x) => x.id === q.id)) return;
-        questions.current.push(q);
-        setQTick((n) => n + 1);
-      }),
-      // keel 0.18.18 answered in the dashboard, or KeelBot's turn ended: its card goes (an answer here does nothing more)
-      core.on("questionGone", (id) => {
-        questions.current = questions.current.filter((x) => x.id !== id);
-        if (pendingRef.current?.qid === id) {
-          setPending(null);
-          push({ kind: "dim", text: "  KeelBot's question ended (answered elsewhere, or its answer ended)" });
-        }
-      }),
-      core.on("answer", (a) => {
-        const d = a.message?.data;
-        const { paint, width: w } = look.current;
-        const used = d ? [d.provider && d.model ? modelText(d) : "", d.tokens_in || d.tokens_out ? `${fmt.short((d.tokens_in ?? 0) + (d.tokens_out ?? 0))} tokens` : "",
-          d.cost_usd ? `$${d.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
-        // what it did (one line per tool call, its output folded), the answer, then how the turn ended and what it used
-        const calls = core.snapshot.chat.tools;
-        const lastOpenable = calls.map(canOpen).lastIndexOf(true);
-        const toolBlocks: Block[] = calls.map((c, i) => ({ kind: "tool", text: c.output, tool: c, ...(i === lastOpenable ? { hint: "Ctrl+O to show" } : {}) }));
-        const ms = d?.ms ?? (turnStart.current ? Date.now() - turnStart.current : 0);
-        const outcome = a.ok ? "done" : d?.status === "stopped" ? "stopped" : "failed";
-        const { text: said, buttons } = a.ok ? splitButtons(a.text) : { text: a.text, buttons: [] };
-        // 0.18.23 its thinking, folded to one line (Ctrl+T or /thinking shows it), then the answer and who answered
-        const thought = typeof d?.thinking === "string" && d.thinking.trim() ? d.thinking : core.snapshot.chat.thinking || "";
-        const thoughtMs = typeof d?.thinking_ms === "number" ? d.thinking_ms : 0;
-        lastThought.current = thought ? { text: thought, ms: thoughtMs } : null;
-        setShowThink(false);
-        push(...(thought ? [{ kind: "dim" as const, text: thoughtLine(thoughtMs) }] : []),
-          ...toolBlocks, { kind: a.ok ? "markdown" : "error", text: said || "(KeelBot gave buttons only)" },
-          ...(d?.model ? [{ kind: "dim" as const, text: answeredBy(d.mode ?? core.snapshot.chat.mode, modelName(d), ms) }] : []));
-        setLiveOpen(null);
-        // keel 0.18.8 "✓ Finished …" sits on the prompt (the last turn's), with room between it and the answer above
-        setFooter(fmt.turnFooter(outcome, ms, used ? `KeelBot · ${used}` : "KeelBot", paint));
-        turnStart.current = null;
-        if (buttons.length) void askButtons(buttons);
-        setAnswers((n) => n + 1);
-        // Edit, Fix and Side: the files THIS answer changed, with their diffs, and how to keep or undo them. Never the
-        // folder's other uncommitted files (the person's, what keel init left): the answer's data names its own files
-        // (0.18.20), and an answer that changed none (or an engine that does not say) shows no block at all.
-        const mode = core.snapshot.chat.session?.mode ?? core.snapshot.chat.mode;
-        const files = Array.isArray(d?.files) ? d.files : [];
-        setTurnFiles([]);
-        if ((mode === "fix" || mode === "side" || mode === "edit") && typeof d?.turn === "number" && files.length) {
-          const sid = core.snapshot.chat.session?.id ?? "";
-          void core.changes().then((all) => setChanged(sid, all.map((c) => c.path))).catch(() => undefined);   // /keep's Tab
-          void core.changes(d.turn).then((ch) => {
-            setTurnFiles(ch.map((c) => ({ path: c.path, status: c.status, added: c.added, removed: c.removed })));
-            if (!ch.length) return;
-            const p = look.current.paint;
-            push({ kind: "text", text: `${p.bold(p.warn(`${ch.length} file(s) changed`))} ${p.dim("· not kept yet")}\n${fmt.changesText(ch, p, 16)}\n`
-              + `${p.accent("/keep")} [path|all] ${p.dim("runs the checks and commits")} · ${p.accent("/undo")} [path|all] · ${p.accent("/changes")}` });
-          }).catch(() => undefined);
-        }
-      }),
-    ];
-    let alive = true;
-    void core.start().then((s) => {
-      if (!alive) return;
-      setItems([{ id: nextId.current++, kind: "start", s }]);
-      setStarted(true);
-      profiler?.ready();
-      void core.keelbotCommands().then((c) => alive && setBotCmds(c));
-      void modelCatalog().catch(() => undefined);          // read early: /model opens at once (0.18.9)
-    });
-    return () => {
-      alive = false;
-      offs.forEach((o) => o());
-      core.stop();
-    };
-  }, [core, push]);
+  const { buttonAsks, qTick, setQTick, askButtons } = useButtonAsks(core, push);
+  useCoreEvents({ core, push, profiler, questions, pendingRef, setPending, setQTick, look, turnStart, lastThought, nextId, askButtons, setSnap, setItems,
+    setStarted, setBotCmds, setShowThink, setLiveOpen, setFooter, setAnswers, setTurnFiles });
 
-  /** After a failed button: stash and switch (a git switch the folder's changes block), ask KeelBot to find the fix, or
-   *  leave it. */
-  const fixPick = (b: Button, err: { message: string; hint?: string }, pid: string, name: (tid: string) => string): Pick => ({
-    title: "It did not work. Find a fix?",
-    choices: [
-      ...(blockedByChanges(b, err.message) ? [{ label: "Stash my changes and switch", value: "stash", hint: "git stash pop on your branch brings them back" }] : []),
-      { label: "Ask KeelBot to find a fix", value: "ask", hint: "it reads the error and the project, and proposes a fix you press" },
-      { label: "No", value: "no" },
-    ],
-    then: async (v) => {
-      if (v === "ask") return { blocks: [], chat: fixRequest(buttonWords(b), err) };
-      if (v === "stash" && b.kind === "git") {
-        try {
-          const said = await pressButton({ ...b, stash: true }, pid, name);
-          await core.refresh().catch(() => undefined);
-          return { blocks: [{ kind: "ok", text: said }] };
-        } catch (e) {
-          const again = errorParts(e);
-          return { blocks: [{ kind: "error", text: again.message }], pick: fixPick({ ...b, stash: true }, again, pid, name) };
-        }
-      }
-      return { blocks: [{ kind: "dim", text: "  left as it is" }] };
-    },
-  });
-
-  /** Each of KeelBot's buttons as a yes / no; one only the dashboard has says where to press it. */
-  const askButtons = useCallback(async (buttons: Button[]) => {
-    const pid = core.snapshot.project?.id;
-    if (!pid) return;
-    const rows = await api.runs(pid, undefined, 30).catch(() => []);
-    const name = (tid: string) => {
-      const r = rows.find((x) => x.thread_id === tid);
-      return r ? `"${r.title}"` : `flow ${tid.slice(0, 8)}`;
-    };
-    for (const b of buttons) {
-      // keel 0.18.9 KeelBot asks the person to choose: the questions one after the other, the answers back to it
-      if (b.kind === "questions") {
-        const first = await questionChain(b.questions, (a) => ({ blocks: [], chat: answersMessage(b.questions, a) }));
-        if (first.blocks.length) push(...first.blocks);
-        if (first.pick) buttonAsks.current.push(first.pick);
-        continue;
-      }
-      // a new workflow or rule pack: keel's check first (it saves nothing), so the question says what it would be
-      const prep = await prepare(b, pid, name).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-      if (!prep) {
-        push({ kind: "dim", text: "  " + elsewhere(b) });
-        continue;
-      }
-      if ("error" in prep) {
-        push({ kind: "error", text: prep.error });
-        continue;
-      }
-      if (prep.detail) push({ kind: "dim", text: prep.detail.split("\n").map((l) => "  " + l).join("\n") });
-      const title = prep.title;
-      buttonAsks.current.push({ title, choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }], newMessage: NOT_SENT_NEW_MESSAGE,
-        then: async (v) => {
-          if (v !== "yes") return { blocks: [{ kind: "dim", text: "  Suggestion not sent: you chose No." }] };
-          try {
-            const said = await pressButton(b, pid, name);
-            await core.refresh().catch(() => undefined);
-            return { blocks: [{ kind: "ok", text: said }] };
-          } catch (e) {
-            // keel 0.18.9 a button that failed: a way out (stash and switch, when that is it) or KeelBot finds the fix
-            const err = errorParts(e);
-            return { blocks: [{ kind: "error", text: err.hint ? `${err.message} ${err.hint}` : err.message }], pick: fixPick(b, err, pid, name) };
-          }
-        } });
-    }
-    setQTick((n) => n + 1);
-  }, [core, push]);
-
-  // the next question KeelBot asks, when nothing else is being asked; then KeelBot's buttons
-  useEffect(() => {
-    if (!pending && !questions.current.length && buttonAsks.current.length) {
-      setPending({ cmd: "KeelBot", pick: buttonAsks.current.shift()! });
-      setPickIdx(0);
-      setPickFilter("");
-      return;
-    }
-    if (pending || !questions.current.length) return;
-    const q = questions.current.shift()!;
-    const deny = async (why: string) => {
-      await inboxApi.decide(q.id, "deny", why);
-      return { blocks: [{ kind: "dim" as const, text: `  refused: ${q.command}${why ? ` (${why})` : ""}` }] };
-    };
-    // keel 0.18.18 the warning (it throws work away, a flow works in this folder), what "in this chat" keeps (its
-    // family: git checkout *), a deny with the person's reason (KeelBot reads it), and Esc says no
-    setPending({ cmd: "KeelBot", qid: q.id, pick: { title: `KeelBot asks to run: ${q.command}${q.path ? ` (${q.path})` : ""}?${q.warning ? ` ⚠ ${q.warning}` : ""}`,
-      choices: [{ label: "Allow once", value: "once" },
-        ...(q.always !== "" ? [{ label: q.always && q.always !== q.command ? `Allow ${q.always} in this chat` : "Allow in this chat", value: "always",
-          hint: q.always && q.always !== q.command ? "this command and its kind, for the rest of the chat" : "this command, for the rest of the chat" }] : []),
-        { label: "Deny", value: "deny" },
-        { label: "Deny, and say why", value: "why", hint: "KeelBot reads your reason and goes on from it" }],
-      then: async (v) => {
-        if (v === "why") return { blocks: [], ask: { prompt: `Why not ${q.command}? (KeelBot reads it)`, then: (why: string) => deny(why.trim()) } };
-        if (v === "deny") return deny("");
-        await inboxApi.decide(q.id, v);
-        const kept = v === "always" && q.always && q.always !== q.command ? ` (${q.always})` : "";
-        return { blocks: [{ kind: "ok", text: `allowed ${v === "always" ? "in this chat" : "once"}: ${q.command}${kept}` }] };
-      },
-      onCancel: () => deny("The person closed the question without an answer.") } });
-    setPickIdx(0);
-    setPickFilter("");
-  }, [pending, qTick]);
+  useAskQueue({ pending, qTick, questions, buttonAsks, setPending, setPickIdx, setPickFilter });
 
   // 0.18.18 the prompt history comes from keel (it survives a restart, it is the same on another computer)
   const pidNow = snap.project?.id ?? null;
