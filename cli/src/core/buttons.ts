@@ -25,6 +25,7 @@
 import { api, get, post, type RunMode } from "../../../web/src/api";
 import type { Answers, Question } from "./commands";
 import { inboxApi } from "../../../web/src/inboxApi";
+import { agentName } from "../../../web/src/agentNames";
 import { answersMessage, parseQuestions } from "../../../web/src/questions";
 import { answerLines, gateName, NOT_SENT_NEW_MESSAGE } from "../../../plugins/keelbot/web/suggest";
 
@@ -284,7 +285,7 @@ export async function prepare(b: Button, pid: string, name: Names): Promise<{ ti
     if (bad.length) return { error: "KeelBot's skill cannot be saved yet:\n" + bad.map((e) => `  ${e}`).join("\n") + "\nAsk KeelBot to fix it." };
     const h = skillHead(b.text);
     const known = (await api.agents(pid)).map((a) => a.id);
-    const unknown = h.agents.filter((a) => !known.includes(a));
+    const unknown = h.agents.filter((a) => !known.includes(agentName(a)));
     if (unknown.length) return { error: `KeelBot's skill names agents this project does not have: ${unknown.join(", ")} (it has ${known.join(", ")}).` };
     return { title: `KeelBot wrote a skill: save ${h.name}?`,
       detail: `${h.description ? h.description + "\n" : ""}~${Math.round(b.text.length / 4)} tokens · `

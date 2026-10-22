@@ -151,8 +151,8 @@ export function stubKeel() {
       case "GET /api/projects/demo/agents": return [200, [
         { id: "reproducer", label: "reproducer", overridden: [], skills: [], phases: ["bug-repro"] },
         { id: "investigator", label: "investigator", overridden: [], skills: [], phases: ["bug-investigate"] },
-        { id: "reviewer", label: "reviewer", overridden: ["skills"], skills: state.reviewerSkills, phases: ["ship"] }]];
-      case "PUT /api/projects/demo/agents/reviewer": state.reviewerSkills = body.skills; return [200, { id: "reviewer" }];
+        { id: "lens-reviewer", label: "lens-reviewer", overridden: ["skills"], skills: state.reviewerSkills, phases: ["ship"] }]];
+      case "PUT /api/projects/demo/agents/lens-reviewer": state.reviewerSkills = body.skills; return [200, { id: "lens-reviewer" }];
       case "POST /api/projects/demo/skills/import": return [200, { id: "changelog-entries", tokens: 30, agents: [] }];
       case "GET /api/marketplace/skills": return [200, { catalog_error: null,
         skills: [{ name: "flaky-tests", title: "Flaky tests", publisher: "keel", publisher_title: "keel", version: "1.0.0", summary: "Find why a test fails sometimes.",

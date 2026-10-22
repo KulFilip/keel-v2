@@ -20,7 +20,7 @@ const KINDS: [string, string, string][] = [
   ["code", "runs plain code (no tokens); needs action", "- { id: verify_red, kind: code, name: verify red, action: verify_red+commit }"],
   ["gate", "waits for a person", "- { id: plan_ok, kind: gate, name: plan approval, back: plan }"],
   ["branch", "yes goes on, no goes to `no`; decided by when, a run: command or an agent", "- { id: reproduced, kind: branch, name: reproduced, when: { marker: REPRO, equals: confirmed }, 'no': repro }"],
-  ["parallel", "several agents at once (agent, lanes or from)", "- { id: reviewers, kind: parallel, name: reviewers, agent: reviewer, from: review_lenses }"],
+  ["parallel", "several agents at once (agent, lanes or from)", "- { id: reviewers, kind: parallel, name: reviewers, agent: lens-reviewer, from: review_lenses }"],
   ["include", "the steps of another workflow here", "- { id: ship, kind: include, name: ship, flow: ship }"],
 ];
 

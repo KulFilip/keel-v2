@@ -50,7 +50,7 @@ export function toYaml(w: Workflow, budget?: { max_tokens?: number; on_limit?: s
 export function newStep(kind: StepKind, id: string): Step {
   switch (kind) {
     case "agent": return { id, kind, name: "new agent step", agent: "explorer", model: "default" };
-    case "parallel": return { id, kind, name: "parallel reviewers", agent: "reviewer", model: "default", parallel: 2 };
+    case "parallel": return { id, kind, name: "parallel reviewers", agent: "lens-reviewer", model: "default", parallel: 2 };
     case "gate": return { id, kind, name: "approval" };
     case "branch": return { id, kind, name: "tests pass?" };
     case "code": return { id, kind, name: "run command", action: "run:" };
