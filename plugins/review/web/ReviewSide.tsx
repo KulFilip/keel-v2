@@ -20,10 +20,11 @@ import {
   findingComment,
   FindingsTab,
   OverviewTab,
-  ThreadsTab,
   type PanelTab,
 } from "./ReviewPanel";
 import { PendingTab } from "./PendingTab";
+import { SideGrip } from "./SideGrip";
+import { ThreadsView } from "./Threads";
 import * as R from "./store";
 
 type Filter = "review" | "assigned" | "mine" | "all";
@@ -82,6 +83,7 @@ export function ReviewSide({
   }, [pid]);
   return (
     <div className="rv-side" role="region" aria-label="Review">
+      <div className="rv-side-in">
       {selected ? (
         <OneReview
           pid={pid}
@@ -93,6 +95,8 @@ export function ReviewSide({
       ) : (
         <ReviewList pid={pid} onPick={pick} />
       )}
+      </div>
+      <SideGrip />
     </div>
   );
 }
@@ -330,7 +334,9 @@ function OneReview({
   }, [pid, reviewKey, tick]);
   const running =
     r.ai?.overview?.status === "running" ||
-    r.ai?.findings?.status === "running";
+    r.ai?.findings?.status === "running" ||
+    Object.values(r.ai?.judges ?? {}).some((j) => j.status === "running") ||
+    Object.values(r.ai?.buttons ?? {}).some((j) => j.status === "running");
   useEffect(() => {
     if (!running) return;
     const t = window.setInterval(() => void R.loadAi(pid, reviewKey), 3000);
@@ -691,11 +697,13 @@ function OneReview({
           />
         )}
         {tab === "threads" && (
-          <ThreadsTab
+          <ThreadsView
+            pid={pid}
+            reviewKey={reviewKey}
             view={v}
+            ai={r.ai}
+            running={r.running}
             onOpen={open}
-            onReply={(t, b) => R.reply(pid, reviewKey, t.id, b)}
-            onResolve={(t, x) => R.resolve(pid, reviewKey, t.id, x)}
           />
         )}
         {tab === "checklist" && (

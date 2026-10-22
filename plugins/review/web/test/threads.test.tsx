@@ -1,0 +1,773 @@
+// The review threads (Threads tab): sections and counts, your messages and the reviewer's, resolved threads folded to a
+// line, "new" since your last visit, keel's check with every verdict, Use as my reply (fills the box, posts nothing),
+// Address it (starts the flow), the extra buttons, the panel's width and the narrow layout, and the thread settings.
+
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { afterEach, describe, expect, it } from "vitest";
+import { AppProvider } from "../../../../web/src/state";
+import { server } from "../../../../web/src/test/setup";
+import type {
+  AiRun,
+  AiState,
+  JudgeResult,
+  ReviewThread,
+  ReviewView,
+  ThreadSettingsView,
+} from "../reviewApi";
+import { SideGrip, SIDE_KEY } from "../SideGrip";
+import * as R from "../store";
+import {
+  ago,
+  estimate,
+  ThreadsView,
+  verdictLabel,
+  waitsForYou,
+} from "../Threads";
+import { ThreadSettings } from "../ThreadSettings";
+
+const PID = "p1";
+const KEY = "pr:7";
+const LONG =
+  "src/main/kotlin/com/acme/shop/tracking/repository/TrackingSubscriptionRepository.kt";
+
+const c = (id: string, author: string, body: string, at: string) => ({
+  id,
+  author,
+  body,
+  at,
+});
+const thread = (id: string, extra: Partial<ReviewThread>): ReviewThread => ({
+  id,
+  path: "src/Prefs.kt",
+  line: 3,
+  side: "RIGHT",
+  resolved: false,
+  outdated: false,
+  comments: [],
+  ...extra,
+});
+
+function view(): ReviewView {
+  return {
+    key: KEY,
+    kind: "pr",
+    number: 7,
+    title: "Save the page size",
+    author: "me",
+    body: "",
+    base: "main",
+    branch: "feat/paging",
+    base_sha: "b".repeat(40),
+    head_sha: "a".repeat(40),
+    url: null,
+    state: "open",
+    draft: false,
+    same_repo: true,
+    checks: [],
+    approved: [],
+    changes_requested: [],
+    files: [{ path: LONG, status: "M", added: 2, removed: 1, binary: false }],
+    added: 2,
+    removed: 1,
+    commits: [],
+    threads: [
+      thread("T1", {
+        path: LONG,
+        line: 3,
+        start_line: 2,
+        comments: [
+          c("1", "bo", "Why a pure `UPDATE` query?", "2026-10-21T09:00:00Z"),
+          c(
+            "2",
+            "me",
+            "One raw UPDATE on purpose: the check and the write are one statement.",
+            "2026-10-21T10:00:00Z",
+          ),
+          c(
+            "3",
+            "bo",
+            "Ok, but do we have the right indexes?",
+            "2026-10-22T09:00:00Z",
+          ),
+        ],
+      }),
+      thread("T2", {
+        comments: [
+          c("4", "bo", "Maybe a factory?", "2026-10-21T09:00:00Z"),
+          c("5", "me", "Not needed here.", "2026-10-21T11:00:00Z"),
+        ],
+      }),
+      thread("T3", {
+        line: 22,
+        resolved: true,
+        comments: [
+          c("6", "bo", "Do we need to keep this?", "2026-10-20T09:00:00Z"),
+          c("7", "me", "yes, it dedupes retries", "2026-10-20T10:00:00Z"),
+        ],
+      }),
+      thread("T4", {
+        line: 40,
+        comments: [
+          c(
+            "8",
+            "ana",
+            ["one", "two", "three", "four", "five", "six"].join("\n\n"),
+            "2026-10-20T09:00:00Z",
+          ),
+        ],
+      }),
+    ],
+    conversation: [],
+    drafts: [],
+    viewed: [],
+    can_post: true,
+    host: {
+      kind: "github",
+      host: "github.com",
+      path: "acme/shop",
+      web: "https://github.com/acme/shop",
+    },
+    me: "me",
+    notes: [],
+    mine: true,
+  };
+}
+
+const DIFF = [
+  `diff --git a/${LONG} b/${LONG}`,
+  `--- a/${LONG}`,
+  `+++ b/${LONG}`,
+  "@@ -1,3 +1,4 @@",
+  " class Repo {",
+  "-    fun touch() = orm.save(row)",
+  '+    fun touch() = db.update("UPDATE tracking_subscription SET eta_updated_at = :at WHERE resolver_id IN (SELECT id FROM resolvers WHERE carrier = :carrier)")',
+  "+    // one statement",
+  " }",
+].join("\n");
+
+const run = (
+  result: JudgeResult,
+  extra: Partial<AiRun<JudgeResult>> = {},
+): AiRun<JudgeResult> => ({
+  id: "rr_1",
+  kind: "judge:T1",
+  status: "done",
+  stage: "done",
+  head_sha: "a".repeat(40),
+  stale: false,
+  sessions: [],
+  result,
+  error: null,
+  created_at: "2026-10-22T10:00:00Z",
+  updated_at: "2026-10-22T10:00:00Z",
+  ...extra,
+});
+
+const AI = (extra: Partial<AiState> = {}): AiState => ({
+  overview: null,
+  findings: null,
+  decisions: {},
+  config: {
+    judge: {
+      mode: "quick",
+      workflow: "review",
+      allow_harder: true,
+      token_cap: 25000,
+      agent: "ticket-reviewer",
+    },
+    address_workflow: "small",
+    buttons: [],
+  },
+  ...extra,
+});
+
+type Call = { method: string; path: string; body: unknown };
+
+function api(ai: AiState = AI()) {
+  const calls: Call[] = [];
+  let state = ai;
+  const rec = async (request: Request) => {
+    let body: unknown = null;
+    try {
+      body = await request.clone().json();
+    } catch {
+      /* none */
+    }
+    calls.push({
+      method: request.method,
+      path: new URL(request.url).pathname,
+      body,
+    });
+  };
+  const B = "/api/projects/:pid/review";
+  server.use(
+    http.get(`${B}/diff`, () =>
+      HttpResponse.json({
+        path: LONG,
+        against: "base",
+        ref: "base…#7",
+        diff: DIFF,
+        binary: false,
+        truncated: false,
+      }),
+    ),
+    http.post(`${B}/threads/:tid/judge`, async ({ request, params }) => {
+      await rec(request);
+      state = {
+        ...state,
+        judges: {
+          ...state.judges,
+          [String(params.tid)]: run(
+            { stage: "check" },
+            { status: "running", result: { stage: "check" } },
+          ),
+        },
+      };
+      return HttpResponse.json(state);
+    }),
+    http.post(`${B}/threads/:tid/address`, async ({ request, params }) => {
+      await rec(request);
+      state = {
+        ...state,
+        addressed: {
+          [String(params.tid)]: {
+            flow_id: "t-1",
+            title: "Address review",
+            branch: "feat/paging",
+            workflow: "small",
+            at: "",
+          },
+        },
+      };
+      return HttpResponse.json({
+        flow_id: "t-1",
+        title: "Address review",
+        branch: "feat/paging",
+        workflow: "small",
+        note: "The small flow works on feat/paging. It pushes nothing.",
+        state,
+      });
+    }),
+    http.post(`${B}/threads/:tid/buttons/:bid`, async ({ request }) => {
+      await rec(request);
+      return HttpResponse.json(state);
+    }),
+    http.post(`${B}/threads/:tid/reply`, async ({ request }) => {
+      await rec(request);
+      return HttpResponse.json(view());
+    }),
+    http.post(`${B}/threads/:tid/resolve`, async ({ request }) => {
+      await rec(request);
+      return HttpResponse.json(view());
+    }),
+  );
+  return { calls };
+}
+
+function Host({ ai, v = view() }: { ai: AiState; v?: ReviewView }) {
+  R.useReviewStore();
+  const r = R.review(PID, KEY);
+  return (
+    <ThreadsView
+      pid={PID}
+      reviewKey={KEY}
+      view={v}
+      ai={r.ai ?? ai}
+      running={r.running}
+      onOpen={() => {}}
+    />
+  );
+}
+
+function show(ai: AiState = AI(), v?: ReviewView) {
+  return render(
+    <AppProvider>
+      <Host ai={ai} v={v} />
+    </AppProvider>,
+  );
+}
+
+const card = (label: RegExp) => screen.getByRole("article", { name: label });
+
+afterEach(() => {
+  R.resetReviews();
+});
+
+describe("the review threads", () => {
+  it("counts and groups the threads: waiting for you, open, resolved, all", async () => {
+    api();
+    show();
+    expect(
+      screen.getByRole("button", { name: "Waiting for you · 2" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open · 3" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Resolved · 1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All · 4" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("heading", { name: "Waiting for your answer · 2" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Open · 1" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Resolved · 1" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Waiting for you · 2" }),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Open · 1" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Resolved/ }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Resolved · 1" }));
+    expect(
+      screen.queryByRole("heading", { name: /Waiting/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Resolved · 1" }),
+    ).toBeInTheDocument();
+    // the rule
+    const v = view();
+    expect(v.threads.map((t) => waitsForYou(t, "me"))).toEqual([
+      true,
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("marks your own messages and names the reviewer; a long path keeps its file name; the code lines scroll in their box", async () => {
+    api();
+    show();
+    const t1 = card(/Thread on src\/main\/kotlin.* line 2–3/);
+    const mine = t1.querySelectorAll("[data-mine]");
+    expect(mine).toHaveLength(1);
+    expect(within(mine[0] as HTMLElement).getByText("You")).toBeInTheDocument();
+    expect(within(t1).getAllByText(/reviewer ·/)).toHaveLength(2);
+    expect(
+      within(t1).getByText("UPDATE", { selector: "code" }),
+    ).toBeInTheDocument(); // inline code
+    const path = within(t1).getByRole("button", {
+      name: `Open ${LONG} at line 3`,
+    });
+    expect(path).toHaveAttribute("title", LONG);
+    expect(
+      within(path).getByText("TrackingSubscriptionRepository.kt").tagName,
+    ).toBe("B");
+    const code = await within(t1)
+      .findByRole("region", { name: /The code of .* at line 2–3/ })
+      .catch(() => null);
+    const pre =
+      code ??
+      (await waitFor(() => t1.querySelector("pre.rv-tcode") as HTMLElement));
+    expect(pre).toHaveAttribute("tabindex", "0");
+    expect(pre.textContent).toContain("UPDATE tracking_subscription");
+    expect(pre.textContent).toContain("// one statement");
+  });
+
+  it("folds a resolved thread to one line and opens it", async () => {
+    api();
+    show();
+    const row = screen.getByRole("button", { name: /src\/Prefs\.kt · L22/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    expect(row).toHaveTextContent(
+      '"Do we need to keep this?" → You: yes, it dedupes retries',
+    );
+    expect(row).toHaveTextContent("1 reply");
+    expect(
+      screen.queryByRole("article", { name: /line 22/ }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(card(/line 22/)).getByRole("button", { name: "Open again" }),
+    ).toBeInTheDocument();
+  });
+
+  it("tags what came since your last visit as new, and folds a long message", async () => {
+    api();
+    localStorage.setItem(
+      `keel2.review.seen.${PID}.${KEY}`,
+      "2026-10-21T12:00:00Z",
+    );
+    show();
+    expect(screen.getAllByText("new")).toHaveLength(1);
+    expect(within(card(/line 2–3/)).getByText("new")).toBeInTheDocument();
+    // this visit counts from now on
+    expect(
+      localStorage.getItem(`keel2.review.seen.${PID}.${KEY}`)! >
+        "2026-10-22T09:00:00Z",
+    ).toBe(true);
+    const more = within(card(/line 40/)).getByRole("button", {
+      name: "Show more",
+    });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(more);
+    expect(
+      within(card(/line 40/)).getByRole("button", { name: "Show less" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows keel's check with every verdict, its cost, and Use as my reply fills the box and posts nothing", async () => {
+    const { calls } = api();
+    show(
+      AI({
+        judges: {
+          T1: run({
+            stage: "done",
+            tokens: 5200,
+            model: "claude · haiku",
+            effort: "low",
+            context: { code_lines: 61, hunk_lines: 8, files: 1 },
+            checked_at: new Date(Date.now() - 10 * 60000).toISOString(),
+            items: [
+              {
+                claim: "indexes",
+                verdict: "reviewer_right",
+                why: "no index on (resolver_id) — src/a.sql:3",
+                fix: "add one",
+              },
+              {
+                claim: "row updated twice",
+                verdict: "author_right",
+                why: "the WHERE keeps the newer ETA",
+              },
+              {
+                claim: "subquery per row",
+                verdict: "partly",
+                why: "not correlated",
+              },
+              {
+                claim: "locking",
+                verdict: "unclear",
+                why: "needs the isolation level",
+              },
+            ],
+            reply: "Good point on the index: I add one in the migration.",
+          }),
+        },
+      }),
+    );
+    const box = within(card(/line 2–3/)).getByRole("region", {
+      name: "keel checked this thread",
+    });
+    expect(box).toHaveAttribute("aria-live", "polite");
+    for (const label of ["THEY'RE RIGHT", "YOU'RE RIGHT", "PARTLY", "UNCLEAR"])
+      expect(within(box).getByText(label)).toBeInTheDocument();
+    expect(
+      within(box).getByText(
+        /checked 10 min ago · ~5k tokens · read 1 file · claude · haiku · low/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(box).getByRole("button", { name: "Address it (a small flow)" }),
+    ).toBeInTheDocument();
+    expect(
+      within(box).getByRole("button", { name: "Think harder" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(box).getByRole("button", { name: "Use as my reply" }),
+    );
+    expect(
+      within(card(/line 2–3/)).getByRole("textbox", { name: "Your reply" }),
+    ).toHaveValue("Good point on the index: I add one in the migration.");
+    expect(calls.filter((x) => x.method === "POST")).toEqual([]); // nothing posted
+    // the labels from the reviewer's side, and from neither
+    expect(verdictLabel("reviewer_right", "reviewer")[0]).toBe("YOU'RE RIGHT");
+    expect(verdictLabel("author_right", "other")[0]).toBe("AUTHOR'S RIGHT");
+  });
+
+  it("asks keel to check a thread (with its estimate first) and says when it fails", async () => {
+    const { calls } = api();
+    show();
+    const t1 = card(/line 2–3/);
+    const [lo] = estimate(view().threads[0]);
+    const btn = within(t1).getByRole("button", {
+      name: /✦ Is the reviewer right\?/,
+    });
+    expect(btn).toHaveTextContent(`~${Math.round(lo / 1000)}k`);
+    await userEvent.click(btn);
+    await waitFor(() =>
+      expect(
+        calls.find((x) => x.path.endsWith("/threads/T1/judge"))?.body,
+      ).toEqual({ key: KEY }),
+    );
+    expect(
+      await within(t1).findByText("keel is checking the code…"),
+    ).toBeInTheDocument();
+
+    server.use(
+      http.post("/api/projects/:pid/review/threads/T2/judge", () =>
+        HttpResponse.json(
+          { error: "Stopped at the cap: this check needs about 30k tokens" },
+          { status: 409 },
+        ),
+      ),
+    );
+    await userEvent.click(
+      within(card(/Thread on src\/Prefs\.kt line 3$/)).getByRole("button", {
+        name: /Is the reviewer right/,
+      }),
+    );
+    expect(await screen.findByText(/Stopped at the cap/)).toBeInTheDocument();
+    expect(ago(new Date(Date.now() - 3 * 3600000).toISOString())).toBe(
+      "3 h ago",
+    );
+  });
+
+  it("Address it asks first, then starts the flow and links to it", async () => {
+    const { calls } = api();
+    show();
+    const t1 = card(/line 2–3/);
+    await userEvent.click(
+      within(t1).getByRole("button", { name: "✦ Address it" }),
+    );
+    const confirm = within(t1).getByRole("group", {
+      name: "Confirm Address it",
+    });
+    expect(confirm).toHaveTextContent("pushes and posts nothing");
+    expect(calls).toEqual([]);
+    await userEvent.click(
+      within(confirm).getByRole("button", { name: "Start the flow" }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((x) => x.path.endsWith("/threads/T1/address"))?.body,
+      ).toMatchObject({ key: KEY }),
+    );
+    expect(
+      await within(t1).findByRole("link", { name: "Open the flow ›" }),
+    ).toHaveAttribute("href", "#/flow/t-1");
+    expect(within(t1).getByText(/It pushes nothing/)).toBeInTheDocument();
+  });
+
+  it("draws the extra buttons from the settings and runs one", async () => {
+    const { calls } = api();
+    show(
+      AI({
+        config: {
+          judge: {
+            mode: "quick",
+            workflow: "review",
+            allow_harder: false,
+            token_cap: 25000,
+            agent: "ticket-reviewer",
+          },
+          address_workflow: "fix",
+          buttons: [
+            {
+              id: "explain-simply",
+              label: "Explain simply",
+              mode: "ask",
+              agent: "explorer",
+            },
+          ],
+        },
+      }),
+    );
+    const t1 = card(/line 2–3/);
+    await userEvent.click(
+      within(t1).getByRole("button", { name: "Explain simply" }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.some((x) =>
+          x.path.endsWith("/threads/T1/buttons/explain-simply"),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("stacks the actions when the panel is narrow", () => {
+    api();
+    const RO = globalThis.ResizeObserver;
+    class Narrow {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe() {
+        this.cb(
+          [{ contentRect: { width: 320 } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver,
+        );
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    globalThis.ResizeObserver = Narrow as unknown as typeof ResizeObserver;
+    try {
+      show();
+      expect(screen.getByTestId("rv-threads")).toHaveClass("narrow");
+    } finally {
+      globalThis.ResizeObserver = RO;
+    }
+  });
+});
+
+describe("the review panel's width", () => {
+  it("is resized with the keys, kept in this browser and given to the page", () => {
+    const { unmount } = render(<SideGrip />);
+    const grip = screen.getByRole("separator", {
+      name: "Resize the review panel",
+    });
+    expect(grip).toHaveAttribute("aria-valuenow", "440");
+    fireEvent.keyDown(grip, { key: "ArrowRight" });
+    expect(localStorage.getItem(SIDE_KEY)).toBe("464");
+    expect(document.documentElement.style.getPropertyValue("--rv-side-w")).toBe(
+      "464px",
+    );
+    fireEvent.keyDown(grip, { key: "Home" });
+    expect(localStorage.getItem(SIDE_KEY)).toBe("280");
+    unmount();
+    render(<SideGrip />);
+    expect(
+      screen.getByRole("separator", { name: "Resize the review panel" }),
+    ).toHaveAttribute("aria-valuenow", "280");
+  });
+});
+
+describe("Settings › Code Review threads", () => {
+  function settingsApi() {
+    const puts: unknown[] = [];
+    let v: ThreadSettingsView = {
+      defaults: {
+        judge_mode: "quick",
+        judge_agent: "ticket-reviewer",
+        judge_model: null,
+        judge_effort: "low",
+        judge_token_cap: 25000,
+        judge_allow_harder: true,
+        judge_workflow: "review",
+        address_workflow: "small",
+        thread_buttons: [],
+      },
+      general: {},
+      overrides: {},
+      effective: {
+        judge_mode: "quick",
+        judge_agent: "ticket-reviewer",
+        judge_model: null,
+        judge_effort: "low",
+        judge_token_cap: 25000,
+        judge_allow_harder: true,
+        judge_workflow: "review",
+        address_workflow: "small",
+        thread_buttons: [],
+      },
+      agents: ["explorer", "ticket-reviewer"],
+      workflows: [
+        { id: "small", name: "small" },
+        { id: "fix", name: "fix" },
+        { id: "review", name: "review" },
+      ],
+      models: [
+        {
+          role: "cheaper",
+          model: { provider: "claude", mode: "subscription", model: "haiku" },
+        },
+      ],
+      limits: {
+        buttons: 6,
+        label: 30,
+        min_cap: 200,
+        max_cap: 1000000,
+        placeholders: ["diff", "file", "lines", "pr", "thread"],
+      },
+    };
+    server.use(
+      http.get("/api/projects/:pid/review/settings", () =>
+        HttpResponse.json(v),
+      ),
+      http.put("/api/projects/:pid/review/settings", async ({ request }) => {
+        const b = (await request.json()) as Record<string, unknown>;
+        puts.push(b);
+        const btns = b.thread_buttons as { label: string }[] | undefined;
+        if (btns?.some((x) => !x.label.trim()))
+          return HttpResponse.json(
+            { error: "Button 1 needs a label" },
+            { status: 400 },
+          );
+        v = {
+          ...v,
+          overrides: { ...v.overrides, ...b },
+          effective: { ...v.effective, ...b },
+        };
+        return HttpResponse.json(v);
+      }),
+    );
+    return { puts };
+  }
+
+  it("saves a project's choice, and adds, orders and checks the extra buttons", async () => {
+    const { puts } = settingsApi();
+    render(<ThreadSettings pid={PID} scope="project" />);
+    const mode = await screen.findByLabelText("How keel checks");
+    await userEvent.selectOptions(mode, "workflow");
+    await waitFor(() => expect(puts[0]).toEqual({ judge_mode: "workflow" }));
+    expect(
+      await screen.findByText("changed for this project"),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(
+      screen.getByLabelText("Workflow", { selector: "#rvs-address_workflow" }),
+      "fix",
+    );
+    await waitFor(() => expect(puts[1]).toEqual({ address_workflow: "fix" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Add a button" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save the buttons" }),
+    );
+    expect(
+      await screen.findByText("Button 1 needs a label"),
+    ).toBeInTheDocument(); // the api's check, shown
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Label of button 1" }),
+      "Explain",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Add a button" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Label of button 2" }),
+      "Fix it",
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Mode of button 2" }),
+      "workflow",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Move button 2 up" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save the buttons" }),
+    );
+    await waitFor(() =>
+      expect(
+        (
+          puts.at(-1) as {
+            thread_buttons: {
+              label: string;
+              mode: string;
+              workflow?: string | null;
+            }[];
+          }
+        ).thread_buttons.map((b) => `${b.label}|${b.mode}|${b.workflow ?? ""}`),
+      ).toEqual(["Fix it|workflow|small", "Explain|ask|"]),
+    );
+    await act(async () => {});
+  });
+});

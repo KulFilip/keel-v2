@@ -120,6 +120,15 @@ export function createDb() {
 }
 export type Db = ReturnType<typeof createDb>;
 
+/** The Code Review plugin's thread settings as its api answers while nobody changed them. */
+export function reviewThreadSettings() {
+  const values = { judge_mode: "quick", judge_agent: "ticket-reviewer", judge_model: null, judge_effort: "low", judge_token_cap: 25000,
+    judge_allow_harder: true, judge_workflow: "review", address_workflow: "small", thread_buttons: [] };
+  return { defaults: values, general: {}, overrides: {}, effective: values, agents: ["explorer", "ticket-reviewer"],
+    workflows: [{ id: "small", name: "small (keel)" }, { id: "review", name: "review (keel)" }], models: [],
+    limits: { buttons: 6, label: 30, min_cap: 200, max_cap: 1000000, placeholders: ["diff", "file", "lines", "pr", "thread"] } };
+}
+
 export function handlers(db: Db) {
   // as the api answers: a project's own row wins over every project's ("*"); scope says which one it is
   const pluginList = (pid: string): Plugin[] => pluginCatalog().map((p) => {
@@ -719,6 +728,8 @@ export function handlers(db: Db) {
       return HttpResponse.json(fresh);
     }),
     http.put("/api/limits", async ({ request }) => HttpResponse.json(await log(request))),
+    // the Code Review plugin's thread settings (a section of the Settings page that draws itself)
+    ...["/api/review/settings", "/api/projects/:pid/review/settings"].map((u) => http.get(u, () => HttpResponse.json(reviewThreadSettings()))),
     http.get("/api/settings/general", () => HttpResponse.json(db.general)),
     http.put("/api/settings/general", async ({ request }) => {
       const b = await log(request);

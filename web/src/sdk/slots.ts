@@ -100,12 +100,18 @@ export type SettingRow = {
   warn?: (v: unknown) => boolean;
 };
 
-/** Settings: a section after keel's own ones (title, one line, its rows). */
+/** Settings: a section after keel's own ones (title, one line, its rows). A section whose values do not fit rows (a
+ *  list of objects) draws itself with `component`, for the scope the page shows (General, or the project's own),
+ *  and saves through its plugin's own checked routes. */
 export type SettingsSectionItem = SlotItem & {
   title: string;
   sub: string;
   rows: SettingRow[];
+  component?: ComponentType<SettingsSectionProps>;
 };
+
+/** What a section that draws itself gets: the project (empty for none) and the scope shown. */
+export type SettingsSectionProps = { pid: string; scope: "general" | "project" };
 
 /** Workflows: a code step whose action starts with `prefix` is a plugin's block: it takes `with:` settings, and the
  *  editor says so when the plugin is off. */

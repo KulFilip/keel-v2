@@ -1,0 +1,1137 @@
+// The review's threads in the Review tool window: filter chips (Waiting for you, Open, Resolved, All), sections
+// (Waiting for your answer, Open, Resolved), one card per thread with the code lines it is on, its messages (yours
+// marked, "new" since your last visit, long ones folded) and its actions: Reply, ✦ Is the reviewer right? (keel's
+// cheap check, point by point), ✦ Address it (a flow on the pull request's branch), Resolve, and the extra buttons
+// from Settings › Code Review threads. keel never posts: a suggested reply goes into your reply box.
+//
+//   ┌ Waiting for you · 2 ┐ ┌ Open · 3 ┐ ┌ Resolved · 1 ┐ ┌ All · 4 ┐
+//   ● WAITING FOR YOUR ANSWER
+//   ┌ src/Repo/ File.kt  L12–14  open ───────────────┐
+//   │ 12 + code …                       (scrolls →)   │
+//   │ (DH) bo · reviewer · Oct 21   Why raw SQL?     │
+//   │   (MN) You · Oct 21           On purpose: …    │
+//   │ ┌ k keel checked the code ── ~4k tokens ─────┐ │
+//   │ │ THEY'RE RIGHT  "indexes" — add one …      │ │
+//   │ └ [Use as my reply] [Address it] [Ask…]     ┘ │
+//   └ [Reply] [✦ Is the reviewer right?] [✦ Address it] [Resolve]
+//   ● RESOLVED
+//   ✓ src/a.kt · L3   "Do we need this?" → You: yes     2 replies ›
+
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  askAssistant,
+  ErrorBox,
+  kfmt,
+  Markdown,
+  parseDiff,
+  SLOTS,
+  useLoad,
+  useSlot,
+} from "@keel/web-sdk";
+import {
+  linesLabel,
+  prLabel,
+  reviewApi,
+  type AiRun,
+  type AiState,
+  type JudgeItem,
+  type JudgeResult,
+  type ReviewComment,
+  type ReviewThread,
+  type ReviewView,
+  type ThreadButtonInfo,
+  type Verdict,
+} from "./reviewApi";
+import * as R from "./store";
+
+type Open = (
+  path: string,
+  line?: number | null,
+  side?: "RIGHT" | "LEFT",
+) => void;
+export type ThreadFilter = "waiting" | "open" | "resolved" | "all";
+
+// ---------------------------------------------------------------- small helpers (exported for tests)
+
+const same = (a: string | null | undefined, b: string | null | undefined) =>
+  !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+/** Unresolved and the last word is not yours: it waits for your answer. */
+export function waitsForYou(t: ReviewThread, me: string | null): boolean {
+  if (t.resolved || t.pending || !t.comments.length) return false;
+  return !same(t.comments[t.comments.length - 1].author, me);
+}
+
+export function initials(name: string): string {
+  const parts = name.split(/[\s._-]+/).filter(Boolean);
+  const s = parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
+  return s.toUpperCase();
+}
+
+function day(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime())
+    ? at.slice(0, 10)
+    : d.toLocaleDateString("en", { month: "short", day: "numeric" });
+}
+
+export function ago(at: string | undefined, now = Date.now()): string {
+  const t = at ? Date.parse(at) : NaN;
+  if (Number.isNaN(t)) return "";
+  const m = Math.max(0, Math.round((now - t) / 60000));
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
+
+const SEEN = (pid: string, key: string) => `keel2.review.seen.${pid}.${key}`;
+
+/** When you last looked at this review's threads (null: never), from this browser. */
+export function lastSeen(pid: string, key: string): string | null {
+  try {
+    return localStorage.getItem(SEEN(pid, key));
+  } catch {
+    return null;
+  }
+}
+
+function markSeen(pid: string, key: string, at: string) {
+  try {
+    localStorage.setItem(SEEN(pid, key), at);
+  } catch {
+    /* private window */
+  }
+}
+
+/** A rough guess of a quick check's tokens before it runs: the thread, about 60 lines of code, the prompt, the answer. */
+export function estimate(t: ReviewThread): [number, number] {
+  const chars = t.comments.reduce((n, c) => n + c.body.length + 40, 0);
+  const low = Math.round(chars / 4 + 2600);
+  return [low, Math.round(low * 1.7)];
+}
+
+/** Whose point holds, said from where you stand: you wrote the change, you are the reviewer, or neither. */
+export function verdictLabel(
+  v: Verdict,
+  who: "author" | "reviewer" | "other",
+): [string, string] {
+  if (v === "partly") return ["PARTLY", "partly"];
+  if (v === "unclear") return ["UNCLEAR", "unclear"];
+  const reviewer = v === "reviewer_right";
+  if (who === "other")
+    return reviewer ? ["REVIEWER'S RIGHT", "them"] : ["AUTHOR'S RIGHT", "you"];
+  const yours = (who === "reviewer") === reviewer;
+  return yours ? ["YOU'RE RIGHT", "you"] : ["THEY'RE RIGHT", "them"];
+}
+
+/** The parts of a path: the folder (ellipsized first) and the file name (bold). */
+function pathParts(p: string): [string, string] {
+  const i = p.lastIndexOf("/");
+  return i < 0 ? ["", p] : [p.slice(0, i + 1), p.slice(i + 1)];
+}
+
+/** Narrow when the box is under [px] wide (ResizeObserver; never narrow without one). */
+function useNarrowBox<T extends HTMLElement>(px: number) {
+  const ref = useRef<T>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((es) => {
+      const w = es[0]?.contentRect.width ?? 0;
+      if (w > 0) setNarrow(w < px);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [px]);
+  return [ref, narrow] as const;
+}
+
+// ---------------------------------------------------------------- the view
+
+export function ThreadsView({
+  pid,
+  reviewKey,
+  view,
+  ai,
+  running,
+  onOpen,
+}: {
+  pid: string;
+  reviewKey: string;
+  view: ReviewView;
+  ai: AiState | null;
+  running: string[];
+  onOpen: Open;
+}) {
+  const me = view.me;
+  // the "new" tags compare with the visit before this one; this visit counts from now
+  const [seen] = useState(() => lastSeen(pid, reviewKey));
+  useEffect(() => {
+    const newest = view.threads
+      .flatMap((t) => t.comments.map((c) => c.at))
+      .concat(new Date().toISOString())
+      .sort()
+      .at(-1)!;
+    markSeen(pid, reviewKey, newest);
+  }, [pid, reviewKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const waiting = view.threads.filter((t) => waitsForYou(t, me));
+  const open = view.threads.filter((t) => !t.resolved);
+  const resolved = view.threads.filter((t) => t.resolved);
+  const [filter, setFilter] = useState<ThreadFilter>("all");
+  const [box, narrow] = useNarrowBox<HTMLDivElement>(420);
+  const cfg = ai?.config;
+  const quickOn = (cfg?.judge?.mode ?? "quick") === "quick";
+  const checkAllBusy = running.includes("judge-all");
+  const unchecked = open.filter(
+    (t) => !t.pending && ai?.judges?.[t.id]?.status !== "done",
+  ).length;
+
+  if (!view.threads.length && !view.conversation.length) {
+    return (
+      <p className="rv-dim">
+        {view.kind === "pr"
+          ? `No comments on ${prLabel(view.host, view.number)} yet.`
+          : "A branch has no threads. Its pull request does."}
+      </p>
+    );
+  }
+  const chips: [ThreadFilter, string, number, string][] = [
+    [
+      "waiting",
+      "Waiting for you",
+      waiting.length,
+      waiting.length ? " warn" : "",
+    ],
+    ["open", "Open", open.length, ""],
+    ["resolved", "Resolved", resolved.length, ""],
+    ["all", "All", view.threads.length, ""],
+  ];
+  const show = (s: "waiting" | "open" | "resolved") =>
+    filter === "all" || filter === s || (filter === "open" && s === "waiting");
+  const openOnly = open.filter((t) => !waitsForYou(t, me));
+  const card = (t: ReviewThread) => (
+    <ThreadBox
+      key={t.id}
+      pid={pid}
+      reviewKey={reviewKey}
+      view={view}
+      t={t}
+      ai={ai}
+      running={running}
+      seen={seen}
+      onOpen={onOpen}
+    />
+  );
+  const section = (
+    id: "waiting" | "open" | "resolved",
+    title: string,
+    list: ReviewThread[],
+    body: ReactNode,
+  ) =>
+    show(id) && list.length > 0 ? (
+      <section className="rv-tsec" aria-labelledby={`rv-tsec-${id}`}>
+        <h4 className={`rv-tsec-h ${id}`} id={`rv-tsec-${id}`}>
+          <span className="rv-dot" aria-hidden="true" />
+          {title} · {list.length}
+        </h4>
+        {body}
+      </section>
+    ) : null;
+  const empty =
+    (filter === "waiting" &&
+      !waiting.length &&
+      "Nothing waits for your answer.") ||
+    (filter === "open" && !open.length && "No open thread.") ||
+    (filter === "resolved" && !resolved.length && "No resolved thread yet.") ||
+    null;
+
+  return (
+    <div
+      ref={box}
+      className={`rv-threads${narrow ? " narrow" : ""}`}
+      data-testid="rv-threads"
+    >
+      <div className="rv-th-head">
+        <b>Threads</b>
+        {view.number != null && (
+          <span className="mono rv-dim">{prLabel(view.host, view.number)}</span>
+        )}
+        <span className="rv-dim rv-th-count">
+          {view.threads.length} thread{view.threads.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="rv-tchips" role="group" aria-label="Show threads">
+        {chips.map(([f, label, n, tone]) => (
+          <button
+            key={f}
+            type="button"
+            className={`rv-tchip${tone}${filter === f ? " on" : ""}`}
+            aria-pressed={filter === f}
+            onClick={() => setFilter(f)}
+          >
+            {label} · {n}
+          </button>
+        ))}
+        {quickOn && view.can_post && unchecked > 1 && (
+          <button
+            type="button"
+            className="btn sm ghost rv-checkall"
+            disabled={checkAllBusy}
+            title="One cheap call for every open thread keel has not checked yet"
+            onClick={() => void R.judgeAll(pid, reviewKey)}
+          >
+            {checkAllBusy ? "Checking…" : `✦ Check all open (${unchecked})`}
+          </button>
+        )}
+      </div>
+      {empty && <p className="rv-dim">{empty}</p>}
+      {section(
+        "waiting",
+        "Waiting for your answer",
+        waiting,
+        waiting.map(card),
+      )}
+      {section("open", "Open", openOnly, openOnly.map(card))}
+      {section(
+        "resolved",
+        "Resolved",
+        resolved,
+        resolved.map((t) => (
+          <ResolvedRow key={t.id} t={t} me={me} expanded={card(t)} />
+        )),
+      )}
+      {view.conversation.length > 0 && filter === "all" && (
+        <section className="rv-tsec" aria-labelledby="rv-tsec-conv">
+          <h4 className="rv-tsec-h" id="rv-tsec-conv">
+            Conversation
+          </h4>
+          {view.conversation.map((c) => (
+            <Message key={c.id} c={c} view={view} seen={seen} />
+          ))}
+        </section>
+      )}
+      <ul className="rv-legend" aria-label="Legend">
+        <li>
+          <span className="rv-dot you" aria-hidden="true" />
+          you
+        </li>
+        <li>
+          <span className="rv-dot reviewer" aria-hidden="true" />
+          reviewer
+        </li>
+        <li>
+          <span className="rv-dot waiting" aria-hidden="true" />
+          needs you
+        </li>
+        <li>
+          <span className="rv-dot resolved" aria-hidden="true" />
+          resolved
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- one resolved thread, folded to a line
+
+function ResolvedRow({
+  t,
+  me,
+  expanded,
+}: {
+  t: ReviewThread;
+  me: string | null;
+  expanded: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const first = t.comments[0];
+  const last = t.comments[t.comments.length - 1];
+  const replies = t.comments.length - 1;
+  const firstLine = (s: string) =>
+    s
+      .split("\n")
+      .find((x) => x.trim())
+      ?.trim() ?? "";
+  return (
+    <div className="rv-resolved">
+      <button
+        type="button"
+        className="rv-rrow"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="rv-rcheck" aria-hidden="true">
+          ✓
+        </span>
+        <span className="rv-rtext">
+          <span className="mono rv-rpath">
+            {t.path ?? "conversation"}
+            {t.line ? ` · L${linesLabel(t)}` : ""}
+          </span>
+          <span className="rv-rsum">
+            "{firstLine(first?.body ?? "")}"
+            {replies > 0 && last && (
+              <>
+                {" "}
+                → {same(last.author, me) ? "You" : last.author}:{" "}
+                {firstLine(last.body)}
+              </>
+            )}
+          </span>
+        </span>
+        <span className="rv-rn">
+          {replies === 0
+            ? "no replies"
+            : `${replies} repl${replies === 1 ? "y" : "ies"}`}{" "}
+          {open ? "⌄" : "›"}
+        </span>
+      </button>
+      {open && expanded}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- one message
+
+function Message({
+  c,
+  view,
+  seen,
+}: {
+  c: ReviewComment;
+  view: ReviewView;
+  seen: string | null;
+}) {
+  const mine = same(c.author, view.me);
+  const isNew = !mine && !!seen && c.at > seen;
+  const role = mine
+    ? null
+    : same(c.author, view.author)
+      ? "author"
+      : "reviewer";
+  const long =
+    c.body.split("\n").filter((l) => l.trim()).length > 4 ||
+    c.body.length > 320;
+  const [more, setMore] = useState(false);
+  return (
+    <div
+      className={`rv-msg${mine ? " mine" : ""}`}
+      data-mine={mine || undefined}
+    >
+      <span className={`rv-av${mine ? " mine" : ""}`} aria-hidden="true">
+        {initials(c.author)}
+      </span>
+      <div className="rv-msg-b">
+        <div className="rv-msg-h">
+          <b>{mine ? "You" : c.author}</b>
+          <span className="rv-dim">
+            {role ? `${role} · ` : ""}
+            {day(c.at)}
+          </span>
+          {isNew && <span className="rv-new">new</span>}
+        </div>
+        <div className={`rv-msg-t${long && !more ? " folded" : ""}`}>
+          <Markdown text={c.body} fold={12} />
+        </div>
+        {long && (
+          <button
+            type="button"
+            className="rv-link rv-more"
+            aria-expanded={more}
+            onClick={() => setMore((m) => !m)}
+          >
+            {more ? "Show less" : "Show more"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- the code a thread is on
+
+function CodeLines({
+  pid,
+  reviewKey,
+  t,
+}: {
+  pid: string;
+  reviewKey: string;
+  t: ReviewThread;
+}) {
+  const d = useLoad(
+    `review-diff:${pid}:${reviewKey}:${t.path}`,
+    () => reviewApi.diff(pid, reviewKey, t.path!),
+    { live: false },
+  );
+  const rows = useMemo(() => {
+    if (!d.data || t.line == null) return [];
+    const left = t.side === "LEFT";
+    const end = t.line;
+    const start =
+      t.start_line != null && (t.start_side ?? t.side) === t.side
+        ? t.start_line
+        : Math.max(1, end - 3);
+    return parseDiff(d.data.diff)
+      .rows.filter(
+        (r) => r.kind === "add" || r.kind === "del" || r.kind === "ctx",
+      )
+      .filter((r) => {
+        const n = left ? r.old : r.new;
+        return n != null && n >= start && n <= end;
+      })
+      .slice(0, 14);
+  }, [d.data, t.line, t.start_line, t.side, t.start_side]);
+  if (!rows.length) return null;
+  return (
+    <pre
+      className="rv-tcode"
+      tabIndex={0}
+      aria-label={`The code of ${t.path} at line ${linesLabel(t)}`}
+    >
+      {rows.map((r, i) => {
+        const n = t.side === "LEFT" ? r.old : r.new;
+        return (
+          <span key={i} className={`rv-tline ${r.kind}`}>
+            <span className="rv-tln">{n}</span>
+            <span className="rv-tmk">
+              {r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}
+            </span>
+            {r.text}
+            {"\n"}
+          </span>
+        );
+      })}
+    </pre>
+  );
+}
+
+// ---------------------------------------------------------------- one thread
+
+function ThreadBox({
+  pid,
+  reviewKey,
+  view,
+  t,
+  ai,
+  running,
+  seen,
+  onOpen,
+}: {
+  pid: string;
+  reviewKey: string;
+  view: ReviewView;
+  t: ReviewThread;
+  ai: AiState | null;
+  running: string[];
+  seen: string | null;
+  onOpen: Open;
+}) {
+  const assistant = useSlot(SLOTS.assistant).length > 0;
+  const [text, setText] = useState("");
+  const [replying, setReplying] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<null | { note?: string }>(null);
+  const [err, setErr] = useState<R.Err | null>(null);
+  const [started, setStarted] = useState<string | null>(null);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  const cfg = ai?.config;
+  const quick = (cfg?.judge?.mode ?? "quick") === "quick";
+  const flowName = cfg?.address_workflow ?? "small";
+  const judge = ai?.judges?.[t.id] ?? null;
+  const addressed = ai?.addressed?.[t.id];
+  const judging =
+    running.includes(`judge:${t.id}`) || judge?.status === "running";
+  const addressing = running.includes(`address:${t.id}`);
+  const waiting = waitsForYou(t, view.me);
+  const canWork = view.kind === "pr" && !t.pending;
+  const [dir, name] = pathParts(t.path ?? "");
+  const who: "author" | "reviewer" | "other" = same(view.me, view.author)
+    ? "author"
+    : same(view.me, t.comments[0]?.author)
+      ? "reviewer"
+      : "other";
+  const [lo, hi] = estimate(t);
+  const failed = (fallback: string) =>
+    setErr(R.review(pid, reviewKey).err ?? { message: fallback });
+
+  const send = async () => {
+    setBusy(true);
+    try {
+      await R.reply(pid, reviewKey, t.id, text.trim());
+      if (!R.review(pid, reviewKey).err) {
+        setText("");
+        setReplying(false);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const useReply = (s: string) => {
+    setText(s);
+    setReplying(true);
+    window.setTimeout(() => ta.current?.focus(), 0);
+  };
+  const check = async (opts: { again?: boolean; harder?: boolean } = {}) => {
+    setErr(null);
+    if (!(await R.judge(pid, reviewKey, t.id, opts)))
+      failed("keel could not check this thread");
+  };
+  const startAddress = async (note?: string) => {
+    setErr(null);
+    const r = await R.address(pid, reviewKey, t.id, note);
+    setConfirm(null);
+    if (r) setStarted(r.note);
+    else failed("keel could not start the flow");
+  };
+  const followUp = (r: JudgeResult | null) =>
+    askAssistant(
+      `About the review thread on ${t.path ?? "the pull request"}${t.line ? `:${linesLabel(t)}` : ""} of ${prLabel(view.host, view.number)} ` +
+        `(commit ${view.head_sha.slice(0, 12)}):\n` +
+        t.comments.map((c) => `${c.author}: ${c.body}`).join("\n\n") +
+        (r?.items?.length
+          ? `\n\nkeel's check:\n${r.items.map((i) => `- ${i.verdict}: ${i.claim} — ${i.why}`).join("\n")}`
+          : "") +
+        "\n\nMy question: ",
+    );
+  const dbCheck = () =>
+    askAssistant(
+      `For the review thread on ${t.path}${t.line ? `:${linesLabel(t)}` : ""} of ${prLabel(view.host, view.number)}: ` +
+        `run read-only checks against the configured database (EXPLAIN, never a statement that writes, never EXPLAIN ANALYZE ` +
+        `of a write) to see whether the reviewer's point holds:\n` +
+        t.comments.map((c) => `${c.author}: ${c.body}`).join("\n\n"),
+    );
+  const sqlish =
+    /\b(select|update|insert|delete|join|index|explain|query|sql)\b/i.test(
+      t.comments.map((c) => c.body).join(" "),
+    );
+  const judgeNote = (r: JudgeResult | null) =>
+    r?.items
+      ?.filter((i) => i.verdict !== "author_right")
+      .map((i) => `${i.claim}: ${i.why}${i.fix ? ` Fix: ${i.fix}` : ""}`)
+      .join("\n");
+
+  return (
+    <article
+      className={`rv-tcard${waiting ? " waiting" : ""}${t.resolved ? " resolved" : ""}`}
+      data-thread={t.id}
+      aria-label={`Thread on ${t.path ?? "the pull request"}${t.line ? ` line ${linesLabel(t)}` : ""}`}
+    >
+      <header className="rv-tcard-h">
+        <svg
+          className="rv-ficon"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+          <path d="M14 3v6h6" />
+        </svg>
+        {t.path ? (
+          <button
+            type="button"
+            className="rv-tpath mono"
+            title={t.path}
+            aria-label={`Open ${t.path}${t.line ? ` at line ${t.line}` : ""}`}
+            onClick={() => onOpen(t.path!, t.line, t.side)}
+          >
+            {dir && <span className="rv-tdir">{dir}</span>}
+            <b className="rv-tname">{name}</b>
+          </button>
+        ) : (
+          <span className="rv-tpath">The pull request</span>
+        )}
+        {t.line != null && (
+          <span className="mono rv-tlines">L{linesLabel(t)}</span>
+        )}
+        {t.outdated && <span className="rv-pill idle">outdated</span>}
+        {t.pending && <span className="rv-pill run">pending</span>}
+        <span className={`rv-pill ${t.resolved ? "ok" : "warn"}`}>
+          {t.resolved ? "resolved" : "open"}
+        </span>
+      </header>
+      {t.path &&
+        t.line != null &&
+        !t.outdated &&
+        view.files.some((f) => f.path === t.path) && (
+          <CodeLines pid={pid} reviewKey={reviewKey} t={t} />
+        )}
+      <div className="rv-tbody">
+        {t.comments.map((c) => (
+          <Message key={c.id} c={c} view={view} seen={seen} />
+        ))}
+        {(judge || judging) && (
+          <CheckBox
+            run={judge}
+            busy={judging}
+            who={who}
+            quick={quick}
+            canPost={view.can_post && !t.pending}
+            assistant={assistant}
+            flowName={flowName}
+            allowHarder={cfg?.judge?.allow_harder ?? true}
+            onUse={useReply}
+            onAddress={(r) => setConfirm({ note: judgeNote(r) })}
+            onAsk={followUp}
+            onAgain={(harder) => void check({ again: true, harder })}
+          />
+        )}
+        {(cfg?.buttons ?? []).map((b) => (
+          <ButtonAnswer
+            key={b.id}
+            b={b}
+            run={ai?.buttons?.[`${b.id}|${t.id}`] ?? null}
+            busy={running.includes(`button:${b.id}|${t.id}`)}
+            canPost={view.can_post && !t.pending}
+            onUse={useReply}
+            onAgain={() =>
+              void R.runButton(pid, reviewKey, t.id, b.id, { again: true })
+            }
+          />
+        ))}
+        {(addressed || started) && (
+          <p className="rv-tnote" role="status">
+            {started ??
+              `A ${addressed?.workflow ?? flowName} flow addresses this thread${addressed?.branch ? ` on ${addressed.branch}` : ""}.`}{" "}
+            {addressed?.flow_id && (
+              <a
+                className="rv-link"
+                href={`#/flow/${encodeURIComponent(addressed.flow_id)}`}
+              >
+                Open the flow ›
+              </a>
+            )}
+          </p>
+        )}
+        {err && <ErrorBox error={err} />}
+      </div>
+      {replying && (
+        <form
+          className="rv-reply rv-treply"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) void send();
+          }}
+        >
+          <textarea
+            ref={ta}
+            className="rv-ta"
+            aria-label="Your reply"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+          />
+          <div className="rv-row">
+            <button
+              type="submit"
+              className="btn sm primary"
+              disabled={busy || !text.trim()}
+            >
+              Send reply
+            </button>
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={() => setReplying(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      {confirm && (
+        <div
+          className="rv-confirm rv-tconfirm"
+          role="group"
+          aria-label="Confirm Address it"
+        >
+          <span>
+            keel checks out {view.branch} in the project folder and starts a{" "}
+            {flowName} flow there with this thread as its request. It pushes and
+            posts nothing.
+          </span>
+          <div className="rv-row">
+            <button
+              type="button"
+              className="btn sm primary"
+              disabled={addressing}
+              onClick={() => void startAddress(confirm.note)}
+            >
+              {addressing ? "Starting…" : "Start the flow"}
+            </button>
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={() => setConfirm(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <footer className="rv-tacts">
+        {view.can_post && !t.pending && !replying && (
+          <button
+            type="button"
+            className="btn sm primary"
+            onClick={() => setReplying(true)}
+          >
+            Reply
+          </button>
+        )}
+        {canWork && (
+          <button
+            type="button"
+            className="btn sm rv-ai-btn"
+            disabled={judging}
+            title={
+              quick
+                ? `One quick check of this thread's lines: about ${kfmt(lo)}–${kfmt(hi)} tokens`
+                : `Runs the ${cfg?.judge?.workflow ?? "review"} workflow`
+            }
+            onClick={() => void check()}
+          >
+            {judging ? "keel is checking…" : "✦ Is the reviewer right?"}
+            {quick && !judge && !judging && (
+              <span className="rv-cost">
+                {" "}
+                ~{kfmt(lo)}–{kfmt(hi)}
+              </span>
+            )}
+          </button>
+        )}
+        {canWork && view.state === "open" && (
+          <button
+            type="button"
+            className="btn sm rv-ai-btn"
+            disabled={addressing}
+            onClick={() =>
+              setConfirm({
+                note: judgeNote(judge?.status === "done" ? judge.result : null),
+              })
+            }
+          >
+            ✦ Address it
+          </button>
+        )}
+        {canWork &&
+          (cfg?.buttons ?? []).map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              className="btn sm ghost"
+              disabled={running.includes(`button:${b.id}|${t.id}`)}
+              title={
+                b.mode === "ask"
+                  ? `Asks ${b.agent} (one quick call)`
+                  : `Runs the ${b.workflow} workflow`
+              }
+              onClick={() =>
+                void R.runButton(pid, reviewKey, t.id, b.id).then((s) => {
+                  if (!s) failed(`keel could not run ${b.label}`);
+                })
+              }
+            >
+              {b.label}
+            </button>
+          ))}
+        {sqlish && assistant && canWork && (
+          <button
+            type="button"
+            className="rv-link rv-dbcheck"
+            onClick={dbCheck}
+          >
+            Check against the database
+          </button>
+        )}
+        {view.can_post && !t.pending && (
+          <button
+            type="button"
+            className="btn sm ghost"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void R.resolve(pid, reviewKey, t.id, !t.resolved).finally(() =>
+                setBusy(false),
+              );
+            }}
+          >
+            {t.resolved ? "Open again" : "Resolve"}
+          </button>
+        )}
+      </footer>
+    </article>
+  );
+}
+
+// ---------------------------------------------------------------- keel's check
+
+function costLine(r: JudgeResult | null | undefined, at?: string): string {
+  if (!r) return "";
+  const parts: string[] = [];
+  const when = ago(r.checked_at ?? at);
+  if (when) parts.push(`checked ${when}`);
+  if (r.tokens != null)
+    parts.push(
+      `~${kfmt(r.tokens)} tokens${r.batch_size && r.batch_size > 1 ? ` for ${r.batch_size} threads` : ""}`,
+    );
+  if (r.context?.files)
+    parts.push(
+      `read ${r.context.files} file${r.context.files === 1 ? "" : "s"}`,
+    );
+  if (r.model) parts.push(`${r.model}${r.effort ? ` · ${r.effort}` : ""}`);
+  return parts.join(" · ");
+}
+
+export function CheckBox({
+  run,
+  busy,
+  who,
+  quick,
+  canPost,
+  assistant,
+  flowName,
+  allowHarder,
+  onUse,
+  onAddress,
+  onAsk,
+  onAgain,
+}: {
+  run: AiRun<JudgeResult> | null;
+  busy: boolean;
+  who: "author" | "reviewer" | "other";
+  quick: boolean;
+  canPost: boolean;
+  assistant: boolean;
+  flowName: string;
+  allowHarder: boolean;
+  onUse: (text: string) => void;
+  onAddress: (r: JudgeResult | null) => void;
+  onAsk: (r: JudgeResult | null) => void;
+  onAgain: (harder: boolean) => void;
+}) {
+  const r = run?.result ?? null;
+  const done = run?.status === "done" && r?.stage === "done";
+  const flow = run?.status === "done" && r?.stage === "flow";
+  const items: JudgeItem[] = (done && r?.items) || [];
+  const needsChange = items.some(
+    (i) => i.verdict === "reviewer_right" || i.verdict === "partly",
+  );
+  return (
+    <section
+      className="rv-check-box"
+      aria-label="keel checked this thread"
+      aria-live="polite"
+      aria-busy={busy || undefined}
+    >
+      <div className="rv-check-h">
+        <span className="rv-k" aria-hidden="true">
+          k
+        </span>
+        <b>
+          {busy
+            ? "keel is checking the code…"
+            : flow
+              ? "keel started a flow for this thread"
+              : "keel checked the code"}
+        </b>
+        {done && (
+          <span className="rv-dim rv-check-cost">
+            {costLine(r, run?.updated_at)}
+          </span>
+        )}
+      </div>
+      {busy && (
+        <span className="pg-spin">Reading the thread and its lines…</span>
+      )}
+      {!busy && run?.status === "failed" && (
+        <>
+          <ErrorBox error={{ message: run.error ?? "The check failed" }} />
+          <div className="rv-row">
+            <button
+              type="button"
+              className="btn sm"
+              onClick={() => onAgain(false)}
+            >
+              Try again
+            </button>
+          </div>
+        </>
+      )}
+      {!busy && flow && (
+        <p className="rv-tnote">
+          The {r?.workflow} flow has the thread as its request.{" "}
+          {r?.flow_id && (
+            <a
+              className="rv-link"
+              href={`#/flow/${encodeURIComponent(r.flow_id)}`}
+            >
+              Open the flow ›
+            </a>
+          )}
+        </p>
+      )}
+      {!busy && done && (
+        <>
+          {run?.stale && (
+            <p className="rv-warn">The code changed since keel checked it.</p>
+          )}
+          {r?.over_cap && (
+            <p className="rv-warn">
+              This check used more than its cap of {kfmt(r.cap ?? 0)} tokens.
+            </p>
+          )}
+          <ul className="rv-verdicts">
+            {items.map((it, i) => {
+              const [label, tone] = verdictLabel(it.verdict, who);
+              return (
+                <li key={i}>
+                  <span className={`rv-verdict ${tone}`}>{label}</span>
+                  <span className="rv-vtext">
+                    <b>{it.claim}</b> {it.why}
+                    {it.fix && <span className="rv-dim"> Fix: {it.fix}</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="rv-row rv-check-acts">
+            {canPost && r?.reply && (
+              <button
+                type="button"
+                className="btn sm primary"
+                onClick={() => onUse(r.reply!)}
+              >
+                Use as my reply
+              </button>
+            )}
+            {needsChange && (
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => onAddress(r)}
+              >
+                Address it (a {flowName} flow)
+              </button>
+            )}
+            {assistant && (
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => onAsk(r)}
+              >
+                Ask a follow-up
+              </button>
+            )}
+            {quick && (
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => onAgain(false)}
+              >
+                Check again
+              </button>
+            )}
+            {quick && allowHarder && (
+              <button
+                type="button"
+                className="btn sm ghost"
+                title="A stronger model or more effort: more tokens"
+                onClick={() => onAgain(true)}
+              >
+                Think harder
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------- an extra button's answer
+
+function ButtonAnswer({
+  b,
+  run,
+  busy,
+  canPost,
+  onUse,
+  onAgain,
+}: {
+  b: ThreadButtonInfo;
+  run: AiRun<JudgeResult> | null;
+  busy: boolean;
+  canPost: boolean;
+  onUse: (text: string) => void;
+  onAgain: () => void;
+}) {
+  if (!run && !busy) return null;
+  const r = run?.result ?? null;
+  const working = busy || run?.status === "running";
+  return (
+    <section
+      className="rv-check-box"
+      aria-label={b.label}
+      aria-live="polite"
+      aria-busy={working || undefined}
+    >
+      <div className="rv-check-h">
+        <span className="rv-k" aria-hidden="true">
+          k
+        </span>
+        <b>{b.label}</b>
+        {run?.status === "done" && r?.stage === "done" && (
+          <span className="rv-dim rv-check-cost">
+            {costLine(r, run.updated_at)}
+          </span>
+        )}
+      </div>
+      {working && <span className="pg-spin">keel is on it…</span>}
+      {!working && run?.status === "failed" && (
+        <ErrorBox error={{ message: run.error ?? "It failed" }} />
+      )}
+      {!working && r?.stage === "flow" && (
+        <p className="rv-tnote">
+          The {r.workflow} flow runs{r.branch ? ` on ${r.branch}` : ""}.{" "}
+          {r.flow_id && (
+            <a
+              className="rv-link"
+              href={`#/flow/${encodeURIComponent(r.flow_id)}`}
+            >
+              Open the flow ›
+            </a>
+          )}
+        </p>
+      )}
+      {!working && r?.stage === "done" && r.text && (
+        <>
+          <div className="rv-msg-t">
+            <Markdown text={r.text} fold={12} />
+          </div>
+          <div className="rv-row">
+            {canPost && (
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => onUse(r.text!)}
+              >
+                Use as my reply
+              </button>
+            )}
+            <button type="button" className="btn sm ghost" onClick={onAgain}>
+              Ask again
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}

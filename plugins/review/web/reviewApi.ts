@@ -198,9 +198,62 @@ export type FindingsResult = {
   counts?: Record<string, number>;
   reviewers?: number;
 };
+export type Verdict = "reviewer_right" | "author_right" | "partly" | "unclear";
+export type JudgeItem = {
+  claim: string;
+  verdict: Verdict;
+  why: string;
+  fix?: string | null;
+};
+/** keel's check of one thread ("Is the reviewer right?"), an extra button's answer, or the flow one started. */
+export type JudgeResult = {
+  stage: "check" | "done" | "capped" | "flow";
+  thread_id?: string;
+  items?: JudgeItem[];
+  reply?: string;
+  /** an extra ask button's answer */
+  text?: string;
+  label?: string;
+  agent?: string;
+  model?: string;
+  effort?: string | null;
+  harder?: boolean;
+  estimate?: number;
+  cap?: number;
+  tokens?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  over_cap?: boolean;
+  checked_at?: string;
+  batch_size?: number;
+  context?: { code_lines: number; hunk_lines: number; files: number };
+  /** a flow it started (workflow mode) */
+  flow_id?: string;
+  workflow?: string;
+  title?: string;
+  branch?: string | null;
+};
+export type ThreadButtonInfo = {
+  id: string;
+  label: string;
+  mode: "ask" | "workflow";
+  agent?: string | null;
+  workflow?: string | null;
+};
+export type ThreadConfig = {
+  judge?: {
+    mode: "quick" | "workflow";
+    workflow: string;
+    allow_harder: boolean;
+    token_cap: number;
+    agent: string;
+  };
+  address_workflow?: string;
+  buttons?: ThreadButtonInfo[];
+};
 export type AiRun<R> = {
   id: string;
-  kind: "overview" | "findings";
+  kind: string;
   status: "running" | "done" | "failed";
   stage: string;
   head_sha: string;
@@ -215,6 +268,49 @@ export type AiState = {
   overview: AiRun<Overview> | null;
   findings: AiRun<FindingsResult> | null;
   decisions: Record<string, { decision: string; why: string | null }>;
+  /** per thread: keel's latest check */
+  judges?: Record<string, AiRun<JudgeResult>>;
+  /** per thread: the flow Address it started */
+  addressed?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; at: string }>;
+  /** per "<button id>|<thread>": an extra button's latest run */
+  buttons?: Record<string, AiRun<JudgeResult>>;
+  config?: ThreadConfig;
+};
+export type AddressResult = {
+  flow_id: string;
+  title: string;
+  branch: string | null;
+  workflow: string;
+  note: string;
+  state: AiState;
+};
+export type ThreadButton = {
+  label: string;
+  mode: "ask" | "workflow";
+  agent?: string | null;
+  workflow?: string | null;
+  prompt: string;
+};
+export type ThreadSettingsValues = {
+  judge_mode?: "quick" | "workflow";
+  judge_agent?: string;
+  judge_model?: { provider: string; mode: string; model: string; effort?: string | null } | null;
+  judge_effort?: "low" | "medium" | "high";
+  judge_token_cap?: number;
+  judge_allow_harder?: boolean;
+  judge_workflow?: string;
+  address_workflow?: string;
+  thread_buttons?: ThreadButton[];
+};
+export type ThreadSettingsView = {
+  defaults: ThreadSettingsValues;
+  general: ThreadSettingsValues;
+  overrides: ThreadSettingsValues | null;
+  effective: ThreadSettingsValues;
+  agents: string[];
+  workflows: { id: string; name: string }[];
+  models: { role: string; model: { provider: string; mode: string; model: string } }[];
+  limits: { buttons: number; label: number; min_cap: number; max_cap: number; placeholders: string[] };
 };
 export type GitLabView = {
   set: boolean;
@@ -296,6 +392,18 @@ export const reviewApi = {
       decision,
       why,
     }),
+  judge: (pid: string, key: string, threadId: string, opts: { again?: boolean; harder?: boolean } = {}) =>
+    post<AiState>(`${R(pid)}/threads/${e(threadId)}/judge`, { key, ...opts }),
+  judgeAll: (pid: string, key: string, opts: { again?: boolean; harder?: boolean } = {}) =>
+    post<AiState>(`${R(pid)}/threads/judge`, { key, ...opts }),
+  address: (pid: string, key: string, threadId: string, note?: string) =>
+    post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note }),
+  button: (pid: string, key: string, threadId: string, buttonId: string, opts: { again?: boolean; harder?: boolean } = {}) =>
+    post<AiState>(`${R(pid)}/threads/${e(threadId)}/buttons/${e(buttonId)}`, { key, ...opts }),
+  threadSettings: (pid: string | null) =>
+    get<ThreadSettingsView>(pid ? `${R(pid)}/settings` : "/review/settings"),
+  saveThreadSettings: (pid: string | null, patch: Record<string, unknown>) =>
+    put<ThreadSettingsView>(pid ? `${R(pid)}/settings` : "/review/settings", patch),
   gitlab: () => get<GitLabView>("/gitlab"),
   saveGitlab: (url: string, token?: string) =>
     put<GitLabView>("/gitlab", { url, token }),

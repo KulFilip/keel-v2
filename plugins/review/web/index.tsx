@@ -18,6 +18,7 @@ import {
   type ConnectionKindItem,
   type KeelSdk,
   type KeysAreaItem,
+  type SettingsSectionItem,
 } from "@keel/web-sdk";
 import { GitLabSection } from "./GitLabConnection";
 import { ACTIONS } from "./keymap";
@@ -26,6 +27,7 @@ import { ReviewFileTab } from "./ReviewFileTab";
 import { ReviewLayer } from "./ReviewLayer";
 import { openReview, ReviewSide } from "./ReviewSide";
 import { setOpener } from "./store";
+import { ThreadSettings } from "./ThreadSettings";
 import "./review.css";
 
 /** A review file tab's path: "<review key>|<file>" (pr:7|src/a.kt, branch:feat/x|src/a.kt). */
@@ -127,6 +129,15 @@ export function setup(sdk: KeelSdk) {
   sdk.registerSlot(SLOTS.launcherSource, reviewLauncher);
 
   sdk.registerSlot<KeysAreaItem>(SLOTS.keysArea, REVIEW_KEYS);
+
+  sdk.registerSlot<SettingsSectionItem>(SLOTS.settingsSection, {
+    id: "review-threads",
+    title: "Code Review threads",
+    sub: "What \"Is the reviewer right?\", \"Address it\" and your own thread buttons do, and what they may cost.",
+    order: 95,
+    rows: [],
+    component: ThreadSettings,
+  });
 }
 
 export default definePlugin({ name: "review", setup });
