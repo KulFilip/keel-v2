@@ -226,7 +226,8 @@ def waiting_of(api: KeelApi, project: str | None = None, thread_id: str | None =
 
 
 def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: str | None = None, why: str | None = None,
-           answers: dict[str, str | list[str]] | None = None, choice: str | None = None, item_id: str | None = None) -> str:
+           answers: dict[str, str | list[str]] | None = None, choice: str | None = None, item_id: str | None = None,
+           question_id: str | None = None) -> str:
     """Answer what waits in keel's Inbox: a gate, questions (a label, a list of labels, or own words), a named choice
     (with why when it needs a reason), or a task item (item_id)."""
     if item_id:
@@ -246,6 +247,9 @@ def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: s
         payload["answers"] = answers
     if choice:
         payload["choice"] = choice
+    # for the question that was shown: a flow that moved on refuses the answer (409); the api passes the payload through
+    if question_id or w.get("id"):
+        payload["question_id"] = question_id or w.get("id")
     st = api.post(f"/inbox/{_q(thread_id)}/act", {"decision": decision, "why": why, "payload": payload or None}) or {}
     return f"answered thread {thread_id} ({decision}). The flow is {st.get('status')} at {st.get('current') or '-'}."
 

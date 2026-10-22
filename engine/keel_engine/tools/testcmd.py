@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import signal
 import subprocess
 from pathlib import Path
 
@@ -256,11 +258,26 @@ def ac_test_passed(output: str, ac: str) -> bool | None:
 
 
 def run(root: str, command: str, timeout: int = 600, env: dict | None = None) -> tuple[int, str]:
-    """Run a shell command in the repo. Returns (exit code, combined output trimmed to the tail)."""
+    """Run a shell command in the repo. Returns (exit code, combined output trimmed to the tail).
+
+    The shell runs in its own process group: on a timeout the whole group is killed (gradle and the JVM it started
+    too), not only the `sh` in front of them."""
+    posix = os.name == "posix"
+    proc = subprocess.Popen(command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            errors="replace", env=env, start_new_session=posix)
     try:
-        p = subprocess.run(command, shell=True, cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
-        out = (p.stdout or "") + (p.stderr or "")
-        return p.returncode, out[-20000:]
-    except subprocess.TimeoutExpired as exc:
-        out = (exc.stdout or b"").decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        return 124, f"timed out after {timeout}s\n{out[-5000:]}"
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode, ((stdout or "") + (stderr or ""))[-20000:]
+    except subprocess.TimeoutExpired:
+        try:
+            if posix:
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                proc.kill()
+        except OSError:
+            pass
+        try:
+            out, err = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:       # a grandchild outside the group still holds the pipes: give up on them
+            out, err = "", ""
+        return 124, f"timed out after {timeout}s\n{((out or '') + (err or ''))[-5000:]}"

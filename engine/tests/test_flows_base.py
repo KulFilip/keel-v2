@@ -111,13 +111,15 @@ def test_for_each_runs_per_item_with_a_gate_that_sends_back_and_skips(client, re
     assert s["waiting"]["title"] == "group gate · g1"
     s = decide(client, tid, "approve")
     assert s["waiting"]["title"] == "group gate · g2"
-    # 0.19.0 skip is a named choice that needs a reason (the old payload skip: true below still works)
+    # 0.19.0 skip is a named choice that needs a reason (the old payload skip: true below needs it too)
     assert s["waiting"]["choices"] == ["approve", "skip"]
     info = {c["name"]: c for c in s["waiting"]["choice_info"]}
     assert info["approve"]["default"] and (info["skip"]["label"], info["skip"]["why"]) == ("Skip this item", "required")
     r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"choice": "skip"}})
     assert r.status_code == 400 and "Skip this item" in r.text
-    s = decide(client, tid, "approve", payload={"skip": True})
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "payload": {"skip": True}})
+    assert r.status_code == 400 and "Skip this item" in r.text         # the old payload needs the reason too
+    s = decide(client, tid, "approve", why="not needed", payload={"skip": True})
     assert s["status"] == "done", s
     v = values(client, tid)
     assert {g["id"]: g["status"] for g in v["data"]["groups"]} == {"g1": "done", "g2": "skipped"}

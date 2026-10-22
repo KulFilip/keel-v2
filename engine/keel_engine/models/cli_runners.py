@@ -524,7 +524,7 @@ def file_diff(root: str, rel: str, added: bool = False) -> str:
     """The working-tree diff of one file (codex's file_change items name the files, not the change)."""
     if not added and git.is_repo(root):
         try:
-            r = subprocess.run(["git", "diff", "--no-color", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=5)
+            r = git.git(root, "diff", "--no-color", "HEAD", "--", rel, timeout=5)
             if r.returncode == 0 and r.stdout.strip():
                 return r.stdout
         except (OSError, subprocess.TimeoutExpired):

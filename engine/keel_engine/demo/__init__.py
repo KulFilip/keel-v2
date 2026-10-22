@@ -7,10 +7,10 @@ install has something to run a flow on.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from pathlib import Path
 
 from .. import config
+from ..tools.git import git
 
 TEMPLATE = Path(__file__).parent / "repo"
 RENAMES = {"gitignore": ".gitignore"}
@@ -32,9 +32,9 @@ def create_demo(dest: str | Path | None = None, *, force: bool = False) -> Path:
         (dest / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest / rel)
     ident = ["-c", "user.name=keelbot", "-c", "user.email=keel.dev.bot@gmail.com"]
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=dest, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=dest, check=True)
-    subprocess.run(["git", *ident, "commit", "-q", "-m", "chore: demo project"], cwd=dest, check=True)
+    git(dest, "init", "-q", "-b", "main", check=True)
+    git(dest, "add", "-A", check=True)
+    git(dest, *ident, "commit", "-q", "-m", "chore: demo project", check=True)
     return dest
 
 

@@ -25,6 +25,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from ..tools.git import git
+
 FILE = "failed.json"
 KEEP = 20
 
@@ -36,8 +38,8 @@ def _norm(command: str) -> str:
 def fingerprint(root: str) -> str:
     """The folder's git state: HEAD, the status and the changed files' content; "" outside git (or on any error)."""
     try:
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=20)
-        st = subprocess.run(["git", "status", "--porcelain=v1", "-uall", "-z"], cwd=root, capture_output=True, timeout=20)
+        head = git(root, "rev-parse", "HEAD", timeout=20)
+        st = git(root, "status", "--porcelain=v1", "-uall", "-z", timeout=20, text=False)
         if st.returncode != 0:
             return ""
         h = hashlib.sha256(head.stdout.encode() + b"\0" + st.stdout)

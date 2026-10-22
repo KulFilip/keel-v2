@@ -12,8 +12,25 @@ from pathlib import Path
 ENGINE_FILES = (".keel/ladder.json", ".keel/agents/")
 
 
-def git(root: str, *args: str, check: bool = False, env: dict | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=check, env=env)
+GIT_TIMEOUT = 120      # seconds: a stuck git (a lock, a hung network remote) must not block a flow for ever
+
+
+def git(root: str, *args: str, check: bool = False, env: dict | None = None, timeout: float | None = GIT_TIMEOUT,
+        text: bool = True) -> subprocess.CompletedProcess:
+    """Runs git in `root`. Never waits for a password (GIT_TERMINAL_PROMPT=0) and never for ever (`timeout`; None = no
+    limit). Output that is not UTF-8 (a file name in another encoding) is decoded with replacement characters instead of
+    raising; `text=False` gives bytes. A timeout is a failed command (returncode 124), like any other failed git call."""
+    run_env = {**(os.environ if env is None else env), "GIT_TERMINAL_PROMPT": "0"}
+    kw: dict = {"encoding": "utf-8", "errors": "replace"} if text else {}
+    try:
+        return subprocess.run(["git", *args], cwd=root, capture_output=True, check=check, env=run_env, timeout=timeout, **kw)
+    except subprocess.TimeoutExpired as exc:
+        empty = "" if text else b""
+        note = f"git {' '.join(args[:3])} timed out after {timeout}s"
+        r = subprocess.CompletedProcess(["git", *args], 124, empty, note if text else note.encode())
+        if check:
+            raise subprocess.CalledProcessError(124, r.args, output=empty, stderr=r.stderr) from exc
+        return r
 
 
 def is_repo(root: str | None) -> bool:

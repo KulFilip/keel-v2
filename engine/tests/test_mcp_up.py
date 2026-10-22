@@ -81,7 +81,7 @@ class Api(StubApi):
 
 @pytest.fixture
 def api(monkeypatch):
-    monkeypatch.delenv("KEEL_PROJECT", raising=False)
+    monkeypatch.setenv("KEEL_PROJECT", "shop")      # a write needs its project named when the folder matches none
     monkeypatch.chdir("/")
     s = Api()
     s.api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s))
