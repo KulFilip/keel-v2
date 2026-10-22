@@ -308,6 +308,9 @@ class AgentMixin:
         used = _c.budget_tokens(usage)
         cap_usd = float(usage.get("cap_usd") or 0)
         cost = float(usage.get("cost_usd") or 0)
+        if cap or cap_usd:      # what side agents spent for this flow (the Supervisor) counts toward its caps too
+            side = _c.side_usage.total(ctx.thread_id)
+            used, cost = used + side["tokens"], cost + side["cost_usd"]
         step_cap, own_cap = _c._step_cap(step, ctx.settings)
         step_used = int((state.get("step_tokens") or {}).get(step.id, 0))
         over_step = bool(step_cap) and step_used >= step_cap

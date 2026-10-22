@@ -89,6 +89,11 @@ MIGRATIONS = [
       id text primary key, project text not null, name text not null, created_at text not null, updated_at text not null
     )""",
     """create index if not exists helper_folders_project on helper_folders (project, name)""",
+    # tokens a flow's side agents spent for it (the Supervisor), outside the graph: its cap counts them (side_usage.py)
+    """create table if not exists side_usage (
+      thread_id text not null, source text not null, tokens integer not null, cost_usd real not null, at text not null
+    )""",
+    "create index if not exists side_usage_thread on side_usage (thread_id)",
 ]
 
 

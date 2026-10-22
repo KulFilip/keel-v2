@@ -98,6 +98,10 @@ class ThreadContext:
     # and how often keel approved each question by itself in this run (memory only; a rewind clears it).
     resume_qid: str | None = None
     auto_seen: dict[str, int] = field(default_factory=dict)
+    # Who gave the answer the step works with now, when not the person (the Supervisor: Engine.resume(by=...)): each
+    # gate.decided of that step carries it as `by`, so the timeline, the final review and the PR body can tell. Memory
+    # only; Compiler._ask sets it at every pause, step.finished clears it.
+    answer_by: str | None = None
 
     @property
     def fake(self) -> bool:
@@ -121,6 +125,10 @@ class ThreadContext:
         return added
 
     def emit(self, type: str, *, step: str | None = None, call_id: str | None = None, data: dict | None = None):
+        if type == "gate.decided" and self.answer_by and "by" not in (data or {}):
+            data = {**(data or {}), "by": self.answer_by}
+        elif type == "step.finished":
+            self.answer_by = None
         if self.bus:
             self.bus.emit(type, self.thread_id, self.project_id, step=step, call_id=call_id, data=data)
 

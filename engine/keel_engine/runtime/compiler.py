@@ -52,6 +52,7 @@ from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts,
 from . import blockers as push_gates
 from . import choices as choices_mod
 from . import flow_actions
+from . import side_usage
 from .gate_state import deep_gates
 from .compiler_agent import AgentMixin
 from .compiler_code import CodeMixin
@@ -588,8 +589,10 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         Returns (answer, state update). An unlock is added to state.unlocks and logged as a gate event.
         """
         answer = self._auto_answer(state, question, gate, review)
+        self.ctx.answer_by = None
         if answer is None:
             answer = ask_once(question)
+            self.ctx.answer_by = answer.get("by") or None
         payload = answer.get("payload") or {}
         new = normalize_unlocks(payload.get("unlock"), state.get("phase") or "none", "user")
         if not new:

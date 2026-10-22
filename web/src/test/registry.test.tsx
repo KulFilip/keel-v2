@@ -160,7 +160,7 @@ describe("registerSlot and useSlot", () => {
       "gitlab",
       "databases",
     ]);
-    expect(ids(SLOTS.jobsTab)).toEqual(["pipelines"]);
+    expect(ids(SLOTS.jobsTab)).toEqual(["pipelines", "supervisor"]);
     expect(ids(SLOTS.toolsCard)).toEqual(["jira-catalog"]);
     expect(ids(SLOTS.workflowActions).sort()).toEqual(["db", "git"]);
     expect(ids(SLOTS.codeActivity).sort()).toEqual(["db", "git", "review"]);

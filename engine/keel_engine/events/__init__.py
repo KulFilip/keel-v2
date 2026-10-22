@@ -34,6 +34,7 @@ class EventBus:
         self._wake: asyncio.Event | None = None
         self._task: asyncio.Task | None = None
         self._down_logged = False
+        self._listeners: list = []     # in-process listeners (listen): plugins that react to a flow, like the Supervisor
 
     def emit(self, type: str, thread_id: str, project_id: str, *, step: str | None = None,
              call_id: str | None = None, data: dict | None = None) -> dict | None:
@@ -56,10 +57,25 @@ class EventBus:
             self._pending.append(ev)
             if self._wake:
                 self._wake.set()
+            for fn in list(self._listeners):
+                try:
+                    fn(ev)
+                except Exception:  # a listener must never break the flow either
+                    log.exception("event listener failed")
             return ev
         except Exception:  # an event must never break the flow
             log.exception("emit failed")
             return None
+
+    def listen(self, fn) -> None:
+        """Calls fn(event) after each emit, in the emitting thread. fn must be quick and never block (put the event on a
+        queue); what it raises is logged and dropped."""
+        if fn not in self._listeners:
+            self._listeners.append(fn)
+
+    def unlisten(self, fn) -> None:
+        if fn in self._listeners:
+            self._listeners.remove(fn)
 
     def of(self, thread_id: str, type: str | None = None) -> list[dict]:
         return [e for e in self.recent if e["thread_id"] == thread_id and (type is None or e["type"] == type)]
