@@ -78,7 +78,7 @@ def ac_loop():
     y = 560; s.box(X, y, W, 96, "code", "verify_green", "keel runs the tests: they must PASS\n· then keel commits feat(AC-n)"); y_vg = y
     s.arrow(cx, y + 96, cx, y + 124, "#1f8a4c")
     s.text(cx + 8, y + 116, "green", 12.5, "400", "#1f8a4c")
-    y = 680; s.box(X, y, W, 96, "agent", "AC review", "a fresh reviewer reads RED + GREEN: is the\ncriterion met, does the test prove it?", "ac-reviewer"); y_rev = y
+    y = 680; s.box(X, y, W, 96, "agent", "AC review", "a fresh reviewer reads RED + GREEN: is the\ncriterion met, does the test prove it?", "criterion-reviewer"); y_rev = y
     s.arrow(cx, y + 96, cx, y + 124)
     y = 800; s.box(X, y, W, 96, "gate", "AC gate · you decide", "commits, test results and the review are on the\ncard (Flow page, Inbox, phone notification)"); y_gate = y
     # approve
@@ -177,7 +177,7 @@ def feature():
     step("agent", "security", "dependency check, security auditor + dependency triager", "in parallel")
     phase("6 · FULL-DIFF REVIEW")
     rf = step("agent", "review fix", "fixes what the full-diff review found", "implementer")
-    cr = step("agent", "full-diff review", "the whole branch in a fresh context", "code-reviewer")
+    cr = step("agent", "full-diff review", "the whole branch in a fresh context", "branch-reviewer")
     back(cr, rf, "findings", "left")
     phase("7 · E2E + SMOKE (when the flow has them)")
     e2 = step("agent", "e2e specs + run", "Playwright for the [WEB] criteria", "e2e-author")
