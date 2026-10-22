@@ -85,14 +85,14 @@ async def test_the_suite_gates_choices_go_through_approve_gate():
                                                               "why": "the AC-008 test leaks a row"})
     path, body = api.posts[-1]
     assert path == "/api/threads/t-1/resume"
-    assert body == {"decision": "approve", "why": "the AC-008 test leaks a row", "payload": {"choice": "send_back_ac"}}
+    assert body == {"decision": "approve", "why": "the AC-008 test leaks a row", "payload": {"choice": "send_back_ac", "question_id": "q-s"}}
 
 
 async def test_edit_gate_takes_the_spec_gates_edit_choice_with_its_notes():
     api = Api(SPEC_GATE)
     text = await call(server(api, write=True), "keel_edit_gate", {"notes": "AC-3 must say 400, not 422"})
     path, body = api.posts[-1]
-    assert body == {"decision": "approve", "why": "AC-3 must say 400, not 422", "payload": {"choice": "edit"}}
+    assert body == {"decision": "approve", "why": "AC-3 must say 400, not 422", "payload": {"choice": "edit", "question_id": "q-spec"}}
     assert text.startswith("approved spec approval on thread t-1")
     # a gate that only takes a send-back still gets one
     api = Api({**THREAD["waiting"]})

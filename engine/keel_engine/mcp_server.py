@@ -575,7 +575,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
 
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
-                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None) -> str:
+                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
+                 question_id: str | None = None) -> str:
     if decision not in ("approve", "reject"):
         raise ApiError("decision must be approve or reject")
     p = _project(api, project)
@@ -595,7 +596,8 @@ def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: s
     missing = ask_mod.missing_reason(w, decision, choice, why)
     if missing:
         return f"{w.get('title')}: {missing}"
-    return _resume(api, thread["thread_id"], decision, why, payload or None, before=w)
+    # the answer is for the question that was shown (a form shows it for minutes): a flow that moved on refuses it (409)
+    return _resume(api, thread["thread_id"], decision, why, payload or None, before=w, question_id=question_id or w.get("id"))
 
 
 def resume(api: KeelApi, decision: str, thread_id: str | None = None, project: str | None = None, why: str | None = None,
@@ -610,7 +612,8 @@ def resume(api: KeelApi, decision: str, thread_id: str | None = None, project: s
     return _resume(api, thread_id, decision, why, payload)
 
 
-def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dict | None, before: dict | None = None) -> str:
+def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dict | None, before: dict | None = None,
+            question_id: str | None = None) -> str:
     body: dict[str, Any] = {"decision": decision}
     if why:
         body["why"] = why
@@ -620,6 +623,9 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
     what = f" {before.get('title')}" if before else ""
     after = f"{state.get('status')} at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})"
     if state.get("waiting"):
+    if question_id:
+        # in the payload: the api passes the payload through to the engine as it is
+        payload = {**(payload or {}), "question_id": question_id}
         after += f"; now waiting: {state['waiting'].get('title')}"
     done = "approved" if decision == "approve" else "sent back"
     return f"{done}{what} on thread {tid}. The flow is {after}."
@@ -987,9 +993,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         Written from the question's data (questions, choice_info), so any new question gate works without code here."""
         w, tid = await anyio.to_thread.run_sync(lambda: guard_pair(more.waiting_of, api, project, thread_id))
         if not w:
-            return f"keel: {tid}" if ask_person else (decision, why, answers, choice, thread_id)
+            return f"keel: {tid}" if ask_person else (decision, why, answers, choice, thread_id, None)
         if not (ask_person or ask_mod.needs_answers(w, decision, answers, choice)):
-            return decision, why, answers, choice, thread_id
+            return decision, why, answers, choice, thread_id, None
         got = await ask_mod.ask(ctx, w)
         if isinstance(got, str):
             return got
@@ -1115,7 +1121,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
                                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                                ask_person: bool = False, ctx: Context | None = None) -> str:
+                                ask_person: bool = False, question_id: str | None = None,
+                                ctx: Context | None = None) -> str:
         """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
         For questions pass `answers`: question id -> the chosen option label, a list of labels for a "pick any" question,
         or your own words. For a gate with named choices pass `choice` (its name) and `why` when the choice needs a reason.
@@ -1124,8 +1131,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         got = await ask_first(ctx, project, None, decision, why, answers, choice, ask_person)
         if isinstance(got, str):
             return got
-        decision, why, answers, choice, _ = got
-        return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers, choice)
+        decision, why, answers, choice, _, shown = got
+        return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers, choice,
+                         question_id=question_id or shown)
 
     @reg(rw)
     async def keel_resume(decision: Literal["approve", "reject"] | None = None, thread_id: str | None = None,
@@ -1164,7 +1172,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
                           thread_id: str | None = None, why: str | None = None,
                           answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                          item_id: str | None = None, ask_person: bool = False, ctx: Context | None = None) -> str:
+                          item_id: str | None = None, ask_person: bool = False, question_id: str | None = None,
+                          ctx: Context | None = None) -> str:
         """Answer what waits in keel's Inbox: a gate (approve or reject with why), questions (answers: id -> a label, a
         list of labels for a "pick any" question, or your own words), a named choice (choice, with why when it needs a
         reason), or a task item (item_id). ask_person (or an approve of questions with no answers): keel asks the person
@@ -1174,9 +1183,10 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             got = await ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person)
             if isinstance(got, str):
                 return got
-            decision, why, answers, choice, thread_id = got
+            decision, why, answers, choice, thread_id, shown = got
+            question_id = question_id or shown
         return await act(ctx, "keel_answer", "answer the Inbox", more.answer, api, decision, project, thread_id, why,
-                         answers, choice, item_id)
+                         answers, choice, item_id, question_id=question_id)
 
     @reg(rw)
     async def keel_edit_gate(notes: str, project: str | None = None, ctx: Context | None = None) -> str:

@@ -195,6 +195,7 @@ class Resume(BaseModel):
     payload: dict[str, Any] | None = None
     keys: dict[str, str] | None = None   # logins again: they live in memory only and a restart forgets them
     root: str | None = None              # the project's folder now (it moves when keel is started another way)
+    question_id: str | None = None       # the id of the question the answer is for: a flow that moved on answers 409, not the new one
 
 
 class ModeBody(BaseModel):
@@ -461,7 +462,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         if body.keys:
             await engine(request).set_keys(tid, body.keys)
         await engine(request).set_root(tid, body.root)
-        return await engine(request).resume(tid, body.decision, body.why, body.payload)
+        return await engine(request).resume(tid, body.decision, body.why, body.payload, body.question_id)
 
     @app.post("/threads/{tid}/mode")
     async def post_mode(tid: str, body: ModeBody, request: Request):

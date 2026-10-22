@@ -521,12 +521,18 @@ class Engine:
         if tid in self.ctxs:
             self.ctxs[tid].keys = dict(keys)
 
-    async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
+    async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
+                     question_id: str | None = None) -> dict:
         # The checks below await; without the lock two calls both pass "not running" and start two drivers on one thread.
         async with self._resuming.setdefault(tid, asyncio.Lock()):
-            return await self._resume(tid, decision, why, payload)
+            return await self._resume(tid, decision, why, payload, question_id)
 
-    async def _resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
+    async def _resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
+                      question_id: str | None = None) -> dict:
+        # The question the answer is for: a field, or `payload.question_id` (the api passes the payload through as it is).
+        if payload and "question_id" in payload:
+            payload = dict(payload)
+            question_id = question_id or payload.pop("question_id") or None
         row = await self._row(tid)
         if tid in self.tasks:
             raise EngineError(409, "The flow is running, not waiting.", "Wait for it to reach a gate.")
@@ -536,6 +542,10 @@ class Engine:
         snap = await graph.aget_state(self._cfg(tid))
         if not self._waiting(snap):
             raise EngineError(409, "The flow is not waiting for a decision.")
+        now = self._waiting(snap).get("id")
+        if question_id and now and question_id != now:
+            raise EngineError(409, "That question is not the one the flow waits at now: the flow moved on.",
+                              "Read the waiting question again and answer that one.")
         if decision not in ("approve", "reject"):
             raise EngineError(400, "decision must be approve or reject.")
         problem = answer_problem(self._waiting(snap), decision, why, payload) \
