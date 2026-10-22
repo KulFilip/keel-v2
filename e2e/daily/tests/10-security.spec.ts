@@ -11,7 +11,7 @@ test.describe("J0 Security", () => {
     const spellings = [
       "/api/projects", "/api;x=1/projects", "/%61pi/projects", "/api/%70rojects", "/api//projects", "//api/projects",
       "/api/./projects", "/api/projects/", "/api/projects;a=b", "/API/projects", "/api/projects%00", "/api/x/../projects",
-      "/%2e/api/projects", "/api%2fprojects", "/api/projects.json", "/api;/projects", "/api/projects?x=1#y",
+      "/%2e/api/projects", "/api%2fprojects", "/api/projects.xml", "/api;/projects", "/api/projects?x=1#y",
     ];
     const bad: string[] = [];
     for (const p of spellings) {

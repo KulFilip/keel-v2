@@ -25,7 +25,7 @@ mkdir -p "$scratch/bin" "$S/img" "$project/.git" "$scratch/config" "$scratch/hom
 export XDG_CONFIG_HOME="$scratch/config" KEEL2_HOME="$scratch/home" HOME="$scratch/user"
 export KEEL_OPEN=0 NO_COLOR=1 KEEL_NATIVE_CLIS=0 KEEL_NAME=keel-test-launcher KEEL_VOLUME=test-launcher-data
 export PORT=39650 FAKE_S="$S" FAKE_CALLS="$scratch/calls" FAKE_BODY="$scratch/body"
-unset KEEL_IMAGE KEEL_FORCE KEEL_YES KEEL_PLUGINS KEEL_DOCKER KEEL_TAKE_NEW_IMAGE KEEL_STOP_TIMEOUT KEEL_HOME
+unset KEEL_IMAGE KEEL_FORCE KEEL_YES KEEL_PLUGINS KEEL_DOCKER KEEL_TAKE_NEW_IMAGE KEEL_STOP_TIMEOUT KEEL_HOME   # KEEL_HOME: ignored since 0.4.1, unset so keel2 prints no warning about it
 
 cat > "$scratch/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
