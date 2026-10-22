@@ -3,6 +3,7 @@
 // the workflow's menu (Update, Remove, Publish to marketplace, Delete), the Delete confirm, the update question (keep my copy or replace) and the
 // Publish dialog (download the package; signing and the pull request stay with the person).
 
+import type { Err } from "../marketHttp";
 import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Workflow, type WorkflowCheck } from "../api";
 import { useApp } from "../state";
@@ -16,7 +17,6 @@ import {
 } from "../workflowMarketApi";
 import { Drawer, ErrorBox, Loading } from "./ui";
 
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
 // ---------- the Install review ----------
 

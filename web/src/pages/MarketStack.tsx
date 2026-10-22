@@ -12,7 +12,7 @@
 // A stack is how one project builds and tests: one YAML file, saved as .keel/stacks/<name>.yml. Its commands run in
 // the project's own toolchain through keel's flow, so the page shows every one of them before the install.
 
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { errorParts } from "../api";
 import { TrustTag } from "../components/Permissions";
 import { Confirm, Drawer, ErrorBox, Loading, Pill } from "../components/ui";
@@ -23,30 +23,18 @@ import {
   stackShort,
   type BuiltinStack,
   type MarketStack,
-  type Refusal,
   type StackHit,
   type StackReview,
   type StackSearch,
 } from "../stackMarketApi";
 import { useApp, useLoad } from "../state";
+import { PanelSection } from "../components/PanelSection";
+import { useDebounced } from "../hooks";
+import { type Err, refusedText } from "../marketHttp";
+import { publisherOf } from "../marketplaceApi";
 import { PluginIcon, Publisher, fromKeel, isBeta } from "./pluginLook";
 
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
-function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
-const pub = (h: { publisher_title?: string; publisher?: string; verified?: boolean }) => ({
-  name: h.publisher_title || h.publisher || "",
-  verified: Boolean(h.verified),
-});
-const refusedText = (r: Refusal | null) => (r ? [r.error, r.hint].filter(Boolean).join(" ") : "");
 const detectText = (d: Record<string, string[]> | undefined) =>
   Object.entries(d ?? {}).filter(([, v]) => v?.length).map(([k, v]) => `${k.replace("_", " ")}: ${v.join(", ")}`).join(" · ");
 
@@ -85,7 +73,7 @@ export function StacksMarket() {
   };
 
   const card = (h: StackHit) => {
-    const p = pub(h);
+    const p = publisherOf(h);
     const title = h.title || h.name;
     const shown = h.version ?? h.latest;
     return (
@@ -288,7 +276,7 @@ export function StackInstallDialog({ hit, pid, project, to, onClose, onDone }: {
           {busy ? "Installing…" : to ? `Update to ${to}` : "Install"}
         </button>
       </>}>
-      <div className="row"><span className="mk-by"><Publisher {...pub(hit)} /></span><TrustTag trust="content" /></div>
+      <div className="row"><span className="mk-by"><Publisher {...publisherOf(hit)} /></span><TrustTag trust="content" /></div>
       <div className="field">
         <span className="lab">Into</span>
         <span><b>This project</b> — {project}: <span className="mono">.keel/stacks/{hit.name}.yml</span></span>
@@ -316,14 +304,6 @@ export function StackInstallDialog({ hit, pid, project, to, onClose, onDone }: {
 
 // ---------- a stack's page ----------
 
-function Section({ id, title, extra, children }: { id: string; title: string; extra?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="panel" aria-labelledby={id}>
-      <div className="panel-head"><h2 id={id}>{title}</h2>{extra}</div>
-      <div className="panel-body">{children}</div>
-    </section>
-  );
-}
 
 export function MarketStackPage({ name }: { name: string }) {
   const { pid, project, projectsLoaded, toast } = useApp();
@@ -343,7 +323,7 @@ export function MarketStackPage({ name }: { name: string }) {
   if (!w)
     return <div className="mk-detail">{crumb}{r.error ? <ErrorBox error={r.error} onRetry={() => void r.reload()} /> : <Loading what="Reading the stack" />}</div>;
   const title = w.title || w.name;
-  const p = pub(w);
+  const p = publisherOf(w);
   const installed = typeof w.installed === "object" ? w.installed : null;
   const remove = async () => {
     if (!pid) return;
@@ -431,17 +411,17 @@ export function MarketStackPage({ name }: { name: string }) {
       {!pid && <p className="mk-note" role="note">Pick a project first: a stack installs into a project.</p>}
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="stm-yaml" title="Stack YAML" extra={<span className="sub">{w.builtin ? "keel's own" : "as published, verified"}</span>}>
+          <PanelSection id="stm-yaml" title="Stack YAML" extra={<span className="sub">{w.builtin ? "keel's own" : "as published, verified"}</span>}>
             {w.summary && <p className="mk-about">{w.summary}</p>}
             {w.yaml ? (
               <pre className="mono wfm-yaml" aria-label={`YAML of ${title}`} style={{ whiteSpace: "pre-wrap", maxHeight: 520, overflow: "auto" }}>{w.yaml}</pre>
             ) : (
               <p className="sub" style={{ margin: 0 }}>keel did not read the file, so it shows no YAML: {w.fetch_error || w.refused ? "see above." : "the catalog sends none."}</p>
             )}
-          </Section>
+          </PanelSection>
         </div>
         <div className="mk-stack">
-          <Section id="stm-review" title="keel's review">
+          <PanelSection id="stm-review" title="keel's review">
             <dl className="mk-kv">
               <dt>Lane</dt><dd>{rv?.lane || "—"}</dd>
               <dt>Found by</dt><dd className="mono">{detectText(rv?.detect) || "—"}</dd>
@@ -461,9 +441,9 @@ export function MarketStackPage({ name }: { name: string }) {
                 {!!w.check.skills_missing?.length && <span className="sub">Skills this project does not have: {w.check.skills_missing.join(", ")} (Marketplace › Skills).</span>}
               </div>
             )}
-          </Section>
+          </PanelSection>
           {!!w.versions?.length && (
-            <Section id="stm-versions" title="Versions" extra={<span className="sub">Newest first</span>}>
+            <PanelSection id="stm-versions" title="Versions" extra={<span className="sub">Newest first</span>}>
               <ul className="mk-checklist">
                 {w.versions.map((x) => (
                   <li key={x.version}>
@@ -473,12 +453,12 @@ export function MarketStackPage({ name }: { name: string }) {
                   </li>
                 ))}
               </ul>
-            </Section>
+            </PanelSection>
           )}
           {!!w.checks?.length && (
-            <Section id="stm-checks" title={w.builtin ? "Where it comes from" : "Checks keel runs before install"}>
+            <PanelSection id="stm-checks" title={w.builtin ? "Where it comes from" : "Checks keel runs before install"}>
               <div className="mk-checklist">{w.checks.map((c, i) => <div key={i}><span className="mk-ok" aria-hidden="true">✓</span><span>{c}</span></div>)}</div>
-            </Section>
+            </PanelSection>
           )}
         </div>
       </div>

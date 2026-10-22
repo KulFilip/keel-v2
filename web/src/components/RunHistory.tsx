@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 import { api, errorParts, type RunRow } from "../api";
-import { clock, kfmt, usd } from "../format";
+import { clock, kfmt, shortDur, usd } from "../format";
 import { go, useApp, useLoad } from "../state";
 import { Confirm, StatusPill } from "./ui";
 
@@ -16,10 +16,7 @@ const canStop = (r: RunRow) => r.status === "stopped" || r.status === "failed";
 function took(r: RunRow): string {
   const ms = Date.parse(r.updated_at) - Date.parse(r.created_at);
   if (Number.isNaN(ms)) return "—";
-  const s = Math.max(0, Math.round(ms / 1000));
-  const h = Math.floor(s / 3600),
-    m = Math.floor((s % 3600) / 60);
-  return h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
+  return shortDur(ms);
 }
 
 /** The runs, newest start first; the newest one is `latest` (the server says which, else the first one). */

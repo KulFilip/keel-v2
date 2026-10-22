@@ -3,6 +3,7 @@
 // update it (keep my copy or replace), remove it (DELETE /api/workflows/{wid}, as Delete does), and the publish package.
 
 import { ApiError, api, get, post, type Step, type Workflow } from "./api";
+import { e, query } from "./marketHttp";
 import type { SourceStatus } from "./marketplaceApi";
 
 /** What a workflow does, as the catalog's sync (and keel, again at install) computed it: the Install review. */
@@ -85,13 +86,6 @@ export type PublishInfo = {
   publisher: string;
 };
 
-const e = encodeURIComponent;
-const query = (p: Record<string, string | null | undefined>) => {
-  const s = new URLSearchParams(
-    Object.entries(p).filter((x): x is [string, string] => !!x[1]),
-  ).toString();
-  return s ? `?${s}` : "";
-};
 
 export const workflowMarketApi = {
   search: (q = "", category = "", project: string | null = null) =>

@@ -4,6 +4,7 @@
 // .keel/stacks/<name>.yml, update (replace), remove. No restart: keel reads a project's stacks when it needs them.
 
 import { del, get, post, type Stack, type StackCheck } from "./api";
+import { e, query, type Refusal } from "./marketHttp";
 import type { SourceStatus } from "./marketplaceApi";
 
 /** What keel (and the catalog) says a stack does: its lane, what detects it, its layers, every command and tool, its skills. */
@@ -16,7 +17,7 @@ export type StackReview = {
   skills: string[];
 };
 
-export type Refusal = { error: string; hint?: string };
+export type { Refusal } from "./marketHttp";
 
 /** One stack of a catalog (GET /api/marketplace/stacks → stacks). */
 export type StackHit = {
@@ -93,11 +94,6 @@ export type MarketStack = Omit<StackHit, "installed"> & {
   off?: boolean;
 };
 
-const e = encodeURIComponent;
-const query = (p: Record<string, string | null | undefined>) => {
-  const s = new URLSearchParams(Object.entries(p).filter((x): x is [string, string] => !!x[1])).toString();
-  return s ? `?${s}` : "";
-};
 
 export const stackMarketApi = {
   search: (q = "", category = "", project: string | null = null) => get<StackSearch>(`/marketplace/stacks${query({ q, category, project })}`),

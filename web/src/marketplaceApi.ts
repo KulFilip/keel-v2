@@ -416,7 +416,7 @@ export const updateOf = (x: {
       : null;
 
 export const publisherOf = (
-  h: MarketHit | PlanItem,
+  h: { publisher?: string; publisher_title?: string; verified?: boolean },
 ): { name: string; verified: boolean } => ({
   name: h.publisher_title || h.publisher || "",
   verified: Boolean(h.verified),

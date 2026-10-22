@@ -4,6 +4,7 @@
 // update (replace), remove (the rules api's uninstall). A pack is a file in the project's .keel/rules/: no restart.
 
 import { get, post } from "./api";
+import { e, query, type Refusal } from "./marketHttp";
 import type { SourceStatus } from "./marketplaceApi";
 import { rulesApi, type Engine, type InstalledPack, type PackRule, type RulePack, type When } from "./rulesApi";
 
@@ -28,7 +29,7 @@ export type RulePackReview = {
   blocks?: PackBlock[];
 };
 
-export type Refusal = { error: string; hint?: string };
+export type { Refusal } from "./marketHttp";
 
 /** One pack of a search (GET /api/marketplace/rule-packs). */
 export type RulePackHit = {
@@ -107,11 +108,6 @@ export type RulePackSearch = {
   categories: string[];
 };
 
-const e = encodeURIComponent;
-const query = (p: Record<string, string | null | undefined>) => {
-  const s = new URLSearchParams(Object.entries(p).filter((x): x is [string, string] => !!x[1])).toString();
-  return s ? `?${s}` : "";
-};
 
 export const rulePackMarketApi = {
   search: (q = "", category = "", project: string | null = null) =>

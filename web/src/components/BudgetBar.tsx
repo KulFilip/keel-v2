@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import { api, type BudgetNow, type CapLeft, type FlowSpend, type ProviderUsage, type UsageWindow } from "../api";
-import { kfmt, usd } from "../format";
+import { kfmt, statusWord, usd } from "../format";
 import { useApp, useLoad } from "../state";
 import { sourceText, usageLine } from "./UsageStrip";
 
@@ -38,7 +38,7 @@ export function providerChip(u: ProviderUsage, now = Date.now()): { text: string
   if (!top) return { text: u.name, pct: null };
   const label = SHORT[top.window] ?? top.label;
   if (top.used_pct != null) return { text: `${u.name} ${label} ${Math.round(top.used_pct * 100)}%`, pct: Math.round(top.used_pct * 100) };
-  const word = top.status === "allowed" ? "ok" : top.status === "rejected" ? "full" : top.status ? top.status.replace(/_/g, " ") : "no % yet";
+  const word = statusWord(top.status);
   return { text: `${u.name} ${label} ${word}`, pct: top.status === "rejected" ? 100 : null };
 }
 

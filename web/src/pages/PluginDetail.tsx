@@ -7,9 +7,12 @@
 //
 // Also the pieces the Installed table shares with it: a plugin's status pill, the Remove question, and the actions.
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { refreshFeatures } from "../addons";
 import { errorParts } from "../api";
+import { bytes } from "../format";
+import type { Err } from "../marketHttp";
+import { PanelSection } from "../components/PanelSection";
 import { PermissionList, TrustTag } from "../components/Permissions";
 import { Confirm, ErrorBox, Loading, Pill } from "../components/ui";
 import {
@@ -43,7 +46,7 @@ import {
 } from "./pluginLook";
 import { PluginAdds, PluginProjects, useProjectPlugins } from "./PluginProjects";
 
-export type Err = { message: string; hint?: string; details?: string[] } | null;
+export type { Err };
 
 // ---------- shared with the Installed table ----------
 
@@ -185,38 +188,6 @@ export function RemoveConfirm({
     />
   );
 }
-
-/** A panel with a named region (the tests and screen readers find it by its title). */
-function Section({
-  id,
-  title,
-  extra,
-  children,
-  body = true,
-}: {
-  id: string;
-  title: string;
-  extra?: ReactNode;
-  children: ReactNode;
-  body?: boolean;
-}) {
-  return (
-    <section className="panel" aria-labelledby={id}>
-      <div className="panel-head">
-        <h2 id={id}>{title}</h2>
-        {extra}
-      </div>
-      {body ? <div className="panel-body">{children}</div> : children}
-    </section>
-  );
-}
-
-const bytes = (n?: number) =>
-  !n
-    ? null
-    : n >= 1024 * 1024
-      ? `${(n / 1024 / 1024).toFixed(1)} MB`
-      : `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const repoText = (url: string) => url.replace(/^https?:\/\//, "");
 
@@ -459,7 +430,7 @@ export function PluginDetailPage({
       )}
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <Section id="mk-about" title="About">
+          <PanelSection id="mk-about" title="About">
             {(p?.summary ?? mine?.summary) && (
               <p className="mk-about">{p?.summary ?? mine?.summary}</p>
             )}
@@ -478,7 +449,7 @@ export function PluginDetailPage({
               </p>
             )}
             {perProject && <PluginAdds plugin={perProject} />}
-          </Section>
+          </PanelSection>
           {mine && (
             <PluginProjects
               name={name}
@@ -486,7 +457,7 @@ export function PluginDetailPage({
               onKeelOn={() => void view.reload()}
             />
           )}
-          <Section
+          <PanelSection
             id="mk-versions"
             title="Versions"
             extra={<span className="sub">Newest first</span>}
@@ -562,9 +533,9 @@ export function PluginDetailPage({
                 </tbody>
               </table>
             </div>
-          </Section>
+          </PanelSection>
           {!!p?.checks?.length && (
-            <Section id="mk-checks" title="Checks keel runs before install">
+            <PanelSection id="mk-checks" title="Checks keel runs before install">
               <div className="mk-checklist">
                 {p.checks.map((c, i) => (
                   <div key={i}>
@@ -575,11 +546,11 @@ export function PluginDetailPage({
                   </div>
                 ))}
               </div>
-            </Section>
+            </PanelSection>
           )}
         </div>
         <div className="mk-stack">
-          <Section
+          <PanelSection
             id="mk-perms"
             title="Permissions"
             extra={
@@ -595,8 +566,8 @@ export function PluginDetailPage({
                 only from a publisher you trust.
               </p>
             )}
-          </Section>
-          <Section id="mk-needs" title="Needs">
+          </PanelSection>
+          <PanelSection id="mk-needs" title="Needs">
             <div className="mk-checklist">
               <div>
                 <span className="mk-ok" aria-hidden="true">
@@ -666,7 +637,7 @@ export function PluginDetailPage({
                 </>
               )}
             </dl>
-          </Section>
+          </PanelSection>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 // v0.17.2 drawers of the Rules page: the rule library, a new or edited rule pack (form + YAML, check and dry-run), import.
 
+import type { Err } from "../marketHttp";
 import { useState } from "react";
 import { errorParts } from "../api";
 import { useApp, useLoad } from "../state";
@@ -7,7 +8,6 @@ import { KIND_WORDS, packYaml, rulesApi, type PackRule, type RuleCheck, type Rul
 import { CodeEditor } from "./CodeEditor";
 import { Async, Drawer, ErrorBox, Tabs } from "./ui";
 
-type Err = { message: string; hint?: string; details?: string[] } | null;
 
 const toErr = (e: unknown): Err => {
   const p = errorParts(e);
