@@ -133,6 +133,7 @@ class Handler(BaseHTTPRequestHandler):
                     return 200, p.setdefault("reviews", [])
                 for c in body.get("comments", []):
                     p.setdefault("threads", []).append({"id": f"PRRT_{next(IDS)}", "path": c["path"], "line": c["line"], "side": c.get("side", "RIGHT"),
+                                                        "start_line": c.get("start_line"), "start_side": c.get("start_side"),
                                                         "resolved": False, "comments": [{"id": next(IDS), "author": s["me"], "body": c["body"]}]})
                 state = {"APPROVE": "APPROVED", "REQUEST_CHANGES": "CHANGES_REQUESTED"}.get(body.get("event"), "COMMENTED")
                 p.setdefault("reviews", []).append({"user": {"login": s["me"]}, "state": state})
@@ -176,7 +177,8 @@ class Handler(BaseHTTPRequestHandler):
             return 200, {"errors": [{"message": "not found"}]}
         p = s["github"].get(f"{v.get('o')}/{v.get('r')}", {}).get(str(v.get("n")))
         nodes = [{"id": t["id"], "isResolved": t["resolved"], "isOutdated": False, "path": t["path"], "line": t["line"], "originalLine": t["line"],
-                  "diffSide": t["side"], "comments": {"nodes": [{"id": f"C{c['id']}", "databaseId": c["id"], "body": c["body"], "createdAt": "2026-10-08T09:00:00Z",
+                  "diffSide": t["side"], "startLine": t.get("start_line"), "originalStartLine": t.get("start_line"), "startDiffSide": t.get("start_side"),
+                  "comments": {"nodes": [{"id": f"C{c['id']}", "databaseId": c["id"], "body": c["body"], "createdAt": "2026-10-08T09:00:00Z",
                                                                   "url": None, "author": {"login": c["author"]}} for c in t["comments"]]}}
                  for t in (p or {}).get("threads", [])]
         return 200, {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": nodes}}}}}
