@@ -64,6 +64,8 @@ class GitHubLoginService(
     @Value("\${keel.github-login.oauth-base:}") private val oauthBase: String,
     /** how long gh may take to print the code before the sign-in fails with what it printed */
     @Value("\${keel.github-login.code-timeout-seconds:30}") private val codeTimeoutSeconds: Long = 30,
+    /** how long a short gh call (auth token, status, logout) may take before it is killed with its children */
+    @Value("\${keel.github-login.run-timeout-seconds:30}") private val runTimeoutSeconds: Long = 30,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -127,8 +129,29 @@ class GitHubLoginService(
     private fun ghCmd(): List<String> = gh.trim().split(Regex("\\s+"))
 
     private fun ghAvailable(): Boolean = runCatching {
-        ProcessBuilder(ghCmd() + "--version").redirectErrorStream(true).start().also { it.inputStream.readAllBytes() }.waitFor(10, TimeUnit.SECONDS)
+        capture(ProcessBuilder(ghCmd() + "--version").redirectErrorStream(true), minOf(10L, runTimeoutSeconds))?.second == 0
     }.getOrDefault(false)
+
+    /**
+     * Runs [pb] and reads what it prints, within [timeoutSeconds]: the output is read on its own thread, so a process that
+     * hangs cannot block the caller (readAllBytes before waitFor waited for ever). On the timeout the process and its
+     * children are killed. Returns (output, exit code), or null when it timed out.
+     */
+    private fun capture(pb: ProcessBuilder, timeoutSeconds: Long): Pair<String, Int>? {
+        val p = pb.start()
+        p.outputStream.close()
+        val out = java.io.ByteArrayOutputStream()
+        val reader = thread(isDaemon = true, name = "gh-capture") { runCatching { p.inputStream.copyTo(out) } }
+        if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+            p.descendants().forEach { it.destroyForcibly() }
+            p.destroyForcibly()
+            reader.join(2000)
+            return null
+        }
+        reader.join(2000)   // a child that kept the pipe open must not hold us either
+        if (reader.isAlive) p.descendants().forEach { it.destroyForcibly() }
+        return synchronized(out) { out.toString(Charsets.UTF_8) } to p.exitValue()
+    }
 
     private fun env(home: Path) = mapOf(
         "HOME" to home.toString(), "XDG_CONFIG_HOME" to home.resolve(".config").toString(), "GH_CONFIG_DIR" to home.resolve(".config/gh").toString(),
@@ -251,11 +274,7 @@ class GitHubLoginService(
         val pb = ProcessBuilder(ghCmd() + args).directory(home.toFile()).redirectErrorStream(true)
         pb.environment().clear()
         pb.environment().putAll(env(home).filterKeys { it != "GH_PROMPT_DISABLED" })
-        val p = pb.start()
-        p.outputStream.close()
-        val out = p.inputStream.readAllBytes().toString(Charsets.UTF_8)
-        if (!p.waitFor(30, TimeUnit.SECONDS)) p.destroyForcibly()
-        if (p.exitValue() == 0) out else null
+        capture(pb, runTimeoutSeconds)?.takeIf { it.second == 0 }?.first
     }.getOrNull()
 
     // ---- the standard OAuth device flow, when gh is not there ------------------------------

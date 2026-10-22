@@ -291,7 +291,7 @@ class TaskService(
      */
     fun checkReviews(pid: String? = null): Pair<Int, Int> {
         val token = githubToken() ?: return 0 to 0
-        val gh = GitHubClient(token, mapper, props.githubApi)
+        val gh = GitHubClient(token, mapper, props.githubApi, secrets.githubHost())
         var checked = 0
         var moved = 0
         for (t in store.inReview().filter { pid == null || it.projectId == pid }) {
@@ -392,7 +392,7 @@ class TaskService(
                 token == null -> store.event(t.id, "github", null, null,
                     "Reviewers were not asked on GitHub: keel has no GitHub token (Control › Connections). Ask ${wanted.joinToString()} on the PR yourself.", "keel")
                 else -> try {
-                    GitHubClient(token, mapper, props.githubApi).requestReviewers(pr, wanted)
+                    GitHubClient(token, mapper, props.githubApi, secrets.githubHost()).requestReviewers(pr, wanted)
                     store.event(t.id, "reviewers", null, null, "Asked ${wanted.joinToString()} to review the PR on GitHub.", "keel")
                     val others = t.reviewers.filter { !(it.on == "github" && it.login in wanted) }
                     t = store.update(t.copy(reviewers = others + wanted.map { Reviewer(it, "github", "requested") }))

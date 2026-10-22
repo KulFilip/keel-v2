@@ -82,6 +82,14 @@ class GitHubLoginApiTest : ApiTest() {
     }
 
     @Test
+    fun `a gh that hangs on sign-out is stopped at the timeout, with its children`() {
+        val secrets = mock(SecretService::class.java)
+        org.mockito.Mockito.`when`(secrets.get("GITHUB_REPO_INFO")).thenReturn("""{"login":"x","scopes":[],"host":"hang.example.com","via":"gh"}""")
+        val service = GitHubLoginService(secrets, ObjectMapper(), false, dataDir.resolve("fake-gh").toString(), "", "", 2, 2)
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(15)) { service.signOut() }
+    }
+
+    @Test
     fun `an Enterprise host goes to gh as --hostname, and a bad host is refused`() {
         val v = post("/api/github/login", mapOf("host" to "GHE.Example.com")).json()
         assertThat(waitFor(v["id"].asText())["status"].asText()).isEqualTo("done")

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import keel.api.common.ApiPath
 import keel.api.common.BadRequest
 import keel.api.common.Time
 import keel.api.engine.EngineClient
@@ -34,9 +35,9 @@ import org.springframework.web.filter.OncePerRequestFilter
 class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
-        request.method == "GET" || request.getHeader("X-Keel-Via") !in VIAS || !request.requestURI.startsWith("/api/") ||
+        request.method == "GET" || request.getHeader("X-Keel-Via") !in VIAS || !ApiPath.of(request).startsWith("/api/") ||
             // 0.18.6 which project and chat a front end shows (ui/UiFocus.kt) is not a change to record
-            request.requestURI == "/api/ui/focus"
+            ApiPath.of(request) == "/api/ui/focus"
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         try {
@@ -47,7 +48,7 @@ class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate)
     }
 
     private fun record(request: HttpServletRequest, status: Int) {
-        val path = request.requestURI
+        val path = ApiPath.of(request)
         val via = request.getHeader("X-Keel-Via") ?: "mcp"
         val tid = THREAD.find(path)?.groupValues?.get(1) ?: INBOX.find(path)?.groupValues?.get(1)
         val pid = PROJECT.find(path)?.groupValues?.get(1)

@@ -20,14 +20,16 @@ object ReviewGit {
     private fun out(root: Path, vararg args: String): String? = git(root, *args).takeIf { it.ok }?.out?.trim()
 
     /** origin as written in the config (not rewritten by insteadOf): https://host/a/b(.git), git@host:a/b.git, ssh://git@host/a/b. */
-    fun identity(root: Path, gitlabHost: String? = null): HostRef? {
+    fun identity(root: Path, gitlabHost: String? = null, githubHost: String? = null): HostRef? {
         val url = out(root, "config", "--get", "remote.origin.url") ?: return null
         val (host, path) = parseRemote(url) ?: return null
+        // A token goes to a host keel was told about: the host the GitHub token belongs to (github.com, or the Enterprise
+        // host of the sign-in), gitlab.com, or the GitLab server of Connections. A name that only looks like one
+        // (github.evil.com) is "other": no token.
         val kind = when {
-            host == "github.com" || host.startsWith("github.") -> "github"
-            gitlabHost != null && host.equals(gitlabHost, true) -> "gitlab"
-            host == "gitlab.com" || host.startsWith("gitlab.") -> "gitlab"
-            else -> "github"            // GitHub Enterprise on its own domain; a GitLab server is named in Connections
+            host.equals(githubHost ?: "github.com", true) -> "github"
+            host == "gitlab.com" || (gitlabHost != null && host.equals(gitlabHost, true)) -> "gitlab"
+            else -> "other"
         }
         return HostRef(kind, host, path, "https://$host/$path")
     }
