@@ -264,17 +264,20 @@ export function DeleteWorkflow({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Err>(null);
   const keep = useRef<HTMLButtonElement>(null);
+  // onNo is a new arrow on every parent render: use the latest one from a ref and run this once on open.
+  const no = useRef(onNo);
+  no.current = onNo;
   useEffect(() => {
     keep.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onNo();
+        no.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNo]);
+  }, []);
   const yes = async () => {
     setBusy(true);
     setErr(null);

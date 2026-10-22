@@ -1,6 +1,7 @@
 // A small code editor: keel's highlighting (highlight.ts, the same as CodeBlock) under a transparent textarea, with
 // line numbers. Errors given as {line, message} mark their line number and are listed under the editor; a click on one
-// puts the caret on that line. Tab inserts two spaces. v0.17.2 (the rule pack YAML); any language highlight.ts knows.
+// puts the caret on that line. Tab inserts two spaces (with several lines selected it indents each line); Escape
+// then Tab leaves the editor, so a keyboard user is not trapped. v0.17.2 (the rule pack YAML); any language highlight.ts knows.
 
 import { useMemo, useRef, type KeyboardEvent } from "react";
 import { highlight, useLanguage } from "./highlight";
@@ -35,13 +36,37 @@ export function CodeEditor({ id, value, onChange, lang = "yaml", rows = 18, erro
     }
     if (gutter.current) gutter.current.scrollTop = a.scrollTop;
   };
+  // After Escape the next Tab is not trapped (it moves focus on, like in any other field).
+  const leave = useRef(false);
+  /** Replace [from, to) with text the way typing does, so the browser's undo (Ctrl+Z) still works; then select [selA, selB). */
+  const edit = (a: HTMLTextAreaElement, from: number, to: number, text: string, selA: number, selB: number) => {
+    a.focus();
+    a.setSelectionRange(from, to);
+    let done = false;
+    try { done = typeof document.execCommand === "function" && document.execCommand("insertText", false, text); } catch { done = false; }
+    if (!done) { // no execCommand (jsdom, old browsers): write the text ourselves; native undo is lost then
+      a.setRangeText(text, from, to, "end");
+      onChange(a.value);
+    }
+    a.setSelectionRange(selA, selB);
+  };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== "Tab" || e.shiftKey || readOnly) return;
+    if (e.key === "Escape") { leave.current = true; return; }
+    if (e.key !== "Tab") { leave.current = false; return; }
+    if (e.shiftKey || readOnly || leave.current) return;
     e.preventDefault();
     const a = e.currentTarget;
     const { selectionStart: s, selectionEnd: t } = a;
-    onChange(value.slice(0, s) + "  " + value.slice(t));
-    requestAnimationFrame(() => a.setSelectionRange(s + 2, s + 2));
+    if (value.slice(s, t).includes("\n")) {
+      // several lines selected: indent every line the selection touches (not a last line it only reaches the start of)
+      const from = value.lastIndexOf("\n", s - 1) + 1;
+      const lines = value.slice(from, t).split("\n");
+      const n = lines.length - (lines[lines.length - 1] === "" ? 1 : 0);
+      const block = lines.map((l, i) => (i < n ? "  " + l : l)).join("\n");
+      edit(a, from, t, block, s + 2, t + 2 * n);
+    } else {
+      edit(a, s, t, "  ", s + 2, s + 2);
+    }
   };
   const goTo = (line: number) => {
     const a = area.current;
@@ -65,7 +90,7 @@ export function CodeEditor({ id, value, onChange, lang = "yaml", rows = 18, erro
           <pre className="ce-pre" ref={pre} aria-hidden="true"><code className={`hljs language-${lang}`} dangerouslySetInnerHTML={{ __html: html }} /></pre>
           <textarea id={id} ref={area} className="ce-input" value={value} spellCheck={false} autoCapitalize="off" autoComplete="off"
             aria-label={label} aria-invalid={errors.length > 0 || undefined} readOnly={readOnly}
-            onChange={(e) => onChange(e.target.value)} onScroll={sync} onKeyDown={onKey} wrap="off" />
+            onChange={(e) => onChange(e.target.value)} onScroll={sync} onKeyDown={onKey} onBlur={() => { leave.current = false; }} wrap="off" />
         </div>
       </div>
       {errors.length > 0 && (

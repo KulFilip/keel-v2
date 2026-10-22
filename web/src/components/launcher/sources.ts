@@ -10,6 +10,7 @@ import {
   type Project,
 } from "../../api";
 import type { NavGroup } from "../../addons";
+import { copyText as copyToClipboard } from "../../clipboard";
 import { inboxApi, type InboxItem } from "../../inboxApi";
 import { hashFor, hashForScreen } from "../../routes";
 import { hasPage, slotItems } from "../../sdk/registry";
@@ -155,12 +156,8 @@ export const goHash = (ctx: Ctx, hash: string) => () => {
 };
 
 export async function copyText(ctx: Ctx, text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    ctx.toast(`Copied ${text.length > 60 ? text.slice(0, 57) + "…" : text}`);
-  } catch {
-    ctx.toast("The browser did not allow copying.");
-  }
+  if (await copyToClipboard(text)) ctx.toast(`Copied ${text.length > 60 ? text.slice(0, 57) + "…" : text}`);
+  else ctx.toast("The browser did not allow copying.");
 }
 
 export const copyAction = (

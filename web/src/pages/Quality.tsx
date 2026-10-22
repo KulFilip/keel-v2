@@ -474,7 +474,6 @@ export function QualityPage() {
             />
           )}
           <StartPanel
-            key={view.schedule.at + String(view.schedule.enabled)}
             view={view}
             onStarted={() => void r.reload()}
           />

@@ -399,9 +399,9 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
           <button type="button" className="dg-btn" aria-label="Actual size" onClick={() => canvas.current?.zoomTo(1)}>1:1</button>
         </div>
         <button type="button" className="dg-btn" onClick={reset} disabled={!Object.keys(moved).length}><Ic name="reset" /><span>Reset layout</span></button>
-        <div className="dg-menuwrap">
-          <button type="button" className="dg-btn" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}
-            onBlur={() => window.setTimeout(() => setMenu(false), 150)}><Ic name="export" /><span>Export</span></button>
+        <div className="dg-menuwrap"
+          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) window.setTimeout(() => setMenu(false), 150); }}>
+          <button type="button" className="dg-btn" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><Ic name="export" /><span>Export</span></button>
           {menu && (
             <div className="dg-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setMenu(false); setExporting("svg"); }}>SVG image</button>

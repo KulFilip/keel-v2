@@ -140,6 +140,9 @@ describe("the flow board", () => {
     await user.click(
       within(board).getByRole("button", { name: "Remove the worktree" }),
     );
+    // asks first: nothing is sent until the answer is yes
+    expect(db.calls.some((c) => c.path === "/api/threads/th_old/worktree/remove")).toBe(false);
+    await user.click(within(within(board).getByRole("group", { name: "Confirm" })).getByRole("button", { name: "Remove" }));
     expect(
       await screen.findByText(
         `The worktree of "Old idea" is gone; its branch feat/old-idea stays.`,

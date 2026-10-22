@@ -94,15 +94,20 @@ function Control({ row, value, onSave }: { row: Row; value: unknown; onSave: (v:
   const id = `set-${row.key}`;
   const k = row.kind;
   const [text, setText] = useState("");
+  // What Enter just saved: the blur that follows (Enter, then Tab or a click) must not save the same text again.
+  const sent = useRef<string | null>(null);
   useEffect(() => {
+    sent.current = null;
     if (k.t === "tokens") setText(kfmt(Number(value)));
     else if (k.t === "list") setText(((value as string[]) ?? []).join(", "));
     else if (k.t === "text") setText(String(value ?? ""));
   }, [value, k.t]);
   const commit = () => {
-    if (k.t === "tokens") { const n = parseTokens(text); if (n && n !== value) onSave(n); }
-    else if (k.t === "list") { const l = text.split(",").map((s) => s.trim()).filter(Boolean); if (JSON.stringify(l) !== JSON.stringify(value)) onSave(l); }
-    else if (text !== value) onSave(text);
+    if (sent.current === text) return;
+    const save = (v: unknown) => { sent.current = text; onSave(v); };
+    if (k.t === "tokens") { const n = parseTokens(text); if (n && n !== value) save(n); }
+    else if (k.t === "list") { const l = text.split(",").map((s) => s.trim()).filter(Boolean); if (JSON.stringify(l) !== JSON.stringify(value)) save(l); }
+    else if (text !== value) save(text);
   };
   const textProps = {
     type: "text", id, value: text, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value), onBlur: commit,

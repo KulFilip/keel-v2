@@ -608,9 +608,9 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
         </div>
         <button type="button" className="dg-btn" onClick={resetLayout} disabled={!Object.keys(moved).length && !expanded.size}
           title="Forget moved boxes and lay the diagram out again" aria-label="Reset layout"><Ic name="reset" /><span>Reset</span></button>
-        <div className="dg-menuwrap">
-          <button type="button" className="dg-btn" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}
-            onBlur={() => window.setTimeout(() => setMenu(false), 150)}><Ic name="export" /><span>Export</span></button>
+        <div className="dg-menuwrap"
+          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) window.setTimeout(() => setMenu(false), 150); }}>
+          <button type="button" className="dg-btn" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><Ic name="export" /><span>Export</span></button>
           {menu && (
             <div className="dg-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setMenu(false); setExporting("svg"); }}>SVG image</button>

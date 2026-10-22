@@ -5,6 +5,7 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type { Job, JobStep } from "../api";
+import { copyText } from "../clipboard";
 import { clock, kfmt, since } from "../format";
 import { CodeBlock, DiffView, FoldedText, linesOf, parseDiff } from "./Code";
 import { Markdown, MarkdownView } from "./Markdown";
@@ -79,6 +80,7 @@ function Output({ s, shell }: { s: JobStep; shell: boolean }) {
   const n = linesOf(out).length;
   const kind = p.json ? "text" : outputKind(out, shell ? s.text ?? "" : "");
   const [raw, setRaw] = useState(false);
+  const [copied, setCopied] = useState("");
   return (
     <details className="tool-out" open>
       <summary>
@@ -88,9 +90,10 @@ function Output({ s, shell }: { s: JobStep; shell: boolean }) {
             title={raw ? "Show it rendered" : "Show the plain text"}>{raw ? (kind === "md" ? "Rendered" : "Diff") : "Raw"}</button>
         )}
         {kind === "md" && (
-          <button type="button" className="out-raw" onClick={(e) => { e.preventDefault(); void navigator.clipboard?.writeText(out).catch(() => undefined); }}
+          <button type="button" className="out-raw" onClick={(e) => { e.preventDefault(); void copyText(out).then((ok) => setCopied(ok ? "Copied." : "The browser did not allow copying.")); }}
             title="Copy the Markdown">Copy Markdown</button>
         )}
+        {copied && <span className="hint" role="status">{copied}</span>}
       </summary>
       {p.json ? <CodeBlock text={p.text} lang="json" gutter={false} />
         : raw || kind === "text" ? <FoldedText text={out} />

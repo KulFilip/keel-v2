@@ -99,6 +99,26 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     expect(calls("PUT", "/api/plugins/db")).toHaveLength(0); // on keel-wide already: not touched
   });
 
+  it("Installed: All projects to This project puts All projects back when the second call fails", async () => {
+    const user = userEvent.setup();
+    installDbGit();
+    location.hash = "#/plugins";
+    render(<App />);
+    const row = await screen.findByTestId("plugin-db");
+    const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
+    await user.click(within(group).getByRole("radio", { name: "All projects" }));
+    await waitFor(() => expect(choices(group)).toEqual(["Off", "This project", "All projects*"]));
+    server.use(http.put("/api/projects/:pid/plugins/:name", async ({ request }) => {
+      const b = (await request.clone().json()) as { enabled: boolean; scope?: string };
+      if (b.enabled && b.scope === "project") return HttpResponse.json({ error: "The project file is read-only" }, { status: 500 });
+      if (b.scope === "all") db.plugins.db = b.enabled;
+      return HttpResponse.json([]);
+    }));
+    await user.click(within(group).getByRole("radio", { name: "This project" }));
+    await waitFor(() => expect(db.plugins.db).toBe(true)); // off for all first, then put back
+    expect(await within(row).findByText("The project file is read-only")).toBeInTheDocument();
+  });
+
   it("Installed: a project's choice for a plugin keel has loaded says applied (no restart)", async () => {
     const user = userEvent.setup();
     installDbGit();

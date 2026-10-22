@@ -73,6 +73,9 @@ function loadAddon(name: string): Promise<AddonWeb | null> {
       return found as AddonWeb;
     });
     modules.set(entry, mod);
+    // a failed load is not kept: the next try (or a page opened later) imports the module again
+    const mine = mod;
+    mod.catch(() => { if (modules.get(entry) === mine) modules.delete(entry); });
   }
   return mod;
 }
@@ -125,11 +128,21 @@ function startPlugins(f: Features) {
 export const pluginsStarted = () => starting;
 
 const pages = new Map<string, LazyExoticComponent<ComponentType<AddonPageProps>>>();
+// when a page's web part failed to load: after RETRY_MS the next ask for the page imports it again (not at once, or
+// every render of a broken page would flash the loading state)
+const failedAt = new Map<string, number>();
+const RETRY_MS = 5000;
 
 /** The add-on's page component for a screen, loaded on first use. */
 export function addonPage(addon: string, screen: string): LazyExoticComponent<ComponentType<AddonPageProps>> {
   const key = `${addon}:${screen}`;
   let page = pages.get(key);
+  const was = failedAt.get(key);
+  if (page && was !== undefined && Date.now() - was > RETRY_MS) {
+    pages.delete(key);
+    failedAt.delete(key);
+    page = undefined;
+  }
   if (!page) {
     page = lazy(async () => {
       let found: ComponentType<AddonPageProps> | undefined;
@@ -138,6 +151,7 @@ export function addonPage(addon: string, screen: string): LazyExoticComponent<Co
         found = (await loadAddon(addon))?.pages?.[screen];
       } catch (e) {
         failed = true;
+        failedAt.set(key, Date.now());
         console.error(`keel: the web part of ${addon} did not load`, e);
       }
       return { default: found ?? ((() => createElement(Missing, { name: addon, failed })) as ComponentType<AddonPageProps>) };
@@ -158,16 +172,19 @@ const subscribers = new Set<() => void>();
 function fetchFeatures(): Promise<void> {
   // a read from before resetFeatures() (tests) changes nothing: it would start the plugins with the reset importer
   const gen = generation;
+  // every live tick reads this: only a different answer replaces the copy and re-renders the pages that read it
+  let changed = false;
   inflight ??= api.features().then(
     (f) => {
       if (gen !== generation) return;
-      cache = f; failed = false; void startPlugins(f);
+      if (cache === null || failed || JSON.stringify(cache) !== JSON.stringify(f)) { cache = f; changed = true; }
+      failed = false; void startPlugins(f);
     },
-    () => { if (gen === generation) failed = true; },
+    () => { if (gen === generation) { if (!failed) changed = true; failed = true; } },
   ).finally(() => {
     if (gen !== generation) return;
     inflight = null;
-    subscribers.forEach((s) => s());
+    if (changed) subscribers.forEach((s) => s());
   });
   return inflight;
 }
@@ -181,6 +198,7 @@ export function resetFeatures() {
   failed = false;
   inflight = null;
   pages.clear();
+  failedAt.clear();
   modules.clear();
   begun.clear();
   pending = 0;

@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorParts } from "../api";
+import { copyText } from "../clipboard";
 import { useApp } from "../state";
 import { Drawer } from "./ui";
 
@@ -21,8 +22,8 @@ export type LoginCtx<V extends LoginBase> = { login: V | null; setLogin: (v: V) 
 
 const TERMINAL = ["done", "failed", "cancelled"];
 
-export function copyText(text: string, toast: (m: string) => void) {
-  navigator.clipboard?.writeText(text).then(() => toast("Copied."), () => toast("Select the text to copy it."));
+function copyToast(text: string, toast: (m: string) => void) {
+  void copyText(text).then((ok) => toast(ok ? "Copied." : "Select the text to copy it."));
 }
 
 export function LoginDrawer<V extends LoginBase>({ title, intro, note, adapter, doneText, onDone, onClose, before, openHint, steps, status, tabs }: {
@@ -105,14 +106,14 @@ export function LoginDrawer<V extends LoginBase>({ title, intro, note, adapter, 
                   <span>Open this page{openHint ?? ""}:</span>
                   <div className="row">
                     <a className="btn sm primary" href={login.url} target="_blank" rel="noreferrer">Open {new URL(login.url).host}</a>
-                    <button className="btn sm ghost" type="button" onClick={() => copyText(login.url!, toast)}>Copy link</button>
+                    <button className="btn sm ghost" type="button" onClick={() => copyToast(login.url!, toast)}>Copy link</button>
                   </div>
                 </li>
               )}
               {login.code && (
                 <li>
                   <span>Type this code on that page:</span>
-                  <div className="row"><b className="devcode">{login.code}</b><button className="btn sm ghost" type="button" onClick={() => copyText(login.code!, toast)}>Copy code</button></div>
+                  <div className="row"><b className="devcode">{login.code}</b><button className="btn sm ghost" type="button" onClick={() => copyToast(login.code!, toast)}>Copy code</button></div>
                 </li>
               )}
               {steps?.({ login, setLogin, setErr })}

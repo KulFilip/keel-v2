@@ -28,7 +28,9 @@ function inline(text: string, key = 0): ReactNode[] {
     else if (m[6]) {
       const mm = t.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)!;
       const href = /^(https?:|#|\/)/.test(mm[2]) ? mm[2] : undefined;
-      out.push(href ? <a key={k++} href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">{mm[1]}</a> : <span key={k++} className="mono">{mm[1]}</span>);
+      // "//host/path" goes to another site like http:// does: open it as an outside link, not in this tab
+      const outside = !!href && (href.startsWith("http") || href.startsWith("//"));
+      out.push(href ? <a key={k++} href={href} target={outside ? "_blank" : undefined} rel="noreferrer">{mm[1]}</a> : <span key={k++} className="mono">{mm[1]}</span>);
     }
     last = m.index + t.length;
   }

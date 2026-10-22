@@ -4,6 +4,7 @@
 // the budget, the acceptance criteria, what blocks shipping and keel's state. The init workflow adds its ladder and
 // knowledge build.
 
+import { copyText } from "../clipboard";
 import { AppliedPanel } from "../components/DocHistory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -684,14 +685,18 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
 }
 
 /** v0.15.3 Stop flow asks first, in a small dialog over the page (Esc or Keep it running closes it). */
-function ConfirmStop({ title, busy, onCancel, onStop }: { title: string; busy: boolean; onCancel: () => void; onStop: () => void }) {
+export function ConfirmStop({ title, busy, onCancel, onStop }: { title: string; busy: boolean; onCancel: () => void; onStop: () => void }) {
   const keep = useRef<HTMLButtonElement>(null);
+  // The parent passes a new arrow on every render (every live event): keep the latest in a ref and
+  // set up focus and the Esc key once, so a keyboard user's Tab is not pulled back to "Keep it running".
+  const cancel = useRef(onCancel);
+  cancel.current = onCancel;
   useEffect(() => {
     keep.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onCancel(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); cancel.current(); } };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  }, []);
   return (
     <div className="fl-confirm-back" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="fl-confirm panel" role="alertdialog" aria-modal="true" aria-labelledby="fl-stop-h" aria-describedby="fl-stop-p">
@@ -844,7 +849,7 @@ function CopyId({ id }: { id: string }) {
   const { toast } = useApp();
   return (
     <button type="button" className="linkbtn sub fl-tid" title={`Flow id ${id}: copy it for keel2 or MCP`} aria-label={`Copy the flow id ${id}`}
-      onClick={() => { void navigator.clipboard?.writeText(id).then(() => toast("Flow id copied."), () => toast(id)); }}>
+      onClick={() => { void copyText(id).then((ok) => toast(ok ? "Flow id copied." : id)); }}>
       copy flow id
     </button>
   );

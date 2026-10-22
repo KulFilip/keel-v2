@@ -151,26 +151,32 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     else onView.current?.(viewRef.current);
   });
 
-  // React's onWheel is passive; zooming must stop the page from scrolling or zooming itself
+  // React's onWheel is passive; zooming must stop the page from scrolling or zooming itself. Only Ctrl/Cmd (zoom) and
+  // Space held (pan mode) take the wheel: a plain wheel scrolls the page past the diagram. The listener is added once
+  // and calls the latest handler, so it is not re-subscribed on every render.
+  const wheel = useRef<(e: WheelEvent) => void>(() => undefined);
+  wheel.current = (e: WheelEvent) => {
+    const el = box.current;
+    if (!el || !(e.ctrlKey || e.metaKey || space)) return;
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    const v = viewRef.current;
+    if (e.ctrlKey || e.metaKey) {
+      zoomAt(v.k * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0022)), e.clientX - r.left, e.clientY - r.top);
+    } else {
+      const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX, dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
+      const m = e.deltaMode === 1 ? 16 : 1;
+      cancelAnimationFrame(anim.current);
+      setView({ ...v, x: v.x - dx * m, y: v.y - dy * m });
+    }
+  };
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      const v = viewRef.current;
-      if (e.ctrlKey || e.metaKey) {
-        zoomAt(v.k * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0022)), e.clientX - r.left, e.clientY - r.top);
-      } else {
-        const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX, dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
-        const m = e.deltaMode === 1 ? 16 : 1;
-        cancelAnimationFrame(anim.current);
-        setView({ ...v, x: v.x - dx * m, y: v.y - dy * m });
-      }
-    };
+    const onWheel = (e: WheelEvent) => wheel.current(e);
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  });
+  }, []);
 
   // Space held over the canvas: drag pans even over boxes
   useEffect(() => {
@@ -184,11 +190,14 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     const up = (e: KeyboardEvent) => {
       if (e.code === "Space") setSpace(false);
     };
+    const blur = () => setSpace(false); // the keyup never arrives when the window loses focus while Space is held
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
     };
   }, []);
 
