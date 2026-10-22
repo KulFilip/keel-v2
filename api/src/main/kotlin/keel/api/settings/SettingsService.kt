@@ -5,6 +5,7 @@ import keel.api.common.BadRequest
 import keel.api.common.Json
 import keel.api.pluginhost.PluginHost
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
@@ -21,11 +22,18 @@ data class SettingsSectionView(val id: String, val title: String, val order: Int
  * A plugin's own settings sit next to them as `plugins.<name>.<key>` (see [plugin]): any such key is taken, core's keys
  * keep their checks, and [Settings] and the overrides show core's keys only.
  */
+/**
+ * Settings were saved: General (projectId null) or one project's own. [keys] = the keys the change named. Part of keel's
+ * api SDK: a plugin whose engine part needs its settings while flows run listens (the Supervisor's switch).
+ */
+data class SettingsChanged(val projectId: String?, val keys: Set<String>)
+
 @Service
 class SettingsService(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val sectionBeans: ObjectProvider<SettingsSection>,
+    private val events: ObjectProvider<ApplicationEventPublisher>,
 ) {
 
     /** A scope's saved values; a key keel no longer has (v0.17.2 keel_rules) is left out and dropped at the next save. */
@@ -70,6 +78,7 @@ class SettingsService(
         val merged = patched(raw(GENERAL), patch)
         val result = fromMap(defaultsMap() + core(merged)) // validates types
         save(GENERAL, merged)
+        events.ifAvailable { it.publishEvent(SettingsChanged(null, patch.keys)) }
         return result
     }
 
@@ -92,6 +101,7 @@ class SettingsService(
         val next = patched(raw(project(pid)), patch)
         fromMap(toMap(general()) + core(next)) // validates types
         save(project(pid), next)
+        events.ifAvailable { it.publishEvent(SettingsChanged(pid, patch.keys)) }
         return forProject(pid)
     }
 

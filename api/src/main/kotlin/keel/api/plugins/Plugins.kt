@@ -32,6 +32,12 @@ data class PluginAskBody(val title: String = "", val command: String = "")
  * with every call: `github` → the GitHub token (keysFor), and what each plugin's FlowContributor adds (the Database
  * plugin: `db:<name>` → the connection as JSON).
  */
+/**
+ * A plugin was turned on or off for a project ([projectId]) or for every project ("*"). Part of keel's api SDK: a plugin
+ * whose engine part must know while flows run listens (the Supervisor stops at once).
+ */
+data class PluginSwitched(val projectId: String, val plugin: String, val enabled: Boolean)
+
 @Service
 class PluginService(
     private val jdbc: JdbcTemplate,
@@ -40,6 +46,7 @@ class PluginService(
     private val secrets: SecretService,
     private val mapper: ObjectMapper,
     private val approvals: ApprovalService,
+    private val publisher: org.springframework.beans.factory.ObjectProvider<org.springframework.context.ApplicationEventPublisher>,
 ) : FlowContributor {
     @Volatile private var cache: Pair<Long, JsonNode>? = null
 
@@ -107,6 +114,7 @@ class PluginService(
         )
         // "for every project" also means this one: its own older choice gives way
         if (body.scope == "all") jdbc.update("DELETE FROM project_plugins WHERE project_id = ? AND plugin = ?", pid, name)
+        publisher.ifAvailable { it.publishEvent(PluginSwitched(target, name, body.enabled)) }
         return forProject(pid)
     }
 

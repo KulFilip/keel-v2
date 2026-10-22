@@ -128,7 +128,9 @@ class SupervisorApiTest : ApiTest() {
             val body = get("/api/tui/plugins?project=$pid").andExpect(status().isOk).json()
             assertThat(body["problems"]).isEmpty()
             val cmd = body["plugins"].first { it["name"].asText() == "supervisor" }["commands"][0]
-            assertThat(cmd["sub"].fieldNames().asSequence().toList()).containsExactly("log", "status", "on", "off", "shadow", "act")
+            assertThat(cmd["sub"].fieldNames().asSequence().toList()).containsExactly("status", "on", "off", "follow", "keel-on",
+                "keel-off", "flow-on", "flow-off", "flow-follow", "shadow", "act", "log")
+            assertThat(cmd["sub"]["keel-off"]["call"]["path"].asText()).isEqualTo("/supervisor/switch")
             assertThat(cmd["sub"]["act"]["confirm"].asText()).contains("answer gates")
         } finally {
             engine.extraRoutes.remove("/plugins")
