@@ -30,42 +30,50 @@ jobs:
         with:
           filters: |
             ci: &ci ['.github/workflows/ci.yml']
-            engine: [*ci, 'engine/**', 'content/**', 'plugins/**', 'product/engine/**', 'scripts/test-plugins.sh']
+            engine: [*ci, 'engine/**', 'content/**', 'plugins/**', 'product/engine/**', 'scripts/test-plugins.sh', 'docker/**', 'Dockerfile']
             api: [*ci, 'api/**', 'plugins/*/api/**', 'content/**', 'engine/keel_engine/rules/**']
             product: [*ci, 'product/**', 'api/**', 'engine/**']
             web: [*ci, 'web/**', 'plugins/*/web/**', 'content/**', 'product/web/**']
             cli: [*ci, 'cli/**', 'web/src/**', 'content/**']
             xal: [*ci, 'clients/xal/**', 'web/src/components/events.ts']
             plugin_tool: [*ci, 'tools/keel-plugin/**', 'plugins/**', 'content/workflows/**']
-            shell: [*ci, 'keel2', 'install.sh', 'scripts/**', 'docker/**', 'Dockerfile', 'engine/**', 'cli/**', 'web/**']
+            shell: [*ci, 'keel2', 'install.sh', 'scripts/**', 'e2e/**', 'docker/**', 'Dockerfile', 'engine/**', 'cli/**', 'web/**', 'plugins.lock', 'tools/keel-plugin/**']
   scripts:
     needs: changes
     if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start && bash -n docker/keel-native-start && bash -n scripts/build-native.sh && bash -n scripts/test-keel2-native.sh
+      - run: |
+          for f in keel2 install.sh docker/keel-start docker/keel-native-start docker/keel-stack-setup scripts/*.sh docker/tests/*.sh; do
+            bash -n "$f" || exit 1
+          done
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
-      - run: shellcheck -S error keel2 install.sh docker/keel-start docker/keel-native-start scripts/build-native.sh scripts/test-keel2-native.sh product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh scripts/plugin-check.sh
+      # the e2e suites share e2e/lib.py (a free port and unique names per run): they must at least compile
+      - run: python3 -m py_compile e2e/lib.py e2e/keelauth.py e2e/*/*.py && find e2e -name __pycache__ -prune -exec rm -rf {} +
+      - run: shellcheck -S warning keel2 install.sh docker/keel-start docker/keel-native-start docker/keel-stack-setup scripts/no-v1.sh scripts/test-keel-tui.sh scripts/test-keel-tui-review.sh scripts/build-native.sh scripts/test-keel2-native.sh product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh scripts/plugin-check.sh
       # v0.17.2 keel2's data volume: its own per KEEL_NAME, never one another running keel uses (fake docker)
-      - run: shellcheck -S error scripts/test-keel2-volume.sh && bash scripts/test-keel2-volume.sh
-      - run: shellcheck -S error scripts/test-keel2-auth.sh && bash scripts/test-keel2-auth.sh
+      - run: shellcheck -S warning scripts/test-keel2-volume.sh && bash scripts/test-keel2-volume.sh
+      - run: shellcheck -S warning scripts/test-keel2-auth.sh && bash scripts/test-keel2-auth.sh
       # v0.18.12 keel2 token: a pipe, one piece, refused with a reason (fake docker and curl, fake tokens)
-      - run: shellcheck -S error scripts/test-keel2-token.sh && bash scripts/test-keel2-token.sh
+      - run: shellcheck -S warning scripts/test-keel2-token.sh && bash scripts/test-keel2-token.sh
       # v0.18.17 keel2 mounts a git worktree's repository too, at the same path (fake docker and curl)
-      - run: shellcheck -S error scripts/test-keel2-worktree.sh && bash scripts/test-keel2-worktree.sh
+      - run: shellcheck -S warning scripts/test-keel2-worktree.sh && bash scripts/test-keel2-worktree.sh
       # backup and restore never cost the data: the archive is checked first, keel starts again, the file is private (fake docker)
-      - run: shellcheck -S error scripts/test-keel2-backup.sh && bash scripts/test-keel2-backup.sh
+      - run: shellcheck -S warning scripts/test-keel2-backup.sh && bash scripts/test-keel2-backup.sh
       # the plugin publishing scripts (docs/plugins/14-publishing.md), and step 5's: the plugin repos and plugins.lock
-      - run: shellcheck -S error docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
-      - run: shellcheck -S error docs/plugins/tools/split-plugin.sh scripts/build-plugin-repo.sh scripts/fetch-locked-plugins.sh scripts/update-plugins-lock.sh
+      - run: shellcheck -S warning docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
+      - run: shellcheck -S warning docs/plugins/tools/split-plugin.sh scripts/build-plugin-repo.sh scripts/fetch-locked-plugins.sh scripts/update-plugins-lock.sh
       # plugins.lock's lines (PLUGINS=lock reads them; the keel-plugin job tests the download and its refusals)
       - run: scripts/fetch-locked-plugins.sh --check plugins.lock
       # keel2 update / update --rollback in native mode, with fake releases (no network, no Java)
       - uses: astral-sh/setup-uv@v5
         with: { enable-cache: true }
       - run: scripts/test-keel2-native.sh
+      # start keeps the running keel until the new one can start; update does not pull a local image or restart for nothing;
+      # an unknown answer to "are agents working?" is not "no"; token does not hang; native update never downgrades
+      - run: shellcheck -S warning scripts/test-keel2-launcher.sh && bash scripts/test-keel2-launcher.sh
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel-start, the supervisor loop (restart on exit 75, fallback to the last good plugins), with stub commands
       - run: docker/tests/keel-start.test.sh

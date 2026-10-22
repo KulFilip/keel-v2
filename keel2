@@ -113,6 +113,19 @@ port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }   # something lis
 
 container_exists() { docker inspect "$NAME" >/dev/null 2>&1; }
 
+# How long docker waits for keel to stop before it kills it. docker/keel-start waits KEEL_STOP_TIMEOUT (20 s) for the
+# engine and the api to end, so docker must wait longer than that (docker's own default is 10 s).
+stop_secs() {
+  local t="${KEEL_STOP_TIMEOUT:-20}"
+  case "$t" in ""|*[!0-9]*) t=20 ;; esac
+  echo $((t + 5))
+}
+# Stops keel's container the gentle way (time to close its database), then removes it. Data is on the volume.
+remove_container() {
+  docker stop -t "$(stop_secs)" "$NAME" >/dev/null 2>&1 || true
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+}
+
 # v0.17.2 the data volume of this keel's container, when it has one (a container from before keel2 named volumes after
 # KEEL_NAME keeps the one it has, unless KEEL_VOLUME says otherwise)
 resolve_volume() {
@@ -185,15 +198,26 @@ open_signed_in() {  # open_signed_in <port> — the dashboard, signed in (an old
 }
 
 # Agents working right now (a restart or stop would throw their work away and the step starts again).
+# Prints the number, or "?" when keel did not say (no token, an error answer, no answer): then nobody can tell.
 busy_agents() {
   container_running || { echo 0; return; }
+  local body
+  body="$(kcurl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null)" || { echo "?"; return; }
+  [ -n "$body" ] || { echo "?"; return; }
   # grep finds nothing when no agent works: that is not an error (set -e / pipefail would end the script silently)
-  { kcurl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null || true; } | { grep -o '"agent":"[^"]*"' || true; } | wc -l | tr -d ' '
+  { printf '%s' "$body" | grep -o '"agent":"[^"]*"' || true; } | wc -l | tr -d ' '
 }
 
 guard_busy() {  # guard_busy "restart" — asks (or refuses) when agents are working; KEEL_FORCE=1 / --force skips it
   [ "${KEEL_FORCE:-0}" = 1 ] && return 0
   local n; n="$(busy_agents)"
+  if [ "$n" = "?" ]; then
+    # keel did not answer, so "no agents" is not known: do not guess it (a guess here kills work without asking)
+    warn "keel did not say whether agents are working. To $1 keel stops them: their step starts again later and its tokens are spent again."
+    [ "${KEEL_YES:-0}" = 1 ] && return 0
+    ask_yes "$1 anyway?" && return 0
+    die "Not done: keel2 cannot tell if agents are working." "Look at keel2 status or the dashboard, then try again; or use --force (or KEEL_YES=1) to $1 anyway."
+  fi
   [ "${n:-0}" -gt 0 ] 2>/dev/null || return 0
   warn "$n agent(s) are working right now. To $1 keel stops them: their step starts again later and its tokens are spent again."
   ask_yes "$1 anyway?" && return 0
@@ -377,12 +401,12 @@ cmd_start() {
     guard_busy restart
     local old; old="$(label project)"
     if [ -n "$old" ] && [ "$old" != "$project" ]; then info "keel was running for $old — switching to $project."; fi
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
   fi
+  # The running keel is removed only when everything is ready (port, options): a failure before that leaves it as it is.
   local port; port="$(pick_port)"
   [ "$port" = "$WANT_PORT" ] || warn "Port $WANT_PORT is in use, so keel uses port $port."
 
-  local args=(-d --name "$NAME" --restart unless-stopped -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
+  local args=(-d --name "$NAME" --restart unless-stopped --stop-timeout "$(stop_secs)" -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
               --label "keel2.project=$project" --label "keel2.docker=$docker_mode" --label "keel2.keelv1=$keel_v1"
               --label "keel2.core=$core"
               -e KEEL_PROJECT_NAME="$(basename "$project")")
@@ -435,7 +459,15 @@ cmd_start() {
 
   info "Starting keel for ${B}$project${N}…"
   [ ${#added[@]} = 0 ] || info "  ${D}and ${#added[@]} added folder(s): ${added[*]}${N}"
-  docker run "${args[@]}" "$IMAGE" >/dev/null || die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
+  local replaced=0
+  if container_exists; then remove_container; replaced=1; fi
+  if ! docker run "${args[@]}" "$IMAGE" >/dev/null; then
+    if [ "$replaced" = 1 ]; then
+      die "Docker could not start the container." "The old keel was stopped, but your data and logins are safe (volume $VOLUME is untouched)." \
+          "Run 'keel2 doctor' to find out why, then start it again: keel2 start \"$project\""
+    fi
+    die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
+  fi
   wait_healthy "$port"
   ok "keel is running: ${B}http://localhost:$port${N}"
   register_added "$port" ${added[@]+"${added[@]}"}
@@ -455,7 +487,9 @@ cmd_stop() {
   container_exists || { info "keel is not running."; return 0; }
   [ "${1:-}" = "--force" ] && KEEL_FORCE=1
   guard_busy stop
-  docker rm -f "$NAME" >/dev/null && ok "keel stopped (your data and logins are kept)"
+  remove_container
+  container_exists && die "keel could not be stopped." "Look at: docker ps -a --filter name=$NAME"
+  ok "keel stopped (your data and logins are kept)"
 }
 
 cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the next start without --safe
@@ -688,15 +722,40 @@ cmd_doctor() {
   if [ "$problems" = 0 ]; then info "${G}All good.${N}"; else info "${R}$problems problem(s) found.${N} Fix them and run keel2 doctor again."; return 1; fi
 }
 
+# A local image (built here, like keel-v2:dev) has no registry in its name: there is nothing to download.
+image_is_local() { case "${1%%@*}" in */*) return 1 ;; *) return 0 ;; esac; }
+
 cmd_update() {
   need_docker
   # keel v2 does not use keel v1 any more: the old setting does nothing now
   [ -n "${KEEL_HOME:-}" ] && warn "KEEL_HOME is set but ignored since 0.4.1: keel v2 does not use keel v1 (see: keel2 help, --with-keel-v1)."
   # a keel started with --core gets the newest core image
   if container_exists && [ "$(label core)" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
-  info "Getting the newest image ($IMAGE)…"
-  docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
-  if container_exists && [ -n "$(label project)" ]; then KEEL_TAKE_NEW_IMAGE=1 cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
+  # a keel that runs another image (a pinned tag, a product edition) keeps it: KEEL_IMAGE=<image> keel2 update moves it
+  if container_exists && [ -z "${KEEL_IMAGE:-}" ] && [ "$(label core)" != 1 ]; then
+    local running; running="$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || true)"
+    if [ -n "$running" ] && [ "$running" != "$IMAGE" ]; then
+      info "keel runs $running, so keel2 updates that image. To move to another one: KEEL_IMAGE=<image> keel2 update"
+      IMAGE="$running"
+    fi
+  fi
+  if image_is_local "$IMAGE" && [ "${KEEL_TAKE_NEW_IMAGE:-}" != 1 ]; then
+    info "$IMAGE is a local image, so there is nothing to download. (KEEL_TAKE_NEW_IMAGE=1 tries anyway.)"
+  else
+    info "Getting the newest image ($IMAGE)…"
+    docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
+  fi
+  if container_exists && [ -n "$(label project)" ]; then
+    # start again only when the image is a new one (a new image id); the same image means keel runs the newest already
+    local have want
+    have="$(docker inspect -f '{{.Image}}' "$NAME" 2>/dev/null || true)"
+    want="$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
+    if container_running && [ -n "$have" ] && [ "$have" = "$want" ]; then
+      ok "keel runs the newest image already ($IMAGE): nothing to restart."
+      return 0
+    fi
+    KEEL_TAKE_NEW_IMAGE=1 cmd_restart
+  else ok "updated. Start keel with: keel2 start /path/to/project"; fi
 }
 
 # keel2 token <claude|codex|copilot|anthropic|openai|github> [value]
@@ -739,7 +798,19 @@ cmd_token() {
   need_docker
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
   # A pipe (pbpaste | keel2 token claude): the value comes in one piece, with no prompt.
-  if [ -z "$value" ] && [ ! -t 0 ]; then value="$(cat)"; fi
+  # `-` means: read stdin to the end (waits for the writer). With no value and no terminal, keel2 waits only
+  # KEEL_TOKEN_STDIN_TIMEOUT seconds (10) for the first line: ssh, CI and IDE shells often have a stdin that never ends.
+  local given=0; [ -n "$value" ] && [ "$value" != "-" ] && given=1
+  if [ "$value" = "-" ]; then value="$(cat)"
+  elif [ -z "$value" ] && [ ! -t 0 ]; then
+    local first="" rc=0 secs="${KEEL_TOKEN_STDIN_TIMEOUT:-10}"
+    case "$secs" in ""|*[!0-9]*) secs=10 ;; esac
+    IFS= read -r -t "$secs" first || rc=$?
+    if [ "$rc" = 0 ]; then value="$first"$'\n'"$(cat)"       # a line arrived: the rest follows until the pipe ends
+    elif [ "$rc" = 1 ]; then value="$first"                  # the input ended (a last line with no line break)
+    else info "  ${D}No input arrived on stdin within ${secs}s.${N}"; fi
+  fi
+  [ "$given" = 0 ] || warn "A token on the command line shows in 'ps' and in your shell history. Safer: pbpaste | keel2 token $which" >&2
   if [ -z "$value" ] && [ "$which" = codex ] && [ -f "$HOME/.codex/auth.json" ]; then value="$(cat "$HOME/.codex/auth.json")"; fi
   if [ -z "$value" ] && [ -t 0 ]; then
     [ "$which" = claude ] && info "Get it with: claude setup-token   (or use the dashboard: Connections › Set up login)"
@@ -868,7 +939,7 @@ cmd_backup() {
   KEEL_TMPFILE="$tmp"
   keel_guard_exit
   # The database is copied while keel is stopped, so the copy is consistent.
-  if [ "$was" = 1 ]; then KEEL_RESTART_CMD="docker start $NAME"; docker stop "$NAME" >/dev/null; fi
+  if [ "$was" = 1 ]; then KEEL_RESTART_CMD="docker start $NAME"; docker stop -t "$(stop_secs)" "$NAME" >/dev/null; fi
   if ! docker run --rm -v "$VOLUME:/data:ro" -v "$(dirname "$file"):/out" --entrypoint tar "$IMAGE" -czf "/out/$(basename "$tmp")" --exclude=./cache -C /data . \
      || ! tar -tzf "$tmp" >/dev/null 2>&1; then
     die "Backup failed." "No backup file was left behind; keel's data is unchanged."
@@ -892,7 +963,7 @@ cmd_restore() {
   local was=0; container_running && was=1
   [ "$was" = 1 ] && guard_busy restore
   keel_guard_exit
-  if [ "$was" = 1 ]; then KEEL_RESTART_CMD="docker start $NAME"; docker stop "$NAME" >/dev/null; fi
+  if [ "$was" = 1 ]; then KEEL_RESTART_CMD="docker start $NAME"; docker stop -t "$(stop_secs)" "$NAME" >/dev/null; fi
   docker run --rm -v "$VOLUME:/data" -v "$(dirname "$file"):/in:ro" --entrypoint sh "$IMAGE" -c "$RESTORE_SH" sh /data "/in/$(basename "$file")" \
     || die "Restore failed." "keel's old data was kept (if it is not back in place, it is in /data/.restore-old of volume $VOLUME)."
   keel_cleanup
@@ -906,7 +977,7 @@ cmd_uninstall() {
   resolve_volume
   # never delete a data volume another running keel still uses
   if [ "${1:-}" = "--all" ]; then volume_guard; fi
-  container_exists && docker rm -f "$NAME" >/dev/null && ok "removed the keel container"
+  if container_exists; then remove_container; ok "removed the keel container"; fi
   if [ "${1:-}" = "--all" ]; then
     if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then info "No keel data to remove."; remove_folders_file; return 0; fi
     warn "This deletes keel's data: logins, settings, flow history (volume $VOLUME). Your projects are not touched."
@@ -1042,18 +1113,22 @@ native_warn() {  # once per keel: agents run as you
   die "Not started (native mode needs your yes; KEEL_YES=1 gives it without asking)." "Or use Docker: keel2 start [folder]"
 }
 
+# native_download <version> <folder> — a release's tarball, downloaded and checked into <folder>; prints its path.
+# Nothing is stopped or replaced here, so a failure costs nothing.
+native_download() {
+  local v="$1" tmp="$2" name="keel-v2-$1-native.tar.gz"
+  info "Getting keel v2 $v for native mode…" >&2
+  curl -fsSL "$RELEASE_URL/v$v/$name" -o "$tmp/$name" && curl -fsSL "$RELEASE_URL/v$v/$name.sha256" -o "$tmp/$name.sha256" \
+    || die "Could not download keel v2 $v ($RELEASE_URL/v$v/$name)." "Check your internet connection, or build it: keel2 start --native --from-source <keel-v2 checkout>"
+  [ "$(sha256_of "$tmp/$name")" = "$(cut -d' ' -f1 "$tmp/$name.sha256")" ] || die "The download's checksum does not match, so keel does not use it." "Try again later."
+  echo "$tmp/$name"
+}
+
 native_install() {  # native_install [tarball] [version] — a release (default $KEEL2_VERSION) or the given tarball into app/<version>
-  local tgz="${1:-}" want="${2:-$KEEL2_VERSION}" tmp dir v name
+  local tgz="${1:-}" want="${2:-$KEEL2_VERSION}" tmp dir v
   (umask 077; mkdir -p "$ND")
   tmp="$(mktemp -d)"
-  if [ -z "$tgz" ]; then
-    v="$want"; name="keel-v2-$v-native.tar.gz"
-    info "Getting keel v2 $v for native mode…"
-    curl -fsSL "$RELEASE_URL/v$v/$name" -o "$tmp/$name" && curl -fsSL "$RELEASE_URL/v$v/$name.sha256" -o "$tmp/$name.sha256" \
-      || die "Could not download keel v2 $v ($RELEASE_URL/v$v/$name)." "Check your internet connection, or build it: keel2 start --native --from-source <keel-v2 checkout>"
-    [ "$(sha256_of "$tmp/$name")" = "$(cut -d' ' -f1 "$tmp/$name.sha256")" ] || die "The download's checksum does not match, so keel does not use it." "Try again later."
-    tgz="$tmp/$name"
-  fi
+  if [ -z "$tgz" ]; then tgz="$(native_download "$want" "$tmp")" || exit 1; fi
   tar -xzf "$tgz" -C "$tmp" || die "Could not unpack $tgz."
   dir="$(ls -d "$tmp"/keel-v2-*/ 2>/dev/null | head -1)"; dir="${dir%/}"
   [ -n "$dir" ] && [ -f "$dir/VERSION" ] && [ -f "$dir/api.jar" ] || die "$tgz is not a keel v2 native release."
@@ -1066,6 +1141,7 @@ native_install() {  # native_install [tarball] [version] — a release (default 
   if [ -e "$ND/current" ] && [ "$(readlink "$ND/current")" != "$ND/app/$v" ]; then ln -sfn "$(readlink "$ND/current")" "$ND/previous"; fi
   rm -rf -- "$tmp"
   ln -sfn "$ND/app/$v" "$ND/current"
+  rm -f "$ND/rolled-back"   # a new install is a new choice: keel2 start may follow this script's version again
   ok "keel v2 $v installed ($ND/app/$v)"
 }
 
@@ -1100,7 +1176,12 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   # install when there is none, when a tarball is given, or when this script is newer than the installed one
   # (never back down: keel2 update may have installed a newer release than this script knows)
   local have; have="$(cat "$ND/current/VERSION" 2>/dev/null || true)"
-  if [ -n "$tgz" ] || [ ! -f "$ND/current/api.jar" ] || version_newer "$KEEL2_VERSION" "$have"; then native_install "$tgz"; fi
+  # (not after keel2 update --rollback: going back to an older version was the person's choice)
+  if [ -n "$tgz" ] || [ ! -f "$ND/current/api.jar" ]; then native_install "$tgz"
+  elif version_newer "$KEEL2_VERSION" "$have"; then
+    if [ -f "$ND/rolled-back" ]; then info "  ${D}keel v2 $have stays (you went back to it on purpose). The newest: keel2 update${N}"
+    else native_install "$tgz"; fi
+  fi
   native_clis
   # keel's data (its database, logins, agent homes) and logs are this person's only
   (umask 077; mkdir -p "$ND/run" "$ND/logs" "$ND/data")
@@ -1181,20 +1262,42 @@ native_update() {
   [ "${1:-}" = --rollback ] && {
     [ -L "$ND/previous" ] || die "There is no earlier version to go back to."
     local cur; cur="$(readlink "$ND/current")"; ln -sfn "$(readlink "$ND/previous")" "$ND/current"; ln -sfn "$cur" "$ND/previous"
+    : > "$ND/rolled-back"   # keel2 start keeps this version until keel2 update installs another
     ok "back to keel v2 $(cat "$ND/current/VERSION")"
     native_running && { native_stop_quiet; native_start "$(cat "$ND/project")" "" ""; }
     return 0
   }
   # the newest release, not only the one this keel2 script knows
   local latest have was=0
-  latest="$(curl -fsSL "${KEEL_RELEASES_API:-https://api.github.com/repos/MiladNalbandi/keel-v2/releases/latest}" 2>/dev/null \
-    | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
-  [ -n "$latest" ] || latest="$KEEL2_VERSION"
   have="$(cat "$ND/current/VERSION" 2>/dev/null || true)"
-  if [ "$latest" = "$have" ]; then ok "keel v2 $have is the newest release already."; return 0; fi
-  # stop first: the running api and engine are never replaced under them
+  latest="$(curl -fsSL "${KEEL_RELEASES_API:-https://api.github.com/repos/MiladNalbandi/keel-v2/releases/latest}" 2>/dev/null \
+    | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)" || true
+  if [ -z "$latest" ]; then
+    # GitHub did not say. This script's own version is a fair guess only when it is newer than what is installed.
+    if [ -z "$have" ] || version_newer "$KEEL2_VERSION" "$have"; then
+      warn "Could not ask GitHub for the newest release; using the version of this keel2 ($KEEL2_VERSION)."
+      latest="$KEEL2_VERSION"
+    else
+      ok "keel v2 $have is installed. Could not ask GitHub for a newer release: try again later."
+      return 0
+    fi
+  fi
+  # never go back: an installed version that is newer than the release (or equal) stays
+  if [ "$latest" = "$have" ] || { [ -n "$have" ] && ! version_newer "$latest" "$have"; }; then
+    ok "keel v2 $have is the newest release already."; return 0
+  fi
+  # download and check first: a failure here leaves keel as it is (still running)
+  local dl tgz
+  dl="$(mktemp -d)"
+  tgz="$(native_download "$latest" "$dl")" || exit 1
+  # stop only now: the running api and engine are never replaced under them
   if native_running; then guard_busy update; native_stop_quiet; was=1; fi
-  native_install "" "$latest"
+  if ! (native_install "$tgz" "$latest"); then
+    rm -rf -- "$dl"
+    if [ "$was" = 1 ]; then warn "The update failed; starting keel v2 $have again."; native_start "$(cat "$ND/project")" "" "" || true; fi
+    die "The update to keel v2 $latest failed." "keel v2 $have is still the installed version."
+  fi
+  rm -rf -- "$dl"
   [ "$was" = 1 ] && native_start "$(cat "$ND/project")" "" ""
   [ "$latest" = "$KEEL2_VERSION" ] || info "  ${D}This keel2 script is $KEEL2_VERSION; get the newest one too: curl -fsSL …/install.sh | sh${N}"
   return 0
@@ -1286,7 +1389,7 @@ if native_mode && ! docker_keel_running; then
       install|remove|update|rollback) [ $# -ge 1 ] || die "usage: keel2 plugins $sub <name>" ;;
       *) die "Unknown plugins command: $sub" "usage: keel2 plugins list | install <name> | remove <name> | search [words] | update <name> | rollback <name> | safe" ;;
     esac
-    [ "$sub" = install ] && sub=get
+    [ "$sub" = install ] && sub="get"
     KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" KEEL_CONTENT="$ND/current/content" \
       "$ND/current/engine/.venv/bin/keel-engine" plugins "$sub" "$@"
   }

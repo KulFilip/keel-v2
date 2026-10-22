@@ -47,9 +47,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/keel-plugin"))
 from keel_plugin import miniyaml  # noqa: E402  (stdlib only: no cryptography needed here)
 
-NAME, VOLUME, PORT = "keel-s5", "keel-s5-data", 8093
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+E = lib.Env.make("repos")  # keel-e2e-repos-<random> and a free port: never the fixed keel-s5 / 8093
+NAME, VOLUME, PORT = E.name, E.volume, E.port
 IMAGE_LOCK, IMAGE_SRC_NEW, IMAGE_SRC_OLD = "keel-v2:s5-lock", "keel-v2:s5-src-new", "keel-v2:s5-src-old"
 PLUGINS = ["tasks", "wiki", "jira"]
 KEELBOT = "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>"
@@ -317,6 +319,7 @@ def main() -> int:
     ap.add_argument("--no-docker", action="store_true", help="only the repos, their CI and the lock (no image)")
     ap.add_argument("--baseline", default="fca8ec9", help="the commit whose Dockerfile a normal build must match")
     args = ap.parse_args()
+    E.keep = args.keep
 
     head = git(ROOT, "rev-parse", "HEAD")
     if sh("git", "-C", ROOT, "status", "--porcelain", "--untracked-files=no").strip():

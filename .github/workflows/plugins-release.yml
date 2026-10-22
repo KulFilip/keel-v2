@@ -24,13 +24,35 @@ on:
         required: true
         default: all
         type: string
+      replace_assets:
+        description: 'Replace files of a plugin version that is released already (default: refuse; a released file never changes by accident)'
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
   group: plugins-release
   cancel-in-progress: false
 jobs:
+  # the tests first: nothing is signed or released from a commit whose plugin tests fail
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      # like ci's engine job: projects use the system Python, the plugins' engine tests run with each engine folder on PYTHONPATH
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-pytest python-is-python3
+      - run: uv run --with pytest pytest -q
+        working-directory: tools/keel-plugin
+      - run: uv sync
+        working-directory: engine
+      - run: scripts/test-plugins.sh
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: On plugin-base, with both secrets
@@ -181,6 +203,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.KEEL_STUDIO_TOKEN }}
           SHA: ${{ github.sha }}
+          REPLACE: ${{ inputs.replace_assets || 'false' }}
         run: |
           set -euo pipefail
           {
@@ -195,7 +218,19 @@ jobs:
             repo="keel-studio/keel-plugin-$name"
             tag="v$version"
             if gh release view "$tag" --repo "$repo" > /dev/null 2>&1; then
-              gh release upload "$tag" "$k" "$k.minisig" --repo "$repo" --clobber
+              # a released file is never replaced by accident: only the input replace_assets says so
+              have="$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')"
+              clobber=()
+              for f in "$file" "$file.minisig"; do
+                if grep -qxF "$f" <<< "$have"; then
+                  if [ "$REPLACE" != true ]; then
+                    echo "::error::$repo $tag has $f already: it is not replaced. Raise the plugin's version, or run by hand with -f replace_assets=true."
+                    exit 1
+                  fi
+                  clobber=(--clobber)
+                fi
+              done
+              gh release upload "$tag" "$k" "$k.minisig" --repo "$repo" ${clobber[@]+"${clobber[@]}"}
               echo "$repo $tag: new files"
             else
               pre=false

@@ -41,6 +41,7 @@ cp "$src/scripts/build-plugin.sh" "$repo/scripts/"
 rm -rf "$repo/api/src/main/resources/static"
 cp -R "$src/web/dist" "$repo/api/src/main/resources/static"
 (cd "$repo/api" && ./gradlew --no-daemon -q bootJar pluginJars)
+# shellcheck disable=SC2010 # the jar names are our own gradle output: plain names
 cp "$(ls "$repo"/api/build/libs/*.jar | grep -v -- '-plain' | grep -v '/keel-plugin-' | head -1)" "$stage/api.jar"
 
 echo "plugins…"

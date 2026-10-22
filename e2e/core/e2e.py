@@ -29,10 +29,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-NAME, VOLUME, PORT = "keel-core", "keel-core-data", 8097
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+E = lib.Env.make("core")  # keel-e2e-core-<random>, its volume and a free port: never the fixed 8097 / keel-core
+NAME, VOLUME, PORT = E.name, E.volume, E.port
 PROJECT = "shop"
 CHECKS: list[str] = []
 
@@ -224,6 +226,7 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="leave the last keel-core running (and its volume)")
     ap.add_argument("--out", default="", help="where the walk's results and screenshots go (default: a temp folder)")
     a = ap.parse_args()
+    E.keep = a.keep
     ours_only()
     tmp = Path(tempfile.mkdtemp(prefix="s6_core_e2e_"))
     out = Path(a.out) if a.out else tmp / "out"
