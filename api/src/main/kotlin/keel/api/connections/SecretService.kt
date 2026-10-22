@@ -8,7 +8,6 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.nio.file.Files
-import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -37,8 +36,7 @@ class SecretService(
                 Files.readAllBytes(f).also { require(it.size == 32) { "master.key must be 32 bytes" } }
             } else {
                 val k = ByteArray(32).also { random.nextBytes(it) }
-                Files.write(f, k)
-                runCatching { Files.setPosixFilePermissions(f, PosixFilePermissions.fromString("rw-------")) }
+                keel.api.common.OwnerOnly.create(f, k)
                 k
             }
         }

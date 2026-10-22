@@ -183,8 +183,23 @@ class LocalAuthApiTest : ApiTest() {
     @Test
     fun `after signing in, keel only goes to one of its own pages`() {
         assertThat(WebSignInController.safeNext("/flow?x=1")).isEqualTo("/flow?x=1")
-        listOf(null, "", "//evil.test", "https://evil.test", "/\\evil", "flow").forEach {
-            assertThat(WebSignInController.safeNext(it)).isEqualTo("/")
+        listOf(null, "", "//evil.test", "https://evil.test", "/\\evil", "flow",
+            "/%09/evil.test", "/%0a/evil.test", "/%2F/evil.test", "/%252F/evil.test", "/%5Cevil.test", "/\t/evil.test").forEach {
+            assertThat(WebSignInController.safeNext(it)).describedAs(it).isEqualTo("/")
         }
+        assertThat(WebSignInController.safeNext("/flow?q=a%20b")).isEqualTo("/flow?q=a%20b")
+    }
+
+    @Test
+    fun `a key file is created for its owner only`() {
+        val dir = java.nio.file.Files.createTempDirectory("keel-own")
+        val f = dir.resolve("k")
+        keel.api.common.OwnerOnly.create(f, "secret".toByteArray())
+        assertThat(java.nio.file.Files.readString(f)).isEqualTo("secret")
+        if (f.fileSystem.supportedFileAttributeViews().contains("posix")) {
+            assertThat(java.nio.file.attribute.PosixFilePermissions.toString(java.nio.file.Files.getPosixFilePermissions(f))).isEqualTo("rw-------")
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy { keel.api.common.OwnerOnly.create(f, "x".toByteArray()) }
+            .isInstanceOf(java.nio.file.FileAlreadyExistsException::class.java)
     }
 }
