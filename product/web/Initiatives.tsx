@@ -209,14 +209,23 @@ function List({ items }: { items: BoardItem[] }) {
   );
 }
 
-function NewInitiative({ onClose }: { onClose: () => void }) {
+/** The new-idea drawer; the Product map opens it with a flow's repo already chosen. */
+export function NewInitiative({
+  onClose,
+  preset = [],
+  idea: idea0 = "",
+}: {
+  onClose: () => void;
+  preset?: string[];
+  idea?: string;
+}) {
   const repos = useLoad("initiative-repos", productApi.repos, { live: false });
   const [title, setTitle] = useState("");
-  const [idea, setIdea] = useState("");
+  const [idea, setIdea] = useState(idea0);
   const [whyNow, setWhyNow] = useState("");
   const [hope, setHope] = useState("");
   const [owner, setOwner] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(preset);
   const [start, setStart] = useState(true);
   const act = useAct();
   const save = async () => {

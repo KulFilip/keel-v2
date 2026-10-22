@@ -4,10 +4,15 @@
 
 import { definePlugin } from "@keel/web-sdk";
 import Initiatives from "./Initiatives";
+import ProductMap from "./ProductMap";
 import Teams from "./Teams";
 import "./product.css";
 
 export default definePlugin({
   name: "product",
-  pages: { initiatives: Initiatives, teams: Teams },
+  pages: {
+    "product-map": ProductMap,
+    initiatives: Initiatives,
+    teams: Teams,
+  },
 });

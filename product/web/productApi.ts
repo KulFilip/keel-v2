@@ -405,6 +405,49 @@ export type JiraTest = {
   error?: string | null;
   hint?: string | null;
 };
+/** One step of a business flow; cite is path:line in the repo (null: keel found no file for it). */
+export type FlowStep = { text: string; cite?: string | null; repo?: string | null };
+export type FlowView = {
+  project_id: string;
+  id: string;
+  name: string;
+  summary?: string | null;
+  team?: string | null;
+  steps?: FlowStep[] | null;
+  endpoints?: string[] | null;
+  tables?: string[] | null;
+  edited: boolean;
+  hidden: boolean;
+  updated_at: string;
+  /** The ticket keys whose commits changed a file this flow cites. */
+  tickets: string[];
+};
+export type MapTeam = {
+  id: string;
+  name: string;
+  lead?: string | null;
+  projects: string[];
+  jira_project?: string | null;
+  keys?: string | null;
+};
+export type FlowRun = {
+  thread_id: string;
+  projects: string[];
+  status: "running" | "done" | "failed" | "stopped" | string;
+  error?: string | null;
+  started_at: string;
+  ended_at?: string | null;
+};
+export type ProductMap = {
+  teams: MapTeam[];
+  flows: FlowView[];
+  tickets: TeamTickets;
+  runs: FlowRun[];
+  /** The team projects with no flows yet. */
+  not_analysed: string[];
+};
+export type FlowEdit = { name?: string; summary?: string; hidden?: boolean };
+
 export type ImportResult = {
   teams: string[];
   paths: number;
@@ -528,6 +571,12 @@ export const productApi = {
   tickets: (team?: string) =>
     get<TeamTickets>(`/product/tickets${team ? `?team=${e(team)}` : ""}`),
   scanTickets: () => post<ScanResult>("/product/tickets/scan"),
+  map: (team?: string) =>
+    get<ProductMap>(`/product/map${team ? `?team=${e(team)}` : ""}`),
+  findFlows: (projects: string[] = []) =>
+    post<FlowRun>("/product/flows/run", { projects }),
+  editFlow: (pid: string, fid: string, b: FlowEdit) =>
+    patch<FlowView>(`/product/flows/${e(pid)}/${e(fid)}`, b),
   keelJira: () => get<JiraView>("/jira"),
   saveKeelJira: (b: JiraSave) => put<JiraView>("/jira", b),
   removeKeelJira: () => del<{ ok: boolean }>("/jira"),

@@ -16,6 +16,7 @@ import type {
   InitiativeJira,
   JiraView,
   PlanView,
+  ProductMap,
   Team,
   TeamKnowledge,
   TeamTickets,
@@ -36,6 +37,13 @@ const PRODUCT: Features = {
     },
   ],
   screens: [
+    {
+      id: "product-map",
+      label: "Product map",
+      group: "Product",
+      needs_project: false,
+      addon: "product",
+    },
     {
       id: "initiatives",
       label: "Initiatives",
@@ -1340,5 +1348,108 @@ describe("keel Product in keel's web", () => {
     // reloaded: every story is in Jira now
     expect(await within(tab).findByText("PAY-102")).toBeInTheDocument();
     expect(within(tab).queryByRole("button", { name: "Preview Jira tickets" })).toBeNull();
+  });
+
+  it("the Product map shows the teams, their flows with the tickets that changed them, the work, and finds the flows again", async () => {
+    let running = false;
+    const map = (): ProductMap => ({
+      teams: [
+        { id: "erp", name: "ERP DM", lead: "Sara", projects: ["erp-core", "erp-ui"], jira_project: "ERPDM", keys: "ERPDM-\\d+" },
+        { id: "sw", name: "SW", lead: "Tom", projects: ["web-shop"], jira_project: "SW", keys: "SW-\\d+" },
+      ],
+      flows: [
+        {
+          project_id: "erp-core",
+          id: "checkout",
+          name: "Checkout",
+          summary: "From the cart to a paid order.",
+          team: "erp",
+          steps: [
+            { text: "The cart totals the prices", cite: "src/Cart.kt:40" },
+            { text: "The customer pays", cite: null },
+          ],
+          endpoints: ["POST /orders"],
+          tables: ["orders", "payments"],
+          edited: false,
+          hidden: false,
+          updated_at: "",
+          tickets: ["ERPDM-1234"],
+        },
+      ],
+      tickets: {
+        team: null,
+        tickets: [
+          {
+            key: "ERPDM-1234",
+            branches: [{ project_id: "erp-core", kind: "branch", ref: "feature/erpdm-1234-vat", key: "ERPDM-1234" }],
+            commits: [
+              { project_id: "erp-core", kind: "commit", ref: "abc", key: "ERPDM-1234" },
+              { project_id: "erp-core", kind: "commit", ref: "def", key: "ERPDM-1234" },
+            ],
+            last_at: "2026-10-20T10:00:00Z",
+          },
+        ],
+        unlinked: [{ project_id: "erp-ui", kind: "branch", ref: "fix-typo", key: "" }],
+        scans: [],
+      },
+      runs: running
+        ? [{ thread_id: "t-9", projects: ["erp-core", "erp-ui", "web-shop"], status: "running", started_at: "" }]
+        : [],
+      not_analysed: ["erp-ui", "web-shop"],
+    });
+    const calls = await open("#/product-map", {
+      "GET /api/product/map": () => map(),
+      "POST /api/product/flows/run": () => {
+        running = true;
+        return map().runs[0];
+      },
+      "PATCH /api/product/flows/erp-core/checkout": (b: { hidden?: boolean }) => ({
+        ...map().flows[0],
+        ...b,
+      }),
+    });
+    const teams = await main().findByRole("region", { name: "Teams" });
+    expect(within(teams).getByRole("button", { name: "Team ERP DM" })).toHaveTextContent(
+      "Jira ERPDM · keys ERPDM-\\d+",
+    );
+    expect(main().getByText("No flows yet for: erp-ui, web-shop.")).toBeInTheDocument();
+    const flows = main().getByRole("region", { name: "Business flows" });
+    const flow = within(flows).getByRole("button", { name: "Flow Checkout" });
+    expect(flow).toHaveTextContent("2 steps · 1 endpoint · 2 tables");
+    expect(within(flow).getByLabelText("Tickets")).toHaveTextContent("ERPDM-1234");
+    const work = main().getByRole("region", { name: "Tickets and work" });
+    expect(work).toHaveTextContent("ERPDM-1234");
+    expect(work).toHaveTextContent("branch feature/erpdm-1234-vat");
+    expect(work).toHaveTextContent("2 commits · last 2026-10-20");
+    expect(work).toHaveTextContent("1 branches or commits with no ticket key");
+
+    // a flow's steps, with their file:line
+    await userEvent.click(flow);
+    const steps = within(flows).getAllByRole("listitem").map((l) => l.textContent);
+    expect(steps).toEqual([
+      "The cart totals the prices src/Cart.kt:40",
+      "The customer pays no file:line",
+    ]);
+    // + New tickets opens the new idea with the flow's repo chosen
+    await userEvent.click(within(flows).getByRole("button", { name: "+ New tickets" }));
+    const d = await screen.findByRole("dialog", { name: "New initiative" });
+    expect(within(d).getByLabelText("The idea")).toHaveValue('About the flow "Checkout": ');
+    await userEvent.click(within(d).getByRole("button", { name: "Close" }));
+    // hiding a flow puts it under "Show 1 hidden"
+    await userEvent.click(within(flows).getByRole("button", { name: "Hide" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ hidden: true }),
+    );
+    expect(await within(flows).findByRole("button", { name: "Show 1 hidden" })).toBeInTheDocument();
+
+
+    await userEvent.click(main().getByRole("button", { name: "Find flows again" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === "/api/product/flows/run")?.body).toEqual({ projects: [] }),
+    );
+    expect(await main().findByLabelText("Flow run")).toHaveTextContent(
+      "runningkeel finds the flows of 3 repos…",
+    );
+    expect(main().getByRole("button", { name: "Find flows again" })).toBeDisabled();
   });
 });

@@ -94,7 +94,18 @@
 .pd-lv-story { padding-left: 36px !important; }
 .pd-lv-subtask { padding-left: 52px !important; color: var(--dim); }
 .pd-sent { border-left: 3px solid var(--ok); padding-left: 10px; }
+/* the Product map: teams | business flows | tickets and work */
+.pd-map { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr) minmax(220px, 1.2fr); gap: 12px; align-items: start; }
+.pd-map-col { background: var(--panel-2); border-radius: 10px; padding: 10px; display: grid; gap: 8px; min-width: 0; }
+.pd-map-col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 2px; }
+.pd-flow { display: grid; gap: 6px; }
+.pd-flow.is-hidden .pd-card { opacity: .6; }
+.pd-flow-detail { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px; display: grid; gap: 8px; }
+.pd-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13px; }
+.pd-ticket { cursor: default; }
+.pd-warn { color: var(--warn); font-size: 13px; margin: 0; }
 @media (max-width: 1000px) {
+  .pd-map { grid-template-columns: minmax(0, 1fr); }
   .pd-main { grid-template-columns: minmax(0, 1fr); }
   .pd-track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
