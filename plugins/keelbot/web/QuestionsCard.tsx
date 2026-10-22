@@ -6,7 +6,8 @@ import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, rea
 /** keel 0.18.9 KeelBot asks the person to choose (```keel-questions```): keel's question form (pick one, tick several,
  *  your own words, how many are answered); Send gives the answers to KeelBot as the next message.
  *  keel 0.18.13 `answered`: the chat's later message with the answers (it starts with "Answers to your questions"): the
- *  card shows what was sent, read only, also after a reload (derived from the chat, nothing stored). */
+ *  card shows what was sent, read only, also after a reload (derived from the chat, nothing stored).
+ *  0.18.38 one question with the id "next" is KeelBot's next steps: buttons, not a form. */
 export function QuestionsCard({ body, answered }: { body: string; answered?: string | null }) {
   const qs = parseQuestions(body);
   const ask = useContext(AskKeelBot);
@@ -20,6 +21,28 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
     setSent(text);
   };
   const said = readAnswersMessage(answered ?? sent ?? "");
+  const q = qs[0];
+  if (qs.length === 1 && q.id === "next" && !q.multiple) {
+    // 0.18.38 KeelBot's next steps (one question with the id "next"): a row of buttons, one press sends the pick
+    const pick = (label: string) => {
+      const text = answersMessage(qs, { next: label });
+      ask?.(text);
+      setSent(text);
+    };
+    return (
+      <section className="kb-next" aria-label="Next steps">
+        <span className="kb-next-h">Next — KeelBot can</span>
+        {said ? <p className="kb-done" role="status">You picked: <b>{said[0]?.answer}</b></p> : (
+          <div className="kb-next-btns">
+            {q.options.map((o) => (
+              <button key={o.label} type="button" className={`btn sm${o.recommended ? " primary" : ""}`} title={o.description} disabled={!ask}
+                onClick={() => pick(o.label)}>{o.label}</button>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
   return (
     <section className="kb-card" aria-label="KeelBot's questions">
       <div className="kb-card-h"><span className="kb-tag">Questions</span><b>KeelBot asks</b></div>
