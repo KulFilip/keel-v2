@@ -1,0 +1,285 @@
+import { useEffect, useState } from "react";
+import { errorParts } from "../../api";
+import { ErrorBox, PageHead, Pill, Tabs } from "../../components/ui";
+import { marketApi, pendingOf, sourcesOf, updateOf } from "../../marketplaceApi";
+import { queryValue } from "../../routes";
+import { type PageProps } from "../../sdk/registry";
+import { useApp, useLoad, useRoute } from "../../state";
+import { PluginDetailPage, titleOf, type Err } from "../PluginDetail";
+import { KindSwitch, MarketWorkflowPage, WorkflowsMarket, type MarketKind } from "../MarketWorkflow";
+import { MarketRulePackPage, RulesMarket } from "../MarketRulePack";
+import { MarketSkillPage, SkillsMarket } from "../MarketSkill";
+import { MarketStackPage, StacksMarket } from "../MarketStack";
+import { InstallDialog } from "./InstallDialog";
+import { InstalledTab } from "./InstalledTab";
+import { MarketTab } from "./MarketTab";
+import { RestartBanner } from "./Restart";
+import { SetOffer } from "./SetOffer";
+import { SourcesTab } from "./SourcesTab";
+
+type Tab = "installed" | "market" | "sources";
+
+/** What the install dialog does: install these (and what they need), then turn these on. */
+export type InstallPlan = { install: string[]; turnOn?: string[]; title?: string };
+
+const SUB: Record<Tab, string> = {
+  installed:
+    "What this keel has installed. Turn a plugin off to hide it without losing its data. Plugins that came in the image can be updated from the marketplace.",
+  market:
+    "Plugins add pages, tools, workflows and agents to keel. Each comes from its own git repo. keel checks its signature before it installs it.",
+  sources: "Where plugins come from, and who may install them.",
+};
+const SUB_WORKFLOWS =
+  "Workflows made by keel and the community. One installs into a project as an editable copy. keel checks its signature and shows what it runs first.";
+const SUB_RULES =
+  "Rule packs made by keel and the community: guard rules agents meet at every tool call. One installs into a project's .keel/rules/. keel checks its signature and shows everything it blocks first.";
+
+const SUB_STACKS =
+  "Stacks made by keel and the community: how a project builds and tests (its test layers, commands and tools). One installs into a project's .keel/stacks/. keel checks its signature and shows every command first.";
+
+const SUB_SKILLS =
+  "Skills made by keel and the community: know-how an agent reads before it works. One installs into a project, for the agents you pick. keel checks its signature and shows all of it first.";
+
+export function PluginsPage(_props: PageProps) {
+  const route = useRoute();
+  // #/plugins/<name>: the router hands a keel-wide page no arg, so the page reads its own link
+  const arg = route.arg;
+  const { toast } = useApp();
+  const setId = queryValue(route, "set");
+  const view = useLoad("plugins", () => marketApi.installed());
+  // #/plugins?tab=market (the core welcome's "Open the marketplace", the menu's "+ Add pages"), tab=installed|sources
+  const asked = queryValue(route, "tab");
+  const linked: Tab | null =
+    asked === "market" || asked === "installed" || asked === "sources"
+      ? asked
+      : null;
+  const [tab, setTab] = useState<Tab>(linked ?? "installed");
+  // the Marketplace's kind: #/plugins?tab=market&kind=workflows|rules (the link is the truth)
+  const askedKind = queryValue(route, "kind");
+  const kind: MarketKind =
+    askedKind === "workflows" || askedKind === "rules" || askedKind === "skills" || askedKind === "stacks" ? askedKind : "plugins";
+  useEffect(() => {
+    if (linked) setTab(linked);
+  }, [linked, route.query]);
+  const [plan, setPlan] = useState<InstallPlan | null>(null);
+  // the list was shown before a plugin's page: its crumb goes back to the tab the person came from
+  const [listed, setListed] = useState(!arg);
+  useEffect(() => {
+    if (!arg) setListed(true);
+  }, [arg]);
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState<Err>(null);
+  const count = view.data?.plugins.length;
+  const waiting = view.data ? (pendingOf(view.data)?.changes ?? []).length : 0;
+
+  const back = (t: Tab) => {
+    setTab(t);
+    if (location.hash !== "#/plugins") location.hash = "#/plugins";
+  };
+  // "Check for updates": read the catalogs again, then show what has an update
+  const check = async () => {
+    setChecking(true);
+    setErr(null);
+    try {
+      await marketApi.refresh();
+      const fresh = await marketApi.installed();
+      view.setData(fresh);
+      const ready = fresh.plugins.filter((p) => updateOf(p));
+      setTab("installed");
+      toast(
+        ready.length
+          ? `${ready.length} update${ready.length === 1 ? "" : "s"} ready: ${ready.map(titleOf).join(", ")}.`
+          : "Every plugin is up to date.",
+      );
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const dialog = plan && (
+    <InstallDialog
+      plan={plan}
+      view={view.data}
+      onClose={() => setPlan(null)}
+      onDone={() => {
+        void view.reload();
+        if (setId) location.hash = "#/plugins";
+      }}
+    />
+  );
+
+  // #/plugins/stacks/<name>: a stack of the marketplace, or keel's own
+  if (arg?.startsWith("stacks/"))
+    return <MarketStackPage key={arg} name={arg.slice("stacks/".length)} />;
+
+  // #/plugins/skills/<name>: a skill of the marketplace, or keel's own
+  if (arg?.startsWith("skills/"))
+    return <MarketSkillPage key={arg} name={arg.slice("skills/".length)} />;
+
+  // #/plugins/rules/<name>: a rule pack of the marketplace
+  if (arg?.startsWith("rules/"))
+    return <MarketRulePackPage key={arg} name={arg.slice("rules/".length)} />;
+
+  // #/plugins/workflow/<name>: a workflow of the marketplace (a plugin's name never has a "/")
+  if (arg?.startsWith("workflow/"))
+    return (
+      <MarketWorkflowPage
+        key={arg}
+        name={arg.slice("workflow/".length)}
+        view={view.data}
+      />
+    );
+
+  if (arg)
+    return (
+      <>
+        {view.data && (
+          <RestartBanner view={view.data} onDone={() => void view.reload()} />
+        )}
+        <PluginDetailPage
+          key={arg}
+          name={arg}
+          view={view}
+          back={
+            listed
+              ? tab
+              : view.data?.plugins.some((p) => p.name === arg)
+                ? "installed"
+                : "market"
+          }
+          onBack={back}
+          onInstall={(name) => setPlan({ install: [name] })}
+        />
+        {dialog}
+      </>
+    );
+
+  return (
+    <>
+      <PageHead
+        title="Plugins"
+        sub={
+          <>
+            {tab === "market" && kind === "workflows"
+            ? SUB_WORKFLOWS
+            : tab === "market" && kind === "rules"
+              ? SUB_RULES
+              : tab === "market" && kind === "skills"
+                ? SUB_SKILLS
+                : tab === "market" && kind === "stacks"
+                  ? SUB_STACKS
+                  : SUB[tab]}
+            <span className="mk-intro">
+              Everything is on by default, like 0.16.1. Start with fewer
+              plugins: <code>keel2 start --core</code>.
+            </span>
+          </>
+        }
+        actions={
+          tab === "installed" ? (
+            <>
+              <button
+                className="btn"
+                type="button"
+                disabled={checking}
+                onClick={() => void check()}
+              >
+                {checking ? "Checking…" : "Check for updates"}
+              </button>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={() => setTab("market")}
+              >
+                Browse marketplace
+              </button>
+            </>
+          ) : tab === "market" ? (
+            <CatalogLine onSources={() => setTab("sources")} />
+          ) : undefined
+        }
+      />
+      {err && <ErrorBox error={err} />}
+      {view.data && (
+        <RestartBanner view={view.data} onDone={() => void view.reload()} />
+      )}
+      {setId && (
+        <SetOffer
+          id={setId}
+          view={view.data}
+          onInstall={(p) => setPlan(p)}
+          onClose={() => {
+            location.hash = "#/plugins";
+          }}
+        />
+      )}
+      <div className="mk-tabsrow">
+        <Tabs<Tab>
+          value={tab}
+          onChange={setTab}
+          label="Plugins"
+          options={[
+            [
+              "installed",
+              count === undefined ? "Installed" : `Installed (${count})`,
+            ],
+            ["market", "Marketplace"],
+            ["sources", "Sources and rules"],
+          ]}
+        />
+        {waiting > 0 && (
+          <Pill tone="warn">{waiting} waiting for restart</Pill>
+        )}
+      </div>
+      <div className="mk-tab">
+        {tab === "installed" && <InstalledTab view={view} />}
+        {tab === "market" && <KindSwitch kind={kind} />}
+        {tab === "market" && kind === "workflows" && (
+          <WorkflowsMarket view={view.data} />
+        )}
+        {tab === "market" && kind === "rules" && <RulesMarket />}
+        {tab === "market" && kind === "skills" && <SkillsMarket />}
+        {tab === "market" && kind === "stacks" && <StacksMarket />}
+        {tab === "market" && kind === "plugins" && (
+          <MarketTab
+            view={view.data}
+            onInstall={(name) => setPlan({ install: [name] })}
+            onChanged={() => void view.reload()}
+          />
+        )}
+        {tab === "sources" && (
+          <SourcesTab onChanged={() => void view.reload()} />
+        )}
+      </div>
+      {dialog}
+    </>
+  );
+}
+
+/** "Catalog keel official · Sources": the catalogs keel reads, and a way to them. */
+function CatalogLine({ onSources }: { onSources: () => void }) {
+  const src = useLoad("plugin-sources", () => marketApi.sources(), {
+    live: false,
+  });
+  const on = sourcesOf(src.data).filter((s) => s.on !== false);
+  return (
+    <div className="mk-catalog">
+      <span className="sub">Catalog</span>
+      {on.map((s) => (
+        <span
+          key={s.id}
+          className={`tag ${s.ok === false || s.problem ? "warn" : "keel"}`}
+          title={s.problem ?? undefined}
+        >
+          {s.title || s.id}
+        </span>
+      ))}
+      {src.data && !on.length && <span className="tag warn">none</span>}
+      <button className="btn sm ghost" type="button" onClick={onSources}>
+        Sources
+      </button>
+    </div>
+  );
+}
