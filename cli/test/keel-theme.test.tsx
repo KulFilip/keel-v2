@@ -15,11 +15,13 @@ describe("the keel palette", () => {
       ok: "#2fa84f", recommended: "#2fa84f", chosen: "#2fa84f", success: "#2fa84f", add: "#2fa84f", str: "#2fa84f",
       gate: "#f2b84b", warn: "#f2b84b",
       meta: "#9a958c", dim: "#9a958c", faint: "#9a958c", com: "#9a958c",
-      accent: "#a48bff", heading: "#a48bff", suggest: "#a48bff", code: "#a48bff", kw: "#a48bff", type: "#a48bff",
+      accent: "#a48bff", heading: "#a48bff", suggest: "#a48bff", kw: "#a48bff", type: "#a48bff",
+      // 0.18.38 KeelBot's answers: file paths in the accent, inline code in sand
+      path: "#a48bff", code: "#d9b382",
     };
     for (const [r, v] of Object.entries(want)) if (r !== "success") expect(KEEL[r as keyof typeof KEEL], r).toBe(v);
-    // the light palette's person blue, path/link blue and the red for errors and deletions stay
-    for (const r of ["person", "path", "link", "run", "fn"] as const) expect(KEEL[r], r).toBe(LIGHT[r]);
+    // the light palette's person blue, link blue and the red for errors and deletions stay
+    for (const r of ["person", "link", "run", "fn"] as const) expect(KEEL[r], r).toBe(LIGHT[r]);
     expect(KEEL.person).toBe("ansi:blue");
     expect(KEEL.bad).toBe("ansi:red");
     expect(KEEL.del).toBe("ansi:red");

@@ -36,8 +36,11 @@ export function wrap(text: string, width: number): string[] {
     const col = /^[✗✓◆] /.test(raw) ? 2 : /^(\s*\S.*?\s{2,})\S/.exec(raw)?.[1].length ?? 0;
     const hang = col && col <= w * 0.6 ? col : Math.min(raw.length - raw.trimStart().length, Math.floor(w / 2));
     const [first, ...rest] = wrapAnsi(line, w, { hard: true, trim: false }).split("\n");
-    if (!hang || !rest.length) return [first, ...rest];
-    const more = wrapAnsi(rest.map((r) => r.replace(/^\s+/, "")).join(" "), w - hang, { hard: true, trim: false }).split("\n");
+    // the space a row broke at goes with neither row (wrap-ansi keeps it at the next row's start: " it would break")
+    const lead = (r: string) => r.replace(/^((?:\x1b\[[0-9;]*m)*) +/, "$1");
+    if (!rest.length) return [first];
+    if (!hang) return [first, ...rest.map(lead)];
+    const more = wrapAnsi(rest.map(lead).join(" "), w - hang, { hard: true, trim: false }).split("\n");
     return [first.replace(/ +((?:\x1b\[[0-9;]*m)*)$/, "$1"), ...more.map((r) => " ".repeat(hang) + r)];
   });
 }
@@ -170,12 +173,15 @@ export function view(lines: string[], height: number, offset: number): { shown: 
   return { shown: lines.slice(start, end), offset: off, above: start, below: off };
 }
 
-/** The mouse's wheel in a chunk of input (SGR mode: ESC [ < 64 ; x ; y M is up, 65 down): +1 per notch up, -1 down. */
+/** The mouse's wheel in a chunk of input (SGR mode: ESC [ < 64 ; x ; y M is up, 65 down): +1 per notch up, -1 down.
+ *  Shift, Meta and Ctrl (4, 8, 16) and the motion bit (32) do not change it; 66 and 67 are the wheel sideways (a
+ *  trackpad's swipe that is not quite straight sends them between its up or down notches): no scroll. */
 export function wheel(chunk: string): number {
   let n = 0;
-  for (const m of chunk.matchAll(/\x1b?\[<(\d+);\d+;\d+[Mm]/g)) {
-    const b = Number(m[1]);
-    if ((b & 64) === 64) n += (b & 1) ? -1 : 1;
+  for (const m of chunk.matchAll(/\x1b?\[<(\d+);\d+;\d+M/g)) {
+    const b = Number(m[1]) & ~(4 | 8 | 16 | 32);
+    if (b === 64) n += 1;
+    else if (b === 65) n -= 1;
   }
   return n;
 }
