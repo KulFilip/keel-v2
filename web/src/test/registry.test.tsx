@@ -310,6 +310,8 @@ describe("the menu and the links stay as they were", () => {
         ["budget", "Budget"],
         ["settings", "Settings"],
         ["connections", "Connections"],
+        // keel 0.18.38 the Database plugin's page: connections for all projects or one
+        ["databases", "Databases"],
         // v0.16.0 step 4's one new page: the plugins and the marketplace
         ["plugins", "Plugins"],
       ],

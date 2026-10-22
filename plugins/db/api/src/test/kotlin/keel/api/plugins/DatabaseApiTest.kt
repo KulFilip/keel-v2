@@ -113,7 +113,8 @@ class DatabaseApiTest : ApiTest() {
         assertThat(body["settings"]["plugins"].map { it.asText() }).containsExactly("db")
         assertThat(body["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
         assertThat(body["keys"]["db:local"].asText()).contains("\"url\":\"sqlite:app.db\"", "\"env\":\"local\"")
-        assertThat(body["keys"]["db:ci"].asText()).isEqualTo("""{"name":"ci","kind":"sqlite","url":"sqlite:ci.db","env":"test"}""")
+        assertThat(body["keys"]["db:ci"].asText()).isEqualTo("""{"name":"ci","kind":"sqlite","url":"sqlite:ci.db","env":"test",""" +
+            """"driver":"sqlite","scope":"project","agent_access":"write_approve","ask_first":false}""")
         assertThat(body["settings"].toString()).doesNotContain("sqlite:app.db")       // secrets never in the saved settings
 
         // a KeelBot turn carries the same keys (the KeelBot plugin adds every FlowContributor's: plugins/keelbot/api)

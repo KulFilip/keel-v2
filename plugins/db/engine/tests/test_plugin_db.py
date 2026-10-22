@@ -38,7 +38,7 @@ def test_its_commands_come_only_when_it_is_on(client, repo):
 def test_the_person_reads_counts_a_change_and_runs_it_only_on_local_or_test(client, scores):
     root = str(scores)
     t = client.post("/plugins/db/test", json={"root": root, "connection": conn()}).json()
-    assert t == {"ok": True, "server": t["server"], "tables": 2} and t["server"].startswith("SQLite")
+    assert t == {"ok": True, "server": t["server"], "tables": 2, "ms": t["ms"]} and t["server"].startswith("SQLite")
     sch = client.post("/plugins/db/schema", json={"root": root, "connection": conn()}).json()
     assert [x["name"] for x in sch["tables"]] == ["players", "scores"]
     assert sch["tables"][1]["fks"] == [{"column": "player_id", "table": "players", "ref": "id"}]
@@ -92,8 +92,8 @@ def test_an_agent_call_reads_through_its_key_with_secrets_hidden_and_changes_ref
     key = extensions.open_call(project="demo", root=str(scores), keys=keys(conn(), conn("prod", "prod")), plugins=["db"], who="keelbot")
     call = lambda tool, **args: client.post("/plugins/call", json={"key": key, "tool": tool, "args": args})
     lines = call("db_connections").json()["text"]
-    assert "- local: SQLite, local (data changes: a keel-query button the person presses)" in lines
-    assert "- prod: SQLite, prod (read only, always)" in lines
+    assert "- local: SQLite, local, this project's own (you read; a change is a keel-query button the person presses)" in lines
+    assert "- prod: SQLite, prod, this project's own (read only, always)" in lines
     schema = call("db_schema").json()["text"]
     assert "- players(id*, name, password_hash)" in schema and "fk: player_id → players.id" in schema
     assert "- player_id: INTEGER" in call("db_schema", table="scores").json()["text"]

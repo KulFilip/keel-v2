@@ -15,7 +15,8 @@ import httpx
 def call(tool: str, **args) -> str:
     """The engine's answer to one tool call, as text for the model (a refusal says why instead of failing)."""
     try:
-        r = httpx.post(os.environ.get("KEEL_PLUGIN_URL", ""), timeout=120,
+        # a tool that asks the person first (db_change) waits up to permissions.ASK_TIMEOUT (10 minutes) for the answer
+        r = httpx.post(os.environ.get("KEEL_PLUGIN_URL", ""), timeout=660,
                        json={"key": os.environ.get("KEEL_PLUGIN_KEY", ""), "tool": tool,
                              "args": {k: v for k, v in args.items() if v not in (None, "")}})
     except httpx.HTTPError as exc:

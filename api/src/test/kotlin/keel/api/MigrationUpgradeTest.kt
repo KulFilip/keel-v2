@@ -16,8 +16,9 @@ import javax.sql.DataSource
  * V16__approvals.sql (it was V14, then V15, before main's releases took those numbers), then the workflow marketplace's
  * columns, V17__workflow_market.sql (docs/plugins/21-workflow-marketplace.md), and 0.18.6's skill marketplace columns,
  * V18__skill_market.sql, 0.18.9's effort of each agent call, V19__agent_call_effort.sql, and Code Review's multi-line
- * comments, V20__review_line_range.sql, and the review agents' new names, V21__review_agent_names.sql. A keel that ran
- * 0.16.1 must start on the track: Flyway applies only V16 to V21, and 0.16.1's rows and history stay as they were. No Spring: Flyway on a
+ * comments, V20__review_line_range.sql, the review agents' new names, V21__review_agent_names.sql, then the Database
+ * plugin's global connections, V22__db_connection_scopes.sql. A keel that ran 0.16.1 must start on the track: Flyway
+ * applies only V16 to V22, and 0.16.1's rows and history stay as they were. No Spring: Flyway on a
  * throw-away SQLite file, as keel's api runs it.
  */
 class MigrationUpgradeTest {
@@ -54,7 +55,7 @@ class MigrationUpgradeTest {
         val names = core().keys
         assertThat(names).containsAll(released)
         assertThat(names - released.toSet()).containsExactlyInAnyOrder("V16__approvals.sql", "V17__workflow_market.sql", "V18__skill_market.sql", "V19__agent_call_effort.sql",
-            "V20__review_line_range.sql", "V21__review_agent_names.sql")
+            "V20__review_line_range.sql", "V21__review_agent_names.sql", "V22__db_connection_scopes.sql")
         // one file per version: a second V15 would stop every keel at start
         val versions = names.map { it.substringBefore("__") }
         assertThat(versions).doesNotHaveDuplicates()
@@ -81,6 +82,10 @@ class MigrationUpgradeTest {
                 "INSERT INTO doc_versions (id, project_id, path, kind, version, sha256, content, size, by_kind, at) " +
                     "VALUES ('dv-1', 'p1', '.keel/specs/ranks.md', 'spec', 1, 'abc', '# Ranks', 7, 'agent', '2026-10-02T00:00:00Z')",
             )
+            c.createStatement().executeUpdate(
+                "INSERT INTO db_connections (id, project_id, name, kind, env, shown, created_at) " +
+                    "VALUES ('db1', 'p1', 'local', 'postgres', 'local', 'postgres://app:•••@localhost/app', '2026-10-01T00:00:00Z')", // keel:allow-secret
+            )
         }
         assertThat(history(ds).last()).isEqualTo("15 V15__doc_history.sql 1")
         assertThat(tables(ds)).doesNotContain("approvals")
@@ -88,17 +93,17 @@ class MigrationUpgradeTest {
         // the plugin track starts on the same file: Flyway checks 0.16.1's history (same checksums) and adds V16
         val track = flyway(ds, "classpath:db/migration")
         val result = track.migrate()
-        assertThat(result.migrationsExecuted).isEqualTo(6)
+        assertThat(result.migrationsExecuted).isEqualTo(7)
         assertThat(result.migrations.map { it.filepath.substringAfterLast('/') })
             .containsExactly("V16__approvals.sql", "V17__workflow_market.sql", "V18__skill_market.sql", "V19__agent_call_effort.sql",
-            "V20__review_line_range.sql", "V21__review_agent_names.sql")
+            "V20__review_line_range.sql", "V21__review_agent_names.sql", "V22__db_connection_scopes.sql")
         assertThat(track.validateWithResult().validationSuccessful).isTrue()
 
         val h = history(ds)
-        assertThat(h).hasSize(21)
+        assertThat(h).hasSize(22)
         assertThat(h.take(15).map { it.substringAfter(' ').substringBefore(' ') }).containsExactlyElementsOf(released)
         assertThat(h.drop(15)).containsExactly("16 V16__approvals.sql 1", "17 V17__workflow_market.sql 1", "18 V18__skill_market.sql 1", "19 V19__agent_call_effort.sql 1",
-            "20 V20__review_line_range.sql 1", "21 V21__review_agent_names.sql 1")
+            "20 V20__review_line_range.sql 1", "21 V21__review_agent_names.sql 1", "22 V22__db_connection_scopes.sql 1")
         assertThat(tables(ds)).contains("approvals", "threads", "doc_versions", "flow_applied")
         ds.connection.use { c ->
             c.createStatement().executeQuery("SELECT hidden_at FROM threads WHERE id = 't1'").use { rs ->
@@ -108,6 +113,12 @@ class MigrationUpgradeTest {
             c.createStatement().executeQuery("SELECT content FROM doc_versions WHERE id = 'dv-1'").use { rs ->
                 assertThat(rs.next()).isTrue()
                 assertThat(rs.getString(1)).isEqualTo("# Ranks")
+            }
+            // V22: a connection from before keeps its row; the Database plugin reads its address into the fields later
+            c.createStatement().executeQuery("SELECT name, driver, connect_mode, agent_access, keep_password FROM db_connections WHERE id = 'db1'").use { rs ->
+                assertThat(rs.next()).isTrue()
+                assertThat(listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5)))
+                    .containsExactly("local", null, "url", "read", "keel")
             }
             c.createStatement().executeUpdate(
                 "INSERT INTO approvals (id, project_id, kind, source, created_at) VALUES ('a1', 'p1', 'permission', 'keelbot', '2026-10-03T00:00:00Z')",

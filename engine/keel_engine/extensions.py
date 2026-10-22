@@ -126,6 +126,12 @@ class Part:
     def read_tools(self) -> tuple[str, ...]:
         return tuple(self.spec.get("read_tools") or ())
 
+    @property
+    def act_tools(self) -> tuple[str, ...]:
+        """Tools of its server that act (the Database plugin's db_change): the guard judges them like any MCP tool, and the
+        part asks the person itself (keel_engine/approvals.py) before it acts."""
+        return tuple(self.spec.get("act_tools") or ())
+
     def hook(self, name: str):
         fn = (self.spec.get("hooks") or {}).get(name)
         return fn if callable(fn) else None
@@ -292,14 +298,16 @@ def _sweep():
         _calls.pop(k, None)
 
 
-def open_call(*, project: str, root: str, keys: dict | None, plugins: list[str], who: str) -> str:
+def open_call(*, project: str, root: str, keys: dict | None, plugins: list[str], who: str, bus=None,
+              thread: str | None = None, session: str | None = None) -> str:
     """A key for one agent call or KeelBot turn (memory only, at most 4 hours). The parts' MCP servers send it back with
     each tool call (POST /plugins/call), so the engine knows the project, its folder and its keys without writing any of
-    them to disk."""
+    them to disk. `bus`, `thread` and `session` (keel 0.18.38): where a part's tool asks the person (approvals.of(bus))
+    and whose flow or KeelBot chat the question belongs to."""
     _sweep()
     key = "pk_" + secrets.token_urlsafe(24)
     _calls[key] = {"project": project, "root": root, "keys": dict(keys or {}), "plugins": list(plugins), "who": who,
-                   "until": time.time() + CALL_TTL}
+                   "until": time.time() + CALL_TTL, "key": key, "bus": bus, "thread": thread, "session": session}
     return key
 
 
@@ -344,7 +352,7 @@ def call(key: str, tool: str, args: dict) -> str:
     c = _calls.get(key or "")
     if not c or c["until"] < time.time():
         raise PartError(401, "This tool call has no valid key: the agent call it belonged to has ended.")
-    p = next((p for p in parts() if tool in p.read_tools and callable(p.mcp.get("call"))), None)
+    p = next((p for p in parts() if (tool in p.read_tools or tool in p.act_tools) and callable(p.mcp.get("call"))), None)
     if p is None or p.name not in c["plugins"]:
         raise PartError(403, f"The {p.name if p else '?'} plugin is off for this project.", "Turn it on in Control › Plugins.")
     return p.mcp["call"](c, tool, args or {})

@@ -167,8 +167,9 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             "DELETE" to Regex("^/api/logins/[^/]+$"),
             "POST" to Regex("^/api/approvals/[^/]+/decide$"),
         )
-        /** Every method under these prefixes needs admin (all of /api/github: sign-in, sign-out, tokens). */
-        private val ADMIN_PREFIXES = listOf("/api/github")
+        /** Every method under these prefixes needs admin (all of /api/github: sign-in, sign-out, tokens; the Database
+         *  plugin's /api/databases: a connection every project sees, its test and its server's databases). */
+        private val ADMIN_PREFIXES = listOf("/api/github", "/api/databases")
         /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
         private val READ_POSTS = listOf(
             Regex("^/api/projects/[^/]+/rules/check$"),

@@ -14,6 +14,10 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
+/** A call from keel2 mcp (an MCP client, an agent of the person's): the connection's Access applies to it. */
+internal fun HttpServletRequest.fromAgent(): Boolean = getAttribute(McpLevelGuard.LEVEL_ATTR) != null
+
+/** keel 0.15's routes, by connection name: the project's connections as it uses them (its own and the globals it sees). */
 @RestController
 @RequestMapping("/api/projects/{pid}/db")
 class DatabaseController(private val db: DatabaseService) {
@@ -39,7 +43,8 @@ class DatabaseController(private val db: DatabaseService) {
     fun suggest(@PathVariable pid: String): JsonNode = db.suggest(pid)
 
     @GetMapping("/schema")
-    fun schema(@PathVariable pid: String, @RequestParam(required = false) connection: String?): JsonNode = db.schema(pid, connection)
+    fun schema(@PathVariable pid: String, @RequestParam(required = false) connection: String?, request: HttpServletRequest): JsonNode =
+        db.schema(pid, connection, request.fromAgent())
 
     /** v0.16.1 an MCP call at the read level may read (keel_db_query), never change (McpLevelGuard lets the route through at read). */
     @PostMapping("/query")
@@ -47,6 +52,77 @@ class DatabaseController(private val db: DatabaseService) {
         if (body.change && request.getAttribute(McpLevelGuard.LEVEL_ATTR) == "read") {
             throw Forbidden("This needs the MCP write level: run keel2 mcp --write", "A read-level MCP server can only read the database.")
         }
-        return db.query(pid, body)
+        return db.query(pid, body, request.fromAgent())
     }
+}
+
+/**
+ * Database connections global or per project (Control › Databases and a project's Databases), by id. Everything under
+ * /api/databases changes what every project sees, so an MCP call needs the admin level there (McpLevelGuard); a
+ * project's own connections stay at the write level.
+ */
+@RestController
+class DatabasesController(private val db: DatabaseService) {
+    // ---- every project (Control › Databases)
+    @GetMapping("/api/databases")
+    fun globals(): List<DbEntry> = db.globals()
+
+    @PostMapping("/api/databases")
+    fun createGlobal(@RequestBody body: DbConfigBody): DbEntry = db.createGlobal(body)
+
+    @PostMapping("/api/databases/test")
+    fun testDraft(@RequestBody body: DbConfigBody, @RequestParam(required = false) project: String?): DbTestResult = db.testDraft(body, project)
+
+    @PostMapping("/api/databases/server-databases")
+    fun serverDatabases(@RequestBody body: DbConfigBody, @RequestParam(required = false) project: String?): JsonNode =
+        db.serverDatabases(body, project)
+
+    @GetMapping("/api/databases/{id}")
+    fun one(@PathVariable id: String): DbEntry = db.get(id)
+
+    @PutMapping("/api/databases/{id}")
+    fun update(@PathVariable id: String, @RequestBody body: DbConfigBody, @RequestParam(required = false) project: String?): DbEntry =
+        db.updateById(id, body, project)
+
+    @DeleteMapping("/api/databases/{id}")
+    fun delete(@PathVariable id: String): Map<String, Boolean> {
+        db.deleteById(id)
+        return mapOf("ok" to true)
+    }
+
+    @PostMapping("/api/databases/{id}/test")
+    fun test(@PathVariable id: String, @RequestParam(required = false) project: String?): Map<String, Any?> = db.testById(id, project)
+
+    // ---- one project (its own, and the globals it sees)
+    @GetMapping("/api/projects/{pid}/databases")
+    fun effective(@PathVariable pid: String, request: HttpServletRequest): List<DbEntry> = db.effective(pid, request.fromAgent())
+
+    @PostMapping("/api/projects/{pid}/databases")
+    fun create(@PathVariable pid: String, @RequestBody body: DbConfigBody): DbEntry = db.createIn(pid, body)
+
+    @GetMapping("/api/projects/{pid}/databases/suggest")
+    fun suggest(@PathVariable pid: String): JsonNode = db.suggest(pid)
+
+    @PostMapping("/api/projects/{pid}/databases/test")
+    fun testDraftIn(@PathVariable pid: String, @RequestBody body: DbConfigBody): DbTestResult = db.testDraft(body, pid)
+
+    @PostMapping("/api/projects/{pid}/databases/server-databases")
+    fun serverDatabasesIn(@PathVariable pid: String, @RequestBody body: DbConfigBody): JsonNode = db.serverDatabases(body, pid)
+
+    @PutMapping("/api/projects/{pid}/databases/{id}")
+    fun updateIn(@PathVariable pid: String, @PathVariable id: String, @RequestBody body: DbConfigBody): DbEntry = db.updateIn(pid, id, body)
+
+    @DeleteMapping("/api/projects/{pid}/databases/{id}")
+    fun deleteIn(@PathVariable pid: String, @PathVariable id: String): Map<String, Boolean> {
+        db.deleteIn(pid, id)
+        return mapOf("ok" to true)
+    }
+
+    @PostMapping("/api/projects/{pid}/databases/{id}/test")
+    fun testIn(@PathVariable pid: String, @PathVariable id: String): Map<String, Any?> = db.testIn(pid, id)
+
+    /** A project turns a global connection off for itself, or on again: {"hidden": true}. */
+    @PutMapping("/api/projects/{pid}/databases/{id}/hidden")
+    fun hide(@PathVariable pid: String, @PathVariable id: String, @RequestBody body: Map<String, Boolean>): List<DbEntry> =
+        db.hide(pid, id, body["hidden"] ?: true)
 }

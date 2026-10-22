@@ -9,6 +9,26 @@ from mcp.server.fastmcp import Context
 from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
 
 
+ACCESS = {"none": "not offered to agents", "read": "read only", "write_approve": "read; a change after the person's OK"}
+
+
+def db_connections(api: KeelApi, project: str | None = None) -> str:
+    """The connections the project uses, with where each comes from (its own or shared with every project) and what an
+    agent may do there. The api leaves out those agents may not use."""
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "db")
+    rows = [d for d in api.get(f"/projects/{pid}/databases") if not d.get("overridden") and not d.get("hidden")]
+    if not rows:
+        return "This project has no database connection for agents (Databases)."
+    label = {"postgres": "PostgreSQL", "mysql": "MySQL", "mariadb": "MariaDB", "sqlite": "SQLite"}
+    out = []
+    for d in rows:
+        scope = "shared with every project" if d.get("source") == "global" else "this project's own"
+        out.append(f"- {d['name']}: {label.get(d.get('driver'), d.get('driver'))}, {d.get('env')}, {scope}, "
+                   f"{ACCESS.get(d.get('agent_access_effective'), 'read only')}")
+    return "\n".join(out)
+
+
 def db_schema(api: KeelApi, project: str | None = None, connection: str | None = None, table: str | None = None) -> str:
     from .tools import _schema_text
 
@@ -56,6 +76,12 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
 
     if not write:
         ro = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+
+        @srv.tool(annotations=ro, structured_output=False)
+        def keel_db_connections(project: str | None = None) -> str:
+            """Database plugin: the project's database connections (its own and the ones shared with every project), with
+            the kind of database, local/test/staging/prod and what an agent may do there."""
+            return guard(db_connections, api, project)
 
         @srv.tool(annotations=ro, structured_output=False)
         def keel_db_schema(project: str | None = None, connection: str | None = None, table: str | None = None) -> str:

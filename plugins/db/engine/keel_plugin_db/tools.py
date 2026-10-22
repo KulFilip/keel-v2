@@ -1,7 +1,17 @@
-"""The Database plugin's read tools for KeelBot and agents (the MCP server keel-db, server.py). Every answer is text
-for a model: a refusal says why instead of failing the call. Columns named like a secret show as •••."""
+"""The Database plugin's tools for KeelBot and agents (the MCP server keel-db, server.py). Every answer is text for a
+model: a refusal says why instead of failing the call. Columns named like a secret show as •••.
+
+What an agent may do is each connection's Access (keel 0.18.38, the api's agent_access):
+    none            the connection is not offered to agents at all (not listed, not found)
+    read            db_schema and db_query, read only (keel 0.18.37's way)
+    write_approve   and db_change: keel counts the rows, asks the person in the Inbox, and runs it only after Yes
+staging and prod are read only for agents, always (Conn.agent_may). With ask_first, an agent's first call on the
+connection in a flow (or a KeelBot chat) asks the person once.
+"""
 
 from __future__ import annotations
+
+import threading
 
 from . import core
 from .core import PluginError, connections
@@ -12,9 +22,12 @@ MAX_TEXT = 12_000
 LABEL = {"postgres": "PostgreSQL", "mysql": "MySQL", "sqlite": "SQLite"}
 
 
-def pick(keys: dict | None, name: str = "") -> core.Conn:
-    """The named connection, else the project's local one, else its test one, else the first."""
+def pick(keys: dict | None, name: str = "", *, agent: bool = False) -> core.Conn:
+    """The named connection, else the project's local one, else its test one, else the first. For an agent, only the
+    connections it may use (Access: not none)."""
     conns = connections(keys)
+    if agent:
+        conns = {k: d for k, d in conns.items() if str(d.get("agent_access") or "read") != "none"}
     if not conns:
         raise PluginError(400, "This project has no database connection.", "Add one in Connections › Databases.")
     if name:
@@ -75,25 +88,95 @@ def query_text(r: dict) -> str:
     return head + "\n" + table_text(r["columns"], r["rows"])
 
 
+# ask_first: the answers already given, per flow (or KeelBot chat, or agent call) and connection: {(scope, name): ok}
+_first: dict[tuple[str, str], bool] = {}
+_first_lock = threading.Lock()
+
+
+def _ask(c: dict, title: str, command: str) -> tuple[bool, str]:
+    """Asks the person in keel's Inbox (keel_engine/approvals.py) and waits: (yes, why). Without a way to ask (an older
+    caller gave no event bus), the answer is no."""
+    bus = c.get("bus")
+    if bus is None:
+        return False, "keel cannot ask the person from here."
+    from keel_engine import approvals
+
+    broker = approvals.of(bus)
+    q = broker.open("plugin", c.get("project") or "", title, command, source="plugin:db", thread_id=c.get("thread"),
+                    session=c.get("session"))
+    ans = broker.wait_blocking(q["id"])
+    return ans.get("decision") == "allow", ans.get("why") or ""
+
+
+def _first_ok(c: dict, conn: core.Conn) -> str | None:
+    """ask_first: the first call on this connection in this flow asks the person once. None: go on; else the refusal."""
+    if not conn.ask_first:
+        return None
+    scope = str(c.get("thread") or c.get("session") or c.get("key") or "")
+    with _first_lock:
+        known = _first.get((scope, conn.name))
+    if known is None:
+        who = str(c.get("who") or "an agent").replace("agent:", "the agent ")
+        known, _why = _ask(c, f"May {who} query {conn.name} ({conn.env})?",
+                           f"{who} wants to read the database {conn.name} ({conn.env}) in this flow. keel asks once.")
+        with _first_lock:
+            _first[(scope, conn.name)] = known
+            while len(_first) > 2000:
+                _first.pop(next(iter(_first)))
+    return None if known else f"Refused: the person said no to queries on {conn.name} in this flow."
+
+
+def _change(c: dict, conn: core.Conn, sql: str) -> str:
+    """write_approve: count the rows (a run keel rolls back), ask the person in the Inbox, run it only after Yes."""
+    if conn.agent_may != "write_approve":
+        why = (f"{conn.name} is a {conn.env} database: agents only read there, always." if conn.env not in core.CHANGE_ENVS
+               else f"Agents may only read {conn.name}.")
+        return (f"Refused: {why} Give the change to the person as a keel-query block instead "
+                "(they press its button), or ask them to allow \"change after approval\" in Databases.")
+    dry = core.query(conn, sql, root=c["root"], allow_change=True)
+    ok, why = _ask(c, f"Change {dry['changed']} row(s) in {conn.name}?", dry["sql"])
+    if not ok:
+        return f"Not run: the person said no in keel's Inbox. {why}".strip()
+    done = core.query(conn, sql, root=c["root"], allow_change=True, confirm=True)
+    return f"{done['changed']} row(s) changed in {conn.name} after the person's OK."
+
+
+def _access_line(conn: core.Conn) -> str:
+    may = conn.agent_may
+    if may == "write_approve":
+        return "you read; a change with db_change waits for the person's OK in the Inbox"
+    if conn.env in core.CHANGE_ENVS:
+        return "you read; a change is a keel-query button the person presses"
+    return "read only, always"
+
+
 def call(c: dict, tool: str, args: dict) -> str:
     try:
         if tool == "db_connections":
-            conns = connections(c["keys"])
+            conns = [d for d in connections(c["keys"]).values() if str(d.get("agent_access") or "read") != "none"]
             if not conns:
-                return "This project has no database connection yet (Connections › Databases)."
+                return "This project has no database connection for agents yet (Databases)."
             lines = []
-            for d in conns.values():
+            for d in conns:
+                if not d.get("url"):
+                    lines.append(f"- {d.get('name')}: not reachable now ({d.get('unavailable')})")
+                    continue
                 conn = core.conn_of(d)
-                change = ("data changes: a keel-query button the person presses" if conn.env in core.CHANGE_ENVS
-                          else "read only, always")
-                lines.append(f"- {conn.name}: {LABEL.get(conn.kind, conn.kind)}, {conn.env} ({change})")
+                scope = "shared with every project" if conn.scope == "global" else "this project's own"
+                ask = "; the person is asked before your first query" if conn.ask_first else ""
+                lines.append(f"- {conn.name}: {LABEL.get(conn.kind, conn.kind)}, {conn.env}, {scope} ({_access_line(conn)}{ask})")
             return "\n".join(lines)
-        conn = pick(c["keys"], str(args.get("connection") or ""))
+        conn = pick(c["keys"], str(args.get("connection") or ""), agent=True)
+        refused = _first_ok(c, conn)
+        if refused:
+            return refused
         if tool == "db_schema":
             return _schema_text(core.schema(conn, c["root"]), str(args.get("table") or ""))
         if tool == "db_query":
             return query_text(core.query(conn, str(args.get("sql") or ""), root=c["root"], mask=True,
                                          limit=min(int(args.get("limit") or core.MAX_ROWS), core.MAX_ROWS)))
+        if tool == "db_change":
+            return _change(c, conn, str(args.get("sql") or ""))
         return f"Unknown tool {tool}."
     except (core.DbError, PluginError) as exc:
         return f"Refused: {exc}" + (f" {exc.hint}" if getattr(exc, "hint", "") else "")
