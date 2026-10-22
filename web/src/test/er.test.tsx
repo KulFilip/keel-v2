@@ -195,6 +195,16 @@ describe("database diagram", () => {
     clicked.mockRestore();
   });
 
+  it("a keyboard user can Tab from Export to SVG image: the menu waits for focus inside it", async () => {
+    const user = userEvent.setup();
+    draw();
+    await user.click(screen.getByRole("button", { name: "Export" }));
+    await user.tab();
+    expect(screen.getByRole("menuitem", { name: "SVG image" })).toHaveFocus();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.getByRole("menuitem", { name: "PNG image" })).toBeInTheDocument();
+  });
+
   it("opens on a given table with its structure (from a table box of the modules level)", () => {
     const { container } = render(<ErDiagram schema={schema} pid="shop" name="shop" initial="billing.payment" />);
     expect(box(container, "billing.payment")).toHaveAttribute("aria-pressed", "true");

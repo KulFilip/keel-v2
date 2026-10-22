@@ -2,7 +2,7 @@
 // engines check it before the action or only after the step, and where it is saved. Rule packs install from a library
 // like workflows, or you write your own (form or YAML).
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { errorParts } from "../api";
 import { Async, Confirm, ErrorBox, PageHead, Panel } from "../components/ui";
 import { LibraryDrawer, PackDrawer, ImportPackDrawer } from "../components/RuleDrawers";
@@ -38,7 +38,23 @@ export function RulesPage({ pid }: { pid: string }) {
   const view = useLoad(`rules:${pid}`, () => rulesApi.view(pid), { live: false });
   const [drawer, setDrawer] = useState<"library" | "new" | "import" | null>(null);
   const [editing, setEditing] = useState<RulePack | null>(null);
-  const set = (v: RulesView) => view.setData(() => v);
+  // The latest view, kept in a ref and updated the moment an answer arrives: two quick switches must not both build
+  // rules.off from the same old view (the second would undo the first). Writes to rules.off also go one after another.
+  const latest = useRef<RulesView | undefined>(undefined);
+  latest.current = view.data ?? latest.current;
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
+  const set = (v: RulesView) => { latest.current = v; view.setData(() => v); };
+  const setOff = (id: string, on: boolean): Promise<RulesView> => {
+    const run = chain.current.then(async () => {
+      const next = new Set(offList(latest.current!));
+      if (on) next.delete(id); else next.add(id);
+      const nv = await rulesApi.setConfig(pid, { rules: { off: [...next] } });
+      set(nv);
+      return nv;
+    });
+    chain.current = run.catch(() => undefined);
+    return run;
+  };
   return (
     <>
       <PageHead title="Rules"
@@ -53,8 +69,8 @@ export function RulesPage({ pid }: { pid: string }) {
           <div className="grid rl-page">
             <RulesLegend />
             <Engines v={v} />
-            <Packs pid={pid} v={v} onView={set} onEdit={setEditing} onLibrary={() => setDrawer("library")} />
-            <Builtins pid={pid} v={v} onView={set} />
+            <Packs pid={pid} v={v} onView={set} setOff={setOff} onEdit={setEditing} onLibrary={() => setDrawer("library")} />
+            <Builtins v={v} setOff={setOff} />
             <Lists pid={pid} v={v} onView={set} />
             <Matrix v={v} />
           </div>
@@ -84,15 +100,13 @@ function Engines({ v }: { v: RulesView }) {
   );
 }
 
-function Packs({ pid, v, onView, onEdit, onLibrary }: { pid: string; v: RulesView; onView: (v: RulesView) => void; onEdit: (p: RulePack) => void; onLibrary: () => void }) {
+function Packs({ pid, v, onView, setOff, onEdit, onLibrary }: { pid: string; v: RulesView; onView: (v: RulesView) => void; setOff: (id: string, on: boolean) => Promise<RulesView>; onEdit: (p: RulePack) => void; onLibrary: () => void }) {
   const { toast } = useApp();
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const switchPack = async (p: RulePack) => {
-    const current = new Set(offList(v));
-    if (p.off) current.delete(`pack/${p.id}`); else current.add(`pack/${p.id}`);
     try {
-      onView(await rulesApi.setConfig(pid, { rules: { off: [...current] } }));
+      await setOff(`pack/${p.id}`, !!p.off);
       toast(`${p.title} is ${p.off ? "on" : "off"}. Running flows see it at their next tool call.`);
     } catch (e) {
       const x = errorParts(e);
@@ -181,13 +195,11 @@ const offList = (v: RulesView): string[] => [
   ...v.packs.filter((p) => p.off).map((p) => `pack/${p.id}`),
 ];
 
-function Builtins({ pid, v, onView }: { pid: string; v: RulesView; onView: (v: RulesView) => void }) {
+function Builtins({ v, setOff }: { v: RulesView; setOff: (id: string, on: boolean) => Promise<RulesView> }) {
   const { toast } = useApp();
   const flip = async (id: string, on: boolean) => {
-    const next = new Set(offList(v));
-    if (on) next.delete(id); else next.add(id);
     try {
-      onView(await rulesApi.setConfig(pid, { rules: { off: [...next] } }));
+      await setOff(id, on);
       toast(`${id} is ${on ? "on" : "off"}. Saved in .keel/config.yml (rules.off).`);
     } catch (e) {
       const x = errorParts(e);
@@ -249,14 +261,16 @@ function ListEditor({ pid, item, disabled, onView }: { pid: string; item: RuleLi
     }
     return lines;
   };
-  const save = async (next?: unknown) => {
+  const save = async (next?: unknown): Promise<boolean> => {
     setBusy(true);
     setErr(null);
     try {
       onView(await rulesApi.setConfig(pid, { [block]: { [key]: next ?? value() } }));
       toast(`${item.key} saved in .keel/config.yml.`);
+      return true;
     } catch (e) {
       setErr(errorParts(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -270,7 +284,7 @@ function ListEditor({ pid, item, disabled, onView }: { pid: string; item: RuleLi
         <span className="rl-mini">{ENGINES.map(([e, n]) => <WhenIcon key={e} when={item.enforced[e]} engine={n} />)}</span></div>
       {item.form === "bool" ? (
         <label className="chk"><input id={id} type="checkbox" checked={flag} disabled={disabled || busy}
-          onChange={(e) => { setFlag(e.target.checked); void save(e.target.checked); }} /> {flag ? "on" : "off"}</label>
+          onChange={(e) => { const was = flag, now = e.target.checked; setFlag(now); void save(now).then((ok) => { if (!ok) setFlag(was); }); }} /> {flag ? "on" : "off"}</label>
       ) : item.form === "number" ? (
         <div className="row"><input id={id} type="number" min={0} className="inline-input" value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} style={{ width: 120 }} />
           <button className="btn sm" type="button" disabled={disabled || busy} onClick={() => save()}>Save</button></div>

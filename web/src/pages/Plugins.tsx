@@ -799,7 +799,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                       <div className="mk-pname">
                         <PluginIcon name={p.name} title={p.title} size="sm" />
                         <div>
-                          <a className="mk-plink" href={`#/plugins/${p.name}`}>
+                          <a className="mk-plink" href={`#/plugins/${encodeURIComponent(p.name)}`}>
                             {titleOf(p)}
                           </a>
                           <span className="sub">
@@ -1095,7 +1095,7 @@ function MarketTab({
           />
           <div style={{ minWidth: 0 }}>
             <h3>
-              <a className="mk-card-link" href={`#/plugins/${h.name}`}>
+              <a className="mk-card-link" href={`#/plugins/${encodeURIComponent(h.name)}`}>
                 {title}
               </a>
               {isBeta(version) && <span className="tag warn">beta</span>}
@@ -1672,7 +1672,9 @@ function SourcesTab({ onChanged }: { onChanged: () => void }) {
       /* the api says what is wrong */
     }
     const name = title.trim() || host || u;
-    const id = slug(title.trim() || host.split(".")[0] || "catalog");
+    const base = slug(title.trim() || host.split(".")[0] || "catalog");
+    let id = base;
+    for (let n = 2; sources.some((s) => s.id === id); n++) id = `${base}-${n}`;
     if (
       await save(
         [...sources, { id, title: name, url: u, key: key.trim(), on: true }],

@@ -128,7 +128,8 @@ export function InstallDrawer({ pid, item, onClose, onInstalled }: { pid: string
   );
 }
 
-export function ImportDrawer({ pid, onClose, onImported }: { pid: string; onClose: () => void; onImported: (w: Workflow) => void }) {
+/** onChanged: the import worked and the drawer closed some other way than "Open in builder" (Esc, scrim, X): refresh the list. */
+export function ImportDrawer({ pid, onClose, onImported, onChanged }: { pid: string; onClose: () => void; onImported: (w: Workflow) => void; onChanged?: () => void }) {
   const { toast } = useApp();
   const [url, setUrl] = useState("");
   const [yaml, setYaml] = useState("");
@@ -155,7 +156,7 @@ export function ImportDrawer({ pid, onClose, onImported }: { pid: string; onClos
   };
   if (done) {
     return (
-      <Drawer title={`Imported ${done.workflow.name}`} onClose={onClose}
+      <Drawer title={`Imported ${done.workflow.name}`} onClose={() => { onChanged?.(); onClose(); }}
         footer={<button className="btn primary" type="button" onClick={() => { onImported(done.workflow); onClose(); }}>Open in builder</button>}>
         <div className="field"><span className="lab">Check before it runs</span><ReviewKv r={done.review} /></div>
         {done.review.warnings?.length ? <div className="errbox">{done.review.warnings.map((w, i) => <span key={i}>{w}</span>)}</div> : null}
@@ -190,7 +191,7 @@ export function ImportDrawer({ pid, onClose, onImported }: { pid: string; onClos
   );
 }
 
-export function LibraryTab({ pid, onInstalled, onImported }: { pid: string; onInstalled: (w: Workflow) => void; onImported: (w: Workflow) => void }) {
+export function LibraryTab({ pid, onInstalled, onImported, onChanged }: { pid: string; onInstalled: (w: Workflow) => void; onImported: (w: Workflow) => void; onChanged?: () => void }) {
   const lib = useLoad("library", () => api.library());
   const [q, setQ] = useState("");
   const [install, setInstall] = useState<LibraryItem | null>(null);
@@ -223,7 +224,7 @@ export function LibraryTab({ pid, onInstalled, onImported }: { pid: string; onIn
         }}
       </Async>
       {install && <InstallDrawer pid={pid} item={install} onClose={() => setInstall(null)} onInstalled={(w) => { void lib.reload(); onInstalled(w); }} />}
-      {imp && <ImportDrawer pid={pid} onClose={() => setImp(false)} onImported={onImported} />}
+      {imp && <ImportDrawer pid={pid} onClose={() => setImp(false)} onImported={onImported} onChanged={() => { void lib.reload(); onChanged?.(); }} />}
     </>
   );
 }

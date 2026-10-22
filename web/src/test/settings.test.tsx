@@ -37,6 +37,25 @@ describe("Settings", () => {
     expect(screen.getByTestId("save-state")).toHaveTextContent("Saved: Gate mode is end of flow for ludus-engine");
   });
 
+  it("Enter and the blur after it save a text value once", async () => {
+    const user = userEvent.setup();
+    const puts: unknown[] = [];
+    server.use(http.put("/api/projects/:pid/settings", async ({ request }) => {
+      puts.push(await request.json());
+      await new Promise((r) => setTimeout(r, 150));
+      return HttpResponse.json({});
+    }));
+    location.hash = "#/settings";
+    render(<App />);
+    await screen.findByText("1 setting changed for ludus-engine");
+    const cap = screen.getByLabelText("Cap per flow (tokens)");
+    await user.clear(cap);
+    await user.type(cap, "730k{Enter}");
+    await user.tab();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(puts).toHaveLength(1);
+  });
+
   it("the General tab saves for every project", async () => {
     const user = userEvent.setup();
     location.hash = "#/settings";

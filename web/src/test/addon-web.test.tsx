@@ -86,6 +86,18 @@ describe("an add-on's web part, loaded at run time", () => {
     expect(within(nav).getByRole("link", { name: "Flow" })).toBeInTheDocument();
   });
 
+  it("a failed import is not kept: later, the page imports the web part again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let tries = 0;
+    const importer = open("#/boards", demo({ entry: ENTRY, css: [] }), async () => {
+      if (++tries === 1) throw new TypeError("Failed to fetch dynamically imported module");
+      return MODULE;
+    });
+    // the start-up import failed (logged); the page asks again instead of reusing the failure
+    expect(await main().findByRole("heading", { name: "Boards all", level: 1 })).toBeInTheDocument();
+    expect(importer).toHaveBeenCalledTimes(2);
+  });
+
   it("says the page could not be loaded when the module is not a plugin's web part", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     open("#/boards", demo({ entry: ENTRY, css: [] }), async () => ({ default: { name: "demo" } }));

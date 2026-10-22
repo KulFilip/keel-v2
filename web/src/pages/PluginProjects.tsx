@@ -73,8 +73,12 @@ export function useOtherProjects(
   return useLoad(
     projectsLoaded ? `plugins-others:${pid ?? ""}:${ids}` : null,
     () =>
-      Promise.all(
-        others.map(async (p) => ({ id: p.id, list: await api.plugins(p.id) })),
+      // one project that cannot be read must not hide the rest: it counts as "not on" there
+      Promise.allSettled(others.map((p) => api.plugins(p.id))).then((rs) =>
+        others.map((p, i) => {
+          const r = rs[i]!;
+          return { id: p.id, list: r.status === "fulfilled" ? r.value : [] };
+        }),
       ),
     { live: false },
   );
@@ -116,9 +120,15 @@ function usePlace(keelOn: boolean, onKeelOn?: () => void) {
         toast(`${p.title} is off for ${nameOf(pid)}.`);
       } else if (to === "project") {
         // only this project: the every-project row goes off first (it would keep the plugin on everywhere)
-        if (p.enabled && p.scope === "all")
-          await api.setPlugin(pid, p.name, false, "all");
-        list = await api.setPlugin(pid, p.name, true, "project");
+        const dropAll = p.enabled && p.scope === "all";
+        if (dropAll) await api.setPlugin(pid, p.name, false, "all");
+        try {
+          list = await api.setPlugin(pid, p.name, true, "project");
+        } catch (e) {
+          // the two calls are not atomic: if the second fails, put the first back, or the plugin is off everywhere
+          if (dropAll) await api.setPlugin(pid, p.name, true, "all").catch(() => undefined);
+          throw e;
+        }
         toast(`${p.title} is on for ${nameOf(pid)}.${after}`);
       } else {
         list = await api.setPlugin(pid, p.name, true, "all");
@@ -309,7 +319,7 @@ export function PluginAdds({ plugin }: { plugin: Plugin }) {
   );
 }
 
-type Row = { id: string; name: string; plugin: Plugin | undefined };
+type Row = { id: string; name: string; plugin: Plugin | undefined; error?: string };
 
 /**
  * The plugin's page: every project with the same control as Installed. Nothing shows for a plugin no project
@@ -332,12 +342,14 @@ export function PluginProjects({
   const rows = useLoad<Row[]>(
     projectsLoaded ? `plugin-projects:${name}:${ids}` : null,
     () =>
-      Promise.all(
-        projects.map(async (p) => ({
-          id: p.id,
-          name: p.name,
-          plugin: (await api.plugins(p.id)).find((x) => x.name === name),
-        })),
+      // one project that cannot be read shows its own error and does not hide the others
+      Promise.allSettled(projects.map((p) => api.plugins(p.id))).then((rs) =>
+        projects.map((p, i): Row => {
+          const r = rs[i]!;
+          return r.status === "fulfilled"
+            ? { id: p.id, name: p.name, plugin: r.value.find((x) => x.name === name) }
+            : { id: p.id, name: p.name, plugin: undefined, error: errorParts(r.reason).message };
+        }),
       ),
     { live: false },
   );
@@ -348,7 +360,7 @@ export function PluginProjects({
   useEffect(() => {
     if (linked && ready) here.current?.scrollIntoView?.({ block: "start" });
   }, [linked, ready]);
-  if (rows.data && !rows.data.some((r) => r.plugin)) return null;
+  if (rows.data && !rows.data.some((r) => r.plugin || r.error)) return null;
   const title = rows.data?.find((r) => r.plugin)?.plugin?.title ?? name;
   const change = async (r: Row, to: Place) => {
     setWant({ id: r.id, to });
@@ -394,6 +406,8 @@ export function PluginProjects({
                     busy={busy}
                     onChange={(to) => void change(r, to)}
                   />
+                ) : r.error ? (
+                  <span className="badc sub" role="alert">Could not read this project: {r.error}</span>
                 ) : (
                   <span className="sub">not offered here</span>
                 )}

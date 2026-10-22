@@ -3,11 +3,12 @@
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import type { EngineEvent } from "../api";
 import { packYaml } from "../rulesApi";
-import { db, FakeEventSource } from "./setup";
+import { db, FakeEventSource, server } from "./setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
@@ -89,6 +90,30 @@ describe("Rules page", () => {
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/rules/config")[0]?.body).toEqual({ rules: { off: ["read-twice"] } }));
     expect(await screen.findByRole("checkbox", { name: "read-twice on" })).not.toBeChecked();
     expect(screen.queryByRole("checkbox", { name: "env-files on" })).not.toBeInTheDocument();
+  });
+
+  it("two quick switches both stay off (the second is built on the first's answer)", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/rules";
+    render(<App />);
+    const a = await screen.findByRole("checkbox", { name: "read-twice on" });
+    const b = screen.getByRole("checkbox", { name: "push-gate on" });
+    await Promise.all([user.click(a), user.click(b)]);
+    await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/rules/config")).toHaveLength(2));
+    const last = calls("PUT", "/api/projects/ludus-engine/rules/config").at(-1)?.body as { rules: { off: string[] } };
+    expect([...last.rules.off].sort()).toEqual(["push-gate", "read-twice"]);
+  });
+
+  it("a failed list switch goes back to where it was", async () => {
+    const user = userEvent.setup();
+    server.use(http.put("/api/projects/:pid/rules/config", () => HttpResponse.json({ error: "no" }, { status: 500 })));
+    location.hash = "#/rules";
+    render(<App />);
+    await screen.findByRole("heading", { name: /Always on/ });
+    const box = document.getElementById("rl-rules-push_gate") as HTMLInputElement;
+    expect(box).toBeChecked();
+    await user.click(box);
+    await waitFor(() => expect(box).toBeChecked());
   });
 });
 
