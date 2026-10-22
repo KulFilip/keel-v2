@@ -227,6 +227,8 @@ def picked(question: dict, decision: str, payload: dict | None) -> dict | None:
     when the gate has an exit named reject)."""
     info = question.get("choice_info") or []
     name = (payload or {}).get("choice")
+    if name is None and (payload or {}).get("skip") is True:
+        name = "skip"           # the older `skip: true` is the choice "skip" (and needs its reason too)
     if name is None and decision == "reject":
         name = "reject"
     if name is None and decision == "approve":
