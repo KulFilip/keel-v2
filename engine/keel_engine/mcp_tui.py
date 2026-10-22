@@ -16,6 +16,7 @@ from typing import Any
 from . import mcp_ask as ask_mod
 from .mcp_models import model_text
 from .runtime import clarify
+from .mcp_api import q
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project, cut
 
 RUN_MODES = {
@@ -27,9 +28,7 @@ RUN_MODES = {
 OPEN = ("running", "waiting")
 
 
-def _q(x: str) -> str:
-    from urllib.parse import quote
-    return quote(str(x), safe="")
+_q = q
 
 
 def _runs(api: KeelApi, pid: str, limit: int = 30) -> list[dict]:

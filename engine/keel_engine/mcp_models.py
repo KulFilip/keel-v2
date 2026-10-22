@@ -9,14 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from .mcp_api import q
 from .mcp_server import ApiError, KeelApi, _project
 
 KEELBOT = ("keelbot", "helper")     # KeelBot's model is the helper agent's (the Agents page)
 
 
-def _q(x: str) -> str:
-    from urllib.parse import quote
-    return quote(str(x), safe="")
+_q = q
 
 
 def model_text(m: dict | None, effort_default: bool = True) -> str:
