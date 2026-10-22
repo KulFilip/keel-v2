@@ -67,11 +67,14 @@ class Engine:
         self.tasks: dict[str, asyncio.Task] = {}
         self.pending: set[str] = set()            # running when keel stopped; continued by the api (or the grace timer)
         self._grace: asyncio.Task | None = None
+        self._resuming: dict[str, asyncio.Lock] = {}   # one resume at a time per thread (web + MCP, a double click)
+        self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
 
     # ------------------------------------------------------------ lifecycle
 
     async def open(self, resume_running: bool = True):
+        self._closing = False
         d = self.data_dir or config.data_dir()
         d.mkdir(parents=True, exist_ok=True)
         # Autocommit: a write commits inside its own statement, so this connection never holds the write lock while it
@@ -128,6 +131,8 @@ class Engine:
         return await self.state(tid)
 
     async def close(self):
+        # Set before the cancel: _drive then leaves a cut-off flow 'running', so open() continues it after the restart.
+        self._closing = True
         if self._grace:
             self._grace.cancel()
         for t in list(self.tasks.values()):
@@ -225,7 +230,8 @@ class Engine:
                     done.update(warnings=[w.get("text") for w in warned], title=snap.values.get("note") or "")
                 ctx.emit("thread.done", data=done)
         except asyncio.CancelledError:
-            await self._set_status(tid, "stopped")
+            if not self._closing:      # a user's Stop (or a rewind); a shutdown keeps the row 'running'
+                await self._set_status(tid, "stopped")
             raise
         except Exception as exc:
             log.exception("thread %s failed", tid)
@@ -516,6 +522,11 @@ class Engine:
             self.ctxs[tid].keys = dict(keys)
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
+        # The checks below await; without the lock two calls both pass "not running" and start two drivers on one thread.
+        async with self._resuming.setdefault(tid, asyncio.Lock()):
+            return await self._resume(tid, decision, why, payload)
+
+    async def _resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
         row = await self._row(tid)
         if tid in self.tasks:
             raise EngineError(409, "The flow is running, not waiting.", "Wait for it to reach a gate.")
@@ -668,9 +679,6 @@ class Engine:
         await self._row(tid)
         graph = await self._graph(tid)
         ctx = await self._context(tid)
-        ctx.done_calls.clear()
-        ctx.auto_seen.clear()
-        await ctx.memory.clear()          # a rewind goes back on purpose: agents start fresh from there
         target = None
         async for snap in graph.aget_state_history(self._cfg(tid)):
             if snap.config["configurable"]["checkpoint_id"] == checkpoint_id:
@@ -686,6 +694,16 @@ class Engine:
                     target = snap
                     break
         checkpoint_id = target.config["configurable"]["checkpoint_id"]
+        sha = (target.values or {}).get("git_head")
+        goes_back = bool(sha) and git.is_repo(ctx.root) and git.head(ctx.root) != sha
+        if goes_back:
+            # `git reset --hard` below would throw away uncommitted work in tracked files, and nothing in keel can bring it
+            # back. keel has no stash precedent (agents are even forbidden to stash), so refuse: the person decides.
+            changed = sorted(p for p, xy in (await asyncio.to_thread(git.dirty, ctx.root)).items() if xy != "??")
+            if changed:
+                shown = ", ".join(changed[:5]) + (f" and {len(changed) - 5} more" if len(changed) > 5 else "")
+                raise EngineError(409, f"The project folder has uncommitted changes ({shown}); going back to that step would delete them.",
+                                  "Commit or stash them (git stash), then rewind again.")
         task = self.tasks.get(tid)
         if task:
             task.cancel()
@@ -693,9 +711,11 @@ class Engine:
                 await task
             except BaseException:
                 pass
-        sha = (target.values or {}).get("git_head")
+        ctx.done_calls.clear()
+        ctx.auto_seen.clear()
+        await ctx.memory.clear()          # a rewind goes back on purpose: agents start fresh from there
         # The code goes back with the flow: otherwise the next step would see commits from the abandoned branch.
-        if sha and git.is_repo(ctx.root) and git.head(ctx.root) != sha:
+        if goes_back:
             await asyncio.to_thread(git.git, ctx.root, "reset", "--hard", "-q", sha)
         log.info("thread %s rewound to %s (git %s)", tid, checkpoint_id, sha)
         await self._set_status(tid, "running")
