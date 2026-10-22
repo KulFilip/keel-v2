@@ -22,15 +22,15 @@ import { pluginCommands } from "../core/plugins";
 import { COMMANDS, THEME_HELP, setPluginCommands } from "../core/commands";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
-import { Clickable, ClicksProvider, makeClicks, placeOf } from "./click";
+import { Clickable, ClicksProvider, makeClicks } from "./click";
 import { makeGatePick } from "./gatePick";
 import { diffLines, promptView } from "./promptView";
-import { CTRL_PANEL, DOUBLE_MS, HISTORY_MAX, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Question, type Sel } from "./hooks/types";
-import { blockLines, headerLine, isMouse, MOUSE, SCREEN, startLines, view, wheel, wrap } from "../core/lines";
+import { CTRL_PANEL, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Question } from "./hooks/types";
+import { headerLine, isMouse, MOUSE, SCREEN, view, wheel, wrap } from "../core/lines";
 import { isNewline, moveRow } from "../core/prompt";
 import { editText, findEditor } from "../core/editor";
 import { osc52, pickCopy } from "../core/clipboard";
-import { colsOn, highlight, mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../core/select";
+import { colsOn, highlight } from "../core/select";
 import type { ModeSession } from "../core/modes";
 import { keyName, ModeView } from "./ModeView";
 import { canOpen, toolBody, toolLines } from "../core/tools";
@@ -41,6 +41,11 @@ import { usePending } from "./hooks/usePending";
 import { useButtonAsks } from "./hooks/useButtonAsks";
 import { useCoreEvents } from "./hooks/useCoreEvents";
 import { useAskQueue } from "./hooks/useAskQueue";
+import { useSelection } from "./hooks/useSelection";
+import { usePromptHistory } from "./hooks/usePromptHistory";
+import { useTranscript } from "./hooks/useTranscript";
+import { useScroll } from "./hooks/useScroll";
+import { useMouse } from "./hooks/useMouse";
 
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
 export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boolean; chatBusy: boolean; answers: number };
@@ -96,10 +101,6 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [started, setStarted] = useState(false);
   const [line, setLine] = useState("");
   const [cursor, setCursor] = useState(0);
-  // 0.18.18 the person's earlier prompts, newest first: keel's (the project's KeelBot chats), with what was sent here
-  // since on top; hIdx: the one shown while ↑ / ↓ walk them (-1: not walking)
-  const [history, setHistory] = useState<string[]>([]);
-  const [hIdx, setHIdx] = useState(-1);
   const { pending, setPending, pendingRef, pickIdx, setPickIdx, pickFilter, setPickFilter, ticked, setTicked } = usePending();
   const [panels, setPanels] = useState<PanelId[]>([]);
   const pastes = useRef(new Pastes());
@@ -121,27 +122,10 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const ctrlX = useRef(0);
   const { stdin: inkStdin } = useStdin();
   // the full screen's scroll: lines up from the newest, the transcript area's height, and the wheel on or off
-  const [offset, setOffset] = useState(0);
-  const [viewH, setViewH] = useState(Math.max(3, height - 8));
-  const viewRef = useRef<DOMElement>(null);
   const [mouse, setMouse] = useState(mouseAtStart);
   // select with the mouse and it is copied: the selection, and "copied N characters" for a few seconds
-  const [sel, setSelState] = useState<Sel | null>(null);
-  const selRef = useRef<Sel | null>(null);
-  const setSel = (x: Sel | null) => {
-    selRef.current = x;
-    setSelState(x);
-  };
-  const [flash, setFlashState] = useState<string | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setFlash = (x: string | null) => {
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = x ? setTimeout(() => setFlashState(null), 4000) : null;
-    setFlashState(x);
-  };
-  useEffect(() => () => void (flashTimer.current && clearTimeout(flashTimer.current)), []);
+  const { sel, selRef, setSel, flash, setFlash } = useSelection();
   const promptRef = useRef<DOMElement>(null);
-  const lastPress = useRef({ t: 0, col: -1, row: -1 });
   const nextId = useRef(1);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
@@ -194,16 +178,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
 
   // 0.18.18 the prompt history comes from keel (it survives a restart, it is the same on another computer)
   const pidNow = snap.project?.id ?? null;
-  useEffect(() => {
-    if (!started || !pidNow) return;
-    let alive = true;
-    void core.prompts().then((ps) => {
-      if (!alive) return;
-      setHistory((h) => [...new Set([...h.filter((x) => !ps.includes(x)), ...ps])].slice(0, HISTORY_MAX));
-      setHIdx(-1);
-    }).catch(() => undefined);
-    return () => void (alive = false);
-  }, [core, started, pidNow]);
+  const { history, hIdx, setHIdx, remember } = usePromptHistory(core, started, pidNow);
 
   // the sidebar's MCP servers: read when it shows, and again for another project
   useEffect(() => {
@@ -471,7 +446,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     setOffset(0);
     // 0.18.28 a message to KeelBot while it answers waits (shown dim by the "queued" event), it is not refused
     if (!(core.snapshot.chat.busy && !/^[/!]/.test(text))) push({ kind: "user", text });
-    setHistory((h) => [text, ...h.filter((x) => x !== text)].slice(0, HISTORY_MAX));
+    remember(text);
     setHIdx(-1);
     const name = text.startsWith("/") ? text.split(/\s+/)[0] : "";
     if (name) setRunning(name);
@@ -538,131 +513,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     } });
   };
 
-  // the full screen's transcript as lines (each block's lines kept until the width changes)
-  const cache = useRef(new Map<number, { w: number; paint: unknown; lines: string[] }>());
-  // each line's item (a click on a tool call's line opens it)
-  const owners = useRef<number[]>([]);
-  const lines = useMemo(() => {
-    if (!screen) return [];
-    const out: string[] = [];
-    const own: number[] = [];
-    for (const it of items) {
-      let c = cache.current.get(it.id);
-      if (!c || c.w !== width || c.paint !== t.paint) {
-        c = { w: width, paint: t.paint, lines: it.kind === "start" ? startLines(it.s, width, t.paint) : [...(it.gap ? [""] : []), ...blockLines(it.b, width, t.paint)] };
-        cache.current.set(it.id, c);
-      }
-      out.push(...c.lines);
-      for (let k = 0; k < c.lines.length; k++) own.push(it.id);
-    }
-    owners.current = own;
-    return out;
-  }, [items, width, screen, t.paint]);
-  // scrolled up while new lines come: the view stays where the person is reading
-  const seen = useRef(0);
-  useEffect(() => {
-    const grew = lines.length - seen.current;
-    seen.current = lines.length;
-    if (grew > 0) setOffset((o) => (o > 0 ? o + grew : 0));
-  }, [lines.length]);
-  const scroll = useCallback((by: number) => setOffset((o) => Math.max(0, Math.min(o + by, Math.max(0, lines.length - viewH)))), [lines.length, viewH]);
-  // the transcript area's height, after Ink laid the screen out
-  useEffect(() => {
-    if (!screen || !viewRef.current) return;
-    const h = measureElement(viewRef.current).height;
-    if (h > 0 && h !== viewH) setViewH(h);
-  });
+  const { cache, owners, lines } = useTranscript(items, width, screen, t.paint);
+  const { offset, setOffset, viewH, viewRef, scroll } = useScroll(lines.length, height, screen);
   // the mode's area, after Ink laid the screen out (a question KeelBot asks meanwhile shows under it)
   useEffect(() => {
     if (!screen || !modeRef.current) return;
     const h = measureElement(modeRef.current).height;
     if (h > 0 && h !== modeH) setModeH(h);
   });
-  // select with the mouse: where a cell of the screen is in the transcript shown (after scrolling) or in the prompt
-  const shownRef = useRef({ above: 0, count: 0 });
-  const linesRef = useRef<string[]>([]);
-  linesRef.current = lines;
-  const lineRef = useRef("");
-  lineRef.current = line;
-  /** The transcript's or the prompt's cell at a column and row of the screen; with `keep`, a cell outside it is moved
-   *  to its nearest edge (a drag past the transcript's top or bottom, or off the prompt's line). */
-  const cellAt = (col: number, row: number, keep?: Sel["area"]): { area: Sel["area"]; at: Point } | null => {
-    const vp = viewRef.current && placeOf(viewRef.current);
-    const { above, count } = shownRef.current;
-    if (vp && count && keep !== "prompt") {
-      const i = row - (vp.top + vp.height - count);      // the lines sit at the bottom of the transcript's area
-      const c = Math.max(0, col - vp.left);
-      if (i >= 0 && i < count && col >= vp.left && col < vp.left + vp.width) return { area: "view", at: { line: above + i, col: c } };
-      if (keep === "view") return { area: "view", at: i < 0 ? { line: above, col: 0 } : i >= count ? { line: above + count - 1, col: 1e6 } : { line: above + i, col: c } };
-    }
-    const pp = promptRef.current && placeOf(promptRef.current);
-    // the prompt's text starts after its border, its padding and "› "
-    if (pp && lineRef.current && (keep === "prompt" || row === pp.top + 1)) return { area: "prompt", at: { line: 0, col: Math.max(0, col - pp.left - 4) } };
-    return null;
-  };
-  const onMouse = useCallback((e: MouseEv) => {
-    if (e.kind === "press") {
-      const hit = cellAt(e.col, e.row);
-      if (!hit) {
-        setSel(null);
-        clicks.hit(e.col, e.row)?.act();
-        return;
-      }
-      const lp = lastPress.current;
-      const now = Date.now();
-      lastPress.current = { t: now, col: e.col, row: e.row };
-      if (now - lp.t < DOUBLE_MS && lp.col === e.col && lp.row === e.row) {
-        // a double-click: the word under it
-        const text = hit.area === "view" ? linesRef.current[hit.at.line] ?? "" : lineRef.current;
-        const w = wordAt(plain(text), hit.at.col);
-        if (w) return setSel({ area: hit.area, a: { line: hit.at.line, col: w[0] }, b: { line: hit.at.line, col: w[1] }, moved: true });
-      }
-      setSel({ area: hit.area, a: hit.at, b: hit.at, moved: false });
-      return;
-    }
-    const cur = selRef.current;
-    if (!cur) return;
-    if (e.kind === "drag") {
-      const hit = cellAt(e.col, e.row, cur.area);
-      if (!hit) return;
-      const moved = cur.moved || hit.at.line !== cur.a.line || hit.at.col !== cur.a.col;
-      if (moved !== cur.moved || hit.at.line !== cur.b.line || hit.at.col !== cur.b.col) setSel({ ...cur, b: hit.at, moved });
-      return;
-    }
-    // the release: what is selected goes to the clipboard at once; a plain click selects nothing (on a tool call's
-    // line it opens or folds its output)
-    if (!cur.moved) {
-      setSel(null);
-      const id = cur.area === "view" ? owners.current[cur.a.line] : undefined;
-      if (id !== undefined) toggleToolRef.current(id);
-      return;
-    }
-    const text = selectedText(cur.area === "view" ? linesRef.current : [lineRef.current], cur.a, cur.b);
-    if (!text.trim()) return setSel(null);
-    stdout?.write(osc52(text));
-    const n = [...text].length;
-    setFlash(`copied ${n} character${n === 1 ? "" : "s"}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clicks, stdout]);
-  // the wheel, Home and End: read from the raw input (Ink gives no key for them)
-  const { internal_eventEmitter: rawInput } = useStdin() as unknown as { internal_eventEmitter?: NodeJS.EventEmitter };
-  useEffect(() => {
-    if (!screen || !rawInput) return;
-    const on = (chunk: string | Buffer) => {
-      const s = String(chunk);
-      const n = wheel(s);
-      if (n && mode) return mode.wheel(n * 3);
-      if (n) return scroll(n * 3);
-      for (const e of mouseEvents(s)) onMouse(e);
-      const end = /^\x1b(\[(F|4~|8~)|OF)$/.test(s);
-      const home = /^\x1b(\[(H|1~|7~)|OH)$/.test(s);
-      if (mode && (end || home)) void mode.press(end ? "end" : "home");
-      else if (end) setOffset(0);
-      else if (home) setOffset(Number.MAX_SAFE_INTEGER);
-    };
-    rawInput.on("input", on);
-    return () => void rawInput.off("input", on);
-  }, [rawInput, screen, scroll, clicks, mode, onMouse]);
+  const { shownRef } = useMouse({ screen, mode, stdout, lines, line, owners, viewRef, promptRef, clicks, toggleToolRef, selRef, setSel, setFlash, scroll, setOffset });
 
   useInput((input, key) => {
     // the mouse's reports are read below, from the raw input; never typed into the prompt
