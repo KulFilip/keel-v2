@@ -19,7 +19,7 @@ import { thinkingLines, thoughtLine, THINKING_HEAD } from "../core/thinking";
 import { BlockView, Completions, JobPanel, Panel, Picker, PluginPanel, StartScreen, StatusLine } from "./parts";
 import { imagesIn, isPaste, Pastes, typingMention } from "../core/mentions";
 import { pluginCommands } from "../core/plugins";
-import { COMMANDS, THEME_HELP, setPluginCommands } from "../core/commands";
+import { COMMANDS, THEME_HELP, setOffPluginCommands, setPluginCommands } from "../core/commands";
 import type { Profiler } from "../core/profile";
 import type { HelperMode } from "../core/sdk";
 import { Clickable, ClicksProvider, makeClicks } from "./click";
@@ -192,7 +192,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   useEffect(() => {
     const taken = new Set(COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
     setPluginCommands(pluginCommands(snap.plugins.plugins, taken));
-  }, [snap.plugins]);
+    setOffPluginCommands(snap.pluginsOff ?? []);
+  }, [snap.plugins, snap.pluginsOff]);
 
   // @mentions: the project's files, the code graph's symbols and the flow's criteria, as the person types
   useEffect(() => {

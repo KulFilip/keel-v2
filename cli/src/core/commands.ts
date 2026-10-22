@@ -43,6 +43,13 @@ export function setPluginCommands(cmds: Command[]) {
   pluginCmds = cmds.filter((c) => !COMMANDS_BY_NAME[c.name]);
 }
 export const pluginCommandList = () => pluginCmds;
+/** a plugin's command that is off in this project → the plugin's title (so /name explains instead of "no command") */
+let offCmds: Record<string, string> = {};
+export function setOffPluginCommands(off: { title: string; commands: string[] }[]) {
+  offCmds = Object.fromEntries(off.flatMap((p) => p.commands.filter((c) => !COMMANDS_BY_NAME[c]).map((c) => [c, p.title])));
+}
+const offText = (title: string) =>
+  `The ${title} plugin is off for this project. Turn it on in Control › Plugins (This project or All projects), then open keel TUI again.`;
 /** keel's command, or a plugin's */
 export const lookup = (name: string): Command | null => COMMANDS_BY_NAME[name] ?? pluginCmds.find((c) => c.name === name) ?? null;
 
@@ -92,9 +99,11 @@ export function complete(ctx: Ctx, input: string, extra: { name: string; descrip
   if (space === undefined) {
     const mine = [...COMMANDS, ...pluginCmds].filter((c) => c.name.startsWith(name.toLowerCase()))
       .map((c) => ({ value: `/${c.name}${c.args ? " " : ""}`, label: `/${c.name}${c.args ? " " + c.args : ""}`, hint: c.summary }));
+    const off = Object.entries(offCmds).filter(([c]) => c.startsWith(name.toLowerCase()) && !lookup(c))
+      .map(([c, title]) => ({ value: `/${c}`, label: `/${c}`, hint: `${title} plugin · off in this project` }));
     const bot = extra.filter((c) => c.name.startsWith(name) && !COMMANDS_BY_NAME[c.name])
       .map((c) => ({ value: `/${c.name} `, label: `/${c.name}`, hint: `KeelBot · ${c.description}` }));
-    return [...mine, ...bot];
+    return [...mine, ...off, ...bot];
   }
   const cmd = lookup(name.toLowerCase());
   if (!cmd?.complete) return [];
@@ -109,6 +118,7 @@ export async function run(ctx: Ctx, input: string, keelbot: { name: string }[] =
   if (p.kind === "chat") return { blocks: [], chat: p.text };
   if (!p.command) {
     if (keelbot.some((c) => c.name === p.name)) return { blocks: [], chat: input.trim() };
+    if (offCmds[p.name]) return fail(offText(offCmds[p.name]));
     return fail(`No command /${p.name}. /help lists them.`);
   }
   setCommand(`/${p.command.name}`);

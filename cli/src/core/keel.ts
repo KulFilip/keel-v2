@@ -9,7 +9,7 @@ import { kb } from "../../../plugins/keelbot/web/keelbotApi";
 import { connect, setCommand, viaHeaders } from "./transport";
 import { subscribe, type LiveState, type SseMessage, type Subscription } from "./sse";
 import { Mentions } from "./mentions";
-import { loadPlugins, type TuiPlugins } from "./plugins";
+import { loadPlugins, offHere, type OffPlugin, type TuiPlugins } from "./plugins";
 import { get, post, put } from "./sdk";
 import type { HelperChange, HelperDone, HelperMention } from "./sdk";
 import type { Profiler } from "./profile";
@@ -64,6 +64,8 @@ export type Snapshot = {
   liveText: Record<string, string>;
   /** what keel's plugins add to keel TUI here (contributes.tui) */
   plugins: TuiPlugins;
+  /** plugins keel has whose commands are off in this project (their names give a hint, not "no command") */
+  pluginsOff: OffPlugin[];
   live: LiveState;
   chat: ChatState;
 };
@@ -135,7 +137,7 @@ export class KeelCore {
     const url = connect(opts.url, this.f);
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
-      visited: [], inbox: [], running: [], logins: [], spent: null, flowTitles: {}, lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, live: opts.noLive ? "closed" : "connecting",
+      visited: [], inbox: [], running: [], logins: [], spent: null, flowTitles: {}, lastStep: {}, liveText: {}, plugins: { plugins: [], problems: [] }, pluginsOff: [], live: opts.noLive ? "closed" : "connecting",
       chat: { session: null, mode: "ask", model: null, busy: false, callId: null, steps: [], tools: [], stream: "", startedAt: null, wrote: 0 },
     };
   }
@@ -227,7 +229,8 @@ export class KeelCore {
 
   /** What keel's plugins add to keel TUI for this project. */
   async loadPlugins() {
-    this.set({ plugins: await loadPlugins(this.pid) });
+    const [here, all] = await Promise.all([loadPlugins(this.pid), this.pid ? loadPlugins(null) : Promise.resolve(null)]);
+    this.set({ plugins: here, pluginsOff: all ? offHere(all.plugins, here.plugins) : [] });
   }
 
   stop() {

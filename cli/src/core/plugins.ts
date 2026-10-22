@@ -20,6 +20,16 @@ export type TuiPanel = { title: string; key?: string | null; every: number; call
 export type TuiPluginView = { name: string; title: string; version: string; commands: TuiCommand[]; panel?: TuiPanel | null; modes?: TuiMode[] | null };
 export type TuiPlugins = { plugins: TuiPluginView[]; problems: { plugin: string; error: string }[] };
 
+/** A plugin keel has whose commands this project does not get (a per-project plugin that is off here). */
+export type OffPlugin = { name: string; title: string; commands: string[] };
+
+/** The plugins in `all` (keel-wide) that `here` (this project) does not list, with their command names. */
+export function offHere(all: TuiPluginView[], here: TuiPluginView[]): OffPlugin[] {
+  const mine = new Set(here.map((p) => p.name));
+  return all.filter((p) => !mine.has(p.name) && p.commands.length)
+    .map((p) => ({ name: p.name, title: p.title || p.name, commands: p.commands.map((c) => c.name) }));
+}
+
 export async function loadPlugins(pid: string | null): Promise<TuiPlugins> {
   return get<TuiPlugins>(`/tui/plugins${pid ? `?project=${encodeURIComponent(pid)}` : ""}`).catch(() => ({ plugins: [], problems: [] }));
 }
