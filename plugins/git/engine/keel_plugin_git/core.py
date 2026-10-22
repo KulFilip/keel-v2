@@ -98,10 +98,8 @@ def status(root: str) -> dict:
     b = base(root)
     up = git.git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     upstream = up.stdout.strip() if up.returncode == 0 else None
-    changes = []
-    for line in git.git(root, "status", "--porcelain", "--untracked-files=all").stdout.splitlines():
-        if len(line) > 3 and not git.is_engine_file(line[3:].strip()):
-            changes.append({"path": line[3:].strip().strip('"'), "status": line[:2].strip() or "?"})
+    # `status --porcelain -z` (git.dirty): paths are never quoted, and a rename reports its new path
+    changes = [{"path": path, "status": xy.strip() or "?"} for path, xy in git.dirty(root).items()]
     return {"branch": br, "base": b, "upstream": upstream,
             "ahead": _count(root, "@{u}..HEAD") if upstream else _count(root, f"{b}..HEAD") if b else 0,
             "behind": _count(root, "HEAD..@{u}") if upstream else 0,
@@ -126,9 +124,12 @@ def branches(root: str) -> list[dict]:
 
 def log(root: str, n: int = 20, path: str | None = None, rng: str | None = None) -> list[dict]:
     _need_repo(root)
+    rng = (rng or "").strip() or None
+    if rng and (rng.startswith("-") or any(ch.isspace() for ch in rng)):
+        raise GitError(400, "A range is like main..HEAD.", "It cannot start with - or hold spaces.")
     args = ["log", f"-n{max(1, min(n, 100))}", "--format=%h%x09%an%x09%ad%x09%s", "--date=short"]
     if rng:
-        args.append(rng)
+        args += ["--end-of-options", rng]
     if path:
         args += ["--", path]
     out = []
@@ -185,6 +186,26 @@ def _gh(root: str, token: str | None, cmd: str, timeout: int = 60) -> tuple[int,
     return testcmd.run(root, cmd, timeout, _gh_env(token))
 
 
+def _json_arrays(text: str) -> list:
+    """The items of what `gh api --paginate` prints: one JSON array per page, written one after the other ([..][..]),
+    which is not one JSON document. A ValueError when the text is not arrays."""
+    dec = json.JSONDecoder()
+    items: list = []
+    i, n = 0, len(text)
+    while True:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n:
+            return items
+        try:
+            value, i = dec.raw_decode(text, i)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"not JSON at character {i}: {exc.msg}") from exc
+        if not isinstance(value, list):
+            raise ValueError("expected a JSON array")
+        items.extend(value)
+
+
 def pr_status(root: str, token: str | None) -> dict | None:
     """The branch's pull request: {number, title, url, state, draft, review, checks: [{name, state}], comments: [...]},
     or None when the branch has none."""
@@ -209,11 +230,12 @@ def pr_status(root: str, token: str | None) -> dict | None:
     code2, out2 = _gh(root, token, f"gh api repos/{{owner}}/{{repo}}/pulls/{d.get('number')}/comments --paginate")
     if code2 == 0:
         try:
-            for c in json.loads(out2[out2.index("["):]) if "[" in out2 else []:
-                comments.append({"author": (c.get("user") or {}).get("login", ""), "body": (c.get("body") or "")[:2000],
-                                 "path": c.get("path"), "line": c.get("line") or c.get("original_line")})
-        except (ValueError, json.JSONDecodeError):
-            pass
+            inline = _json_arrays(out2)
+        except ValueError as exc:
+            raise GitError(502, "gh gave the review comments in a form keel cannot read.", str(exc)[:200]) from exc
+        for c in inline:
+            comments.append({"author": (c.get("user") or {}).get("login", ""), "body": (c.get("body") or "")[:2000],
+                             "path": c.get("path"), "line": c.get("line") or c.get("original_line")})
     done = [c for c in checks_ if c["state"] not in ("pending", "queued", "in_progress", "expected", "waiting", "")]
     failed = [c for c in checks_ if c["state"] in ("failure", "failed", "error", "cancelled", "timed_out", "action_required")]
     return {"number": d.get("number"), "title": d.get("title"), "url": d.get("url"), "state": d.get("state"),
@@ -295,7 +317,11 @@ def sync(root: str, token: str | None = None) -> dict:
         raise GitError(409, "The branch has uncommitted changes.", "Commit or stash them first, so a merge cannot mix with them.")
     ref = b
     if git.git(root, "remote").stdout.strip():
-        _fetch(root, b, token)
+        fetched = _fetch(root, b, token)
+        if fetched.returncode != 0:
+            # a stale origin/<base> would be merged as if it were current: say the fetch failed instead
+            raise GitError(502, f"git could not fetch {b} from origin: {_tail(fetched.stderr or fetched.stdout, 300)}",
+                           "Check the network and the GitHub token; nothing was merged.")
         if git.git(root, "rev-parse", "--verify", "-q", f"origin/{b}").returncode == 0:
             ref = f"origin/{b}"
     from keel_engine.runtime.actions import commit_args
@@ -334,9 +360,8 @@ def _fetch(root: str, ref: str, token: str | None):
     https = _https(url) if token else None
     env = {**command_env(), "KEEL_GH_TOKEN": token or "", "GIT_TERMINAL_PROMPT": "0"}
     if https:
-        git.git(root, *_auth_args(token), "fetch", "-q", https, f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=env)
-    else:
-        git.git(root, "fetch", "-q", "origin", ref, env=env)
+        return git.git(root, *_auth_args(token), "fetch", "-q", https, f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=env)
+    return git.git(root, "fetch", "-q", "origin", ref, env=env)
 
 
 def push(root: str, token: str | None = None) -> dict:
