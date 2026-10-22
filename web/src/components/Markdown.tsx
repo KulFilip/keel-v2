@@ -3,12 +3,30 @@
 // code / bold / italic / links, and GitHub's <details><summary> fold-outs (as in keel's PR bodies). A fence closes
 // only on a plain fence of the same kind at least as long (a ``` block inside a ```` block stays text).
 // `file:line` in backticks shows as a citation chip. With `breaks`, a single newline inside a paragraph stays a
-// line break (agents write like that).
+// line break (agents write like that). A list item indented under another is a nested list.
+// With `answer` (KeelBot's answers, 0.18.38): a paragraph that starts with a bold lead-in ending in ":" or "?" is a
+// small heading line, a verdict tag after it (`**Comment 1: keep x?** [valid]`) is a chip, a paragraph that starts with
+// "Open items:" is a note box, and a few fixed "I did not check this" sentences ("Not verified: …", "I did not run …",
+// "I changed no files.") are dimmer. Nothing else is guessed: an unknown tag stays text.
 
 import { Fragment, type ClipboardEvent, type ReactNode } from "react";
 import { CodeBlock, DiffView, FOLD, type FoldLabel } from "./Code";
 
 const CITE = /^[\w@./-]+\.[\w]+:\d+(-\d+)?$/;
+
+/** The verdict tags KeelBot may put after a lead-in or a heading, and the chip each one is. */
+const VERDICTS: Record<string, string> = { valid: "valid", partly: "partly", "not valid": "bad", optional: "optional", unclear: "unclear" };
+const verdictChip = (tag: string, key: number) => {
+  const t = tag.trim().toLowerCase().replace(/\s+/g, " ");
+  return VERDICTS[t] ? <span key={`v${key}`} className={`md-verdict ${VERDICTS[t]}`}>{t.toUpperCase()}</span> : null;
+};
+/** "**Lead-in:** rest" or "**Lead-in?** [tag] rest" at the very start of a paragraph. */
+const LEAD = /^\*\*([^*]+?[:?])\*\*(?:\s*\[([^\]\n]+)\](?!\())?\s*(.*)$/;
+/** A heading that ends with a verdict tag: "### Comment 1 [valid]". */
+const HEAD_TAG = /^(.*?)\s*\[([a-z ]+)\]\s*$/i;
+const CALLOUT = /^(?:\*\*)?Open items:(?:\*\*)?\s*(.*)$/i;
+/** The sentences that say what KeelBot did not check or change: shown dimmer, from where they start to the line's end. */
+const DIM = /(?:^|(?<=[.!?)]\s+))(?:Not verified:|Not checked(?: in the code)?:|Unverified:|I did not (?:run|check|verify|test|read|open|change)\b|I didn't (?:run|check|verify|test)\b|I changed no files\b|I made no changes\b|No files (?:were )?changed\b)/i;
 
 function inline(text: string, key = 0): ReactNode[] {
   const out: ReactNode[] = [];
@@ -38,6 +56,48 @@ function inline(text: string, key = 0): ReactNode[] {
   return out;
 }
 
+/** Inline Markdown, with a "Not verified: …" tail dimmer (answers only; never inside a `code` span). */
+function prose(text: string, key: number, answer: boolean): ReactNode[] {
+  const m = answer ? DIM.exec(text) : null;
+  if (!m || (text.slice(0, m.index).split("`").length - 1) % 2) return inline(text, key);
+  const head = text.slice(0, m.index);
+  return [...(head ? inline(head, key) : []), <span key={`d${key}`} className="md-dim">{inline(text.slice(m.index), key + 500)}</span>];
+}
+
+type ListItem = { text: string; sub: string[] };
+const LIST_LINE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+const indentOf = (line: string) => line.replace(/\t/g, "    ").match(/^ */)![0].length;
+
+/** A list from line `i`: its items, each with the lines of a list indented under it; ends at a blank or other line. */
+function readList(lines: string[], i: number): { ordered: boolean; items: ListItem[]; end: number } {
+  const first = lines[i].match(LIST_LINE)!;
+  const base = indentOf(lines[i]);
+  const items: ListItem[] = [];
+  while (i < lines.length) {
+    const l = lines[i];
+    const m = l.match(LIST_LINE);
+    const last = items[items.length - 1];
+    if (m && (indentOf(l) < base + 2 || !last)) items.push({ text: m[3], sub: [] });
+    else if (m) last.sub.push(l);
+    else if (l.trim() && /^\s{2,}/.test(l) && last) {
+      if (last.sub.length) last.sub.push(l);
+      else last.text += " " + l.trim();
+    } else break;
+    i++;
+  }
+  return { ordered: /\d/.test(first[2]), items, end: i };
+}
+
+function listNode(list: { ordered: boolean; items: ListItem[] }, key: number, answer: boolean): ReactNode {
+  const L = list.ordered ? "ol" : "ul";
+  return (
+    <L key={key}>{list.items.map((t, j) => {
+      const sub = t.sub.length ? readList(t.sub, 0) : null;
+      return <li key={j}>{prose(t.text, j, answer)}{sub && listNode(sub, 0, answer)}</li>;
+    })}</L>
+  );
+}
+
 /** A table row's cells: split on unescaped `|` only; `\|` inside a cell shows as `|`. */
 const cells = (line: string) => {
   let t = line.trim();
@@ -47,9 +107,9 @@ const cells = (line: string) => {
 };
 
 /** Lines joined by `<br>` (breaks) or by a space (classic Markdown). */
-function joined(lines: string[], breaks: boolean, key: number): ReactNode[] {
-  if (!breaks) return inline(lines.join(" "), key);
-  return lines.flatMap((l, j) => (j ? [<br key={`br${j}`} />, ...inline(l, key + j)] : inline(l, key)));
+function joined(lines: string[], breaks: boolean, key: number, answer = false): ReactNode[] {
+  if (!breaks) return prose(lines.join(" "), key, answer);
+  return lines.flatMap((l, j) => (j ? [<br key={`br${j}`} />, ...prose(l, key + j, answer)] : prose(l, key, answer)));
 }
 
 const DETAILS = /^\s*<details>\s*(?:<summary>(.*?)<\/summary>)?\s*$/i;
@@ -67,8 +127,10 @@ export type FoldLabels = { code?: FoldLabel; diff?: FoldLabel };
 
 const DIFF_LANG = /^(diff|patch)$/i;
 
-export function Markdown({ text, breaks = false, fold = FOLD, sources = false, foldLabels }: {
+export function Markdown({ text, breaks = false, fold = FOLD, sources = false, foldLabels, answer = false }: {
   text: string; breaks?: boolean; fold?: number; foldLabels?: FoldLabels;
+  /** 0.18.38 KeelBot's answer look: lead-in headings, verdict chips, the Open items note, dimmer "not verified" lines */
+  answer?: boolean;
   /** v0.15.3 each block keeps its own Markdown (data-md), so a copy can give the Markdown back (MarkdownView) */
   sources?: boolean;
 }) {
@@ -108,7 +170,7 @@ export function Markdown({ text, breaks = false, fold = FOLD, sources = false, f
       blocks.push(
         <details key={key++} className="md-details">
           <summary>{inline(summary.replace(/<[^>]+>/g, "") || "Details", key)}</summary>
-          <Markdown text={body.join("\n")} breaks={breaks} fold={fold} foldLabels={foldLabels} />
+          <Markdown text={body.join("\n")} breaks={breaks} fold={fold} foldLabels={foldLabels} answer={answer} />
         </details>,
       );
       continue;
@@ -131,7 +193,9 @@ export function Markdown({ text, breaks = false, fold = FOLD, sources = false, f
     if (h) {
       const level = Math.min(4, h[1].length);
       const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4";
-      blocks.push(<Tag key={key++}>{inline(h[2], key)}</Tag>);
+      const tagged = answer ? h[2].match(HEAD_TAG) : null;
+      const chip = tagged ? verdictChip(tagged[2], key) : null;
+      blocks.push(chip ? <Tag key={key++} className="md-tagged">{inline(tagged![1], key)} {chip}</Tag> : <Tag key={key++}>{inline(h[2], key)}</Tag>);
       i++;
       continue;
     }
@@ -155,19 +219,10 @@ export function Markdown({ text, breaks = false, fold = FOLD, sources = false, f
       blocks.push(<blockquote key={key++}>{joined(body, breaks, key)}</blockquote>);
       continue;
     }
-    const li = line.match(/^\s*([-*+]|\d+[.)])\s+/);
-    if (li) {
-      const ordered = /\d/.test(li[1]);
-      const items: string[] = [];
-      while (i < lines.length) {
-        const m = lines[i].match(/^\s*([-*+]|\d+[.)])\s+(.*)$/);
-        if (m) items.push(m[2]);
-        else if (lines[i].trim() && /^\s{2,}/.test(lines[i]) && items.length) items[items.length - 1] += " " + lines[i].trim();
-        else break;
-        i++;
-      }
-      const L = ordered ? "ol" : "ul";
-      blocks.push(<L key={key++}>{items.map((t, j) => <li key={j}>{inline(t, j)}</li>)}</L>);
+    if (LIST_LINE.test(line)) {
+      const list = readList(lines, i);
+      i = list.end;
+      blocks.push(listNode(list, key++, answer));
       continue;
     }
     const para: string[] = [];
@@ -175,7 +230,31 @@ export function Markdown({ text, breaks = false, fold = FOLD, sources = false, f
       para.push(lines[i++].trim());
     }
     if (!para.length) { para.push(lines[i++]); }
-    blocks.push(<p key={key++}>{joined(para, breaks, key)}</p>);
+    const note = answer ? para[0].match(CALLOUT) : null;
+    if (note) {
+      // "Open items: …" (and a list right under it): a note box
+      const rest = [note[1], ...para.slice(1)].filter((l) => l.trim());
+      const list = i < lines.length && LIST_LINE.test(lines[i]) ? readList(lines, i) : null;
+      if (list) i = list.end;
+      blocks.push(
+        <div key={key++} role="note" className="md-callout">
+          <b className="md-callout-h">Open items</b>{" "}
+          <div className="md-callout-b">{rest.length > 0 && <p>{joined(rest, breaks, key, answer)}</p>}{list && listNode(list, 0, answer)}</div>
+        </div>,
+      );
+      continue;
+    }
+    const lead = answer ? para[0].match(LEAD) : null;
+    if (lead) {
+      // "**Comment 1: keep x?** [valid] Valid, …": the lead-in is a small heading line, its tag a chip
+      const chip = lead[2] ? verdictChip(lead[2], key) : null;
+      const first = (lead[2] && !chip ? `[${lead[2]}] ` : "") + lead[3];
+      const rest = [first, ...para.slice(1)].filter((l) => l.trim());
+      blocks.push(<h4 key={key++} className="md-lead">{inline(lead[1].replace(/:$/, ""), key)}{chip && " "}{chip}</h4>);
+      if (rest.length) blocks.push(<p key={key++}>{joined(rest, breaks, key, answer)}</p>);
+      continue;
+    }
+    blocks.push(<p key={key++}>{joined(para, breaks, key, answer)}</p>);
   }
   flush();
   if (sources) return <Fragment>{blocks.map((b, j) => <div key={j} className="md-src" data-md={srcs[j] ?? ""}>{b}</div>)}</Fragment>;
