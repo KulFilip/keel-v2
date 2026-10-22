@@ -104,6 +104,7 @@ class ReviewService(
         val me = me(h)
         val all = h.list(me)
         val counts = mapOf("review" to all.count { it.reviewRequested }, "assigned" to all.count { it.assigned }, "mine" to all.count { it.mine }, "all" to all.size)
+        val cut = h.takeNotes().joinToString(" ").ifBlank { null }
         val shown = when (filter) {
             "review" -> all.filter { it.reviewRequested }
             "assigned" -> all.filter { it.assigned }
@@ -111,7 +112,7 @@ class ReviewService(
             "all", "" -> all
             else -> throw BadRequest("filter is review, assigned, mine or all")
         }
-        return PrList(h.ref, me, shown, counts, null)
+        return PrList(h.ref, me, shown, counts, cut)
     }
 
     fun thisBranch(pid: String): BranchSummary {
@@ -176,7 +177,14 @@ class ReviewService(
             val r = refs(pid, key)
             val files = ReviewGit.files(root, r.base, r.head)
             val (h, why) = host(root)
-            val pr = h?.let { runCatching { it.forBranch(v, me(it)) }.getOrNull() }
+            val pr = h?.let {
+                try {
+                    it.forBranch(v, me(it))
+                } catch (e: HostException) {
+                    notes += "keel could not look up this branch's pull request: ${e.message}${e.hint?.let { x -> " $x" }.orEmpty()}"
+                    null
+                }
+            }
             if (pr != null) notes += "This branch has pull request #${pr.number}: open it to see its threads and to post a review."
             else if (why != null) notes += why
             if (projects.branch(root) == v && repo.marks(root).isNotEmpty()) notes += "Uncommitted changes are not part of the review: it shows the commits."
@@ -202,6 +210,7 @@ class ReviewService(
         val conversation = part("the conversation", emptyList()) { h.conversation(n) }
         val checks = part("the checks", emptyList()) { h.checks(pr) }
         val decisions = part("the reviews", Decisions(emptyList(), emptyList())) { h.decisions(n) }
+        notes += h.takeNotes()
         if (files.size > 60 || files.sumOf { it.added + it.removed } > 1000) {
             notes += "This pull request is big (${files.size} files, +${files.sumOf { it.added }} −${files.sumOf { it.removed }}). Reviews find more in small ones: ask for a split if it mixes changes."
         }
@@ -314,6 +323,10 @@ class ReviewService(
         }, id).first()
     }
 
+    private fun dropDraft(pid: String, id: String) {
+        jdbc.update("DELETE FROM review_drafts WHERE project_id = ? AND id = ?", pid, id)
+    }
+
     fun deleteDraft(pid: String, id: String) {
         root(pid)
         if (jdbc.update("DELETE FROM review_drafts WHERE project_id = ? AND id = ?", pid, id) == 0) throw NotFound("No pending comment $id")
@@ -378,16 +391,24 @@ class ReviewService(
         val lines = mutableMapOf<String, Pair<Set<Int>, Set<Int>>>()
         val out = mutableListOf<OutComment>()
         val extra = mutableListOf<String>()
+        val extraIds = mutableListOf<String>()
         for (d in pending) {
             val f = d.path?.let { files[it] }
             val ok = f != null && d.line != null && lines.getOrPut(f.path) {
                 ReviewGit.commentable(ReviewGit.fileDiff(root, r.base, r.head, f, "").diff)
             }.let { (right, left) -> if (d.side == "LEFT") d.line in left else d.line in right }
-            if (ok) out += OutComment(d.path!!, d.line!!, d.side, d.body)
-            else extra += (if (d.path != null) "**`${d.path}${d.line?.let { ":$it" } ?: ""}`** " else "") + d.body
+            if (ok) out += OutComment(d.path!!, d.line!!, d.side, d.body, d.id)
+            else {
+                extra += (if (d.path != null) "**`${d.path}${d.line?.let { ":$it" } ?: ""}`** " else "") + d.body
+                extraIds += d.id
+            }
         }
         val body = listOf(b.body.trim(), extra.joinToString("\n\n")).filter { it.isNotBlank() }.joinToString("\n\n")
-        val url = h.submit(pr, b.event, body, out)
+        // a host that sends the review in several calls (GitLab) reports each part that is there: those drafts go at once,
+        // so a retry after a failure in the middle sends only the rest
+        val url = h.submit(pr, b.event, body, out) { sent ->
+            if (sent != null) sent.draftId?.let { dropDraft(pid, it) } else extraIds.forEach { dropDraft(pid, it) }
+        }
         jdbc.update("DELETE FROM review_drafts WHERE project_id = ? AND review_key = ?", pid, b.key)
         hub.publish(pid, "review.submitted", mapOf("key" to b.key, "event" to b.event, "comments" to out.size))
         return SubmitResult(out.size, extra.size, b.event, url, view(pid, b.key))

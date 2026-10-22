@@ -368,6 +368,22 @@ class HelperApiTest : ApiTest() {
         post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isConflict)
     }
 
+    @Test
+    fun `a branch that cannot be checked out leaves the side session as it was, its worktree not released`() {
+        val (pid, root) = newProject("helper-side-checkout")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("mode" to "side")).andExpect(status().isOk).json()["id"].asText()
+        val sha = git(root, "rev-parse", "HEAD").trim()
+        val saved = engine.helperHandover            // the stub engine is shared by the other tests: put its handover back
+        try {
+            engine.helperHandover = engine.helperHandover + mapOf("base" to sha, "branch" to "keel/helper/missing",
+                "uncommitted" to emptyList<Any>(), "commits" to listOf(mapOf("sha" to "1234567abc", "subject" to "fix(helper): x")))
+            post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isConflict)
+            assertThat(engine.calls.any { it.path == "/helper/sessions/$sid/release" }).isFalse()
+        } finally {
+            engine.helperHandover = saved
+        }
+    }
+
     private fun startFlow(pid: String, title: String) =
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to title, "allow_fake" to true, "allow_dirty" to true,
             "where" to "worktree")).andExpect(status().isOk)

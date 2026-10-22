@@ -193,21 +193,36 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     keepSid(v);
     shareFocus(v ? { chat: v, chat_project: pid } : { close: true, chat_project: pid });
   }, [keepSid, pid]);
+  // the chat this panel shows and the text typed in it now (read when another tab or keel TUI switches the chat)
+  const sidRef = useRef(sid);
+  sidRef.current = sid;
+  const draftRef = useRef<{ text: string; mentions: HelperMention[] }>({ text: "", mentions: [] });
+  /** Another tab or keel TUI opened a chat: this panel follows. The text typed stays in the chat it was typed for, and the
+   *  chat that opens shows its own draft (the draft effect below must not write the old text into it). */
+  const follow = useCallback((v: string) => {
+    if (v === sidRef.current) return;
+    setDraft(pid, sidRef.current, draftRef.current);
+    const d = getDraft(pid, v);
+    setText(d.text);
+    setMentions(d.mentions);
+    setCaret(0);
+    keepSid(v);
+  }, [pid, keepSid]);
   // 0.18.6 the chat keel TUI (or another tab) has open on this project: at the start, and when it opens another
   useEffect(() => {
     let alive = true;
-    kb.focus().then((f) => { const s = f?.chats?.[pid]; if (alive && s && s !== read(sidKey(pid))) keepSid(s); }, () => undefined);
+    kb.focus().then((f) => { const s = f?.chats?.[pid]; if (alive && s && s !== read(sidKey(pid))) follow(s); }, () => undefined);
     const on = (e: Event) => {
       const f = (e as CustomEvent<UiFocus>).detail;
       const s = f?.chats?.[pid];
-      if (s) keepSid(s);
+      if (s) follow(s);
     };
     window.addEventListener(UI_FOCUS_EVENT, on);
     return () => {
       alive = false;
       window.removeEventListener(UI_FOCUS_EVENT, on);
     };
-  }, [pid, keepSid]);
+  }, [pid, follow]);
   const list = useLoad(`helper:${pid}:list`, () => kb.sessions(pid), { live: false });
   // v0.15.2 a chat is forgotten only when the server says it is gone (404), never because the server did not answer
   const gone = useRef<string | null>(null);
@@ -240,6 +255,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const [text, setText] = useState(() => getDraft(pid, read(sidKey(pid))).text);
   const [caret, setCaret] = useState(0);
   const [mentions, setMentions] = useState<HelperMention[]>(() => getDraft(pid, read(sidKey(pid))).mentions);
+  draftRef.current = { text, mentions };
   useEffect(() => setDraft(pid, sid, { text, mentions }), [pid, sid, text, mentions]);
   const [pending, setPending] = useState<{ call: string; n: number } | null>(null);
   const [sending, setSending] = useState(false);

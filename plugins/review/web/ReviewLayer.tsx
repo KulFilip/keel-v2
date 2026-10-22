@@ -648,9 +648,9 @@ function SubmitDialog({
           <button
             type="submit"
             className="btn sm primary"
-            disabled={r.busy === "submit"}
+            disabled={r.running.includes("submit")}
           >
-            {r.busy === "submit" ? "Sending…" : "Submit review"}
+            {r.running.includes("submit") ? "Sending…" : "Submit review"}
           </button>
           <button type="button" className="btn sm ghost" onClick={onClose}>
             Cancel
@@ -735,10 +735,10 @@ function MergeDialog({
           <button
             type="button"
             className="btn sm primary"
-            disabled={r.busy === "merge"}
+            disabled={r.running.includes("merge")}
             onClick={() => void go()}
           >
-            {r.busy === "merge" ? "Merging…" : `Merge into ${v.base}`}
+            {r.running.includes("merge") ? "Merging…" : `Merge into ${v.base}`}
           </button>
           <button type="button" className="btn sm ghost" onClick={onClose}>
             Cancel

@@ -62,7 +62,8 @@ export function ReviewFileTab({
   const canComment = v.can_post || v.kind === "branch";
 
   const anchors: Anchor[] = [];
-  for (const t of v.threads.filter((x) => x.path === path && x.line)) {
+  // an outdated thread is on code that is not in this diff any more: it is not drawn at its old line (the Threads list has it)
+  for (const t of v.threads.filter((x) => x.path === path && x.line && !x.outdated)) {
     anchors.push({
       line: t.line!,
       side: t.side,
@@ -135,7 +136,7 @@ export function ReviewFileTab({
       node: (
         <CommentBox
           where={`${path}:${composing.line}${composing.side === "LEFT" ? " (old side)" : ""}`}
-          busy={r.busy === "draft"}
+          busy={r.running.includes("draft")}
           onCancel={() => R.setUi({ composing: null })}
           onSave={(b) =>
             void R.addDraft(pid, reviewKey, b, {

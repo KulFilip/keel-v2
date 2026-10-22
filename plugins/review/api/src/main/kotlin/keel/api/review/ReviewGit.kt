@@ -22,7 +22,8 @@ object ReviewGit {
     /** origin as written in the config (not rewritten by insteadOf): https://host/a/b(.git), git@host:a/b.git, ssh://git@host/a/b. */
     fun identity(root: Path, gitlabHost: String? = null, githubHost: String? = null): HostRef? {
         val url = out(root, "config", "--get", "remote.origin.url") ?: return null
-        val (host, path) = parseRemote(url) ?: return null
+        val (address, path) = parseRemote(url) ?: return null
+        val host = address.substringBefore(':')          // the token is judged by the name; the port stays in the address
         // A token goes to a host keel was told about: the host the GitHub token belongs to (github.com, or the Enterprise
         // host of the sign-in), gitlab.com, or the GitLab server of Connections. A name that only looks like one
         // (github.evil.com) is "other": no token.
@@ -31,16 +32,23 @@ object ReviewGit {
             host == "gitlab.com" || (gitlabHost != null && host.equals(gitlabHost, true)) -> "gitlab"
             else -> "other"
         }
-        return HostRef(kind, host, path, "https://$host/$path")
+        return HostRef(kind, address, path, "https://$address/$path")
     }
 
+    /**
+     * The host and the repo's path of a remote URL. The host keeps its port for an http(s) remote (a self-hosted GitLab
+     * on :8443 is reached there); an ssh or git remote's port is the ssh port, which means nothing for the API: dropped.
+     */
     fun parseRemote(url: String): Pair<String, String>? {
         val u = url.trim().removeSuffix("/").removeSuffix(".git")
-        val m = Regex("^(?:https?|ssh|git)://(?:[^@/]+@)?([^/:]+)(?::\\d+)?/(.+)$").matchEntire(u)
-            ?: Regex("^(?:[^@/]+@)?([^/:]+):(.+)$").matchEntire(u)
-            ?: return null
-        val host = m.groupValues[1].lowercase()
-        val path = m.groupValues[2].trim('/')
+        val m = Regex("^(https?|ssh|git)://(?:[^@/]+@)?([^/:]+)(?::(\\d+))?/(.+)$").matchEntire(u)
+        val (host, path) = if (m != null) {
+            val port = m.groupValues[3].takeIf { it.isNotEmpty() && m.groupValues[1].startsWith("http") }
+            (m.groupValues[2].lowercase() + (port?.let { ":$it" } ?: "")) to m.groupValues[4].trim('/')
+        } else {
+            val s = Regex("^(?:[^@/]+@)?([^/:]+):(.+)$").matchEntire(u) ?: return null
+            s.groupValues[1].lowercase() to s.groupValues[2].trim('/')
+        }
         if (!path.contains('/') || path.contains("..")) return null
         return host to path
     }
