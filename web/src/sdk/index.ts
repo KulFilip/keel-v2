@@ -172,6 +172,7 @@ export type {
   SettingRow,
   SettingsBrowserItem,
   SettingsSectionItem,
+  SettingsSectionProps,
   ShellWatchItem,
   ToolsCardItem,
   WorkflowActionsItem,

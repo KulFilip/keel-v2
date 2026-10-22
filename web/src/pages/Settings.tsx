@@ -19,7 +19,7 @@ import { useApp, useLoad } from "../state";
 type Key = keyof Settings;
 /** A row: its key, label, control (kind), one line of help, the value before the api has one, a warning. */
 type Row = SettingRow & { key: Key };
-type Sec = { id: string; title: string; sub: string; rows: Row[] };
+type Sec = { id: string; title: string; sub: string; rows: Row[]; component?: SettingsSectionItem["component"] };
 
 export const SECTIONS: Sec[] = [
   { id: "flow", title: "Flow and gates", sub: "How much a flow does by itself, and when it stops for you.", rows: [
@@ -230,7 +230,7 @@ export function SettingsPage({ pid }: { pid: string }) {
   const [only, setOnly] = useState(false);
   // the parts' sections come after keel's own (their keys are the parts' settings)
   const extra = useSlot<SettingsSectionItem>(SLOTS.settingsSection);
-  const sections: Sec[] = [...SECTIONS, ...extra.map((x) => ({ id: x.id, title: x.title, sub: x.sub, rows: x.rows as Row[] }))];
+  const sections: Sec[] = [...SECTIONS, ...extra.map((x) => ({ id: x.id, title: x.title, sub: x.sub, rows: x.rows as Row[], component: x.component }))];
   const timer = useRef<number>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const isProj = scope === "project" && !!pid;
@@ -278,7 +278,8 @@ export function SettingsPage({ pid }: { pid: string }) {
   const isChanged = (k: string) => ov[k] !== null && ov[k] !== undefined;
   const changed = isProj && proj.data ? Object.keys(ov).filter(isChanged) : [];
   const filter = isProj && only && changed.length > 0;
-  const shown = sections.map((s) => ({ ...s, rows: filter ? s.rows.filter((r) => isChanged(r.key)) : s.rows })).filter((s) => s.rows.length);
+  const shown = sections.map((s) => ({ ...s, rows: filter ? s.rows.filter((r) => isChanged(r.key)) : s.rows }))
+    .filter((s) => s.rows.length || (s.component && !filter));
   const status = save.state === "saving" ? "Saving…" : save.state === "idle" ? "Changes save as you make them" : save.text;
 
   return (
@@ -305,6 +306,7 @@ export function SettingsPage({ pid }: { pid: string }) {
                   <h2 id={`sg-${sec.id}-h`}>{sec.title}</h2>
                   <p>{sec.sub}</p>
                 </header>
+                {sec.component && <sec.component pid={pid} scope={isProj ? "project" : "general"} />}
                 {!data.data ? <Skeleton lines={sec.rows.length + 1} label="Loading settings" /> : sec.rows.map((row) => {
                   if (isProj) {
                     const p = proj.data!;
