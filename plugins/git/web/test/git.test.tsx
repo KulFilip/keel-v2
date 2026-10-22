@@ -118,8 +118,9 @@ describe("Code › Git", () => {
     await user.click(
       await screen.findByRole("button", { name: "Source control" }),
     );
-    const git = await screen.findByLabelText("Git");
-    expect(within(git).getByText("↑ 2 to push")).toBeInTheDocument();
+    // 0.18.38 the Git plugin's pieces sit in Source control's own sections (ScmPanelProps.layout), not in a "Git" box
+    const git = await screen.findByRole("complementary", { name: "Source control" });
+    expect(await within(git).findByText("↑ 2 to push")).toBeInTheDocument();
     await user.click(within(git).getByRole("button", { name: "Push" }));
     await waitFor(() =>
       expect(calls("POST", "/api/projects/ludus-engine/git/push")).toHaveLength(
@@ -252,10 +253,10 @@ describe("Code › Git without KeelBot", () => {
     location.hash = "#/repo";
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Source control" }));
-    const git = await screen.findByLabelText("Git");
+    const git = await screen.findByRole("complementary", { name: "Source control" });
     const pr = await within(git).findByRole("group", { name: "Pull request #7" });
     expect(pr).toHaveTextContent("1 check failed");
-    expect(within(pr).getByRole("link", { name: "Open on GitHub" })).toBeInTheDocument();
+    expect(within(pr).getByRole("link", { name: "On GitHub (opens a new tab)" })).toHaveAttribute("href", "https://github.com/o/r/pull/7");
     expect(within(git).queryByRole("button", { name: /Ask KeelBot/ })).toBeNull();
     expect(within(pr).queryByRole("button", { name: "Why did CI fail?" })).toBeNull();
     await user.click(within(git).getByRole("button", { name: "Push" }));

@@ -28,6 +28,7 @@ import { LogTab } from "./Log";
 import { QuickOpen } from "./QuickOpen";
 import { RecentFiles } from "./Recent";
 import { ScmView } from "./Scm";
+import { clampSide, SCM_DEFAULT, SCM_MIN, SIDE_MIN } from "./scmModel";
 import { SearchView } from "./Search";
 
 /** A view in the activity bar: its id, name, icon, key (after ⌘) and phone label; `order` places it. */
@@ -82,8 +83,10 @@ function tabTitle(t: EditorTab, kinds: CodeTabItem[]): string {
   return nameOf(t.path);
 }
 
-export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
+export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepoChanged }: {
   pid: string; repo: RepoInfo | null; version?: number;
+  /** a switch, commit or push changed the branch: read it again */
+  onRepoChanged?: () => void;
   /** the page head is hidden (Focus); the status bar can bring it back */
   focus?: boolean; onFocus?: (on: boolean) => void;
 }) {
@@ -94,7 +97,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   const [activity, setActivity] = useState<Activity>("explorer");
   const [sideOpen, setSideOpen] = useState(true);
+  // the side bar's width, remembered per browser; Source control has its own (0.18.38: wider, it holds the branch, the
+  // pull request and the commit box), the other views share one
   const [width, setWidth] = useState(() => readJson(local, "keel2.repo.side", 280));
+  const [scmWidth, setScmWidth] = useState(() => readJson(local, "keel2.repo.side.scm", SCM_DEFAULT));
   const tabsKey = `keel2.repo.tabs.${pid}`;
   const [tabs, setTabs] = useState<Tabs>(() => readJson(session, tabsKey, { tabs: [], active: null }));
   const [targets, setTargets] = useState<Record<string, Target>>({});
@@ -143,6 +149,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   useEffect(() => writeJson(session, tabsKey, { tabs: tabs.tabs.filter((t) => t.kind !== "doctor"), active: tabs.active }), [tabs, tabsKey]);
   useEffect(() => writeJson(local, "keel2.repo.side", width), [width]);
+  useEffect(() => writeJson(local, "keel2.repo.side.scm", scmWidth), [scmWidth]);
   useEffect(() => writeJson(local, "keel2.repo.diff", mode), [mode]);
   useEffect(() => writeJson(local, "keel2.repo.wrap", wrap), [wrap]);
   useEffect(() => writeJson(local, "keel2.repo.helper", helperOpen), [helperOpen]);
@@ -382,12 +389,19 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   const close = (id: string) => setTabs((t) => closeTab(t, id));
 
-  // the splitter: drag, or arrows when focused
+  // the splitter: drag, or the keys when focused (arrows 16 px, with Shift 64, Home and End the ends, Enter the default);
+  // never wider than the window minus 320 px for the editor
+  const isScm = activity === "scm";
+  const sideMin = isScm ? SCM_MIN : SIDE_MIN;
+  const room = () => (root.current?.getBoundingClientRect().width || window.innerWidth || 1200) - 52;
+  const sideW = isScm ? scmWidth : width;
+  const setSideW = (w: number) => (isScm ? setScmWidth : setWidth)(clampSide(w, sideMin, room()));
+  const sideMax = clampSide(Number.MAX_SAFE_INTEGER, sideMin, room());
   const drag = (e: RPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const startX = e.clientX;
-    const start = width;
-    const move = (ev: PointerEvent) => setWidth(Math.min(640, Math.max(180, start + ev.clientX - startX)));
+    const start = sideW;
+    const move = (ev: PointerEvent) => setSideW(start + ev.clientX - startX);
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -437,7 +451,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           onOpenChange={(p, pin) => openFile(p, pin, "diff")}
           onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })}
           onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })}
-          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} onOpenLog={showLog} />
+          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} onOpenLog={showLog}
+          onRepoChanged={() => {
+            onRepoChanged?.();
+            void changes.reload();
+          }} />
       </div>
       {theirs.map((a) => (
         <div key={a.id} hidden={activity !== a.id} className="sv-host">
@@ -580,7 +598,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   );
 
   const ide = {
-    "--side-w": `${width}px`,
+    "--side-w": `${Math.min(sideW, sideMax)}px`,
     "--help-w": `${helperW}px`,
   } as CSSProperties;
 
@@ -615,10 +633,16 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       {theirs.map((a) => (a.layer ? <a.layer key={a.id} pid={pid} active={active} open={open} /> : null))}
       {!phone && sideOpen && (
         <div className="ide-split" role="separator" aria-orientation="vertical" aria-label="Resize the side bar" tabIndex={0}
-          aria-valuenow={width} aria-valuemin={180} aria-valuemax={640} onPointerDown={drag}
+          aria-valuenow={Math.min(sideW, sideMax)} aria-valuemin={sideMin} aria-valuemax={sideMax} aria-valuetext={`${Math.min(sideW, sideMax)} pixels wide`}
+          title="Drag to resize (arrow keys when focused; double-click for the default width)"
+          onPointerDown={drag} onDoubleClick={() => setSideW(isScm ? SCM_DEFAULT : 280)}
           onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") setWidth((w) => Math.max(180, w - 16));
-            if (e.key === "ArrowRight") setWidth((w) => Math.min(640, w + 16));
+            const step = e.shiftKey ? 64 : 16;
+            const to = e.key === "ArrowLeft" ? sideW - step : e.key === "ArrowRight" ? sideW + step : e.key === "Home" ? sideMin
+              : e.key === "End" ? sideMax : e.key === "Enter" ? (isScm ? SCM_DEFAULT : 280) : null;
+            if (to === null) return;
+            e.preventDefault();
+            setSideW(to);
           }} />
       )}
       <section className="ide-main" aria-label="Editor">

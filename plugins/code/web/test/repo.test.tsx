@@ -320,13 +320,14 @@ describe("Repo IDE", () => {
     await user.click(await screen.findByRole("button", { name: "Source control" }));
     const view = screen.getByRole("complementary", { name: "Source control" });
     expect(await within(view).findByRole("button", { name: /^Staged changes/ })).toHaveTextContent("1");
-    expect(within(view).getByRole("button", { name: /^Changes/ })).toHaveTextContent("1");
+    expect(within(view).getByRole("button", { name: /^Not staged/ })).toHaveTextContent("1");
     expect(within(view).getByRole("button", { name: /^Untracked/ })).toHaveTextContent("1");
     expect(within(view).getByText("3 uncommitted files. A flow starts only on a clean tree.")).toBeInTheDocument();
     expect(within(view).getByRole("button", { name: "Clean up with the Doctor" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Source control" })).toHaveTextContent("3");
 
-    // commits on the branch: keel's own marked, the AC as a chip
+    // commits on the branch (0.18.38 a row that starts closed): keel's own marked, the AC as a chip
+    await user.click(within(view).getByRole("button", { name: /^Commits on this branch/ }));
     const commit = await within(view).findByRole("button", { name: /refuse a negative score/ });
     expect(within(commit).getByText("keel")).toBeInTheDocument();
     expect(within(commit).getByText("AC-002")).toBeInTheDocument();
@@ -349,8 +350,9 @@ describe("Repo IDE", () => {
     const view = screen.getByRole("complementary", { name: "Source control" });
     const scroll = within(view).getByTestId("scm-scroll");
     expect(within(scroll).getByText("On branch")).toBeInTheDocument();
-    expect(within(scroll).getByText("feat/scores")).toBeInTheDocument();
-    expect(within(scroll).getByText("6 commits ahead", { exact: false })).toBeInTheDocument();
+    // 0.18.38 the name with its prefix dimmed, and the pills: from the base, ahead
+    expect(scroll.querySelector(".scm-name")).toHaveTextContent("feat/scores");
+    expect(within(scroll).getByText("↑ 6 ahead")).toBeInTheDocument();
     expect(await within(scroll).findByRole("button", { name: "Clean up with the Doctor" })).toBeInTheDocument();
     expect(within(scroll).getByRole("button", { name: /^Branches/ })).toBeInTheDocument();
     expect(within(view).getByRole("heading", { name: "Source control" }).closest("[data-testid=scm-scroll]")).toBeNull();   // the title stays

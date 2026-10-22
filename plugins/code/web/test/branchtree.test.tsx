@@ -15,6 +15,8 @@ import { buildBranchTree, filterTree, loadOpen, saveOpen, type TreeFolder, type 
 const b = (name: string) => ({ name, note: `${name}: subject` });
 const local = ["main", "pre-clean-branch-backup", "feature/ERPDM-1652-add-thing", "feature/ERPDM-1653-other", "fix/login", "feat/scores", "tmp-rebase-check", "feat/deep/er/one"].map(b);
 const remotes = ["origin/main", "origin/feature/ERPDM-1652-add-thing", "github/fix/login"].map(b);
+// 0.18.38 Source control lists only what a remote has and this clone does not: a teammate's branch
+const teammate = b("origin/feature/ERPDM-1810-sonar-fixes");
 
 describe("branch tree", () => {
   it("groups feature/, fix/ and prefix-less branches, the current one on top then main", () => {
@@ -66,7 +68,7 @@ describe("branch tree", () => {
 describe("branches in Source control", () => {
   const setup = async () => {
     server.use(http.get("/api/projects/:pid/repo", () => HttpResponse.json({
-      ...fx.repo, branch: "feat/scores", branches: [...local, b("feat/scores")], remote_branches: remotes,
+      ...fx.repo, branch: "feat/scores", branches: [...local, b("feat/scores")], remote_branches: [...remotes, teammate],
     })));
     location.hash = "#/repo";
     const user = userEvent.setup();
@@ -80,14 +82,20 @@ describe("branches in Source control", () => {
     const branches = await within(view).findByRole("button", { name: /^Branches/ });
     if (branches.getAttribute("aria-expanded") === "false") await user.click(branches);
     expect(within(view).getByRole("button", { name: "Local 9" })).toBeInTheDocument();
-    expect(within(view).getByRole("button", { name: "origin (remote) 2" })).toHaveAttribute("aria-expanded", "false");
+    // a remote branch with a local twin is not listed again: only the teammate's, under "On origin only"
+    expect(within(view).getByRole("button", { name: "On origin only 1" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(view).queryByRole("button", { name: /^On github only/ })).toBeNull();
     expect(within(view).getByRole("button", { name: "feature/ 2" })).toHaveAttribute("aria-expanded", "false");
     expect(within(view).queryByRole("button", { name: "Show the log of feature/ERPDM-1652-add-thing" })).toBeNull();
 
     await user.type(within(view).getByRole("searchbox", { name: "Filter the branches" }), "ERPDM-1652");
-    expect(within(view).getByRole("status")).toHaveTextContent("2 matches");
+    expect(within(view).getByRole("status")).toHaveTextContent("1 match");
     expect(within(view).getByRole("button", { name: "Show the log of feature/ERPDM-1652-add-thing" })).toBeInTheDocument();
-    expect(within(view).getByRole("button", { name: "Show the log of origin/feature/ERPDM-1652-add-thing" })).toBeInTheDocument();
+    expect(within(view).queryByRole("button", { name: "Show the log of origin/feature/ERPDM-1652-add-thing" })).toBeNull();
+    // a ticket key finds the remote-only branch too, also typed without the dash
+    await user.clear(within(view).getByRole("searchbox", { name: "Filter the branches" }));
+    await user.type(within(view).getByRole("searchbox", { name: "Filter the branches" }), "erpdm1810");
+    expect(within(view).getByRole("button", { name: "Show the log of origin/feature/ERPDM-1810-sonar-fixes" })).toBeInTheDocument();
   });
 
   it("remembers a folder the person opened", async () => {

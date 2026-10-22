@@ -1,0 +1,928 @@
+/* Source control (0.18.38): the Code page's side view for the branch, the pull request, the changes and the branches
+   (plugins/code/web/Scm.tsx, the Git plugin's pieces in plugins/git/web/GitPanel.tsx). keel's tokens; a few new ones
+   for text on tinted backgrounds and for solid buttons, so every text keeps 4.5:1 in the light and the dark theme.
+   The layout follows the side bar's width (a container query on .scm): buttons two a row when there is room and one
+   when narrow, the branch and the pull request side by side when wide. */
+
+:root {
+  --ok-ink: #17663a;
+  --warn-ink: #8a4f00;
+  --accent-ink: #5b3fd6;
+  --bad-ink: #a32a1e;
+  --run-ink: #0a5f9e;
+  --ok-solid: #187340;
+  --on-ok-solid: #ffffff;
+  --warn-solid: #8a4f00;
+  --on-warn-solid: #ffffff;
+  --accent-solid: #6447e8;
+  --on-accent-solid: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ok-ink: #6fdc8f;
+    --warn-ink: #f2c46d;
+    --accent-ink: #c4b5ff;
+    --bad-ink: #f59a8f;
+    --run-ink: #7cc2ff;
+    --ok-solid: #4ec07c;
+    --on-ok-solid: #0d1a11;
+    --warn-solid: #e0a13a;
+    --on-warn-solid: #1d1608;
+    --accent-solid: #a48bff;
+    --on-accent-solid: #131314;
+  }
+}
+:root[data-theme="dark"] {
+  --ok-ink: #6fdc8f;
+  --warn-ink: #f2c46d;
+  --accent-ink: #c4b5ff;
+  --bad-ink: #f59a8f;
+  --run-ink: #7cc2ff;
+  --ok-solid: #4ec07c;
+  --on-ok-solid: #0d1a11;
+  --warn-solid: #e0a13a;
+  --on-warn-solid: #1d1608;
+  --accent-solid: #a48bff;
+  --on-accent-solid: #131314;
+}
+
+.sv.scm {
+  container: scm / inline-size;
+}
+.scm .sv-head {
+  border-bottom: 1px solid var(--ide-line);
+  padding: 8px 10px 8px 14px;
+}
+.scm .sv-title {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11.5px;
+}
+.scm-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.scm-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ide-line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--dim);
+  cursor: pointer;
+}
+.scm-icon:hover {
+  color: var(--fg);
+  border-color: var(--dim);
+}
+
+/* focus: a visible ring on everything one can press or type in */
+.scm :is(button, a, input, textarea, summary, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.scm :is(.scm-row, .scm-gh, .scm-ch, .scm-bfh):focus-visible {
+  outline-offset: -2px;
+  border-color: transparent;
+  box-shadow: none;
+}
+.scm .scm-search input:focus-visible {
+  outline: none;
+}
+.scm-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* ---------- sections ---------- */
+.scm-sec {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--ide-line);
+  min-width: 0;
+  align-content: start;
+}
+.scm-h {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.scm-sec-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.scm-count {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.scm-label {
+  font-size: 12px;
+  color: var(--dim);
+}
+.scm-note,
+.scm-ro {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--dim);
+  line-height: 1.45;
+}
+
+/* the branch */
+.scm-onrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.scm .scm-on {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.scm-ticket {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--accent-solid);
+  color: var(--on-accent-solid);
+}
+.scm-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+.scm-prefix {
+  color: var(--dim);
+  font-weight: 500;
+}
+.scm-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.scm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--ide-line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 18px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.scm-pill .mono {
+  font-size: 11.5px;
+}
+.scm-pill.strong {
+  font-weight: 600;
+}
+.scm-pill.tone-ok,
+.scm-pill.tone-warn,
+.scm-pill.tone-accent,
+.scm-pill.tone-bad {
+  border-color: transparent;
+  font-weight: 500;
+}
+.scm-pill.tone-ok {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok-ink);
+}
+.scm-pill.tone-warn {
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  color: var(--warn-ink);
+}
+.scm-pill.tone-accent {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent-ink);
+}
+.scm-pill.tone-bad {
+  background: color-mix(in srgb, var(--bad) 13%, transparent);
+  color: var(--bad-ink);
+}
+.scm-pill.tone-idle {
+  color: var(--dim);
+}
+
+/* buttons: as many a row as fit at 140 px each (one when narrow, two in a normal side bar) */
+.scm-btns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 8px;
+}
+.scm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--ide-line);
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: normal;
+  min-width: 0;
+}
+a.scm-btn,
+a.scm-btn:visited {
+  color: var(--fg);
+}
+.scm-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.scm-btn.primary,
+a.scm-btn.primary {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: var(--on-accent-solid);
+}
+.scm-btn.ok {
+  background: var(--ok-solid);
+  border-color: var(--ok-solid);
+  color: var(--on-ok-solid);
+}
+.scm-btn.warn {
+  background: var(--warn-solid);
+  border-color: var(--warn-solid);
+  color: var(--on-warn-solid);
+  justify-self: start;
+}
+.scm-btn.primary:hover:not(:disabled),
+.scm-btn.ok:hover:not(:disabled),
+.scm-btn.warn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: transparent;
+}
+.scm-btn:disabled {
+  background: var(--panel-2);
+  border-color: var(--ide-line);
+  color: var(--dim);
+  cursor: default;
+}
+.scm-btn.sm {
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.scm-btn-n {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.scm-link {
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.scm-link:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+.scm-ask {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 60%, var(--ide-line));
+  background: transparent;
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+.scm-ask:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.scm-ask svg {
+  flex: none;
+}
+.scm-foot {
+  flex: none;
+  padding: 10px 14px;
+  border-top: 1px solid var(--ide-line);
+  background: var(--ide-side);
+}
+
+/* ---------- cards: the pull request, GitHub not answering, an error ---------- */
+.scm-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--ide-line);
+  background: var(--panel);
+  min-width: 0;
+}
+.gp-pr-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gp-pr-n {
+  font-size: 12px;
+  color: var(--dim);
+}
+.gp-pr-to {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.gp-pr-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.gp-facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.gp-facts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.gp-fact-i {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+.gp-fact-r {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+}
+.gp-fact-i.tone-ok {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok-ink);
+}
+.gp-fact-i.tone-warn {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn-ink);
+}
+.gp-fact-i.tone-bad {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--bad-ink);
+}
+.gp-fact-i.tone-accent {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-ink);
+}
+.gp-fact-r.tone-warn {
+  color: var(--warn-ink);
+}
+.gp-fact-r.tone-bad {
+  color: var(--bad-ink);
+}
+.gp-more > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--dim);
+  width: fit-content;
+}
+.gp-more .gp-checks {
+  margin-top: 6px;
+}
+.gp-more .gp-checks li {
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.gp-more .gp-checks a {
+  color: var(--accent-ink);
+}
+.gp-comment {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.scm-warn {
+  background: color-mix(in srgb, var(--warn) 9%, var(--panel));
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.scm-bad {
+  background: color-mix(in srgb, var(--bad) 7%, var(--panel));
+  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+}
+.scm-warn-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.scm-warn-i {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn-ink);
+}
+.scm-warn-t {
+  margin: 0;
+  font-weight: 600;
+  color: var(--warn-ink);
+  overflow-wrap: anywhere;
+}
+.scm-bad .scm-warn-t {
+  color: var(--bad-ink);
+}
+.scm-warn-s {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.scm-warn-acts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scm-raw {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ide-side);
+  color: var(--fg);
+  font: 11px/1.5 var(--f-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+}
+.scm-raw[hidden] {
+  display: none;
+}
+
+/* ---------- changes ---------- */
+.scm .scm-dirty {
+  margin: 0;
+  border-radius: 10px;
+}
+.scm-clean {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 12.5px;
+}
+.scm-clean-i {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok-ink);
+  font-size: 12px;
+}
+.scm-changes,
+.scm-flat {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.scm .scm-row.scm-chg {
+  min-height: 30px;
+  padding: 3px 8px;
+  gap: 8px;
+  border-radius: 8px;
+}
+.scm-letter {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  font: 600 12px var(--f-mono);
+}
+.scm-letter.t-mod {
+  color: var(--warn-ink);
+}
+.scm-letter.t-add {
+  color: var(--ok-ink);
+}
+.scm-letter.t-del {
+  color: var(--bad-ink);
+}
+.scm-letter.t-ren {
+  color: var(--run-ink);
+}
+.scm-path {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.scm .scm-chg .ex-name {
+  font: 12.5px var(--f-mono);
+  color: var(--fg);
+  white-space: nowrap;
+}
+.scm .scm-chg .ex-name.gone {
+  color: var(--dim);
+}
+.scm .sr-dir {
+  color: var(--dim);
+}
+.scm-delta {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-size: 11px;
+}
+.scm-delta .add {
+  color: var(--ok-ink);
+}
+.scm-delta .del {
+  color: var(--bad-ink);
+}
+.scm-g.sub .scm-gh {
+  position: static;
+  min-height: 26px;
+  padding-left: 0;
+  border: 0;
+  background: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--dim);
+}
+.scm-g.sub .scm-gb {
+  padding-bottom: 4px;
+}
+.gp-commit {
+  display: grid;
+  gap: 8px;
+}
+.gp-commit textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--ide-line);
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* ---------- the collapsible rows: commits, worktrees, branches ---------- */
+.scm-rows > .scm-g > .scm-gh {
+  position: static;
+  min-height: 44px;
+  padding: 8px 14px;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--ide-line);
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.scm-rows > .scm-g > .scm-gh:hover {
+  background: var(--ide-hover);
+}
+.scm-rows > .scm-g > .scm-gh .sr-count {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.scm-gmeta {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+  text-align: right;
+}
+.scm-rows > .scm-g > .scm-gb {
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--ide-line);
+}
+
+/* the branches */
+.scm-brs {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px 4px;
+  min-width: 0;
+}
+.scm-brs-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 6px 6px;
+}
+.scm-find {
+  flex: 1 1 200px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.scm-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--ide-line);
+  background: var(--panel);
+  color: var(--dim);
+}
+.scm-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.scm-search input::placeholder {
+  color: var(--dim);
+}
+.scm .scm-bmatch {
+  display: inline;
+  padding: 0;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.scm-brs-acts {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.scm-newbr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.scm-newbr input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.scm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+.scm-chip {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--ide-line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.scm-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.scm .scm-bfh {
+  border-radius: 8px;
+  min-height: 30px;
+}
+.scm .scm-bfh .scm-gt {
+  font-size: 11.5px;
+}
+.scm .scm-bfh.strong .scm-gt {
+  font-family: var(--f-body);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: var(--dim);
+}
+.scm-brow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.scm-brow:hover {
+  background: var(--ide-hover);
+}
+.scm-brow.on {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.scm .scm-brow > .scm-br {
+  flex: 1;
+  min-width: 0;
+  padding-block: 7px;
+  border-radius: 10px;
+  background: none;
+}
+.scm .scm-brow > .scm-br:hover {
+  background: none;
+}
+.scm-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dim);
+  box-sizing: border-box;
+}
+.scm-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.scm-dot.remote {
+  border-style: dashed;
+}
+.scm .scm-br .scm-meta {
+  color: var(--dim);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.scm .scm-br .scm-cur {
+  color: var(--accent-ink);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.scm .scm-br .scm-meta.scm-facts.old {
+  color: var(--warn-ink);
+}
+.scm-mini {
+  flex: none;
+  min-height: 26px;
+  margin-right: 6px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid var(--ide-line);
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.scm-mini.accent {
+  color: var(--accent-ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--ide-line));
+}
+.scm-mini:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.scm-mini:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+/* Switch shows on hover or keyboard focus where there is a pointer that hovers; always on touch screens */
+@media (hover: hover) {
+  .scm-brow .scm-mini:not(.accent) {
+    opacity: 0;
+  }
+  .scm-brow:hover .scm-mini,
+  .scm-brow:focus-within .scm-mini {
+    opacity: 1;
+  }
+}
+.scm-brs-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 10px 6px 2px;
+  border-top: 1px solid var(--ide-line);
+  font-size: 12px;
+  color: var(--dim);
+}
+.scm-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--fg);
+}
+.scm-confirm .scm-mini {
+  opacity: 1;
+  margin-right: 0;
+}
+
+/* ---------- the side bar's width ---------- */
+.ide-split:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* wide: the branch and the pull request side by side */
+@container scm (min-width: 640px) {
+  .scm-top:has(> .scm-sec + .scm-sec) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    border-bottom: 1px solid var(--ide-line);
+  }
+  .scm-top > .scm-sec {
+    border-bottom: 0;
+  }
+  .scm-top > .scm-sec + .scm-sec {
+    border-left: 1px solid var(--ide-line);
+  }
+}
+/* narrow: less padding, the target branch under the number */
+@container scm (max-width: 300px) {
+  .scm-sec {
+    padding: 12px 10px;
+  }
+  .scm-rows > .scm-g > .scm-gh {
+    padding: 8px 10px;
+  }
+  .gp-pr-to {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+  .gp-fact-r {
+    margin-left: 28px;
+    flex-basis: 100%;
+  }
+}
+
+/* a grid's one column may shrink below its content's width (long paths and names wrap or cut, the panel never scrolls
+   sideways) */
+.scm-sec, .scm-card, .scm-changes, .scm-flat, .gp-commit, .scm-brs, .scm-g.sub > .scm-gb { grid-template-columns: minmax(0, 1fr); }
+.scm-g.sub > .scm-gb { display: grid; gap: 2px; }
+/* the current branch's tinted row: its grey facts a little darker, to keep 4.5:1 on the tint */
+.scm .scm-brow.on .scm-br .scm-meta { color: color-mix(in srgb, var(--fg) 72%, transparent); }

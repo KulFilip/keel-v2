@@ -86,6 +86,18 @@ export type BranchView = {
   files: { path: string; status: string; from?: string }[];
   truncated?: boolean;
 };
+/** 0.18.38 a local branch as the Git plugin reads it: against the base, its last commit's date and author, and
+ *  `mine` (missing when git has no user.email). */
+export type GitBranchInfo = {
+  name: string;
+  current: boolean;
+  ahead: number;
+  behind: number;
+  date: string;
+  subject: string;
+  author?: string;
+  mine?: boolean;
+};
 export type SearchMatch = {
   line: number;
   column: number;
@@ -201,4 +213,8 @@ export const codeApi = {
     }),
   gitBranch: (pid: string, name: string) =>
     get<BranchView>(`/projects/${e(pid)}/git/branch${q({ name })}`),
+  // 0.18.38 Source control's branch list: each local branch's date and author (Mine, Stale), and Clean up merged
+  gitBranches: (pid: string) => get<GitBranchInfo[]>(`/projects/${e(pid)}/git/branches`),
+  gitCleanup: (pid: string) =>
+    post<{ deleted: string[]; base: string }>(`/projects/${e(pid)}/git/cleanup`),
 };
