@@ -45,7 +45,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
-KEELS = {"a": ("keel-parity-a", "keel-parity-a-data", 8094), "b": ("keel-parity-b", "keel-parity-b-data", 8095)}
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+ENVS = {"a": lib.Env.make("parity-a"), "b": lib.Env.make("parity-b")}  # never the fixed 8094 / 8095
+KEELS = {k: (e.name, e.volume, e.port) for k, e in ENVS.items()}
 PROJECT = "shop"
 # v0.15.9: a new project with no keel files in docs/ gets the "keel" layout (.keel/…, hidden from git). "notes" is one:
 # a git repo with only a README and one file, added through the api like the shop.
@@ -852,6 +854,8 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="leave both keels running (8094, 8095) to look at them")
     ap.add_argument("--verbose", action="store_true", help="print what differs for the allowed differences too")
     args = ap.parse_args()
+    for _e in ENVS.values():
+        _e.keep = args.keep
     sys.stdout.reconfigure(line_buffering=True)  # progress shows at once, also in a log file
     only = {s.strip() for s in args.only.split(",") if s.strip()}
     allow = load_allow([HERE / "allow.yml", *map(Path, args.allow)])

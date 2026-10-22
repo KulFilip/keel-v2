@@ -24,9 +24,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-NAME, VOLUME, PORT, HOST_PORT = "keel-lab", "keel-lab-data", 8099, 8097
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+E = lib.Env.make("review")  # keel-e2e-review-<random> and free ports: never the shared keel-lab / 8099 / 8097
+NAME, VOLUME, PORT, HOST_PORT = E.name, E.volume, E.port, lib.free_port()
 BASE = f"http://127.0.0.1:{PORT}/api"
 HERE = Path(__file__).resolve().parent
 CHECKS: list[str] = []
@@ -133,6 +135,7 @@ def main() -> int:
     ap.add_argument("--image", required=True)
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
+    E.keep = args.keep
     ws = Path(tempfile.mkdtemp(prefix="keel-review-e2e-"))
     fake = None
     try:

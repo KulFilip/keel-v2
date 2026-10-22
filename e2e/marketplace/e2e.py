@@ -54,10 +54,11 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # the e2e's own keel; KEEL_NAME / KEEL_VOLUME / KEEL_PORT give it other names (two runs side by side)
-NAME = os.environ.get("KEEL_NAME") or "keel-mkt"
-VOLUME = os.environ.get("KEEL_VOLUME") or f"{NAME}-data"
-PORT = int(os.environ.get("KEEL_PORT") or 8096)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+# KEEL_NAME / KEEL_VOLUME / KEEL_PORT are checked (never a person's keel); without them: keel-e2e-mkt-<random> and a free port
+E = lib.Env.make("mkt", os.environ.get("KEEL_NAME") or None, os.environ.get("KEEL_VOLUME") or None, int(os.environ.get("KEEL_PORT") or 0) or None)
+NAME, VOLUME, PORT = E.name, E.volume, E.port
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -852,6 +853,7 @@ def main() -> int:
     ap.add_argument("--only", choices=["rules"], help="after the catalog's setup, only this round (rules: the rule packs)")
     ap.add_argument("--shots", default="", help="a folder for the rules round's screenshots (default: a temp folder)")
     a = ap.parse_args()
+    E.keep = a.keep
     if NAME in ("keel-v2", "keel-plugins", "keel-parity-a", "keel-parity-b") or PORT in (8088, 8188, 8390):
         raise SystemExit(f"{NAME} on {PORT} is a person's keel (or its catalog): the e2e never uses it")
     sys.stdout.reconfigure(line_buffering=True)

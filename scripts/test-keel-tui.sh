@@ -13,13 +13,21 @@
 set -euo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd -P)"
 image="${1:-keel-v2:tui-lab}"
-export KEEL_NAME=keel-tui-lab KEEL_VOLUME=keel-tui-lab-data PORT=8099 KEEL_OPEN=0 KEEL_IMAGE="$image"
+# unique names and a free port for every run (two runs, or another suite, never share or remove each other's keel)
+free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+PORT="$(free_port)"; while [ "$PORT" = 8088 ] || [ "$PORT" = 8188 ] || [ "$PORT" = 8390 ]; do PORT="$(free_port)"; done
+export PORT KEEL_NAME="keel-e2e-tui-$$-$RANDOM" KEEL_OPEN=0 KEEL_IMAGE="$image"
+export KEEL_VOLUME="$KEEL_NAME-data"
 work="$(mktemp -d "${TMPDIR:-/tmp}/keel-tui-check.XXXXXX")"
 export XDG_CONFIG_HOME="$work/config"
 out="$src/docs/pictures/tui"
+started=0
 cleanup() {
-  docker rm -f "$KEEL_NAME" >/dev/null 2>&1 || true
-  docker volume rm "$KEEL_VOLUME" >/dev/null 2>&1 || true
+  # only what this run made: nothing is removed before keel2 start has made it
+  if [ "$started" = 1 ]; then
+    docker rm -f "$KEEL_NAME" >/dev/null 2>&1 || true
+    docker volume rm "$KEEL_VOLUME" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$work"
 }
 trap cleanup EXIT
@@ -34,9 +42,13 @@ git -C "$repo" init -q -b main
 git -C "$repo" add -A
 git -C "$repo" -c user.name=check -c user.email=check@localhost commit -qm "Initial commit"
 
+if docker inspect "$KEEL_NAME" >/dev/null 2>&1 || docker volume inspect "$KEEL_VOLUME" >/dev/null 2>&1; then
+  echo "$KEEL_NAME or $KEEL_VOLUME exists already: not touching it" >&2; exit 1
+fi
+started=1
 "$src/keel2" start "$repo"
 port="$(docker port "$KEEL_NAME" 8080/tcp | head -1 | sed 's/.*://')"
-[ "$port" = 8099 ] || { echo "keel took port $port, not 8099" >&2; exit 1; }
+[ "$port" = "$PORT" ] || { echo "keel took port $port, not $PORT" >&2; exit 1; }
 curl -fs "http://127.0.0.1:$port/api/health"; echo
 
 # the driver inside keel's container, through keel2 tui (docker exec)

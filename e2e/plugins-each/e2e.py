@@ -46,9 +46,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-NAME, VOLUME, PORT = "keel-each", "keel-each-data", 8091
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+E = lib.Env.make("each")  # keel-e2e-each-<random> and a free port; --name / --port still choose by hand (checked)
+NAME, VOLUME, PORT = E.name, E.volume, E.port
 HERE = Path(__file__).resolve().parent
 PROJECT = "shop"
 
@@ -372,11 +374,14 @@ def main() -> int:
     ap.add_argument("--product-image", default="keel-v2:fin-product", help="the product image ('' to skip Product)")
     ap.add_argument("--only", default="", help="only these plugins (comma separated; product for keel Product)")
     ap.add_argument("--keep", action="store_true", help="leave keel-each running at the end")
-    ap.add_argument("--name", default="keel-each", help="the container's name (its volume is <name>-data), so runs can go side by side")
-    ap.add_argument("--port", type=int, default=8091, help="the port on 127.0.0.1 (default 8091)")
+    ap.add_argument("--name", default=None, help="the container's name (its volume is <name>-data); default: keel-e2e-each-<random>")
+    ap.add_argument("--port", type=int, default=None, help="the port on 127.0.0.1 (default: a free one)")
     a = ap.parse_args()
     global NAME, VOLUME, PORT
-    NAME, VOLUME, PORT = a.name, f"{a.name}-data", a.port
+    if a.name or a.port:
+        E.retarget(a.name, None, a.port)
+        NAME, VOLUME, PORT = E.name, E.volume, E.port
+    E.keep = a.keep
     sys.stdout.reconfigure(line_buffering=True)
     if exists(NAME):
         print(f"{NAME} exists already: it may be another run's. Remove it first (docker rm -f {NAME}) when it is not.")

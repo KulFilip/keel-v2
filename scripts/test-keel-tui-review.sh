@@ -10,13 +10,21 @@
 set -euo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd -P)"
 image="${1:-keel-v2:review-mode}"
-export KEEL_NAME=keel-review-lab KEEL_VOLUME=keel-review-lab-data PORT=8096 KEEL_OPEN=0 KEEL_IMAGE="$image"
+# unique names and a free port for every run (two runs, or another suite, never share or remove each other's keel)
+free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+PORT="$(free_port)"; while [ "$PORT" = 8088 ] || [ "$PORT" = 8188 ] || [ "$PORT" = 8390 ]; do PORT="$(free_port)"; done
+export PORT KEEL_NAME="keel-e2e-tui-review-$$-$RANDOM" KEEL_OPEN=0 KEEL_IMAGE="$image"
+export KEEL_VOLUME="$KEEL_NAME-data"
 work="$(mktemp -d "${TMPDIR:-/tmp}/keel-review-check.XXXXXX")"
 export XDG_CONFIG_HOME="$work/config"
 out="$src/docs/pictures/tui/review"
+started=0
 cleanup() {
-  docker rm -f "$KEEL_NAME" >/dev/null 2>&1 || true
-  docker volume rm "$KEEL_VOLUME" >/dev/null 2>&1 || true
+  # only what this run made: nothing is removed before keel2 start has made it
+  if [ "$started" = 1 ]; then
+    docker rm -f "$KEEL_NAME" >/dev/null 2>&1 || true
+    docker volume rm "$KEEL_VOLUME" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$work"
 }
 trap cleanup EXIT
@@ -37,9 +45,13 @@ printf 'class PrefsTest {\n    fun saves() { Prefs().savePageSize("a", 50) }\n}\
 git -C "$repo" add -A
 git -C "$repo" -c user.name=check -c user.email=check@localhost commit -qm "Test it"
 
+if docker inspect "$KEEL_NAME" >/dev/null 2>&1 || docker volume inspect "$KEEL_VOLUME" >/dev/null 2>&1; then
+  echo "$KEEL_NAME or $KEEL_VOLUME exists already: not touching it" >&2; exit 1
+fi
+started=1
 "$src/keel2" start "$repo"
 port="$(docker port "$KEEL_NAME" 8080/tcp | head -1 | sed 's/.*://')"
-[ "$port" = 8096 ] || { echo "keel took port $port, not 8096" >&2; exit 1; }
+[ "$port" = "$PORT" ] || { echo "keel took port $port, not $PORT" >&2; exit 1; }
 api="http://127.0.0.1:$port/api"
 # keel 0.18.1 answers no caller without a credential: keel's internal token, through a pipe (never on a command line)
 token="$(docker exec "$KEEL_NAME" cat /data/run/internal-token)"

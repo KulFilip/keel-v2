@@ -33,9 +33,11 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-NAME, VOLUME, PORT = "keel-lab", "keel-lab-data", 8099
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import keelauth  # noqa: E402  (e2e/keelauth.py: keel's sign-in, v0.18.1)
+import lib  # noqa: E402  (e2e/lib.py: a free port and unique names)
+E = lib.Env.make("plugins")  # keel-e2e-plugins-<random> and a free port: never the shared keel-lab / 8099
+NAME, VOLUME, PORT = E.name, E.volume, E.port
 ROOT = Path(__file__).resolve().parents[2]
 CHECKS: list[str] = []
 
