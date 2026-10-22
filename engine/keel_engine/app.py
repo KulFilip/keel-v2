@@ -335,8 +335,14 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         token = config.internal_token()
         # a part's open path (KeelBot's /helper/permissions/ask: the hook's question carries the turn's own ask key
         # instead, which can only ask, never answer) and a part's tool call (its own key) need no internal token
-        if token and request.url.path not in ("/health", "/plugins/call", *extensions.open_paths()):
-            if not secrets.compare_digest(request.headers.get("X-Keel-Token", ""), token):
+        # No token set: the engine refuses (a missing token must not open every route, /mcp/tools spawns commands),
+        # unless KEEL_ENGINE_OPEN=1 says so on purpose.
+        if request.url.path not in ("/health", "/plugins/call", *extensions.open_paths()):
+            if not token:
+                if not config.engine_open():
+                    return _err(401, "The engine has no KEEL_INTERNAL_TOKEN, so it refuses requests.",
+                                "Start it with KEEL_INTERNAL_TOKEN set (keel-start does), or KEEL_ENGINE_OPEN=1 for local development.")
+            elif not secrets.compare_digest(request.headers.get("X-Keel-Token", ""), token):
                 return _err(401, "Missing or wrong X-Keel-Token.")
         return await call_next(request)
 

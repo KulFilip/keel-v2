@@ -36,6 +36,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_keelbot,keel_plugin_db")
     monkeypatch.delenv("KEEL_ADDONS", raising=False)
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    monkeypatch.setenv("KEEL_ENGINE_OPEN", "1")      # tests call the engine without a token
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)
     usage.reset()
     extensions.reload()

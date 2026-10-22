@@ -24,6 +24,12 @@ def internal_token() -> str:
     return os.environ.get("KEEL_INTERNAL_TOKEN", "")
 
 
+def engine_open() -> bool:
+    """KEEL_ENGINE_OPEN=1: serve without a token (tests and a developer's own `keel-engine`). Without it, an engine that
+    has no KEEL_INTERNAL_TOKEN refuses every route: keel-start and keel2 always set one."""
+    return os.environ.get("KEEL_ENGINE_OPEN", "") == "1"
+
+
 def mcp_token(level: str) -> str:
     """v0.18.1 the api's token for an MCP level (api mcp/McpLevels.kt McpTokens): an HMAC of the internal token and the
     level, so the engine can hand keel's agents' own MCP server its read token without asking the api. "" without an
