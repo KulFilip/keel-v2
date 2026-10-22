@@ -19,9 +19,11 @@ keel loads it as an add-on (KEEL_PLUGIN_ADDONS=keel_plugin_supervisor). This mod
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_supervisor.py checks it)
 VERSION = "0.1.0"
+CONTENT = Path(__file__).resolve().parents[2] / "content"   # content/plugins/supervisor/plugin.yml: the per-project list
 _SUPERVISOR = None
 
 
@@ -80,6 +82,7 @@ ADDON = {
     "name": "supervisor",
     "title": "Supervisor",
     "version": VERSION,
+    "content": CONTENT,
     "fake": _fake,
 }
 

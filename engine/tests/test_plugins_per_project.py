@@ -4,6 +4,7 @@ That list (GET /plugins, then Control › Plugins "Off | This project | All proj
 own on/off) comes from content/plugins/<name>/plugin.yml with installable: true. 0.18.33's Supervisor had none, so no
 project could turn it on.
 """
+import importlib
 from pathlib import Path
 
 import pytest
@@ -28,3 +29,17 @@ def test_a_per_project_plugin_is_in_keels_per_project_list(name):
     assert plugin_yml.is_file(), f"{name}: missing {plugin_yml.relative_to(PLUGINS)}"
     raw = yaml.safe_load(plugin_yml.read_text())
     assert raw.get("name") == manifest["name"] and raw.get("installable") is True
+
+
+@pytest.mark.parametrize("name", PER_PROJECT)
+def test_an_engine_part_brings_that_content_itself(name, monkeypatch):
+    # A plugin whose engine part loads keeps its ADDON content only (keel_engine/addons.py): without ADDON["content"]
+    # its content/plugins/<name>/plugin.yml is never read (0.18.35's Supervisor fix had the file but not this).
+    manifest = yaml.safe_load((PLUGINS / name / "keel-plugin.yml").read_text())
+    engine = (manifest.get("parts") or {}).get("engine")
+    if not engine:
+        pytest.skip("no engine part: the content loads as plugin content")
+    monkeypatch.syspath_prepend(str(PLUGINS / name / engine["path"]))
+    module = importlib.import_module(engine["package"])
+    content = Path(module.ADDON.get("content") or "/nonexistent")
+    assert (content / "plugins" / manifest["name"] / "plugin.yml").is_file(), f"{name}: ADDON has no content with its plugin.yml"
