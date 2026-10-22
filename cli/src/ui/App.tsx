@@ -28,6 +28,9 @@ import type { HelperMode } from "../core/sdk";
 import { modelCatalog } from "../core/effort";
 import { Clickable, ClicksProvider, makeClicks, placeOf } from "./click";
 import { answersMessage, blockedByChanges, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, splitButtons, type Button } from "../core/buttons";
+import { makeGatePick } from "./gatePick";
+import { diffLines, promptView } from "./promptView";
+import { CTRL_PANEL, DOUBLE_MS, HISTORY_MAX, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Pending, type Question, type Sel } from "./hooks/types";
 import { fixRequest } from "../../../web/src/askFix";
 import { errorParts } from "../core/sdk";
 import { api } from "../core/sdk";
@@ -43,33 +46,9 @@ import { memorySettings, type SettingsStore } from "../core/settings";
 import { filesOfSteps, Sidebar, SIDEBAR_MIN, SIDEBAR_WIDTH, type ChangedFile } from "./sidebar";
 import type { KeelbotServer } from "../core/keel";
 
-/** `gap`: an empty line above it (the first block of each answer, so answers stand apart; notices in a row stay together) */
-type Item = { id: number; kind: "start"; s: Snapshot } | { id: number; kind: "block"; b: Block; gap?: boolean };
-
 /** What a driver (keel-tui --script, tests) can see of the app's state. */
 export type Probe = { started: boolean; busy: boolean; pick: boolean; ask: boolean; chatBusy: boolean; answers: number };
 
-/** `qid`: the KeelBot permission question this pick shows (it goes when the question ends elsewhere) */
-type Pending = { cmd: string; pick?: Pick; ask?: Ask; qid?: string };
-
-const CTRL_PANEL: Record<string, PanelName> = { f: "flow", a: "agents", n: "inbox" };
-/** An open tool call in the live area shows at most this many of its last lines. */
-const LIVE_TOOL_ROWS = 12;
-/** a plugin's mode without the full screen (--inline, tests): this many rows */
-const INLINE_MODE_ROWS = 20;
-/** keel's panels, and a plugin's ("plugin:git") */
-type PanelId = PanelName | `plugin:${string}` | `job:${string}`;
-type Question = PermissionQuestion;
-/** A selection with the mouse: in the transcript (`line` is the transcript's line) or in the prompt (line 0); `moved`
- *  once it covers more than the pressed cell (a plain click selects nothing). */
-type Sel = { area: "view" | "prompt"; a: Point; b: Point; moved: boolean };
-/** 0.18.18 the prompt history keeps this many (as opencode's, MIT: the last 50) */
-const HISTORY_MAX = 50;
-/** What /theme says after it changed the palette. */
-const THEME_WORDS: Record<ThemeName, string> = { keel: "keel's own colours (for a dark background)", dark: "colours for a dark background", light: "colours for a light background",
-  auto: "colours that read on any background" };
-/** two presses on the same cell within this many ms: a double-click (the word under it) */
-const DOUBLE_MS = 400;
 
 /** keel TUI in keel's colours (the theme: core/theme.ts, NO_COLOR, KEEL_TUI_THEME; /theme changes the palette). */
 export function App({ theme, ...props }: { core: KeelCore; probe?: Probe; width?: number; theme?: Theme; profiler?: Profiler; rows?: number; mouse?: boolean;
@@ -740,47 +719,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
     if (pending || running) return;
     void submit(cmd);
   };
-  /** A gate (this flow's, or inbox item n): a choice first, never a decision on one click. */
-  const gatePick = (n?: number): Pick | null => {
-    const item = n ? snap.inbox[n - 1] : null;
-    const thread = snap.flow?.thread;
-    const w = item ? { title: item.title, options: item.options, kind: item.kind } : thread?.waiting;
-    if (!w) return null;
-    const at = n ? ` ${n}` : "";
-    const tid = item ? item.thread_id : thread!.thread_id;
-    const flow = item ? `${item.project_name || item.project_id} · ${item.flow || item.thread_id.slice(0, 8)}` : `"${thread!.title}"`;
-    const opts = w.options ?? ["approve", "reject"];
-    // keel 0.18.13 this flow's named choices with the engine's words: one row each, the default marked
-    const named = !n && thread?.waiting?.choice_info?.length ? thread.waiting.choice_info : null;
-    const choices = named ? [
-      ...named.map((x) => ({ label: `${x.label || x.name}${x.default ? " (default)" : ""}${x.why === "required" ? " · needs a reason" : ""}`,
-        value: `choice:${x.name}`, hint: x.description || `/answer ${x.name}` })),
-    ] : [
-      ...(w.kind !== "clarify" && opts.includes("approve") ? [{ label: "Approve", value: "approve", hint: `/approve${at}` }] : []),
-      ...(opts.includes("reject") ? [{ label: "Send back…", value: "reject", hint: "you say why; the agent gets your words" }] : []),
-      ...(!n || w.kind === "clarify" ? [{ label: "Answer… (its questions or choices)", value: "answer", hint: "/answer" }] : []),
-      { label: "Stop the flow", value: "stop", hint: "agents stop; every finished step stays saved" },
-      { label: "Read it first", value: "status", hint: n ? "/inbox" : "/status" },
-    ];
-    return { title: `${flow} · ${w.title}: what do you do?`, choices, index: named ? Math.max(0, named.findIndex((x) => x.default)) : 0, then: (v) => {
-      const c = v.startsWith("choice:") ? named?.find((x) => `choice:${x.name}` === v) : undefined;
-      if (c) return c.why === "none" ? run(ctx, `/answer ${c.name}`, botCmds) : { blocks: [], ask: {
-        prompt: c.why === "required" ? `Why ${c.label || c.name}? (needed)` : `Why ${c.label || c.name}? (optional: Enter sends without)`,
-        then: (why) => run(ctx, `/answer ${c.name} ${why}`.trim(), botCmds) } };
-      if (v === "approve") return run(ctx, `/approve${at}`, botCmds);
-      if (v === "answer") return item && item.project_id !== snap.project?.id
-        ? { blocks: [{ kind: "dim", text: `  It is on ${item.project_id}: /project ${item.project_id}, then /answer.` }] } : run(ctx, "/answer", botCmds);
-      if (v === "status") return run(ctx, n ? "/inbox" : "/status", botCmds);
-      if (v === "stop") return { blocks: [], pick: { title: `Stop ${flow}?`, choices: [{ label: "Yes, stop it", value: "yes" }, { label: "No", value: "no" }],
-        then: async (y) => {
-          if (y !== "yes") return { blocks: [{ kind: "dim", text: "  not stopped" }] };
-          const said = await pressButton({ kind: "stop", flows: [tid] }, snap.project?.id ?? "", () => flow);
-          await core.refresh().catch(() => undefined);
-          return { blocks: [{ kind: "ok", text: said }] };
-        } } };
-      return { blocks: [], ask: { prompt: "Why send it back? (the agent gets your words)", then: (why) => run(ctx, `/reject${at} ${why}`, botCmds) } };
-    } };
-  };
+  const gatePick = (n?: number): Pick | null => makeGatePick({ ctx, snap, core, botCmds }, n);
   const ask = (pick: Pick | null) => {
     if (!pick || pending || running) return;
     setPending({ cmd: "gate", pick });
@@ -1165,10 +1104,6 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const verb = useMemo(() => pickVerb(), [chat.callId]);
   // Fix and Side: each change as KeelBot makes it (the last two), as a diff with line numbers
   const edits = steps.filter((x) => (x.kind === "write" || x.kind === "edit") && x.diff).slice(-2);
-  const diffLines = (d: string) => {
-    const all = renderDiff(d.replace(/\n$/, ""), t.paint).filter((l) => !/(---|\+\+\+) /.test(l.replace(/\x1b\[[0-9;]*m/g, "").trimStart()));
-    return all.length > 12 ? [...all.slice(0, 12), t.paint.faint(`… ${all.length - 12} more lines`)] : all;
-  };
   const flowWaits = snap.flow?.thread?.status === "waiting";
   const border = pending?.ask || line ? t.color("accent") : flowWaits ? t.color("gate") : t.color("border");
   const agentsHere = panels.includes("agents") ? [] : snap.running.slice(0, 3);
@@ -1262,7 +1197,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
             })}
             {edits.map((e) => (
               <Box key={e.n} flexDirection="column" marginLeft={4}>
-                {diffLines(e.diff ?? "").map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
+                {diffLines(e.diff ?? "", t.paint).map((l, i) => <Text key={i} wrap="truncate-end">{l}</Text>)}
               </Box>
             ))}
             {chat.thinking ? (
@@ -1308,7 +1243,7 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
               : footer && !chat.busy ? <Box marginTop={1}><Text wrap="truncate-end">{" " + footer}</Text></Box> : null}
             <Box ref={promptRef} borderStyle="round" borderColor={border} paddingX={1} marginTop={flash || (footer && !chat.busy) ? 0 : 1}
               flexDirection="column">
-              {line ? promptText() : (
+              {line ? promptView(t, line, cursor) : (
                 <Text>
                   <Text {...t.look("person")} bold>{"› "}</Text>
                   <Text inverse> </Text><Text {...t.look("dim")}>{pending?.ask ? "type the answer, Enter sends"
@@ -1322,36 +1257,5 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         <Clickable act={answerWaiting}><StatusLine s={snap} meter={!side} /></Clickable>
       </>
     );
-  }
-
-  /** 0.18.18 The prompt's rows (it grows with Alt+Enter up to PROMPT_ROWS rows, then shows the cursor's), the cursor
-   *  inverse, and how many rows are hidden above or below. */
-  function promptText() {
-    const pv = promptRows(line, cursor);
-    // 0.18.18 `!` at the start: a shell command keel runs in the project folder (as opencode's shell mode, MIT)
-    const shellLine = line.startsWith("!");
-    const more = (n: number, where: string) => (
-      <Text {...t.look("dim")} wrap="truncate-end">{`  ${n} more line${n === 1 ? "" : "s"} ${where}`}</Text>
-    );
-    return (
-      <>
-        {pv.above > 0 && more(pv.above, "above")}
-        {pv.rows.map((r, i) => (
-          <Text key={pv.above + i}>
-            <Text {...t.look(shellLine ? "warn" : "person")} bold>{pv.above + i === 0 ? (shellLine ? "shell › " : "› ") : shellLine ? "        " : "  "}</Text>
-            {r.cursor === null ? inputText(r.text || " ")
-              : <>{inputText(r.text.slice(0, r.cursor))}<Text inverse>{r.text[r.cursor] ?? " "}</Text>{inputText(r.text.slice(r.cursor + 1))}</>}
-          </Text>
-        ))}
-        {pv.below > 0 && more(pv.below, "below")}
-      </>
-    );
-  }
-
-  /** The prompt's text: a command's name in the accent colour while it is typed. */
-  function inputText(x: string) {
-    const m = /^(\/\S*)(.*)$/s.exec(x);
-    if (!m || x !== line.slice(0, x.length) || !line.startsWith("/")) return <Text>{x}</Text>;
-    return <><Text {...t.look("accent")} bold>{m[1]}</Text><Text>{m[2]}</Text></>;
   }
 }
