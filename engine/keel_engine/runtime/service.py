@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -51,8 +50,7 @@ class EngineError(Exception):
         self.status, self.error, self.hint = status, error, hint
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+from ..clock import utc_iso as _now
 
 
 class Engine:

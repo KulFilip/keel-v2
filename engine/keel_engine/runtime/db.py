@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config
@@ -17,8 +16,7 @@ def path() -> Path:
     return config.data_dir() / "checkpoints.db"
 
 
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+from ..clock import utc_iso as now
 
 
 # How long a writer waits for another one (parallel agents write verdicts, memory and checkpoints at the same time; on

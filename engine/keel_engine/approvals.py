@@ -33,7 +33,6 @@ import logging
 import threading
 import uuid
 import weakref
-from datetime import datetime, timezone
 from typing import Callable
 
 from .runtime import permissions
@@ -57,8 +56,7 @@ class ApprovalError(Exception):
         self.hint = hint
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+from .clock import utc_iso as _now
 
 
 class Approvals:

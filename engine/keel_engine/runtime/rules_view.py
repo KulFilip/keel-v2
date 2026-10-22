@@ -373,10 +373,7 @@ def save_pack(root: str, text: str, replace: str | None = None, source: str | No
     return {**pack, "source": idx[pack["id"]]["source"]}
 
 
-def _now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+from ..clock import utc_iso as _now
 
 
 def install(root: str, source: str, name: str | None = None, version: str | None = None, text: str | None = None,
