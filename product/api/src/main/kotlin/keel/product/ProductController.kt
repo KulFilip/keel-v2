@@ -18,6 +18,8 @@ data class ProductInfo(val version: String, val projectId: String, val root: Str
 data class StartBody(val stage: String? = null)
 data class PageBody(val text: String = "")
 data class SuggestionBody(val accept: Boolean = false)
+data class KeyTestBody(val pattern: String? = null, val text: String = "")
+data class KeyTest(val pattern: String?, val keys: List<String>)
 
 /** keel Product's endpoints: initiatives (/api/initiatives…), teams (/api/teams…). Every one needs keel Product on. */
 @RestController
@@ -30,6 +32,11 @@ class ProductController(
     private val decks: DeckService,
     private val followUps: FollowUps,
     private val teams: TeamService,
+    private val links: TicketLinks,
+    private val drafts: PlanDrafts,
+    private val sender: TicketSender,
+    private val ticketApproval: TicketApproval,
+    private val flowMap: FlowMap,
 ) {
     private fun <T> on(block: () -> T): T {
         guard.on()
@@ -110,6 +117,66 @@ class ProductController(
     @PostMapping("/initiatives/{id}/handoff")
     fun handoff(@PathVariable id: String, @RequestBody b: HandoffBody): HandoffResult = on { delivery.handoff(initiatives.require(id), b) }
 
+    // ---- the plan as drafts, and its tickets in Jira
+
+    @PatchMapping("/initiatives/{id}/plan/stories/{sid}")
+    fun editStory(@PathVariable id: String, @PathVariable sid: String, @RequestBody b: StoryEdit): InitiativeDetail = on {
+        drafts.editStory(initiatives.require(id), sid, b)
+        initiatives.detail(id)
+    }
+
+    @PostMapping("/initiatives/{id}/plan/stories")
+    fun addStory(@PathVariable id: String, @RequestBody b: StoryEdit): InitiativeDetail = on {
+        drafts.addStory(initiatives.require(id), b)
+        initiatives.detail(id)
+    }
+
+    @DeleteMapping("/initiatives/{id}/plan/stories/{sid}")
+    fun deleteStory(@PathVariable id: String, @PathVariable sid: String): InitiativeDetail = on {
+        drafts.deleteStory(initiatives.require(id), sid)
+        initiatives.detail(id)
+    }
+
+    @PatchMapping("/initiatives/{id}/plan/epics/{eid}")
+    fun editEpic(@PathVariable id: String, @PathVariable eid: String, @RequestBody b: EpicEdit): InitiativeDetail = on {
+        drafts.editEpic(initiatives.require(id), eid, b)
+        initiatives.detail(id)
+    }
+
+    @PostMapping("/initiatives/{id}/plan/epics")
+    fun addEpic(@PathVariable id: String, @RequestBody b: EpicEdit): InitiativeDetail = on {
+        drafts.addEpic(initiatives.require(id), b)
+        initiatives.detail(id)
+    }
+
+    @DeleteMapping("/initiatives/{id}/plan/epics/{eid}")
+    fun deleteEpic(@PathVariable id: String, @PathVariable eid: String): InitiativeDetail = on {
+        drafts.deleteEpic(initiatives.require(id), eid)
+        initiatives.detail(id)
+    }
+
+    /** What a send would make in Jira, where, and every problem first. Nothing is sent. */
+    @GetMapping("/initiatives/{id}/tickets/preview")
+    fun ticketPreview(@PathVariable id: String, @RequestParam(required = false) stories: List<String>?): TicketPreview =
+        on { sender.preview(initiatives.require(id), stories.orEmpty()) }
+
+    /** Sends the stories (all that are left, or these) to Jira: the initiative, the epics, the stories and their sub-tasks. */
+    @PostMapping("/initiatives/{id}/tickets/send")
+    fun ticketSend(@PathVariable id: String, @RequestBody(required = false) b: AskSendBody?): SendResult =
+        on { sender.send(initiatives.require(id), b?.stories.orEmpty()) }
+
+    /** An agent asks to send: an approval in the Inbox, sent when the product manager approves. */
+    @PostMapping("/initiatives/{id}/tickets/ask")
+    fun ticketAsk(@PathVariable id: String, @RequestBody(required = false) b: AskSendBody?): keel.api.approvals.Approval =
+        on { ticketApproval.ask(initiatives.require(id), b ?: AskSendBody()) }
+
+    /** Where an initiative's own Jira ticket goes (unset: no initiative ticket; its id is a label on every ticket). */
+    @GetMapping("/product/jira")
+    fun initiativeJira(): InitiativeJira = on { sender.initiativeJira() }
+
+    @PutMapping("/product/jira")
+    fun saveInitiativeJira(@RequestBody b: InitiativeJira): InitiativeJira = on { sender.saveInitiativeJira(b) }
+
     @GetMapping("/initiatives/{id}/docs/{kind}/{version}")
     fun doc(@PathVariable id: String, @PathVariable kind: String, @PathVariable version: Int): ProductDoc = on { initiatives.doc(id, kind, version) }
 
@@ -154,6 +221,40 @@ class ProductController(
 
     @PutMapping("/teams/{id}/pages/{page}")
     fun savePage(@PathVariable id: String, @PathVariable page: String, @RequestBody b: PageBody): TeamPage = on { teams.savePage(id, page, b.text) }
+
+    /** The Product map: teams, their repos' business flows, the tickets and work found in git. */
+    @GetMapping("/product/map")
+    fun productMap(@RequestParam(required = false) team: String?): ProductMap = on { flowMap.map(team) }
+
+    /** Finds the business flows again (every team project, or these), read only: one flow analyst per repo. */
+    @PostMapping("/product/flows/run")
+    fun findFlows(@RequestBody(required = false) b: FlowsBody?): FlowRun = on { flowMap.start(b ?: FlowsBody()) }
+
+    @PatchMapping("/product/flows/{pid}/{fid}")
+    fun editFlow(@PathVariable pid: String, @PathVariable fid: String, @RequestBody b: FlowEdit): FlowView = on { flowMap.edit(pid, fid, b) }
+
+    /** Reads the branches and commits of every team project (or of one project) and links them to ticket keys. */
+    @PostMapping("/product/tickets/scan")
+    fun scanTickets(@RequestParam(required = false) project: String?): ScanResult = on {
+        if (project != null) ScanResult(listOf(links.scan(project))) else links.scanAll()
+    }
+
+    /** The ticket keys found in git (of one team, or of all), with their branches and commits, and what has no key. */
+    @GetMapping("/product/tickets")
+    fun tickets(@RequestParam(required = false) team: String?): TeamTickets = on { links.tickets(team) }
+
+    @PutMapping("/teams/{id}/projects/{pid}")
+    fun teamAddProject(@PathVariable id: String, @PathVariable pid: String): Team = on { teams.addProject(id, pid) }
+
+    @DeleteMapping("/teams/{id}/projects/{pid}")
+    fun teamRemoveProject(@PathVariable id: String, @PathVariable pid: String): Team = on { teams.removeProject(id, pid) }
+
+    /** Tries a ticket-key pattern on a text (a branch name, a commit message) before the team saves it. */
+    @PostMapping("/teams/key-pattern/test")
+    fun testKeyPattern(@RequestBody b: KeyTestBody): KeyTest = on {
+        val p = TicketKeys.check(b.pattern)
+        KeyTest(p, p?.let { TicketKeys.find(TicketKeys.regex(it), b.text) }.orEmpty())
+    }
 
     @PostMapping("/teams/{id}/suggestions/{sid}")
     fun decideSuggestion(@PathVariable id: String, @PathVariable sid: String, @RequestBody b: SuggestionBody): TeamKnowledge =

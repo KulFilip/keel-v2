@@ -36,6 +36,7 @@ class ProductAddon : KeelAddon {
     override val title = "keel Product"
     override val part = "product"
     override val screens = listOf(
+        AddonScreen("product-map", "Product map", "Product"),
         AddonScreen("initiatives", "Initiatives", "Product"),
         AddonScreen("teams", "Teams", "Product"),
     )

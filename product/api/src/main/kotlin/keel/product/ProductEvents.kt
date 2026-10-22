@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 @Component
 class ProductEvents(
     private val initiatives: InitiativeService,
+    private val flowMap: FlowMap,
     private val store: ProductStore,
     private val props: ProductProperties,
 ) {
@@ -26,7 +27,8 @@ class ProductEvents(
         val e = stored.event
         val follows = when {
             e.type.startsWith("product.") -> true
-            e.type in setOf("gate.waiting", "gate.decided", "thread.done", "thread.failed") -> e.threadId.isNotBlank() && store.run(e.threadId) != null
+            e.type in setOf("gate.waiting", "gate.decided", "thread.done", "thread.failed") ->
+                e.threadId.isNotBlank() && (store.run(e.threadId) != null || store.flowRun(e.threadId) != null)
             else -> false
         }
         // Runs that started keep their records even when the view is switched to dev meanwhile.
@@ -36,7 +38,8 @@ class ProductEvents(
 
     private fun run(e: EngineEvent) {
         try {
-            initiatives.onEngineEvent(e)
+            if (e.type == "product.flows" || (e.threadId.isNotBlank() && store.flowRun(e.threadId) != null)) flowMap.onEngineEvent(e)
+            else initiatives.onEngineEvent(e)
         } catch (ex: Exception) {
             log.warn("keel Product for {} {}: {}", e.type, e.threadId, ex.message)
         }
