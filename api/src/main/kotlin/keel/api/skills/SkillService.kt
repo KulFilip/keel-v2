@@ -253,27 +253,13 @@ class SkillService(
         (if (last != null && last.equals("SKILL.md", ignoreCase = true)) parts.getOrNull(parts.size - 2) else last?.removeSuffix(".md"))
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
-    private fun fetch(url: String): String {
-        val uri = try { java.net.URI(url) } catch (e: Exception) { throw BadRequest("That is not a valid URL") }
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) {
-            throw BadRequest("Only http and https links can be imported")
-        }
-        val client = java.net.http.HttpClient.newBuilder()
-            .connectTimeout(java.time.Duration.ofSeconds(10))
-            .followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build()
-        val req = java.net.http.HttpRequest.newBuilder(uri).timeout(java.time.Duration.ofSeconds(20)).GET().build()
-        val res = try {
-            client.send(req, java.net.http.HttpResponse.BodyHandlers.ofInputStream())
-        } catch (e: Exception) {
-            throw BadRequest("Could not download the skill", e.message?.take(200))
-        }
-        res.body().use { input ->
-            if (res.statusCode() !in 200..299) throw BadRequest("The link answered ${res.statusCode()}", "Use the raw file link.")
-            val bytes = input.readNBytes(MAX_IMPORT + 1)
-            if (bytes.size > MAX_IMPORT) throw BadRequest("The skill is too large", "At most 256 KB.")
-            return String(bytes, Charsets.UTF_8)
-        }
-    }
+    private fun fetch(url: String): String = keel.api.common.HttpFetch.get(url, MAX_IMPORT, keel.api.common.FetchTexts(
+        notHttp = { BadRequest("Only http and https links can be imported") },
+        invalidUrl = { BadRequest("That is not a valid URL") },
+        failed = { BadRequest("Could not download the skill", it) },
+        status = { BadRequest("The link answered $it", "Use the raw file link.") },
+        tooBig = { BadRequest("The skill is too large", "At most 256 KB.") },
+    ), connectTimeout = java.time.Duration.ofSeconds(10), totalTimeout = java.time.Duration.ofSeconds(25))
 
     /** SKILL.md bodies of the skills assigned to an agent, joined, for the engine to add to its prompt. */
     fun textFor(pid: String, skillIds: List<String>): String {

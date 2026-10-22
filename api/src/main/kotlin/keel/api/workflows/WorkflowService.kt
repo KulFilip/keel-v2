@@ -408,22 +408,12 @@ class WorkflowService(
         )
     }
 
-    private fun fetch(url: String): String {
-        val uri = runCatching { URI(url) }.getOrNull()
-        if (uri == null || uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) {
-            throw BadRequest("The url must start with http:// or https://")
-        }
-        val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NORMAL).build()
-        val res = try {
-            client.send(HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10)).GET().build(), HttpResponse.BodyHandlers.ofInputStream())
-        } catch (e: Exception) {
-            throw BadRequest("Could not download the workflow", e.message)
-        }
-        if (res.statusCode() !in 200..299) throw BadRequest("The url answered ${res.statusCode()}")
-        val bytes = res.body().use { it.readNBytes(MAX_IMPORT_BYTES + 1) }
-        if (bytes.size > MAX_IMPORT_BYTES) throw BadRequest("The file is too big", "A workflow file must be under ${MAX_IMPORT_BYTES / 1024} KB.")
-        return String(bytes, Charsets.UTF_8)
-    }
+    private fun fetch(url: String): String = keel.api.common.HttpFetch.get(url, MAX_IMPORT_BYTES, keel.api.common.FetchTexts(
+        notHttp = { BadRequest("The url must start with http:// or https://") },
+        failed = { BadRequest("Could not download the workflow", it) },
+        status = { BadRequest("The url answered $it") },
+        tooBig = { BadRequest("The file is too big", "A workflow file must be under ${MAX_IMPORT_BYTES / 1024} KB.") },
+    ), connectTimeout = Duration.ofSeconds(5), totalTimeout = Duration.ofSeconds(15))
 
     // ---- library --------------------------------------------------------------------------
 

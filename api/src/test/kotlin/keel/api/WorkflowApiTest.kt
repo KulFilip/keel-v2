@@ -100,6 +100,20 @@ class WorkflowApiTest : ApiTest() {
     }
 
     @Test
+    fun `an import link to this computer or a private network is refused`() {
+        val (pid, _) = newProject("wf-ssrf")
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/w.yaml") { ex -> val b = "name: x\nsteps: []\n".toByteArray(); ex.sendResponseHeaders(200, b.size.toLong()); ex.responseBody.write(b); ex.close() }
+        server.start()
+        try {
+            val res = post("/api/projects/$pid/workflows/import", mapOf("url" to "http://127.0.0.1:${server.address.port}/w.yaml"))
+                .andExpect(status().isBadRequest).json()
+            assertThat(res["error"].asText()).contains("private network")
+            post("/api/projects/$pid/workflows/import", mapOf("url" to "http://169.254.169.254/latest/meta-data")).andExpect(status().isBadRequest)
+        } finally { server.stop(0) }
+    }
+
+    @Test
     fun `library items install per project or for all`() {
         val (pid, _) = newProject("wf-library")
         val lib = get("/api/library?project=$pid").json()
