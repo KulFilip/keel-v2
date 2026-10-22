@@ -198,7 +198,7 @@ def _project(api: KeelApi, project: str | None) -> dict:
     inside = [p for p in projects if p.get("root") and (cwd == p["root"] or cwd.startswith(p["root"].rstrip("/") + "/"))]
     if inside:
         return max(inside, key=lambda p: len(p["root"]))
-    if api.tool and len(projects) > 1:
+    if getattr(api, "tool", "") and len(projects) > 1:
         # a write must not land on a project the caller did not pick: the folder matches none, so name the project
         raise ApiError(f"this folder is in none of keel's projects, so keel does not guess which one to change. Pass "
                        f'project (one of: {", ".join(p["id"] for p in projects)}).')
