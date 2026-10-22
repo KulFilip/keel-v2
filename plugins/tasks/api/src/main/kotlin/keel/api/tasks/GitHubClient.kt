@@ -2,13 +2,12 @@ package keel.api.tasks
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.common.RestClients
 import org.springframework.http.MediaType
-import org.springframework.http.client.JdkClientHttpRequestFactory
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
 import java.net.URI
-import java.net.http.HttpClient
 import java.time.Duration
 
 /** A pull request named by its web URL: https://github.com/<owner>/<repo>/pull/<n> (or a GitHub Enterprise host). */
@@ -45,8 +44,7 @@ class GitHubClient(private val token: String, private val mapper: ObjectMapper, 
     }
 
     private val rest: RestClient by lazy {
-        val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(8)).build()
-        RestClient.builder().requestFactory(JdkClientHttpRequestFactory(http).apply { setReadTimeout(Duration.ofSeconds(20)) })
+        RestClients.builder(Duration.ofSeconds(8), Duration.ofSeconds(20))
             .defaultHeader("Authorization", "Bearer $token")
             .defaultHeader("Accept", "application/vnd.github+json")
             .defaultHeader("X-GitHub-Api-Version", "2022-11-28")

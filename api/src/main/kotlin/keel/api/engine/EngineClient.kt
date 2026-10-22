@@ -4,14 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.ApiException
 import keel.api.common.KeelProperties
+import keel.api.common.RestClients
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
-import org.springframework.http.client.JdkClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
-import java.net.http.HttpClient
 import java.time.Duration
 
 class EngineDown : ApiException(
@@ -31,11 +30,8 @@ class EngineError(status: HttpStatus, message: String, hint: String?, val body: 
 class EngineClient(private val props: KeelProperties, private val mapper: ObjectMapper) {
 
     private fun client(readTimeout: Duration): RestClient {
-        val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build()
-        val factory = JdkClientHttpRequestFactory(http).apply { setReadTimeout(readTimeout) }
-        return RestClient.builder()
+        return RestClients.builder(Duration.ofSeconds(3), readTimeout)
             .baseUrl(props.engineUrl.trimEnd('/'))
-            .requestFactory(factory)
             .defaultHeader("X-Keel-Token", props.internalToken)
             .build()
     }
