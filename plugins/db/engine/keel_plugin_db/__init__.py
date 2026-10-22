@@ -56,10 +56,11 @@ DOCS = {
     },
 }
 
-KEELBOT = """The Database plugin is on. Your tools db_connections, db_schema and db_query only read. For a data question, \
-look at the schema first, then run one query, and show the rows. You never change data yourself: a change (INSERT, \
-UPDATE, DELETE) is a button the person presses. keel counts the rows it would change first, and runs it only on a \
-local or test database:
+KEELBOT = """The Database plugin is on. Your tools db_connections, db_schema and db_query read. For a data question, \
+look at the schema first, then run one query, and show the rows. db_connections says what you may do with each \
+connection. Where it allows a change after approval, db_change asks the person in keel's Inbox and runs only after \
+their Yes; elsewhere a change (INSERT, UPDATE, DELETE) is a button the person presses. keel counts the rows it would \
+change first, and runs it only on a local or test database:
 ```keel-query
 {"sql": "UPDATE scores SET value = 0 WHERE value IS NULL", "connection": "local"}
 ```
@@ -121,6 +122,8 @@ PART = {
     "params": PARAMS,
     "docs": DOCS,
     "read_tools": ("db_connections", "db_schema", "db_query"),
+    # keel 0.18.38: it asks the person itself (approvals) and only where the connection's Access allows a change
+    "act_tools": ("db_change",),
     "mcp": {"server": "keel-db", "module": "keel_plugin_db.server", "call": _call},
     "router": _router,
     "errors": _errors,

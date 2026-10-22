@@ -1,13 +1,16 @@
 """The Database plugin's core: connections, what a query does, running it safely, the schema, and suggestions.
 
 A connection is {name, kind, url, env}: kind postgres | mysql | sqlite, env local | test | staging | prod. The api keeps
-the url (with its password) encrypted; it reaches the engine in a call's keys and stays in memory.
+the url (with its password) encrypted; it reaches the engine in a call's keys and stays in memory. Since keel 0.18.38 a
+key also says what agents may do with it (agent_access none | read | write_approve, ask_first) and whether it is a
+project's own or a global one (scope); one keel cannot reach now comes with `unavailable` instead of a url.
 
     classify(sql, kind)      read | change | schema | never, and why (sqlglot reads the SQL; no word search)
     query(conn, sql, ...)    a read runs in a read-only transaction (200 rows, 15 s); a change only on a local or test
                              database: without `confirm` it runs and rolls back to count the rows, with it for real
     schema(conn)             tables, columns, primary and foreign keys
-    test(conn)               can keel connect, which server, how many tables
+    test(conn)               can keel connect, which server, how many tables, in how many ms
+    databases(conn)          the databases on the server (the editor's Default database)
     suggest(root)            connections the project names: docker compose, .env.example, Spring's config, SQLite files
 
     connections(keys)        the connections a call carries (the api sends each as the key `db:<name>`)
@@ -56,7 +59,8 @@ ADDRESS_HINT = ("Use postgres://user:password@host:5432/db, mysql://user:passwor
 
 
 def connections(keys: dict | None) -> dict[str, dict]:
-    """{name: {name, kind, url, env}} from the call's keys `db:<name>` (the api sends each connection as JSON)."""
+    """{name: {name, kind, url, env, ...}} from the call's keys `db:<name>` (the api sends each connection as JSON). One
+    keel cannot reach now has no url but says why (`unavailable`)."""
     out = {}
     for k, v in (keys or {}).items():
         if k.startswith("db:") and v:
@@ -64,7 +68,7 @@ def connections(keys: dict | None) -> dict[str, dict]:
                 d = json.loads(v)
             except (TypeError, json.JSONDecodeError):
                 continue
-            if isinstance(d, dict) and d.get("url"):
+            if isinstance(d, dict) and (d.get("url") or d.get("unavailable")):
                 out[k[3:]] = {**d, "name": d.get("name") or k[3:]}
     return out
 
@@ -76,12 +80,25 @@ class DbError(Exception):
         self.hint = hint
 
 
+ACCESS = ("none", "read", "write_approve")
+
+
 @dataclass
 class Conn:
     name: str
     kind: str
     url: str
     env: str = "local"
+    driver: str = ""
+    scope: str = "project"
+    agent_access: str = "read"      # what agents may do: none | read | write_approve (the api already made prod read)
+    ask_first: bool = False
+
+    @property
+    def agent_may(self) -> str:
+        """What agents may really do here: staging and prod are read only for them, always (whatever the key says)."""
+        access = self.agent_access if self.agent_access in ACCESS else "read"
+        return "read" if access == "write_approve" and self.env not in CHANGE_ENVS else access
 
 
 def kind_of(url: str) -> str | None:
@@ -90,7 +107,10 @@ def kind_of(url: str) -> str | None:
 
 
 def conn_of(d: dict) -> Conn:
-    """A connection from the api's JSON ({name, kind?, url, env}); a bad one raises DbError 400."""
+    """A connection from the api's JSON ({name, kind?, url, env, ...}); a bad one raises DbError 400, one keel cannot reach
+    now 409 with the reason."""
+    if not d.get("url") and d.get("unavailable"):
+        raise DbError(409, str(d["unavailable"]))
     url = str(d.get("url") or "").strip()
     kind = KINDS.get(str(d.get("kind") or "").lower()) or kind_of(url)
     if not url or not kind:
@@ -98,7 +118,8 @@ def conn_of(d: dict) -> Conn:
     env = str(d.get("env") or "local").lower()
     if env not in ENVS:
         raise DbError(400, f"Unknown kind of database: {env}.", f"Use one of: {', '.join(ENVS)}.")
-    return Conn(str(d.get("name") or "local"), kind, url, env)
+    return Conn(str(d.get("name") or "local"), kind, url, env, str(d.get("driver") or kind),
+                str(d.get("scope") or "project"), str(d.get("agent_access") or "read"), bool(d.get("ask_first")))
 
 
 _SECRET_PARAM = re.compile(r"(?i)([?&;])(password|passwd|pwd|pass|secret|token|api_?key|access_?token|sslpassword)=([^&;#]*)")
@@ -207,9 +228,12 @@ def _connect(conn: Conn, root: str, *, read: bool):
         import psycopg
 
         p = urlsplit(conn.url.removeprefix("jdbc:"))
-        c = psycopg.connect(host=_host(p.hostname), port=p.port or 5432, user=unquote(p.username or "") or None,
-                            password=unquote(p.password or "") or None, dbname=(p.path or "/").lstrip("/") or None,
-                            connect_timeout=CONNECT_S, application_name="keel")
+        q = _params(p.query)
+        host = q.get("host") if str(q.get("host") or "").startswith("/") else _host(p.hostname)   # a socket folder
+        c = psycopg.connect(host=host, port=p.port or 5432, user=unquote(p.username or "") or None,
+                            password=unquote(p.password or q.get("password") or "") or None,
+                            dbname=unquote((p.path or "/").lstrip("/")) or None, connect_timeout=CONNECT_S, application_name="keel",
+                            **({"sslmode": q["sslmode"]} if q.get("sslmode") else {}))
         c.read_only = read
         with c.cursor() as cur:
             cur.execute(f"SET statement_timeout = {TIMEOUT_S * 1000}")
@@ -218,8 +242,11 @@ def _connect(conn: Conn, root: str, *, read: bool):
         import pymysql
 
         p = urlsplit(conn.url.removeprefix("jdbc:"))
+        q = _params(p.query)
+        sock = q.get("unix_socket") or q.get("socket")
         c = pymysql.connect(host=_host(p.hostname), port=p.port or 3306, user=unquote(p.username or "") or None,
-                            password=unquote(p.password or ""), database=(p.path or "/").lstrip("/") or None,
+                            password=unquote(p.password or q.get("password") or ""),
+                            database=unquote((p.path or "/").lstrip("/")) or None, **({"unix_socket": sock} if sock else {}),
                             connect_timeout=CONNECT_S, read_timeout=TIMEOUT_S + 5, write_timeout=TIMEOUT_S + 5,
                             autocommit=False, charset="utf8mb4")
         with c.cursor() as cur:
@@ -240,8 +267,25 @@ def _connect(conn: Conn, root: str, *, read: bool):
     return c
 
 
+def _params(query: str) -> dict[str, str]:
+    from urllib.parse import parse_qsl
+
+    return {k: v for k, v in parse_qsl(query or "", keep_blank_values=True)}
+
+
+def scrub(text: str, url: str) -> str:
+    """The text without the address's password: every address in it masked, and the password itself as •••."""
+    out = re.sub(r"(?:jdbc:)?[A-Za-z][A-Za-z0-9+.\-]*://\S+", lambda m: masked_url(m.group(0)), text or "")
+    try:
+        p = urlsplit((url or "").removeprefix("jdbc:"))
+        pw = unquote(p.password or "") or _params(p.query).get("password") or ""
+    except ValueError:
+        pw = ""
+    return out.replace(pw, "•••") if len(pw) >= 3 else out
+
+
 def _connect_error(conn: Conn, exc: Exception) -> DbError:
-    msg = str(exc).strip().splitlines()[0][:300] if str(exc).strip() else type(exc).__name__
+    msg = scrub(str(exc).strip().splitlines()[0][:300], conn.url) if str(exc).strip() else type(exc).__name__
     hint = "Check the address, the user and the password in Connections › Databases, and that the database runs."
     if _in_docker() and conn.kind != "sqlite":
         hint += " keel runs in Docker: localhost means your computer (host.docker.internal)."
@@ -339,14 +383,16 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
 
 
 def test(conn: Conn, root: str = "") -> dict:
-    """{ok, server, tables} or {ok: false, error, hint}."""
+    """{ok, server, tables, ms} or {ok: false, error, hint, ms}."""
+    t0 = time.monotonic()
+    ms = lambda: int((time.monotonic() - t0) * 1000)  # noqa: E731
     try:
         c = _connect(conn, root, read=True)
     except DbError as exc:
-        return {"ok": False, "error": str(exc), "hint": exc.hint}
+        return {"ok": False, "error": str(exc), "hint": exc.hint, "ms": ms()}
     except Exception as exc:
         e = _connect_error(conn, exc)
-        return {"ok": False, "error": str(e), "hint": e.hint}
+        return {"ok": False, "error": str(e), "hint": e.hint, "ms": ms()}
     try:
         server = {"postgres": "SHOW server_version", "mysql": "SELECT VERSION()", "sqlite": "SELECT sqlite_version()"}[conn.kind]
         _, rows, _, _ = _run(c, conn, server, 1)
@@ -356,7 +402,40 @@ def test(conn: Conn, root: str = "") -> dict:
         c.close()
     tables = len(schema(conn, root)["tables"])
     label = {"postgres": "PostgreSQL", "mysql": "MySQL", "sqlite": "SQLite"}[conn.kind]
-    return {"ok": True, "server": f"{label} {version.split()[0] if version else ''}".strip(), "tables": tables}
+    if conn.kind == "mysql" and ("mariadb" in version.lower() or conn.driver == "mariadb"):
+        label = "MariaDB"
+    return {"ok": True, "server": f"{label} {version.split()[0].split('-')[0] if version else ''}".strip(), "tables": tables,
+            "ms": ms()}
+
+
+SYSTEM_DBS = {"information_schema", "mysql", "performance_schema", "sys"}
+
+
+def databases(conn: Conn, root: str = "") -> dict:
+    """{databases: [{name}]}: the databases on the server, without the server's own (the editor's Default database). A
+    PostgreSQL address without a database connects to `postgres` to read the list."""
+    if conn.kind == "sqlite":
+        return {"databases": [{"name": "main"}]}
+    c_conn = conn
+    if conn.kind == "postgres" and not urlsplit(conn.url.removeprefix("jdbc:")).path.strip("/"):
+        p = urlsplit(conn.url.removeprefix("jdbc:"))
+        c_conn = Conn(conn.name, conn.kind, urlunsplit((p.scheme, p.netloc, "/postgres", p.query, p.fragment)), conn.env)
+    try:
+        c = _connect(c_conn, root, read=True)
+    except DbError:
+        raise
+    except Exception as exc:
+        raise _connect_error(conn, exc) from exc
+    try:
+        sql = ("SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1" if conn.kind == "postgres"
+               else "SHOW DATABASES")
+        _, rows, _, _ = _run(c, c_conn, sql, 1000)
+        c.rollback()
+    except Exception as exc:
+        raise DbError(400, f"keel could not list the databases: {scrub(str(exc).splitlines()[0][:300], conn.url)}") from exc
+    finally:
+        c.close()
+    return {"databases": [{"name": str(r[0])} for r in rows if str(r[0]) not in SYSTEM_DBS]}
 
 
 def schema(conn: Conn, root: str = "") -> dict:

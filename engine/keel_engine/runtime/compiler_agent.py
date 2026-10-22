@@ -49,7 +49,7 @@ class AgentMixin:
         servers = extensions.servers()
         mine = [n for n in extensions.enabled(ctx.settings) if servers.get(n) in wanted]
         plugin_key = extensions.open_call(project=ctx.project_id, root=root, keys=ctx.keys, plugins=mine,
-                                          who=f"agent:{agent}") if mine else None
+                                          who=f"agent:{agent}", bus=ctx.bus, thread=ctx.thread_id) if mine else None
         if plugin_key:
             specs += extensions.server_specs(mine, plugin_key)
         mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)

@@ -128,7 +128,7 @@ def test_its_tools_have_0_16_1s_levels_and_risk(with_ci):
     """Each part's tool at 0.16.1's level (--allow knows them), with 0.16.1's hints: a push and a data change are
     destructive and ask the person through the client first (unless --yes)."""
     assert mcp_server.part_tools() == {
-        "read": ["keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure"],
+        "read": ["keel_db_connections", "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure"],
         "write": ["keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"]}
     assert mcp_server.tool_level("keel_db_change") == "write" and mcp_server.tool_level("keel_db_query") == "read"
     assert mcp_server.allowed(["--allow", "keel_db_query,keel_git_push"]) == {"keel_db_query", "keel_git_push"}
@@ -182,11 +182,12 @@ def test_its_command_comes_only_when_it_is_on(repo):
 
 # ------------------------------------------------------------------ MCP: its own server, keel's server, the guard
 
-def test_its_mcp_server_runs_from_the_plugin_folder_and_only_reads():
+def test_its_mcp_server_runs_from_the_plugin_folder_and_reads_and_one_tool_acts_after_the_persons_ok():
     from keel_plugin_db import server
 
-    tools = asyncio.run(server.build().list_tools())
-    assert {t.name for t in tools} == READ_TOOLS and all(t.annotations.readOnlyHint for t in tools)
+    tools = {t.name: t for t in asyncio.run(server.build().list_tools())}
+    assert set(tools) == READ_TOOLS | {"db_change"} and all(tools[n].annotations.readOnlyHint for n in READ_TOOLS)
+    assert tools["db_change"].annotations.destructiveHint and not tools["db_change"].annotations.readOnlyHint
     [spec] = extensions.server_specs(["db", "nope"], "pk_x")
     assert spec["name"] == "keel-db" and spec["args"] == ["-m", "keel_plugin_db.server"]
     assert spec["env"]["PYTHONPATH"] == ENGINE and spec["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
@@ -194,7 +195,7 @@ def test_its_mcp_server_runs_from_the_plugin_folder_and_only_reads():
     # the real process, as the CLI starts it: no plugin variables, only its spec's environment
     res = asyncio.run(mcp_tools.list_tools(spec))
     assert res["ok"], res
-    assert {t["name"] for t in res["tools"]} == READ_TOOLS
+    assert {t["name"] for t in res["tools"]} == READ_TOOLS | {"db_change"}
 
 
 def test_keels_own_mcp_server_has_its_tools_for_agents_and_keel2_mcp(tmp_path):

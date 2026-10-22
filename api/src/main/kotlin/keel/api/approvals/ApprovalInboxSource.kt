@@ -37,7 +37,9 @@ class ApprovalInboxSource(private val approvals: ApprovalService) : InboxSource 
             projectId = a.projectId, projectName = "", threadId = session, flow = a.title.ifBlank { "KeelBot" }, workflowId = null,
             step = "permission", kind = "permission",
             // v0.10.0: Claude Code's acting tool (keel2 mcp --write) asks with its own title ("Claude Code: push the branch?")
-            title = if (session == MCP) a.title.ifBlank { "Claude Code asks" } else "KeelBot asks to run a command",
+            // keel 0.18.38: a plugin's own question (source plugin:<name>, the Database plugin's "change data in local?") too
+            title = if (session == MCP) a.title.ifBlank { "Claude Code asks" }
+                else if (a.source.startsWith(PLUGIN_SOURCE)) a.title.ifBlank { "An agent asks" } else "KeelBot asks to run a command",
             detail = command.take(InboxService.DETAIL_MAX), more = command.length > InboxService.DETAIL_MAX,
             options = ApprovalService.ENGINE_DECISIONS, id = a.id, since = a.createdAt,
             permission = InboxPermission(a.id, session, command, p?.path("path")?.asText("")?.ifBlank { null }),
@@ -53,6 +55,9 @@ class ApprovalInboxSource(private val approvals: ApprovalService) : InboxSource 
     companion object {
         /** The engine's session for keel2 mcp's questions: Claude Code asks, with no KeelBot chat behind it. */
         const val MCP = "mcp"
+
+        /** A plugin's tool that asks the person itself (engine approvals, source "plugin:<name>"): its card shows its title. */
+        const val PLUGIN_SOURCE = "plugin:"
 
         /** The engine's kind for a stack's setup commands (engine runtime/stack_setup.py). */
         const val STACK_SETUP = "stack-setup"

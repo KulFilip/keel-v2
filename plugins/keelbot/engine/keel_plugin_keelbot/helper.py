@@ -508,7 +508,8 @@ class HelperRunner:
             # the project's plugins (Control › Plugins): their read tools, through one key for this turn
             on = extensions.enabled({"plugins": body.get("plugins")})
             if on:
-                plugin_key = extensions.open_call(project=project, root=root, keys=keys, plugins=on, who="keelbot")
+                plugin_key = extensions.open_call(project=project, root=root, keys=keys, plugins=on, who="keelbot",
+                                                  bus=self.approvals.bus, thread=s.get("thread_id"), session=sid)
                 specs += extensions.server_specs(on, plugin_key)
                 allow += extensions.allow_entries(on)
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)

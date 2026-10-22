@@ -84,3 +84,18 @@ def test_a_wrong_password_says_what_to_check(server):
     bad = db.Conn(conn.name, conn.kind, conn.url.replace("://app:app@", "://app:nope@").replace("://root:root@", "://root:nope@"), "local")
     out = db.test(bad)
     assert out["ok"] is False and "keel could not reach local" in out["error"] and "password" in out["hint"]
+
+
+def test_a_test_says_the_server_its_tables_and_how_long_and_lists_the_databases(server):
+    conn, t = server
+    r = db.test(conn)
+    assert r["ok"] and r["tables"] >= 2 and isinstance(r["ms"], int)
+    assert r["server"].split()[0] in ("PostgreSQL", "MySQL", "MariaDB")
+    names = [d["name"] for d in db.databases(conn)["databases"]]
+    assert names and not {"information_schema", "performance_schema", "mysql", "sys"} & set(names)
+    # a wrong password: the error never quotes it
+    bad = db.conn_of({"name": "bad", "url": db.urlunsplit(db.urlsplit(conn.url)._replace(
+        netloc=f"{db.urlsplit(conn.url).username}:Wr0ngPassw0rd@{db.urlsplit(conn.url).hostname}:{db.urlsplit(conn.url).port}")),
+        "env": "local"})
+    failed = db.test(bad)
+    assert not failed["ok"] and "Wr0ngPassw0rd" not in failed["error"] + failed["hint"]

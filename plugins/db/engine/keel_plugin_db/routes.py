@@ -35,6 +35,8 @@ async def post_plugin_db(op: str, body: PluginDb):
     conn = db.conn_of(body.connection)
     if op == "test":
         return await asyncio.to_thread(db.test, conn, root)
+    if op == "databases":
+        return await asyncio.to_thread(db.databases, conn, root)
     if op == "schema":
         return await asyncio.to_thread(db.schema, conn, root)
     if op == "query":
