@@ -83,3 +83,22 @@ def test_a_failed_fetch_stops_sync_instead_of_merging_a_stale_ref(tmp_path, work
     with pytest.raises(core.GitError) as e:
         core.sync(str(work))
     assert e.value.status == 502 and "fetch" in str(e.value)
+
+
+def test_a_branch_only_origin_has_is_checked_out_as_a_tracking_branch(tmp_path, work):
+    origin = tmp_path / "origin.git"
+    sh(tmp_path, "clone", "-q", "--bare", str(work), str(origin))
+    sh(work, "remote", "add", "origin", str(origin))
+    mate = tmp_path / "mate"
+    sh(tmp_path, "clone", "-q", str(origin), str(mate))
+    sh(mate, "switch", "-q", "-c", "feature/ERPDM-1810-sonar")
+    (mate / "s.txt").write_text("s\n")
+    sh(mate, "add", "-A")
+    sh(mate, "commit", "-q", "-m", "sonar")
+    sh(mate, "push", "-q", "origin", "feature/ERPDM-1810-sonar")
+    sh(work, "fetch", "-q", "origin")
+    assert core.switch(str(work), "feature/ERPDM-1810-sonar")["branch"] == "feature/ERPDM-1810-sonar"
+    assert core.status(str(work))["upstream"] == "origin/feature/ERPDM-1810-sonar"
+    with pytest.raises(core.GitError) as e:
+        core.switch(str(work), "feature/nowhere")
+    assert e.value.status == 404

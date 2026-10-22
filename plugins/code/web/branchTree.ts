@@ -1,6 +1,8 @@
 // The branches as a tree: Local (the current branch pinned, then main/master, then folders by "/" prefix, then the
 // branches without a prefix under "other") and one group per remote with its own prefix folders. Pure: no React.
 
+import { branchMatches } from "./scmModel";
+
 export type BranchItem = { name: string; note: string };
 
 export type TreeFolder = { type: "folder"; id: string; label: string; count: number; children: TreeNode[] };
@@ -64,12 +66,13 @@ export function buildBranchTree(local: BranchItem[], remotes: BranchItem[], curr
   return groups;
 }
 
-/** The tree cut to the branches whose name has `q` (case-insensitive); the folders on the way stay with their new counts. */
+/** The tree cut to the branches that match `q` (scmModel.branchMatches: the name in any case, the name without - _ / .,
+ *  or a ticket key in its last commit's subject); the folders on the way stay with their new counts. */
 export function filterTree(groups: TreeGroup[], q: string): { groups: TreeGroup[]; matches: number } {
   const needle = q.trim().toLowerCase();
   if (!needle) return { groups, matches: 0 };
   const cut = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap((n): TreeNode[] => {
-    if (n.type === "leaf") return n.branch.name.toLowerCase().includes(needle) ? [n] : [];
+    if (n.type === "leaf") return branchMatches(n.branch.name, n.branch.note, needle) ? [n] : [];
     const children = cut(n.children);
     return children.length ? [{ ...n, children, count: countLeaves(children) }] : [];
   });

@@ -1,5 +1,8 @@
 """The Git plugin's engine routes: the person's own git calls (Code › Git, KeelBot's button). A PluginError or GitError
-becomes a 4xx answer (the app maps the part's errors)."""
+becomes a 4xx answer (the app maps the part's errors).
+
+pr_status is the one exception: when GitHub did not answer (a transient GitError, after core's one retry) it answers
+200 {pr: null, error: {message, hint, transient: true}}, so Source control can say "try again" instead of an error."""
 
 from __future__ import annotations
 
@@ -34,6 +37,15 @@ class PluginGit(BaseModel):
     sha: str = ""
 
 
+def _pr_status(root: str, token: str | None) -> dict:
+    try:
+        return {"pr": g.pr_status(root, token)}
+    except g.GitError as exc:
+        if not exc.transient:
+            raise
+        return {"pr": None, "error": {"message": str(exc), "hint": exc.hint, "transient": True}}
+
+
 @router.post("/plugins/git/{op}")
 async def post_plugin_git(op: str, body: PluginGit):
     if not os.path.isdir(body.root):
@@ -50,7 +62,7 @@ async def post_plugin_git(op: str, body: PluginGit):
         "sync": lambda: g.sync(body.root, token),
         "push": lambda: g.push(body.root, token),
         "pr": lambda: g.pr(body.root, token, body.title, body.body, body.draft),
-        "pr_status": lambda: {"pr": g.pr_status(body.root, token)},
+        "pr_status": lambda: _pr_status(body.root, token),
         "cleanup": lambda: g.cleanup(body.root),
     }
     if op not in calls:

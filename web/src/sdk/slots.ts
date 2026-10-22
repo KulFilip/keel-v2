@@ -9,7 +9,7 @@
 //   ⌘/ ───────── keys.area (0.15.4: a part's keys in the key cheat sheet: Code, Code Review, KeelBot)
 //   the bell ─── notes.setting       Settings › This browser ─ settings.browser (0.15.2: KeelBot's own sound)
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { GraphHit, HelperSelection } from "../api";
 import type { KeyArea } from "../keys";
 import type { InboxItem } from "../inboxApi";
@@ -163,6 +163,30 @@ export type ScmPanelProps = {
   pid: string;
   dirty: number;
   onChanged: () => void;
+  /** 0.18.38 Source control lays the panel's parts out itself: a panel given `layout` returns layout(parts) instead of
+   *  its own stack, so its push button sits under the branch, its commit box under the changes. */
+  layout?: (parts: ScmPanelParts) => ReactNode;
+  /** 0.18.38 the link that opens a pull request in keel's review (the Code Review plugin, when it is on) */
+  reviewHref?: (pr: number) => string;
+  /** 0.18.38 goes up when the person presses Refresh: read everything again (the pull request too) */
+  refresh?: number;
+};
+/** The pieces of a Source control panel, each in its place (all optional: a part it has nothing for is left out). */
+export type ScmPanelParts = {
+  /** pills after the branch's own (pushed, n to push) */
+  pills?: ReactNode;
+  /** the buttons under the branch (Update from the base, Push) */
+  actions?: ReactNode;
+  /** the pull request section's body */
+  pr?: ReactNode;
+  /** the commit box, under the list of changes */
+  commit?: ReactNode;
+  /** a button in the Branches section's head (New branch) */
+  branchActions?: ReactNode;
+  /** the bottom of the panel (Ask KeelBot about the pull request) */
+  footer?: ReactNode;
+  /** lines added and deleted per uncommitted path, when the panel knows them */
+  stats?: Record<string, { added: number; deleted: number }>;
 };
 
 export type CodeActivityItem = SlotItem &

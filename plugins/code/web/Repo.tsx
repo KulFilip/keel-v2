@@ -65,7 +65,7 @@ export function RepoPage({ pid }: { pid: string }) {
         </>} />}
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}
-      <RepoIde pid={pid} repo={repo.data} version={version} focus={focus} onFocus={setFocus} />
+      <RepoIde pid={pid} repo={repo.data} version={version} focus={focus} onFocus={setFocus} onRepoChanged={() => void repo.reload()} />
     </div>
   );
 }
