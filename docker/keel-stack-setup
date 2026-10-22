@@ -52,7 +52,9 @@ case "${1:-}" in
     # exact names only: apt would also take a glob or a regex as a package name
     names=$(apt-cache "${opts[@]}" pkgnames)
     for p in "$@"; do
-      printf '%s\n' "$names" | grep -Fxq -- "$p" || { echo "keel-stack-setup: no such package: $p" >&2; exit 2; }
+      # a here-string, not a pipe: grep -q stops reading at the first match, and under pipefail the writer's SIGPIPE
+      # (exit 141) would turn every package that exists into "no such package"
+      grep -Fxq -- "$p" <<< "$names" || { echo "keel-stack-setup: no such package: $p" >&2; exit 2; }
     done
     apt-get install -y -q --no-install-recommends "${opts[@]}" -- "$@"
     echo "keel-stack-setup: installed $*"

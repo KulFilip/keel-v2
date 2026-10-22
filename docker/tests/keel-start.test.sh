@@ -104,6 +104,7 @@ start_bg() {
 }
 
 # wait_exit [seconds]: waits for keel-start to stop; its exit code in $code ("timeout" when it did not stop)
+# shellcheck disable=SC2120  # the seconds argument is optional; every call uses the default today
 wait_exit() {
   local end=$((SECONDS + ${1:-15}))
   while kill -0 "$pid" 2>/dev/null; do
