@@ -47,6 +47,8 @@ class TaskService(
     private val log = LoggerFactory.getLogger(javaClass)
     private val locks = ConcurrentHashMap<String, Any>()
     private fun lock(id: String) = locks.computeIfAbsent(id) { Any() }
+    private val effectLocks = ConcurrentHashMap<String, Any>()
+    private fun effectLock(id: String) = effectLocks.computeIfAbsent(id) { Any() }
 
     /** The tracker that holds the real tickets (the Jira plugin), or null. */
     private fun tracker(): TicketTracker? = trackers.orderedStream().findFirst().orElse(null)
@@ -246,9 +248,10 @@ class TaskService(
                 val parent = (e.data["parent"] as? Map<*, *>)?.get("thread_id")?.toString() ?: return
                 val t = store.byThread(parent) ?: return
                 synchronized(lock(t.id)) {
+                    val cur = store.require(t.id)               // read inside the lock: an edit meanwhile is not overwritten
                     val wf = (e.data["workflow_id"] ?: e.data["workflow"])?.toString()
-                    store.update(t.copy(threadId = e.threadId, workflowId = wf ?: t.workflowId))
-                    store.event(t.id, "flow", null, null, "The ${t.workflowId ?: "flow"} flow handed the work to the ${wf ?: "next"} flow.", "keel")
+                    store.update(cur.copy(threadId = e.threadId, workflowId = wf ?: cur.workflowId))
+                    store.event(t.id, "flow", null, null, "The ${cur.workflowId ?: "flow"} flow handed the work to the ${wf ?: "next"} flow.", "keel")
                 }
                 changed(t.projectId)
             }
@@ -322,7 +325,20 @@ class TaskService(
     // ---- the one place that changes a task's status -------------------------------------------
 
     /** Plans [tr] with the [TaskMachine] and applies it: status, history, Inbox items, then Jira and GitHub. */
-    fun fire(id: String, tr: Trigger): Task = synchronized(lock(id)) {
+    fun fire(id: String, tr: Trigger): Task {
+        val (next, plan) = synchronized(lock(id)) { applyPlan(id, tr) }
+        // Jira, GitHub and the engine are reached outside the task's lock: a slow answer must not block an edit of the
+        // task. Their own lock keeps one task's outside steps in order.
+        synchronized(effectLock(id)) {
+            if (plan.stopFlow) stopFlow(next)
+            if (plan.actor != "jira") effects(next, plan)
+        }
+        changed(next.projectId)
+        return try { store.require(id) } catch (e: ApiException) { next }
+    }
+
+    /** The part of [fire] that writes keel's own state: status, history and Inbox items. Runs under the task's lock. */
+    private fun applyPlan(id: String, tr: Trigger): Pair<Task, Plan> {
         val t = store.require(id)
         val plan = try {
             TaskMachine.plan(t, tr)
@@ -340,11 +356,11 @@ class TaskService(
         store.event(id, plan.kind, t.status, plan.to, plan.note, plan.actor)
         if (plan.to != t.status) store.closeItems(id, kind = "task")
         plan.openItem?.let { openItem(next, "task", it.stage, it.title, it.detail) }
-        if (plan.stopFlow) stopFlow(next)
-        if (plan.actor != "jira") next = effects(next, plan)
-        changed(next.projectId)
-        next
+        return next to plan
     }
+
+    /** Changes the task as it is now (read under its lock), so a change made while Jira or GitHub answered is kept. */
+    private fun patch(id: String, f: (Task) -> Task): Task = synchronized(lock(id)) { store.update(f(store.require(id))) }
 
     private fun effects(start: Task, plan: Plan): Task {
         var t = start
@@ -360,7 +376,7 @@ class TaskService(
                 } else try {
                     val m = client.transitionTo(key, target)
                     store.event(t.id, "jira", null, null, if (m.moved) "Jira: moved $key from ${m.from ?: "?"} to ${m.to}." else "Jira: $key is already in ${m.to}.", "keel")
-                    t = store.update(t.copy(externalStatus = m.to))
+                    t = patch(t.id) { it.copy(externalStatus = m.to) }
                     // keel reached Jira this time: an older "move it by hand" is out of date
                     store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { store.closeItem(it.id) }
                 } catch (e: TicketException) {
@@ -394,8 +410,9 @@ class TaskService(
                 else -> try {
                     GitHubClient(token, mapper, props.githubApi, secrets.githubHost()).requestReviewers(pr, wanted)
                     store.event(t.id, "reviewers", null, null, "Asked ${wanted.joinToString()} to review the PR on GitHub.", "keel")
-                    val others = t.reviewers.filter { !(it.on == "github" && it.login in wanted) }
-                    t = store.update(t.copy(reviewers = others + wanted.map { Reviewer(it, "github", "requested") }))
+                    t = patch(t.id) { c ->
+                        c.copy(reviewers = c.reviewers.filter { !(it.on == "github" && it.login in wanted) } + wanted.map { Reviewer(it, "github", "requested") })
+                    }
                 } catch (e: GitHubException) {
                     store.event(t.id, "github_error", null, null, "GitHub: ${e.message}", "keel")
                 }
@@ -408,8 +425,7 @@ class TaskService(
             val why = if (client == null) "no Jira connection for this project" else try {
                 client.setUsers(key, field, people)
                 store.event(t.id, "reviewers", null, null, "Jira: set the reviewers of $key to ${people.joinToString()}.", "keel")
-                val others = t.reviewers.filter { it.on != "jira" }
-                t = store.update(t.copy(reviewers = others + people.map { Reviewer(it, "jira", "set") }))
+                t = patch(t.id) { c -> c.copy(reviewers = c.reviewers.filter { it.on != "jira" } + people.map { Reviewer(it, "jira", "set") }) }
                 null
             } catch (e: TicketException) {
                 store.event(t.id, "jira_error", null, null, "Jira: could not set the reviewers of $key. ${e.message}", "keel")
