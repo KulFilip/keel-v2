@@ -55,6 +55,7 @@ import yaml
 
 from .. import config
 from . import stacks
+from ..tools.git import git as git_run
 
 log = logging.getLogger(__name__)
 
@@ -681,7 +682,7 @@ def wait_system(root: str, progress: Callable[..., None] | None = None, timeout:
 
 def _git(root: str, *args: str) -> str | None:
     try:
-        r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=20)
+        r = git_run(root, *args, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout.strip() if r.returncode == 0 else None

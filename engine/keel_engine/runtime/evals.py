@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import yaml
 
 from .. import config
+from ..tools.git import git
 from ..demo import create_demo
 
 CASE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
@@ -92,7 +92,7 @@ def prepare(name: str, dest: str) -> dict:
     else:
         shutil.copytree(folder() / name / s["project"], target, ignore=shutil.ignore_patterns("__pycache__", "node_modules"))
         ident = ["-c", "user.name=keelbot", "-c", "user.email=keel.dev.bot@gmail.com"]
-        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=target, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=target, check=True)
-        subprocess.run(["git", *ident, "commit", "-q", "-m", f"chore: eval project {name}"], cwd=target, check=True)
+        git(target, "init", "-q", "-b", "main", check=True)
+        git(target, "add", "-A", check=True)
+        git(target, *ident, "commit", "-q", "-m", f"chore: eval project {name}", check=True)
     return {"path": str(target), "set": name, "cases": s["cases"]}

@@ -309,13 +309,13 @@ class Engine:
                 text = spec_check.read_spec(root, spec)
                 # v0.17.5 the spec's ORDER line is the build order from the start, with each criterion's depends_on
                 state["acs"] = with_depends(order_acs(prompts.parse_acs(text), spec_order(text)), text)
-        if git.is_repo(root):
-            state["branch"] = git.branch(root)
-            state["git_head"] = git.head(root)
+        if await asyncio.to_thread(git.is_repo, root):
+            state["branch"] = await asyncio.to_thread(git.branch, root)
+            state["git_head"] = await asyncio.to_thread(git.head, root)
             state["base_head"] = state["git_head"]
-            git.exclude_engine_files(root)
+            await asyncio.to_thread(git.exclude_engine_files, root)
             layout.hide(root)               # keel / external: .keel/ stays out of git (.git/info/exclude)
-            state["preexisting"] = git.snapshot(root)
+            state["preexisting"] = await asyncio.to_thread(git.snapshot, root)
         extensions.on_thread_start(root, tid)   # the parts catch up (the code graph syncs edits since its last index)
         await self._import_legacy_unlocks(tid)
         started = {"workflow": wf.id, "workflow_id": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
@@ -497,10 +497,10 @@ class Engine:
         """
         row = await self._row(tid)
         old = row["root"]
-        if not root and not _project_there(old):
-            root = relocate(old)
+        if not root and not await asyncio.to_thread(_project_there, old):
+            root = await asyncio.to_thread(relocate, old)
         if root and root != old:
-            if not _project_there(root):
+            if not await asyncio.to_thread(_project_there, root):
                 raise EngineError(409, f"The project folder {root} is empty or missing.", "Check how keel was started (keel2 status).")
             await self.conn.execute("update keel_threads set root = ? where thread_id = ?", (root, tid))
             await self.conn.commit()
@@ -509,7 +509,7 @@ class Engine:
                 ctx.root = root
             log.info("thread %s moved from %s to %s", tid, old, root)
             return
-        if not _project_there(old):
+        if not await asyncio.to_thread(_project_there, old):
             raise EngineError(409, f"This flow's project folder {old} is empty or missing.",
                               "keel was started another way since this flow began (for example with or without --docker). "
                               "Start keel the same way again, or start a new flow.")
@@ -705,7 +705,7 @@ class Engine:
                     break
         checkpoint_id = target.config["configurable"]["checkpoint_id"]
         sha = (target.values or {}).get("git_head")
-        goes_back = bool(sha) and git.is_repo(ctx.root) and git.head(ctx.root) != sha
+        goes_back = bool(sha) and await asyncio.to_thread(git.is_repo, ctx.root) and await asyncio.to_thread(git.head, ctx.root) != sha
         if goes_back:
             # `git reset --hard` below would throw away uncommitted work in tracked files, and nothing in keel can bring it
             # back. keel has no stash precedent (agents are even forbidden to stash), so refuse: the person decides.
