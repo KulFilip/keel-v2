@@ -170,12 +170,15 @@ export function view(lines: string[], height: number, offset: number): { shown: 
   return { shown: lines.slice(start, end), offset: off, above: start, below: off };
 }
 
-/** The mouse's wheel in a chunk of input (SGR mode: ESC [ < 64 ; x ; y M is up, 65 down): +1 per notch up, -1 down. */
+/** The mouse's wheel in a chunk of input (SGR mode: ESC [ < 64 ; x ; y M is up, 65 down): +1 per notch up, -1 down.
+ *  Shift, Meta and Ctrl (4, 8, 16) and the motion bit (32) do not change it; 66 and 67 are the wheel sideways (a
+ *  trackpad's swipe that is not quite straight sends them between its up or down notches): no scroll. */
 export function wheel(chunk: string): number {
   let n = 0;
-  for (const m of chunk.matchAll(/\x1b?\[<(\d+);\d+;\d+[Mm]/g)) {
-    const b = Number(m[1]);
-    if ((b & 64) === 64) n += (b & 1) ? -1 : 1;
+  for (const m of chunk.matchAll(/\x1b?\[<(\d+);\d+;\d+M/g)) {
+    const b = Number(m[1]) & ~(4 | 8 | 16 | 32);
+    if (b === 64) n += 1;
+    else if (b === 65) n -= 1;
   }
   return n;
 }

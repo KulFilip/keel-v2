@@ -4,7 +4,7 @@ import { DOUBLE_MS, type Sel } from "./types";
 import { wheel } from "../../core/lines";
 import { osc52 } from "../../core/clipboard";
 import { mouseEvents, plain, selectedText, wordAt, type MouseEv, type Point } from "../../core/select";
-import { useCallback, useEffect, useRef, type MutableRefObject, type RefObject } from "react";
+import { useEffect, useRef, type MutableRefObject, type RefObject } from "react";
 import { type DOMElement } from "ink";
 import type { Dispatch, SetStateAction } from "react";
 import type { ModeSession } from "../../core/modes";
@@ -23,9 +23,15 @@ type Env = {
   selRef: MutableRefObject<Sel | null>;
   setSel: (x: Sel | null) => void;
   setFlash: (x: string | null) => void;
-  scroll: (by: number) => void;
+  scroll: (by: number) => number;
   setOffset: Dispatch<SetStateAction<number>>;
 };
+
+/** Lines one notch of the wheel moves. */
+export const WHEEL_STEP = 3;
+/** The wheel's notches within this many ms move the view once (a trackpad sends dozens a second; one frame each would
+ *  stutter): the first at once, the rest together at the end. */
+export const WHEEL_MS = 30;
 
 /** The mouse in the full screen: a press, drag and release select text in the transcript or the prompt (a release copies it,
  *  a double-click takes the word, a plain click on a tool call opens it or answers what it hit), and the wheel, Home and
@@ -55,7 +61,7 @@ export function useMouse(env: Env) {
     if (pp && lineRef.current && (keep === "prompt" || row === pp.top + 1)) return { area: "prompt", at: { line: 0, col: Math.max(0, col - pp.left - 4) } };
     return null;
   };
-  const onMouse = useCallback((e: MouseEv) => {
+  const onMouse = (e: MouseEv) => {
     if (e.kind === "press") {
       const hit = cellAt(e.col, e.row);
       if (!hit) {
@@ -97,26 +103,47 @@ export function useMouse(env: Env) {
     stdout?.write(osc52(text));
     const n = [...text].length;
     setFlash(`copied ${n} character${n === 1 ? "" : "s"}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clicks, stdout]);
-  // the wheel, Home and End: read from the raw input (Ink gives no key for them)
+  };
+  // the wheel: its notches gathered for a moment (WHEEL_MS), then the view moves once
+  const wheelAcc = useRef(0);
+  const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushWheel = () => {
+    const n = wheelAcc.current;
+    wheelAcc.current = 0;
+    if (!n) return;
+    if (mode) mode.wheel(n * WHEEL_STEP);
+    else scroll(n * WHEEL_STEP);
+  };
+  const onWheel = (n: number) => {
+    wheelAcc.current += n;
+    if (wheelTimer.current) return;
+    flushWheel();
+    wheelTimer.current = setTimeout(() => {
+      wheelTimer.current = null;
+      onRaw.current.flushWheel();
+    }, WHEEL_MS);
+  };
+  useEffect(() => () => void (wheelTimer.current && clearTimeout(wheelTimer.current)), []);
+  // the wheel, Home and End: read from the raw input (Ink gives no key for them). The listener is set up once; it
+  // calls this render's handlers (a listener set up again on every render could miss or double a report).
+  const onInput = (s: string) => {
+    const n = wheel(s);
+    if (n) return onWheel(n);
+    for (const e of mouseEvents(s)) onMouse(e);
+    const end = /^\x1b(\[(F|4~|8~)|OF)$/.test(s);
+    const home = /^\x1b(\[(H|1~|7~)|OH)$/.test(s);
+    if (mode && (end || home)) void mode.press(end ? "end" : "home");
+    else if (end) setOffset(0);
+    else if (home) setOffset(Number.MAX_SAFE_INTEGER);
+  };
+  const onRaw = useRef({ onInput, flushWheel });
+  onRaw.current = { onInput, flushWheel };
   const { internal_eventEmitter: rawInput } = useStdin() as unknown as { internal_eventEmitter?: NodeJS.EventEmitter };
   useEffect(() => {
     if (!screen || !rawInput) return;
-    const on = (chunk: string | Buffer) => {
-      const s = String(chunk);
-      const n = wheel(s);
-      if (n && mode) return mode.wheel(n * 3);
-      if (n) return scroll(n * 3);
-      for (const e of mouseEvents(s)) onMouse(e);
-      const end = /^\x1b(\[(F|4~|8~)|OF)$/.test(s);
-      const home = /^\x1b(\[(H|1~|7~)|OH)$/.test(s);
-      if (mode && (end || home)) void mode.press(end ? "end" : "home");
-      else if (end) setOffset(0);
-      else if (home) setOffset(Number.MAX_SAFE_INTEGER);
-    };
+    const on = (chunk: string | Buffer) => onRaw.current.onInput(String(chunk));
     rawInput.on("input", on);
     return () => void rawInput.off("input", on);
-  }, [rawInput, screen, scroll, clicks, mode, onMouse]);
+  }, [rawInput, screen]);
   return { shownRef };
 }

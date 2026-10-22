@@ -798,11 +798,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         <Box flexDirection="row" flexGrow={1} flexBasis={0}>
         <Box flexDirection="column" width={width} flexShrink={0}>
         <Box ref={viewRef} flexDirection="column" flexGrow={1} flexBasis={0} overflow="hidden" justifyContent="flex-end">
-          {!started && <Text {...t.look("dim")}>connecting to keel at {snap.url} …</Text>}
-          {v.shown.map((l, i) => {
-            const m = marked(v.above + i);
-            return <Text key={v.above + i} wrap="truncate-end">{(m ? highlight(l, m[0], m[1]) : l) || " "}</Text>;
-          })}
+          {/* flexShrink 0: when the lines are more than the area has rows (its height is read a frame late), the oldest
+              go above its top, hidden, instead of Yoga squeezing some lines (the empty ones first) to no row at all */}
+          <Box flexDirection="column" flexShrink={0}>
+            {!started && <Text {...t.look("dim")}>connecting to keel at {snap.url} …</Text>}
+            {v.shown.map((l, i) => {
+              const m = marked(v.above + i);
+              return <Text key={v.above + i} wrap="truncate-end">{(m ? highlight(l, m[0], m[1]) : l) || " "}</Text>;
+            })}
+          </Box>
         </Box>
         {v.below > 0 && (
           <Text {...t.look("accent")} wrap="truncate-end">
