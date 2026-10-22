@@ -1,7 +1,7 @@
 """keel Product's pieces: the plan check (ids, loops, criteria, critical path, totals), versioned documents, and a
 presentation that escapes everything a document says."""
 
-from keel_product import deck, docs, plan
+from keel_product import deck, docs, flows, plan
 from keel_product.md import to_html
 
 
@@ -81,3 +81,21 @@ def test_the_api_rebuilds_a_presentation_through_the_engine_route(client, produc
     assert client.post("/product/deck", json=body).json()["version"] == 2
     assert client.post("/product/deck", json={**body, "root": str(product_repo / "nope")}).status_code == 400
     assert client.post("/product/deck", json={**body, "initiative": {"id": "../x"}}).status_code == 400
+
+
+def test_flows_check_keeps_cites_inside_the_repo_and_well_formed_flows(tmp_path):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src/a.kt").write_text("one\ntwo\n")
+    (tmp_path / "secret.txt").write_text("x\n")
+    raw = flows.parse('text\n```json\n{"flows": [{"id": "Sign Up!", "name": "Sign up", "steps": ['
+                      '{"text": "form", "cite": "src/a.kt:2"}, {"text": "out", "cite": "../secret.txt:1"},'
+                      '{"text": "abs", "cite": "/etc/hosts:1"}, {"text": "past the end", "cite": "src/a.kt:9"}, {"text": ""}]},'
+                      '{"name": "Sign up", "endpoints": ["POST /users", 7]}, {"id": "nameless"}, "junk"]}\n```')
+    clean, dropped = flows.check(raw, str(root))
+    assert [f["id"] for f in clean] == ["sign-up", "sign-up-2"]
+    assert clean[0]["steps"] == [{"text": "form", "cite": "src/a.kt:2"}, {"text": "out", "cite": None},
+                                 {"text": "abs", "cite": None}, {"text": "past the end", "cite": None}]
+    assert dropped == 3
+    assert clean[1]["endpoints"] == ["POST /users", "7"]
+    assert flows.parse("no json here") is None

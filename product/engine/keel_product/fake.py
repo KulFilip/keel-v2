@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 QUESTIONS = [
     {"id": "who", "question": "Which visitors should see the new behaviour first?",
@@ -162,6 +163,19 @@ END-DOC"""
     return None, "", doc, {}
 
 
+def flows(req):
+    """One flow per source file (at most 3), its first line cited: enough for the map, the same every run."""
+    item = req.item or {}
+    root = Path(str(item.get("root") or ""))
+    files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix in SOURCE and ".git" not in p.parts)[:3] if root.is_dir() else []
+    out = [{"id": f.stem.lower(), "name": f"{f.stem.replace('_', ' ').title()} flow", "summary": f"What {f.name} does for the user.",
+            "steps": [{"text": f"It starts in {f.name}", "cite": f"{f.relative_to(root)}:1"}, {"text": "A guess", "cite": "nowhere.txt:9"}],
+            "endpoints": [f"GET /{f.stem.lower()}"], "tables": []} for f in files]
+    return None, "", "Flows\n```json\n" + json.dumps({"flows": out}, indent=2) + "\n```", {}
+
+
+SOURCE = {".kt", ".java", ".ts", ".tsx", ".js", ".py", ".go", ".rb", ".cs"}
+
 BY_STEP = {
     ("product-manager", "brief"): brief,
     ("impact-analyst", "one impact analyst per repo"): impact,
@@ -169,6 +183,7 @@ BY_STEP = {
     ("planner", "team plan"): team_plan,
     ("story-writer", "stories"): stories,
     ("product-manager", "outcome"): outcome,
+    ("flow-analyst", "one flow analyst per repo"): flows,
 }
 
 

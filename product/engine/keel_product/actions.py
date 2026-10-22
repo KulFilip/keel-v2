@@ -5,6 +5,7 @@ document in the product repo (docs.py) and tells the api with a "product.*" even
     product:plan            with: {from: <agent step>}                                      the plan: check, save, event
     product:deck                                                                            the presentation (deck.py)
     product:record-decision with: {gate: <gate id>}                                         go / not now, and the option
+    product:flows           with: {from: <parallel agent step>}                             the business flows, per repo
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from keel_engine.runtime.actions import ActionResult
 
 from . import deck as deck_mod
 from . import docs
+from . import flows as flows_mod
 from . import plan as plan_mod
 
 EVENT_TEXT_MAX = 60_000
@@ -111,9 +113,37 @@ def record_decision(a) -> ActionResult:
     return ActionResult(True, f"decision: {choice}{' · option ' + option if option else ''}")
 
 
+def flows(a) -> ActionResult:
+    """Each repo's flows (one analyst per repo): checked against the repo, kept in the product repo, told to the api."""
+    src = a.params.get("from") or "analyse"
+    repos = {r.get("id"): r for r in a.data.get("repos") or []}
+    found, empty, dropped = 0, [], 0
+    for r in a.data.get(f"{src}_results") or []:
+        project = str(r.get("item") or "")
+        repo = repos.get(project) or {}
+        parsed = flows_mod.parse(r.get("text") or "")
+        if parsed is None or not repo.get("root"):
+            empty.append(project)
+            continue
+        clean, lost = flows_mod.check(parsed, repo["root"])
+        dropped += lost
+        found += len(clean)
+        try:
+            meta = flows_mod.write(a.root, project, clean)
+        except docs.DocError as e:
+            return ActionResult(False, str(e))
+        if a.event:
+            a.event("product.flows", {"project": project, "team": repo.get("team"), "flows": clean, "dropped": lost, **meta})
+    if found == 0 and empty:
+        return ActionResult(False, "No analyst gave its flows (a ```json block with flows).", detail=", ".join(empty))
+    note = f"; no flows from {', '.join(empty)}" if empty else ""
+    return ActionResult(True, f"{found} flows kept{note}" + (f"; {dropped} cites dropped (no such file:line)" if dropped else ""))
+
+
 ACTIONS = {
     "product:save-doc": save_doc,
     "product:plan": plan,
     "product:deck": deck,
     "product:record-decision": record_decision,
+    "product:flows": flows,
 }

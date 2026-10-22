@@ -1,0 +1,22 @@
+id: product-flows
+name: business flows (keel Product)
+keel_rules: false
+version: 1
+# keel Product's map of the business flows: one flow analyst per repo of the teams, all at the same time, each in its own
+# repo and read only (root: item). keel checks every file:line, keeps the flows per repo in the product repo
+# (flows/<project>.json) and the api shows them on the Product map. No gate: nothing is decided here.
+steps:
+  - id: analyse
+    kind: parallel
+    name: one flow analyst per repo
+    agent: flow-analyst
+    phase: review
+    from: repos
+    root: item
+    instructions: >-
+      You read ONE repo: the folder you are in, read only. List the business flows this repo carries out (at most 12):
+      what a user or another system does end to end. End your answer with one ```json block:
+      {"flows": [{"id": "checkout", "name": "Checkout", "summary": "One sentence: what it does for whom.",
+      "steps": [{"text": "The cart is priced", "cite": "src/Cart.kt:40"}], "endpoints": ["POST /orders"],
+      "tables": ["orders"]}]}. The id is lowercase words with dashes; every cite is a path:line in this repo.
+  - { id: save_flows, kind: code, name: check and keep the flows, action: "product:flows", phase: review, with: { from: analyse } }
