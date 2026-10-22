@@ -5,6 +5,7 @@ import { useState } from "react";
 import {
   Async,
   ClarifyForm,
+  Confirm,
   Empty,
   Markdown,
   Panel,
@@ -24,6 +25,12 @@ import {
   type FollowUp,
   type PlanView,
   type Question,
+  type RepoOwner,
+  type SendResult,
+  type Story,
+  type StoryEdit,
+  type Team,
+  type TicketPreview,
 } from "./productApi";
 import {
   days,
@@ -184,7 +191,9 @@ function Loaded({
             {tab === "questions" && <Questions d={d} onChanged={reload} />}
             {tab === "impact" && <ImpactTab d={d} onChanged={reload} />}
             {tab === "decision" && <DecisionTab d={d} onChanged={reload} />}
-            {tab === "plan" && <PlanTab d={d} onChanged={reload} />}
+            {tab === "plan" && (
+              <PlanTab d={d} onChanged={reload} set={set} />
+            )}
             {tab === "delivery" && <DeliveryTab d={d} reload={reload} />}
             {tab === "outcome" && (
               <DocTab
@@ -526,7 +535,7 @@ function NextCard({
         </span>
       </div>
     ) : (
-      <Handoff id={i.id} tasksLeft jiraLeft onDone={reload} />
+      <Handoff id={i.id} tasksLeft onDone={reload} />
     );
   } else if (i.stage === "outcome" && i.status !== "running") {
     body = (
@@ -600,66 +609,44 @@ function SendBack({
   );
 }
 
-/** The send buttons for what is left: stories with no keel task, stories with no Jira ticket. */
+/** "Send to keel Tasks" while a story has no keel task. */
 function Handoff({
   id,
   tasksLeft,
-  jiraLeft,
   onDone,
 }: {
   id: string;
   tasksLeft: boolean;
-  jiraLeft: boolean;
   onDone: () => void;
 }) {
   const act = useAct();
   const [notes, setNotes] = useState<string[]>([]);
-  const send = async (target: "tasks" | "jira" | "both") => {
-    const r = await act.run(target, () => productApi.handoff(id, target));
+  const send = async () => {
+    const r = await act.run("tasks", () => productApi.handoff(id, "tasks"));
     if (r) {
       setNotes(r.notes);
       onDone();
     }
   };
+  if (!tasksLeft && notes.length === 0) return null;
   return (
     <>
       <p className="sub">
         Each story becomes a task in its repo's project, with its criteria; the
-        teams start it as a keel flow. Or as Jira tickets (epic, story,
-        sub-tasks).
+        teams start it as a keel flow. Or preview its Jira tickets in Delivery.
       </p>
-      <div className="pd-actions">
-        {tasksLeft && (
+      {tasksLeft && (
+        <div className="pd-actions">
           <button
             className="btn primary"
             type="button"
             disabled={act.busy !== null}
-            onClick={() => void send("tasks")}
+            onClick={() => void send()}
           >
             Send to keel Tasks
           </button>
-        )}
-        {jiraLeft && (
-          <button
-            className={tasksLeft ? "btn" : "btn primary"}
-            type="button"
-            disabled={act.busy !== null}
-            onClick={() => void send("jira")}
-          >
-            Send to Jira
-          </button>
-        )}
-        {tasksLeft && jiraLeft && (
-          <button
-            className="btn"
-            type="button"
-            disabled={act.busy !== null}
-            onClick={() => void send("both")}
-          >
-            Both
-          </button>
-        )}
-      </div>
+        </div>
+      )}
       {notes.length > 0 && (
         <ul className="pd-notes">
           {notes.map((n) => (
@@ -669,6 +656,147 @@ function Handoff({
       )}
       {act.box}
     </>
+  );
+}
+
+const ACTION_TONE = { create: "run", exists: "ok", blocked: "bad" } as const;
+
+/** Jira: first a preview of every ticket (and every problem), then a confirmed send of what is new. */
+function JiraTickets({
+  id,
+  left,
+  onDone,
+}: {
+  id: string;
+  left: boolean;
+  onDone: () => void;
+}) {
+  const act = useAct();
+  const [preview, setPreview] = useState<TicketPreview | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [result, setResult] = useState<SendResult | null>(null);
+  const creates = preview?.rows.filter((r) => r.action === "create").length ?? 0;
+  const load = async () => {
+    setResult(null);
+    setAsking(false);
+    const p = await act.run("preview", () => productApi.ticketPreview(id));
+    if (p) setPreview(p);
+  };
+  const send = async () => {
+    const r = await act.run("send", () => productApi.ticketSend(id, []));
+    setAsking(false);
+    if (r) {
+      setResult(r);
+      setPreview(null);
+      onDone();
+    }
+  };
+  if (!left && !result) return null;
+  return (
+    <section className="pd-jira" aria-label="Jira tickets">
+      {left && (
+        <div className="pd-actions">
+          <button
+            className={preview ? "btn" : "btn primary"}
+            type="button"
+            disabled={act.busy !== null}
+            onClick={() => void load()}
+          >
+            {preview ? "Preview again" : "Preview Jira tickets"}
+          </button>
+          {preview && creates > 0 && (
+            <button
+              className="btn primary"
+              type="button"
+              disabled={act.busy !== null}
+              onClick={() => setAsking(true)}
+            >
+              Send {creates} tickets to Jira
+            </button>
+          )}
+          {preview && creates === 0 && (
+            <span className="sub">Nothing new to make in Jira.</span>
+          )}
+        </div>
+      )}
+      {asking && (
+        <Confirm
+          text={`Send ${creates} tickets to Jira? keel keeps each key, so a second send makes no twins.`}
+          yes="Send them"
+          busy={act.busy !== null}
+          onYes={() => void send()}
+          onNo={() => setAsking(false)}
+        />
+      )}
+      {preview && (
+        <>
+          {preview.problems.length > 0 && (
+            <ul className="pd-notes bad" aria-label="Problems">
+              {preview.problems.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ul>
+          )}
+          <div className="pd-table-wrap">
+            <table className="pd-table" aria-label="Ticket preview">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Project</th>
+                  <th>Type</th>
+                  <th>Action</th>
+                  <th>Problem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.rows.map((r) => (
+                  <tr key={`${r.level}:${r.ref}`}>
+                    <td className={`pd-lv pd-lv-${r.level}`}>{r.title}</td>
+                    <td className="mono">{r.project ?? "—"}</td>
+                    <td>{r.type ?? "—"}</td>
+                    <td>
+                      <Pill
+                        tone={
+                          ACTION_TONE[r.action as keyof typeof ACTION_TONE] ??
+                          "idle"
+                        }
+                      >
+                        {r.action === "exists" && r.key ? r.key : r.action}
+                      </Pill>
+                    </td>
+                    <td>{r.problem ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {preview.notes.length > 0 && (
+            <ul className="pd-notes">
+              {preview.notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      {result && (
+        <div className="pd-sent">
+          <p>
+            {result.jira.length
+              ? `Made ${result.jira.length} tickets in Jira: ${result.jira.join(", ")}`
+              : "Jira made no ticket."}
+          </p>
+          {result.notes.length > 0 && (
+            <ul className="pd-notes">
+              {result.notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {act.box}
+    </section>
   );
 }
 
@@ -822,8 +950,33 @@ function DecisionTab({ d, onChanged }: { d: Detail; onChanged: () => void }) {
   );
 }
 
-function PlanTab({ d, onChanged }: { d: Detail; onChanged: () => void }) {
+/** The plan's drafts can change while the leads look at it and after they agreed it, until a story is sent. */
+const editable = (d: Detail) =>
+  d.initiative.stage === "delivery" ||
+  (d.initiative.stage === "plan" && d.initiative.status === "waiting");
+
+type Drafts = {
+  id: string;
+  teams: Team[];
+  repos: RepoOwner[];
+  set: (d: Detail) => void;
+};
+
+function PlanTab({
+  d,
+  onChanged,
+  set,
+}: {
+  d: Detail;
+  onChanged: () => void;
+  set: (d: Detail) => void;
+}) {
   const p = d.plan;
+  const canEdit = !!p && editable(d);
+  const teams = useLoad(canEdit ? "plan-teams" : null, productApi.teams, {
+    live: false,
+  });
+  const [adding, setAdding] = useState(false);
   if (!p)
     return (
       <Empty>
@@ -831,6 +984,9 @@ function PlanTab({ d, onChanged }: { d: Detail; onChanged: () => void }) {
         estimates and what waits for what.
       </Empty>
     );
+  const drafts: Drafts | undefined = canEdit
+    ? { id: d.initiative.id, teams: teams.data ?? [], repos: d.repos, set }
+    : undefined;
   return (
     <div className="pd-doc">
       <div className="pd-doc-bar">
@@ -840,12 +996,24 @@ function PlanTab({ d, onChanged }: { d: Detail; onChanged: () => void }) {
         ) : (
           <Pill tone="bad">{p.problems.length} problem(s)</Pill>
         )}
+        {p.edited && <Pill tone="warn">edited by hand</Pill>}
+        {p.initiative_key && (
+          <span className="chip mono" title="The initiative's Jira ticket">
+            {p.initiative_key}
+          </span>
+        )}
         <span className="sub">
           critical path {p.critical_path.join(" → ") || "—"}
           {p.critical_days ? ` · ${p.critical_days} d` : ""}
         </span>
         <Disagree d={d} stage="plan" onDone={onChanged} />
       </div>
+      {p.edited && (
+        <p className="sub">
+          The plan was changed by hand after keel checked it: the critical path
+          and the totals may be old.
+        </p>
+      )}
       {p.problems.length > 0 && (
         <ul className="pd-notes bad">
           {p.problems.map((x) => (
@@ -865,93 +1033,517 @@ function PlanTab({ d, onChanged }: { d: Detail; onChanged: () => void }) {
           )}
         </div>
       )}
-      <Stories plan={p} />
+      <Stories plan={p} drafts={drafts} />
+      {drafts &&
+        (adding ? (
+          <EpicForm
+            drafts={drafts}
+            onDone={() => setAdding(false)}
+          />
+        ) : (
+          <div className="pd-actions">
+            <button
+              className="btn sm"
+              type="button"
+              onClick={() => setAdding(true)}
+            >
+              Add an epic
+            </button>
+          </div>
+        ))}
     </div>
   );
 }
 
+const sameList = (a: (string | number)[], b: (string | number)[]) =>
+  a.length === b.length && a.every((x, n) => x === b[n]);
+const splitLines = (v: string, sep: RegExp = /\n/) =>
+  v
+    .split(sep)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+function TeamSelect({
+  id,
+  value,
+  teams,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  teams: Team[];
+  onChange: (v: string) => void;
+}) {
+  const known = teams.some((t) => t.id === value);
+  return (
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">no team</option>
+      {value && !known && <option value={value}>{value}</option>}
+      {teams.map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Edits a story draft (or writes a new one in [epic]); only what changed is sent. */
+function StoryForm({
+  drafts,
+  story,
+  epic,
+  onDone,
+}: {
+  drafts: Drafts;
+  story?: Story;
+  epic: string;
+  onDone: () => void;
+}) {
+  const s = story;
+  const est = s?.estimate_days ?? [];
+  const [title, setTitle] = useState(s?.title ?? "");
+  const [criteria, setCriteria] = useState((s?.criteria ?? []).join("\n"));
+  const [tasks, setTasks] = useState((s?.tasks ?? []).join("\n"));
+  const [deps, setDeps] = useState((s?.depends_on ?? []).join(", "));
+  const [low, setLow] = useState(est.length ? String(est[0]) : "");
+  const [high, setHigh] = useState(
+    est.length ? String(est[est.length - 1]) : "",
+  );
+  const [team, setTeam] = useState(s?.team ?? "");
+  const repo0 = s?.project_id ?? s?.repo ?? "";
+  const [repo, setRepo] = useState(repo0);
+  const act = useAct();
+  const id = (f: string) => `sf-${s?.id ?? `new-${epic}`}-${f}`;
+  const body = (): StoryEdit => {
+    const b: StoryEdit = {};
+    const c = splitLines(criteria);
+    const t = splitLines(tasks);
+    const dd = splitLines(deps, /[,\s]+/);
+    const e = [low, high]
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map(Number);
+    if (!s || title.trim() !== s.title) b.title = title.trim();
+    if (!sameList(c, s?.criteria ?? [])) b.criteria = c;
+    if (!sameList(t, s?.tasks ?? [])) b.tasks = t;
+    if (!sameList(dd, s?.depends_on ?? [])) b.depends_on = dd;
+    if (e.length && !sameList(e, est)) b.estimate_days = e;
+    if (team !== (s?.team ?? "") && team) b.team = team;
+    if (repo !== repo0) b.repo = repo;
+    return b;
+  };
+  const save = async () => {
+    const b = body();
+    if (s && Object.keys(b).length === 0) return onDone();
+    const n = await act.run("save", () =>
+      s
+        ? productApi.editStory(drafts.id, s.id, b)
+        : productApi.addStory(drafts.id, { epic, ...b }),
+    );
+    if (n) {
+      drafts.set(n);
+      onDone();
+    }
+  };
+  const repos = drafts.repos;
+  return (
+    <div
+      className="pd-form pd-draft"
+      role="group"
+      aria-label={s ? `Edit ${s.id}` : `New story in ${epic}`}
+    >
+      <div className="field">
+        <label htmlFor={id("title")}>Title</label>
+        <input
+          id={id("title")}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={id("criteria")}>Criteria (one per line)</label>
+        <textarea
+          id={id("criteria")}
+          className="pd-text short"
+          value={criteria}
+          onChange={(e) => setCriteria(e.target.value)}
+          placeholder="AC-1 [API] GET /prices returns the currency"
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={id("tasks")}>Tasks (one per line)</label>
+        <textarea
+          id={id("tasks")}
+          className="pd-text short"
+          value={tasks}
+          onChange={(e) => setTasks(e.target.value)}
+        />
+      </div>
+      <div className="pd-row">
+        <div className="field">
+          <label htmlFor={id("deps")}>Waits for</label>
+          <input
+            id={id("deps")}
+            type="text"
+            value={deps}
+            onChange={(e) => setDeps(e.target.value)}
+            placeholder="PAY-S1, PAY-S2"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={id("low")}>Days, at least</label>
+          <input
+            id={id("low")}
+            type="text"
+            inputMode="decimal"
+            value={low}
+            onChange={(e) => setLow(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={id("high")}>Days, at most</label>
+          <input
+            id={id("high")}
+            type="text"
+            inputMode="decimal"
+            value={high}
+            onChange={(e) => setHigh(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={id("team")}>Team</label>
+          <TeamSelect
+            id={id("team")}
+            value={team}
+            teams={drafts.teams}
+            onChange={setTeam}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={id("repo")}>Repo</label>
+          <select
+            id={id("repo")}
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+          >
+            <option value="">no repo</option>
+            {repo0 && !repos.some((r) => r.project_id === repo0) && (
+              <option value={repo0}>{s?.repo ?? repo0}</option>
+            )}
+            {repos.map((r) => (
+              <option key={r.project_id} value={r.project_id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="pd-actions">
+        <button
+          className="btn sm primary"
+          type="button"
+          disabled={!title.trim() || act.busy !== null}
+          onClick={() => void save()}
+        >
+          {s ? "Save the story" : "Add the story"}
+        </button>
+        <button className="btn sm" type="button" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+      {act.box}
+    </div>
+  );
+}
+
+/** Renames an epic or gives it another team (its unsent stories follow), or writes a new one. */
+function EpicForm({
+  drafts,
+  epic,
+  onDone,
+}: {
+  drafts: Drafts;
+  epic?: { id: string; title: string; team?: string | null };
+  onDone: () => void;
+}) {
+  const [title, setTitle] = useState(epic?.title ?? "");
+  const [team, setTeam] = useState(epic?.team ?? "");
+  const act = useAct();
+  const id = (f: string) => `ef-${epic?.id ?? "new"}-${f}`;
+  const save = async () => {
+    const n = await act.run("save", () => {
+      if (!epic)
+        return productApi.addEpic(drafts.id, {
+          title: title.trim(),
+          ...(team ? { team } : {}),
+        });
+      const b: { title?: string; team?: string } = {};
+      if (title.trim() !== epic.title) b.title = title.trim();
+      if (team && team !== (epic.team ?? "")) b.team = team;
+      return productApi.editEpic(drafts.id, epic.id, b);
+    });
+    if (n) {
+      drafts.set(n);
+      onDone();
+    }
+  };
+  return (
+    <div
+      className="pd-row pd-draft"
+      role="group"
+      aria-label={epic ? `Edit epic ${epic.id}` : "New epic"}
+    >
+      <div className="field pd-grow">
+        <label htmlFor={id("title")}>Epic title</label>
+        <input
+          id={id("title")}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={id("team")}>Team</label>
+        <TeamSelect
+          id={id("team")}
+          value={team}
+          teams={drafts.teams}
+          onChange={setTeam}
+        />
+      </div>
+      <button
+        className="btn sm primary"
+        type="button"
+        disabled={!title.trim() || act.busy !== null}
+        onClick={() => void save()}
+      >
+        {epic ? "Save the epic" : "Add the epic"}
+      </button>
+      <button className="btn sm" type="button" onClick={onDone}>
+        Cancel
+      </button>
+      {act.box}
+    </div>
+  );
+}
+
+/** The work keel found in git for a sent story's Jira key. */
+const workText = (s: Story) =>
+  s.work
+    ? `${s.work.branches.length} branches · ${s.work.commits.length} commits`
+    : null;
+
 function Stories({
   plan,
   delivery = false,
+  drafts,
 }: {
   plan: PlanView;
   delivery?: boolean;
+  drafts?: Drafts;
 }) {
+  // what is open: "story:PAY-S1", "new:PAY" (a new story in PAY), "epic:PAY", "delete:PAY-S1"
+  const [open, setOpen] = useState<string | null>(null);
+  const act = useAct();
+  const remove = async (sid: string) => {
+    if (!drafts) return;
+    const n = await act.run(sid, () => productApi.deleteStory(drafts.id, sid));
+    setOpen(null);
+    if (n) drafts.set(n);
+  };
+  const removeEpic = async (eid: string) => {
+    if (!drafts) return;
+    const n = await act.run(eid, () => productApi.deleteEpic(drafts.id, eid));
+    if (n) drafts.set(n);
+  };
+  const cols = delivery ? 4 : drafts ? 6 : 5;
   return (
     <>
+      {act.box}
       {plan.epics.map((e) => (
         <section key={e.id} className="pd-epic" aria-label={`Epic ${e.id}`}>
           <h3>
             <span className="mono">{e.id}</span> {e.title}{" "}
             <span className="chip">{e.team ?? "no team"}</span>
+            {e.jira_key && <span className="chip mono">{e.jira_key}</span>}
+            {drafts && open !== `epic:${e.id}` && (
+              <span className="pd-inline">
+                <button
+                  className="btn sm"
+                  type="button"
+                  aria-label={`Edit epic ${e.id}`}
+                  onClick={() => setOpen(`epic:${e.id}`)}
+                >
+                  Edit
+                </button>
+                <button
+                  className="btn sm"
+                  type="button"
+                  aria-label={`Add a story to ${e.id}`}
+                  onClick={() => setOpen(`new:${e.id}`)}
+                >
+                  Add a story
+                </button>
+                {e.stories.length === 0 && !e.jira_key && (
+                  <button
+                    className="btn sm"
+                    type="button"
+                    aria-label={`Delete epic ${e.id}`}
+                    disabled={act.busy !== null}
+                    onClick={() => void removeEpic(e.id)}
+                  >
+                    Delete
+                  </button>
+                )}
+              </span>
+            )}
           </h3>
-          <div className="pd-table-wrap">
-            <table className="pd-table">
-              <thead>
-                <tr>
-                  <th>Story</th>
-                  <th>Repo</th>
-                  {delivery ? (
-                    <>
-                      <th>Task</th>
-                      <th>Jira</th>
-                    </>
-                  ) : (
-                    <>
-                      <th>Estimate</th>
-                      <th>Waits for</th>
-                      <th>Criteria</th>
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {e.stories.map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      <span className="mono">{s.id}</span> {s.title}
-                      {!delivery && s.tasks.length > 0 && (
-                        <ul className="pd-sub">
-                          {s.tasks.map((t) => (
-                            <li key={t}>{t}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td>{s.repo ?? "—"}</td>
+          {drafts && open === `epic:${e.id}` && (
+            <EpicForm drafts={drafts} epic={e} onDone={() => setOpen(null)} />
+          )}
+          {drafts && open === `new:${e.id}` && (
+            <StoryForm
+              drafts={drafts}
+              epic={e.id}
+              onDone={() => setOpen(null)}
+            />
+          )}
+          {e.stories.length > 0 && (
+            <div className="pd-table-wrap">
+              <table className="pd-table">
+                <thead>
+                  <tr>
+                    <th>Story</th>
+                    <th>Repo</th>
                     {delivery ? (
                       <>
-                        <td>
-                          {s.task_id ? (
-                            <a href={`#/tasks/${s.task_id}`}>
-                              {s.task_status ?? "task"}
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="mono">{s.jira_key ?? "—"}</td>
+                        <th>Task</th>
+                        <th>Jira</th>
                       </>
                     ) : (
                       <>
-                        <td>{days(s.estimate_days)}</td>
-                        <td className="mono">
-                          {s.depends_on.join(", ") || "—"}
-                        </td>
-                        <td>
-                          <ul className="pd-sub">
-                            {s.criteria.map((c) => (
-                              <li key={c}>{c}</li>
-                            ))}
-                          </ul>
-                        </td>
+                        <th>Estimate</th>
+                        <th>Waits for</th>
+                        <th>Criteria</th>
+                        {drafts && <th />}
                       </>
                     )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {e.stories.map((s) => {
+                    const sent = s.jira_key ?? s.task_id;
+                    return [
+                      <tr key={s.id}>
+                        <td>
+                          <span className="mono">{s.id}</span> {s.title}
+                          {!delivery && s.tasks.length > 0 && (
+                            <ul className="pd-sub">
+                              {s.tasks.map((t) => (
+                                <li key={t}>{t}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </td>
+                        <td>{s.repo ?? "—"}</td>
+                        {delivery ? (
+                          <>
+                            <td>
+                              {s.task_id ? (
+                                <a href={`#/tasks/${s.task_id}`}>
+                                  {s.task_status ?? "task"}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td>
+                              <span className="mono">{s.jira_key ?? "—"}</span>
+                              {workText(s) && (
+                                <div className="sub">{workText(s)}</div>
+                              )}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{days(s.estimate_days)}</td>
+                            <td className="mono">
+                              {s.depends_on.join(", ") || "—"}
+                            </td>
+                            <td>
+                              <ul className="pd-sub">
+                                {s.criteria.map((c) => (
+                                  <li key={c}>{c}</li>
+                                ))}
+                              </ul>
+                            </td>
+                            {drafts && (
+                              <td>
+                                {sent ? (
+                                  <span
+                                    className="chip mono"
+                                    title="Sent: change it there"
+                                  >
+                                    {sent}
+                                  </span>
+                                ) : (
+                                  <span className="pd-inline">
+                                    <button
+                                      className="btn sm"
+                                      type="button"
+                                      aria-label={`Edit ${s.id}`}
+                                      onClick={() => setOpen(`story:${s.id}`)}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      className="btn sm"
+                                      type="button"
+                                      aria-label={`Delete ${s.id}`}
+                                      onClick={() => setOpen(`delete:${s.id}`)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                          </>
+                        )}
+                      </tr>,
+                      drafts && !sent && open === `story:${s.id}` && (
+                        <tr key={`${s.id}:edit`}>
+                          <td colSpan={cols}>
+                            <StoryForm
+                              drafts={drafts}
+                              story={s}
+                              epic={e.id}
+                              onDone={() => setOpen(null)}
+                            />
+                          </td>
+                        </tr>
+                      ),
+                      drafts && !sent && open === `delete:${s.id}` && (
+                        <tr key={`${s.id}:delete`}>
+                          <td colSpan={cols}>
+                            <Confirm
+                              text={`Take ${s.id} out of the plan?`}
+                              yes="Take it out"
+                              busy={act.busy !== null}
+                              onYes={() => void remove(s.id)}
+                              onNo={() => setOpen(null)}
+                            />
+                          </td>
+                        </tr>
+                      ),
+                    ];
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       ))}
     </>
@@ -984,14 +1576,22 @@ function DeliveryTab({ d, reload }: { d: Detail; reload: () => void }) {
           </span>
         </div>
       )}
+      {p.initiative_key && (
+        <p className="sub">
+          The initiative's Jira ticket:{" "}
+          <span className="mono">{p.initiative_key}</span>
+        </p>
+      )}
       <Stories plan={p} delivery />
-      {d.initiative.stage === "delivery" && (tasksLeft || jiraLeft) && (
-        <Handoff
-          id={d.initiative.id}
-          tasksLeft={tasksLeft}
-          jiraLeft={jiraLeft}
-          onDone={reload}
-        />
+      {d.initiative.stage === "delivery" && (
+        <>
+          <Handoff
+            id={d.initiative.id}
+            tasksLeft={tasksLeft}
+            onDone={reload}
+          />
+          <JiraTickets id={d.initiative.id} left={jiraLeft} onDone={reload} />
+        </>
       )}
     </div>
   );

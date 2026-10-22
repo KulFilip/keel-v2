@@ -15,9 +15,11 @@ import type {
   Detail,
   InitiativeJira,
   JiraView,
+  PlanView,
   Team,
   TeamKnowledge,
   TeamTickets,
+  TicketPreview,
 } from "../productApi";
 
 const PRODUCT: Features = {
@@ -652,12 +654,11 @@ describe("keel Product in keel's web", () => {
     // the stories are keel tasks now, but not Jira tickets yet: only Jira is left to send to
     const delivery = main().getByRole("tabpanel");
     expect(
-      within(delivery).getByRole("button", { name: "Send to Jira" }),
+      within(delivery).getByRole("button", { name: "Preview Jira tickets" }),
     ).toBeInTheDocument();
     expect(
       within(delivery).queryByRole("button", { name: "Send to keel Tasks" }),
     ).toBeNull();
-    expect(within(delivery).queryByRole("button", { name: "Both" })).toBeNull();
     expect(main().getAllByRole("link", { name: "todo" })[0]).toHaveAttribute(
       "href",
       "#/tasks/tk_0",
@@ -1140,5 +1141,204 @@ describe("keel Product in keel's web", () => {
         type: null,
       }),
     );
+  });
+
+  const draftPlan = (): PlanView => ({
+    version: 2,
+    ok: true,
+    problems: [],
+    critical_path: [],
+    edited: true,
+    initiative_key: "PORT-7",
+    epics: [
+      {
+        id: "PAY",
+        team: "payments",
+        title: "Prices API v2",
+        jira_key: "PAY-100",
+        stories: [
+          {
+            id: "PAY-S1",
+            epic: "PAY",
+            team: "payments",
+            repo: "payments-api",
+            project_id: "pay",
+            title: "Prices in euro",
+            criteria: ["AC-1 [API] currency"],
+            tasks: ["Add currency column"],
+            depends_on: [],
+            estimate_days: [2, 3],
+            jira_key: "PAY-101",
+            work: {
+              key: "PAY-101",
+              branches: [
+                {
+                  project_id: "pay",
+                  kind: "branch",
+                  ref: "feature/pay-101",
+                  key: "PAY-101",
+                },
+              ],
+              commits: [],
+            },
+          },
+          {
+            id: "PAY-S2",
+            epic: "PAY",
+            team: "payments",
+            repo: "payments-api",
+            project_id: "pay",
+            title: "Rates job",
+            criteria: ["AC-1 [API] daily"],
+            tasks: [],
+            depends_on: ["PAY-S1"],
+            estimate_days: [1, 2],
+          },
+        ],
+      },
+    ],
+  });
+
+  it("edits the plan's drafts while the leads look at it; a sent story stays as it is", async () => {
+    const d = () =>
+      detail(
+        { stage: "plan", status: "waiting" },
+        {
+          stage: {
+            stage: "plan",
+            status: "waiting",
+            next: "The leads agree the plan",
+            waiting: { kind: "gate", title: "Agree the plan" },
+          },
+          plan: draftPlan(),
+        },
+      );
+    const calls = await open("#/initiatives/INI-2", {
+      "GET /api/initiatives/INI-2": () => d(),
+      "GET /api/teams": [],
+      "PATCH /api/initiatives/INI-2/plan/stories/PAY-S2": () => {
+        const n = d();
+        n.plan!.epics[0].stories[1].title = "Rates job, daily";
+        return n;
+      },
+      "POST /api/initiatives/INI-2/plan/stories": () => {
+        const n = d();
+        n.plan!.epics[0].stories.push({
+          ...n.plan!.epics[0].stories[1],
+          id: "PAY-S3",
+          title: "Rounding rule",
+          jira_key: null,
+        });
+        return n;
+      },
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Plan" }));
+    const tab = main().getByRole("tabpanel");
+    expect(within(tab).getByText("edited by hand")).toBeInTheDocument();
+    expect(within(tab).getByText("PORT-7")).toBeInTheDocument();
+    const epic = within(tab).getByRole("region", { name: "Epic PAY" });
+    expect(within(epic).getByText("PAY-100")).toBeInTheDocument();
+    // the sent story shows its key and cannot change here
+    expect(within(epic).queryByRole("button", { name: "Edit PAY-S1" })).toBeNull();
+    expect(within(epic).getByText("PAY-101")).toBeInTheDocument();
+
+    await userEvent.click(within(epic).getByRole("button", { name: "Edit PAY-S2" }));
+    const form = within(epic).getByRole("group", { name: "Edit PAY-S2" });
+    const title = within(form).getByLabelText("Title");
+    await userEvent.clear(title);
+    await userEvent.type(title, "Rates job, daily");
+    await userEvent.type(
+      within(form).getByLabelText("Criteria (one per line)"),
+      "{enter}AC-2 [[API] at 06:00",
+    );
+    await userEvent.type(within(form).getByLabelText("Tasks (one per line)"), "Cron job");
+    const high = within(form).getByLabelText("Days, at most");
+    await userEvent.clear(high);
+    await userEvent.type(high, "3");
+    await userEvent.click(within(form).getByRole("button", { name: "Save the story" }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.method === "PATCH")?.body,
+      ).toEqual({
+        title: "Rates job, daily",
+        criteria: ["AC-1 [API] daily", "AC-2 [API] at 06:00"],
+        tasks: ["Cron job"],
+        estimate_days: [1, 3],
+      }),
+    );
+    expect(await within(epic).findByText("Rates job, daily")).toBeInTheDocument();
+
+    // a new story in the epic
+    await userEvent.click(within(epic).getByRole("button", { name: "Add a story to PAY" }));
+    const add = within(epic).getByRole("group", { name: "New story in PAY" });
+    await userEvent.type(within(add).getByLabelText("Title"), "Rounding rule");
+    await userEvent.click(within(add).getByRole("button", { name: "Add the story" }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.method === "POST" && c.path === "/api/initiatives/INI-2/plan/stories")?.body,
+      ).toEqual({ epic: "PAY", title: "Rounding rule" }),
+    );
+    expect(await within(epic).findByText("Rounding rule")).toBeInTheDocument();
+  });
+
+  it("previews the Jira tickets, then sends the new ones after a confirm", async () => {
+    let sent = false;
+    const plan = () => {
+      const p = draftPlan();
+      if (sent) p.epics[0].stories[1].jira_key = "PAY-102";
+      return p;
+    };
+    const preview: TicketPreview = {
+      rows: [
+        { level: "initiative", ref: "INI-2", title: "INI-2 · Euro prices", project: "PORT", type: "Initiative", key: "PORT-7", action: "exists" },
+        { level: "epic", ref: "PAY", title: "INI-2 · PAY · Prices API v2", project: "PAY", type: "Epic", key: "PAY-100", action: "exists" },
+        { level: "story", ref: "PAY-S2", title: "PAY-S2 · Rates job", project: "PAY", type: "Story", action: "create" },
+        { level: "subtask", ref: "PAY-S2/1", title: "Cron job", project: "PAY", type: null, action: "blocked", problem: "the project PAY has no sub-task type" },
+      ],
+      problems: ["the project PAY has no sub-task type"],
+      notes: ["PAY-S2: no acceptance criteria"],
+    };
+    const calls = await open("#/initiatives/INI-2", {
+      "GET /api/initiatives/INI-2": () =>
+        detail(
+          { stage: "delivery", status: "ready" },
+          {
+            stage: { stage: "delivery", status: "ready", next: "The teams build it" },
+            plan: plan(),
+          },
+        ),
+      "GET /api/initiatives/INI-2/tickets/preview": preview,
+      "POST /api/initiatives/INI-2/tickets/send": () => {
+        sent = true;
+        return { created: [], jira: ["PAY-102"], notes: ["PAY-S2 sub-task: no type"], preview };
+      },
+    });
+    const tab = await main().findByRole("tabpanel");
+    // a sent story shows its key and the work keel found for it
+    expect(await within(tab).findByText("1 branches · 0 commits")).toBeInTheDocument();
+    expect(within(tab).queryByRole("button", { name: "Send to Jira" })).toBeNull();
+    await userEvent.click(within(tab).getByRole("button", { name: "Preview Jira tickets" }));
+    const table = await within(tab).findByRole("table", { name: "Ticket preview" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "INI-2 · Euro pricesPORTInitiativePORT-7",
+      "INI-2 · PAY · Prices API v2PAYEpicPAY-100",
+      "PAY-S2 · Rates jobPAYStorycreate",
+      "Cron jobPAY—blockedthe project PAY has no sub-task type",
+    ]);
+    expect(within(rows[3]).getByRole("cell", { name: "Cron job" })).toHaveClass("pd-lv-subtask");
+    expect(within(tab).getByLabelText("Problems")).toHaveTextContent("the project PAY has no sub-task type");
+    expect(within(tab).getByText("PAY-S2: no acceptance criteria")).toBeInTheDocument();
+
+    await userEvent.click(within(tab).getByRole("button", { name: "Send 1 tickets to Jira" }));
+    const ask = within(tab).getByRole("group", { name: "Confirm" });
+    expect(calls.some((c) => c.path.endsWith("/tickets/send"))).toBe(false);
+    await userEvent.click(within(ask).getByRole("button", { name: "Send them" }));
+    expect(await within(tab).findByText("Made 1 tickets in Jira: PAY-102")).toBeInTheDocument();
+    expect(within(tab).getByText("PAY-S2 sub-task: no type")).toBeInTheDocument();
+    expect(calls.find((c) => c.path.endsWith("/tickets/send"))?.body).toEqual({ stories: [] });
+    // reloaded: every story is in Jira now
+    expect(await within(tab).findByText("PAY-102")).toBeInTheDocument();
+    expect(within(tab).queryByRole("button", { name: "Preview Jira tickets" })).toBeNull();
   });
 });
