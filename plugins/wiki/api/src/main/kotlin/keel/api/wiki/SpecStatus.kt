@@ -5,10 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RestController
 
 /** One flow that wrote a spec or was started from it. state: built | in_progress | stopped. */
 data class SpecFlow(
@@ -117,13 +113,4 @@ class SpecStatusService(
             else -> "stopped"
         }
     }
-}
-
-/** The Wiki's spec status: every spec of the project with the flow that built it (the menu's pills and the spec page). */
-@RestController
-@RequestMapping("/api/projects/{pid}/specs")
-class SpecStatusController(private val specs: SpecStatusService) {
-
-    @GetMapping("/status")
-    fun status(@PathVariable pid: String): List<SpecStatus> = specs.status(pid)
 }

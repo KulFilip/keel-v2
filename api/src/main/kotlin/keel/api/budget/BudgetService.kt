@@ -7,11 +7,6 @@ import keel.api.projects.ProjectService
 import keel.api.settings.SettingsService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RestController
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -193,19 +188,4 @@ class BudgetService(
             Limit("api", "API keys (all)", "USD spent this month", 0.0, 100.0, "Anthropic + OpenAI keys."),
         )
     }
-}
-
-@RestController
-class BudgetController(private val budget: BudgetService) {
-    @GetMapping("/api/projects/{pid}/budget")
-    fun budget(@PathVariable pid: String): Budget = budget.budget(pid)
-
-    @GetMapping("/api/projects/{pid}/budget/now")
-    fun now(@PathVariable pid: String): BudgetNow = budget.now(pid)
-
-    @GetMapping("/api/limits")
-    fun limits(): List<Limit> = budget.limits()
-
-    @PutMapping("/api/limits")
-    fun saveLimits(@RequestBody body: List<Limit>): List<Limit> = budget.saveLimits(body)
 }

@@ -1,16 +1,12 @@
 package keel.api.ui
 
 import keel.api.common.BadRequest
+import keel.api.common.Db
 import keel.api.common.Json
 import keel.api.events.EventHub
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
 
 /**
@@ -43,8 +39,7 @@ data class UiFocusPatch(
 class UiFocusService(private val jdbc: JdbcTemplate, private val projects: ProjectService, private val hub: EventHub) {
 
     fun get(): UiFocus {
-        val raw = jdbc.query("SELECT json FROM settings WHERE scope = ?", { rs, _ -> rs.getString(1) }, SCOPE).firstOrNull()
-            ?: return UiFocus()
+        val raw = Db.settingsJson(jdbc, SCOPE) ?: return UiFocus()
         val m = Json.readMap(raw)
         @Suppress("UNCHECKED_CAST")
         val chats = (m["chats"] as? Map<String, Any?>)?.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }?.toMap() ?: emptyMap()
@@ -65,8 +60,7 @@ class UiFocusService(private val jdbc: JdbcTemplate, private val projects: Proje
         }
         val next = UiFocus(p.project ?: now.project, chats, p.by?.take(20), p.client?.take(64), Instant.now().toString())
         if (next.project == now.project && next.chats == now.chats) return now
-        jdbc.update("INSERT INTO settings(scope, json) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET json = excluded.json",
-            SCOPE, Json.write(next))
+        Db.saveSettings(jdbc, SCOPE, next)
         hub.publish(null, EVENT, next)
         return next
     }
@@ -75,14 +69,4 @@ class UiFocusService(private val jdbc: JdbcTemplate, private val projects: Proje
         const val SCOPE = "ui.focus"
         const val EVENT = "ui.focus"
     }
-}
-
-@RestController
-@RequestMapping("/api/ui")
-class UiFocusController(private val focus: UiFocusService) {
-    @GetMapping("/focus")
-    fun get(): UiFocus = focus.get()
-
-    @PutMapping("/focus")
-    fun set(@RequestBody body: UiFocusPatch): UiFocus = focus.set(body)
 }

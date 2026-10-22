@@ -10,13 +10,6 @@ import keel.api.projects.ProjectService
 import keel.api.workflows.MarketVersions
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
 
 /** POST /api/projects/{pid}/skills/market/install. [agents]: put it on them; [replace]: an update over another version. */
 data class MarketSkillInstall(val name: String = "", val version: String? = null, val agents: List<String>? = null, val replace: Boolean = false)
@@ -183,19 +176,4 @@ class MarketSkills(
                 "description" to (fm["description"] as? String)?.trim().orEmpty())
         }
     }
-}
-
-/** The marketplace's skills (keel 0.18.6). Install is write for MCP (McpLevels.kt); remove (DELETE a skill) is admin. */
-@RestController
-@RequestMapping("/api")
-class MarketSkillController(private val market: MarketSkills) {
-    @GetMapping("/marketplace/skills")
-    fun search(@RequestParam(required = false) q: String?, @RequestParam(required = false) category: String?,
-               @RequestParam(required = false) project: String?): JsonNode = market.search(q, category, project)
-
-    @GetMapping("/marketplace/skills/{name}")
-    fun detail(@PathVariable name: String, @RequestParam(required = false) project: String?): JsonNode = market.detail(name, project)
-
-    @PostMapping("/projects/{pid}/skills/market/install")
-    fun install(@PathVariable pid: String, @RequestBody body: MarketSkillInstall): JsonNode = market.install(pid, body)
 }
