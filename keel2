@@ -1208,7 +1208,8 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   echo $! > "$ND/run/keel.pid"
   local i; for i in $(seq 1 180); do
     curl -fs "$(api "$port")/health" >/dev/null 2>&1 && break
-    native_running || { bad "keel did not start. The last lines of its log:"; tail -25 "$ND/logs/keel.log" | sed 's/^/    /'; die "Start failed." "See: keel2 logs, keel2 doctor"; }
+    # alive is enough here: right after the fork the pid's command line is still the launcher's, not keel-native-start
+    kill -0 "$(native_pid)" 2>/dev/null || { bad "keel did not start. The last lines of its log:"; tail -25 "$ND/logs/keel.log" | sed 's/^/    /'; die "Start failed." "See: keel2 logs, keel2 doctor"; }
     sleep 1
   done
   curl -fs "$(api "$port")/health" >/dev/null 2>&1 || die "keel did not answer in 3 minutes." "See: keel2 logs"
