@@ -664,7 +664,7 @@ wheels = [
 
 [[package]]
 name = "keel-engine"
-version = "0.18.35"
+version = "0.18.36"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
