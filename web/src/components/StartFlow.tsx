@@ -57,12 +57,16 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
 
   useEffect(() => {
     if (!p) return;
+    // a slow answer for the project that was left must not land over the one picked after it
+    let gone = false;
     setWfs(null);
     api.workflows(p).then((list) => {
+      if (gone) return;
       setWfs(list);
       setWid((w) => (w && list.some((x) => x.id === w) ? w : list.find((x) => x.id === "feature")?.id ?? list[0]?.id ?? ""));
-    }, (e) => setErr(errorParts(e)));
+    }, (e) => !gone && setErr(errorParts(e)));
     api.projectSettings(p).then((s) => {
+      if (gone) return;
       setModel({ provider: s.effective.default_model.provider, model: s.effective.default_model.model, effort: s.effective.default_model.effort });
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
@@ -75,7 +79,10 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     }, () => undefined);
     // v0.4.2: the project's caps can make this flow's cap smaller (the smallest one left binds) or refuse the start
     setCapsLeft(null);
-    api.capsLeft(p).then(setCapsLeft, () => undefined);
+    api.capsLeft(p).then((c) => !gone && setCapsLeft(c), () => undefined);
+    return () => {
+      gone = true;
+    };
   }, [p]);
 
   useEffect(() => {

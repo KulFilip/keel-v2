@@ -77,6 +77,15 @@ export type Route = {
 };
 
 /** "#/flow", "#flow", "#/wiki/kb:architecture", "#/plugins?set=developer" → route. Unknown pages fall back to Flow. */
+/** decodeURIComponent that never throws: a link with a broken escape (#/jobs/100%) keeps its raw text. */
+export function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 export function parseHash(hash: string): Route {
   const full = hash.replace(/^#\/?/, "");
   const q = full.indexOf("?");
@@ -88,12 +97,12 @@ export function parseHash(hash: string): Route {
   if (pm)
     return withQuery({
       ...parseHash("#/" + pm[2]),
-      project: decodeURIComponent(pm[1]),
+      project: safeDecode(pm[1]),
     });
   const [first, ...rest] = raw.split("/");
   // a page by the name it shows: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper)
   const page = pageFor(first)?.id ?? first;
-  const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;
+  const arg = rest.length ? safeDecode(rest.join("/")) : undefined;
   if (isScreen(page)) return withQuery({ page, arg });
   // maybe an add-on's page (#/initiatives); the router shows Flow when no add-on has it
   if (ADDON_SCREEN.test(page))
@@ -119,7 +128,7 @@ export const hashFor = (page: ScreenId, arg?: string) =>
 export function routeFromLink(link: string | undefined): Route {
   if (!link) return { page: SCREEN.flow };
   const pm = link.replace(/^#?\/*/, "").match(/^projects\/([^/]+)\/(.+)$/);
-  if (pm) return { ...parseHash("#/" + pm[2]), project: decodeURIComponent(pm[1]) };
+  if (pm) return { ...parseHash("#/" + pm[2]), project: safeDecode(pm[1]) };
   return parseHash(
     link.startsWith("#") ? link : "#" + link.replace(/^\/+/, "/"),
   );

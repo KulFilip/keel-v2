@@ -55,14 +55,18 @@ export function LoginDrawer<V extends LoginBase>({ title, intro, note, adapter, 
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
 
-  // poll while the login runs
+  // poll while the login runs; one failed poll is only skipped: the next one is armed again (same interval)
+  const [again, setAgain] = useState(0);
   useEffect(() => {
     if (!login || TERMINAL.includes(login.status)) return;
     const t = window.setTimeout(() => {
-      adapter.poll(login.id).then((v) => live.current && setLogin(v), () => undefined);
+      adapter.poll(login.id).then(
+        (v) => live.current && setLogin(v),
+        () => live.current && setAgain((n) => n + 1),
+      );
     }, 2000);
     return () => window.clearTimeout(t);
-  }, [login]);
+  }, [login, again]);
 
   // when it is saved
   useEffect(() => {
