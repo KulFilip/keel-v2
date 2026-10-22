@@ -138,18 +138,6 @@
   --rv-warn-fg: var(--warn); --rv-ok-fg: var(--ok); --rv-accent-fg: var(--accent); --rv-dim-fg: var(--dim); --rv-run-fg: var(--run); } }
 :root[data-theme="dark"] { --rv-warn-fg: var(--warn); --rv-ok-fg: var(--ok); --rv-accent-fg: var(--accent); --rv-dim-fg: var(--dim); --rv-run-fg: var(--run); }
 
-/* the Review view's own width (SideGrip): the side bar takes --rv-side-w while the Review view shows */
-.ide:not(.phone):not(.side-closed):has(> .ide-side > .sv-host:not([hidden]) > .rv-side) { --side-w: var(--rv-side-w, 440px) !important; }
-.ide:not(.phone):not(.side-closed):has(> .ide-side > .sv-host:not([hidden]) > .rv-side) > .ide-split { visibility: hidden; }
-@media (max-width: 1100px) {
-  .ide:not(.phone):not(.side-closed):not(.help-open):has(> .ide-side > .sv-host:not([hidden]) > .rv-side) { grid-template-columns: 44px var(--rv-side-w, 440px) 4px minmax(0, 1fr); }
-}
-.rv-grip { position: absolute; top: 0; right: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; touch-action: none; }
-.rv-grip::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 1px; background: var(--ide-line); }
-.rv-grip:hover::after, .rv-grip:focus-visible::after { width: 3px; background: var(--accent); }
-.rv-grip:focus-visible { outline: none; }
-.ide.phone .rv-grip { display: none; }
-
 .rv-threads { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .rv-th-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .rv-th-head b { font-size: 14px; }

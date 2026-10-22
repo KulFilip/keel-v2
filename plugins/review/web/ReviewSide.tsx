@@ -23,7 +23,6 @@ import {
   type PanelTab,
 } from "./ReviewPanel";
 import { PendingTab } from "./PendingTab";
-import { SideGrip } from "./SideGrip";
 import { ThreadsView } from "./Threads";
 import * as R from "./store";
 
@@ -96,7 +95,6 @@ export function ReviewSide({
         <ReviewList pid={pid} onPick={pick} />
       )}
       </div>
-      <SideGrip />
     </div>
   );
 }

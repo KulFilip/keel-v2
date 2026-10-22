@@ -1,10 +1,9 @@
 // The review threads (Threads tab): sections and counts, your messages and the reviewer's, resolved threads folded to a
 // line, "new" since your last visit, keel's check with every verdict, Use as my reply (fills the box, posts nothing),
-// Address it (starts the flow), the extra buttons, the panel's width and the narrow layout, and the thread settings.
+// Address it (starts the flow), the extra buttons, the narrow layout, and the thread settings.
 
 import {
   act,
-  fireEvent,
   render,
   screen,
   waitFor,
@@ -23,7 +22,6 @@ import type {
   ReviewView,
   ThreadSettingsView,
 } from "../reviewApi";
-import { SideGrip, SIDE_KEY } from "../SideGrip";
 import * as R from "../store";
 import {
   ago,
@@ -617,28 +615,6 @@ describe("the review threads", () => {
     } finally {
       globalThis.ResizeObserver = RO;
     }
-  });
-});
-
-describe("the review panel's width", () => {
-  it("is resized with the keys, kept in this browser and given to the page", () => {
-    const { unmount } = render(<SideGrip />);
-    const grip = screen.getByRole("separator", {
-      name: "Resize the review panel",
-    });
-    expect(grip).toHaveAttribute("aria-valuenow", "440");
-    fireEvent.keyDown(grip, { key: "ArrowRight" });
-    expect(localStorage.getItem(SIDE_KEY)).toBe("464");
-    expect(document.documentElement.style.getPropertyValue("--rv-side-w")).toBe(
-      "464px",
-    );
-    fireEvent.keyDown(grip, { key: "Home" });
-    expect(localStorage.getItem(SIDE_KEY)).toBe("280");
-    unmount();
-    render(<SideGrip />);
-    expect(
-      screen.getByRole("separator", { name: "Resize the review panel" }),
-    ).toHaveAttribute("aria-valuenow", "280");
   });
 });
 

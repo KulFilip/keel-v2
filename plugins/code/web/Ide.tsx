@@ -46,6 +46,20 @@ const isSide = (a: CodeActivityItem): a is SideItem => a.place !== "scm";
 const byOrder = (a: { order: number }, b: { order: number }) => a.order - b.order;
 const defOf = (a: SideItem): ActivityDef => ({ id: a.id, title: a.title, icon: a.icon, keys: a.keys ?? "", short: a.short, order: a.order ?? 0 });
 
+/** A view's side bar width: where it is remembered, its default and its least; `own` when it is not the shared one. */
+type SideSize = { key: string; def: number; min: number; own: boolean };
+const SHARED_SIZE: SideSize = { key: "keel2.repo.side", def: 280, min: SIDE_MIN, own: false };
+const SCM_SIZE: SideSize = { key: "keel2.repo.side.scm", def: SCM_DEFAULT, min: SCM_MIN, own: true };
+function sizeOf(id: Activity, theirs: SideItem[]): SideSize {
+  if (id === "scm") return SCM_SIZE;
+  const w = theirs.find((a) => a.id === id)?.sideWidth;
+  return w ? { key: w.key, def: w.default, min: w.min ?? SIDE_MIN, own: true } : SHARED_SIZE;
+}
+function readWidth(size: SideSize): number {
+  const v = Number(readJson<unknown>(local, size.key, size.def));
+  return Number.isFinite(v) && v > 0 ? v : size.def;
+}
+
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = isMac ? "⌘" : "Ctrl+";
 /** v0.15.4 the key that closes the editor tab (⌥W: the browser keeps ⌘W), for the tab's tooltip */
@@ -97,10 +111,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
 
   const [activity, setActivity] = useState<Activity>("explorer");
   const [sideOpen, setSideOpen] = useState(true);
-  // the side bar's width, remembered per browser; Source control has its own (0.18.38: wider, it holds the branch, the
-  // pull request and the commit box), the other views share one
-  const [width, setWidth] = useState(() => readJson(local, "keel2.repo.side", 280));
-  const [scmWidth, setScmWidth] = useState(() => readJson(local, "keel2.repo.side.scm", SCM_DEFAULT));
+  // the side bar's width, remembered per browser under the view's width key (sizeOf): Source control (0.18.38: wider, it
+  // holds the branch, the pull request and the commit box) and a part's view that asks for one (Review) have their own,
+  // the other views share one
+  const [widths, setWidths] = useState<Record<string, number>>({});
   const tabsKey = `keel2.repo.tabs.${pid}`;
   const [tabs, setTabs] = useState<Tabs>(() => readJson(session, tabsKey, { tabs: [], active: null }));
   const [targets, setTargets] = useState<Record<string, Target>>({});
@@ -148,8 +162,6 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const diffMode: DiffMode = phone ? "inline" : mode;
 
   useEffect(() => writeJson(session, tabsKey, { tabs: tabs.tabs.filter((t) => t.kind !== "doctor"), active: tabs.active }), [tabs, tabsKey]);
-  useEffect(() => writeJson(local, "keel2.repo.side", width), [width]);
-  useEffect(() => writeJson(local, "keel2.repo.side.scm", scmWidth), [scmWidth]);
   useEffect(() => writeJson(local, "keel2.repo.diff", mode), [mode]);
   useEffect(() => writeJson(local, "keel2.repo.wrap", wrap), [wrap]);
   useEffect(() => writeJson(local, "keel2.repo.helper", helperOpen), [helperOpen]);
@@ -391,11 +403,15 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
 
   // the splitter: drag, or the keys when focused (arrows 16 px, with Shift 64, Home and End the ends, Enter the default);
   // never wider than the window minus 320 px for the editor
-  const isScm = activity === "scm";
-  const sideMin = isScm ? SCM_MIN : SIDE_MIN;
+  const size = sizeOf(activity, theirs);
+  const sideMin = size.min;
   const room = () => (root.current?.getBoundingClientRect().width || window.innerWidth || 1200) - 52;
-  const sideW = isScm ? scmWidth : width;
-  const setSideW = (w: number) => (isScm ? setScmWidth : setWidth)(clampSide(w, sideMin, room()));
+  const sideW = widths[size.key] ?? readWidth(size);
+  const setSideW = (w: number) => {
+    const to = clampSide(w, sideMin, room());
+    setWidths((x) => ({ ...x, [size.key]: to }));
+    writeJson(local, size.key, to);
+  };
   const sideMax = clampSide(Number.MAX_SAFE_INTEGER, sideMin, room());
   const drag = (e: RPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -603,7 +619,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   } as CSSProperties;
 
   return (
-    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${helperOpen && assistant ? " help-open" : ""}`} style={ide}>
+    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${size.own ? " side-own" : ""}${helperOpen && assistant ? " help-open" : ""}`} style={ide}>
       <nav className="ide-act" aria-label="Repo views">
         {activities.map(({ id, title: label, icon, keys: key, short }) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
@@ -635,11 +651,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
         <div className="ide-split" role="separator" aria-orientation="vertical" aria-label="Resize the side bar" tabIndex={0}
           aria-valuenow={Math.min(sideW, sideMax)} aria-valuemin={sideMin} aria-valuemax={sideMax} aria-valuetext={`${Math.min(sideW, sideMax)} pixels wide`}
           title="Drag to resize (arrow keys when focused; double-click for the default width)"
-          onPointerDown={drag} onDoubleClick={() => setSideW(isScm ? SCM_DEFAULT : 280)}
+          onPointerDown={drag} onDoubleClick={() => setSideW(size.def)}
           onKeyDown={(e) => {
             const step = e.shiftKey ? 64 : 16;
             const to = e.key === "ArrowLeft" ? sideW - step : e.key === "ArrowRight" ? sideW + step : e.key === "Home" ? sideMin
-              : e.key === "End" ? sideMax : e.key === "Enter" ? (isScm ? SCM_DEFAULT : 280) : null;
+              : e.key === "End" ? sideMax : e.key === "Enter" ? size.def : null;
             if (to === null) return;
             e.preventDefault();
             setSideW(to);

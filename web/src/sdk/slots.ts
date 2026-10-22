@@ -213,6 +213,9 @@ export type CodeActivityItem = SlotItem &
         layer?: ComponentType<CodeActivityProps>;
         /** #/repo/@<id>/<value> opens this view with `value` (a review: #/repo/@review/pr:7) */
         onLink?: (pid: string, value: string) => void;
+        /** its own side bar width, remembered in this browser under `key` (like Source control's); without it the view
+         *  shares the other views' width. The Code page's splitter resizes it (drag, keys, double-click: `default`). */
+        sideWidth?: { key: string; default: number; min?: number };
       }
     | {
         /** a panel in Source control (the Git plugin: commit, push, the pull request) */

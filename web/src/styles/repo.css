@@ -343,6 +343,8 @@ button.sb-i:disabled:hover { background: none; }
 /* ---------- 1024: a narrower side bar ---------- */
 @media (max-width: 1100px) {
   .ide { grid-template-columns: 44px min(var(--side-w, 280px), 240px) 4px minmax(0, 1fr); }
+  /* a view with its own width (Source control, Review) keeps it: the splitter already leaves the editor 320 px */
+  .ide.side-own:not(.side-closed):not(.help-open) { grid-template-columns: 44px var(--side-w, 280px) 4px minmax(0, 1fr); }
   .ide.side-closed { grid-template-columns: 44px 0 0 minmax(0, 1fr); }
   .act { width: 44px; }
   .sb-wide { display: none; }

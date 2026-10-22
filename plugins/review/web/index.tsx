@@ -114,6 +114,8 @@ export function setup(sdk: KeelSdk) {
     component: ReviewActivity,
     layer: ReviewKeys,
     onLink: openReview,
+    // its own width on the Code page (the threads need room); the key is the one 0.18.38's first draft kept
+    sideWidth: { key: "keel2.review.sideW", default: 440, min: 280 },
   });
 
   sdk.registerSlot<CodeTabItem>(SLOTS.codeTab, {

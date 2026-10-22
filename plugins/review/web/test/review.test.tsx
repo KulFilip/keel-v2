@@ -1237,3 +1237,37 @@ describe("Code › Review: comments on several lines and the Pending tab", () =>
     ).toBeInTheDocument();
   });
 });
+
+describe("the Review view's width", () => {
+  it("has its own width on the Code page's splitter: remembered, and Source control and the others keep theirs", async () => {
+    localStorage.removeItem("keel2.review.sideW");
+    await openTool();
+    const split = () =>
+      screen.getByRole("separator", { name: "Resize the side bar" });
+    expect(split()).toHaveAttribute("aria-valuenow", "440");
+    expect(split()).toHaveAttribute("aria-valuemin", "280");
+    fireEvent.keyDown(split(), { key: "ArrowRight" });
+    expect(split()).toHaveAttribute("aria-valuenow", "456");
+    expect(localStorage.getItem("keel2.review.sideW")).toBe("456");
+    expect(document.querySelector(".ide")).toHaveClass("side-own");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Source control" }),
+    );
+    expect(split()).toHaveAttribute("aria-valuenow", "380");
+    await userEvent.click(screen.getByRole("button", { name: "Explorer" }));
+    expect(split()).toHaveAttribute("aria-valuenow", "280");
+    expect(document.querySelector(".ide")).not.toHaveClass("side-own");
+    await userEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(split()).toHaveAttribute("aria-valuenow", "456");
+    fireEvent.doubleClick(split());
+    expect(split()).toHaveAttribute("aria-valuenow", "440");
+  });
+
+  it("reads the width an earlier 0.18.38 build kept (a bare number)", async () => {
+    localStorage.setItem("keel2.review.sideW", "512");
+    await openTool();
+    expect(
+      screen.getByRole("separator", { name: "Resize the side bar" }),
+    ).toHaveAttribute("aria-valuenow", "512");
+  });
+});
