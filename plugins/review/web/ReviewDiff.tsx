@@ -14,7 +14,9 @@ import {
   highlight,
   languageOf,
   parseDiff,
+  scrollToCenter,
   useLanguage,
+  useSelectAll,
   splitRows,
   useLoad,
   type DiffRow,
@@ -91,6 +93,8 @@ export function ReviewDiff({
   const lang = languageOf(path);
   useLanguage(lang);
   const body = useRef<HTMLDivElement>(null);
+  // ⌘/Ctrl+A selects this diff, not the whole window
+  useSelectAll(body, ".dv-code, .dv-hunk");
   const [current, setCurrent] = useState<LineRef | null>(null);
 
   // the first row of every change block (F7 jumps between them)
@@ -109,9 +113,7 @@ export function ReviewDiff({
   useEffect(() => {
     if (!change || !blocks.length) return;
     const i = blocks[Math.max(0, Math.min(blocks.length - 1, change.index))];
-    body.current
-      ?.querySelector<HTMLElement>(`[data-row="${i}"]`)
-      ?.scrollIntoView({ block: "center" });
+    scrollToCenter(body.current, body.current?.querySelector<HTMLElement>(`[data-row="${i}"]`));
     const r = parsed?.rows[i];
     if (r)
       setCurrent({
@@ -126,7 +128,7 @@ export function ReviewDiff({
     const el = body.current?.querySelector<HTMLElement>(
       `[data-${focus.side === "LEFT" ? "old" : "new"}="${focus.line}"]`,
     );
-    el?.scrollIntoView({ block: "center" });
+    scrollToCenter(body.current, el);
     setCurrent({ path, line: focus.line, side: focus.side });
   }, [focus?.n, focus?.line, focus?.side, parsed, path]);
 
@@ -315,11 +317,10 @@ export function FileAtView({
   const box = useRef<HTMLDivElement>(null);
   const lang = languageOf(path);
   useLanguage(lang);
+  useSelectAll(box, ".dv-code");
   useEffect(() => {
     if (!f.data || !line) return;
-    box.current
-      ?.querySelector<HTMLElement>(`[data-line="${line}"]`)
-      ?.scrollIntoView({ block: "center" });
+    scrollToCenter(box.current, box.current?.querySelector<HTMLElement>(`[data-line="${line}"]`));
   }, [f.data, line]);
   if (f.error)
     return (

@@ -233,6 +233,8 @@ export type {
 // own sound (core's audio, so it shares the notification volume and "do not disturb")
 export { FOCUS_EVENT, FOCUS_KEYS, isTyping, modalOpen } from "../keys";
 export type { KeyArea, KeyRow } from "../keys";
+// 0.18.33 scrolling: ⌘/Ctrl+A selects one view's own text, and scrollToCenter moves one scroller (never the window)
+export { scrollToCenter, selectedAll, useSelectAll } from "../selectAll";
 export { MarkdownView } from "../components/Markdown";
 export { ProviderIcon } from "../components/ProviderIcon";
 export { useWide } from "../components/useWide";

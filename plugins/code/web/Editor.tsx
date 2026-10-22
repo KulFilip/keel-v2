@@ -2,9 +2,9 @@
 // file (case / whole word / regex), go to line, word wrap, a Markdown / SVG preview, images, binary and big files,
 // and diffs (inline or side by side) against HEAD, the base branch, or one commit. Read-only.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ErrorBox, errorParts, highlight, isTyping, languageOf, useLanguage, linesOf, MarkdownView, modalOpen, parseDiff, useLoad, type DiffRow,
+  ErrorBox, errorParts, highlight, languageOf, useLanguage, linesOf, MarkdownView, parseDiff, scrollToCenter, selectedAll, useLoad, useSelectAll, type DiffRow,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon, isImage, extOf } from "./icons";
@@ -55,78 +55,8 @@ export function useFileText(pid: string, meta: RepoFile | null, enabled: boolean
   return state && state.key === key ? state : null;
 }
 
-// ---------- ⌘/Ctrl+A in a code or diff view ----------
-
-type Mark = { a: Node; ao: number; f: Node; fo: number; text: string | null };
-/** The select-all each view made last (cleared as soon as the selection is something else). */
-const allMarks = new WeakMap<HTMLElement, Mark>();
-
-/** The whole text of the view when its ⌘/Ctrl+A selection is still the page's selection, else null. */
-export function selectedAll(box: HTMLElement | null | undefined): string | null {
-  if (!box) return null;
-  const m = allMarks.get(box);
-  const sel = window.getSelection?.();
-  if (!m || !sel || sel.isCollapsed) return null;
-  const same = sel.anchorNode === m.a && sel.anchorOffset === m.ao && sel.focusNode === m.f && sel.focusOffset === m.fo;
-  return same ? m.text ?? sel.toString() : null;
-}
-
-const hovered = (el: HTMLElement) => {
-  try {
-    return el.matches(":hover");
-  } catch {
-    return false;
-  }
-};
-
-/**
- * ⌘/Ctrl+A while the view has the focus (a click puts it there) or the pointer is on it selects the view's own text,
- * not the whole page. A text field keeps its own ⌘/Ctrl+A. `rows` names the elements that hold the text (the first one
- * to the last one is selected); `whole` is what a copy of that selection gives (a long file only renders the rows on
- * screen, so the copy gives the whole file from here).
- */
-export function useSelectAll(box: RefObject<HTMLElement | null>, rows: string, whole?: () => string) {
-  const wholeRef = useRef(whole);
-  wholeRef.current = whole;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "a" || e.defaultPrevented) return;
-      const el = box.current;
-      if (!el || isTyping(e.target) || modalOpen()) return;
-      if (!el.contains(document.activeElement) && !hovered(el)) return;
-      const sel = window.getSelection?.();
-      if (!sel) return;
-      e.preventDefault();
-      const all = el.querySelectorAll(rows);
-      const first = all[0];
-      const last = all[all.length - 1];
-      if (first && last) {
-        const range = document.createRange();
-        range.setStart(first, 0);
-        range.setEnd(last, last.childNodes.length);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        sel.selectAllChildren(el);
-      }
-      if (sel.anchorNode && sel.focusNode) {
-        allMarks.set(el, { a: sel.anchorNode, ao: sel.anchorOffset, f: sel.focusNode, fo: sel.focusOffset, text: wholeRef.current?.() ?? null });
-      }
-    };
-    const onCopy = (e: ClipboardEvent) => {
-      const text = selectedAll(box.current);
-      if (text === null || !wholeRef.current || !e.clipboardData) return;
-      e.preventDefault();
-      e.clipboardData.setData("text/plain", text);
-    };
-    window.addEventListener("keydown", onKey);
-    document.addEventListener("copy", onCopy);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.removeEventListener("copy", onCopy);
-    };
-  }, [box, rows]);
-}
+// ⌘/Ctrl+A lives in core (@keel/web-sdk); Ide and the tests still import it from here
+export { selectedAll, useSelectAll };
 
 // ---------- the code view ----------
 
@@ -198,13 +128,24 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
     const to = Math.min(lines.length, Math.ceil((el.scrollTop + h) / LH) + 40);
     setWin((w) => (w.from === from && w.to === to ? w : { from, to }));
   }, [lines.length]);
+  // a scroll event fires many times per frame: the wheel measures once per frame (jumps and the first paint measure at once)
+  const frame = useRef(0);
+  const measureSoon = useCallback(() => {
+    if (typeof requestAnimationFrame !== "function") return measure();
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      measure();
+    });
+  }, [measure]);
+  useEffect(() => () => { if (frame.current) cancelAnimationFrame(frame.current); }, []);
 
   const scrollTo = useCallback((line: number, always = false) => {
     const el = box.current;
     if (!el) return;
     if (wrapOn) {
       const row = el.querySelector<HTMLElement>(`[data-line="${line}"]`);
-      row?.scrollIntoView?.({ block: "center" });
+      scrollToCenter(el, row);
       return;
     }
     const top = (line - 1) * LH;
@@ -230,10 +171,10 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
   useEffect(() => {
     const el = box.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => measure());
+    const ro = new ResizeObserver(() => measureSoon());
     ro.observe(el);
     return () => ro.disconnect();
-  }, [measure]);
+  }, [measureSoon]);
 
   // a jump from a deep link, the search, go to line or quick open
   useEffect(() => {
@@ -386,7 +327,7 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
         </div>
       )}
       <div ref={box} className={`cv${wrapOn ? " wrap" : ""}`} tabIndex={0} role="region" aria-label={`Code of ${path}`}
-        onScroll={virtual ? measure : undefined} onMouseUp={onMouseUp} style={{ ["--gd" as string]: `${Math.max(3, digits)}ch` }}
+        onScroll={virtual ? measureSoon : undefined} onMouseUp={onMouseUp} style={{ ["--gd" as string]: `${Math.max(3, digits)}ch` }}
         data-lines={lines.length}>
         <div className="cv-lines" style={virtual ? { paddingTop: from * LH + 4, paddingBottom: `calc(${(lines.length - to) * LH}px + 40vh)`, minWidth: `calc(${Math.max(3, digits)}ch + ${maxCols}ch + 64px)` } : undefined}>
           {rows}
@@ -464,8 +405,10 @@ export function DiffPane({ pid, path, against, sha, branch, mode }: {
 // ---------- images, Markdown, binary and big files ----------
 
 export function ImagePane({ pid, path, size, onDims }: { pid: string; path: string; size: number; onDims: (d: string) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  useSelectAll(box);
   return (
-    <div className="img-pane">
+    <div className="img-pane" ref={box}>
       <img src={api.rawUrl(pid, path)} alt={path} onLoad={(e) => onDims(`${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight}`)} />
       <span className="hint">{bytes(size)}</span>
     </div>
@@ -474,7 +417,9 @@ export function ImagePane({ pid, path, size, onDims }: { pid: string; path: stri
 
 // v0.15.3 rendered, and a copy gives the Markdown back
 export function MarkdownPane({ text }: { text: string }) {
-  return <div className="md-pane" role="region" aria-label="Rendered Markdown"><div className="wdoc"><MarkdownView text={text} fold={0} /></div></div>;
+  const box = useRef<HTMLDivElement>(null);
+  useSelectAll(box, ".wdoc");
+  return <div className="md-pane" ref={box} role="region" aria-label="Rendered Markdown"><div className="wdoc"><MarkdownView text={text} fold={0} /></div></div>;
 }
 
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {
