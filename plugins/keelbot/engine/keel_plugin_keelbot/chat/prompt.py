@@ -68,6 +68,13 @@ READING = ("Reading is always allowed, in every mode (Ask mode too): reading fil
            "whether you read the code (\"did you read the code?\"), read it now and answer from it in the same turn, "
            "with file:line.")
 
+# 0.18.38 the dashboard renders a light answer syntax (web Markdown `answer`): a bold lead-in as a small heading with a
+# verdict chip, an "Open items:" note box, and a keel-questions block with the one id "next" as a row of buttons.
+STYLE = ("Answer format (optional): a point may start with a bold lead-in ending in : or ? and, when you judge it, a tag "
+         "after it: `**Comment 1: keep x?** [valid]` (valid | partly | not valid | optional | unclear). Start what is "
+         "still open with \"Open items:\". Never offer next steps in prose (\"I can draft those replies\"): give 2 to 4 "
+         "as a keel-questions block with one question, id \"next\", or a keel-start button for a change flow.")
+
 
 # ------------------------------------------------------------------ the prompt
 
@@ -231,7 +238,7 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     where = f"Your folder (the worktree): {root}" if mode == "side" or (mode == "ask" and branch) else \
         f"The project folder: {root}"
     note = mode_note(was, mode)            # 0.18.19 the mode changed since the last answer: say so first
-    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), READING, FAILURES, where]
+    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), READING, FAILURES, STYLE, where]
     if mode == "edit":
         busy = flows_in_folder(keel)
         if busy:

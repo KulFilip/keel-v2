@@ -22,6 +22,7 @@ import { answerModel, fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessi
 import { ChatList, ConfirmRow } from "./ChatList";
 import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
 import { markSeen, useKeelBotUnread, useSeen } from "./unread";
+import { splitToolLog, toolSummary, type ToolCall } from "./toolLog";
 
 type Props = {
   pid: string;
@@ -77,6 +78,22 @@ function TurnSteps({ callId, live, running }: { callId: string; live: JobStep[];
   );
 }
 
+/** 0.18.38 the tool calls printed at the top of an answer, folded to one line; a click shows them as printed. */
+export function ToolFold({ calls, log }: { calls: ToolCall[]; log: string }) {
+  const [open, setOpen] = useState(false);
+  const sum = toolSummary(calls);
+  return (
+    <div className="kb-tools">
+      <button type="button" className="kb-tools-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="kb-tools-ok" aria-hidden="true">✓</span>
+        <span className="kb-tools-head">{sum.head}</span>
+        <span className="kb-tools-n">{sum.lines ? `· ${sum.lines} ` : ""}{open ? "‹" : "›"}</span>
+      </button>
+      {open && <pre className="kb-tools-log" aria-label="The tool calls as printed">{log}</pre>}
+    </div>
+  );
+}
+
 /** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow). */
 function Answer({ text, onOpen, pid, onAsk, answered, later }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void;
   /** keel 0.18.13 the chat's later message with the answers to this answer's questions (its QuestionsCard shows them) */
@@ -98,11 +115,14 @@ function Answer({ text, onOpen, pid, onAsk, answered, later }: { text: string; o
     if (link) onOpen(link.path, link.line);
     return !!link;
   };
+  // 0.18.38 the tool calls an agent CLI printed before its answer: one folded line, the answer first
+  const log = useMemo(() => splitToolLog(text), [text]);
   return (
     <AskKeelBot.Provider value={onAsk}>
     <div ref={box} className="hp-answer" onClick={(e) => go(e.target)}
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && go(e.target)) e.preventDefault(); }}>
-      {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
+      {log && <ToolFold calls={log.calls} log={log.log} />}
+      {splitActions(log ? log.rest : text).map((seg, i) => seg.kind === "text" ? <div key={i} className="kb-md"><Markdown text={seg.text} breaks answer /></div>
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} later={later} />

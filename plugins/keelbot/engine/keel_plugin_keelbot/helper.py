@@ -77,7 +77,7 @@ from .chat.undo import (  # noqa: F401 - re-exported: the routes and the tests r
 )
 from .chat.prompt import (  # noqa: F401 - re-exported: the routes and the tests reach them through helper
     attach_images, build_prompt, COMPACT_SHARE, COMPACT_WINDOW, FAILURES, flow_branches, flows_in_folder, IMAGE_EXT,
-    IMAGE_MAX, IMAGES_MAX, last_failures, last_mode, MODE_TEXT, READING, sees_images, SHELL_OUTPUT_MAX,
+    IMAGE_MAX, IMAGES_MAX, last_failures, last_mode, MODE_TEXT, READING, sees_images, SHELL_OUTPUT_MAX, STYLE,
     summary_prompt, SUMMARY_RULES, SUMMARY_TEMPLATE, TRANSCRIPT_CHARS, _failed_block, _flow_block, _images_block,
     _pointing, _shell_block, _transcript,
 )

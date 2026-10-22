@@ -124,3 +124,18 @@ def test_keelbot_reads_without_asking_and_asks_only_the_person_s_own_choices(rep
     agent = (helper.Path(keelbot.__file__).parents[2] / "content" / "agents" / "helper.md").read_text()
     assert "Reading, searching and explaining need nobody's OK, in Ask mode too" in agent
     assert '"not checked in the code: ..."' in agent
+
+
+def test_keelbot_learns_the_short_answer_format_the_dashboard_renders(repo):
+    # 0.18.38 "all text is white, it's hard to read": verdict tags, the Open items note and next steps as buttons
+    know = {"sections": [], "code_graph": False, "memory": False}
+    for mode in ("ask", "edit", "fix", "side"):
+        p = helper.build_prompt(mode=mode, root=str(repo), question="check the PR comments", know=know, graph=False,
+                                flow=None, mentions=None, selection=None, open_file=None, transcript="", keel=KEEL)
+        assert helper.STYLE in p, mode
+    s = helper.STYLE
+    assert "`**Comment 1: keep x?** [valid]` (valid | partly | not valid | optional | unclear)" in s
+    assert '"Open items:"' in s
+    assert 'Never offer next steps in prose' in s and 'keel-questions block with one question, id "next"' in s
+    assert "keel-start button" in s
+    assert len(s) < 600          # a few lines: it goes with every turn
