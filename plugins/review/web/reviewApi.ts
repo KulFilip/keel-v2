@@ -65,6 +65,11 @@ export type ReviewThread = {
   outdated: boolean;
   comments: ReviewComment[];
   reply_to?: string | null;
+  /** a thread on several lines starts here */
+  start_line?: number | null;
+  start_side?: "RIGHT" | "LEFT" | null;
+  /** in your own pending review on the host (started on its site): it goes out with your next review */
+  pending?: boolean;
 };
 export type ChangedFile = {
   path: string;
@@ -82,6 +87,9 @@ export type Draft = {
   body: string;
   finding_id?: string | null;
   created_at: string;
+  /** a comment on several lines starts here */
+  start_line?: number | null;
+  start_side?: "RIGHT" | "LEFT" | null;
 };
 export type ReviewView = {
   key: string;
@@ -116,6 +124,8 @@ export type ReviewView = {
   mine?: boolean;
   mergeable?: boolean | null;
   merge_state?: string | null;
+  /** a branch review: its open pull request, where its pending comments can go */
+  branch_pr?: number | null;
 };
 export type CodePlace = {
   path: string;
@@ -246,8 +256,12 @@ export const reviewApi = {
       side?: "RIGHT" | "LEFT";
       body: string;
       finding_id?: string | null;
+      start_line?: number | null;
+      start_side?: "RIGHT" | "LEFT" | null;
     },
   ) => post<Draft>(`${R(pid)}/drafts`, b),
+  moveDrafts: (pid: string, from: string, to: string) =>
+    post<ReviewView>(`${R(pid)}/drafts/move`, { from, to }),
   editDraft: (pid: string, id: string, body: string) =>
     put<Draft>(`${R(pid)}/drafts/${e(id)}`, { body }),
   deleteDraft: (pid: string, id: string) =>
@@ -287,6 +301,22 @@ export const reviewApi = {
     put<GitLabView>("/gitlab", { url, token }),
   clearGitlab: () => del<GitLabView>("/gitlab"),
 };
+
+/** Where a comment sits: "12", "10–12", or "10 (old)–12" when it starts on the old side. */
+export function linesLabel(c: {
+  line: number | null;
+  side: "RIGHT" | "LEFT";
+  start_line?: number | null;
+  start_side?: "RIGHT" | "LEFT" | null;
+}): string {
+  if (c.line == null) return "";
+  const old = (side?: string | null) => (side === "LEFT" ? " (old)" : "");
+  if (c.start_line == null) return `${c.line}${old(c.side)}`;
+  const s = c.start_side ?? c.side;
+  return s === c.side
+    ? `${c.start_line}–${c.line}${old(c.side)}`
+    : `${c.start_line}${old(s)}–${c.line}${old(c.side)}`;
+}
 
 /** "#7" on GitHub, "!7" on GitLab (merge requests). */
 export const prLabel = (

@@ -111,6 +111,10 @@ def test_the_acting_tools_go_through_the_plugins_routes():
     api = api_on(s)
     assert mcp_tools.review_comment(api, "src/Prefs.kt", 4, "Clear it", "RIGHT", "shop", 7).startswith("Draft dr2 on src/Prefs.kt:4 saved in keel")
     assert ("POST", "/projects/shop/review/drafts", {"key": "pr:7", "path": "src/Prefs.kt", "line": 4, "side": "RIGHT", "body": "Clear it"}) in s.calls
+    # a comment on several lines: start_line is its first line
+    assert mcp_tools.review_comment(api, "src/Prefs.kt", 5, "Move these", "RIGHT", "shop", 7, start_line=3).startswith("Draft dr2 on src/Prefs.kt:3-5")
+    assert ("POST", "/projects/shop/review/drafts", {"key": "pr:7", "path": "src/Prefs.kt", "line": 5, "side": "RIGHT", "body": "Move these",
+                                                     "start_line": 3, "start_side": "RIGHT"}) in s.calls
     assert mcp_tools.review_reply(api, "th1", "Yes", "shop", 7) == "Replied on thread th1 of pull request #7."
     assert mcp_tools.review_resolve(api, "th1", True, "shop", 7) == "Thread th1 of pull request #7 is resolved."
     assert "keel_review_notes shows it" in mcp_tools.review_ai(api, "findings", "shop", 7)

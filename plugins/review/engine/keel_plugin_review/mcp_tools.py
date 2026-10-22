@@ -112,10 +112,14 @@ def review_notes(api: KeelApi, project: str | None = None, pr: int | None = None
 
 
 def review_comment(api: KeelApi, path: str, line: int, body: str, side: str = "RIGHT", project: str | None = None,
-                   pr: int | None = None, branch: str | None = None) -> str:
+                   pr: int | None = None, branch: str | None = None, start_line: int | None = None) -> str:
     pid, v = _open(api, project, pr, branch)
-    d = api.post(f"/projects/{pid}/review/drafts", {"key": v["key"], "path": path, "line": int(line), "side": side, "body": body})
-    return f"Draft {d['id']} on {path}:{line} saved in keel; it is sent with your review (keel_review_submit)."
+    draft = {"key": v["key"], "path": path, "line": int(line), "side": side, "body": body}
+    if start_line is not None and int(start_line) != int(line):
+        draft |= {"start_line": int(start_line), "start_side": side}
+    d = api.post(f"/projects/{pid}/review/drafts", draft)
+    at = f"{d['start_line']}-{line}" if d.get("start_line") else f"{line}"
+    return f"Draft {d['id']} on {path}:{at} saved in keel; it is sent with your review (keel_review_submit)."
 
 
 def review_reply(api: KeelApi, thread_id: str, body: str, project: str | None = None, pr: int | None = None) -> str:
@@ -193,10 +197,13 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
 
     @srv.tool(annotations=rw, structured_output=False)
     async def keel_review_comment(path: str, line: int, body: str, side: Literal["RIGHT", "LEFT"] = "RIGHT", project: str | None = None,
-                                  pr: int | None = None, branch: str | None = None, ctx: Context | None = None) -> str:
+                                  pr: int | None = None, branch: str | None = None, start_line: int | None = None,
+                                  ctx: Context | None = None) -> str:
         """Code Review plugin: a line comment as a draft, kept in keel until you submit the review (keel_review_submit).
-        line: the new file's line (side RIGHT), or the old file's for a removed line (side LEFT)."""
-        return await act(ctx, "keel_review_comment", "add a draft comment", review_comment, api, path, line, body, side, project, pr, branch)
+        line: the new file's line (side RIGHT), or the old file's for a removed line (side LEFT). start_line: the first
+        line of a comment on several lines (line is the last)."""
+        return await act(ctx, "keel_review_comment", "add a draft comment", review_comment, api, path, line, body, side, project, pr, branch,
+                         start_line)
 
     @srv.tool(annotations=out, structured_output=False)
     async def keel_review_reply(thread_id: str, body: str, project: str | None = None, pr: int | None = None, ctx: Context | None = None) -> str:

@@ -150,9 +150,14 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
             }
             // an outdated thread has no line in the current diff (line is null); originalLine is where it was, for the
             // list. The thread says outdated: the diff does not draw it at that line.
-            val line = t.path("line").takeIf { it.isInt }?.asInt() ?: t.path("originalLine").takeIf { it.isInt }?.asInt()
+            val current = t.path("line").takeIf { it.isInt }?.asInt()
+            val line = current ?: t.path("originalLine").takeIf { it.isInt }?.asInt()
+            val start = (if (current != null) t.path("startLine") else t.path("originalStartLine")).takeIf { it.isInt }?.asInt()
             ReviewThread(t.path("id").asText(), t.path("path").asText(null), line, t.path("diffSide").asText("RIGHT"),
-                t.path("isResolved").asBoolean(), t.path("isOutdated").asBoolean(), comments, comments.firstOrNull()?.id)
+                t.path("isResolved").asBoolean(), t.path("isOutdated").asBoolean(), comments, comments.firstOrNull()?.id,
+                startLine = start, startSide = start?.let { t.path("startDiffSide").asText(null) ?: t.path("diffSide").asText("RIGHT") },
+                // GitHub shows your own pending review's comments to you only; they wait for your next review
+                pending = first.path("nodes").firstOrNull()?.path("state")?.asText() == "PENDING")
         }
     }
 
@@ -181,12 +186,39 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
     }
 
     override fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>, onPosted: (OutComment?) -> Unit): String? {
+        // a review you started on GitHub's site is still pending: GitHub takes no second one ("one pending review per
+        // pull request"), so keel's comments join it and it is submitted with your decision
+        val started = getAll("$repo/pulls/${pr.number}/reviews?per_page=100", "the reviews", newest = true).items
+            .lastOrNull { it.path("state").asText() == "PENDING" }
+        if (started != null) return submitStarted(pr, started, event, body, comments, onPosted)
         val out = post("$repo/pulls/${pr.number}/reviews", mapOf(
             "commit_id" to pr.headSha,
             "event" to event,
             "body" to body,
-            "comments" to comments.map { mapOf("path" to it.path, "line" to it.line, "side" to it.side, "body" to it.body) },
+            "comments" to comments.map { c ->
+                mapOf("path" to c.path, "line" to c.line, "side" to c.side, "body" to c.body) +
+                    (if (c.startLine != null) mapOf("start_line" to c.startLine, "start_side" to (c.startSide ?: c.side)) else emptyMap())
+            },
         ).filterValues { it != "" }, "your review")
+        return out.path("html_url").asText(null)
+    }
+
+    private fun submitStarted(pr: PrDetail, review: JsonNode, event: String, body: String, comments: List<OutComment>, onPosted: (OutComment?) -> Unit): String? {
+        var posted = 0
+        try {
+            for (c in comments) {
+                graph(ADD_THREAD, mapOf("r" to review.path("node_id").asText(), "path" to c.path, "line" to c.line, "side" to c.side,
+                    "sl" to c.startLine, "ss" to c.startLine?.let { c.startSide ?: c.side }, "body" to c.body), "a line comment on ${c.path}:${c.line}")
+                posted++
+                onPosted(c)               // in the pending review now: a retry must not add it again
+            }
+        } catch (e: HostException) {
+            if (posted == 0) throw e
+            throw HostException(e.message, "$posted of ${comments.size} line comments are in your pending review on GitHub; submit again to send the rest.", e.status.value())
+        }
+        val out = post("$repo/pulls/${pr.number}/reviews/${review.path("id").asLong()}/events",
+            mapOf("event" to event, "body" to body).filterValues { it != "" }, "your review")
+        onPosted(null)
         return out.path("html_url").asText(null)
     }
 
@@ -261,14 +293,20 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
     }
 
     companion object {
-        private const val COMMENT_FIELDS = "id databaseId body createdAt url author { login }"
+        private const val COMMENT_FIELDS = "id databaseId body createdAt url state author { login }"
         private const val PAGE_INFO = "pageInfo { hasNextPage endCursor }"
         val THREADS = """
             query(${'$'}o: String!, ${'$'}r: String!, ${'$'}n: Int!, ${'$'}c: String) {
               repository(owner: ${'$'}o, name: ${'$'}r) { pullRequest(number: ${'$'}n) { reviewThreads(first: 100, after: ${'$'}c) { $PAGE_INFO nodes {
-                id isResolved isOutdated path line originalLine diffSide
+                id isResolved isOutdated path line originalLine diffSide startLine originalStartLine startDiffSide
                 comments(first: 100) { $PAGE_INFO nodes { $COMMENT_FIELDS } }
               } } } }
+            }
+        """.trimIndent()
+        val ADD_THREAD = """
+            mutation(${'$'}r: ID!, ${'$'}path: String!, ${'$'}line: Int!, ${'$'}side: DiffSide!, ${'$'}sl: Int, ${'$'}ss: DiffSide, ${'$'}body: String!) {
+              addPullRequestReviewThread(input: {pullRequestReviewId: ${'$'}r, path: ${'$'}path, line: ${'$'}line, side: ${'$'}side,
+                startLine: ${'$'}sl, startSide: ${'$'}ss, body: ${'$'}body}) { thread { id } }
             }
         """.trimIndent()
         val THREAD_COMMENTS = """

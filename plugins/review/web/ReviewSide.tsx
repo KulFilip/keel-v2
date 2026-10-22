@@ -23,6 +23,7 @@ import {
   ThreadsTab,
   type PanelTab,
 } from "./ReviewPanel";
+import { PendingTab } from "./PendingTab";
 import * as R from "./store";
 
 type Filter = "review" | "assigned" | "mine" | "all";
@@ -87,6 +88,7 @@ export function ReviewSide({
           reviewKey={selected}
           activePath={activeFile?.key === selected ? activeFile.path : null}
           onBack={() => pick(null)}
+          onOpenReview={pick}
         />
       ) : (
         <ReviewList pid={pid} onPick={pick} />
@@ -292,11 +294,13 @@ function OneReview({
   reviewKey,
   activePath,
   onBack,
+  onOpenReview,
 }: {
   pid: string;
   reviewKey: string;
   activePath: string | null;
   onBack: () => void;
+  onOpenReview: (key: string) => void;
 }) {
   R.useReviewStore();
   const { tick, toast } = useApp();
@@ -316,6 +320,11 @@ function OneReview({
   useEffect(() => {
     if (!r.view && !r.loading && !r.error) void R.load(pid, reviewKey);
   }, [pid, reviewKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a file tab's "N pending" shows them here
+  const pendingTab = R.uiState().pendingTab;
+  useEffect(() => {
+    if (pendingTab) setTab("pending");
+  }, [pendingTab]);
   useEffect(() => {
     void R.loadAi(pid, reviewKey);
   }, [pid, reviewKey, tick]);
@@ -404,8 +413,11 @@ function OneReview({
     )
       await R.decide(pid, reviewKey, f.id, "commented");
   };
+  const pendingCount =
+    v.drafts.length + v.threads.filter((t) => t.pending).length;
   const tabs: [PanelTab, string, number | null][] = [
     ["changes", "Changes", v.files.length],
+    ["pending", "Pending", pendingCount || null],
     ["commits", "Commits", v.commits.length],
     ["overview", "Overview", null],
     [
@@ -490,7 +502,7 @@ function OneReview({
                 type="button"
                 className="btn sm"
                 onClick={() =>
-                  v.drafts.length
+                  pendingCount
                     ? R.setUi({
                         popup: {
                           kind: "submit",
@@ -512,7 +524,16 @@ function OneReview({
                 R.setUi({ popup: { kind: "submit", key: reviewKey } })
               }
             >
-              Submit review{v.drafts.length ? ` (${v.drafts.length})` : ""}
+              Submit review{pendingCount ? ` (${pendingCount})` : ""}
+            </button>
+          )}
+          {v.kind === "branch" && pendingCount > 0 && (
+            <button
+              type="button"
+              className="btn sm"
+              onClick={() => setTab("pending")}
+            >
+              Pending ({pendingCount})
             </button>
           )}
           {v.mine && v.state === "open" && (
@@ -599,7 +620,18 @@ function OneReview({
               <p className="rv-dim rv-foot">
                 {v.viewed.length}/{v.files.length} viewed · +{v.added} −
                 {v.removed}
-                {v.drafts.length ? ` · ${v.drafts.length} pending` : ""}
+                {pendingCount > 0 && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      className="rv-link"
+                      onClick={() => setTab("pending")}
+                    >
+                      {pendingCount} pending
+                    </button>
+                  </>
+                )}
               </p>
               {v.notes.map((n) => (
                 <p key={n} className="rv-dim">
@@ -608,6 +640,15 @@ function OneReview({
               ))}
             </>
           ))}
+        {tab === "pending" && (
+          <PendingTab
+            pid={pid}
+            reviewKey={reviewKey}
+            view={v}
+            onOpen={open}
+            onOpenReview={onOpenReview}
+          />
+        )}
         {tab === "commits" && (
           <ul className="rv-commits">
             {v.commits.map((c) => (

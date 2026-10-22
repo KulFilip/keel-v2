@@ -4,14 +4,15 @@
 
 import { useEffect, useState } from "react";
 import { Pill } from "@keel/web-sdk";
-import { prLabel } from "./reviewApi";
+import { linesLabel, prLabel } from "./reviewApi";
 import { neighbour } from "./ReviewSide";
-import { FileAtView, ReviewDiff, type Anchor } from "./ReviewDiff";
+import { FileAtView, ReviewDiff, type Anchor, type LineSpan } from "./ReviewDiff";
 import { findingComment, ThreadCard } from "./ReviewPanel";
+import { DraftCard } from "./PendingTab";
 import { askAboutFinding } from "./ReviewSide";
 import { keysFor } from "./keymap";
 import * as R from "./store";
-import type { Draft, Finding } from "./reviewApi";
+import type { Finding } from "./reviewApi";
 
 export function ReviewFileTab({
   pid,
@@ -67,6 +68,8 @@ export function ReviewFileTab({
     anchors.push({
       line: t.line!,
       side: t.side,
+      startLine: t.start_line,
+      startSide: t.start_side,
       node: (
         <div className="rv-under">
           <ThreadCard
@@ -84,6 +87,8 @@ export function ReviewFileTab({
     anchors.push({
       line: d.line!,
       side: d.side,
+      startLine: d.start_line,
+      startSide: d.start_side,
       node: (
         <DraftCard
           d={d}
@@ -135,7 +140,7 @@ export function ReviewFileTab({
       side: composing.side,
       node: (
         <CommentBox
-          where={`${path}:${composing.line}${composing.side === "LEFT" ? " (old side)" : ""}`}
+          where={`${path}:${linesLabel({ line: composing.line, side: composing.side, start_line: composing.startLine, start_side: composing.startSide })}`}
           busy={r.running.includes("draft")}
           onCancel={() => R.setUi({ composing: null })}
           onSave={(b) =>
@@ -143,12 +148,35 @@ export function ReviewFileTab({
               path,
               line: composing.line!,
               side: composing.side,
+              startLine: composing.startLine,
+              startSide: composing.startSide,
             })
           }
         />
       ),
     });
   }
+  // a line number (or several: shift-click, drag) in the diff or the whole file starts a comment there
+  const onLine = (fileView: R.FileView) => (l: LineSpan) => {
+    const at = {
+      key: reviewKey,
+      path,
+      view: fileView,
+      line: l.line,
+      side: l.side,
+      startLine: l.startLine,
+      startSide: l.startSide,
+    };
+    R.setUi({ current: at, composing: canComment ? at : null });
+  };
+  const picked = composing?.line
+    ? {
+        line: composing.line,
+        side: composing.side,
+        startLine: composing.startLine ?? null,
+        startSide: composing.startSide ?? null,
+      }
+    : null;
   const go = (dir: 1 | -1) => {
     const next = neighbour(v, path, dir);
     if (next)
@@ -218,7 +246,14 @@ export function ReviewFileTab({
         )}
         <span className="rv-fbar-r">
           {v.drafts.length > 0 && (
-            <span className="rv-dim">{v.drafts.length} pending</span>
+            <button
+              type="button"
+              className="rv-link rv-dim"
+              title="Show them in the Review window's Pending tab"
+              onClick={() => R.setUi({ pendingTab: Date.now() })}
+            >
+              {v.drafts.length} pending
+            </button>
           )}
           <button
             type="button"
@@ -247,6 +282,9 @@ export function ReviewFileTab({
           path={path}
           line={focus?.line ?? null}
           changed={isChanged}
+          anchors={anchors}
+          picked={picked}
+          onLine={onLine("code")}
           onWord={(w) => void R.lookUp(pid, reviewKey, w, "declaration")}
           onBackToDiff={() =>
             R.openPlace({
@@ -271,26 +309,8 @@ export function ReviewFileTab({
             setChanges(n);
             R.uiState().changes = n;
           }}
-          onLine={(l) =>
-            R.setUi({
-              current: {
-                key: reviewKey,
-                path,
-                view: "diff",
-                line: l.line,
-                side: l.side,
-              },
-              composing: canComment
-                ? {
-                    key: reviewKey,
-                    path,
-                    view: "diff",
-                    line: l.line,
-                    side: l.side,
-                  }
-                : null,
-            })
-          }
+          picked={picked}
+          onLine={onLine("diff")}
           onWord={(w, l) => {
             if (l)
               R.setUi({
@@ -365,72 +385,6 @@ function CommentBox({
         </button>
       </div>
     </form>
-  );
-}
-
-export function DraftCard({
-  d,
-  onSave,
-  onDelete,
-}: {
-  d: Draft;
-  onSave: (b: string) => void;
-  onDelete: () => void;
-}) {
-  const [edit, setEdit] = useState(false);
-  const [text, setText] = useState(d.body);
-  return (
-    <div className="rv-under rv-draft" data-draft={d.id}>
-      <div className="rv-comment-h">
-        <Pill tone="run">pending</Pill>
-        {d.finding_id && <span className="rv-dim">from keel</span>}
-      </div>
-      {edit ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSave(text);
-            setEdit(false);
-          }}
-        >
-          <textarea
-            className="rv-ta"
-            aria-label="Edit the pending comment"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            autoFocus
-          />
-          <div className="rv-row">
-            <button type="submit" className="btn sm primary">
-              Save
-            </button>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={() => setEdit(false)}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      ) : (
-        <>
-          <pre className="rv-body-text">{d.body}</pre>
-          <div className="rv-row">
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={() => setEdit(true)}
-            >
-              Edit
-            </button>
-            <button type="button" className="btn sm ghost" onClick={onDelete}>
-              Delete
-            </button>
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 

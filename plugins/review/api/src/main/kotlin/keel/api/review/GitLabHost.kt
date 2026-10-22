@@ -122,15 +122,28 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
         if (pos.isMissingNode || pos.isNull) return null
         val newLine = pos.path("new_line").takeIf { it.isInt }?.asInt()
         val oldLine = pos.path("old_line").takeIf { it.isInt }?.asInt()
+        val side = if (newLine == null && oldLine != null) "LEFT" else "RIGHT"
+        // a comment on several lines: line_range.start is its first line (an unchanged line has both numbers)
+        val from = pos.path("line_range").path("start")
+        val fromNew = from.path("new_line").takeIf { it.isInt }?.asInt()
+        val fromOld = from.path("old_line").takeIf { it.isInt }?.asInt()
+        val startSide = when {
+            fromNew != null && (side == "RIGHT" || fromOld == null) -> "RIGHT"
+            fromOld != null -> "LEFT"
+            else -> null
+        }
+        val startLine = (if (startSide == "RIGHT") fromNew else fromOld)?.takeUnless { it == (newLine ?: oldLine) && startSide == side }
         return ReviewThread(
             id = d.path("id").asText(),
             path = pos.path("new_path").asText(null) ?: pos.path("old_path").asText(null),
             line = newLine ?: oldLine,
-            side = if (newLine == null && oldLine != null) "LEFT" else "RIGHT",
+            side = side,
             resolved = notes.all { !it.path("resolvable").asBoolean(false) || it.path("resolved").asBoolean(false) },
             outdated = head != null && pos.path("head_sha").asText("").let { it.isNotEmpty() && it != head },
             comments = notes.map { comment(it) },
             replyTo = d.path("id").asText(),
+            startLine = startLine,
+            startSide = startLine?.let { startSide },
         )
     }
 
@@ -169,6 +182,11 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
                     "old_path" to c.path,
                 )
                 if (c.side == "LEFT") position["old_line"] = c.line else position["new_line"] = c.line
+                if (c.startLine != null && c.start != null && c.end != null) {
+                    // several lines: GitLab's line_range, each end with its line code (sha1 of the path, old and new count)
+                    if (c.end.type == null) { position["old_line"] = c.end.old; position["new_line"] = c.end.new }
+                    position["line_range"] = mapOf("start" to rangeEnd(c.path, c.start), "end" to rangeEnd(c.path, c.end))
+                }
                 post("$project/merge_requests/${pr.number}/discussions", mapOf("body" to c.body, "position" to position), "a line comment on ${c.path}:${c.line}")
                 posted++
                 onPosted(c)               // this one is on GitLab: a retry must not post it again
@@ -192,6 +210,12 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
                 e.status.value())
         }
         return pr.url
+    }
+
+    private fun rangeEnd(path: String, l: DiffLine): Map<String, Any?> {
+        val sha = java.security.MessageDigest.getInstance("SHA-1").digest(path.toByteArray()).joinToString("") { "%02x".format(it) }
+        return mapOf("line_code" to "${sha}_${l.old}_${l.new}", "type" to l.type,
+            "old_line" to l.old.takeIf { l.type != "new" }, "new_line" to l.new.takeIf { l.type != "old" })
     }
 
     override fun merge(pr: PrDetail, method: String, deleteBranch: Boolean): String {

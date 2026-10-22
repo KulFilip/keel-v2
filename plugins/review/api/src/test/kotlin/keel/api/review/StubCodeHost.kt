@@ -27,8 +27,10 @@ class StubCodeHost private constructor(private val server: HttpServer) {
     private val ids = AtomicInteger(1000)
 
     data class Comment(val id: Int, val author: String, val body: String)
+    /** [pending]: in its author's pending review (GitHub), not sent yet; [review] that review's id. */
     data class Thread(val id: String, val path: String, val line: Int, val side: String, var resolved: Boolean = false,
-                      val comments: MutableList<Comment> = CopyOnWriteArrayList())
+                      val comments: MutableList<Comment> = CopyOnWriteArrayList(), val startLine: Int? = null, val startSide: String? = null,
+                      var pending: Boolean = false, val review: Int? = null)
     data class Pr(
         val number: Int, var title: String, val author: String, val branch: String, val base: String, var headSha: String,
         val reviewers: List<String> = emptyList(), val body: String = "", var state: String = "open", val fork: Boolean = false,
@@ -48,6 +50,11 @@ class StubCodeHost private constructor(private val server: HttpServer) {
 
     fun thread(pr: Pr, path: String, line: Int, author: String, body: String): Thread =
         Thread("PRRT_${ids.incrementAndGet()}", path, line, "RIGHT").also { it.comments += Comment(ids.incrementAndGet(), author, body); pr.threads += it }
+
+    /** A thread in the login's pending review [review] (GitHub): only its author sees it until the review is submitted. */
+    fun pendingThread(pr: Pr, review: Int, path: String, line: Int, body: String): Thread =
+        Thread("PRRT_${ids.incrementAndGet()}", path, line, "RIGHT", pending = true, review = review)
+            .also { it.comments += Comment(ids.incrementAndGet(), login, body); pr.threads += it }
 
     fun calls(method: String, pathEnd: String) = calls.filter { it.method == method && it.path.endsWith(pathEnd) }
 
@@ -115,14 +122,30 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             return 200 to mapOf("check_runs" to p?.checks.orEmpty())
         }
         Regex("^/commits/([0-9a-f]+)/status$").find(rest)?.let { return 200 to mapOf("statuses" to emptyList<Any>()) }
+        Regex("^/pulls/(\\d+)/reviews/(\\d+)/events$").find(rest)?.let { r ->
+            // a pending review is submitted: its threads are sent
+            val p = pr(r.groupValues[1]) ?: return 404 to mapOf("message" to "Not Found")
+            val id = r.groupValues[2].toInt()
+            val at = p.reviews.indexOfFirst { it["id"] == id && it["state"] == "PENDING" }
+            if (at < 0) return 422 to mapOf("message" to "Unprocessable Entity: the review is not pending")
+            val event = body?.path("event")?.asText().orEmpty()
+            p.reviews[at] = p.reviews[at] + mapOf("state" to when (event) { "APPROVE" -> "APPROVED"; "REQUEST_CHANGES" -> "CHANGES_REQUESTED"; else -> "COMMENTED" },
+                "body" to body?.path("body")?.asText().orEmpty())
+            p.threads.filter { it.review == id }.forEach { it.pending = false }
+            return 200 to mapOf("id" to id, "html_url" to "https://github.com/$repo/pull/${p.number}#pullrequestreview-$id")
+        }
         Regex("^/pulls/(\\d+)/reviews$").find(rest)?.let { r ->
             val p = pr(r.groupValues[1]) ?: return 404 to mapOf("message" to "Not Found")
             if (method == "GET") return 200 to p.reviews
+            if (p.reviews.any { it["state"] == "PENDING" }) return 422 to mapOf("message" to "Unprocessable Entity: User can only have one pending review per pull request")
             val comments = body?.path("comments")?.toList().orEmpty()
             for (c in comments) {
                 val line = c.path("line").asInt()
                 if (line <= 0) return 422 to mapOf("message" to "Unprocessable Entity: line must be part of the diff")
-                p.threads += Thread("PRRT_${ids.incrementAndGet()}", c.path("path").asText(), line, c.path("side").asText("RIGHT"))
+                val start = c.path("start_line").takeIf { it.isInt }?.asInt()
+                val startSide = c.path("start_side").asText(null)
+                if (start != null && startSide == c.path("side").asText("RIGHT") && start >= line) return 422 to mapOf("message" to "Unprocessable Entity: start_line must precede line")
+                p.threads += Thread("PRRT_${ids.incrementAndGet()}", c.path("path").asText(), line, c.path("side").asText("RIGHT"), startLine = start, startSide = startSide)
                     .also { it.comments += Comment(ids.incrementAndGet(), login, c.path("body").asText()) }
             }
             val event = body?.path("event")?.asText().orEmpty()
@@ -152,13 +175,25 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             t.resolved = !q.contains("unresolve")
             return 200 to mapOf("data" to mapOf("x" to mapOf("thread" to mapOf("id" to t.id, "isResolved" to t.resolved))))
         }
+        if (q.contains("addPullRequestReviewThread") && v != null) {
+            val node = v.path("r").asText()
+            val p = github.values.flatMap { it.values }.firstOrNull { pr -> pr.reviews.any { it["node_id"] == node && it["state"] == "PENDING" } }
+                ?: return 200 to mapOf("errors" to listOf(mapOf("message" to "Could not resolve to a node with the global id of '$node'")))
+            val review = p.reviews.first { it["node_id"] == node }["id"] as Int
+            val t = Thread("PRRT_${ids.incrementAndGet()}", v.path("path").asText(), v.path("line").asInt(), v.path("side").asText(),
+                startLine = v.path("sl").takeIf { it.isInt }?.asInt(), startSide = v.path("ss").asText(null), pending = true, review = review)
+            t.comments += Comment(ids.incrementAndGet(), login, v.path("body").asText())
+            p.threads += t
+            return 200 to mapOf("data" to mapOf("addPullRequestReviewThread" to mapOf("thread" to mapOf("id" to t.id))))
+        }
         val repo = "${v?.path("o")?.asText()}/${v?.path("r")?.asText()}"
         val p = github[repo]?.get(v?.path("n")?.asInt() ?: 0) ?: return 200 to mapOf("data" to mapOf("repository" to null))
         val nodes = p.threads.map { t ->
             mapOf("id" to t.id, "isResolved" to t.resolved, "isOutdated" to false, "path" to t.path, "line" to t.line, "originalLine" to t.line,
-                "diffSide" to t.side, "comments" to mapOf("nodes" to t.comments.map {
+                "diffSide" to t.side, "startLine" to t.startLine, "originalStartLine" to t.startLine, "startDiffSide" to t.startSide,
+                "comments" to mapOf("nodes" to t.comments.map {
                     mapOf("id" to "PRRC_${it.id}", "databaseId" to it.id, "body" to it.body, "createdAt" to "2026-10-08T09:00:00Z", "url" to null,
-                        "author" to mapOf("login" to it.author))
+                        "state" to if (t.pending) "PENDING" else "SUBMITTED", "author" to mapOf("login" to it.author))
                 }))
         }
         return 200 to mapOf("data" to mapOf("repository" to mapOf("pullRequest" to mapOf("reviewThreads" to mapOf("nodes" to nodes)))))
@@ -214,9 +249,13 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             val p = mr(r.groupValues[1]) ?: return 404 to mapOf("message" to "404 Not found")
             if (method == "POST") {
                 val pos = body?.path("position")
-                val line = pos?.path("new_line")?.takeIf { it.isInt }?.asInt() ?: pos?.path("old_line")?.asInt() ?: 0
+                val newLine = pos?.path("new_line")?.takeIf { it.isInt }?.asInt()
+                val line = newLine ?: pos?.path("old_line")?.asInt() ?: 0
                 if (pos?.path("head_sha")?.asText() != p.headSha) return 400 to mapOf("message" to mapOf("base" to listOf("position is invalid")))
-                val t = Thread(ids.incrementAndGet().toString(), pos.path("new_path").asText(), line, if (pos.has("old_line")) "LEFT" else "RIGHT")
+                val from = pos.path("line_range").path("start")
+                val fromNew = from.path("new_line").takeIf { it.isInt }?.asInt()
+                val t = Thread(ids.incrementAndGet().toString(), pos.path("new_path").asText(), line, if (newLine == null) "LEFT" else "RIGHT",
+                    startLine = fromNew ?: from.path("old_line").takeIf { it.isInt }?.asInt(), startSide = if (from.isMissingNode) null else if (fromNew != null) "RIGHT" else "LEFT")
                 t.comments += Comment(ids.incrementAndGet(), login, body.path("body").asText())
                 p.threads += t
                 return 201 to mapOf("id" to t.id)
@@ -226,7 +265,11 @@ class StubCodeHost private constructor(private val server: HttpServer) {
                     mapOf("id" to c.id, "body" to c.body, "author" to mapOf("username" to c.author), "created_at" to "2026-10-08T09:00:00Z", "system" to false,
                         "resolvable" to true, "resolved" to t.resolved,
                         "position" to if (i == 0) mapOf("new_path" to t.path, "old_path" to t.path, "new_line" to t.line.takeIf { t.side == "RIGHT" },
-                            "old_line" to t.line.takeIf { t.side == "LEFT" }) else null)
+                            "old_line" to t.line.takeIf { t.side == "LEFT" },
+                            "line_range" to t.startLine?.let { sl ->
+                                mapOf("start" to mapOf("new_line" to sl.takeIf { t.startSide == "RIGHT" }, "old_line" to sl.takeIf { t.startSide == "LEFT" }),
+                                    "end" to mapOf("new_line" to t.line.takeIf { t.side == "RIGHT" }, "old_line" to t.line.takeIf { t.side == "LEFT" }))
+                            }) else null)
                 })
             } + p.conversation.map { c ->
                 mapOf("id" to "c${c.id}", "notes" to listOf(mapOf("id" to c.id, "body" to c.body, "author" to mapOf("username" to c.author),

@@ -1,5 +1,6 @@
 // v0.14.0 one file of a review: the diff (side by side or inline) with the threads, your pending comments and keel's
-// findings on their lines. A line number starts a comment; ⌘-click on a name goes to its declaration.
+// findings on their lines. A line number starts a comment (shift-click another, or drag over the numbers, for a
+// comment on several lines); ⌘-click on a name goes to its declaration.
 
 import {
   Fragment,
@@ -23,10 +24,37 @@ import {
 } from "@keel/web-sdk";
 import { reviewApi } from "./reviewApi";
 import { wordAt } from "./keymap";
+import { rowsOf, useLineRange, type Point, type Span } from "./range";
 
 export type Side = "RIGHT" | "LEFT";
 export type LineRef = { path: string; line: number; side: Side };
-export type Anchor = { line: number; side: Side; node: ReactNode };
+/** The lines a new comment is on: one line, or from startLine on startSide to line. */
+export type LineSpan = LineRef & { startLine: number | null; startSide: Side | null };
+/** What sits under a line; a thread or comment on several lines also marks its rows from startLine. */
+export type Anchor = {
+  line: number;
+  side: Side;
+  node: ReactNode;
+  startLine?: number | null;
+  startSide?: Side | null;
+};
+/** The lines picked for the comment being written. */
+export type Picked = Omit<Span, "line"> & { line: number | null };
+
+/** The rows every range anchor covers, and the picked span's rows. */
+function marks(
+  anchors: Anchor[],
+  picked: Picked | null,
+  rowOf: (side: Side, line: number) => number | undefined,
+) {
+  const ranges = new Set<number>();
+  for (const a of anchors) {
+    if (a.startLine == null) continue;
+    const r = rowsOf(a, rowOf);
+    if (r) for (let i = r[0]; i <= r[1]; i++) ranges.add(i);
+  }
+  return { ranges, picked: picked ? rowsOf(picked, rowOf) : null };
+}
 
 const esc = (s: string) =>
   s.replace(
@@ -63,6 +91,7 @@ export function ReviewDiff({
   anchors,
   focus,
   change,
+  picked = null,
   onLine,
   onWord,
   onChanges,
@@ -77,7 +106,9 @@ export function ReviewDiff({
   focus: { line: number; side: Side; n: number } | null;
   /** F7 / ⇧F7: the index of the change block to show (n changes on every press) */
   change: { index: number; n: number } | null;
-  onLine: (l: LineRef) => void;
+  /** the lines of the comment being written: marked */
+  picked?: Picked | null;
+  onLine: (l: LineSpan) => void;
   onWord: (word: string, l: LineRef | null) => void;
   onChanges: (count: number) => void;
 }) {
@@ -96,6 +127,34 @@ export function ReviewDiff({
   // ⌘/Ctrl+A selects this diff, not the whole window
   useSelectAll(body, ".dv-code, .dv-hunk");
   const [current, setCurrent] = useState<LineRef | null>(null);
+  const split = useMemo(
+    () => (parsed && mode === "split" ? splitRows(parsed.rows) : null),
+    [parsed, mode],
+  );
+  // where a side's line is drawn: the row of the inline list or of the side-by-side one
+  const rowIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    if (split)
+      split.forEach((s, i) => {
+        if (s.kind === "hunk") return;
+        if (s.left?.old != null) m.set(`L${s.left.old}`, i);
+        if (s.right?.new != null) m.set(`R${s.right.new}`, i);
+      });
+    else
+      parsed?.rows.forEach((r, i) => {
+        if (r.kind === "hunk" || r.kind === "meta") return;
+        if (r.old != null && r.kind !== "add") m.set(`L${r.old}`, i);
+        if (r.new != null && r.kind !== "del") m.set(`R${r.new}`, i);
+      });
+    return m;
+  }, [split, parsed]);
+  const rowOf = (side: Side, line: number) =>
+    rowIndex.get(`${side === "LEFT" ? "L" : "R"}${line}`);
+  const range = useLineRange((sp: Span) => {
+    const l = { path, line: sp.line, side: sp.side };
+    setCurrent(l);
+    onLine({ ...l, startLine: sp.startLine, startSide: sp.startSide });
+  });
 
   // the first row of every change block (F7 jumps between them)
   const blocks = useMemo(() => {
@@ -159,11 +218,13 @@ export function ReviewDiff({
       : anchors
           .filter((a) => a.line === line && a.side === side)
           .map((a, i) => <Fragment key={i}>{a.node}</Fragment>);
-  const pick = (line: number | undefined, side: Side) => {
-    if (line == null) return;
-    const l = { path, line, side };
-    setCurrent(l);
-    onLine(l);
+  const marked = marks(anchors, picked, rowOf);
+  const rowCls = (i: number) => {
+    const sel = range.rows ?? marked.picked;
+    return (
+      (sel && i >= sel[0] && i <= sel[1] ? " sel" : "") +
+      (marked.ranges.has(i) ? " rng" : "")
+    );
   };
   const click = (e: React.MouseEvent, line: number | undefined, side: Side) => {
     if (line != null) setCurrent({ path, line, side });
@@ -177,7 +238,13 @@ export function ReviewDiff({
   };
   const isCur = (line: number | undefined, side: Side) =>
     current != null && line === current.line && side === current.side;
-  const gutter = (line: number | undefined, side: Side, cls = "") => (
+  const gutter = (
+    row: number,
+    line: number | undefined,
+    side: Side,
+    cls = "",
+    alt?: number,
+  ) => (
     <button
       type="button"
       className={`rv-ln ${cls}`}
@@ -188,7 +255,8 @@ export function ReviewDiff({
           ? undefined
           : `Comment on line ${line}${side === "LEFT" ? " (old)" : ""}`
       }
-      onClick={() => pick(line, side)}
+      title={line == null ? undefined : "Shift-click or drag for several lines"}
+      {...range.on(line == null ? null : ({ row, line, side, alt } satisfies Point))}
     >
       {line ?? ""}
     </button>
@@ -229,13 +297,13 @@ export function ReviewDiff({
               return (
                 <Fragment key={i}>
                   <div
-                    className={`dv-row ${r.kind}${isCur(line, side) ? " cur" : ""}`}
+                    className={`dv-row ${r.kind}${isCur(line, side) ? " cur" : ""}${rowCls(i)}`}
                     data-row={i}
                     data-old={r.old}
                     data-new={r.new}
                   >
-                    {gutter(r.old, "LEFT", "old")}
-                    {gutter(r.new, "RIGHT", "new")}
+                    {gutter(i, r.kind === "add" ? undefined : r.old, "LEFT", "old", r.kind === "ctx" ? r.new : undefined)}
+                    {gutter(i, r.kind === "del" ? undefined : r.new, "RIGHT", "new", r.kind === "ctx" ? r.old : undefined)}
                     <span className="dv-sg" aria-hidden="true">
                       {r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}
                     </span>
@@ -250,7 +318,7 @@ export function ReviewDiff({
                 </Fragment>
               );
             })
-          : splitRows(parsed.rows).map((s, i) => {
+          : (split ?? []).map((s, i) => {
               if (s.kind === "hunk")
                 return (
                   <div key={i} className="dv-srow hunk">
@@ -261,19 +329,19 @@ export function ReviewDiff({
               return (
                 <Fragment key={i}>
                   <div
-                    className={`dv-srow${isCur(s.right?.new, "RIGHT") || isCur(s.left?.old, "LEFT") ? " cur" : ""}`}
+                    className={`dv-srow${isCur(s.right?.new, "RIGHT") || isCur(s.left?.old, "LEFT") ? " cur" : ""}${rowCls(i)}`}
                     data-row={first}
                     data-old={s.left?.old}
                     data-new={s.right?.new}
                   >
-                    {gutter(s.left?.old, "LEFT", s.left?.kind ?? "none")}
+                    {gutter(i, s.left?.old, "LEFT", s.left?.kind ?? "none", s.left?.kind === "ctx" ? s.right?.new : undefined)}
                     <code
                       className={`dv-code ${s.left?.kind ?? "none"}`}
                       data-side="old"
                       onClick={(e) => click(e, s.left?.old, "LEFT")}
                       dangerouslySetInnerHTML={{ __html: cell(s.left, lang) }}
                     />
-                    {gutter(s.right?.new, "RIGHT", s.right?.kind ?? "none")}
+                    {gutter(i, s.right?.new, "RIGHT", s.right?.kind ?? "none", s.right?.kind === "ctx" ? s.left?.old : undefined)}
                     <code
                       className={`dv-code ${s.right?.kind ?? "none"}`}
                       data-side="new"
@@ -291,7 +359,11 @@ export function ReviewDiff({
   );
 }
 
-/** A whole file of the reviewed commit (Jump to source, Go to declaration), with ⌘-click to keep jumping. */
+/**
+ * A whole file of the reviewed commit (Jump to source, Go to declaration), with ⌘-click to keep jumping. Its line
+ * numbers start a comment on the new side, one line or several, like the diff's (a line outside the diff goes into
+ * the review's text when it is sent).
+ */
 export function FileAtView({
   pid,
   reviewKey,
@@ -300,6 +372,9 @@ export function FileAtView({
   onWord,
   onBackToDiff,
   changed,
+  anchors = [],
+  picked = null,
+  onLine,
 }: {
   pid: string;
   reviewKey: string;
@@ -308,6 +383,11 @@ export function FileAtView({
   changed: boolean;
   onWord: (word: string, l: LineRef | null) => void;
   onBackToDiff: () => void;
+  /** what sits under a line (new side only: the whole file is the head commit's) */
+  anchors?: Anchor[];
+  picked?: Picked | null;
+  /** a line number starts a comment; without it the numbers are plain */
+  onLine?: (l: LineSpan) => void;
 }) {
   const f = useLoad(
     `review-file:${pid}:${reviewKey}:${path}`,
@@ -318,6 +398,9 @@ export function FileAtView({
   const lang = languageOf(path);
   useLanguage(lang);
   useSelectAll(box, ".dv-code");
+  const range = useLineRange((sp: Span) =>
+    onLine?.({ path, line: sp.line, side: sp.side, startLine: sp.startLine, startSide: sp.startSide }),
+  );
   useEffect(() => {
     if (!f.data || !line) return;
     scrollToCenter(box.current, box.current?.querySelector<HTMLElement>(`[data-line="${line}"]`));
@@ -338,6 +421,10 @@ export function FileAtView({
     );
   const lines = f.data.text.split("\n");
   if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  const right = anchors.filter((a) => a.side === "RIGHT");
+  const rowOf = (side: Side, n: number) => (side === "RIGHT" && n >= 1 && n <= lines.length ? n - 1 : undefined);
+  const marked = marks(right, picked, rowOf);
+  const sel = range.rows ?? marked.picked;
   return (
     <div className="dv rv-file">
       <div className="dv-head">
@@ -359,12 +446,25 @@ export function FileAtView({
         aria-label={`${path} in the reviewed commit`}
       >
         {lines.map((t, i) => (
+          <Fragment key={i}>
           <div
-            key={i}
-            className={`rv-fl${line === i + 1 ? " cur" : ""}`}
+            className={`rv-fl${line === i + 1 ? " cur" : ""}${sel && i >= sel[0] && i <= sel[1] ? " sel" : ""}${marked.ranges.has(i) ? " rng" : ""}`}
             data-line={i + 1}
           >
-            <span className="dv-ln">{i + 1}</span>
+            {onLine ? (
+              <button
+                type="button"
+                className="dv-ln rv-ln"
+                tabIndex={-1}
+                aria-label={`Comment on line ${i + 1}`}
+                title="Shift-click or drag for several lines"
+                {...range.on({ row: i, line: i + 1, side: "RIGHT" })}
+              >
+                {i + 1}
+              </button>
+            ) : (
+              <span className="dv-ln">{i + 1}</span>
+            )}
             <code
               className="dv-code"
               onClick={(e) => {
@@ -376,6 +476,12 @@ export function FileAtView({
               dangerouslySetInnerHTML={{ __html: highlight(t, lang) ?? esc(t) }}
             />
           </div>
+          {right
+            .filter((a) => a.line === i + 1)
+            .map((a, k) => (
+              <Fragment key={k}>{a.node}</Fragment>
+            ))}
+          </Fragment>
         ))}
         {f.data.truncated && (
           <div className="ed-note">

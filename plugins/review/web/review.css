@@ -77,6 +77,13 @@
 .rv-file .dv-body { padding-bottom: 30vh; }
 .rv-fl { display: grid; grid-template-columns: 5.5ch max-content; white-space: pre; min-width: 100%; width: max-content; }
 .rv-fl.cur { background: var(--ide-sel); box-shadow: inset 3px 0 0 var(--accent); }
+/* the lines of a comment: picked for a new one (sel), or under a thread or pending comment on several lines (rng) */
+.dv-row.sel, .dv-srow.sel, .rv-fl.sel { background: var(--ide-sel); box-shadow: inset 3px 0 0 var(--accent); }
+.dv-row.rng, .dv-srow.rng, .rv-fl.rng { box-shadow: inset 3px 0 0 var(--run); }
+.rv-fl .rv-ln { padding: 0 1ch 0 0; }
+.rv-pfile { display: grid; gap: 6px; }
+.rv-pfile h4 { margin: 4px 0 0; font-size: 12px; }
+.rv-pitem { display: grid; gap: 4px; }
 
 /* the review's tabs in the tool window */
 .rv-tabs { display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--ide-line); flex-wrap: wrap; }

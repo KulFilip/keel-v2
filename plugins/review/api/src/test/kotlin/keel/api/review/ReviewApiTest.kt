@@ -431,4 +431,112 @@ class ReviewApiTest : ApiTest() {
         post("/api/projects/$pid/review/ai/findings/$id", mapOf("key" to "pr:7", "decision" to "open")).andExpect(status().isOk)
         assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["decisions"].size()).isZero()
     }
+
+    @Test
+    fun `a comment on several lines goes to GitHub as one, with start_line, and its thread comes back over the range`() {
+        val (pid, root) = githubPr()
+        view(pid, "pr:7")
+        val drafts = "/api/projects/$pid/review/drafts"
+        val d = post(drafts, mapOf("key" to "pr:7", "path" to "src/Prefs.kt", "start_line" to 3, "line" to 5, "body" to "Move these three lines to a store"))
+            .andExpect(status().isOk).json()
+        assertThat(d["start_line"].asInt()).isEqualTo(3)
+        assertThat(d["start_side"].asText()).isEqualTo("RIGHT")
+        post(drafts, mapOf("key" to "pr:7", "path" to "src/Prefs.kt", "start_line" to 6, "line" to 5, "body" to "x")).andExpect(status().isBadRequest)
+        post(drafts, mapOf("key" to "pr:7", "path" to "src/Prefs.kt", "start_line" to 3, "start_side" to "RIGHT", "line" to 2, "side" to "LEFT", "body" to "x"))
+            .andExpect(status().isBadRequest)
+        post(drafts, mapOf("key" to "pr:7", "start_line" to 3, "body" to "x")).andExpect(status().isBadRequest)
+        // the same line twice is one line
+        assertThat(post(drafts, mapOf("key" to "pr:7", "path" to "src/Prefs.kt", "start_line" to 4, "line" to 4, "body" to "One line")).json().path("start_line").isInt).isFalse()
+        // a range on a file the review does not change goes into the review's text, with its lines
+        post(drafts, mapOf("key" to "pr:7", "path" to "src/Orders.kt", "start_line" to 1, "line" to 2, "body" to "Read the saved size here")).andExpect(status().isOk)
+        assertThat(view(pid, "pr:7")["drafts"].first { it["id"].asText() == d["id"].asText() }["start_line"].asInt()).isEqualTo(3)
+
+        val sent = post("/api/projects/$pid/review/submit", mapOf("key" to "pr:7", "event" to "COMMENT")).andExpect(status().isOk).json()
+        assertThat(sent["posted"].asInt()).isEqualTo(2)
+        assertThat(sent["in_body"].asInt()).isEqualTo(1)
+        val review = hosts.calls("POST", "/pulls/7/reviews").single().body!!
+        val range = review["comments"].first { it["body"].asText().startsWith("Move") }
+        assertThat(range["start_line"].asInt()).isEqualTo(3)
+        assertThat(range["start_side"].asText()).isEqualTo("RIGHT")
+        assertThat(range["line"].asInt()).isEqualTo(5)
+        assertThat(review["comments"].first { it["body"].asText() == "One line" }.has("start_line")).isFalse()
+        assertThat(review["body"].asText()).contains("`src/Orders.kt:1-2`").contains("Read the saved size here")
+        val t = sent["view"]["threads"].first { it["comments"][0]["body"].asText().startsWith("Move") }
+        assertThat(t["start_line"].asInt()).isEqualTo(3)
+        assertThat(t["line"].asInt()).isEqualTo(5)
+        assertThat(t["pending"].asBoolean()).isFalse()
+        assertThat(sha(root, "feat/paging")).isEqualTo(review["commit_id"].asText())
+    }
+
+    @Test
+    fun `a review started on GitHub's site is shown as pending and goes out with keel's comments and the decision, as one review`() {
+        val (pid, _) = githubPr()
+        val pr = hosts.github["acme/shop"]!![7]!!
+        pr.reviews += mapOf("id" to 77, "node_id" to "PRR_77", "user" to mapOf("login" to "me"), "state" to "PENDING")
+        hosts.pendingThread(pr, 77, "src/Prefs.kt", 4, "Started on github.com")
+        val pending = view(pid, "pr:7")["threads"].filter { it["pending"].asBoolean() }
+        assertThat(pending.map { it["comments"][0]["body"].asText() }).containsExactly("Started on github.com")
+
+        // nothing written in keel: the pending review alone is enough to approve
+        post("/api/projects/$pid/review/drafts", mapOf("key" to "pr:7", "path" to "src/Prefs.kt", "start_line" to 2, "line" to 3, "body" to "From keel"))
+            .andExpect(status().isOk)
+        val sent = post("/api/projects/$pid/review/submit", mapOf("key" to "pr:7", "event" to "APPROVE", "body" to "Looks good")).andExpect(status().isOk).json()
+        assertThat(sent["posted"].asInt()).isEqualTo(1)
+        assertThat(hosts.calls("POST", "/pulls/7/reviews")).isEmpty()              // no second review: GitHub would refuse it
+        val added = hosts.calls("POST", "/graphql").map { it.body!! }.single { it["query"].asText().contains("addPullRequestReviewThread") }["variables"]
+        assertThat(added["r"].asText()).isEqualTo("PRR_77")
+        assertThat(added["sl"].asInt()).isEqualTo(2)
+        assertThat(added["line"].asInt()).isEqualTo(3)
+        val event = hosts.calls("POST", "/pulls/7/reviews/77/events").single().body!!
+        assertThat(event["event"].asText()).isEqualTo("APPROVE")
+        assertThat(event["body"].asText()).isEqualTo("Looks good")
+        assertThat(sent["view"]["approved"].map { it.asText() }).containsExactly("me")
+        assertThat(sent["view"]["drafts"].size()).isZero()
+        assertThat(sent["view"]["threads"].none { it["pending"].asBoolean() }).isTrue()
+
+        // with the started review: COMMENT with nothing written still sends it
+        pr.reviews += mapOf("id" to 78, "node_id" to "PRR_78", "user" to mapOf("login" to "me"), "state" to "PENDING")
+        hosts.pendingThread(pr, 78, "src/Prefs.kt", 5, "Second")
+        post("/api/projects/$pid/review/submit", mapOf("key" to "pr:7", "event" to "COMMENT")).andExpect(status().isOk)
+        assertThat(hosts.calls("POST", "/pulls/7/reviews/78/events")).hasSize(1)
+    }
+
+    @Test
+    fun `a branch review's pending comments move to its pull request, where they can be sent`() {
+        val (pid, _) = githubPr()
+        val b = view(pid, "branch:feat/paging")
+        assertThat(b["branch_pr"].asInt()).isEqualTo(7)
+        post("/api/projects/$pid/review/drafts", mapOf("key" to "branch:feat/paging", "path" to "src/Prefs.kt", "line" to 4, "body" to "Written on the branch"))
+            .andExpect(status().isOk)
+        post("/api/projects/$pid/review/drafts/move", mapOf("from" to "pr:7", "to" to "pr:7")).andExpect(status().isBadRequest)
+        post("/api/projects/$pid/review/drafts/move", mapOf("from" to "branch:feat/paging", "to" to "branch:main")).andExpect(status().isConflict)
+        val moved = post("/api/projects/$pid/review/drafts/move", mapOf("from" to "branch:feat/paging", "to" to "pr:7")).andExpect(status().isOk).json()
+        assertThat(moved["key"].asText()).isEqualTo("pr:7")
+        assertThat(moved["drafts"].map { it["body"].asText() }).containsExactly("Written on the branch")
+        assertThat(view(pid, "branch:feat/paging")["drafts"].size()).isZero()
+        post("/api/projects/$pid/review/submit", mapOf("key" to "pr:7", "event" to "COMMENT")).andExpect(status().isOk)
+        assertThat(hosts.calls("POST", "/pulls/7/reviews").single().body!!["comments"].single()["line"].asInt()).isEqualTo(4)
+    }
+
+    @Test
+    fun `a comment on several lines goes to GitLab with its line range, and comes back over it`() {
+        val (pid, _, head) = repoWithChange("review-gl-range", "gitlab.test", "group/shop", "refs/merge-requests/3/head")
+        put("/api/gitlab", mapOf("url" to "https://gitlab.test/", "token" to hosts.gitlabToken)).andExpect(status().isOk)
+        hosts.gitlab["group/shop"] = mutableMapOf(3 to StubCodeHost.Pr(3, "Save the page size", "ana", "feat/paging", "main", head, reviewers = listOf("me")))
+        view(pid, "pr:3")
+        post("/api/projects/$pid/review/drafts", mapOf("key" to "pr:3", "path" to "src/Prefs.kt", "start_line" to 3, "line" to 5, "body" to "Move these"))
+            .andExpect(status().isOk)
+        val sent = post("/api/projects/$pid/review/submit", mapOf("key" to "pr:3", "event" to "COMMENT")).andExpect(status().isOk).json()
+        val pos = hosts.calls("POST", "/merge_requests/3/discussions").single().body!!["position"]
+        assertThat(pos["new_line"].asInt()).isEqualTo(5)
+        val sha1 = java.security.MessageDigest.getInstance("SHA-1").digest("src/Prefs.kt".toByteArray()).joinToString("") { "%02x".format(it) }
+        assertThat(pos["line_range"]["start"]["line_code"].asText()).matches("${sha1}_\\d+_3")    // an added line keeps the old count it sits at
+        assertThat(pos["line_range"]["start"]["type"].asText()).isEqualTo("new")
+        assertThat(pos["line_range"]["start"]["new_line"].asInt()).isEqualTo(3)
+        assertThat(pos["line_range"]["end"]["new_line"].asInt()).isEqualTo(5)
+        val t = sent["view"]["threads"].single()
+        assertThat(t["start_line"].asInt()).isEqualTo(3)
+        assertThat(t["start_side"].asText()).isEqualTo("RIGHT")
+        assertThat(t["line"].asInt()).isEqualTo(5)
+    }
 }
