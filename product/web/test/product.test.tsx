@@ -639,6 +639,15 @@ describe("keel Product in keel's web", () => {
       ),
     ).toBeInTheDocument();
     expect(main().getByText("0 of 2 stories done")).toBeInTheDocument();
+    // the stories are keel tasks now, but not Jira tickets yet: only Jira is left to send to
+    const delivery = main().getByRole("tabpanel");
+    expect(
+      within(delivery).getByRole("button", { name: "Send to Jira" }),
+    ).toBeInTheDocument();
+    expect(
+      within(delivery).queryByRole("button", { name: "Send to keel Tasks" }),
+    ).toBeNull();
+    expect(within(delivery).queryByRole("button", { name: "Both" })).toBeNull();
     expect(main().getAllByRole("link", { name: "todo" })[0]).toHaveAttribute(
       "href",
       "#/tasks/tk_0",

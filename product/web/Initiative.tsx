@@ -185,9 +185,7 @@ function Loaded({
             {tab === "impact" && <ImpactTab d={d} onChanged={reload} />}
             {tab === "decision" && <DecisionTab d={d} onChanged={reload} />}
             {tab === "plan" && <PlanTab d={d} onChanged={reload} />}
-            {tab === "delivery" && (
-              <DeliveryTab d={d} reload={reload} />
-            )}
+            {tab === "delivery" && <DeliveryTab d={d} reload={reload} />}
             {tab === "outcome" && (
               <DocTab
                 d={d}
@@ -528,7 +526,7 @@ function NextCard({
         </span>
       </div>
     ) : (
-      <Handoff id={i.id} onDone={reload} />
+      <Handoff id={i.id} tasksLeft jiraLeft onDone={reload} />
     );
   } else if (i.stage === "outcome" && i.status !== "running") {
     body = (
@@ -602,7 +600,18 @@ function SendBack({
   );
 }
 
-function Handoff({ id, onDone }: { id: string; onDone: () => void }) {
+/** The send buttons for what is left: stories with no keel task, stories with no Jira ticket. */
+function Handoff({
+  id,
+  tasksLeft,
+  jiraLeft,
+  onDone,
+}: {
+  id: string;
+  tasksLeft: boolean;
+  jiraLeft: boolean;
+  onDone: () => void;
+}) {
   const act = useAct();
   const [notes, setNotes] = useState<string[]>([]);
   const send = async (target: "tasks" | "jira" | "both") => {
@@ -620,30 +629,36 @@ function Handoff({ id, onDone }: { id: string; onDone: () => void }) {
         sub-tasks).
       </p>
       <div className="pd-actions">
-        <button
-          className="btn primary"
-          type="button"
-          disabled={act.busy !== null}
-          onClick={() => void send("tasks")}
-        >
-          Send to keel Tasks
-        </button>
-        <button
-          className="btn"
-          type="button"
-          disabled={act.busy !== null}
-          onClick={() => void send("jira")}
-        >
-          Send to Jira
-        </button>
-        <button
-          className="btn"
-          type="button"
-          disabled={act.busy !== null}
-          onClick={() => void send("both")}
-        >
-          Both
-        </button>
+        {tasksLeft && (
+          <button
+            className="btn primary"
+            type="button"
+            disabled={act.busy !== null}
+            onClick={() => void send("tasks")}
+          >
+            Send to keel Tasks
+          </button>
+        )}
+        {jiraLeft && (
+          <button
+            className={tasksLeft ? "btn" : "btn primary"}
+            type="button"
+            disabled={act.busy !== null}
+            onClick={() => void send("jira")}
+          >
+            Send to Jira
+          </button>
+        )}
+        {tasksLeft && jiraLeft && (
+          <button
+            className="btn"
+            type="button"
+            disabled={act.busy !== null}
+            onClick={() => void send("both")}
+          >
+            Both
+          </button>
+        )}
       </div>
       {notes.length > 0 && (
         <ul className="pd-notes">
@@ -950,6 +965,9 @@ function DeliveryTab({ d, reload }: { d: Detail; reload: () => void }) {
       <Empty>The stories go to the teams when the leads agreed the plan.</Empty>
     );
   const prog = p.progress;
+  const stories = p.epics.flatMap((e) => e.stories);
+  const tasksLeft = stories.some((s) => !s.task_id);
+  const jiraLeft = stories.some((s) => !s.jira_key);
   return (
     <div className="pd-doc">
       {prog && (
@@ -967,8 +985,13 @@ function DeliveryTab({ d, reload }: { d: Detail; reload: () => void }) {
         </div>
       )}
       <Stories plan={p} delivery />
-      {d.initiative.stage === "delivery" && p.epics.some((e) => e.stories.some((s) => !s.task_id && !s.jira_key)) && (
-        <Handoff id={d.initiative.id} onDone={reload} />
+      {d.initiative.stage === "delivery" && (tasksLeft || jiraLeft) && (
+        <Handoff
+          id={d.initiative.id}
+          tasksLeft={tasksLeft}
+          jiraLeft={jiraLeft}
+          onDone={reload}
+        />
       )}
     </div>
   );
