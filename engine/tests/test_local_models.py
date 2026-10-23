@@ -51,7 +51,8 @@ class FakeServer:
                 server.requests.append({"method": "POST", "path": self.path, "body": body, "auth": self.headers.get("Authorization")})
                 if self.path == "/api/show":
                     caps = ["completion", "tools"] if body.get("model", "").startswith("coder") else ["completion"]
-                    out = {"model_info": {"llama.context_length": 131072}, "parameters": "num_ctx 4096\nstop <|eot|>"}
+                    params = "num_ctx 6144\nstop <|eot|>" if body.get("model", "").startswith("coder") else "stop <|eot|>"
+                    out = {"model_info": {"llama.context_length": 131072}, "parameters": params}
                     if server.show_caps:
                         out["capabilities"] = caps
                     return self._json(200, out)
@@ -205,7 +206,8 @@ def test_local_models_take_no_effort_and_cost_nothing_unless_priced():
 
 def test_context_comes_from_the_endpoint_then_the_server(server):
     ep = {"name": "box", "kind": "ollama", "url": server.url}
-    assert local.context_for(ep, "coder:7b") == 4096           # Ollama's num_ctx
+    assert local.context_for(ep, "coder:7b") == 6144           # Ollama's num_ctx
+    assert local.fetch_info(ep, "plain:3b")["context"] == 4096   # no num_ctx: Ollama's default, not the trained 131072
     assert local.context_for({**ep, "context": 16384}, "coder:7b") == 16384
     assert local.context_for({"name": "x", "kind": "vllm", "url": "http://127.0.0.1:9"}, "m") == local.DEFAULT_CONTEXT
 

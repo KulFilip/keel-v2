@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 
 KINDS = ("ollama", "lmstudio", "vllm", "llamacpp", "openai-compatible")
 DEFAULT_CONTEXT = 8192          # when neither the server nor the endpoint says
+OLLAMA_DEFAULT_CONTEXT = 4096   # Ollama's window for a model whose Modelfile sets no num_ctx
 PROBE_TIMEOUT = 4.0             # listing models and model info
 TOOL_PROBE_TIMEOUT = 90.0       # the tool-call probe may have to load the model first
 CHARS_PER_TOKEN = 4             # the estimate keel packs prompts with
@@ -164,16 +165,14 @@ def fetch_info(ep: dict, model: str) -> dict:
     caps = data.get("capabilities")
     if isinstance(caps, list):
         out["tools"] = "tools" in caps
-    # the window Ollama really runs the model with: its num_ctx parameter when the Modelfile sets one, else what the
-    # model was trained for (Ollama itself may still use less; the endpoint's own context setting wins over both)
+    # the window Ollama really runs the model with: its num_ctx parameter when the Modelfile sets one, else Ollama's
+    # own default (it cuts a longer prompt from the front without a word), never more than the model was trained for.
+    # A server started with a bigger OLLAMA_CONTEXT_LENGTH: set the endpoint's context, which wins over both.
+    trained = next((v for k, v in (data.get("model_info") or {}).items()
+                    if k.endswith(".context_length") and isinstance(v, int) and v > 0), None)
     m = re.search(r"(?m)^\s*num_ctx\s+(\d+)", str(data.get("parameters") or ""))
-    if m:
-        out["context"] = int(m.group(1))
-    else:
-        for k, v in (data.get("model_info") or {}).items():
-            if k.endswith(".context_length") and isinstance(v, int) and v > 0:
-                out["context"] = v
-                break
+    ctx = int(m.group(1)) if m else OLLAMA_DEFAULT_CONTEXT
+    out["context"] = min(ctx, trained) if trained else ctx
     return out
 
 

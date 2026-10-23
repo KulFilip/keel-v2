@@ -24,7 +24,8 @@ export const KIND_LABEL: Record<LocalServerKind, string> = {
 };
 const KIND_HINT: Record<LocalServerKind, string> = {
   ollama:
-    "The Ollama address without /v1. keel lists its models and reads what each can do.",
+    "The Ollama address without /v1. keel lists its models and reads what each can do. Prompts are packed into Ollama's " +
+    "window (4096 tokens unless the model sets num_ctx): set Context when Ollama runs with a bigger OLLAMA_CONTEXT_LENGTH.",
   lmstudio: "LM Studio's server (Developer › Start server), with /v1.",
   vllm: "vllm serve …, with /v1.",
   llamacpp: "llama-server, with /v1.",

@@ -2665,7 +2665,8 @@ PUT    /api/providers/vertex                        { project, region, credentia
 - Tool calls: Ollama's `/api/show` capabilities, else one probe per model, remembered in `$KEEL_DATA/local-models.json`.
   A model without tool calls runs only ask-type calls (a read-only call outside a flow phase: KeelBot Ask, summaries;
   `POST /agents/ask` sends no tools); a code step answers `{error, hint}` ("cannot call tools").
-- Context: the server's setting, else Ollama's `num_ctx` / the model's context length, else 8192; the prompt is packed
+- Context: the server's setting, else Ollama's `num_ctx` (4096, its default, when the model sets none; never above the
+  model's trained length), else the `/v1/models` length, else 8192; the prompt is packed
   to fit (old turns first, then the middle of the prompt).
 - Setting `local_only` (bool, Models section, per project): a flow start, a KeelBot turn or a review check on a model
   whose provider is not `local` (or `fake`) is refused with 400 `{error, hint}`.
