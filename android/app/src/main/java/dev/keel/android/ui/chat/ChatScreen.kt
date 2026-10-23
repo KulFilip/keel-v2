@@ -20,6 +20,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -29,6 +33,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Stop
@@ -38,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -72,6 +78,9 @@ import dev.keel.android.data.splitKeelQuestions
 import dev.keel.android.data.toolLines
 import dev.keel.android.data.toolSummary
 import dev.keel.android.data.usd
+import dev.keel.android.data.Model
+import dev.keel.android.data.optionChangesFiles
+import dev.keel.android.data.shortModel
 import dev.keel.android.ui.common.CodeBlock
 import dev.keel.android.ui.common.DetailBar
 import dev.keel.android.ui.common.EmptyState
@@ -104,31 +113,40 @@ fun ChatScreen(vm: ChatViewModel, onBack: () -> Unit, onStartFlow: () -> Unit) {
     LaunchedEffect(messages.size, streaming?.length) { if (messages.isNotEmpty()) list.animateScrollToItem(maxOf(0, messages.size + 2)) }
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            DetailBar(
-                s?.title?.ifBlank { null } ?: "KeelBot",
-                s?.let { "${ktokens(it.tokensIn + it.tokensOut)} tokens · ${usd(it.costUsd)}" } ?: "a new chat",
-                onBack, "Back",
-            ) {
-                IconButton(onClick = { vm.showList(true) }, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Forum, contentDescription = "All chats", tint = K.c.fg) }
-                IconButton(onClick = vm::newChat, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Add, contentDescription = "New chat", tint = K.c.fg) }
-            }
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Segmented(listOf("ask" to "Ask", "fix" to "Fix", "edit" to "Edit"), ui.currentMode, vm::setMode, Modifier.widthIn(min = 186.dp, max = 200.dp), height = 44.dp)
-                s?.model?.takeIf { it.model.isNotBlank() }?.let { m ->
-                    Text(listOfNotNull(m.provider, m.model, m.effort).joinToString(" · "), fontFamily = Mono, fontSize = 12.sp, color = K.c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).border(1.dp, K.c.border, RoundedCornerShape(18.dp)).padding(horizontal = 10.dp, vertical = 9.dp))
+        // the header is opaque and lifts (shadow + divider) once the messages scroll under it
+        val scrolled = list.canScrollBackward
+        Surface(color = K.c.bg, shadowElevation = if (scrolled) 4.dp else 0.dp, modifier = Modifier.zIndex(1f)) {
+            Column(Modifier.fillMaxWidth()) {
+                DetailBar(
+                    s?.title?.ifBlank { null } ?: "KeelBot",
+                    s?.let { "${ktokens(it.tokensIn + it.tokensOut)} tokens · ${usd(it.costUsd)}" } ?: "a new chat",
+                    onBack, "Back",
+                ) {
+                    IconButton(onClick = { vm.showList(true) }, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Forum, contentDescription = "All chats", tint = K.c.fg) }
+                    IconButton(onClick = vm::newChat, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Add, contentDescription = "New chat", tint = K.c.fg) }
                 }
+                Row(Modifier.padding(horizontal = 16.dp).heightIn(max = 44.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Segmented(listOf("ask" to "Ask", "fix" to "Fix", "edit" to "Edit"), ui.currentMode, vm::setMode, Modifier.width(168.dp), height = 36.dp)
+                    val m = s?.model?.takeIf { it.model.isNotBlank() }
+                    Row(
+                        Modifier.weight(1f, fill = false).height(36.dp).clip(RoundedCornerShape(18.dp)).border(1.dp, K.c.border, RoundedCornerShape(18.dp))
+                            .clickable(role = Role.Button, onClickLabel = "Pick the model") { vm.showModels(true) }.padding(start = 12.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(m?.let { shortModel(it) } ?: "Model", fontFamily = Mono, fontSize = 12.sp, color = K.c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = K.c.dim, modifier = Modifier.size(16.dp))
+                    }
+                }
+                val hintColor = when (ui.currentMode) { "fix" -> K.c.warnInk; "edit" -> K.c.badInk; else -> K.c.dim }
+                Text(MODE_HINT[ui.currentMode] ?: "", fontSize = 12.sp, lineHeight = 16.sp, color = hintColor, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 8.dp))
+                HorizontalDivider(color = if (scrolled) K.c.border else K.c.border.copy(alpha = 0.6f))
             }
-            val hintColor = when (ui.currentMode) { "fix" -> K.c.warnInk; "edit" -> K.c.badInk; else -> K.c.dim }
-            Text(MODE_HINT[ui.currentMode] ?: "", fontSize = 12.sp, color = hintColor, modifier = Modifier.padding(horizontal = 16.dp))
         }
-        HorizontalDivider(color = K.c.border)
         Box(Modifier.weight(1f)) {
             when {
                 ui.loading -> Loading()
                 ui.error != null && s == null -> ErrorState(ui.error!!, vm::start)
-                else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (messages.isEmpty() && streaming == null) item {
                         EmptyState("Ask KeelBot", "It reads this project and answers with file:line links. Ask mode changes nothing.")
                     }
@@ -143,6 +161,7 @@ fun ChatScreen(vm: ChatViewModel, onBack: () -> Unit, onStartFlow: () -> Unit) {
         Composer(ui, vm, onStartFlow)
     }
     if (ui.showList) ChatList(ui, vm)
+    if (ui.showModels) ModelSheet(ui, vm)
 }
 
 @Composable
@@ -269,6 +288,10 @@ private fun QuestionsCard(n: Int, questions: List<ClarifyQuestion>, ui: ChatUi, 
     val shape = RoundedCornerShape(16.dp)
     val done = n in ui.answered || ui.session?.messages.orEmpty().any { it.n > n && it.role == "user" }
     val oneTap = questions.size == 1 && !questions[0].multiple
+    val ask = ui.currentMode == "ask"
+    val switching = ask && questions.any { q -> q.options.any { optionChangesFiles(it) } }
+    fun switchFor(picked: Map<String, List<String>>) =
+        if (ask && questions.any { q -> q.options.any { o -> o.label in picked[q.id].orEmpty() && optionChangesFiles(o) } }) "edit" else null
     Column(Modifier.fillMaxWidth().clip(shape).background(K.c.panel).border(1.dp, K.c.accentBorder, shape).padding(14.dp).semantics { contentDescription = "KeelBot asks" },
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         questions.forEach { q ->
@@ -280,16 +303,21 @@ private fun QuestionsCard(n: Int, questions: List<ClarifyQuestion>, ui: ChatUi, 
                     Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(oshape).background(if (on) K.c.accentSoft else K.c.bg).border(1.dp, if (on) K.c.accent else K.c.border, oshape)
                         .clickable(enabled = !done && !ui.busy, role = Role.Button) {
                             vm.pickAnswer(q, o.label)
-                            if (oneTap) vm.answer(n, questions, mapOf(q.id to listOf(o.label)))
+                            if (oneTap) mapOf(q.id to listOf(o.label)).let { p -> vm.answer(n, questions, p, switchFor(p)) }
                         }.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Text(o.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(o.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg, modifier = Modifier.weight(1f, fill = false))
+                        if (ask && !done && optionChangesFiles(o)) Text("switches to Edit", fontSize = 11.sp, color = K.c.warnInk,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(K.c.warnSoft).padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
                     o.description?.let { Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = K.c.text2) }
                 }
             }
         }
-        if (!oneTap && !done) PillButton("Send the answers", { vm.answer(n, questions, ui.qPicked) }, filled = true, enabled = !ui.busy)
+        if (!oneTap && !done) PillButton("Send the answers", { vm.answer(n, questions, ui.qPicked, switchFor(ui.qPicked)) }, filled = true, enabled = !ui.busy)
+        if (switching && !done) Text("This chat is in Ask mode: picking a change switches it to Edit, so KeelBot may change files.", fontSize = 12.sp, lineHeight = 17.sp, color = K.c.dim)
         if (done) Text("Sent. KeelBot reads your answer.", fontSize = 12.sp, color = K.c.okInk)
     }
 }
@@ -323,9 +351,9 @@ private fun Composer(ui: ChatUi, vm: ChatViewModel, onStartFlow: () -> Unit) {
     }
     Column(Modifier.fillMaxWidth().background(K.c.panel).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PillButton("Explain the diff", { vm.send("Explain the diff of this branch: what changed and why.") }, height = 36.dp, corner = 18.dp, enabled = !ui.busy)
-            PillButton("Start a fix flow", onStartFlow, height = 36.dp, corner = 18.dp)
-            PillButton("/compact", { vm.send("/compact") }, height = 36.dp, corner = 18.dp, enabled = !ui.busy && ui.session != null)
+            PillButton("Explain the diff", { vm.send("Explain the diff of this branch: what changed and why.") }, height = 32.dp, corner = 16.dp, enabled = !ui.busy)
+            PillButton("Start a fix flow", onStartFlow, height = 32.dp, corner = 16.dp)
+            PillButton("/compact", { vm.send("/compact") }, height = 32.dp, corner = 16.dp, enabled = !ui.busy && ui.session != null)
         }
         Row(
             Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(K.c.bg).border(1.dp, K.c.border, RoundedCornerShape(26.dp)).padding(6.dp),
@@ -378,4 +406,72 @@ private fun ChatList(ui: ChatUi, vm: ChatViewModel) {
             }
         }
     }
+}
+
+/** The model and effort for this chat: the catalog keel's ModelPicker reads (GET /api/providers/models). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSheet(ui: ChatUi, vm: ChatViewModel) {
+    val now = ui.session?.model ?: Model()
+    var provider by remember(ui.catalog) { mutableStateOf(now.provider.ifBlank { ui.catalog?.firstOrNull()?.id.orEmpty() }) }
+    val p = ui.catalog?.firstOrNull { it.id == provider }
+    var mode by remember(provider, ui.catalog) { mutableStateOf(if (p?.modes?.containsKey(now.mode) == true && provider == now.provider) now.mode else p?.modes?.keys?.firstOrNull().orEmpty()) }
+    val models = p?.modes?.get(mode).orEmpty()
+    var model by remember(provider, mode, ui.catalog) { mutableStateOf(if (provider == now.provider && models.any { it.id == now.model }) now.model else models.firstOrNull()?.id.orEmpty()) }
+    val efforts = p?.effortsOf(model, mode).orEmpty()
+    var effort by remember(provider, mode, model, ui.catalog) { mutableStateOf(if (now.effort in efforts) now.effort else efforts.firstOrNull { it == "high" } ?: efforts.firstOrNull()) }
+    ModalBottomSheet(onDismissRequest = { vm.showModels(false) }, containerColor = K.c.panel) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Model for this chat", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg)
+            when {
+                ui.catalog == null -> Text("Loading the models…", color = K.c.dim, fontSize = 14.sp)
+                ui.catalog.isEmpty() -> Text("keel lists no model.", color = K.c.dim, fontSize = 14.sp)
+                else -> {
+                    SheetLabel("Provider")
+                    ChipRow(ui.catalog.map { it.id to it.label }, provider) { provider = it }
+                    if ((p?.modes?.size ?: 0) > 1) {
+                        SheetLabel("Runs on")
+                        ChipRow(p!!.modes.keys.map { it to modeWord(provider, it) }, mode) { mode = it }
+                    }
+                    SheetLabel("Model")
+                    models.forEach { cm -> ChoiceRowSmall(cm.label, cm.id == model) { model = cm.id } }
+                    SheetLabel("Effort")
+                    if (efforts.isEmpty()) Text("This model has no effort setting.", fontSize = 13.sp, color = K.c.dim)
+                    else ChipRow(efforts.map { it to it }, effort ?: "") { effort = it }
+                }
+            }
+            InlineError(ui.catalogError)
+            Text("Claude and Codex continue their own session; other models get the conversation so far.", fontSize = 12.sp, color = K.c.dim, lineHeight = 17.sp)
+            dev.keel.android.ui.common.PrimaryButton("Use ${listOfNotNull(model.ifBlank { null }, effort).joinToString(" · ").ifBlank { "it" }}",
+                { vm.setModel(Model(provider, mode, model, effort)) }, enabled = model.isNotBlank())
+        }
+    }
+}
+
+private fun modeWord(p: String, m: String) = when {
+    p == "copilot" && m == "subscription" -> "Copilot CLI"
+    p == "copilot" && m == "opencode" -> "OpenCode"
+    m == "subscription" -> "Subscription"
+    m == "api" -> "API key"
+    else -> m
+}
+
+@Composable
+private fun SheetLabel(t: String) = Text(t.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = K.c.dim, modifier = Modifier.padding(top = 6.dp))
+
+@Composable
+private fun ChipRow(items: List<Pair<String, String>>, picked: String, onPick: (String) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { (id, label) -> dev.keel.android.ui.common.FilterChipK(label, id == picked) { onPick(id) } }
+    }
+}
+
+@Composable
+private fun ChoiceRowSmall(label: String, on: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape).background(if (on) K.c.accentSoft else K.c.bg).border(1.dp, if (on) K.c.accent else K.c.border, shape)
+            .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) { Text(label, fontFamily = Mono, fontSize = 14.sp, color = if (on) K.c.accentInk else K.c.fg) }
 }

@@ -116,30 +116,9 @@ class DemoBackend {
     )
     private var permissionOpen = true
 
-    private val prs = listOf(
-        PrSummary(412, "Keep the stored ETA when Parcel Perform sends none", "milad", "feature/ERPDM-1769", "main", updatedAt = ago(7200), mine = true, reviewRequested = false),
-        PrSummary(409, "Carrier adapter: retry on 429 with backoff", "sara.k", "feature/ERPDM-1758", "main", updatedAt = ago(18_000), reviewRequested = true),
-        PrSummary(405, "Tracking page: show the last known ETA", "j.berg", "feature/ERPDM-1744", "main", updatedAt = ago(86_400), reviewRequested = true),
-        PrSummary(398, "Shipment search by reference", "milad", "feature/ERPDM-1650", "main", updatedAt = ago(172_800), mine = true),
-    )
+    private val reviews = DemoReviews()
+    private val prs get() = reviews.list
 
-    private val reviewThreads = mutableListOf(
-        ReviewThread(
-            "th-1", "tests/Integration/Eta/EtaAbsentKeepsStoredTest.php", 52, startLine = 50,
-            comments = listOf(
-                ReviewComment("c1", "sara.k", "Maybe a factory would fit here?", ago(10_800)),
-                ReviewComment("c2", "milad", "Fair point, thanks. Will update it.", ago(3600)),
-            ),
-        ),
-        ReviewThread(
-            "th-2", "src/Eta/EtaWebhook.php", 58,
-            comments = listOf(ReviewComment("c3", "sara.k", "Should this log the carrier too (AC-3)?", ago(7000))),
-        ),
-        ReviewThread(
-            "th-3", "migrations/Version2026.php", 12, resolved = true,
-            comments = listOf(ReviewComment("c4", "j.berg", "rename eta_at to eta_updated_at", ago(20_000)), ReviewComment("c5", "milad", "Renamed in 3c1f9a2. Thanks!", ago(18_000))),
-        ),
-    )
     private val judges = mutableMapOf<String, AiRun>()
     private val judgeAsked = mutableMapOf<String, Int>()
 
@@ -158,10 +137,11 @@ class DemoBackend {
         ),
     )
     private var chatMode = "ask"
+    private var chatModel = Model("copilot", "subscription", "sonnet 5.5", "high")
 
     private fun session(withMessages: Boolean) = HelperSession(
         id = "chat-1", project = pid, mode = chatMode, title = "Why does the ETA test fail?",
-        model = Model("copilot", "subscription", "sonnet 5.5", "high"), status = "idle",
+        model = chatModel, status = "idle",
         tokensIn = 12_000, tokensOut = 2_200, costUsd = 0.09, turns = chatMessages.count { it.role == "user" },
         updatedAt = ago(380), messages = if (withMessages) chatMessages.toList() else null,
     )
@@ -178,32 +158,6 @@ class DemoBackend {
         } + listOfNotNull(inboxPermission.takeIf { permissionOpen })
         return InboxView(items, items.size)
     }
-
-    private fun review(number: Int): ReviewView {
-        val p = prs.first { it.number == number }
-        return ReviewView(
-            key = "pr:$number", number = number, title = p.title, author = p.author, base = "main", branch = p.branch,
-            url = "https://github.com/acme/tracking/pull/$number", state = "open",
-            checks = (1..14).map { CheckRun("check $it", "success") }, approved = listOf("j.berg"),
-            files = listOf(
-                ChangedFile("src/Eta/EtaWebhook.php", "modified", 12, 3),
-                ChangedFile("tests/Integration/Eta/EtaAbsentKeepsStoredTest.php", "added", 78, 0),
-                ChangedFile("migrations/Version2026.php", "added", 20, 0),
-            ),
-            added = 110, removed = 3, threads = if (number == 412) reviewThreads.toList() else emptyList(),
-            canPost = true, host = HostRef("github", "github.com", "acme/tracking", "https://github.com/acme/tracking"), me = "milad",
-        )
-    }
-
-    private val demoDiff = """
-        diff --git a/tests/Integration/Eta/EtaAbsentKeepsStoredTest.php b/tests/Integration/Eta/EtaAbsentKeepsStoredTest.php
-        @@ -48,0 +48,5 @@
-        +    protected function setUp(): void {
-        +        parent::setUp();
-        +        ${'$'}conn = ${'$'}this->connection();
-        +        ${'$'}conn->insert('carrier', ['id' => 7]);
-        +        ${'$'}conn->insert('resolver', [...]);
-    """.trimIndent()
 
     fun handle(method: String, path: String, query: Map<String, String>, body: String): Pair<Int, String> {
         val seg = path.trim('/').split('/')
@@ -253,8 +207,15 @@ class DemoBackend {
                 val list = when (f) { "mine" -> prs.filter { it.mine }; "all" -> prs; else -> prs.filter { it.reviewRequested } }
                 ok(PrList.serializer(), PrList(HostRef("github", "github.com", "acme/tracking"), "milad", list, mapOf("review" to 2, "mine" to 2, "all" to 4)))
             }
-            path.endsWith("/review/view") -> ok(ReviewView.serializer(), review(query["key"].orEmpty().removePrefix("pr:").toIntOrNull() ?: 412))
-            path.endsWith("/review/diff") -> ok(FileDiff.serializer(), FileDiff(query["path"].orEmpty(), if (query["path"].orEmpty().endsWith("Test.php")) demoDiff else ""))
+            path.endsWith("/review/view") -> ok(ReviewView.serializer(), reviews.view(query["key"]))
+            path.endsWith("/review/diff") -> ok(FileDiff.serializer(), reviews.diff(query["key"], query["path"].orEmpty()))
+            path.endsWith("/review/drafts") && method == "POST" -> {
+                val b = bodyObj()
+                ok(Draft.serializer(), reviews.addDraft(b.s("key"), b.s("path"), b.s("line")?.toIntOrNull(), b.s("side") ?: "RIGHT", b.s("body").orEmpty()))
+            }
+            seg.size == 6 && seg[3] == "review" && seg[4] == "drafts" && method == "DELETE" -> { reviews.deleteDraft(seg[5]); 200 to """{"ok":true}""" }
+            path.endsWith("/review/submit") -> ok(SubmitResult.serializer(), reviews.submit(bodyObj().s("key")))
+            path == "/api/providers/models" -> 200 to CATALOG
             path.endsWith("/review/ai") -> {
                 judges.replaceAll { tid, run ->
                     if (run.status == "running" && (judgeAsked.merge(tid, 1, Int::plus) ?: 0) >= 2) run.copy(status = "done", result = judgeResult(tid)) else run
@@ -267,15 +228,10 @@ class DemoBackend {
                 ok(AiState.serializer(), AiState(judges.toMap()))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "reply" -> {
-                val b = bodyObj()
-                val i = reviewThreads.indexOfFirst { it.id == seg[5] }
-                if (i >= 0) reviewThreads[i] = reviewThreads[i].copy(comments = reviewThreads[i].comments + ReviewComment("r${System.nanoTime()}", "milad", b.s("body").orEmpty(), Instant.now().toString()))
-                ok(ReviewView.serializer(), review(412))
+                ok(ReviewView.serializer(), reviews.reply(seg[5], bodyObj().s("body").orEmpty()))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "resolve" -> {
-                val i = reviewThreads.indexOfFirst { it.id == seg[5] }
-                if (i >= 0) reviewThreads[i] = reviewThreads[i].copy(resolved = (bodyObj()["resolved"] as? JsonPrimitive)?.contentOrNull != "false")
-                ok(ReviewView.serializer(), review(412))
+                ok(ReviewView.serializer(), reviews.resolve(seg[5], (bodyObj()["resolved"] as? JsonPrimitive)?.contentOrNull != "false"))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "address" ->
                 ok(AddressResult.serializer(), AddressResult("t-addr", "Address: factory in setUp()", "keel/address-412", "keel started a fix flow on its own branch."))
@@ -286,7 +242,9 @@ class DemoBackend {
                 ok(HelperSession.serializer(), session(true).copy(title = "New chat"))
             }
             seg.size == 6 && seg[3] == "helper" && seg[4] == "sessions" && method == "PATCH" -> {
-                chatMode = bodyObj().s("mode") ?: chatMode
+                val b = bodyObj()
+                chatMode = b.s("mode") ?: chatMode
+                (b["model"] as? JsonObject)?.let { m -> chatModel = Model(m.s("provider").orEmpty(), m.s("mode").orEmpty(), m.s("model").orEmpty(), m.s("effort")) }
                 ok(HelperSession.serializer(), session(true))
             }
             seg.size == 6 && seg[3] == "helper" && seg[4] == "sessions" -> ok(HelperSession.serializer(), session(true))
@@ -328,7 +286,12 @@ class DemoBackend {
                 "Use a factory in setUp() if one exists, else keep the inserts.",
             ),
         ),
-        reply = if (tid == "th-1") "Good idea if the repo has factories; I checked and will switch setUp() to them, else keep the inserts." else "Yes: I will log the carrier with the cleared ETA.",
+        reply = when (tid) {
+            "412-1" -> "Good idea if the repo has factories; I checked and will switch setUp() to them, else keep the inserts."
+            "412-2" -> "Yes: the log line gets the shipment id next to the carrier."
+            "409-1" -> "Thanks, the jitter looks right to me."
+            else -> "Thanks, I will look at it."
+        },
         agent = "judge", model = "copilot · sonnet 5.5", effort = "high", tokens = 2_000,
     )
 
@@ -346,3 +309,14 @@ class DemoBackend {
 
     fun client(): OkHttpClient = OkHttpClient.Builder().addInterceptor(interceptor()).build()
 }
+
+/** The demo's model catalog (GET /api/providers/models), in the shape keel sends. */
+private val CATALOG = """
+{"copilot":{"label":"GitHub Copilot","modes":{"subscription":[{"id":"sonnet 5.5","label":"sonnet 5.5","efforts":["none","low","medium","high","xhigh","max"]},
+{"id":"gpt-5.6","label":"gpt-5.6","efforts":["low","medium","high"]},{"id":"haiku 5","label":"haiku 5"}],
+"api":[{"id":"gpt-5-mini","label":"gpt-5-mini"}]},"efforts":[],"default":{"mode":"subscription","model":"sonnet 5.5"},"source":"cli"},
+"claude":{"label":"Claude","modes":{"subscription":[{"id":"opus","label":"opus"},{"id":"sonnet","label":"sonnet"},{"id":"haiku","label":"haiku"}],
+"api":[{"id":"sonnet","label":"sonnet"}]},"efforts":["low","medium","high","max"],"default":{"mode":"subscription","model":"sonnet"},"source":"builtin"},
+"codex":{"label":"Codex","modes":{"subscription":[{"id":"gpt-5.6-sol","label":"gpt-5.6-sol"},{"id":"gpt-5-mini","label":"gpt-5-mini"}]},
+"efforts":["minimal","low","medium","high"],"default":{"mode":"subscription","model":"gpt-5.6-sol"},"source":"builtin"}}
+""".trimIndent()

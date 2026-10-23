@@ -247,3 +247,80 @@ fun payloadOf(vararg pairs: Pair<String, JsonElement>): JsonObject = JsonObject(
 
 fun JsonElement.objOrNull(): JsonObject? = runCatching { jsonObject }.getOrNull()
 fun JsonElement.arrOrNull(): JsonArray? = runCatching { jsonArray }.getOrNull()
+
+
+private val PROVIDER_ORDER = listOf("claude", "codex", "copilot", "vertex", "local", "fake")
+
+/**
+ * The model catalog as the web's normalizeCatalog reads it: `{provider: {label, modes: {mode: [{id, label, efforts?}]},
+ * efforts}}`, or the older `{provider: [{id, label}]}`. Anything malformed is dropped.
+ */
+fun parseCatalog(raw: JsonElement): List<CatalogProvider> {
+    val obj = raw as? JsonObject ?: return emptyList()
+    fun models(v: JsonElement?): List<CatalogModel> = (v as? JsonArray).orEmpty().mapNotNull { m ->
+        val o = m as? JsonObject ?: return@mapNotNull null
+        val id = o.str("id").ifEmpty { return@mapNotNull null }
+        CatalogModel(id, o.str("label").ifEmpty { id }, (o["efforts"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull })
+    }
+    val out = obj.mapNotNull { (id, v) ->
+        when (v) {
+            is JsonArray -> models(v).takeIf { it.isNotEmpty() }?.let { CatalogProvider(id, id, mapOf("api" to it), emptyList()) }
+            is JsonObject -> {
+                val modes = (v["modes"] as? JsonObject)?.mapValues { (_, l) -> models(l) }?.filterValues { it.isNotEmpty() }.orEmpty()
+                if (modes.isEmpty()) null
+                else CatalogProvider(id, v.str("label").ifEmpty { id }, modes, (v["efforts"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty())
+            }
+            else -> null
+        }
+    }
+    return out.sortedBy { PROVIDER_ORDER.indexOf(it.id).let { i -> if (i < 0) 99 else i } }
+}
+
+/** The model chip's words: "sonnet 5.5 · high". */
+fun shortModel(m: Model): String = listOfNotNull(m.model.ifBlank { null }, m.effort?.ifBlank { null }).joinToString(" · ")
+
+private val CHANGE_WORDS = Regex("""\b(fix|change|edit|apply|rename|update|rewrite|write|add|remove|delete|refactor|move)\b""", RegexOption.IGNORE_CASE)
+
+/** In Ask mode, does this answer ask KeelBot to change files (so the chat has to switch to Edit first)? A flow is not. */
+fun optionChangesFiles(o: QuestionOption): Boolean {
+    val words = o.label + " " + o.description.orEmpty()
+    return CHANGE_WORDS.containsMatchIn(words) && !Regex("""\bflow\b""", RegexOption.IGNORE_CASE).containsMatchIn(o.label)
+}
+
+/** A row of a unified diff: a hunk header, or a line with its old and new numbers (null on the side it is not on). */
+sealed class DiffRow {
+    data class Hunk(val header: String) : DiffRow()
+    data class Line(val old: Int?, val new: Int?, val mark: Char, val text: String) : DiffRow()
+}
+
+/** A unified diff (the review plugin's GET .../review/diff) as rows; the file headers (diff, index, ---, +++) are left out. */
+fun parseDiff(diff: String): List<DiffRow> {
+    val out = mutableListOf<DiffRow>()
+    val hunk = Regex("""^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$""")
+    var old = 0
+    var new = 0
+    var inHunk = false
+    for (raw in diff.lines()) {
+        val h = hunk.find(raw)
+        if (h != null) {
+            old = h.groupValues[1].toInt()
+            new = h.groupValues[2].toInt()
+            inHunk = true
+            out += DiffRow.Hunk(raw)
+            continue
+        }
+        if (!inHunk) continue
+        when {
+            raw.startsWith("+") -> out += DiffRow.Line(null, new++, '+', raw.drop(1))
+            raw.startsWith("-") -> out += DiffRow.Line(old++, null, '-', raw.drop(1))
+            raw.startsWith("\\") -> Unit
+            raw.isEmpty() -> Unit
+            else -> out += DiffRow.Line(old++, new++, ' ', raw.drop(1))
+        }
+    }
+    return out
+}
+
+/** Whether a review thread sits on this diff line (RIGHT: the new side, LEFT: the old one). */
+fun threadOnLine(t: ReviewThread, l: DiffRow.Line): Boolean =
+    t.line != null && if (t.side == "LEFT") l.old == t.line && l.mark != '+' else l.new == t.line && l.mark != '-'

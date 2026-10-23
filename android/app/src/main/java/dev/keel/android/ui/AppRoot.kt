@@ -8,7 +8,24 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,6 +44,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,6 +83,8 @@ import dev.keel.android.ui.question.FlowViewModel
 import dev.keel.android.ui.question.QuestionScreen
 import dev.keel.android.ui.question.QuestionViewModel
 import dev.keel.android.ui.settings.SettingsScreen
+import dev.keel.android.ui.common.LocalDemo
+import dev.keel.android.ui.thread.DiffScreen
 import dev.keel.android.ui.thread.ThreadScreen
 import dev.keel.android.ui.thread.ThreadViewModel
 import dev.keel.android.ui.theme.K
@@ -83,6 +103,7 @@ object Routes {
     fun question(pid: String, tid: String) = "question/${enc(pid)}/${enc(tid)}"
     fun flow(pid: String, tid: String) = "flow/${enc(pid)}/${enc(tid)}"
     fun pr(pid: String, n: Int) = "pr/${enc(pid)}/$n"
+    fun file(pid: String, n: Int, path: String) = "pr/${enc(pid)}/$n/file?path=${enc(path)}"
     private fun enc(s: String) = android.net.Uri.encode(s)
 }
 
@@ -130,8 +151,10 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
 
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
-    val showBar = TABS.any { it.route == route }
+    // KeelBot is a tab, but a chat takes the whole screen: no bottom bar there (its back arrow returns)
+    val showBar = route != "chat" && TABS.any { it.route == route }
 
+    CompositionLocalProvider(LocalDemo provides (active?.keel?.demo == true)) {
     Scaffold(
         containerColor = K.c.bg,
         contentWindowInsets = WindowInsets(0),
@@ -168,7 +191,7 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
                 }
                 composable("chat") {
                     val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(session, app.live) } })
-                    ChatScreen(vm, onBack = { nav.navigate("inbox") { popUpTo("inbox") } }, onStartFlow = { nav.navigate("flows") })
+                    ChatScreen(vm, onBack = { if (!nav.popBackStack()) nav.navigate("inbox") }, onStartFlow = { nav.navigate("flows") })
                 }
                 composable(
                     "question/{pid}/{tid}",
@@ -195,13 +218,30 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
                     val pid = e.arguments?.getString("pid").orEmpty()
                     val n = e.arguments?.getInt("n") ?: 0
                     val vm: ThreadViewModel = viewModel(factory = viewModelFactory { initializer { ThreadViewModel(session, app.live, pid, n) } })
-                    ThreadScreen(vm, onBack = { nav.popBackStack() })
+                    ThreadScreen(vm, onBack = { nav.popBackStack() }, onFile = { path -> nav.navigate(Routes.file(pid, n, path)) })
+                }
+                composable(
+                    "pr/{pid}/{n}/file?path={path}",
+                    arguments = listOf(
+                        navArgument("pid") { type = NavType.StringType }, navArgument("n") { type = NavType.IntType },
+                        navArgument("path") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) { e ->
+                    val pid = e.arguments?.getString("pid").orEmpty()
+                    val n = e.arguments?.getInt("n") ?: 0
+                    val path = e.arguments?.getString("path").orEmpty()
+                    // the pull request's own view model (threads, replies, keel's check), shared with the PR screen
+                    val owner = remember(e) { runCatching { nav.getBackStackEntry("pr/{pid}/{n}") }.getOrNull() }
+                    val vm: ThreadViewModel = if (owner != null) viewModel(owner, factory = viewModelFactory { initializer { ThreadViewModel(session, app.live, pid, n) } })
+                    else viewModel(factory = viewModelFactory { initializer { ThreadViewModel(session, app.live, pid, n) } })
+                    DiffScreen(vm, path, onBack = { nav.popBackStack() })
                 }
                 composable("settings") {
                     SettingsScreen(session, home, notifier = app.notifier, onBack = { nav.popBackStack() }, onPair = { nav.navigate("pair") })
                 }
             }
         }
+    }
     }
 }
 
@@ -218,29 +258,34 @@ private fun openRoute(nav: NavHostController, o: String) {
     nav.navigate(r) { launchSingleTop = true }
 }
 
+/** The compact bottom bar: 64dp + the system navigation bar's inset (once), 24dp icons, 12sp labels, a 56×28 pill. */
 @Composable
 private fun BottomBar(route: String?, inbox: Int, reviews: Int, go: (String) -> Unit) {
-    NavigationBar(containerColor = K.c.panel, tonalElevation = androidx.compose.ui.unit.Dp(0f)) {
-        TABS.forEach { t ->
-            val on = route == t.route
-            val badge = when (t.route) { "inbox" -> inbox; "prs" -> reviews; else -> 0 }
-            NavigationBarItem(
-                selected = on,
-                onClick = { go(t.route) },
-                icon = {
-                    BadgedBox(badge = {
-                        if (badge > 0) Badge(containerColor = if (t.route == "prs") K.c.run else K.c.bad, contentColor = K.c.onAccent) {
-                            Text("$badge", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }) { Icon(t.icon, contentDescription = null) }
-                },
-                label = { Text(t.label, fontSize = 12.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium) },
-                modifier = Modifier.semantics { contentDescription = if (badge > 0) "${t.label}, $badge waiting" else t.label },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = K.c.accentInk, selectedTextColor = K.c.fg, indicatorColor = K.c.accentSoft,
-                    unselectedIconColor = K.c.dim, unselectedTextColor = K.c.dim,
-                ),
-            )
+    Column(Modifier.fillMaxWidth().background(K.c.panel)) {
+        HorizontalDivider(color = K.c.border)
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp)) {
+            TABS.forEach { t ->
+                val on = route == t.route
+                val badge = when (t.route) { "inbox" -> inbox; "prs" -> reviews; else -> 0 }
+                Column(
+                    Modifier.weight(1f).fillMaxHeight()
+                        .selectable(on, role = Role.Tab, onClick = { go(t.route) })
+                        .semantics { contentDescription = if (badge > 0) "${t.label}, $badge waiting" else t.label },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Box(Modifier.size(56.dp, 28.dp).clip(RoundedCornerShape(14.dp)).background(if (on) K.c.accentSoft else Color.Transparent), contentAlignment = Alignment.Center) {
+                        Icon(t.icon, contentDescription = null, tint = if (on) K.c.accentInk else K.c.dim, modifier = Modifier.size(24.dp))
+                        if (badge > 0) Box(
+                            Modifier.align(Alignment.TopEnd).padding(end = 8.dp).heightIn(min = 14.dp).widthIn(min = 14.dp).clip(RoundedCornerShape(7.dp))
+                                .background(if (t.route == "prs") K.c.run else K.c.bad).padding(horizontal = 3.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(if (badge > 99) "99+" else "$badge", color = K.c.onAccent, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold) }
+                    }
+                    Text(t.label, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1, color = if (on) K.c.fg else K.c.dim,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
         }
     }
 }

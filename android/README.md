@@ -30,7 +30,8 @@ certificate covers. Use plain http only on a network you trust.
 | Flow | `GET /api/projects/{pid}/flows/{tid}`, `GET /api/threads/{tid}/history`, `POST /api/inbox/{tid}/act`, `POST /api/threads/{tid}/stop`, `POST /api/threads/{tid}/rewind` (resume) |
 | PRs | `GET /api/projects/{pid}/review/prs?filter=review\|mine\|all` |
 | Thread | `GET …/review/view?key=pr:N`, `GET …/review/diff`, `POST …/review/threads/{id}/reply`, `…/resolve`, `…/judge` (then `GET …/review/ai` while it runs), `…/address` |
-| KeelBot | `GET/POST /api/projects/{pid}/helper/sessions`, `GET/PATCH …/sessions/{sid}`, `POST …/turn`, `…/stop`, `GET …/changes`, `POST …/undo`, `POST …/done` (keep), `GET /api/jobs/{call}/steps` |
+| File diff | `GET …/review/diff?key=pr:N&path=` (unified, old/new numbers, threads inline), `POST …/review/drafts` (a line comment, pending), `DELETE …/review/drafts/{id}`, `POST …/review/submit` (Send review) |
+| KeelBot | `GET/POST /api/projects/{pid}/helper/sessions`, `GET/PATCH …/sessions/{sid}`, `POST …/turn`, `…/stop`, `GET …/changes`, `POST …/undo`, `POST …/done` (keep), `GET /api/jobs/{call}/steps`, `PATCH …/sessions/{sid}` `{mode}` / `{model}`, `GET /api/providers/models` (model + effort sheet) |
 | Live | `GET /api/events?project=<pid>&notify=all` (server-sent events) while the app is open; a 20 s poll when it is down |
 
 Notifications are local: while the app is open, and every 15 minutes in the background (WorkManager), the app reads the

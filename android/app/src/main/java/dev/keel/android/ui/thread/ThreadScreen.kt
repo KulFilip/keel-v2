@@ -82,7 +82,7 @@ import dev.keel.android.ui.theme.Mono
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit) {
+fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Unit = {}) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val v = ui.view
     val context = LocalContext.current
@@ -125,13 +125,20 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit) {
                     InlineError(ui.actionError, vm::clearNote)
                     when (ui.tab) {
                         PrTab.THREADS -> Threads(ui, vm)
-                        PrTab.FILES -> v.files.forEach { f ->
-                            KCard(padding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
-                                Text(f.path, fontFamily = Mono, fontSize = 13.sp, color = K.c.fg)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(f.status, fontSize = 12.sp, color = K.c.dim)
-                                    Text("+${f.added}", fontSize = 12.sp, color = K.c.okInk, fontFamily = Mono)
-                                    Text("−${f.removed}", fontSize = 12.sp, color = K.c.badInk, fontFamily = Mono)
+                        PrTab.FILES -> {
+                            if (v.files.isEmpty()) EmptyState("No files", "This pull request changes no file.")
+                            v.files.forEach { f ->
+                                val threads = v.threads.count { it.path == f.path && !it.resolved }
+                                val drafts = ui.drafts.count { it.path == f.path }
+                                KCard(padding = androidx.compose.foundation.layout.PaddingValues(12.dp), onClick = { onFile(f.path) }, clickLabel = "Show the changes") {
+                                    Text(f.path, fontFamily = Mono, fontSize = 13.sp, color = K.c.fg)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(f.status, fontSize = 12.sp, color = K.c.dim)
+                                        Text("+${f.added}", fontSize = 12.sp, color = K.c.okInk, fontFamily = Mono)
+                                        Text("−${f.removed}", fontSize = 12.sp, color = K.c.badInk, fontFamily = Mono)
+                                        if (threads > 0) Tag("$threads thread${if (threads == 1) "" else "s"}", K.c.warnSoft, K.c.warnInk)
+                                        if (drafts > 0) Tag("$drafts pending", K.c.accentSoft, K.c.accentInk)
+                                    }
                                 }
                             }
                         }
@@ -151,6 +158,7 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit) {
                 }
             }
         }
+        PendingBar(ui, vm)
         if (ui.tab == PrTab.THREADS && ui.current != null) ThreadFooter(ui, vm)
     }
 }
@@ -177,6 +185,16 @@ private fun ThreadCard(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel, selec
             Text(where, fontFamily = Mono, fontSize = 12.sp, color = K.c.dim, maxLines = 2)
         }
         ui.snippets[t.id]?.takeIf { it.isNotEmpty() }?.let { Snippet(it) }
+        ThreadComments(t, ui)
+        val run = ui.ai.judges[t.id]
+        if (run != null && t.id !in ui.dismissed) CheckCard(t.id, run, vm, busy = ui.busy == "judge")
+        ui.ai.addressed[t.id]?.let { a -> Text("keel addresses it: ${a.title}${a.branch?.let { b -> " · $b" } ?: ""}", fontSize = 12.sp, color = K.c.okInk) }
+    }
+}
+
+/** A thread's comments: yours tinted. */
+@Composable
+internal fun ThreadComments(t: ReviewThread, ui: ThreadUi) {
         t.comments.forEach { c ->
             val mine = c.author == ui.me
             Row(
@@ -190,13 +208,9 @@ private fun ThreadCard(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel, selec
                 }
             }
         }
-        val run = ui.ai.judges[t.id]
-        if (run != null && t.id !in ui.dismissed) CheckCard(t.id, run, vm, busy = ui.busy == "judge")
-        ui.ai.addressed[t.id]?.let { a -> Text("keel addresses it: ${a.title}${a.branch?.let { b -> " · $b" } ?: ""}", fontSize = 12.sp, color = K.c.okInk) }
-    }
 }
 
-private fun shortPath(p: String): String {
+internal fun shortPath(p: String): String {
     val parts = p.split('/')
     return if (parts.size <= 3) p else "${parts.first()}/…/${parts.last()}"
 }
@@ -222,7 +236,7 @@ private fun Snippet(lines: List<DiffLine>) {
 
 /** keel's answer to "Is the reviewer right?": the verdict, why, the fix, and what to do with it. */
 @Composable
-private fun CheckCard(threadId: String, run: AiRun, vm: ThreadViewModel, busy: Boolean) {
+internal fun CheckCard(threadId: String, run: AiRun, vm: ThreadViewModel, busy: Boolean) {
     val shape = RoundedCornerShape(14.dp)
     Column(
         Modifier.fillMaxWidth().clip(shape).background(K.c.checkBg).border(1.dp, K.c.checkBorder, shape).padding(12.dp).semantics { contentDescription = "keel's check" },
@@ -288,8 +302,16 @@ private fun ResolvedRow(t: ReviewThread) {
 @Composable
 private fun ThreadFooter(ui: ThreadUi, vm: ThreadViewModel) {
     val t = ui.current ?: return
-    val other = t.comments.lastOrNull { it.author != ui.me }?.author ?: t.comments.firstOrNull()?.author ?: "the thread"
     Column(Modifier.fillMaxWidth().background(K.c.panel).padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ThreadActions(t, ui, vm)
+    }
+}
+
+/** ✦ Right? / ✦ Address it / Resolve, and the reply box, for one thread. */
+@Composable
+internal fun ThreadActions(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel) {
+    val other = t.comments.lastOrNull { it.author != ui.me }?.author ?: t.comments.firstOrNull()?.author ?: "the thread"
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton(if (ui.busy == "judge") "✦ Checking…" else "✦ Right?", { vm.judge(t.id) }, Modifier.weight(1f), tinted = true, enabled = ui.busy == null, corner = 12.dp)
             PillButton(if (ui.busy == "address") "✦ Starting…" else "✦ Address it", { vm.address(t.id) }, Modifier.weight(1f), tinted = true, enabled = ui.busy == null, corner = 12.dp)
@@ -310,5 +332,19 @@ private fun ThreadFooter(ui: ThreadUi, vm: ThreadViewModel) {
                 modifier = Modifier.size(44.dp),
             ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send the reply", modifier = Modifier.size(20.dp)) }
         }
+    }
+}
+
+/** Your pending comments (line comments kept for your review) and the button that posts them as one review. */
+@Composable
+internal fun PendingBar(ui: ThreadUi, vm: ThreadViewModel) {
+    val n = ui.drafts.size
+    if (n == 0) return
+    Row(
+        Modifier.fillMaxWidth().background(K.c.accentSoft).padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("$n pending comment${if (n == 1) "" else "s"} in your review", fontSize = 13.sp, color = K.c.accentInk, modifier = Modifier.weight(1f))
+        PillButton(if (ui.busy == "review") "Sending…" else "Send review", vm::sendReview, filled = true, enabled = ui.busy == null, height = 40.dp, corner = 20.dp)
     }
 }

@@ -90,7 +90,7 @@ fun KeelTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
     }
     val base = Typography()
     val type = base.copy(
-        headlineMedium = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
+        headlineMedium = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
         titleLarge = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.SemiBold),
         titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp),
         bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),

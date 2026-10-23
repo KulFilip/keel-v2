@@ -142,4 +142,30 @@ class KeelApiTest {
         assertNull(KeelApi.normalizeBase("ftp://x"))
         assertNull(KeelApi.normalizeBase(" "))
     }
+
+    @Test
+    fun `a line comment is a pending comment of the review, sent with submit`() = runBlocking {
+        server.enqueue(json(200, """{"id":"d1","path":"src/A.kt","line":12,"side":"RIGHT","body":"why?","created_at":"x"}"""))
+        server.enqueue(json(200, """{"posted":1,"event":"COMMENT","view":{"key":"pr:7","threads":[],"drafts":[]}}"""))
+        val d = api().addDraft("p1", "pr:7", "src/A.kt", 12, "RIGHT", "why?")
+        assertEquals("d1", d.id)
+        val r = api().submitReview("p1", "pr:7")
+        assertEquals(1, r.posted)
+        val first = server.takeRequest()
+        assertEquals("/api/projects/p1/review/drafts", first.path)
+        assertEquals("""{"key":"pr:7","path":"src/A.kt","line":12,"side":"RIGHT","body":"why?"}""", first.body.readUtf8())
+        val second = server.takeRequest()
+        assertEquals("/api/projects/p1/review/submit", second.path)
+        assertEquals("""{"key":"pr:7","event":"COMMENT","body":""}""", second.body.readUtf8())
+    }
+
+    @Test
+    fun `the chat's model is set with the session PATCH`() = runBlocking {
+        server.enqueue(json(200, """{"id":"s1","model":{"provider":"copilot","mode":"subscription","model":"sonnet 5.5","effort":"max"}}"""))
+        val s = api().setChatModel("p1", "s1", Model("copilot", "subscription", "sonnet 5.5", "max"))
+        assertEquals("max", s.model.effort)
+        val req = server.takeRequest()
+        assertEquals("PATCH", req.method)
+        assertEquals("""{"model":{"provider":"copilot","mode":"subscription","model":"sonnet 5.5","effort":"max"}}""", req.body.readUtf8())
+    }
 }

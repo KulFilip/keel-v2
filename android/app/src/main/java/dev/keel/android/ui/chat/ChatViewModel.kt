@@ -36,6 +36,10 @@ data class ChatUi(
     val actionError: Throwable? = null,
     val note: String? = null,
     val showList: Boolean = false,
+    /** the model sheet: open, the catalog (null while it loads) */
+    val showModels: Boolean = false,
+    val catalog: List<dev.keel.android.data.CatalogProvider>? = null,
+    val catalogError: Throwable? = null,
 ) {
     val currentMode get() = session?.mode ?: mode
     val busy get() = sending || session?.status == "running" || session?.busy == true
@@ -127,10 +131,55 @@ class ChatViewModel(session: KeelSession, live: LiveHub?) : KeelViewModel(sessio
         }
     }
 
-    /** The answers to a ```keel-questions``` card go back as the next message (the web's answersMessage). */
-    fun answer(messageN: Int, questions: List<ClarifyQuestion>, picked: Map<String, List<String>>) {
+    /**
+     * The answers to a ```keel-questions``` card go back as the next message (the web's answersMessage). An answer that
+     * asks for a change while the chat is in Ask mode switches the chat to [switchTo] first (the mode PATCH), so KeelBot
+     * may make it.
+     */
+    fun answer(messageN: Int, questions: List<ClarifyQuestion>, picked: Map<String, List<String>>, switchTo: String? = null) {
         _ui.update { it.copy(answered = it.answered + messageN) }
-        send(answersMessage(questions, answersOf(questions, picked, emptyMap())))
+        val text = answersMessage(questions, answersOf(questions, picked, emptyMap()))
+        val pid = pid
+        val s = _ui.value.session
+        if (switchTo == null || pid == null || s == null || s.mode == switchTo) {
+            send(text)
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val next = api.setChatMode(pid, s.id, switchTo)
+                _ui.update { it.copy(session = next.copy(messages = next.messages ?: s.messages), note = "This chat is in ${switchTo.replaceFirstChar { c -> c.uppercase() }} mode now: KeelBot may change files.") }
+                send(text)
+            } catch (e: Exception) {
+                _ui.update { it.copy(actionError = e, answered = it.answered - messageN) }
+            }
+        }
+    }
+
+    fun showModels(v: Boolean) {
+        _ui.update { it.copy(showModels = v, catalogError = null) }
+        if (v && _ui.value.catalog == null) viewModelScope.launch {
+            try {
+                val c = api.providerModels()
+                _ui.update { it.copy(catalog = c) }
+            } catch (e: Exception) {
+                _ui.update { it.copy(catalogError = e, catalog = emptyList()) }
+            }
+        }
+    }
+
+    /** The model and effort for this chat (the web's ModelPicker: PATCH the session's model). */
+    fun setModel(m: dev.keel.android.data.Model) {
+        val pid = pid ?: return
+        val s = _ui.value.session ?: run { _ui.update { it.copy(showModels = false, note = "Send a first message, then pick the model for this chat.") }; return }
+        viewModelScope.launch {
+            try {
+                val next = api.setChatModel(pid, s.id, m)
+                _ui.update { it.copy(showModels = false, session = next.copy(messages = next.messages ?: s.messages), note = "Model: ${dev.keel.android.data.shortModel(m)}") }
+            } catch (e: Exception) {
+                _ui.update { it.copy(catalogError = e) }
+            }
+        }
     }
 
     fun pickAnswer(q: ClarifyQuestion, label: String) = _ui.update {
