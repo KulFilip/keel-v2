@@ -1,8 +1,9 @@
 // The Database plugin's DbExplorer, split out of DbTool.tsx (DbTool.tsx re-exports what index.tsx and the tests use).
 
 import { useState } from "react";
-import { ErrorBox, go, useLoad } from "@keel/web-sdk";
+import { ErrorBox, useLoad } from "@keel/web-sdk";
 import { dbApi, type DbConnection, type LiveTable } from "./dbApi";
+import { DbPopup, type DbPopupOpen } from "./DbPopup";
 import { Icon } from "./icons";
 import { KIND } from "./dbModel";
 
@@ -22,6 +23,8 @@ export function DbExplorer({
   });
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [find, setFind] = useState("");
+  // the connections popup over the Code page: a new draft, or one connection to edit
+  const [popup, setPopup] = useState<DbPopupOpen | null>(null);
   return (
     <div className="sv db-sv">
       <div className="sv-head">
@@ -30,9 +33,10 @@ export function DbExplorer({
           <button
             type="button"
             className="sv-tool"
-            title="Add a database (Connections › Databases)"
+            title="Add a database"
             aria-label="Add a database"
-            onClick={() => go("connections")}
+            aria-haspopup="dialog"
+            onClick={() => setPopup({})}
           >
             <Icon name="plus" size={15} />
           </button>
@@ -68,7 +72,8 @@ export function DbExplorer({
           <button
             type="button"
             className="btn sm"
-            onClick={() => go("connections")}
+            aria-haspopup="dialog"
+            onClick={() => setPopup({})}
           >
             Add one
           </button>
@@ -85,9 +90,18 @@ export function DbExplorer({
             onToggle={() => setOpen((o) => ({ ...o, [c.name]: !o[c.name] }))}
             onConsole={() => onConsole(c.name)}
             onTable={(t, pin) => onTable(c.name, t, pin)}
+            onEdit={() => setPopup({ select: c.name })}
           />
         ))}
       </ul>
+      {popup && (
+        <DbPopup
+          pid={pid}
+          select={popup.select}
+          onClose={() => setPopup(null)}
+          onChanged={() => void conns.reload()}
+        />
+      )}
     </div>
   );
 }
@@ -100,6 +114,7 @@ function ConnNode({
   onToggle,
   onConsole,
   onTable,
+  onEdit,
 }: {
   pid: string;
   c: DbConnection;
@@ -108,6 +123,7 @@ function ConnNode({
   onToggle: () => void;
   onConsole: () => void;
   onTable: (t: string, pin: boolean) => void;
+  onEdit: () => void;
 }) {
   const schema = useLoad(
     open ? `db-schema:${pid}:${c.name}` : null,
@@ -158,6 +174,16 @@ function ConnNode({
           onClick={onConsole}
         >
           <Icon name="console" size={14} />
+        </button>
+        <button
+          type="button"
+          className="db-act db-edit"
+          title={`Edit connection ${c.name}`}
+          aria-label={`Edit connection ${c.name}`}
+          aria-haspopup="dialog"
+          onClick={onEdit}
+        >
+          <Icon name="gear" size={14} />
         </button>
       </div>
       {open && (

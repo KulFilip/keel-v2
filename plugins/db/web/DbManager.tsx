@@ -4,7 +4,7 @@
 // (Connections) shows what that project uses: its own and the globals for it. At a narrow width the list and the editor
 // take turns. The Database plugin's part (plugins/db): it imports only react and @keel/web-sdk.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBox, errorParts, useApp, useLoad, useNarrow } from "@keel/web-sdk";
 import { DbEditor } from "./DbEditor";
 import {
@@ -26,14 +26,28 @@ type Pick = { kind: "entry"; id: string } | { kind: "new"; draft: DbDraft } | nu
 const GLOBE = <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>;
 const FOLDER = <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />;
 
-export function DbManager({ pid, projectName, place }: { pid: string; projectName?: string; place: "control" | "project" }) {
+export function DbManager({ pid, projectName, place, startNew, select, onChanged, onCancel }: {
+  pid: string;
+  projectName?: string;
+  place: "control" | "project";
+  /** open on a new connection draft (the Code page's popup) */
+  startNew?: boolean;
+  /** open with this connection chosen, by its name or id, as soon as the list has it */
+  select?: string;
+  /** after a save or a remove; `closed` is true when the editor said close (Save, not Apply) */
+  onChanged?: (closed: boolean) => void;
+  /** the editor's Cancel: given, it is called instead of going back to the list (a popup closes) */
+  onCancel?: () => void;
+}) {
   const { toast } = useApp();
   const narrow = useNarrow(760);
   const globals = useLoad(place === "control" ? "dbx:globals" : null, () => dbxApi.globals(), { live: false });
   const mine = useLoad(pid ? `dbx:${pid}` : null, () => dbxApi.effective(pid), { live: false });
   const projects = useLoad("dbx:projects", () => dbxApi.projects(), { live: false });
   const [filter, setFilter] = useState("");
-  const [pick, setPick] = useState<Pick>(null);
+  const [pick, setPick] = useState<Pick>(() =>
+    startNew ? { kind: "new", draft: newDraft(pid && place === "project" ? "project" : "global") } : null);
+  const selecting = useRef(startNew ? undefined : select);
   const [found, setFound] = useState<{ name: string; kind: string; url: string; shown: string; source: string }[] | null>(null);
   const [finding, setFinding] = useState(false);
 
@@ -43,6 +57,15 @@ export function DbManager({ pid, projectName, place }: { pid: string; projectNam
     if (place === "control") return [...(globals.data ?? []), ...own];
     return mine.data ?? [];
   }, [place, globals.data, mine.data]);
+  useEffect(() => {
+    const want = selecting.current;
+    if (!want) return;
+    const hit = all.find((c) => c.id === want) ?? all.find((c) => c.name === want);
+    if (hit) {
+      selecting.current = undefined;
+      setPick({ kind: "entry", id: hit.id });
+    }
+  }, [all]);
   const name = pid ? projectName ?? pid : undefined;
   const groups = groupEntries(all, name, filter);
   const bad = problems(all);
@@ -76,6 +99,7 @@ export function DbManager({ pid, projectName, place }: { pid: string; projectNam
       toast(`${c.name} removed.`);
       setPick(null);
       await reload();
+      onChanged?.(false);
     } catch (e) {
       toast(errorParts(e).message);
     }
@@ -172,11 +196,12 @@ export function DbManager({ pid, projectName, place }: { pid: string; projectNam
           )}
           {draft ? (
             <DbEditor draft={draft} entry={chosen} pid={pid || undefined} projectName={name} projects={projects.data ?? []}
-              onCancel={() => setPick(null)}
+              onCancel={onCancel ?? (() => setPick(null))}
               onRemove={chosen ? () => void remove(chosen) : undefined}
               onSaved={(saved, close) => {
                 void reload();
                 setPick(close ? null : { kind: "entry", id: saved.id });
+                onChanged?.(close);
               }} />
           ) : (
             <div className="dbx-empty">
