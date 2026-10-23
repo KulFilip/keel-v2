@@ -1,0 +1,171 @@
+package dev.keel.android.ui.thread
+
+import androidx.lifecycle.viewModelScope
+import dev.keel.android.data.AiState
+import dev.keel.android.data.DiffLine
+import dev.keel.android.data.KeelSession
+import dev.keel.android.data.LiveHub
+import dev.keel.android.data.ReviewThread
+import dev.keel.android.data.ReviewView
+import dev.keel.android.data.diffSnippet
+import dev.keel.android.ui.common.KeelViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+enum class PrTab { THREADS, FILES, CHECKS }
+
+data class ThreadUi(
+    val loading: Boolean = true,
+    val refreshing: Boolean = false,
+    val error: Throwable? = null,
+    val view: ReviewView? = null,
+    val ai: AiState = AiState(),
+    val tab: PrTab = PrTab.THREADS,
+    val selected: String? = null,
+    val snippets: Map<String, List<DiffLine>> = emptyMap(),
+    /** keel's checks the person dismissed (on this phone only) */
+    val dismissed: Set<String> = emptySet(),
+    val reply: String = "",
+    val busy: String? = null,
+    val actionError: Throwable? = null,
+    val note: String? = null,
+) {
+    val me get() = view?.me
+    val open get() = view?.threads.orEmpty().filter { !it.resolved }
+    val resolved get() = view?.threads.orEmpty().filter { it.resolved }
+    val current: ReviewThread? get() = open.firstOrNull { it.id == selected } ?: open.firstOrNull()
+    fun waitsForMe(t: ReviewThread) = !t.resolved && t.comments.lastOrNull()?.author.let { it != null && it != me }
+}
+
+/**
+ * One pull request of the review plugin: its threads (reply, resolve), keel's "Is the reviewer right?" check (judge,
+ * polled while it runs), Address it (a flow that makes the change), and its files and checks.
+ */
+class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectId: String, number: Int) : KeelViewModel(session, live) {
+    val key = "pr:$number"
+    private val _ui = MutableStateFlow(ThreadUi())
+    val ui: StateFlow<ThreadUi> = _ui.asStateFlow()
+    private var poll: Job? = null
+
+    init {
+        load()
+    }
+
+    fun refresh() {
+        _ui.update { it.copy(refreshing = true) }
+        load(refresh = true)
+    }
+
+    fun load(refresh: Boolean = false) {
+        viewModelScope.launch {
+            try {
+                val v = api.review(projectId, key, refresh)
+                val ai = runCatching { api.ai(projectId, key) }.getOrDefault(_ui.value.ai)
+                _ui.update { s ->
+                    val firstWaiting = v.threads.firstOrNull { !it.resolved && it.comments.lastOrNull()?.author != v.me } ?: v.threads.firstOrNull { !it.resolved }
+                    s.copy(loading = false, refreshing = false, error = null, view = v, ai = ai, selected = s.selected?.takeIf { id -> v.threads.any { it.id == id && !it.resolved } } ?: firstWaiting?.id)
+                }
+                snippets(v)
+                if (ai.judges.values.any { it.status == "running" }) startPoll()
+            } catch (e: Exception) {
+                _ui.update { it.copy(loading = false, refreshing = false, error = if (it.view == null) e else null, actionError = if (it.view != null) e else null) }
+            }
+        }
+    }
+
+    private fun snippets(v: ReviewView) {
+        val paths = v.threads.filter { !it.resolved && it.path != null && it.line != null }.mapNotNull { it.path }.distinct()
+        paths.forEach { path ->
+            viewModelScope.launch {
+                val d = runCatching { api.diff(projectId, key, path) }.getOrNull() ?: return@launch
+                _ui.update { s ->
+                    val add = v.threads.filter { it.path == path && !it.resolved }.associate { it.id to diffSnippet(d.diff, it.line, it.startLine) }
+                    s.copy(snippets = s.snippets + add)
+                }
+            }
+        }
+    }
+
+    fun select(id: String) = _ui.update { it.copy(selected = id, reply = if (it.selected == id) it.reply else "") }
+    fun setTab(t: PrTab) = _ui.update { it.copy(tab = t) }
+    fun setReply(v: String) = _ui.update { it.copy(reply = v) }
+    fun dismiss(id: String) = _ui.update { it.copy(dismissed = it.dismissed + id) }
+    fun clearNote() = _ui.update { it.copy(note = null, actionError = null) }
+
+    /** keel's check: is the reviewer right? `harder` = check deeper (a stronger model, the whole files). */
+    fun judge(threadId: String, harder: Boolean = false) {
+        _ui.update { it.copy(busy = "judge", actionError = null, dismissed = it.dismissed - threadId) }
+        viewModelScope.launch {
+            try {
+                val ai = api.judge(projectId, key, threadId, again = harder || _ui.value.ai.judges[threadId] != null, harder = harder)
+                _ui.update { it.copy(busy = null, ai = ai) }
+                startPoll()
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = null, actionError = e) }
+            }
+        }
+    }
+
+    private fun startPoll() {
+        if (poll?.isActive == true) return
+        poll = viewModelScope.launch {
+            repeat(90) {
+                delay(2_000)
+                val ai = runCatching { api.ai(projectId, key) }.getOrNull() ?: return@repeat
+                _ui.update { it.copy(ai = ai) }
+                if (ai.judges.values.none { it.status == "running" }) return@launch
+            }
+        }
+    }
+
+    fun useAsReply(threadId: String) {
+        val r = _ui.value.ai.judges[threadId]?.result ?: return
+        val text = r.reply ?: r.items.firstOrNull()?.fix ?: return
+        _ui.update { it.copy(selected = threadId, reply = text) }
+    }
+
+    fun address(threadId: String) {
+        _ui.update { it.copy(busy = "address", actionError = null) }
+        viewModelScope.launch {
+            try {
+                val r = api.address(projectId, key, threadId)
+                _ui.update { it.copy(busy = null, note = "keel started “${r.title}”${r.branch?.let { b -> " on $b" } ?: ""}. Follow it in Flows.") }
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = null, actionError = e) }
+            }
+        }
+    }
+
+    fun resolve(threadId: String, resolved: Boolean = true) {
+        _ui.update { it.copy(busy = "resolve", actionError = null) }
+        viewModelScope.launch {
+            try {
+                val v = api.resolve(projectId, key, threadId, resolved)
+                _ui.update { s -> s.copy(busy = null, view = v, selected = v.threads.firstOrNull { !it.resolved }?.id, note = if (resolved) "Resolved." else "Opened again.") }
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = null, actionError = e) }
+            }
+        }
+    }
+
+    fun sendReply() {
+        val s = _ui.value
+        val t = s.current ?: return
+        val body = s.reply.trim()
+        if (body.isEmpty() || s.busy != null) return
+        _ui.update { it.copy(busy = "reply", actionError = null) }
+        viewModelScope.launch {
+            try {
+                val v = api.reply(projectId, key, t.id, body)
+                _ui.update { it.copy(busy = null, view = v, reply = "", note = "Reply posted.") }
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = null, actionError = e) }
+            }
+        }
+    }
+}

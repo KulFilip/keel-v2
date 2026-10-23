@@ -1,0 +1,401 @@
+package dev.keel.android.ui.common
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.keel.android.data.KeelException
+import dev.keel.android.data.STEP_NAMES
+import dev.keel.android.ui.theme.K
+import dev.keel.android.ui.theme.Mono
+
+/** keel's "k" mark: the accent square. */
+@Composable
+fun KeelMark(size: Dp = 22.dp, corner: Dp = 7.dp) {
+    Box(
+        Modifier.size(size).clip(RoundedCornerShape(corner)).background(K.c.accent),
+        contentAlignment = Alignment.Center,
+    ) { Text("k", color = K.c.onAccent, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.55f).sp) }
+}
+
+/** A small tag: "SPEC GATE", "Stuck · code". */
+@Composable
+fun Tag(text: String, bg: Color, fg: Color, upper: Boolean = false, mono: Boolean = false) {
+    Text(
+        if (upper) text.uppercase() else text,
+        color = fg,
+        fontSize = if (upper) 11.sp else 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = if (upper) 0.6.sp else 0.sp,
+        fontFamily = if (mono) Mono else null,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(bg).padding(horizontal = 8.dp, vertical = 3.dp),
+        maxLines = 1,
+    )
+}
+
+/** A header chip (height 32): "◆ 3 questions". */
+@Composable
+fun HeaderChip(text: String, bg: Color, fg: Color, border: Color? = null) {
+    Box(
+        Modifier.height(32.dp).clip(RoundedCornerShape(8.dp)).background(bg)
+            .then(if (border != null) Modifier.border(1.dp, border, RoundedCornerShape(8.dp)) else Modifier)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+}
+
+@Composable
+fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(), color = K.c.dim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+        modifier = modifier.padding(top = 6.dp, bottom = 2.dp).semantics { heading() },
+    )
+}
+
+/** The card every list uses: panel background, 16dp corners, a 1dp border. */
+@Composable
+fun KCard(
+    modifier: Modifier = Modifier,
+    border: Color = K.c.border,
+    bg: Color = K.c.panel,
+    padding: PaddingValues = PaddingValues(16.dp),
+    onClick: (() -> Unit)? = null,
+    clickLabel: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier.fillMaxWidth().clip(shape).background(bg).border(1.dp, border, shape)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = clickLabel, role = Role.Button, onClick = onClick) else Modifier)
+            .padding(padding),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
+}
+
+/** The four step bars (Spec, Test, Code, Review). `at` = the current step (4: all done). */
+@Composable
+fun StepBars(at: Int, solid: Color, ink: Color, modifier: Modifier = Modifier, big: Boolean = false) {
+    Row(
+        modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+            contentDescription = if (at >= 4) "All steps done" else "Step ${at + 1} of 4: ${STEP_NAMES[at]}"
+        },
+        horizontalArrangement = Arrangement.spacedBy(if (big) 6.dp else 4.dp),
+    ) {
+        STEP_NAMES.forEachIndexed { i, n ->
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (big) 6.dp else 5.dp)) {
+                Box(
+                    Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+                        .background(if (i < at) K.c.ok else if (i == at) solid else K.c.border),
+                )
+                Text(
+                    (if (i == at && big) "◆ " else "") + n,
+                    fontSize = if (big) 12.sp else 11.sp,
+                    fontWeight = if (i == at) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (i == at) ink else K.c.dim,
+                )
+            }
+        }
+    }
+}
+
+/** One answer of a single-choice question (a radio row, the whole row is the target). */
+@Composable
+fun ChoiceRow(
+    selected: Boolean,
+    label: String,
+    description: String?,
+    onClick: () -> Unit,
+    idleBg: Color = K.c.panel,
+    multiple: Boolean = false,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val sel = if (multiple) Modifier.toggleable(selected, role = Role.Checkbox, onValueChange = { onClick() })
+    else Modifier.selectable(selected, role = Role.RadioButton, onClick = onClick)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(shape)
+            .background(if (selected) K.c.accentSoft else idleBg)
+            .border(1.dp, if (selected) K.c.accent else K.c.border, shape)
+            .then(sel)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        if (multiple) {
+            Checkbox(checked = selected, onCheckedChange = null, colors = CheckboxDefaults.colors(checkedColor = K.c.accent, checkmarkColor = K.c.onAccent), modifier = Modifier.size(20.dp))
+        } else {
+            RadioButton(selected = selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = K.c.accent), modifier = Modifier.size(20.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg)
+            if (!description.isNullOrBlank()) Text(description, fontSize = 13.sp, lineHeight = 19.sp, color = K.c.text2)
+        }
+    }
+}
+
+@Composable
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, busy: Boolean = false) {
+    val shape = RoundedCornerShape(26.dp)
+    Box(
+        modifier.fillMaxWidth().height(52.dp).clip(shape)
+            .background(if (enabled) K.c.accent else K.c.accent.copy(alpha = 0.4f))
+            .clickable(enabled = enabled && !busy, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (busy) CircularProgressIndicator(Modifier.size(22.dp), color = K.c.onAccent, strokeWidth = 2.dp)
+        else Text(text, color = K.c.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A pill button (44dp) for secondary actions. */
+@Composable
+fun PillButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    tinted: Boolean = false,
+    enabled: Boolean = true,
+    height: Dp = 44.dp,
+    corner: Dp = 22.dp,
+) {
+    val shape = RoundedCornerShape(corner)
+    val bg = when { filled -> K.c.accent; tinted -> K.c.checkBg; else -> Color.Transparent }
+    val fg = when { filled -> K.c.onAccent; tinted -> K.c.accentInk; else -> K.c.fg }
+    val border = when { filled -> null; tinted -> K.c.accentBorder; else -> K.c.border }
+    Box(
+        modifier.heightIn(min = height).clip(shape).background(bg)
+            .then(if (border != null) Modifier.border(1.dp, border, shape) else Modifier)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = if (enabled) fg else K.c.dim, fontSize = 13.sp, fontWeight = if (filled || tinted) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
+    }
+}
+
+/** The 64dp top bar of a detail screen: back, title + mono subtitle, actions. */
+@Composable
+fun DetailBar(title: String, subtitle: String?, onBack: () -> Unit, backLabel: String, actions: @Composable RowScope.() -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel, tint = K.c.fg)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = K.c.fg)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, fontFamily = Mono, fontSize = 12.sp, color = K.c.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        actions()
+    }
+}
+
+@Composable
+fun Loading(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(color = K.c.accent, modifier = Modifier.semantics { contentDescription = "Loading" })
+    }
+}
+
+/** keel could not answer: say so plainly, with keel's hint (or the Wi-Fi advice when it was not reached at all). */
+@Composable
+fun ErrorState(error: Throwable, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    val k = error as? KeelException
+    val title = when {
+        k?.unreachable == true -> "keel is not reachable"
+        else -> k?.message ?: (error.message ?: "Something went wrong")
+    }
+    val text = when {
+        k?.unreachable == true -> (k.message + "\n" + (k.hint ?: ""))
+        else -> k?.hint
+    }
+    Column(
+        modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Spacer(Modifier.height(48.dp))
+        Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = K.c.dim, modifier = Modifier.size(40.dp))
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg, textAlign = TextAlign.Center)
+        if (!text.isNullOrBlank()) SelectionContainer {
+            Text(text.trim(), fontSize = 14.sp, lineHeight = 20.sp, color = K.c.text2, textAlign = TextAlign.Center)
+        }
+        PillButton("Try again", onRetry, filled = true)
+    }
+}
+
+/** An error inside a screen that still shows its data (a send that failed). */
+@Composable
+fun InlineError(error: Throwable?, onDismiss: (() -> Unit)? = null) {
+    if (error == null) return
+    val k = error as? KeelException
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(K.c.badSoft).border(1.dp, K.c.badBorder, shape).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(if (k?.unreachable == true) "keel is not reachable" else (error.message ?: "Failed"), color = K.c.badInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            val hint = k?.hint
+            if (!hint.isNullOrBlank()) Text(hint, color = K.c.text2, fontSize = 13.sp)
+        }
+        if (onDismiss != null) TextButton(onClick = onDismiss) { Text("OK", color = K.c.badInk) }
+    }
+}
+
+@Composable
+fun EmptyState(title: String, text: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        KeelMark(36.dp, 11.dp)
+        Spacer(Modifier.height(4.dp))
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg, textAlign = TextAlign.Center)
+        Text(text, fontSize = 14.sp, lineHeight = 20.sp, color = K.c.text2, textAlign = TextAlign.Center)
+    }
+}
+
+/** A text box in keel's look: the accent border, the dim placeholder. */
+@Composable
+fun KTextField(
+    value: String,
+    onChange: (String) -> Unit,
+    label: String?,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    minLines: Int = 2,
+    singleLine: Boolean = false,
+    mono: Boolean = false,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (label != null) Text(label, fontSize = 13.sp, color = K.c.text2)
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            modifier = Modifier.fillMaxWidth().semantics { if (label != null) contentDescription = label },
+            placeholder = { Text(placeholder, color = K.c.dim) },
+            minLines = if (singleLine) 1 else minLines,
+            singleLine = singleLine,
+            shape = RoundedCornerShape(12.dp),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = K.c.fg, fontFamily = if (mono) Mono else null),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = K.c.accent, unfocusedBorderColor = K.c.accentBorder, cursorColor = K.c.accent,
+                focusedContainerColor = K.c.bg, unfocusedContainerColor = K.c.bg,
+            ),
+        )
+    }
+}
+
+/** A round avatar with initials. */
+@Composable
+fun Avatar(text: String, bg: Color, fg: Color, size: Dp = 36.dp) {
+    Box(Modifier.size(size).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
+        Text(text, color = fg, fontSize = (size.value * 0.36f).sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A coloured dot. */
+@Composable
+fun Dot(color: Color, size: Dp = 10.dp) {
+    Box(Modifier.size(size).clip(CircleShape).background(color))
+}
+
+/** A monospace block (a failure, a tool log). */
+@Composable
+fun CodeBlock(text: String, fg: Color = K.c.text2, border: Color = K.c.border, bg: Color = K.c.bg) {
+    val shape = RoundedCornerShape(10.dp)
+    SelectionContainer {
+        Text(
+            text, fontFamily = Mono, fontSize = 12.sp, lineHeight = 18.sp, color = fg,
+            modifier = Modifier.fillMaxWidth().clip(shape).background(bg).border(BorderStroke(1.dp, border), shape).padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+    }
+}
+
+/** The segmented control of the PRs and KeelBot screens (40dp, rounded, the picked one tinted). */
+@Composable
+fun Segmented(options: List<Pair<String, String>>, picked: String, onPick: (String) -> Unit, modifier: Modifier = Modifier, height: Dp = 40.dp) {
+    val shape = RoundedCornerShape(height / 2)
+    Row(modifier.height(height).clip(shape).border(1.dp, K.c.border, shape)) {
+        options.forEachIndexed { i, (id, label) ->
+            val on = id == picked
+            if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(K.c.border))
+            Box(
+                Modifier.weight(1f).fillMaxHeight().background(if (on) K.c.accentSoft else Color.Transparent)
+                    .selectable(on, role = Role.Tab, onClick = { onPick(id) }),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, color = if (on) K.c.accentInk else K.c.text2, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium)
+            }
+        }
+    }
+}
+
+
+/** A filter chip of the Flows screen (36dp). */
+@Composable
+fun FilterChipK(label: String, on: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        Modifier.height(48.dp).padding(vertical = 6.dp).clip(shape)
+            .background(if (on) K.c.accentSoft else Color.Transparent)
+            .border(1.dp, if (on) K.c.accent else K.c.border, shape)
+            .selectable(on, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = if (on) K.c.accentInk else K.c.text2, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+}
