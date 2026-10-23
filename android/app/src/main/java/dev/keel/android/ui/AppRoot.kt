@@ -1,0 +1,246 @@
+package dev.keel.android.ui
+
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.CallMerge
+import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import dev.keel.android.KeelApp
+import dev.keel.android.ui.chat.ChatScreen
+import dev.keel.android.ui.chat.ChatViewModel
+import dev.keel.android.ui.common.HomeViewModel
+import dev.keel.android.ui.flow.FlowScreen
+import dev.keel.android.ui.flows.FlowsScreen
+import dev.keel.android.ui.flows.FlowsViewModel
+import dev.keel.android.ui.inbox.InboxScreen
+import dev.keel.android.ui.inbox.InboxViewModel
+import dev.keel.android.ui.pair.PairScreen
+import dev.keel.android.ui.pair.PairViewModel
+import dev.keel.android.ui.prs.PrsScreen
+import dev.keel.android.ui.prs.PrsViewModel
+import dev.keel.android.ui.question.FlowViewModel
+import dev.keel.android.ui.question.QuestionScreen
+import dev.keel.android.ui.question.QuestionViewModel
+import dev.keel.android.ui.settings.SettingsScreen
+import dev.keel.android.ui.thread.ThreadScreen
+import dev.keel.android.ui.thread.ThreadViewModel
+import dev.keel.android.ui.theme.K
+
+private data class Tab(val route: String, val label: String, val icon: ImageVector)
+
+private val TABS = listOf(
+    Tab("inbox", "Inbox", Icons.Outlined.Inbox),
+    Tab("flows", "Flows", Icons.Outlined.AccountTree),
+    Tab("prs", "PRs", Icons.AutoMirrored.Outlined.CallMerge),
+    Tab("chat", "KeelBot", Icons.Outlined.ChatBubbleOutline),
+)
+
+/** Routes: pair, the four tabs, and the detail screens. */
+object Routes {
+    fun question(pid: String, tid: String) = "question/${enc(pid)}/${enc(tid)}"
+    fun flow(pid: String, tid: String) = "flow/${enc(pid)}/${enc(tid)}"
+    fun pr(pid: String, n: Int) = "pr/${enc(pid)}/$n"
+    private fun enc(s: String) = android.net.Uri.encode(s)
+}
+
+@Composable
+fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, onOpenUsed: () -> Unit) {
+    val session = app.session
+    val nav = rememberNavController()
+    val active by session.active.collectAsState()
+    val pairVm: PairViewModel = viewModel(factory = viewModelFactory { initializer { PairViewModel(session) } })
+    val home: HomeViewModel = viewModel(factory = viewModelFactory { initializer { HomeViewModel(session, app.live, app.notifier) } })
+    val homeUi by home.ui.collectAsStateWithLifecycle()
+    val pairUi by pairVm.ui.collectAsStateWithLifecycle()
+    val start = remember { if (session.active.value == null) "pair" else "inbox" }
+
+    // notifications: ask once, after pairing (Android 13+)
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(active?.keel?.id) {
+        if (active != null && Build.VERSION.SDK_INT >= 33 && !app.notifier.allowed() && active?.keel?.demo != true) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    // a keel://pair link (camera app, browser): the Pair screen pairs with it
+    LaunchedEffect(link) {
+        if (link != null) {
+            nav.navigate("pair") { launchSingleTop = true }
+            pairVm.fromLink(link)
+            onLinkUsed()
+        }
+    }
+    LaunchedEffect(pairUi.paired) {
+        if (pairUi.paired) {
+            nav.navigate("inbox") { popUpTo(0) { inclusive = true } }
+            pairVm.consumed()
+        }
+    }
+    // keel removed this phone (403 "This device was removed"): back to the Pair screen
+    LaunchedEffect(Unit) {
+        session.removed.collect { nav.navigate("pair") { popUpTo(0) { inclusive = true } } }
+    }
+    LaunchedEffect(open, active?.keel?.id) {
+        val o = open ?: return@LaunchedEffect
+        if (active == null) return@LaunchedEffect
+        openRoute(nav, o)
+        onOpenUsed()
+    }
+
+    val entry by nav.currentBackStackEntryAsState()
+    val route = entry?.destination?.route
+    val showBar = TABS.any { it.route == route }
+
+    Scaffold(
+        containerColor = K.c.bg,
+        contentWindowInsets = WindowInsets(0),
+        bottomBar = {
+            if (showBar) BottomBar(route, homeUi.inboxCount, homeUi.reviewCount) { r ->
+                nav.navigate(r) {
+                    popUpTo("inbox") { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+        },
+    ) { pad ->
+        Box(
+            Modifier.fillMaxSize().background(K.c.bg).padding(pad).consumeWindowInsets(pad).statusBarsPadding()
+                .then(if (showBar) Modifier else Modifier.navigationBarsPadding()).imePadding(),
+        ) {
+            NavHost(nav, startDestination = start) {
+                composable("pair") {
+                    PairScreen(pairVm, saved = session.store.keels.collectAsState().value, onBack = if (active != null) ({ nav.popBackStack() }) else null)
+                }
+                composable("inbox") {
+                    val vm: InboxViewModel = viewModel(factory = viewModelFactory { initializer { InboxViewModel(session, app.live) } })
+                    InboxScreen(vm, home, onQuestion = { pid, tid -> nav.navigate(Routes.question(pid, tid)) }, onFlow = { pid, tid -> nav.navigate(Routes.flow(pid, tid)) },
+                        onPr = { n -> homeUi.project?.let { nav.navigate(Routes.pr(it, n)) } }, onSettings = { nav.navigate("settings") })
+                }
+                composable("flows") {
+                    val vm: FlowsViewModel = viewModel(factory = viewModelFactory { initializer { FlowsViewModel(session, app.live) } })
+                    FlowsScreen(vm, onOpen = { r -> homeUi.project?.let { pid -> nav.navigate(if (r.status == "waiting") Routes.question(pid, r.threadId) else Routes.flow(pid, r.threadId)) } })
+                }
+                composable("prs") {
+                    val vm: PrsViewModel = viewModel(factory = viewModelFactory { initializer { PrsViewModel(session, app.live) } })
+                    PrsScreen(vm, onOpen = { n -> homeUi.project?.let { nav.navigate(Routes.pr(it, n)) } })
+                }
+                composable("chat") {
+                    val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(session, app.live) } })
+                    ChatScreen(vm, onBack = { nav.navigate("inbox") { popUpTo("inbox") } }, onStartFlow = { nav.navigate("flows") })
+                }
+                composable(
+                    "question/{pid}/{tid}",
+                    arguments = listOf(navArgument("pid") { type = NavType.StringType }, navArgument("tid") { type = NavType.StringType }),
+                ) { e ->
+                    val pid = e.arguments?.getString("pid").orEmpty()
+                    val tid = e.arguments?.getString("tid").orEmpty()
+                    val vm: QuestionViewModel = viewModel(factory = viewModelFactory { initializer { QuestionViewModel(session, app.live, pid, tid) } })
+                    QuestionScreen(vm, onBack = { nav.popBackStack() }, onFlow = { nav.navigate(Routes.flow(pid, tid)) })
+                }
+                composable(
+                    "flow/{pid}/{tid}",
+                    arguments = listOf(navArgument("pid") { type = NavType.StringType }, navArgument("tid") { type = NavType.StringType }),
+                ) { e ->
+                    val pid = e.arguments?.getString("pid").orEmpty()
+                    val tid = e.arguments?.getString("tid").orEmpty()
+                    val vm: FlowViewModel = viewModel(factory = viewModelFactory { initializer { FlowViewModel(session, app.live, pid, tid, withHistory = true) } })
+                    FlowScreen(vm, onBack = { nav.popBackStack() })
+                }
+                composable(
+                    "pr/{pid}/{n}",
+                    arguments = listOf(navArgument("pid") { type = NavType.StringType }, navArgument("n") { type = NavType.IntType }),
+                ) { e ->
+                    val pid = e.arguments?.getString("pid").orEmpty()
+                    val n = e.arguments?.getInt("n") ?: 0
+                    val vm: ThreadViewModel = viewModel(factory = viewModelFactory { initializer { ThreadViewModel(session, app.live, pid, n) } })
+                    ThreadScreen(vm, onBack = { nav.popBackStack() })
+                }
+                composable("settings") {
+                    SettingsScreen(session, home, notifier = app.notifier, onBack = { nav.popBackStack() }, onPair = { nav.navigate("pair") })
+                }
+            }
+        }
+    }
+}
+
+/** "inbox", "flows", "prs", "chat", "question:<pid>:<tid>", "flow:<pid>:<tid>", "pr:<pid>:<n>" (notifications, adb). */
+private fun openRoute(nav: NavHostController, o: String) {
+    val p = o.split(':')
+    val r = when (p[0]) {
+        "question" -> if (p.size >= 3) Routes.question(p[1], p[2]) else null
+        "flow" -> if (p.size >= 3) Routes.flow(p[1], p[2]) else null
+        "pr" -> if (p.size >= 3) p[2].toIntOrNull()?.let { Routes.pr(p[1], it) } else null
+        "inbox", "flows", "prs", "chat", "settings" -> p[0]
+        else -> null
+    } ?: return
+    nav.navigate(r) { launchSingleTop = true }
+}
+
+@Composable
+private fun BottomBar(route: String?, inbox: Int, reviews: Int, go: (String) -> Unit) {
+    NavigationBar(containerColor = K.c.panel, tonalElevation = androidx.compose.ui.unit.Dp(0f)) {
+        TABS.forEach { t ->
+            val on = route == t.route
+            val badge = when (t.route) { "inbox" -> inbox; "prs" -> reviews; else -> 0 }
+            NavigationBarItem(
+                selected = on,
+                onClick = { go(t.route) },
+                icon = {
+                    BadgedBox(badge = {
+                        if (badge > 0) Badge(containerColor = if (t.route == "prs") K.c.run else K.c.bad, contentColor = K.c.onAccent) {
+                            Text("$badge", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }) { Icon(t.icon, contentDescription = null) }
+                },
+                label = { Text(t.label, fontSize = 12.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium) },
+                modifier = Modifier.semantics { contentDescription = if (badge > 0) "${t.label}, $badge waiting" else t.label },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = K.c.accentInk, selectedTextColor = K.c.fg, indicatorColor = K.c.accentSoft,
+                    unselectedIconColor = K.c.dim, unselectedTextColor = K.c.dim,
+                ),
+            )
+        }
+    }
+}

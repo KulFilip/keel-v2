@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Keel" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/keel_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="keel_bg">#131314</color>
+</resources>

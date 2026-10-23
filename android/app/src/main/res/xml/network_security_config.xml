@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  keel runs on your own machine. On the local Wi-Fi it answers on plain http://<LAN IP>:<port> (started with keel2 start and its wifi option), an
+  address no certificate can cover, so cleartext HTTP is allowed. Tailscale (https://<machine>.<tailnet>.ts.net) and a
+  Cloudflare tunnel (https://*.trycloudflare.com) use https as usual. The device token is the only secret on the wire:
+  use http only on a network you trust.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
