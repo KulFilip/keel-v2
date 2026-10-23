@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get as rget
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post as rpost
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 import java.nio.file.Path
@@ -38,6 +40,7 @@ class ReviewApiTest : ApiTest() {
 
     @Autowired lateinit var secrets: keel.api.connections.SecretService
     @Autowired lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+    @Autowired lateinit var webKey: keel.api.auth.WebKey
 
     private val remotes: Path = Files.createTempDirectory("keel-remotes")
 
@@ -106,6 +109,23 @@ class ReviewApiTest : ApiTest() {
         get("/api/projects/$pid/review/prs").andExpect(status().isConflict)
         val err = get("/api/projects/$pid/review/branch").andExpect(status().isConflict).json()
         assertThat(err["error"].asText()).contains("Code Review plugin is off")
+    }
+
+    @Test
+    fun `a paired phone's device token reads the review list, and a removed one gets error and hint`() {
+        val (pid, _) = githubPr()
+        val key = "Bearer " + webKey.value
+        val code = bare.perform(rpost("/api/devices/pairing").header("Authorization", key)).andExpect(status().isOk).json()["code"].asText()
+        val pair = bare.perform(rpost("/api/devices/pair").contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(mapOf("code" to code, "name" to "Pixel 8", "platform" to "android")))).andExpect(status().isOk).json()
+        val device = "Bearer " + pair["token"].asText()
+        val list = bare.perform(rget("/api/projects/$pid/review/prs?filter=review").header("Authorization", device)).andExpect(status().isOk).json()
+        assertThat(list["prs"].map { it["number"].asInt() }).containsExactly(7)
+        bare.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/devices/${pair["device"]["id"].asText()}")
+            .header("Authorization", key)).andExpect(status().isOk)
+        val gone = bare.perform(rget("/api/projects/$pid/review/prs?filter=review").header("Authorization", device)).andExpect(status().isForbidden).json()
+        assertThat(gone["error"].asText()).isEqualTo("This device was removed")
+        assertThat(gone["hint"].asText()).isEqualTo("Pair it again in keel: Settings › Devices")
     }
 
     @Test

@@ -490,7 +490,7 @@ cmd_start() {
   wait_healthy "$port"
   ok "keel is running: ${B}http://localhost:$port${N}"
   show_reach "$port" "$bind"
-  publish_addresses "$port"
+  publish_addresses "$port" "$bind"
   register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
@@ -773,9 +773,9 @@ tunnel_alive() {
   [ -f "$d/tunnel.docker" ] && [ "$(docker inspect -f '{{.State.Running}}' "$(cat "$d/tunnel.docker")" 2>/dev/null || echo false)" = true ]
 }
 
-publish_addresses() {  # publish_addresses <port>: tells keel where it is reachable (an older keel ignores it)
-  local port="$1" bind d u json="" sep=""
-  bind="$(label bind)"; [ -n "$bind" ] || bind=127.0.0.1
+publish_addresses() {  # publish_addresses <port> [bind]: tells keel where it is reachable (an older keel ignores it)
+  local port="$1" bind="${2:-}" d u json="" sep=""
+  [ -n "$bind" ] || bind="$(label bind)"; [ -n "$bind" ] || bind=127.0.0.1
   d="$(share_dir)"
   local items=()
   while IFS= read -r u; do items+=("wifi $u"); done < <(wifi_urls "$port" "$bind")
@@ -1488,7 +1488,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   curl -fs "$(api "$port")/health" >/dev/null 2>&1 || die "keel did not answer in 3 minutes." "See: keel2 logs"
   ok "keel is running natively: ${B}http://localhost:$port${N}"
   show_reach "$port" "$bind"
-  publish_addresses "$port"
+  publish_addresses "$port" "$bind"
   local added=(); while IFS= read -r f; do [ "$f" != "$project" ] && [ -d "$f" ] && added+=("$f"); done < <(list_folders)
   register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Logs: keel2 logs${N}"

@@ -131,6 +131,25 @@ class DevicesApiTest : ApiTest() {
     }
 
     @Test
+    fun `the device token works wherever the web key does - the inbox, approvals, flows, KeelBot, and the live stream`() {
+        val (token, _) = paired()
+        val (pid, _) = newProject("device-routes")
+        listOf("/api/projects", "/api/inbox", "/api/inbox/count", "/api/projects/$pid/flows", "/api/projects/$pid/runs",
+            "/api/workflows", "/api/projects/$pid/budget/now").forEach { path ->
+            val viaKey = bare.perform(rget(path).person()).andReturn().response.status
+            val viaDevice = bare.perform(rget(path).device(token)).andReturn().response.status
+            assertThat(viaDevice).describedAs(path).isEqualTo(viaKey).isNotIn(401, 403)
+        }
+        // the live stream (SSE) starts for a device as for the browser
+        bare.perform(rget("/api/events?project=$pid").device(token).header("Accept", "text/event-stream"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.request().asyncStarted())
+        // a change without X-Keel-Web: the device is not a browser
+        bare.perform(rpost("/api/inbox/x-1/act").device(token).body(mapOf("action" to "nope"))).andReturn().response.let {
+            assertThat(it.status).isNotIn(401, 403)
+        }
+    }
+
+    @Test
     fun `a device is never keel itself, an MCP server or the person managing devices`() {
         val (token, device) = paired()
         bare.perform(rget("/api/devices").device(token)).andExpect(status().isForbidden)
