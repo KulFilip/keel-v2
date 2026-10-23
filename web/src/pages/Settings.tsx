@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, errorParts, type Model, type ProjectSettings, type Settings } from "../api";
 import { refreshFeatures, useFeatures } from "../addons";
+import { DevicesSection } from "../components/Devices";
 import { ModelPicker } from "../components/ModelPicker";
 import { Skeleton } from "../components/page";
 import { RUN_MODES, runModeAbout } from "../components/RunMode";
@@ -74,6 +75,8 @@ export const SECTIONS: Sec[] = [
     { key: "env_names", label: "Variables agents may see (names only)", kind: { t: "list" }, help: "Comma-separated names. Agents get these variables; every other one is hidden." },
     { key: "mcp", label: "MCP servers", kind: { t: "list" }, help: "Servers this project's agents may call. Which agent may use which is on the Tools page." },
   ] },
+  // phone access: draws itself (components/Devices.tsx); the same list in both tabs, it is for the whole keel
+  { id: "devices", title: "Devices", sub: "Phones paired with this keel (keel's Android app). For the whole keel.", rows: [], component: DevicesSection },
 ];
 
 const helpOf = (row: Row, v: unknown) => (typeof row.help === "function" ? row.help(v) : row.help);

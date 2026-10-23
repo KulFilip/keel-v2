@@ -196,6 +196,19 @@
   .sg-save.s-saved, .sg-save.s-error { color: var(--bg); }
 }
 @media (max-width: 600px) { .sg-row { grid-template-columns: minmax(0,1fr); padding: 12px 14px; } .sg-sec-h { padding: 12px 14px 10px; } }
+/* Settings › Devices (components/Devices.tsx) */
+.dv-pad { padding: 12px 18px; margin: 0; }
+.dv-list { list-style: none; margin: 0; padding: 0; }
+.dv-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.dv-lab { display: grid; gap: 2px; min-width: 0; }
+.dv-lab .sub { font-size: 12.5px; overflow-wrap: anywhere; }
+.dv-ok { color: var(--ok, inherit); font-weight: 600; }
+.dv-qr { display: grid; gap: 10px; justify-items: start; max-width: 520px; }
+.dv-qr .qr { border-radius: 8px; border: 1px solid var(--border); max-width: 100%; height: auto; }
+.dv-facts { display: grid; grid-template-columns: 80px minmax(0,1fr); gap: 4px 12px; font-size: 13px; }
+.dv-facts b { overflow-wrap: anywhere; }
+.dv-hint { margin: 0; padding: 8px 10px; border-radius: 7px; background: var(--warn-soft); font-size: 13px; }
+@media (max-width: 600px) { .dv-row, .dv-pad { padding-left: 14px; padding-right: 14px; } .dv-row { grid-template-columns: minmax(0,1fr); } }
 
 /* ---------- Tools (MCP) ---------- */
 .tl-top { display: grid; grid-template-columns: minmax(0,1.7fr) minmax(0,1fr); gap: 16px; align-items: start; margin-bottom: 30px; }

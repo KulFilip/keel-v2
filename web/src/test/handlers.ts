@@ -1,5 +1,6 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
+import type { Device } from "../devicesApi";
 import { http, HttpResponse } from "msw";
 import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
@@ -116,6 +117,8 @@ export function createDb() {
     ms: createMarketSkills(),
     /** 0.18.9 stacks: the marketplace's, and the project's own YAML */
     st: createStackDb(),
+    /** phone access: the paired phones (Settings › Devices) */
+    devices: [] as Device[],
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -166,6 +169,19 @@ export function handlers(db: Db) {
     return body as Record<string, unknown>;
   };
   return [
+    // phone access (Settings › Devices): the list, remove, and a code for this computer only unless a test says otherwise
+    http.get("/api/devices", () => HttpResponse.json(db.devices)),
+    http.delete("/api/devices/:id", async ({ request, params }) => {
+      await log(request);
+      db.devices = db.devices.filter((d) => d.id !== params.id);
+      return HttpResponse.json({ ok: true });
+    }),
+    http.post("/api/devices/pairing", async ({ request }) => {
+      await log(request);
+      const qr = "keel://pair?u=http%3A%2F%2Flocalhost%3A8080&c=ABCDEFGHJK&n=keel";
+      return HttpResponse.json({ code: "ABCDEFGHJK", expiresAt: new Date(Date.now() + 600_000).toISOString(), qr, name: "keel", reachable: false,
+        urls: [{ kind: "local", url: "http://localhost:8080", qr }] });
+    }),
     // v0.15.9 keel's file history: nothing recorded yet, unless a test says otherwise
     http.get("/api/projects/:pid/docs/history", () => HttpResponse.json([])),
     http.get("/api/projects/:pid/docs/history/versions", () => HttpResponse.json([])),
