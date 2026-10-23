@@ -14,6 +14,7 @@ import { useApp, useLoad } from "../state";
 import { UsageLine } from "../components/UsageStrip";
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type ConnectionKindItem } from "../sdk/slots";
+import { LocalServers, VertexSettings } from "../components/ModelServers";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
 // How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
@@ -69,7 +70,11 @@ function SecretField({ id, name, label, how, set, hint, multiline }: { id: strin
   );
 }
 
-const USE: Record<string, string> = { claude: "research, tests, review", codex: "planning, review", copilot: "implementer, custom agents", fake: "tests and demos — no network" };
+const USE: Record<string, string> = { claude: "research, tests, review", codex: "planning, review", copilot: "implementer, custom agents",
+  vertex: "Claude and Gemini in your Google Cloud project", local: "Ollama, LM Studio, vLLM, llama.cpp — the code stays on your machines",
+  fake: "tests and demos — no network" };
+/** 0.18.46 providers set up with a form in their card (servers, a project), not with one key */
+const CONFIGURED = new Set(["vertex", "local"]);
 
 
 // ---- Login helper: log the CLI in from here (inside the container), or paste a token ----
@@ -160,6 +165,7 @@ const CLI: Record<string, string> = { claude: "claude CLI", codex: "codex CLI", 
 /** Can this provider's agents run now, and if not, what is missing (a login, a key, the CLI)? */
 export function connState(p: Conn): State {
   if (p.id === "fake") return { tone: "ok", text: "Ready, no network" };
+  if (CONFIGURED.has(p.id)) return p.key_set ? { tone: "ok", text: p.id === "local" ? "Ready, on your machines" : "Ready" } : { tone: "warn", text: "Not set up", need: "key" };
   const m = p.modes.find((x) => x.id === p.selected);
   if (p.selected === "api") return p.key_set ? { tone: "ok", text: "API key saved" } : { tone: "warn", text: "No API key", need: "key" };
   if (m && !m.ready && m.need !== "login") return { tone: "bad", text: `${p.selected === "opencode" ? "OpenCode" : CLI[p.id] ?? "CLI"} not installed`, need: "cli" };
@@ -244,6 +250,9 @@ function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
             <button className={`btn sm${state.need === "login" ? " primary" : ""}`} type="button" onClick={() => setHelper(true)}>{p.login_set ? "Log in again" : "Set up login"}</button>
           )}
           {state.need === "key" && secret && <button className="btn sm primary" type="button" onClick={focusKey}>Add the key</button>}
+          {state.need === "key" && CONFIGURED.has(p.id) && (
+            <button className="btn sm primary" type="button" onClick={() => document.querySelector<HTMLElement>(`#conn-${p.id}-setup input, #conn-${p.id}-setup button`)?.focus()}>Set up</button>
+          )}
           <button className="btn sm" type="button" onClick={runTest}>Test</button>
         </div>
       </header>
@@ -260,6 +269,11 @@ function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
           ))}
         </fieldset>
         <div className="cn-side">
+          {CONFIGURED.has(p.id) && (
+            <div id={`conn-${p.id}-setup`}>
+              {p.id === "local" ? <LocalServers onChanged={onChanged} /> : <VertexSettings onChanged={onChanged} />}
+            </div>
+          )}
           {p.login_secret && LOGIN_HELP[p.id] && (
             <SecretField id={`login-${p.id}`} name={p.login_secret} label={LOGIN_HELP[p.id].label} how={LOGIN_HELP[p.id].how}
               set={!!p.login_set} hint={p.login_hint} multiline={LOGIN_HELP[p.id].multiline} />
@@ -304,7 +318,7 @@ function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
 }
 
 /** Known providers in the order the page shows them; a card shows at once and fills in when the check answers. */
-const ORDER = ["claude", "codex", "copilot", "fake"];
+const ORDER = ["claude", "codex", "copilot", "vertex", "local", "fake"];
 const order = (a: Conn, b: Conn) => (ORDER.indexOf(a.id) + 1 || 99) - (ORDER.indexOf(b.id) + 1 || 99);
 
 function CheckingCard({ id }: { id: string }) {

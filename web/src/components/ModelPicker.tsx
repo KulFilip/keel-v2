@@ -9,33 +9,37 @@ import { api, type Catalog, type CatalogModel, type CatalogProvider, type Mode, 
 import { MODE_LABEL, PROV } from "../format";
 import { ProviderIcon } from "./ProviderIcon";
 
-export const MODEL_SUGGESTIONS: Record<Provider, string[]> = {
+/** The providers keel knows without asking (its built-in catalog); vertex and local show once they are set up. */
+type BuiltinProvider = "fake" | "claude" | "codex" | "copilot";
+export const MODEL_SUGGESTIONS: Record<BuiltinProvider, string[]> = {
   claude: ["opus", "sonnet", "haiku"],
   codex: ["gpt-5.6-sol", "gpt-5", "gpt-5-mini"],
   copilot: ["gpt-5", "claude-sonnet", "gpt-5-mini"],
   fake: ["fake"],
 };
-export const MODES_FOR: Record<Provider, Mode[]> = {
+export const MODES_FOR: Record<BuiltinProvider, Mode[]> = {
   claude: ["subscription", "api"],
   codex: ["subscription", "api"],
   copilot: ["subscription", "opencode", "api"],
   fake: ["api"],
 };
-const BUILTIN_EFFORTS: Record<Provider, string[]> = {
+const BUILTIN_EFFORTS: Record<BuiltinProvider, string[]> = {
   claude: ["low", "medium", "high", "max"],
   codex: ["minimal", "low", "medium", "high"],
   copilot: [],
   fake: [],
 };
-const PROVIDER_ORDER = ["claude", "codex", "copilot", "fake"];
+const PROVIDER_ORDER = ["claude", "codex", "copilot", "vertex", "local", "fake"];
 const MODE_COPILOT: Record<string, string> = { subscription: "Copilot CLI", opencode: "OpenCode", api: "API key (GitHub Models)" };
-export const modeLabel = (p: Provider | string, m: Mode | string) => (p === "copilot" ? MODE_COPILOT[m] : MODE_LABEL[m]) ?? m;
+const MODE_OTHER: Record<string, Record<string, string>> = { vertex: { api: "Google Cloud" }, local: { api: "Local server" } };
+export const modeLabel = (p: Provider | string, m: Mode | string) =>
+  (p === "copilot" ? MODE_COPILOT[m] : MODE_OTHER[p]?.[m] ?? MODE_LABEL[m]) ?? m;
 
-export const SOURCE_HINT: Record<string, string> = { cli: "from the CLI", cache: "from the CLI (cached)", builtin: "built-in list" };
+export const SOURCE_HINT: Record<string, string> = { cli: "from the CLI", cache: "from the CLI (cached)", builtin: "built-in list", server: "from the server" };
 
 /** The catalog keel ships with, used until (or when) the api does not answer. */
 export const BUILTIN_CATALOG: Catalog = Object.fromEntries(
-  (Object.keys(MODEL_SUGGESTIONS) as Provider[]).map((p) => {
+  (Object.keys(MODEL_SUGGESTIONS) as BuiltinProvider[]).map((p) => {
     const list = MODEL_SUGGESTIONS[p].map((id) => ({ id, label: id }));
     const modes = Object.fromEntries(MODES_FOR[p].map((m) => [m, list]));
     const entry: CatalogProvider = { label: PROV[p] ?? p, modes, efforts: BUILTIN_EFFORTS[p], default: { mode: MODES_FOR[p][0], model: list[0].id }, source: "builtin" };
@@ -51,6 +55,9 @@ const models = (v: unknown): CatalogModel[] =>
       id: m.id as string,
       label: typeof m.label === "string" && m.label ? m.label : (m.id as string),
       ...(Array.isArray(m.efforts) ? { efforts: strings(m.efforts) } : {}),
+      ...(typeof m.badge === "string" && m.badge ? { badge: m.badge } : {}),
+      ...(typeof m.tools === "boolean" ? { tools: m.tools } : {}),
+      ...(typeof m.context === "number" && m.context > 0 ? { context: m.context } : {}),
     }))
     : [];
 
@@ -64,7 +71,7 @@ export function normalizeCatalog(raw: unknown): Catalog {
       // pre-v0.3: one list per provider, for every mode it runs on
       const list = models(v);
       if (!list.length) continue;
-      const modeIds = MODES_FOR[p as Provider] ?? ["api"];
+      const modeIds = MODES_FOR[p as BuiltinProvider] ?? ["api"];
       out[p] = {
         label: builtin?.label ?? PROV[p] ?? p, modes: Object.fromEntries(modeIds.map((m) => [m, list])),
         efforts: builtin?.efforts ?? [], default: { mode: modeIds[0], model: list[0].id }, source: "builtin",
@@ -87,7 +94,7 @@ export function normalizeCatalog(raw: unknown): Catalog {
         model: typeof d.model === "string" && d.model ? d.model : modes[dMode]?.[0]?.id ?? "",
         ...(typeof d.effort === "string" && d.effort ? { effort: d.effort } : {}),
       },
-      source: v.source === "cli" || v.source === "cache" ? v.source : "builtin",
+      source: v.source === "cli" || v.source === "cache" || v.source === "server" ? v.source : "builtin",
     };
   }
   return Object.keys(out).length ? out : BUILTIN_CATALOG;
@@ -135,7 +142,7 @@ export function providersOf(c: Catalog | null): string[] {
 export const providerLabel = (c: Catalog | null, p: string) => entryOf(c, p)?.label ?? PROV[p] ?? p;
 export function modesOf(c: Catalog | null, p: string): Mode[] {
   const e = entryOf(c, p);
-  return e ? (Object.keys(e.modes) as Mode[]) : MODES_FOR[p as Provider] ?? ["api"];
+  return e ? (Object.keys(e.modes) as Mode[]) : MODES_FOR[p as BuiltinProvider] ?? ["api"];
 }
 /** Model options for one provider and mode (the default mode's list when that mode has none). */
 export function modelOptions(c: Catalog | null, p: string, mode?: Mode): CatalogModel[] {
@@ -168,7 +175,7 @@ export function defaultModel(c: Catalog | null, p: string, mode?: Mode): Model {
 
 // v0.15.2 The dropdown's list: one group per provider (only the current one when the place fixes the provider). The
 // current provider lists the models of its chosen mode, the others those of their default mode, as switching did before.
-type Opt = { key: string; provider: string; mode: Mode; id: string; label: string; custom?: boolean };
+type Opt = { key: string; provider: string; mode: Mode; id: string; label: string; custom?: boolean; badge?: string; tools?: boolean };
 type Group = { key: string; provider: string; label: string; mode: Mode; opts: Opt[]; /** v0.15.5 the company's mark, for a sub-group */ icon?: string };
 
 // v0.15.5 a host with many companies' models (Copilot, OpenCode) shows them in one sub-group per company
@@ -190,7 +197,7 @@ function groupsOf(c: Catalog | null, value: Model, all: boolean): Group[] {
   return ps.flatMap((q) => {
     const md = q === p && modesOf(c, q).includes(value.mode) ? value.mode : defaultModel(c, q).mode;
     const list = modelOptions(c, q, q === p ? value.mode : md);
-    const opts: Opt[] = list.map((m) => ({ key: `${q}:${m.id}`, provider: q, mode: md, id: m.id, label: m.label || m.id }));
+    const opts: Opt[] = list.map((m) => ({ key: `${q}:${m.id}`, provider: q, mode: md, id: m.id, label: m.label || m.id, badge: m.badge, tools: m.tools }));
     // a model the list does not have (typed by hand, or from an older keel) still shows, as the chosen one
     if (q === p && value.model && !list.some((m) => m.id === value.model)) opts.unshift({ key: `${q}:${value.model}`, provider: q, mode: md, id: value.model, label: value.model, custom: true });
     const base = { provider: q, label: providerLabel(c, q), mode: md };
@@ -351,7 +358,9 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
       <div key={o.key} id={`${id}-o${i}`} role="option" aria-selected={i === chosen} aria-label={o.label}
         className={`mp-opt${i === act ? " is-active" : ""}${o === OTHER ? " mp-other" : ""}`}
         onMouseDown={(e) => e.preventDefault()} onMouseMove={() => i !== act && setActive(i)} onClick={() => pick(o)}>
-        <span className="mp-ol">{o.label}{o.custom && <span className="mp-tag">other</span>}</span>
+        <span className="mp-ol">{o.label}{o.custom && <span className="mp-tag">other</span>}
+          {o.badge && <span className="mp-tag mp-badge" data-badge={o.badge}>{o.badge}</span>}
+          {o.tools === false && <span className="mp-tag" title="It cannot call tools: KeelBot Ask, the review check and summaries only, no code steps.">no tools</span>}</span>
         <span className="mp-oid mono">{o === OTHER ? "type an id" : o.label !== o.id ? o.id : ""}</span>
         <span className="mp-check" aria-hidden="true">{i === chosen ? "✓" : ""}</span>
       </div>
@@ -433,6 +442,7 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
       {/* the engine ignores an effort for a model without one (claude haiku, copilot subscription) */}
       {effort && catalog && value.model && efforts.length === 0 && <span className="hint" data-testid={`${id}-noeffort`}>no effort setting</span>}
       {source && <span className="hint" data-testid={`${id}-source`}>{SOURCE_HINT[source] ?? source}</span>}
+      {current?.tools === false && <span className="hint amber" data-testid={`${id}-notools`}>no tool calls: Ask, review check and summaries only</span>}
       {GUARD_NOTE[p] && value.mode !== "api" && <span className="hint amber" data-testid={`${id}-guard`}>{GUARD_NOTE[p]}</span>}
     </div>
   );

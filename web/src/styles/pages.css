@@ -110,6 +110,15 @@
 .cn-mode .sub { overflow-wrap: anywhere; }
 .cn-ready { font-size: 12px; }
 .cn-side { display: grid; gap: 16px; min-width: 0; }
+/* 0.18.46 Connections › Local models and Vertex AI */
+.ls, .vx { display: grid; gap: 8px; min-width: 0; }
+.ls-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ls-row { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.ls-id { overflow-wrap: anywhere; }
+.ls-form { display: grid; gap: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; }
+.ls-form .field input, .ls-form .field select { max-width: 100%; }
+.ls .check-row { display: flex; gap: 8px; align-items: center; }
+.vx textarea { width: 100%; min-height: 0; font-family: var(--mono, monospace); font-size: 12px; }
 .cn-side .model-picker { flex-wrap: wrap; }
 .cn-side .field input.model-input { width: 190px; max-width: 100%; }
 @media (max-width: 900px) {
