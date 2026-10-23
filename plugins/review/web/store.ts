@@ -2,7 +2,7 @@
 // view, AI state and pending comments), the review's cursor and navigation history, and the actions that change it.
 
 import { useSyncExternalStore } from "react";
-import { errorParts } from "@keel/web-sdk";
+import { ApiError, errorParts, useDraft } from "@keel/web-sdk";
 import {
   reviewApi,
   type AiState,
@@ -13,7 +13,13 @@ import {
 } from "./reviewApi";
 
 export type Side = "RIGHT" | "LEFT";
-export type Err = { message: string; hint?: string; details?: string[] };
+export type Err = {
+  message: string;
+  hint?: string;
+  details?: string[];
+  /** the HTTP status, when the server answered (404: the review is not there any more) */
+  status?: number;
+};
 export type FileView = "diff" | "code";
 export type Place = {
   key: string;
@@ -165,6 +171,23 @@ const inflight = new Map<string, Promise<void>>();
 // the newest load of a review wins: an older one that answers late (a slow refresh, then a quick reload) is dropped
 const loadSeq = new Map<string, number>();
 
+/** Unsent text (a reply, a new comment, the review's summary) of one review, kept in localStorage per project until it
+ *  is sent or cancelled; at most DRAFT_CAP drafts per project (the oldest go first). */
+export const DRAFT_CAP = 50;
+export const draftPrefix = (pid: string) => `keel2.review.draft.${pid}.`;
+export const draftKey = (pid: string, key: string, part: string) =>
+  `${draftPrefix(pid)}${key}.${part}`;
+export function useReviewDraft(pid: string, key: string, part: string) {
+  return useDraft(draftKey(pid, key, part), {
+    capPrefix: draftPrefix(pid),
+    cap: DRAFT_CAP,
+  });
+}
+
+/** The review is gone: the host or keel answered "not found" (a deleted branch, a pull request you cannot see). */
+export const notFound = (e: Err | null | undefined): boolean =>
+  !!e && (e.status === 404 || e.status === 410);
+
 export function load(pid: string, key: string, refresh = false): Promise<void> {
   const base = id(pid, key);
   const k = base + (refresh ? "|r" : "");
@@ -181,7 +204,14 @@ export function load(pid: string, key: string, refresh = false): Promise<void> {
         if (latest()) set(pid, key, { view, error: null, loading: false });
       },
       (e) => {
-        if (latest()) set(pid, key, { error: errorParts(e), loading: false });
+        if (latest())
+          set(pid, key, {
+            error: {
+              ...errorParts(e),
+              ...(e instanceof ApiError ? { status: e.status } : {}),
+            },
+            loading: false,
+          });
       },
     )
     .finally(() => inflight.delete(k));

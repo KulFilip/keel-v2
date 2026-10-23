@@ -120,6 +120,8 @@ export function PendingTab({
         )}
         {(v.can_post || v.kind === "branch") && (
           <GeneralComment
+            pid={pid}
+            reviewKey={reviewKey}
             busy={r.running.includes("draft")}
             onAdd={(body) => R.addDraft(pid, reviewKey, body, null)}
           />
@@ -171,13 +173,18 @@ export function PendingTab({
 }
 
 function GeneralComment({
+  pid,
+  reviewKey,
   busy,
   onAdd,
 }: {
+  pid: string;
+  reviewKey: string;
   busy: boolean;
   onAdd: (body: string) => Promise<unknown>;
 }) {
-  const [text, setText] = useState("");
+  // kept (localStorage) until it is added
+  const [text, setText] = R.useReviewDraft(pid, reviewKey, "general");
   return (
     <form
       className="rv-compose"
@@ -232,7 +239,8 @@ export function SubmitForm({
   const [event, setEvent] = useState<SubmitEvent>(
     initial && !own ? initial : "COMMENT",
   );
-  const [body, setBody] = useState("");
+  // the summary, kept (localStorage) until the review is sent
+  const [body, setBody] = R.useReviewDraft(pid, reviewKey, "submit");
   const gitlab = v.host?.kind === "gitlab";
   const opts: [SubmitEvent, string, string][] = [
     ["COMMENT", "Comment", "General feedback, no decision."],

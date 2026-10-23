@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
+import * as R from "./store";
 import {
   linesLabel,
   type AiState,
@@ -553,6 +554,8 @@ export function FindingsTab({
 }
 
 export function ThreadCard({
+  pid,
+  reviewKey,
   t,
   canPost,
   onOpen,
@@ -560,6 +563,8 @@ export function ThreadCard({
   onResolve,
   compact,
 }: {
+  pid: string;
+  reviewKey: string;
   t: ReviewThread;
   canPost: boolean;
   compact?: boolean;
@@ -571,14 +576,19 @@ export function ThreadCard({
   onReply: (t: ReviewThread, body: string) => Promise<void>;
   onResolve: (t: ReviewThread, resolved: boolean) => Promise<void>;
 }) {
-  const [text, setText] = useState("");
-  const [replying, setReplying] = useState(false);
+  // the reply you are writing, kept (localStorage) until it is sent or cancelled — the same draft as in the Threads tab
+  const [text, setText, dropText] = R.useReviewDraft(
+    pid,
+    reviewKey,
+    `reply.${t.id}`,
+  );
+  const [replying, setReplying] = useState(() => !!text);
   const [busy, setBusy] = useState(false);
   const send = async () => {
     setBusy(true);
     try {
       await onReply(t, text.trim());
-      setText("");
+      if (!R.review(pid, reviewKey).err) dropText();
       setReplying(false);
     } finally {
       setBusy(false);
@@ -647,7 +657,10 @@ export function ThreadCard({
               <button
                 type="button"
                 className="btn sm ghost"
-                onClick={() => setReplying(false)}
+                onClick={() => {
+                  dropText();
+                  setReplying(false);
+                }}
               >
                 Cancel
               </button>

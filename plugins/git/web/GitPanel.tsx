@@ -15,6 +15,7 @@ import {
   SLOTS,
   useApp,
   useLoad,
+  useDraft,
   useSlot,
   type ScmPanelParts,
   type ScmPanelProps,
@@ -361,7 +362,8 @@ export function GitPanel({
   const status = useLoad(`git:${pid}`, () => gitApi.status(pid));
   const pr = useLoad(`git-pr:${pid}`, () => gitApi.pr(pid), { live: false });
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
+  // the commit message you are writing, kept per project (localStorage) until the commit is made
+  const [message, setMessage] = useDraft(`keel2.git.msg.${pid}`);
   const [newBranch, setNewBranch] = useState<string | null>(null);
   const msgId = useId();
   const st = status.data;

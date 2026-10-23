@@ -46,6 +46,19 @@ export type { InboxItem, InboxTask } from "../inboxApi";
 // data loading (live: loads again on every server event tick), and the app's state (the chosen project, toast)
 export { useApp, useLoad } from "../state";
 export type { Loaded } from "../state";
+// 0.18.42 small values a page keeps in the browser (the open panel, a filter, an unsent draft, a scroll position), so
+// it looks the same when you come back to it
+export {
+  capStored,
+  dropStored,
+  readStored,
+  storedKeys,
+  useDraft,
+  useStored,
+  useStoredScroll,
+  writeStored,
+} from "../storage";
+export type { StoredOptions, StoreKind } from "../storage";
 
 // links to screens, keel's own and the add-ons' (#/initiatives/INI-3); the link the page shows now (#/wiki/kb:domain
 // is { page: "wiki", arg: "kb:domain" }), go(screen, arg) to open another, useRoute() to read the link

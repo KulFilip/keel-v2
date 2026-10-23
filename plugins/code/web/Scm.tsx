@@ -19,6 +19,8 @@ import {
   useHasPage,
   useLoad,
   useSlot,
+  useStored,
+  useStoredScroll,
   type CodeActivityItem,
   type ScmPanelParts,
 } from "@keel/web-sdk";
@@ -339,8 +341,13 @@ function BranchList({
   onSwitched: () => void;
 }) {
   const { toast } = useApp();
-  const [q, setQ] = useState("");
-  const [chip, setChip] = useState<Chip>("all");
+  // the branch filter, kept per project for this browser tab (leaving the Code page and coming back keeps it)
+  const [q, setQ] = useStored<string>(`keel2.scm.q.${pid}`, "", {
+    valid: (v) => typeof v === "string",
+  });
+  const [chip, setChip] = useStored<Chip>(`keel2.scm.chip.${pid}`, "all", {
+    valid: (v) => v === "all" || v === "mine" || v === "stale",
+  });
   const [open, setOpen] = useState(() => loadOpen(pid));
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmClean, setConfirmClean] = useState(false);
@@ -723,6 +730,11 @@ export function ScmView({
   );
   // with the Git plugin on, Source control can change things (and a branch opens as a tab)
   const gitOn = !!panel;
+  // where you had scrolled to, back once the changes and the plugin list are here
+  const scrollRef = useStoredScroll<HTMLDivElement>(
+    `keel2.scm.scroll.${pid}`,
+    !!changes && !!plugins.data,
+  );
   const gitBranches = useLoad(
     gitOn ? `scm-git-branches:${pid}` : null,
     () => api.gitBranches(pid),
@@ -780,7 +792,7 @@ export function ScmView({
       ));
     return (
       <>
-        <div className="scm-scroll" data-testid="scm-scroll">
+        <div ref={scrollRef} className="scm-scroll" data-testid="scm-scroll">
           <div className="scm-top">
             <section className="scm-sec scm-head" aria-label="Branch">
               <div className="scm-onrow">
