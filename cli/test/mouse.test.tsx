@@ -91,7 +91,10 @@ describe("the wheel", () => {
     const frames = t.r.frames.length;
     await t.send(UP.repeat(4), 100);
     expect(t.below()).toBe(12);
-    expect(t.r.frames.length - frames).toBeLessThanOrEqual(3);
+    // the view moves once for the burst (at most the first notch, then the rest together), never 3, 6, 9, 12; counted
+    // as the scroll positions drawn, not all frames: a slow machine can draw an unrelated frame in between
+    const drawn = new Set(t.r.frames.slice(frames).map((f) => Number(/↓ (\d+) newer line/.exec(f)?.[1] ?? 0)).filter((n) => n > 0));
+    expect([...drawn].length).toBeLessThanOrEqual(2);
     t.r.unmount();
   });
 });
