@@ -4,7 +4,16 @@
 // keel's Overview and Findings, Threads, the Checklist). Each file opens as an editor tab.
 
 import { useEffect, useState } from "react";
-import { askAssistant, ErrorBox, Pill, useApp, useLoad } from "@keel/web-sdk";
+import {
+  askAssistant,
+  ErrorBox,
+  Pill,
+  useApp,
+  useLoad,
+  useStored,
+  useStoredScroll,
+  writeStored,
+} from "@keel/web-sdk";
 import {
   prLabel,
   prWord,
@@ -34,10 +43,26 @@ const FILTERS: [Filter, string][] = [
   ["all", "All"],
 ];
 const SEL = (pid: string) => `keel2.review.sel.${pid}`;
+const TAB = (pid: string, key: string) => `keel2.review.tab.${pid}.${key}`;
+const isFilter = (v: unknown): v is Filter => FILTERS.some(([f]) => f === v);
+const PANEL_TABS: PanelTab[] = [
+  "changes",
+  "pending",
+  "commits",
+  "overview",
+  "findings",
+  "threads",
+  "checklist",
+];
+const isPanelTab = (v: unknown): v is PanelTab =>
+  PANEL_TABS.includes(v as PanelTab);
 const OPEN_EVENT = "keel:open-review";
 
 /** v0.15.0 open one review in the Review tool window (the launcher, a #/repo/@review/pr:7 link). */
+// projects whose review was just opened by a link (not remembered): a link's review that is not found shows its error
+const linked = new Set<string>();
 export function openReview(pid: string, key: string) {
+  linked.add(pid);
   try {
     sessionStorage.setItem(SEL(pid), key);
   } catch {
@@ -60,7 +85,16 @@ export function ReviewSide({
       return null;
     }
   });
+  // the review shown came from this browser tab's memory (you left the Code page and came back), not from a click: when
+  // it is not there any more (404), the list shows instead of an error
+  const [restored, setRestored] = useState(
+    () => !linked.has(pid) && selected !== null,
+  );
+  useEffect(() => {
+    linked.delete(pid);
+  }, [pid]);
   const pick = (key: string | null) => {
+    setRestored(false);
     setSelected(key);
     try {
       if (key) sessionStorage.setItem(SEL(pid), key);
@@ -75,7 +109,11 @@ export function ReviewSide({
   useEffect(() => {
     const on = (e: Event) => {
       const d = (e as CustomEvent<{ pid: string; key: string }>).detail;
-      if (d?.pid === pid && d.key) setSelected(d.key);
+      if (d?.pid === pid && d.key) {
+        linked.delete(pid);
+        setRestored(false);
+        setSelected(d.key);
+      }
     };
     window.addEventListener(OPEN_EVENT, on);
     return () => window.removeEventListener(OPEN_EVENT, on);
@@ -85,8 +123,10 @@ export function ReviewSide({
       <div className="rv-side-in">
       {selected ? (
         <OneReview
+          key={selected}
           pid={pid}
           reviewKey={selected}
+          restored={restored}
           activePath={activeFile?.key === selected ? activeFile.path : null}
           onBack={() => pick(null)}
           onOpenReview={pick}
@@ -106,7 +146,12 @@ function ReviewList({
   pid: string;
   onPick: (key: string) => void;
 }) {
-  const [filter, setFilter] = useState<Filter>("review");
+  // the list's filter, kept per project for this browser tab
+  const [filter, setFilter] = useStored<Filter>(
+    `keel2.review.filter.${pid}`,
+    "review",
+    { valid: isFilter },
+  );
   const branch = useLoad(`review-branch:${pid}`, () => reviewApi.branch(pid));
   const list = useLoad(`review-prs:${pid}:${filter}`, () =>
     reviewApi.prs(pid, filter),
@@ -294,12 +339,15 @@ function PrRow({
 function OneReview({
   pid,
   reviewKey,
+  restored = false,
   activePath,
   onBack,
   onOpenReview,
 }: {
   pid: string;
   reviewKey: string;
+  /** it came from this browser tab's memory, not from a click: "not found" goes back to the list quietly */
+  restored?: boolean;
   activePath: string | null;
   onBack: () => void;
   onOpenReview: (key: string) => void;
@@ -307,7 +355,12 @@ function OneReview({
   R.useReviewStore();
   const { tick, toast } = useApp();
   const r = R.review(pid, reviewKey);
-  const [tab, setTab] = useState<PanelTab>("changes");
+  // the tab of this review, kept per project and review for this browser tab
+  const [tab, setTab] = useStored<PanelTab>(
+    TAB(pid, reviewKey),
+    "changes",
+    { valid: isPanelTab },
+  );
   const [approving, setApproving] = useState(false);
   const [checked, setChecked] = useState<string[]>(() => {
     try {
@@ -342,6 +395,16 @@ function OneReview({
   }, [running, pid, reviewKey]);
 
   const v = r.view;
+  // a review remembered from before that is not there any more (a deleted branch, a pull request you cannot see now)
+  const gone = restored && !v && R.notFound(r.error);
+  useEffect(() => {
+    if (gone) onBack();
+  }, [gone]); // eslint-disable-line react-hooks/exhaustive-deps
+  // where you had scrolled to in this tab, back once the review is here
+  const scrollRef = useStoredScroll<HTMLDivElement>(
+    `keel2.review.scroll.${pid}.${reviewKey}.${tab}`,
+    !!v,
+  );
   const head = (
     <div className="sv-head rv-back">
       <button
@@ -354,6 +417,7 @@ function OneReview({
       </button>
     </div>
   );
+  if (gone) return null;
   if (r.error && !v)
     return (
       <>
@@ -604,6 +668,7 @@ function OneReview({
         ))}
       </div>
       <div
+        ref={scrollRef}
         className="rv-pbody"
         role="tabpanel"
         aria-label={tabs.find((t) => t[0] === tab)?.[1]}
@@ -650,7 +715,11 @@ function OneReview({
             reviewKey={reviewKey}
             view={v}
             onOpen={open}
-            onOpenReview={onOpenReview}
+            onOpenReview={(k) => {
+              // the pending comments moved there: its Pending tab shows them
+              writeStored(TAB(pid, k), "pending");
+              onOpenReview(k);
+            }}
           />
         )}
         {tab === "commits" && (

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type PointerEvent as RPointerEvent } from "react";
 import {
   ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, isTyping, keyLabel, modalOpen, openLauncher, parseHash, readKeymap, slotItems, SLOTS, useApp,
-  useLoad, useNarrow, useRoute, useSlot, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem,
+  useLoad, useNarrow, useRoute, useSlot, useStored, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem,
   type HelperSelection,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoInfo } from "./codeApi";
@@ -109,8 +109,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const narrow = useNarrow(720);
   const root = useRef<HTMLDivElement>(null);
 
-  const [activity, setActivity] = useState<Activity>("explorer");
-  const [sideOpen, setSideOpen] = useState(true);
+  // the view in the side bar and whether the side bar is open, kept per project for this browser tab: leaving the Code
+  // page and coming back shows the same view (a view that is not there any more shows the Explorer, see `shown`)
+  const [chosen, setActivity] = useStored<Activity>(`keel2.repo.activity.${pid}`, "explorer", { valid: (v) => typeof v === "string" && !!v });
+  const [sideOpen, setSideOpen] = useStored<boolean>(`keel2.repo.sideOpen.${pid}`, true, { valid: (v) => typeof v === "boolean" });
   // the side bar's width, remembered per browser under the view's width key (sizeOf): Source control (0.18.38: wider, it
   // holds the branch, the pull request and the commit box) and a part's view that asks for one (Review) have their own,
   // the other views share one
@@ -126,11 +128,14 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const [recentOpen, setRecentOpen] = useState(false);
   const recentKey = `keel2.repo.recent.${pid}`;
   const [recent, setRecent] = useState<EditorTab[]>(() => readJson(session, recentKey, []));
-  const [screen, setScreen] = useState<"side" | "editor">(() => (parseDeepLink(route.arg) ? "editor" : "side"));
+  // the phone's screen (the side bar or the editor), kept per project (a deep link to a file opens the editor: open());
+  // the editor with no tab open shows the side bar
+  const [storedScreen, setScreen] = useStored<"side" | "editor">(`keel2.repo.screen.${pid}`, "side", { valid: (v) => v === "side" || v === "editor" });
+  const screen: "side" | "editor" = storedScreen === "editor" && !tabs.active && !parseDeepLink(route.arg) ? "side" : storedScreen;
   const [reveal, setReveal] = useState(0);
   const [searchFocus, setSearchFocus] = useState(0);
   const [filterFocus, setFilterFocus] = useState(0);
-  const [against, setAgainst] = useState<"head" | "base">("head");
+  const [against, setAgainst] = useStored<"head" | "base">(`keel2.repo.against.${pid}`, "head", { valid: (v) => v === "head" || v === "base" });
   const [mode, setMode] = useState<DiffMode>(() => readJson(local, "keel2.repo.diff", "inline"));
   const [wrap, setWrap] = useState<boolean>(() => readJson(local, "keel2.repo.wrap", false));
   const [dims, setDims] = useState("");
@@ -147,6 +152,20 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   // the parts' side views and tab kinds
   const activityItems = useSlot<CodeActivityItem>(SLOTS.codeActivity);
   const tabKinds = useSlot<CodeTabItem>(SLOTS.codeTab);
+
+  // a part's view shows while this project has its plugin on (Control › Plugins)
+  const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
+  const pluginOn = (name?: string) => !name || !!plugins.data?.find((x) => x.name === name)?.enabled;
+  const sideItems = activityItems.filter(isSide);
+  // the view you had open shows at once when you come back, while the plugin list still loads
+  const theirs = sideItems.filter((a) => pluginOn(a.plugin) || (a.id === chosen && !plugins.data && !plugins.error));
+  const activities = [...OWN_ACTIVITIES, ...theirs.map(defOf)].sort(byOrder);
+  const shownIds = activities.map((a) => a.id).join(" ");
+  const nameOfActivity = (id: Activity) => [...OWN_ACTIVITIES, ...sideItems.map(defOf)].find((a) => a.id === id)?.title;
+
+  // the view shown: the one chosen, or the Explorer while that one is not here (its plugin is off, or its web part
+  // has not loaded yet: it shows once it is there, the choice stays stored)
+  const activity: Activity = activities.some((a) => a.id === chosen) ? chosen : "explorer";
 
   const changes = useLoad(`changes:${pid}`, () => api.changes(pid));
   const byPath = useMemo(() => new Map((changes.data ?? []).map((c) => [c.path, c])), [changes.data]);
@@ -299,15 +318,6 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
     window.addEventListener(ASK_ASSISTANT_EVENT, on);
     return () => window.removeEventListener(ASK_ASSISTANT_EVENT, on);
   }, []);
-
-  // a part's view shows while this project has its plugin on (Control › Plugins)
-  const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
-  const pluginOn = (name?: string) => !name || !!plugins.data?.find((x) => x.name === name)?.enabled;
-  const sideItems = activityItems.filter(isSide);
-  const theirs = sideItems.filter((a) => pluginOn(a.plugin));
-  const activities = [...OWN_ACTIVITIES, ...theirs.map(defOf)].sort(byOrder);
-  const shownIds = activities.map((a) => a.id).join(" ");
-  const nameOfActivity = (id: Activity) => [...OWN_ACTIVITIES, ...sideItems.map(defOf)].find((a) => a.id === id)?.title;
 
   const askHelper = useCallback(() => {
     if (!slotItems(SLOTS.assistant).length) return;
@@ -534,7 +544,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
     body = (
       <div className="ed-big">
         <Notice title={`Too big to show: ${bytes(metaData.size)}.`}>keel shows text files up to {bytes(TEXT_MAX)}. Here are its first lines; search finds text anywhere in it.</Notice>
-        <CodeView key={`${active.id}:head`} text={metaData.head} path={metaData.path} wrap={false} target={null} cmd={null} onCursor={setCursor} onLink={() => undefined} scrollKey={`${active.id}:head`} />
+        <CodeView key={`${active.id}:head`} text={metaData.head} path={metaData.path} wrap={false} target={null} cmd={null} onCursor={setCursor} onLink={() => undefined} scrollKey={`${pid}:${active.id}:head`} />
       </div>
     );
   } else if (!text) {
@@ -546,7 +556,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   } else {
     body = (
       <CodeView key={active.id} text={text.text} path={metaData.path} wrap={wrap} target={targets[active.id] ?? null} cmd={cmd}
-        onCursor={setCursor} onLink={(n) => setLinks((x) => ({ ...x, [active.id]: n }))} scrollKey={active.id} />
+        onCursor={setCursor} onLink={(n) => setLinks((x) => ({ ...x, [active.id]: n }))} scrollKey={`${pid}:${active.id}`} />
     );
   }
 

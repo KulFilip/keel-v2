@@ -27,6 +27,7 @@ import {
   SLOTS,
   useLoad,
   useSlot,
+  useStored,
 } from "@keel/web-sdk";
 import {
   linesLabel,
@@ -50,6 +51,10 @@ type Open = (
   side?: "RIGHT" | "LEFT",
 ) => void;
 export type ThreadFilter = "waiting" | "open" | "resolved" | "all";
+const isThreadFilter = (v: unknown): v is ThreadFilter =>
+  v === "waiting" || v === "open" || v === "resolved" || v === "all";
+const isIds = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string");
 
 // ---------------------------------------------------------------- small helpers (exported for tests)
 
@@ -179,7 +184,24 @@ export function ThreadsView({
   const waiting = view.threads.filter((t) => waitsForYou(t, me));
   const open = view.threads.filter((t) => !t.resolved);
   const resolved = view.threads.filter((t) => t.resolved);
-  const [filter, setFilter] = useState<ThreadFilter>("all");
+  // the filter and the resolved threads you unfolded, kept per review for this browser tab
+  const [filter, setFilter] = useStored<ThreadFilter>(
+    `keel2.review.tfilter.${pid}.${reviewKey}`,
+    "all",
+    { valid: isThreadFilter },
+  );
+  const [unfolded, setUnfolded] = useStored<string[]>(
+    `keel2.review.texp.${pid}.${reviewKey}`,
+    [],
+    { valid: isIds },
+  );
+  const toggleUnfolded = (id: string) =>
+    setUnfolded((u) =>
+      // ids of threads that are not in the review any more fall away
+      u.includes(id)
+        ? u.filter((x) => x !== id)
+        : [...u.filter((x) => view.threads.some((t) => t.id === x)), id],
+    );
   const [box, narrow] = useNarrowBox<HTMLDivElement>(420);
   const cfg = ai?.config;
   const quickOn = (cfg?.judge?.mode ?? "quick") === "quick";
@@ -299,7 +321,14 @@ export function ThreadsView({
         "Resolved",
         resolved,
         resolved.map((t) => (
-          <ResolvedRow key={t.id} t={t} me={me} expanded={card(t)} />
+          <ResolvedRow
+            key={t.id}
+            t={t}
+            me={me}
+            open={unfolded.includes(t.id)}
+            onToggle={() => toggleUnfolded(t.id)}
+            expanded={card(t)}
+          />
         )),
       )}
       {view.conversation.length > 0 && filter === "all" && (
@@ -339,13 +368,16 @@ export function ThreadsView({
 function ResolvedRow({
   t,
   me,
+  open,
+  onToggle,
   expanded,
 }: {
   t: ReviewThread;
   me: string | null;
+  open: boolean;
+  onToggle: () => void;
   expanded: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const first = t.comments[0];
   const last = t.comments[t.comments.length - 1];
   const replies = t.comments.length - 1;
@@ -360,7 +392,7 @@ function ResolvedRow({
         type="button"
         className="rv-rrow"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={onToggle}
       >
         <span className="rv-rcheck" aria-hidden="true">
           ✓
@@ -530,8 +562,13 @@ function ThreadBox({
   onOpen: Open;
 }) {
   const assistant = useSlot(SLOTS.assistant).length > 0;
-  const [text, setText] = useState("");
-  const [replying, setReplying] = useState(false);
+  // the reply you are writing, kept (localStorage) until it is sent or cancelled: the box is open again when you come back
+  const [text, setText, dropText] = R.useReviewDraft(
+    pid,
+    reviewKey,
+    `reply.${t.id}`,
+  );
+  const [replying, setReplying] = useState(() => !!text);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | { note?: string }>(null);
   const [err, setErr] = useState<R.Err | null>(null);
@@ -562,7 +599,7 @@ function ThreadBox({
     try {
       await R.reply(pid, reviewKey, t.id, text.trim());
       if (!R.review(pid, reviewKey).err) {
-        setText("");
+        dropText();
         setReplying(false);
       }
     } finally {
@@ -739,7 +776,10 @@ function ThreadBox({
             <button
               type="button"
               className="btn sm ghost"
-              onClick={() => setReplying(false)}
+              onClick={() => {
+                dropText();
+                setReplying(false);
+              }}
             >
               Cancel
             </button>

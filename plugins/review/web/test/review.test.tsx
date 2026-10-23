@@ -1271,3 +1271,123 @@ describe("the Review view's width", () => {
     ).toHaveAttribute("aria-valuenow", "512");
   });
 });
+
+describe("the Review view after you leave the Code page and come back", () => {
+  const PID = "ludus-engine";
+  // another page (Flow) unmounts the Code page; the menu brings it back
+  async function leaveAndComeBack() {
+    act(() => {
+      location.hash = "#/flow";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Review" })).toBeNull(),
+    );
+    act(() => {
+      location.hash = "#/repo";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    return screen.findByRole("region", { name: "Review" });
+  }
+
+  it("keeps the open review, its tab, the thread filter and the reply you were writing", async () => {
+    reviewServer();
+    let side = await openPr(7);
+    await userEvent.click(within(side).getByRole("tab", { name: /^Threads/ }));
+    await userEvent.click(
+      await within(side).findByRole("button", { name: /^Open · / }),
+    );
+    await userEvent.click(within(side).getByRole("button", { name: "Reply" }));
+    await userEvent.type(
+      within(side).getByRole("textbox", { name: "Your reply" }),
+      "On purpose",
+    );
+
+    side = await leaveAndComeBack();
+    expect(
+      await within(side).findByRole("button", { name: /Back to the list/ }),
+    ).toBeInTheDocument();
+    expect(within(side).getByRole("tab", { name: /^Threads/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      within(side).getByRole("button", { name: /^Open · / }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(side).getByRole("textbox", { name: "Your reply" }),
+    ).toHaveValue("On purpose");
+
+    // Cancel drops the draft: it is not back the next time
+    await userEvent.click(within(side).getByRole("button", { name: "Cancel" }));
+    side = await leaveAndComeBack();
+    await within(side).findByRole("button", { name: /Back to the list/ });
+    expect(
+      within(side).queryByRole("textbox", { name: "Your reply" }),
+    ).toBeNull();
+    expect(
+      Object.keys(localStorage).filter((k) =>
+        k.startsWith(`keel2.review.draft.${PID}.`),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the list's filter", async () => {
+    reviewServer();
+    let side = await openTool();
+    await userEvent.click(
+      await within(side).findByRole("tab", { name: /^Mine/ }),
+    );
+    side = await leaveAndComeBack();
+    expect(
+      await within(side).findByRole("tab", { name: /^Mine/ }),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("goes back to the list quietly when the remembered review is not there any more", async () => {
+    const s = reviewServer();
+    server.use(
+      http.get("/api/projects/:pid/review/view", ({ request }) => {
+        const k = new URL(request.url).searchParams.get("key");
+        return k === "pr:99"
+          ? HttpResponse.json(
+              { error: "GitHub did not find pull request 99." },
+              { status: 404 },
+            )
+          : HttpResponse.json(s.views[k ?? "pr:7"]);
+      }),
+    );
+    db.plugins.review = true;
+    sessionStorage.setItem(`keel2.repo.activity.${PID}`, '"review"');
+    sessionStorage.setItem(`keel2.review.sel.${PID}`, "pr:99");
+    sessionStorage.setItem(`keel2.review.tab.${PID}.pr:99`, '"threads"');
+    location.hash = "#/repo";
+    render(<App />);
+    const side = await screen.findByRole("region", { name: "Review" });
+    expect(
+      await within(side).findByRole("button", { name: "Review this branch" }),
+    ).toBeInTheDocument();
+    expect(within(side).queryByRole("alert")).toBeNull();
+    expect(sessionStorage.getItem(`keel2.review.sel.${PID}`)).toBeNull();
+  });
+
+  it("still shows the error when a review you opened yourself is not found", async () => {
+    const s = reviewServer();
+    server.use(
+      http.get("/api/projects/:pid/review/view", () =>
+        HttpResponse.json(
+          { error: "GitHub did not find pull request 7." },
+          { status: 404 },
+        ),
+      ),
+    );
+    void s;
+    const side = await openTool();
+    await userEvent.click(
+      await within(side).findByRole("button", { name: /^#7 / }),
+    );
+    expect(
+      await within(side).findByText(/did not find pull request 7/),
+    ).toBeInTheDocument();
+  });
+});

@@ -73,6 +73,8 @@ export function ReviewFileTab({
       node: (
         <div className="rv-under">
           <ThreadCard
+            pid={pid}
+            reviewKey={reviewKey}
             t={t}
             canPost={v.can_post}
             compact
@@ -140,11 +142,14 @@ export function ReviewFileTab({
       side: composing.side,
       node: (
         <CommentBox
+          pid={pid}
+          reviewKey={reviewKey}
+          part={`line.${path}:${composing.side}:${composing.startLine ?? composing.line}-${composing.line}`}
           where={`${path}:${linesLabel({ line: composing.line, side: composing.side, start_line: composing.startLine, start_side: composing.startSide })}`}
           busy={r.running.includes("draft")}
           onCancel={() => R.setUi({ composing: null })}
           onSave={(b) =>
-            void R.addDraft(pid, reviewKey, b, {
+            R.addDraft(pid, reviewKey, b, {
               path,
               line: composing.line!,
               side: composing.side,
@@ -336,23 +341,39 @@ export function ReviewFileTab({
 }
 
 function CommentBox({
+  pid,
+  reviewKey,
+  part,
   where,
   busy,
   onSave,
   onCancel,
 }: {
+  pid: string;
+  reviewKey: string;
+  /** which comment this is (the lines it is on): its unsent text is kept under it */
+  part: string;
   where: string;
   busy: boolean;
-  onSave: (body: string) => void;
+  /** a truthy answer: the comment is saved, its draft goes */
+  onSave: (body: string) => Promise<unknown>;
   onCancel: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText, dropText] = R.useReviewDraft(pid, reviewKey, part);
+  const save = (body: string) =>
+    void onSave(body).then((ok) => {
+      if (ok) dropText();
+    });
+  const cancel = () => {
+    dropText();
+    onCancel();
+  };
   return (
     <form
       className="rv-under rv-compose"
       onSubmit={(e) => {
         e.preventDefault();
-        if (text.trim()) onSave(text.trim());
+        if (text.trim()) save(text.trim());
       }}
     >
       <span className="rv-dim">Comment on {where}</span>
@@ -363,11 +384,12 @@ function CommentBox({
         onChange={(e) => setText(e.target.value)}
         autoFocus
         onKeyDown={(e) => {
+          // Esc closes the box and keeps the text (it is back when you comment on these lines again); Cancel drops it
           if (e.key === "Escape") onCancel();
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && text.trim()) {
             e.preventDefault();
             e.stopPropagation();
-            onSave(text.trim());
+            save(text.trim());
           }
         }}
         placeholder="issue (blocking): … · suggestion: … · question: …"
@@ -380,7 +402,7 @@ function CommentBox({
         >
           Add comment
         </button>
-        <button type="button" className="btn sm ghost" onClick={onCancel}>
+        <button type="button" className="btn sm ghost" onClick={cancel}>
           Cancel
         </button>
       </div>
