@@ -1049,6 +1049,7 @@ checkout>`, then turn on "keel v1 (optional)" in Tools.
 | `keel2 tui` | keel TUI (see [keel TUI](#keel-tui-keel2-tui)) |
 | `keel2 open [--print]` | the dashboard, signed in |
 | `keel2 auth key` · `auth reset` | print the sign-in key · make a new one |
+| `keel2 start --wifi` · `share tailscale\|tunnel\|off` | use keel from your phone (see [Use keel from your phone](#use-keel-from-your-phone)) |
 | `keel2 logs` | follow keel's log |
 | `keel2 doctor` | check Docker, the port, the image and the project, and say how to fix problems |
 | `keel2 update [--rollback]` | the newest image (native: release) and a restart; `--rollback` goes back one version (native) |
@@ -1061,7 +1062,7 @@ checkout>`, then turn on "keel v1 (optional)" in Tools.
 | `keel2 version` | keel2's version and the image |
 
 Settings (environment): `PORT` (default 8080; a busy port moves to the next free one), `KEEL_NAME`, `KEEL_VOLUME`,
-`KEEL_IMAGE`, `KEEL_OPEN=0` (no browser), `KEEL_DOCKER=1`, `KEEL_PLUGINS=on|image|off`. Get a new `keel2` script with
+`KEEL_IMAGE`, `KEEL_OPEN=0` (no browser), `KEEL_DOCKER=1`, `KEEL_PLUGINS=on|image|off`, `KEEL_BIND`, `KEEL_LAN_IP`. Get a new `keel2` script with
 `curl -fsSL https://raw.githubusercontent.com/MiladNalbandi/keel-v2/main/install.sh | bash`.
 
 ## Where keel keeps its files (layouts)
