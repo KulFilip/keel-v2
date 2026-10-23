@@ -2328,6 +2328,39 @@ any local program, or a web page through the browser, could approve a gate, star
 - **Limit**: a program of the same user that reads keel's files can still act as keel; the sign-in closes plain HTTP
   (other programs, other users, web pages) and the rule keeps agents away from the files.
 
+### Phone access: paired devices (keel's Android app)
+
+- **Pairing QR**: `keel://pair?u=<urlencoded base URL, no trailing slash>&c=<one-time code>&n=<urlencoded keel name>`
+  (`%20`, never `+`). The keel name is `KEEL_NAME` (keel2 passes it), else `keel`.
+- `POST /api/devices/pairing` (a person only: the cookie or the web key; never a device, an MCP token or the internal
+  token) → `{code, expiresAt, urls: [{kind: tailscale|wifi|tunnel|local, url, qr}], qr, name, reachable}`. A code is 10
+  characters (`A-Z` and `2-9` without `0 O 1 I`), valid 10 minutes, used once; `local` is the page's own address.
+- `POST /api/devices/pair` (open: the code is the credential) `{code, name, platform}` →
+  `{token, device: {id, name, platform, createdAt}, keel: {name, version}}`; a wrong, used or expired code → 403
+  `{error, hint}`; 5 wrong codes a minute from one client (30 from all) → 429 for the rest of the minute, even for a
+  right code. The device token is `kd_` + 64 hex; the table `devices` (V23) keeps only its SHA-256.
+- Every app call: `Authorization: Bearer <device token>` (no `X-Keel-Web`): the person's access (`keel.auth.who` =
+  `device`), except the device routes above and below and `/internal/**`; `last_seen_at`/`last_ip` are written at most
+  once a minute. An unknown or removed token → 403 `{error: "This device was removed", hint: "Pair it again in keel:
+  Settings › Devices"}`. `GET /api/devices/me` (a device) → `{device, keel}`.
+- `GET /api/devices` (a person) → `[{id, name, platform, createdAt, lastSeenAt, lastIp}]`; `DELETE /api/devices/{id}`
+  removes the row (its token stops at once). These bodies are camelCase (the app's contract), unlike the rest of the api.
+- `PUT /api/devices/addresses {urls: [{kind, url}]}` (the internal token: keel2) replaces where keel is reachable,
+  kept in `$KEEL_DATA/run/addresses.json`; `GET` for keel2 or a person. keel2 sends it after every start and share
+  change (`keel2 start --wifi`, `keel2 share tailscale|tunnel|off`).
+- **Host and origin**: besides the names above, `LocalAuth` accepts an IP-address Host (a phone on the Wi-Fi; DNS
+  rebinding always comes with a name) and the hosts and origins of the registered addresses (Tailscale, tunnel).
+- **Wrong tries** (`auth/AuthLimiter`): wrong web keys, cookies, device tokens and sign-in codes count per client
+  (Cf-Connecting-Ip or the last X-Forwarded-For when a local proxy calls, else the address): 20 a minute from one
+  client, 200 from all → 429 with `Retry-After`. A direct call from this computer (loopback, no proxy header) is never
+  counted; the internal and MCP tokens never are.
+- **keel2**: `--wifi` / `KEEL_BIND` publish `-p <bind>:<port>:8080` (label `keel2.bind`, kept by restart) or native
+  `SERVER_ADDRESS`; `share tailscale` runs `tailscale serve --bg --https=443` (keel's port when another serve has 443)
+  and `share off` runs `tailscale serve --https=<that port> off` only; `share tunnel` runs `cloudflared tunnel --url
+  http://127.0.0.1:<port>` in the background, else `cloudflare/cloudflared:2026.9.1` (`--network host` on Linux,
+  `host.docker.internal` on Docker Desktop) as `<KEEL_NAME>-tunnel`. State: `~/.config/keel2/<KEEL_NAME>.share/`.
+  Test: `scripts/test-keel2-remote.sh` (fakes only).
+
 ## v0.18.1 (orchestration): orchestration fixes (stall ladder, cost, fewer stops)
 
 Plan: `docs/plans/0.17.5.md`.

@@ -962,6 +962,30 @@ keel2 auth reset      # a new key: every browser signs in again (keel restarts)
 Other programs on your computer, and web pages, cannot change anything in keel. keel2, keel TUI, keel's MCP server and
 keel's own engine bring their own keys. keel's agents never read those keys (a rule that cannot be switched off).
 
+## Use keel from your phone
+
+keel's Android app shows your flows, gates and inbox on your phone. keel runs on your computer; the phone needs a way
+to reach it, and each phone pairs once.
+
+```bash
+keel2 start --wifi        # reachable on your Wi-Fi: http://<this computer's address>:<port> (plain http in your network)
+keel2 share tailscale     # https on your tailnet (tailscale serve); keel itself stays on 127.0.0.1
+keel2 share tunnel        # a public https address (a Cloudflare quick tunnel); keel2 asks first
+keel2 share               # what is shared now
+keel2 share off           # stop sharing (or: keel2 share off tailscale | tunnel)
+```
+
+Then open **Settings › Devices › Pair a phone** in the dashboard and scan the QR code with the app. The code works
+once, for 10 minutes. The list shows every paired phone with when it was last seen; **Remove** signs a phone out at
+once.
+
+- `--wifi` is remembered by `keel2 restart`; a `keel2 start` without it is this computer only again. `KEEL_BIND=0.0.0.0`
+  (or one address) does the same. When keel2 shows the wrong Wi-Fi address, set `KEEL_LAN_IP`.
+- Wi-Fi is plain http: others on the same network could read the traffic. Tailscale gives https and works anywhere.
+- A tunnel's address is public and changes each time it starts. Anyone with it reaches only the sign-in and the
+  pairing; everything else needs your sign-in or a paired phone, and wrong tries are slowed down (429).
+- The tunnel uses `cloudflared` when it is installed, else Docker's `cloudflare/cloudflared` image.
+
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
 keel has an MCP server with three levels; each includes the one below:
