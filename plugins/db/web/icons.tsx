@@ -12,6 +12,7 @@ const PATHS: Record<string, string> = {
   plus: "M12 5v14M5 12h14",
   play: "M7 4.5 19 12 7 19.5z",
   console: "M4 5h16v14H4zM7.5 9.5 10 12l-2.5 2.5M12 15h4.5",
+  gear: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8",
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {
