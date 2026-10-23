@@ -296,6 +296,26 @@ def copilot_models_from_help(text: str) -> list[str]:
     return out
 
 
+def copilot_efforts_from_help(text: str) -> list[str]:
+    """`copilot --help`'s `--reasoning-effort <level>` (newer Copilot CLIs): its "[possible values: ...]" in order, else []."""
+    at = (text or "").find("--reasoning-effort")
+    if at < 0:
+        return []
+    block = re.split(r"\n\s*--?[a-z]", (text or "")[at + 2:], maxsplit=1)[0]   # up to the next option
+    m = re.search(r"\[possible values:\s*([^\]]+)\]", block)
+    if not m:
+        return []
+    return [v.strip() for v in m.group(1).split(",") if re.fullmatch(r"[a-z]+", v.strip())]
+
+
+def copilot_cli_efforts() -> list[str]:
+    """The efforts the Copilot CLI here takes (its --help, asked once per CACHE_TTL); [] when it has no such option."""
+    exe = _bin("copilot")
+    if not exe:
+        return []
+    return _cached(("copilot-cli-efforts", exe), lambda: copilot_efforts_from_help(_run([exe, "--help"]) or "")) or []
+
+
 def probe_copilot() -> list[dict] | None:
     exe = _bin("copilot")
     if not exe:
@@ -364,7 +384,10 @@ def efforts_for(provider: str, mode: str, model_id: str) -> list[str] | None:
     if provider == "codex":
         return None
     if provider == "copilot":
-        return opencode_efforts(model_id) if mode == "opencode" else []
+        if mode == "opencode":
+            return opencode_efforts(model_id)
+        # the Copilot CLI took no effort until --reasoning-effort came (1.0.x): whatever its --help lists
+        return copilot_cli_efforts() if mode == "subscription" else []
     return []
 
 
@@ -406,6 +429,8 @@ def build_catalog() -> dict:
                  "default": {"mode": "subscription", "model": "gpt-5.5", "effort": "medium"}, "source": "builtin"}
 
     sub, oc = found["copilot"], found["opencode"]
+    cli_efforts = copilot_cli_efforts()
+    sub = [{**m, "efforts": cli_efforts} for m in (sub or COPILOT_BUILTIN)] if cli_efforts else sub
     opencode = [{**m, "efforts": opencode_efforts(m["id"])} if opencode_efforts(m["id"]) else dict(m) for m in (oc or COPILOT_BUILTIN)]
     copilot = {"label": "GitHub Copilot",
                "modes": {"subscription": sub or COPILOT_BUILTIN, "opencode": opencode, "api": GITHUB_MODELS},

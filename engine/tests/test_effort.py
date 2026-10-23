@@ -9,7 +9,7 @@ import pytest
 
 from keel_engine.models import api_runner, catalog
 from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli_runners import ClaudeCLIRunner, CodexCLIRunner, OpenCodeRunner
+from keel_engine.models.cli_runners import ClaudeCLIRunner, CodexCLIRunner, CopilotCLIRunner, OpenCodeRunner
 from keel_engine.models.fake import FakeRunner
 from keel_engine.tools.agent_tools import ToolBox
 
@@ -115,3 +115,62 @@ def test_each_agent_call_says_its_effort(client, repo, effort, said):
     wait(client, tid)
     started = [e["data"] for e in client.bus.of(tid, "agent.started")]
     assert started and all(d["effort"] == said for d in started)
+
+
+COPILOT_HELP = """Usage: copilot [options]
+      --model <model>
+          Set the AI model to use
+      --reasoning-effort <level>
+          Set the reasoning effort level [possible values: none, minimal, low, medium, high, xhigh, max]
+      --context <tier>
+          Set the context window tier (overrides persisted setting) [possible values: default, long_context]
+      --auto-tier <preference>
+"""  # Copilot CLI 1.0.101's layout: each option's text on the next line, the next option's values close by
+
+
+def copilot_cli(tmp_path, monkeypatch, help_text: str) -> None:
+    """A stand-in Copilot CLI: its --help prints help_text, a run writes down its arguments."""
+    (tmp_path / "help.txt").write_text(help_text)
+    monkeypatch.setenv("KEEL_COPILOT_BIN", script(tmp_path, "copilot",
+        f'if [ "$1" = "--help" ]; then cat {tmp_path}/help.txt; exit 0; fi\n'
+        f'cat >/dev/null\nfor a in "$@"; do echo "$a"; done > {tmp_path}/argv\n'))
+
+
+def test_the_copilot_clis_help_says_which_efforts_it_takes():
+    assert catalog.copilot_efforts_from_help(COPILOT_HELP) == ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+    one_line = "  --reasoning-effort <level>  Set the reasoning effort level [possible values: low, medium, high]\n"
+    assert catalog.copilot_efforts_from_help(one_line) == ["low", "medium", "high"]
+    assert catalog.copilot_efforts_from_help("  --model <model>  Set the AI model [possible values: a, b]\n") == []
+    assert catalog.copilot_efforts_from_help("") == []
+    no_values = "  --reasoning-effort <level>  Set the effort\n  --context <tier>  [possible values: default, long_context]\n"
+    assert catalog.copilot_efforts_from_help(no_values) == []
+
+
+def test_a_copilot_cli_with_reasoning_effort_offers_it_and_one_without_does_not(tmp_path, monkeypatch):
+    copilot_cli(tmp_path, monkeypatch, COPILOT_HELP)
+    model = {"provider": "copilot", "mode": "subscription", "model": "claude-sonnet-4.5", "effort": "high"}
+    assert catalog.effort_for(model) == "high"
+    assert catalog.effort_for({**model, "effort": "ultra"}) is None
+    assert catalog.effort_for({**model, "mode": "api", "model": "openai/gpt-5"}) is None
+    subscription = catalog.build_catalog()["copilot"]["modes"]["subscription"]
+    assert subscription and all(m["efforts"] == ["none", "minimal", "low", "medium", "high", "xhigh", "max"] for m in subscription)
+    old = tmp_path / "old"
+    old.mkdir()
+    copilot_cli(old, monkeypatch, "Usage: copilot [options]\n  --model <model>  Set the AI model to use\n")
+    assert catalog.effort_for(model) is None
+
+
+async def test_copilot_cli_gets_the_reasoning_effort_flag(tmp_path, monkeypatch, repo):
+    copilot_cli(tmp_path, monkeypatch, COPILOT_HELP)
+    model = {"provider": "copilot", "mode": "subscription", "model": "claude-sonnet-4.5", "effort": "medium"}
+    try:
+        await CopilotCLIRunner().run(req(tmp_path, model), lambda *a, **k: None)
+    except Exception:  # noqa: BLE001 - the stand-in answers nothing; only its arguments matter here
+        pass
+    argv = (tmp_path / "argv").read_text().splitlines()
+    assert argv[argv.index("--reasoning-effort") + 1] == "medium" and argv[argv.index("--model") + 1] == "claude-sonnet-4.5"
+    try:
+        await CopilotCLIRunner().run(req(tmp_path, {**model, "effort": None}), lambda *a, **k: None)
+    except Exception:  # noqa: BLE001
+        pass
+    assert "--reasoning-effort" not in (tmp_path / "argv").read_text().splitlines()

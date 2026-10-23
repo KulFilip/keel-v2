@@ -668,6 +668,9 @@ class CopilotCLIRunner:
             argv += ["--deny-tool", "shell(git commit)"]
         if req.model.get("model"):
             argv += ["--model", req.model["model"]]
+        if catalog.effort_for(req.model):
+            # newer Copilot CLIs (1.0.x) take --reasoning-effort; effort_for keeps it only when this CLI lists it
+            argv += ["--reasoning-effort", catalog.effort_for(req.model)]
         servers = mcp.servers_for(req.mcp_specs, req.tools_allow)
         if servers:
             cfg = {"mcpServers": {s["name"]: {"type": "local", "command": s["command"], "args": list(s.get("args") or []), "tools": ["*"],
