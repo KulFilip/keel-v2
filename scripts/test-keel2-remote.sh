@@ -31,7 +31,7 @@ export KEEL_OPEN=0 NO_COLOR=1 KEEL_NAME=keel-test-remote KEEL_VOLUME=test-remote
 export PORT=39740 FAKE_S="$S" FAKE_CALLS="$scratch/calls"
 # never a real tailscale or cloudflared, even when this computer has them: keel2 runs the ones these name
 export KEEL_TAILSCALE_BIN="$scratch/bin/tailscale" KEEL_CLOUDFLARED_BIN="$scratch/bin/cloudflared"
-unset KEEL_IMAGE KEEL_FORCE KEEL_YES KEEL_PLUGINS KEEL_DOCKER KEEL_BIND KEEL_LAN_IP KEEL_CLOUDFLARED_IMAGE KEEL_HOME
+unset KEEL_IMAGE KEEL_FORCE KEEL_YES KEEL_PLUGINS KEEL_DOCKER KEEL_BIND KEEL_LAN_IP KEEL_CLOUDFLARED_IMAGE KEEL_HOME   # KEEL_HOME: ignored since 0.4.1, unset so keel2 prints no warning about it
 
 cat > "$scratch/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
