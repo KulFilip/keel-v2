@@ -129,7 +129,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         path == "/threads" && method == "POST" && threadRefusal != null -> threadRefusal!!
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
         path == "/setup/status" -> 200 to mapOf("state" to "running", "mode" to "container", "busy" to true,
-            "line" to "installing php8.3-cli for carrier-router…", "missing" to listOf("php8.3-cli"), "failed" to emptyList<String>())
+            "line" to "installing php8.3-cli for billing-router…", "missing" to listOf("php8.3-cli"), "failed" to emptyList<String>())
         path == "/diagrams/ascii" -> if (body?.path("kind")?.asText() == "pie") 400 to mapOf("error" to "no diagram kind \"pie\"")
             else 200 to mapOf("kind" to body?.path("kind")?.asText(), "text" to "stub ${body?.path("kind")?.asText()} ${body?.path("width")?.asInt()}\n", "lines" to 1)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))

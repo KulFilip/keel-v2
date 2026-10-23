@@ -726,7 +726,7 @@ function TeamJiraForm({
             type="text"
             value={project}
             onChange={(e) => setProject(e.target.value)}
-            placeholder="ERPDM"
+            placeholder="SHOPS"
           />
         </div>
         <div className="pd-row">

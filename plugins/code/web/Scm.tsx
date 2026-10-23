@@ -299,7 +299,7 @@ export function aheadBehind(ahead: number, behind: number): string {
   return [a, b].filter(Boolean).join(", ");
 }
 
-/** The branch name with its folder prefix dimmed: feature/ ERPDM-1769-…; long names wrap anywhere. */
+/** The branch name with its folder prefix dimmed: feature/ SHOPS-1769-…; long names wrap anywhere. */
 export function BranchName({
   name,
   className = "",
@@ -594,7 +594,7 @@ function BranchList({
                 )}
               </div>
               <span id={`${findId}-tip`} className="sr-only">
-                A part of the name or a ticket key, like ERPDM-1769
+                A part of the name or a ticket key, like SHOPS-1769
               </span>
             </div>
           )}

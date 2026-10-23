@@ -27,13 +27,13 @@ One new Product page, **Product map**, for a product manager. Three columns, fil
 
 ```
 ┌ Product map ───────────────────────────────────────────────────────────────────────────┐
-│ Team [All ▾]   Jira: ERPDM · SW              [Find flows again]  [+ New tickets]        │
+│ Team [All ▾]   Jira: SHOPS · SW              [Find flows again]  [+ New tickets]        │
 ├────────────────┬─────────────────────────────────────┬─────────────────────────────────┤
 │ TEAMS          │ BUSINESS FLOWS                      │ TICKETS AND WORK                │
-│ ▸ ERP DM   (3) │ ● Checkout          web-shop · pay  │ ERPDM-1234 In progress          │
-│   erp-core     │   5 steps · 3 endpoints · 2 tables  │   branch feat/ERPDM-1234-vat    │
+│ ▸ Orders   (3) │ ● Checkout          web-shop · pay  │ SHOPS-1234 In progress          │
+│   erp-core     │   5 steps · 3 endpoints · 2 tables  │   branch feat/SHOPS-1234-vat    │
 │   erp-ui       │ ● Refund            pay             │   3 commits · last 2 days ago   │
-│ ▸ SW       (2) │   3 steps                           │ ERPDM-1240 Done                 │
+│ ▸ SW       (2) │   3 steps                           │ SHOPS-1240 Done                 │
 │   web-shop     │ ● Sign up           web-shop        │ ⚠ 2 branches with no ticket key │
 └────────────────┴─────────────────────────────────────┴─────────────────────────────────┘
 ```
@@ -64,7 +64,7 @@ One new Product page, **Product map**, for a product manager. Three columns, fil
                                                                     ▼
                                          ┌─────────── DRAFTS (keel only, editable) ───────────┐
                                          │ INI-7  Euro prices            → Jira  PORT (optional)│
-                                         │  ├ EPIC ERP  Price API v2     → team ERP DM · ERPDM  │
+                                         │  ├ EPIC ERP  Price API v2     → team Orders · SHOPS  │
                                          │  │  ├ S1  Add EUR to /prices   ✎  criteria (3)     │
                                          │  │  └ S2  Rounding rule        ✎                   │
                                          │  └ EPIC WEB  Show euro         → team SW · SW       │
@@ -100,12 +100,12 @@ One new Product page, **Product map**, for a product manager. Three columns, fil
 ## 3. Teams (c)
 
 ```
- Team "ERP DM" (lead Sara)                     Team "SW" (lead Tom)
+ Team "Orders" (lead Sara)                     Team "SW" (lead Tom)
  ┌──────────────────────────────┐              ┌──────────────────────────────┐
  │ projects: erp-core, erp-ui   │              │ projects: web-shop           │
  │ Jira: site acme.atlassian.net│              │ Jira: site jira.sw.local     │
- │       project ERPDM          │              │       project SW             │
- │ key pattern: ERPDM-\d+       │              │ key pattern: SW-\d+          │
+ │       project SHOPS          │              │       project SW             │
+ │ key pattern: SHOPS-\d+       │              │ key pattern: SW-\d+          │
  │ issue types, labels, comp.   │              │                              │
  └──────────────────────────────┘              └──────────────────────────────┘
 ```
@@ -122,14 +122,14 @@ One new Product page, **Product map**, for a product manager. Three columns, fil
 ```
  git (each team's projects)                    keel                                    PM view
  ┌─────────────────────────────┐   scan    ┌──────────────────────────────┐        ┌────────────────────┐
- │ branch feature/erpdm-1234-x │ ────────▶ │ team ERP DM: ERPDM-\d+       │ ─────▶ │ ERPDM-1234         │
- │ commit "ERPDM-1234 add vat" │           │  → key ERPDM-1234            │        │  1 branch          │
+ │ branch feature/shops-1234-x │ ────────▶ │ team Orders: SHOPS-\d+       │ ─────▶ │ SHOPS-1234         │
+ │ commit "SHOPS-1234 add vat" │           │  → key SHOPS-1234            │        │  1 branch          │
  │ commit "fix typo"           │           │ no key → "no ticket" list    │        │  2 commits         │
  └─────────────────────────────┘           └──────────────────────────────┘        └────────────────────┘
 ```
 
 - Each team has a **key pattern**, default `<JIRA KEY>-\d+`. It is matched case-insensitive with word edges, so
-  `feature/erpdm-1234-vat` gives `ERPDM-1234`. The pattern is checked when saved: it compiles, it is short (100
+  `feature/shops-1234-vat` gives `SHOPS-1234`. The pattern is checked when saved: it compiles, it is short (100
   characters at most), it has no nested repeat (no `(a+)+`), and it matches the sample the PM types.
 - keel scans the branches (local and remote) and the commits of the last 90 days of each team's projects, only the
   first 2 KB of each message. It runs on demand ("Scan now") and every 15 minutes. It stores

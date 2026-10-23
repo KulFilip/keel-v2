@@ -1,7 +1,7 @@
 // Source control's small rules, pure (no React): the ticket key in a branch name, the branch name split into its
 // folder prefix and the rest, the search that also finds ticket keys, and when a branch is stale.
 
-/** A ticket key anywhere in a branch name or a commit subject: ERPDM-1769, ABC2-7. Used when no team pattern is set. */
+/** A ticket key anywhere in a branch name or a commit subject: SHOPS-1769, ABC2-7. Used when no team pattern is set. */
 export const GENERIC_TICKET = "[A-Z][A-Z0-9]+-\\d+";
 
 /** The regex for a ticket pattern, bounded so ABC-12 is not found inside XABC-123; null when the pattern does not
@@ -30,7 +30,7 @@ export function ticketKey(
   return m ? m[0].toUpperCase() : null;
 }
 
-/** "feature/ERPDM-1-x" -> { prefix: "feature/", rest: "ERPDM-1-x" }; a name without "/" has no prefix. */
+/** "feature/SHOPS-1-x" -> { prefix: "feature/", rest: "SHOPS-1-x" }; a name without "/" has no prefix. */
 export function splitBranch(name: string): { prefix: string; rest: string } {
   const i = name.lastIndexOf("/");
   return i > 0 && i < name.length - 1
@@ -40,8 +40,8 @@ export function splitBranch(name: string): { prefix: string; rest: string } {
 
 const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** Does a branch match what the person typed: its name (any case), or the name without - _ / . (erpdm1769 finds
- *  ERPDM-1769-x), or a ticket key in its last commit's subject. */
+/** Does a branch match what the person typed: its name (any case), or the name without - _ / . (shops1769 finds
+ *  SHOPS-1769-x), or a ticket key in its last commit's subject. */
 export function branchMatches(
   name: string,
   note: string | undefined,

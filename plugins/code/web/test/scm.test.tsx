@@ -41,21 +41,21 @@ async function openScm() {
 
 describe("Source control's rules", () => {
   it("finds a ticket key in a branch name: the generic pattern, or a team's", () => {
-    expect(ticketKey("feature/ERPDM-1769-parcelperform-webhook-eta-v2")).toBe(
-      "ERPDM-1769",
+    expect(ticketKey("feature/SHOPS-1769-pricingengine-webhook-eta-v2")).toBe(
+      "SHOPS-1769",
     );
     expect(ticketKey("fix/AB2-7")).toBe("AB2-7");
     expect(ticketKey("fix-2-lowercase")).toBeNull();
     expect(ticketKey("feat/scores")).toBeNull();
-    expect(ticketKey("abcERPDM-12x")).toBeNull(); // not inside another word
+    expect(ticketKey("abcSHOPS-12x")).toBeNull(); // not inside another word
     expect(ticketKey("feature/shop-42-cart", "SHOP-\\d+")).toBe("SHOP-42"); // a team's pattern ignores case
-    expect(ticketKey("feature/ERPDM-1-x", "([")).toBe("ERPDM-1"); // a pattern that does not compile: the generic one
+    expect(ticketKey("feature/SHOPS-1-x", "([")).toBe("SHOPS-1"); // a pattern that does not compile: the generic one
   });
 
   it("splits a branch name into its folder prefix and the rest", () => {
-    expect(splitBranch("feature/ERPDM-1-x")).toEqual({
+    expect(splitBranch("feature/SHOPS-1-x")).toEqual({
       prefix: "feature/",
-      rest: "ERPDM-1-x",
+      rest: "SHOPS-1-x",
     });
     expect(splitBranch("feat/deep/one")).toEqual({
       prefix: "feat/deep/",
@@ -65,11 +65,11 @@ describe("Source control's rules", () => {
   });
 
   it("matches a branch by name, by name without dashes, or by the ticket key in its last commit", () => {
-    expect(branchMatches("feature/ERPDM-1769-eta", "", "erpdm-1769")).toBe(
+    expect(branchMatches("feature/SHOPS-1769-eta", "", "shops-1769")).toBe(
       true,
     );
-    expect(branchMatches("feature/ERPDM-1769-eta", "", "erpdm1769")).toBe(true);
-    expect(branchMatches("feat/eta", "ERPDM-1769 Map the ranges", "1769")).toBe(
+    expect(branchMatches("feature/SHOPS-1769-eta", "", "shops1769")).toBe(true);
+    expect(branchMatches("feat/eta", "SHOPS-1769 Map the ranges", "1769")).toBe(
       true,
     );
     expect(branchMatches("feat/eta", "fix the rounding", "1769")).toBe(false);
@@ -100,7 +100,7 @@ describe("Source control's head", () => {
       http.get("/api/projects/:pid/repo", () =>
         HttpResponse.json({
           ...fx.repo,
-          branch: "feature/ERPDM-1769-parcelperform-webhook-eta-v2",
+          branch: "feature/SHOPS-1769-pricingengine-webhook-eta-v2",
           ahead: 51,
           behind: 3,
         }),
@@ -108,10 +108,10 @@ describe("Source control's head", () => {
     );
     const { view } = await openScm();
     const head = await within(view).findByRole("region", { name: "Branch" });
-    expect(within(head).getByText("ERPDM-1769")).toHaveClass("scm-ticket");
+    expect(within(head).getByText("SHOPS-1769")).toHaveClass("scm-ticket");
     const name = head.querySelector(".scm-name")!;
     expect(name).toHaveTextContent(
-      "feature/ERPDM-1769-parcelperform-webhook-eta-v2",
+      "feature/SHOPS-1769-pricingengine-webhook-eta-v2",
     );
     expect(name.querySelector(".scm-prefix")).toHaveTextContent(/^feature\/$/);
     expect(within(head).getByText("↑ 51 ahead")).toHaveClass("tone-ok");
@@ -189,7 +189,7 @@ describe("Source control's branches with the Git plugin", () => {
           ].map((name) => ({ name, note: `${name}: last commit` })),
           remote_branches: [
             { name: "origin/feat/scores", note: "" },
-            { name: "origin/feature/ERPDM-1810-sonar-fixes", note: "sonar" },
+            { name: "origin/feature/SHOPS-1810-sonar-fixes", note: "sonar" },
           ],
           ...extra,
         }),
@@ -360,13 +360,13 @@ describe("Source control's branches with the Git plugin", () => {
     await user.click(within(view).getByRole("button", { name: "feature/ 1" }));
     await user.click(
       within(view).getByRole("button", {
-        name: "Check out origin/feature/ERPDM-1810-sonar-fixes",
+        name: "Check out origin/feature/SHOPS-1810-sonar-fixes",
       }),
     );
     await waitFor(() =>
       expect(
         calls("POST", "/api/projects/ludus-engine/git/switch").at(-1)?.body,
-      ).toEqual({ branch: "feature/ERPDM-1810-sonar-fixes", create: false }),
+      ).toEqual({ branch: "feature/SHOPS-1810-sonar-fixes", create: false }),
     );
 
     // merged: no commit main lacks, not the current branch, not main

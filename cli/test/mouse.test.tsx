@@ -112,9 +112,9 @@ describe("the transcript's lines", () => {
     r.stdin.write("\r");
     await waitFor(() => probe.chatBusy);
     stub.answer("I read the four review comments on the pull request. Here is what each one asks and whether it is right.\n\n"
-      + "**Comment 1: keep `eta_updated_at`?** Valid, the column is read by the tracking page and the nightly export.\n"
+      + "**Comment 1: keep `vat_updated_at`?** Valid, the column is read by the checkout page and the nightly export.\n"
       + "**Comment 2: why raw SQL?** The query builder cannot express the lateral join here.\n"
-      + "**Comment 4: use a factory in ParcelPerformEtaAbsentKeepsStoredTest.php:50.** Valid but optional. I changed nothing in that test file "
+      + "**Comment 4: use a factory in PricingEngineVatAbsentKeepsStoredTest.php:50.** Valid but optional. I changed nothing in that test file "
       + "because it passes and the factory would only shorten it by a few lines.\n\nThat is all four.");
     core.onMessage({ event: "helper.finished", data: JSON.stringify({ type: "helper.finished", thread_id: "s1", project_id: "demo", at: "x", data: { status: "done" } }) });
     await waitFor(() => probe.answers === 1);
@@ -123,7 +123,7 @@ describe("the transcript's lines", () => {
     const at = ls.findIndex((l) => l.includes("I read the four"));
     expect(ls.slice(at, at + 3).map((l) => l.trim())).toEqual(["I read the four review comments on the pull request. Here is what each one asks and whether it",
       "is right.", ""]);
-    expect(ls[at + 3]).toContain("Comment 1: keep eta_updated_at?");
+    expect(ls[at + 3]).toContain("Comment 1: keep vat_updated_at?");
     expect(ls[at - 1].trim()).toBe("");                                // the air above the answer
     r.unmount();
   });

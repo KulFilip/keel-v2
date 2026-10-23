@@ -26,10 +26,10 @@ describe("KeelBot's answer colours", () => {
     const h = renderMarkdown("## Review", keel);
     expect(h).toContain(rgb(KEEL.heading));
     expect(h).toContain(BOLD);
-    const lead = renderMarkdown("**Comment 1: keep `eta_updated_at`?** Valid, it is read.", keel);
+    const lead = renderMarkdown("**Comment 1: keep `vat_updated_at`?** Valid, it is read.", keel);
     expect(lead.indexOf(rgb(KEEL.heading))).toBeLessThan(lead.indexOf("Comment 1"));
     expect(lead).toContain(BOLD);
-    expect(lead).toContain(`${rgb(KEEL.code)}eta_updated_at`);
+    expect(lead).toContain(`${rgb(KEEL.code)}vat_updated_at`);
     const mid = renderMarkdown("It is **really** read.", keel);
     expect(mid).toBe(`It is ${BOLD}really\x1b[22m read.`);
     const item = renderMarkdown("- **Comment 2: why raw SQL?** fine", keel);

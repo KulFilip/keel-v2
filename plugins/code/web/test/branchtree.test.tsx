@@ -13,10 +13,10 @@ import { server } from "../../../../web/src/test/setup";
 import { buildBranchTree, filterTree, loadOpen, saveOpen, type TreeFolder, type TreeLeaf } from "../branchTree";
 
 const b = (name: string) => ({ name, note: `${name}: subject` });
-const local = ["main", "pre-clean-branch-backup", "feature/ERPDM-1652-add-thing", "feature/ERPDM-1653-other", "fix/login", "feat/scores", "tmp-rebase-check", "feat/deep/er/one"].map(b);
-const remotes = ["origin/main", "origin/feature/ERPDM-1652-add-thing", "github/fix/login"].map(b);
+const local = ["main", "pre-clean-branch-backup", "feature/SHOPS-1652-add-thing", "feature/SHOPS-1653-other", "fix/login", "feat/scores", "tmp-rebase-check", "feat/deep/er/one"].map(b);
+const remotes = ["origin/main", "origin/feature/SHOPS-1652-add-thing", "github/fix/login"].map(b);
 // 0.18.38 Source control lists only what a remote has and this clone does not: a teammate's branch
-const teammate = b("origin/feature/ERPDM-1810-sonar-fixes");
+const teammate = b("origin/feature/SHOPS-1810-sonar-fixes");
 
 describe("branch tree", () => {
   it("groups feature/, fix/ and prefix-less branches, the current one on top then main", () => {
@@ -28,7 +28,7 @@ describe("branch tree", () => {
     const folders = loc.nodes.filter((n): n is TreeFolder => n.type === "folder");
     const feature = folders.find((f) => f.label === "feature/")!;
     expect(feature.count).toBe(2);
-    expect(feature.children.every((c) => c.type === "leaf")).toBe(true);   // feature/ERPDM-… stays a leaf
+    expect(feature.children.every((c) => c.type === "leaf")).toBe(true);   // feature/SHOPS-… stays a leaf
     expect(folders.find((f) => f.label === "fix/")!.count).toBe(1);
     const deep = folders.find((f) => f.label === "feat/")!;
     expect(deep.children.map((c) => c.type)).toEqual(["folder"]);        // feat/deep/… nests
@@ -47,7 +47,7 @@ describe("branch tree", () => {
 
   it("the filter keeps only the matches across all groups, with counts", () => {
     const groups = buildBranchTree(local, remotes, "main");
-    const r = filterTree(groups, "ERPDM-1652");
+    const r = filterTree(groups, "SHOPS-1652");
     expect(r.matches).toBe(2);
     expect(r.groups.map((g) => g.title)).toEqual(["Local", "origin"]);
     expect(filterTree(groups, "nothing-like-this").groups).toEqual([]);
@@ -86,16 +86,16 @@ describe("branches in Source control", () => {
     expect(within(view).getByRole("button", { name: "On origin only 1" })).toHaveAttribute("aria-expanded", "false");
     expect(within(view).queryByRole("button", { name: /^On github only/ })).toBeNull();
     expect(within(view).getByRole("button", { name: "feature/ 2" })).toHaveAttribute("aria-expanded", "false");
-    expect(within(view).queryByRole("button", { name: "Show the log of feature/ERPDM-1652-add-thing" })).toBeNull();
+    expect(within(view).queryByRole("button", { name: "Show the log of feature/SHOPS-1652-add-thing" })).toBeNull();
 
-    await user.type(within(view).getByRole("searchbox", { name: "Filter the branches" }), "ERPDM-1652");
+    await user.type(within(view).getByRole("searchbox", { name: "Filter the branches" }), "SHOPS-1652");
     expect(within(view).getByRole("status")).toHaveTextContent("1 match");
-    expect(within(view).getByRole("button", { name: "Show the log of feature/ERPDM-1652-add-thing" })).toBeInTheDocument();
-    expect(within(view).queryByRole("button", { name: "Show the log of origin/feature/ERPDM-1652-add-thing" })).toBeNull();
+    expect(within(view).getByRole("button", { name: "Show the log of feature/SHOPS-1652-add-thing" })).toBeInTheDocument();
+    expect(within(view).queryByRole("button", { name: "Show the log of origin/feature/SHOPS-1652-add-thing" })).toBeNull();
     // a ticket key finds the remote-only branch too, also typed without the dash
     await user.clear(within(view).getByRole("searchbox", { name: "Filter the branches" }));
-    await user.type(within(view).getByRole("searchbox", { name: "Filter the branches" }), "erpdm1810");
-    expect(within(view).getByRole("button", { name: "Show the log of origin/feature/ERPDM-1810-sonar-fixes" })).toBeInTheDocument();
+    await user.type(within(view).getByRole("searchbox", { name: "Filter the branches" }), "shops1810");
+    expect(within(view).getByRole("button", { name: "Show the log of origin/feature/SHOPS-1810-sonar-fixes" })).toBeInTheDocument();
   });
 
   it("remembers a folder the person opened", async () => {

@@ -485,7 +485,7 @@ function EngineStatus({ version }: { version?: boolean }) {
 }
 
 /** keel 0.18.22 the stack setup in one line: what keel installs for the projects' stacks now ("installing php8.3-cli for
- *  carrier-router…"), a failure, or (native mode) what is missing. Nothing when all is set up. It looks again every few
+ *  billing-router…"), a failure, or (native mode) what is missing. Nothing when all is set up. It looks again every few
  *  seconds while it runs, every minute otherwise. */
 export function StackSetupLine() {
   const { health } = useApp();

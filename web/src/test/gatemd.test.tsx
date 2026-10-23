@@ -30,7 +30,7 @@ const diffBody = [
 
 const DETAIL = `## In plain words
 
-The queue message \`webhook_tracking_update\` gets two new optional fields: \`expected_delivery\` and \`eta_updated_at\`. Old messages stay valid; plain words like snake_case_words and eta_updated_at stay as they are.
+The queue message \`webhook_tracking_update\` gets two new optional fields: \`expected_delivery\` and \`vat_updated_at\`. Old messages stay valid; plain words like snake_case_words and vat_updated_at stay as they are.
 
 ## What changes
 
@@ -39,7 +39,7 @@ The queue message \`webhook_tracking_update\` gets two new optional fields: \`ex
 | field | change | type | required? |
 |---|---|---|---|
 | \`expected_delivery\` | new | string \\| null | no |
-| \`eta_updated_at\` | new | string \\| null | no |
+| \`vat_updated_at\` | new | string \\| null | no |
 
 ## Compatibility
 
@@ -77,7 +77,7 @@ describe("gate detail as Markdown", () => {
     expect(container.querySelector("em")).toBeNull();
     expect(
       screen.getByText(
-        /plain words like snake_case_words and eta_updated_at stay as they are/,
+        /plain words like snake_case_words and vat_updated_at stay as they are/,
       ),
     ).toBeInTheDocument();
     expect(
@@ -87,7 +87,7 @@ describe("gate detail as Markdown", () => {
     ).toEqual(
       expect.arrayContaining([
         "webhook_tracking_update",
-        "eta_updated_at",
+        "vat_updated_at",
         "config/contracts/messages/webhook_tracking_update.json",
       ]),
     );
@@ -103,7 +103,7 @@ describe("gate detail as Markdown", () => {
       within(table).getAllByRole("cell", { name: "string | null" }),
     ).toHaveLength(2);
     expect(
-      within(table).getByRole("cell", { name: "eta_updated_at" }),
+      within(table).getByRole("cell", { name: "vat_updated_at" }),
     ).toBeInTheDocument();
 
     expect(

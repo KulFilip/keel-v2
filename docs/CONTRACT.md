@@ -2522,7 +2522,7 @@ api    GET  /api/setup      → the engine's /setup/status (needs a login; /api/
 ```
 
 The dashboard shows `line` while `state` is running, failed or missing ("setup: installing php8.3-cli for
-carrier-router…").
+billing-router…").
 
 **Flow part.** Every flow starts at the node `__setup`. It is silent when there is nothing to do. Otherwise it is a
 step named "set up the stack", with a code job (`code.started`, `code.step` per command with its output,

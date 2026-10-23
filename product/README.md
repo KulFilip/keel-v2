@@ -34,7 +34,7 @@ The design is docs/product/pm-jira-teams-design.md. In short:
 
 - **Teams** own keel projects (`PUT /api/teams/{id}/projects/{pid}`, or CODEOWNERS paths). Each team has its own Jira:
   which connection (a project's, else keel's keel-wide one: `PUT /api/jira`), its project key, issue types, Epic Link
-  field, labels and component; and a **ticket-key pattern** (`ERPDM-\d+`; default: its Jira project key).
+  field, labels and component; and a **ticket-key pattern** (`SHOPS-\d+`; default: its Jira project key).
 - **Ticket keys in git**: keel reads each team project's branches and commits (last 90 days, every 15 minutes or
   `POST /api/product/tickets/scan`) and links them to the keys of the team's pattern (`GET /api/product/tickets`).
 - **Drafts**: the plan's epics and stories can be edited (`/api/initiatives/{id}/plan/…`) until a story is sent.

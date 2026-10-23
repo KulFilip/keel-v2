@@ -242,14 +242,14 @@ describe("0.18.23 KeelBot's suggested gate answer reads like the gate, and a new
   it("the step's short name, one line per question with its words, never the ids or the request", async () => {
     const t = db.flows["ludus-engine"].thread!;
     t.waiting = FRAME;
-    t.title = "I want to extend the parcelperform webhook to support the estmiated delivery date";
+    t.title = "I want to extend the pricingengine webhook to support the estmiated delivery date";
     const p = await chatWith(`I read src/webhook/EtaHandler.kt:249.\n\n${block(t.thread_id)}`);
     const card = await within(p).findByRole("region", { name: "Flow: Send these answers" });
     await waitFor(() => expect(card).toHaveTextContent('"frame the question"'));
     const list = within(card).getByRole("list", { name: "KeelBot's answers" });
     expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "What should the ETA mean? → A · Overwrite one column", "Who reads the ETA? → A · Database only"]);
-    expect(card.textContent).not.toMatch(/eta_semantics|eta_consumers|parcelperform/);
+    expect(card.textContent).not.toMatch(/eta_semantics|eta_consumers|pricingengine/);
     expect(within(card).getByRole("button", { name: "Send these answers" })).toBeEnabled();
   });
 
@@ -268,7 +268,7 @@ describe("0.18.23 KeelBot's suggested gate answer reads like the gate, and a new
 describe("0.18.28 a gate decision names the step and says what reject really does", () => {
   it("the step's name, not the flow's title; a reject that only stops the flow warns that no agent gets the reason", async () => {
     const t = db.flows["ludus-engine"].thread!;
-    t.title = "Extend the ParcelPerform (Perform.AI) webhook to support the estimated delivery date";
+    t.title = "Extend the PricingEngine (Pricing.AI) webhook to support the estimated delivery date";
     t.waiting = { step: "integration_commit", name: "verify the suite + commit", kind: "fix" as const,
       title: "verify the suite + commit keeps failing", detail: "2 tests fail", options: ["approve" as const, "reject" as const],
       plain: { approve: { does: "runs the check again", reason: "used" },
@@ -276,7 +276,7 @@ describe("0.18.28 a gate decision names the step and says what reject really doe
     const p = await chatWith(`\`\`\`keel-flow\n{"do": "reject", "flow": "${t.thread_id}", "why": "the AC-008 test leaks a row"}\n\`\`\``);
     const card = await within(p).findByRole("region", { name: "Flow: Send back" });
     await waitFor(() => expect(card).toHaveTextContent('"verify the suite + commit"'));
-    expect(card.textContent).not.toMatch(/ParcelPerform/);
+    expect(card.textContent).not.toMatch(/PricingEngine/);
     expect(within(card).getByTestId("kb-plain-effect")).toHaveTextContent("Send back here: stops the flow (the work so far stays)");
     expect(card).toHaveTextContent("The reason (no agent gets it here): the AC-008 test leaks a row");
   });

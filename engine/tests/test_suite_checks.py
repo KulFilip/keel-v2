@@ -41,7 +41,7 @@ def repo_with(tmp_path, files: dict[str, str]) -> Path:
 
 
 POLLUTER = """<?php
-final class ParcelPerformEtaConcurrentWebhooksTest extends KernelTestCase
+final class PricingEngineEtaConcurrentWebhooksTest extends KernelTestCase
 {
     protected function setUp(): void
     {
@@ -70,13 +70,13 @@ def test_the_branchs_tests_that_write_to_the_db_without_cleanup_are_the_suspects
     base = git(root, "rev-parse", "HEAD").strip()
     git(root, "switch", "-qc", "feat/eta")
     for rel, text, msg in (("tests/Functional/TrackingTest.php", CLEAN, "test(AC-002): saves"),
-                           ("tests/Functional/ParcelPerformEtaConcurrentWebhooksTest.php", POLLUTER, "test(AC-008): two webhooks")):
+                           ("tests/Functional/PricingEngineEtaConcurrentWebhooksTest.php", POLLUTER, "test(AC-008): two webhooks")):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text)
         git(root, "add", "-A")
         git(root, "commit", "-qm", msg)
     found = suite_failure.suspects(str(root), base)
-    assert [s["file"] for s in found] == ["tests/Functional/ParcelPerformEtaConcurrentWebhooksTest.php",
+    assert [s["file"] for s in found] == ["tests/Functional/PricingEngineEtaConcurrentWebhooksTest.php",
                                          "tests/Functional/TrackingTest.php"]
     first = found[0]
     assert first["acs"] == ["AC-008"] and first["commits"] and not first["cleanup"]

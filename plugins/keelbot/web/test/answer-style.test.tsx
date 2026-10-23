@@ -22,12 +22,12 @@ const md = (text: string, answer = true) =>
 describe("KeelBot's answer look", () => {
   it("a bold lead-in ending in : or ? at the start of a paragraph is a small heading, with its verdict chip", () => {
     const c = md(
-      "**Comment 1: keep `eta_updated_at`?** [valid] Keep the column.\n\n**Comment 2: why raw SQL?** [partly]\nIt is atomic.",
+      "**Comment 1: keep `vat_updated_at`?** [valid] Keep the column.\n\n**Comment 2: why raw SQL?** [partly]\nIt is atomic.",
     );
     const heads = c.querySelectorAll("h4.md-lead");
     expect(heads).toHaveLength(2);
-    expect(heads[0]).toHaveTextContent("Comment 1: keep eta_updated_at? VALID");
-    expect(heads[0].querySelector("code")).toHaveTextContent("eta_updated_at");
+    expect(heads[0]).toHaveTextContent("Comment 1: keep vat_updated_at? VALID");
+    expect(heads[0].querySelector("code")).toHaveTextContent("vat_updated_at");
     expect(heads[0].querySelector(".md-verdict.valid")).toHaveTextContent(
       "VALID",
     );
@@ -104,10 +104,10 @@ describe("KeelBot's answer look", () => {
 
   it("inline code and file:line links keep their own classes (sand chip, lilac link)", () => {
     const c = md(
-      "The guard `eta_updated_at < :marker` is at `DoctrineTrackingSubscriptionRepository.php:68`.",
+      "The guard `vat_updated_at < :marker` is at `DoctrineTrackingSubscriptionRepository.php:68`.",
     );
     expect(c.querySelector("code")).toHaveTextContent(
-      "eta_updated_at < :marker",
+      "vat_updated_at < :marker",
     );
     expect(c.querySelector(".cite")).toHaveTextContent(
       "DoctrineTrackingSubscriptionRepository.php:68",

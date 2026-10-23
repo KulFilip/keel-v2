@@ -4,7 +4,7 @@ CREATE TABLE product_ticket_links (
     project_id TEXT NOT NULL,
     kind       TEXT NOT NULL,                -- branch, commit
     ref        TEXT NOT NULL,                -- the branch name; the commit sha
-    key        TEXT NOT NULL,                -- ERPDM-1234, or ''
+    key        TEXT NOT NULL,                -- SHOPS-1234, or ''
     team_id    TEXT,                         -- whose pattern matched
     title      TEXT,                         -- the commit's subject; the branch's last commit subject
     author     TEXT,

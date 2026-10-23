@@ -22,7 +22,7 @@ CONTENT = Path(__file__).resolve().parents[2] / "content"
 AGENT = CONTENT / "agents" / "web-researcher.md"
 
 CURLS = [
-    "curl -sL 'https://html.duckduckgo.com/html/?q=parcelperform+webhook+eta'",
+    "curl -sL 'https://html.duckduckgo.com/html/?q=pricingengine+webhook+eta'",
     'curl -sL "https://developers.example.com/docs/webhooks?a=1&b=2" | head -200',
     "curl -sL https://raw.githubusercontent.com/acme/sdk/main/openapi.json | python3 -m json.tool | grep -n eta",
     "curl -sIL https://api.example.com/v2/events",
@@ -149,10 +149,10 @@ def test_a_read_only_run_still_reads_the_web(cmd):
 def test_the_spikes_web_findings_reach_the_researchers_and_the_findings(client, repo, monkeypatch):
     from conftest import start, wait
 
-    frame = ("Question: what is ParcelPerform's ETA field called in the webhook?\nOutside the repo: the webhook payload.\n"
+    frame = ("Question: what is PricingEngine's ETA field called in the webhook?\nOutside the repo: the webhook payload.\n"
              "```json\n" + json.dumps([{"title": "map the field from the webhook"}, {"title": "poll the API"}]) + "\n```")
     web = ("CONFIRMED\n- `estimated_delivery_date`: https://developers.example.com/webhooks \"the latest ETA\"\n"
-           "| tried | result |\n|---|---|\n| search: parcelperform webhook eta | 4 hits |\n\nCONFIDENCE: medium")
+           "| tried | result |\n|---|---|\n| search: pricingengine webhook eta | 4 hits |\n\nCONFIDENCE: medium")
     real, seen = fake._plan, []
 
     def plan(req):
@@ -162,11 +162,11 @@ def test_the_spikes_web_findings_reach_the_researchers_and_the_findings(client, 
             text = "RECOMMEND: map the field" if req.step_name.startswith("findings") else "Measured.\nVERDICT: promising"
         return (None, "", text, {}) if text else real(req)
     monkeypatch.setattr(fake, "_plan", plan)
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine ETA"))
     assert s["waiting"]["step"] == "decide"
     assert [r.agent for r in seen][:2] == ["explorer", "web-researcher"]
     researcher = next(r for r in seen if r.agent == "web-researcher")
-    assert "what is ParcelPerform's ETA field called" in researcher.prompt      # it reads the frame's question and angles
+    assert "what is PricingEngine's ETA field called" in researcher.prompt      # it reads the frame's question and angles
     research = [r for r in seen if r.agent == "investigator" and r.item]
     assert len(research) == 2 and all("https://developers.example.com/webhooks" in r.prompt for r in research)
     findings = next(r for r in seen if r.step_name.startswith("findings"))
@@ -212,7 +212,7 @@ def test_the_spikes_agents_write_no_spec_and_its_gate_offers_spec_or_drop(client
         seen.append(req)
         return real(req)
     monkeypatch.setattr(fake, "_plan", plan)
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine ETA"))
     assert s["waiting"]["step"] == "decide" and s["waiting"]["choices"] == ["spec", "drop"], s["waiting"]
     assert s["acs"] == [] and not s.get("spec")
     assert [p.name for p in (Path(repo) / "docs" / "specs").glob("*.md")] in ([], ["README.md"])
@@ -233,7 +233,7 @@ def test_a_long_findings_answer_reaches_the_report_whole(client, repo, monkeypat
             return None, "", long, {}
         return real(req)
     monkeypatch.setattr(fake, "_plan", plan)
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine ETA"))
     assert s["waiting"]["step"] == "decide"
     assert "claim 899: src/app/Eta.kt:899" in s["waiting"]["detail"] and "RECOMMEND: map the field" in s["waiting"]["detail"]
 
@@ -254,7 +254,7 @@ def test_a_spikes_evidence_reaches_the_features_spec_step_unshortened(client, re
             return None, "", f"## Findings (evidence)\n{angle}\nANGLE-END {req.item['title']}\nVERDICT: promising", {}
         return real(req)
     monkeypatch.setattr(fake, "_plan", plan)
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine ETA"))
     decide(client, s["thread_id"], "approve", payload={"choice": "spec"})
     deadline = time.time() + 30
     while time.time() < deadline and not any(r.step_name == "spec" for r in seen):
@@ -285,7 +285,7 @@ def test_the_spikes_frame_asks_about_the_decision_once_and_reframes_with_the_ans
             return None, "", f"Question: the ETA.\n{angles}" + (f"\n```keel-questions\n{json.dumps(qs)}\n```" if first else ""), {}
         return real(req)
     monkeypatch.setattr(fake, "_plan", plan)
-    tid = start(client, repo, workflow="spike", title="ParcelPerform ETA")
+    tid = start(client, repo, workflow="spike", title="PricingEngine ETA")
     s = wait(client, tid)
     assert s["waiting"]["step"] == "frame_questions" and s["waiting"]["kind"] == "clarify"
     assert [q["id"] for q in s["waiting"]["questions"]] == ["evidence"]
@@ -315,7 +315,7 @@ def test_the_spikes_frame_asks_about_the_decision_and_leaves_how_to_build_it_to_
         seen.append(req)
         return real(req)
     monkeypatch.setattr(fake, "_plan", plan)
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine ETA"))
     assert s["waiting"]["step"] == "decide"                       # the fake asks nothing: straight to the result
     framed = next(r for r in seen if r.step_name == "frame the question")
     assert "Ask only about the DECISION" in framed.prompt
@@ -374,11 +374,11 @@ def test_a_plain_refactor_does_not_research_the_web(client, repo, monkeypatch):
 def test_the_spike_report_starts_with_its_summary_and_strips_the_angles_working(client, repo):
     from conftest import start, wait
 
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform webhook ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine webhook ETA"))
     assert s["waiting"]["step"] == "decide"
     report = s["waiting"]["detail"]
     lines = report.splitlines()
-    assert lines[0] == "# Spike: ParcelPerform webhook ETA" and lines[2] == "## Summary"
+    assert lines[0] == "# Spike: PricingEngine webhook ETA" and lines[2] == "## Summary"
     summary = report.split("## Findings", 1)[0]
     assert len([x for x in summary.splitlines() if x.strip()]) <= 14
     heads = [x.split(":**")[0] for x in summary.splitlines() if x.startswith("- **")]
@@ -397,7 +397,7 @@ def test_the_spike_report_starts_with_its_summary_and_strips_the_angles_working(
 def test_the_angles_conflict_shows_under_conflicts_and_one_verdict_line_is_counted(client, repo):
     from conftest import start, wait
 
-    s = wait(client, start(client, repo, workflow="spike", title="ParcelPerform webhook ETA"))
+    s = wait(client, start(client, repo, workflow="spike", title="PricingEngine webhook ETA"))
     summary = s["waiting"]["detail"].split("## Findings", 1)[0]
     conflicts = summary.split("**CONFLICTS:**", 1)[1].split("**COST:**", 1)[0]
     assert "where the ETA is stored" in conflicts and "tracking_subscriptions" in conflicts and "trackings" in conflicts

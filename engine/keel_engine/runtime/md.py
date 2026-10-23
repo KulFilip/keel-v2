@@ -6,7 +6,7 @@ a key or an id is `inline code`; a diff, JSON, SQL, a log or command output is a
 diff or JSON never goes into Markdown text without a fence (underscores would turn into italics, `-` lines into list
 items), so every builder uses these helpers:
 
-    code("eta_updated_at")            -> `eta_updated_at`
+    code("vat_updated_at")            -> `vat_updated_at`
     fence(diff_text, "diff")          -> ```diff ... ``` (a longer fence when the text holds one)
     section("In plain words", body)   -> "## In plain words\\n\\n<body>"
     table(["field", "change"], rows)  -> a Markdown table, cells escaped

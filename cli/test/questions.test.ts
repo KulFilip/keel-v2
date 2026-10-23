@@ -375,7 +375,7 @@ describe("keel 0.18.22 a findings gate: one question per finding", () => {
   });
 });
 
-// 0.18.23 a real suggestion read: KeelBot suggests: answer "I want to extend the parcelperform webhook to support the
+// 0.18.23 a real suggestion read: KeelBot suggests: answer "I want to extend the pricingengine webhook to support the
 // estmiated del…" with eta_semantics → A · …; eta_consumers → A · Database only?
 const FRAME = {
   step: "frame_questions",
@@ -393,9 +393,9 @@ const FRAME = {
 describe("KeelBot's suggested answer reads like the gate (0.18.23)", () => {
   it("the gate's short name, then one line per question: its words → the answer; never the ids or the request", async () => {
     const { stub } = await waitingOn(FRAME);
-    stub.state.thread = { ...stub.state.thread, title: "I want to extend the parcelperform webhook to support the estmiated delivery date" } as never;
+    stub.state.thread = { ...stub.state.thread, title: "I want to extend the pricingengine webhook to support the estmiated delivery date" } as never;
     const b = toButton("flow", '{"do": "answer", "flow": "t1", "answers": {"eta_semantics": "A · Overwrite one column", "eta_consumers": "A · Database only"}}')!;
-    const prep = (await prepare(b, "demo", () => '"I want to extend the parcelperform webhook to support the estmiated del…"')) as { title: string; detail: string };
+    const prep = (await prepare(b, "demo", () => '"I want to extend the pricingengine webhook to support the estmiated del…"')) as { title: string; detail: string };
     expect(prep.title).toBe('KeelBot suggests these answers for "frame the question". Send them?');
     expect(prep.detail.split("\n")).toEqual([
       "What should the ETA mean? → A · Overwrite one column",
@@ -404,7 +404,7 @@ describe("KeelBot's suggested answer reads like the gate (0.18.23)", () => {
     const all = prep.title + "\n" + prep.detail;
     expect(all).not.toContain("eta_semantics");
     expect(all).not.toContain("eta_consumers");
-    expect(all).not.toContain("parcelperform");
+    expect(all).not.toContain("pricingengine");
     // without the gate at hand: still no ids
     expect(question(b, () => '"ETA"')).toBe('KeelBot suggests: answer "ETA" with A · Overwrite one column; A · Database only?');
   });
@@ -417,7 +417,7 @@ describe("a gate's fold-outs in keel TUI (0.18.23)", () => {
   });
 });
 
-// 0.18.28 a choice gate's suggestion named the flow's title cut short ('the gate of "Extend the ParcelPerform …"'):
+// 0.18.28 a choice gate's suggestion named the flow's title cut short ('the gate of "Extend the PricingEngine …"'):
 // it names the step now, and says what a plain reject really does there
 const SUITE = {
   step: "integration_commit", name: "verify the suite + commit", kind: "fix", options: ["approve", "reject"], id: "q-suite",
@@ -436,14 +436,14 @@ const SUITE = {
 describe("a choice gate's suggestion names the step (0.18.28)", () => {
   it("decide and answer buttons show the step's name, never the flow's title; a reject that only stops says so", async () => {
     const { stub } = await waitingOn(SUITE);
-    stub.state.thread = { ...stub.state.thread, title: "Extend the ParcelPerform (Perform.AI) webhook to support the estimated delivery date" } as never;
-    const long = () => '"Extend the ParcelPerform (Perform.AI) webhook to support the estimated…"';
+    stub.state.thread = { ...stub.state.thread, title: "Extend the PricingEngine (Pricing.AI) webhook to support the estimated delivery date" } as never;
+    const long = () => '"Extend the PricingEngine (Pricing.AI) webhook to support the estimated…"';
     const rej = (await prepare(toButton("flow", '{"do": "reject", "flow": "t1", "why": "the AC-008 test leaks a row"}')!, "demo", long)) as { title: string; detail: string };
     expect(rej.title).toBe('KeelBot suggests: send back "verify the suite + commit" (the AC-008 test leaks a row)?');
     expect(rej.detail).toBe("reject here stops the flow (the work so far stays); the reason goes to no agent.");
     const ans = (await prepare(toButton("flow", '{"do": "answer", "flow": "t1", "choice": "send_back_ac"}')!, "demo", long)) as { title: string };
     expect(ans.title).toBe('KeelBot suggests "Send back to AC-008" for "verify the suite + commit". Send it?');
-    expect(rej.title + ans.title).not.toContain("ParcelPerform");
+    expect(rej.title + ans.title).not.toContain("PricingEngine");
   });
 });
 

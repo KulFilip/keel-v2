@@ -82,7 +82,7 @@ class TeamService(private val store: ProductStore, private val repo: ProductRepo
 
     private fun jiraKey(v: String?): String? {
         val k = v?.trim()?.uppercase()?.ifEmpty { null } ?: return null
-        if (!Regex("^[A-Z][A-Z0-9_]{0,29}$").matches(k)) throw BadRequest("The Jira project key is not valid", "Like ERPDM (the letters before the number in ERPDM-12).")
+        if (!Regex("^[A-Z][A-Z0-9_]{0,29}$").matches(k)) throw BadRequest("The Jira project key is not valid", "Like SHOPS (the letters before the number in SHOPS-12).")
         return k
     }
 

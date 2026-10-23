@@ -15,7 +15,7 @@ describe("stack setup line", () => {
           state: "running",
           mode: "container",
           busy: true,
-          line: "installing php8.3-cli for carrier-router…",
+          line: "installing php8.3-cli for billing-router…",
         }),
       ),
     );
@@ -23,7 +23,7 @@ describe("stack setup line", () => {
     render(<App />);
     const lines = await screen.findAllByTestId("stack-setup");
     expect(lines[0]).toHaveTextContent(
-      "setup: installing php8.3-cli for carrier-router…",
+      "setup: installing php8.3-cli for billing-router…",
     );
   });
 
@@ -34,7 +34,7 @@ describe("stack setup line", () => {
           ...stackSetup,
           state: "missing",
           mode: "native",
-          line: "carrier-router: php, composer not found (stack php-symfony).",
+          line: "billing-router: php, composer not found (stack php-symfony).",
         }),
       ),
     );

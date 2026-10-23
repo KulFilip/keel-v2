@@ -20,27 +20,27 @@ import java.time.Instant
  */
 class DemoBackend {
     private fun ago(sec: Long) = Instant.now().minusSeconds(sec).toString()
-    private val pid = "app-tracking-management-system"
+    private val pid = "app-order-management-system"
 
     private val projects = listOf(
-        Project(pid, pid, "/workspace/$pid", "feature/ERPDM-1702-totals", "feature", "green", waiting = 3, running = 2),
-        Project("carrier-router", "carrier-router", "/workspace/carrier-router", "main"),
+        Project(pid, pid, "/workspace/$pid", "feature/SHOPS-1702-totals", "feature", "green", waiting = 3, running = 2),
+        Project("billing-router", "billing-router", "/workspace/billing-router", "main"),
     )
 
     private val specAcs = listOf(
-        Ac("AC-1", "api", "The ETA webhook keeps the stored ETA when the payload has no ETA.", "todo"),
-        Ac("AC-2", "db", "eta_updated_at changes only when the ETA changes.", "todo"),
-        Ac("AC-3", "api", "A cleared ETA is logged with the carrier and the shipment.", "todo"),
-        Ac("AC-4", "ui", "The tracking page shows \"last known ETA\" with its date.", "todo"),
+        Ac("AC-1", "api", "The VAT webhook keeps the stored VAT when the payload has no VAT.", "todo"),
+        Ac("AC-2", "db", "vat_updated_at changes only when the VAT changes.", "todo"),
+        Ac("AC-3", "api", "A cleared VAT is logged with the supplier and the order.", "todo"),
+        Ac("AC-4", "ui", "The checkout page shows \"last known VAT\" with its date.", "todo"),
     )
 
     private val threads = mutableMapOf(
         "t-1769" to ThreadState(
-            threadId = "t-1769", projectId = pid, workflowId = "feature", title = "Keep the stored ETA when it is absent",
+            threadId = "t-1769", projectId = pid, workflowId = "feature", title = "Keep the stored VAT when it is absent",
             status = "waiting", current = "spec-gate", phase = "spec", acs = specAcs,
             waiting = Waiting(
                 step = "spec-gate", kind = "gate", title = "Approve the spec?", id = "q-spec-1769",
-                detail = "Keep the stored ETA when Parcel Perform sends none.\n4 acceptance criteria, 2 API changes. The test step starts after you approve.",
+                detail = "Keep the stored VAT when Pricing Engine sends none.\n4 acceptance criteria, 2 API changes. The test step starts after you approve.",
                 options = listOf("approve", "reject"),
                 labels = Labels("Approve", "Change it"),
                 choices = listOf("approve", "change", "stop"),
@@ -53,14 +53,14 @@ class DemoBackend {
             usage = Usage(tokensIn = 14_000, tokensOut = 4_200, costUsd = 0.42), updatedAt = ago(720),
         ),
         "t-1771" to ThreadState(
-            threadId = "t-1771", projectId = pid, workflowId = "interview", title = "Carrier ETA sync for DHL and PostNL",
+            threadId = "t-1771", projectId = pid, workflowId = "interview", title = "Supplier VAT sync for Acme and Globex",
             status = "waiting", current = "interview", phase = "triage",
             waiting = Waiting(
-                step = "interview", kind = "clarify", title = "Which carriers should sync the ETA first?", id = "q-carriers",
+                step = "interview", kind = "clarify", title = "Which suppliers should sync the VAT first?", id = "q-suppliers",
                 questions = listOf(
                     ClarifyQuestion(
-                        "carriers", "Which carriers should sync the ETA first?", "The adapter is built per carrier.",
-                        listOf(QuestionOption("DHL", recommended = true), QuestionOption("PostNL", recommended = true), QuestionOption("UPS"), QuestionOption("GLS")),
+                        "suppliers", "Which suppliers should sync the VAT first?", "The adapter is built per supplier.",
+                        listOf(QuestionOption("Acme", recommended = true), QuestionOption("Globex", recommended = true), QuestionOption("Initech"), QuestionOption("GLS")),
                         multiple = true,
                     ),
                 ),
@@ -68,12 +68,12 @@ class DemoBackend {
             usage = Usage(costUsd = 1.08), updatedAt = ago(2400),
         ),
         "t-1702" to ThreadState(
-            threadId = "t-1702", projectId = pid, workflowId = "feature", title = "Tracking page totals",
+            threadId = "t-1702", projectId = pid, workflowId = "feature", title = "Checkout page totals",
             status = "waiting", current = "green", phase = "green", ac = "AC-3",
             acs = listOf(
-                Ac("AC-1", "api", "totals count delivered parcels only", "done"),
+                Ac("AC-1", "api", "totals count paid orders only", "done"),
                 Ac("AC-2", "api", "the totals follow the date filter", "done"),
-                Ac("AC-3", "api", "returned parcels are not counted twice", "red"),
+                Ac("AC-3", "api", "returned orders are not counted twice", "red"),
             ),
             waiting = Waiting(
                 step = "green__fix", kind = "fix", title = "AC-3 is still red after 3 tries. What now?", id = "q-stuck-1702",
@@ -92,11 +92,11 @@ class DemoBackend {
     )
 
     private val runs = mutableListOf(
-        RunRow("t-1769", "Keep the stored ETA when it is absent", "feature", "waiting", "spec", "spec-gate", "Approve the spec?", 0, 4, 18_000, "worktree", "feature/ERPDM-1769", costUsd = 0.42, updatedAt = ago(720)),
-        RunRow("t-1771", "Carrier ETA sync for DHL and PostNL", "interview", "running", "green", "green", null, 2, 5, 52_000, "worktree", "feature/ERPDM-1771", costUsd = 1.08, updatedAt = ago(300)),
-        RunRow("t-1702", "Tracking page totals", "feature", "waiting", "green", "green", "AC-3 is still red after 3 tries", 2, 3, 41_000, "folder", "feature/ERPDM-1702-totals", costUsd = 0.96, updatedAt = ago(600)),
+        RunRow("t-1769", "Keep the stored VAT when it is absent", "feature", "waiting", "spec", "spec-gate", "Approve the spec?", 0, 4, 18_000, "worktree", "feature/SHOPS-1769", costUsd = 0.42, updatedAt = ago(720)),
+        RunRow("t-1771", "Supplier VAT sync for Acme and Globex", "interview", "running", "green", "green", null, 2, 5, 52_000, "worktree", "feature/SHOPS-1771", costUsd = 1.08, updatedAt = ago(300)),
+        RunRow("t-1702", "Checkout page totals", "feature", "waiting", "green", "green", "AC-3 is still red after 3 tries", 2, 3, 41_000, "folder", "feature/SHOPS-1702-totals", costUsd = 0.96, updatedAt = ago(600)),
         RunRow("t-fix-9", "Fix: duplicate webhook events", "fix", "running", "gate", "review", null, 1, 1, 12_000, "worktree", "fix/dup-webhooks", costUsd = 0.31, updatedAt = ago(120)),
-        RunRow("t-1650", "Shipment search by reference", "feature", "done", "done", null, null, 6, 6, 88_000, "worktree", "feature/ERPDM-1650", costUsd = 2.10, updatedAt = ago(172_800)),
+        RunRow("t-1650", "Order search by reference", "feature", "done", "done", null, null, 6, 6, 88_000, "worktree", "feature/SHOPS-1650", costUsd = 2.10, updatedAt = ago(172_800)),
     )
 
     private val history = mapOf(
@@ -111,8 +111,8 @@ class DemoBackend {
 
     private val inboxPermission = InboxItem(
         projectId = pid, projectName = pid, threadId = "", flow = "KeelBot", kind = "permission", title = "KeelBot asks to run a command",
-        detail = "vendor/bin/phpunit --filter EtaAbsent", id = "perm-1", since = ago(300),
-        permission = InboxPermission("perm-1", "chat-1", "vendor/bin/phpunit --filter EtaAbsent"),
+        detail = "vendor/bin/phpunit --filter VatAbsent", id = "perm-1", since = ago(300),
+        permission = InboxPermission("perm-1", "chat-1", "vendor/bin/phpunit --filter VatAbsent"),
     )
     private var permissionOpen = true
 
@@ -123,14 +123,14 @@ class DemoBackend {
     private val judgeAsked = mutableMapOf<String, Int>()
 
     private val chatMessages = mutableListOf(
-        HelperMessage(1, "user", "Why does EtaAbsentKeepsStoredTest fail? It passed yesterday.\n@tests/Integration/…/EtaAbsentKeepsStoredTest.php", at = ago(400)),
+        HelperMessage(1, "user", "Why does VatAbsentKeepsStoredTest fail? It passed yesterday.\n@tests/Integration/…/VatAbsentKeepsStoredTest.php", at = ago(400)),
         HelperMessage(
             2, "helper",
-            "**The webhook clears the ETA.** Since yesterday's change, `EtaWebhook::handle()` saves `null` when the payload has no ETA, so the stored one is lost.\n\n" +
-                "- `src/Eta/EtaWebhook.php:58` writes the field without a check\n- the test is right: it matches AC-1 of the spec\n\n" +
+            "**The webhook clears the VAT.** Since yesterday's change, `VatWebhook::handle()` saves `null` when the payload has no VAT, so the stored one is lost.\n\n" +
+                "- `src/Vat/VatWebhook.php:58` writes the field without a check\n- the test is right: it matches AC-1 of the spec\n\n" +
                 "```keel-questions\n{\"questions\":[{\"id\":\"fix\",\"question\":\"How should I fix it?\",\"options\":[" +
-                "{\"label\":\"Fix the webhook\",\"description\":\"Keep the stored ETA when none comes. 1 file, the test stays.\",\"recommended\":true}," +
-                "{\"label\":\"Fix it and log it\",\"description\":\"Also log a cleared ETA with the carrier (AC-3).\"}," +
+                "{\"label\":\"Fix the webhook\",\"description\":\"Keep the stored VAT when none comes. 1 file, the test stays.\",\"recommended\":true}," +
+                "{\"label\":\"Fix it and log it\",\"description\":\"Also log a cleared VAT with the supplier (AC-3).\"}," +
                 "{\"label\":\"Start a fix flow\",\"description\":\"Test first, then the change, then a review.\"}]}]}\n```",
             callId = "call-2", data = HelperMessageData(status = "done", provider = "copilot", model = "sonnet 5.5", effort = "high", tokensIn = 12_000, tokensOut = 2_200, costUsd = 0.09),
             at = ago(380),
@@ -140,7 +140,7 @@ class DemoBackend {
     private var chatModel = Model("copilot", "subscription", "sonnet 5.5", "high")
 
     private fun session(withMessages: Boolean) = HelperSession(
-        id = "chat-1", project = pid, mode = chatMode, title = "Why does the ETA test fail?",
+        id = "chat-1", project = pid, mode = chatMode, title = "Why does the VAT test fail?",
         model = chatModel, status = "idle",
         tokensIn = 12_000, tokensOut = 2_200, costUsd = 0.09, turns = chatMessages.count { it.role == "user" },
         updatedAt = ago(380), messages = if (withMessages) chatMessages.toList() else null,
@@ -205,7 +205,7 @@ class DemoBackend {
             path.endsWith("/review/prs") -> {
                 val f = query["filter"] ?: "review"
                 val list = when (f) { "mine" -> prs.filter { it.mine }; "all" -> prs; else -> prs.filter { it.reviewRequested } }
-                ok(PrList.serializer(), PrList(HostRef("github", "github.com", "acme/tracking"), "milad", list, mapOf("review" to 2, "mine" to 2, "all" to 4)))
+                ok(PrList.serializer(), PrList(HostRef("github", "github.com", "acme/checkout"), "milad", list, mapOf("review" to 2, "mine" to 2, "all" to 4)))
             }
             path.endsWith("/review/view") -> ok(ReviewView.serializer(), reviews.view(query["key"]))
             path.endsWith("/review/diff") -> ok(FileDiff.serializer(), reviews.diff(query["key"], query["path"].orEmpty()))
@@ -254,7 +254,7 @@ class DemoBackend {
                 chatMessages += HelperMessage(n, "user", text, at = Instant.now().toString())
                 chatMessages += HelperMessage(
                     n + 1, "helper",
-                    if (text.startsWith(ANSWERS_PREFIX)) "Sent. I start the change in Edit mode: `src/Eta/EtaWebhook.php` keeps the stored ETA when none comes."
+                    if (text.startsWith(ANSWERS_PREFIX)) "Sent. I start the change in Edit mode: `src/Vat/VatWebhook.php` keeps the stored VAT when none comes."
                     else "This is the demo keel: a real keel answers here, reading your project.",
                     callId = "call-${n + 1}", data = HelperMessageData(status = "done", provider = "copilot", model = "sonnet 5.5"), at = Instant.now().toString(),
                 )
@@ -265,11 +265,11 @@ class DemoBackend {
                 JobSteps.serializer(),
                 JobSteps(
                     listOf(
-                        JobStep(1, kind = "tool", text = "vendor/bin/phpunit --filter EtaAbsent", ok = false),
-                        JobStep(2, kind = "tool", text = "git log -1 --stat src/Eta"),
-                        JobStep(3, kind = "read", path = "src/Eta/EtaWebhook.php"),
-                        JobStep(4, kind = "read", path = "src/Eta/EtaRepository.php:40–72"),
-                        JobStep(5, kind = "read", path = "tests/Integration/Eta/EtaAbsentKeepsStoredTest.php"),
+                        JobStep(1, kind = "tool", text = "vendor/bin/phpunit --filter VatAbsent", ok = false),
+                        JobStep(2, kind = "tool", text = "git log -1 --stat src/Vat"),
+                        JobStep(3, kind = "read", path = "src/Vat/VatWebhook.php"),
+                        JobStep(4, kind = "read", path = "src/Vat/VatRepository.php:40–72"),
+                        JobStep(5, kind = "read", path = "tests/Integration/Vat/VatAbsentKeepsStoredTest.php"),
                     ),
                 ),
             )
@@ -282,13 +282,13 @@ class DemoBackend {
         items = listOf(
             JudgeItem(
                 "a factory would fit here", "unclear",
-                "Lines 50–78 set up carriers, resolver and link with raw inserts; a factory would shorten them. The diff does not show whether the repo already has factories (e.g. Foundry).",
+                "Lines 50–78 set up suppliers, resolver and link with raw inserts; a factory would shorten them. The diff does not show whether the repo already has factories (e.g. Foundry).",
                 "Use a factory in setUp() if one exists, else keep the inserts.",
             ),
         ),
         reply = when (tid) {
             "412-1" -> "Good idea if the repo has factories; I checked and will switch setUp() to them, else keep the inserts."
-            "412-2" -> "Yes: the log line gets the shipment id next to the carrier."
+            "412-2" -> "Yes: the log line gets the order id next to the supplier."
             "409-1" -> "Thanks, the jitter looks right to me."
             else -> "Thanks, I will look at it."
         },

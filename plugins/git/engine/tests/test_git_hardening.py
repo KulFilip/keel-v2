@@ -91,14 +91,14 @@ def test_a_branch_only_origin_has_is_checked_out_as_a_tracking_branch(tmp_path, 
     sh(work, "remote", "add", "origin", str(origin))
     mate = tmp_path / "mate"
     sh(tmp_path, "clone", "-q", str(origin), str(mate))
-    sh(mate, "switch", "-q", "-c", "feature/ERPDM-1810-sonar")
+    sh(mate, "switch", "-q", "-c", "feature/SHOPS-1810-sonar")
     (mate / "s.txt").write_text("s\n")
     sh(mate, "add", "-A")
     sh(mate, "commit", "-q", "-m", "sonar")
-    sh(mate, "push", "-q", "origin", "feature/ERPDM-1810-sonar")
+    sh(mate, "push", "-q", "origin", "feature/SHOPS-1810-sonar")
     sh(work, "fetch", "-q", "origin")
-    assert core.switch(str(work), "feature/ERPDM-1810-sonar")["branch"] == "feature/ERPDM-1810-sonar"
-    assert core.status(str(work))["upstream"] == "origin/feature/ERPDM-1810-sonar"
+    assert core.switch(str(work), "feature/SHOPS-1810-sonar")["branch"] == "feature/SHOPS-1810-sonar"
+    assert core.status(str(work))["upstream"] == "origin/feature/SHOPS-1810-sonar"
     with pytest.raises(core.GitError) as e:
         core.switch(str(work), "feature/nowhere")
     assert e.value.status == 404

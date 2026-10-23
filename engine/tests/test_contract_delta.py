@@ -151,14 +151,14 @@ def test_a_json_schema_is_loaded_and_an_openapi_or_config_file_is_not():
 def test_added_optional_fields_are_new_and_safe():
     def add(doc):
         doc["properties"]["expected_delivery"] = {"type": ["string", "null"], "description": "The ETA"}
-        doc["properties"]["eta_updated_at"] = {"type": ["string", "null"], "description": "When the vendor last changed it"}
+        doc["properties"]["vat_updated_at"] = {"type": ["string", "null"], "description": "When the vendor last changed it"}
     d = edit(add)
-    assert d["kind"] == "json-schema" and d["breaks"] == [] and d["new"] == ["expected_delivery", "eta_updated_at"]
+    assert d["kind"] == "json-schema" and d["breaks"] == [] and d["new"] == ["expected_delivery", "vat_updated_at"]
     r = rows(d)[("expected_delivery", "new")]
     assert r["safe"] and r["required"] == "no" and r["type"] == "string or null" and r["desc"] == "the ETA"
     words = cd.plain_words("config/contracts/messages/webhook_tracking_update.json", d, MSG)
     assert words == ("The queue message `webhook_tracking_update` gets two new optional fields: `expected_delivery` (the ETA) and "
-                     "`eta_updated_at` (when the vendor last changed it). Old messages without them stay valid. Nothing is "
+                     "`vat_updated_at` (when the vendor last changed it). Old messages without them stay valid. Nothing is "
                      "removed or made required.")
     assert cd.verdict_text([d]) == "safe for a rolling deploy"
 
@@ -229,15 +229,15 @@ def test_the_message_contract_gate_starts_in_plain_words_and_fences_the_diff(tmp
     commit_all(root, "msg")
     doc = yaml.safe_load(yaml.safe_dump(MSG))
     doc["properties"]["expected_delivery"] = {"type": ["string", "null"], "description": "The ETA"}
-    doc["properties"]["eta_updated_at"] = {"type": ["string", "null"], "description": "When the vendor last changed it"}
+    doc["properties"]["vat_updated_at"] = {"type": ["string", "null"], "description": "When the vendor last changed it"}
     write(root, f, json.dumps(doc, indent=2) + "\n")
     a = ActionInput(root=str(root), project="p", phase="contract", title="t", ac=None, acs=[], fake=True, flow="feature",
                     step="contract_diff")
     r = asyncio.run(run_action("show_diff", a))
     show = r.update["show"]
     assert show.startswith("## In plain words\n\nThe queue message `webhook_tracking_update` gets two new optional fields")
-    assert "| `eta_updated_at` | new | string or null | no | yes: old messages without it stay valid |" in show
+    assert "| `vat_updated_at` | new | string or null | no | yes: old messages without it stay valid |" in show
     assert "**Verdict: safe for a rolling deploy.**" in show
-    assert f"`{f}` (+" in show and "\n```diff\n" in show and "+    \"eta_updated_at\": {" in show
+    assert f"`{f}` (+" in show and "\n```diff\n" in show and "+    \"vat_updated_at\": {" in show
     assert "webhook*tracking" not in show and r.note == "contract delta: nothing breaks callers"
     assert r.update["data"]["contract_delta"][f]["kind"] == "json-schema"

@@ -12,7 +12,7 @@ export type TreeGroup = { id: string; title: string; count: number; nodes: TreeN
 
 const TRUNKS = ["main", "master"];
 
-/** Folders by "/" prefix, the last segment is the leaf (feature/ERPDM-1-x stays one leaf). Folders first, by size. */
+/** Folders by "/" prefix, the last segment is the leaf (feature/SHOPS-1-x stays one leaf). Folders first, by size. */
 function folderize(items: { path: string[]; branch: BranchItem }[], idBase: string, remote?: string): TreeNode[] {
   const leaves: TreeLeaf[] = [];
   const dirs = new Map<string, { path: string[]; branch: BranchItem }[]>();

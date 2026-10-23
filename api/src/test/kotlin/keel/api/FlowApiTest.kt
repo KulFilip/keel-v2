@@ -163,7 +163,7 @@ class FlowApiTest : ApiTest() {
         assertThat(h.has("setup")).isFalse()
         val setup = get("/api/setup").andExpect(status().isOk).json()
         assertThat(setup["state"].asText()).isEqualTo("running")
-        assertThat(setup["line"].asText()).isEqualTo("installing php8.3-cli for carrier-router…")
+        assertThat(setup["line"].asText()).isEqualTo("installing php8.3-cli for billing-router…")
 
         val limits = get("/api/limits").json()
         assertThat(limits.map { it["id"].asText() }).contains("claude", "copilot", "api")

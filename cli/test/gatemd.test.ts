@@ -12,13 +12,13 @@ const tags: Paint = { ...PLAIN, ...(Object.fromEntries(ROLES.map((r) => [r, (s: 
 
 const DETAIL = `## In plain words
 
-The queue message \`webhook_tracking_update\` gets two new optional fields: \`expected_delivery\` and \`eta_updated_at\`.
+The queue message \`webhook_tracking_update\` gets two new optional fields: \`expected_delivery\` and \`vat_updated_at\`.
 
 ## What changes
 
 | field | change |
 |---|---|
-| \`eta_updated_at\` | new: string \\| null |
+| \`vat_updated_at\` | new: string \\| null |
 
 ## Compatibility
 
@@ -34,7 +34,7 @@ index 4d6c39b..d842eb7 100644
 @@ -2,3 +2,4 @@
    "title": "webhook_tracking_update",
 -  "required": ["shipment_id"],
-+  "required": ["shipment_id", "eta_updated_at"],
++  "required": ["shipment_id", "vat_updated_at"],
 \`\`\`
 
 \`\`\`json
@@ -55,7 +55,7 @@ describe("gate detail in keel TUI", () => {
   it("drops the fence lines, indents the code and colours the diff", () => {
     expect(plain.some((l) => l.includes("```"))).toBe(false);
     expect(lines).toContain('  <bad>-  "required": ["shipment_id"],</bad>');
-    expect(lines).toContain('  <ok>+  "required": ["shipment_id", "eta_updated_at"],</ok>');
+    expect(lines).toContain('  <ok>+  "required": ["shipment_id", "vat_updated_at"],</ok>');
     expect(lines).toContain("  <meta>@@ -2,3 +2,4 @@</meta>");
     expect(lines).toContain("  <meta>--- a/x.json</meta>");
     expect(lines).toContain('  <code>{ "a": 1 }</code>');
@@ -66,7 +66,7 @@ describe("gate detail in keel TUI", () => {
     expect(lines[2]).toContain("<code>webhook_tracking_update</code>");
     expect(plain.join("\n")).not.toMatch(/[`*]/);
     expect(plain).toContain("  field │ change");
-    expect(plain).toContain("  eta_updated_at │ new: string | null");
+    expect(plain).toContain("  vat_updated_at │ new: string | null");
   });
 
   it("colours the diff with the real theme (green +, red -) in the waiting lines, cut near 600 characters", () => {

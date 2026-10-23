@@ -413,38 +413,38 @@ class ProductApiTest : ApiTest() {
     fun `a keel project is added to a team, which has its own Jira and ticket-key pattern`() {
         val (web, pay) = repos()
         val (erp, _) = newProject("erp-core")
-        delete("/api/teams/erp-dm")
-        val t = post("/api/teams", mapOf("name" to "ERP DM", "lead" to "Sara", "jira_project" to "erpdm")).andExpect(status().isOk).json()
-        assertThat(t["id"].asText()).isEqualTo("erp-dm")
-        assertThat(t["jira_project"].asText()).isEqualTo("ERPDM")
-        assertThat(t["keys"].asText()).isEqualTo("ERPDM-\\d+")
+        delete("/api/teams/orders")
+        val t = post("/api/teams", mapOf("name" to "Orders", "lead" to "Sara", "jira_project" to "shops")).andExpect(status().isOk).json()
+        assertThat(t["id"].asText()).isEqualTo("orders")
+        assertThat(t["jira_project"].asText()).isEqualTo("SHOPS")
+        assertThat(t["keys"].asText()).isEqualTo("SHOPS-\\d+")
         assertThat(t["projects"]).isEmpty()
 
         // tomorrow: the project joins someone's team (a project may be in two teams)
-        put("/api/teams/erp-dm/projects/$erp", null).andExpect(status().isOk)
-        val joined = put("/api/teams/erp-dm/projects/$pay", null).andExpect(status().isOk).json()
+        put("/api/teams/orders/projects/$erp", null).andExpect(status().isOk)
+        val joined = put("/api/teams/orders/projects/$pay", null).andExpect(status().isOk).json()
         assertThat(joined["projects"].map { it.asText() }).containsExactlyInAnyOrder(erp, pay)
         assertThat(get("/api/initiatives/repos").json().single { it["project_id"].asText() == pay }["teams"].map { it.asText() })
-            .containsExactlyInAnyOrder("payments", "erp-dm")
-        put("/api/teams/erp-dm/projects/nope", null).andExpect(status().isNotFound)
-        delete("/api/teams/erp-dm/projects/$pay").andExpect(status().isOk)
-        delete("/api/teams/erp-dm/projects/$pay").andExpect(status().isNotFound)
-        assertThat(get("/api/teams/erp-dm").json()["team"]["projects"].map { it.asText() }).containsExactly(erp)
+            .containsExactlyInAnyOrder("payments", "orders")
+        put("/api/teams/orders/projects/nope", null).andExpect(status().isNotFound)
+        delete("/api/teams/orders/projects/$pay").andExpect(status().isOk)
+        delete("/api/teams/orders/projects/$pay").andExpect(status().isNotFound)
+        assertThat(get("/api/teams/orders").json()["team"]["projects"].map { it.asText() }).containsExactly(erp)
 
         // its own Jira: the connection of one of keel's projects (or keel's keel-wide one), types, labels, its key pattern
-        val saved = patch("/api/teams/erp-dm", mapOf("jira" to mapOf("connection" to web, "story_type" to "User Story", "labels" to listOf("erp", "keel")),
-            "key_pattern" to "(ERPDM|ERP)-\\d+")).andExpect(status().isOk).json()
+        val saved = patch("/api/teams/orders", mapOf("jira" to mapOf("connection" to web, "story_type" to "User Story", "labels" to listOf("erp", "keel")),
+            "key_pattern" to "(SHOPS|ERP)-\\d+")).andExpect(status().isOk).json()
         assertThat(saved["jira"]["connection"].asText()).isEqualTo(web)
         assertThat(saved["jira"]["story_type"].asText()).isEqualTo("User Story")
-        assertThat(saved["keys"].asText()).isEqualTo("(ERPDM|ERP)-\\d+")
-        patch("/api/teams/erp-dm", mapOf("lead" to "Sara K")).andExpect(status().isOk)
-        assertThat(patch("/api/teams/erp-dm", mapOf("lead" to "")).json()["lead"].isNull).isTrue()
-        assertThat(get("/api/teams/erp-dm").json()["team"]["jira"]["labels"].map { it.asText() }).containsExactly("erp", "keel")
-        patch("/api/teams/erp-dm", mapOf("key_pattern" to "(ERPDM-\\d+)+")).andExpect(status().isBadRequest)
-        patch("/api/teams/erp-dm", mapOf("jira" to mapOf("labels" to listOf("two words")))).andExpect(status().isBadRequest)
-        patch("/api/teams/erp-dm", mapOf("jira" to mapOf("connection" to "nope"))).andExpect(status().isNotFound)
-        patch("/api/teams/erp-dm", mapOf("jira_project" to "erp dm")).andExpect(status().isBadRequest)
-        assertThat(patch("/api/teams/erp-dm", mapOf("key_pattern" to "")).json()["keys"].asText()).isEqualTo("ERPDM-\\d+")
+        assertThat(saved["keys"].asText()).isEqualTo("(SHOPS|ERP)-\\d+")
+        patch("/api/teams/orders", mapOf("lead" to "Sara K")).andExpect(status().isOk)
+        assertThat(patch("/api/teams/orders", mapOf("lead" to "")).json()["lead"].isNull).isTrue()
+        assertThat(get("/api/teams/orders").json()["team"]["jira"]["labels"].map { it.asText() }).containsExactly("erp", "keel")
+        patch("/api/teams/orders", mapOf("key_pattern" to "(SHOPS-\\d+)+")).andExpect(status().isBadRequest)
+        patch("/api/teams/orders", mapOf("jira" to mapOf("labels" to listOf("two words")))).andExpect(status().isBadRequest)
+        patch("/api/teams/orders", mapOf("jira" to mapOf("connection" to "nope"))).andExpect(status().isNotFound)
+        patch("/api/teams/orders", mapOf("jira_project" to "ord ers")).andExpect(status().isBadRequest)
+        assertThat(patch("/api/teams/orders", mapOf("key_pattern" to "")).json()["keys"].asText()).isEqualTo("SHOPS-\\d+")
 
         val tried = post("/api/teams/key-pattern/test", mapOf("pattern" to "SW-\\d+", "text" to "feature/sw-12-login, SW-12 and SW-13")).json()
         assertThat(tried["keys"].map { it.asText() }).containsExactly("SW-12", "SW-13")
@@ -455,10 +455,10 @@ class ProductApiTest : ApiTest() {
     fun `keel links each team's branches and commits to its ticket keys, and lists what has no key`() {
         val (erp, root) = newProject("erp-ui")
         val (sw, swRoot) = newProject("sw-shop")
-        listOf("erp-dm", "sw").forEach { delete("/api/teams/$it") }
-        post("/api/teams", mapOf("name" to "ERP DM", "jira_project" to "ERPDM")).andExpect(status().isOk)
+        listOf("orders", "sw").forEach { delete("/api/teams/$it") }
+        post("/api/teams", mapOf("name" to "Orders", "jira_project" to "SHOPS")).andExpect(status().isOk)
         post("/api/teams", mapOf("name" to "SW", "key_pattern" to "SW-\\d+")).andExpect(status().isOk)
-        put("/api/teams/erp-dm/projects/$erp", null).andExpect(status().isOk)
+        put("/api/teams/orders/projects/$erp", null).andExpect(status().isOk)
         put("/api/teams/sw/projects/$sw", null).andExpect(status().isOk)
 
         fun commit(r: java.nio.file.Path, file: String, msg: String) {
@@ -466,8 +466,8 @@ class ProductApiTest : ApiTest() {
             git(r, "add", "-A")
             git(r, "commit", "-q", "-m", msg)
         }
-        git(root, "checkout", "-q", "-b", "feature/erpdm-1234-vat")
-        commit(root, "vat.kt", "ERPDM-1234: add VAT\n\nAlso touches ERPDM-1240.")
+        git(root, "checkout", "-q", "-b", "feature/shops-1234-vat")
+        commit(root, "vat.kt", "SHOPS-1234: add VAT\n\nAlso touches SHOPS-1240.")
         git(root, "checkout", "-q", "main")
         commit(root, "typo.md", "fix a typo")
         commit(root, "sw.md", "SW-9 is not this team's key")
@@ -478,12 +478,12 @@ class ProductApiTest : ApiTest() {
         assertThat(scan.map { it["project_id"].asText() }).contains(erp, sw)
         assertThat(scan.single { it["project_id"].asText() == erp }["linked"].asInt()).isEqualTo(3)   // branch + commit (2 keys)
 
-        val t = get("/api/product/tickets?team=erp-dm").andExpect(status().isOk).json()
+        val t = get("/api/product/tickets?team=orders").andExpect(status().isOk).json()
         val work = t["tickets"].associateBy { it["key"].asText() }
-        assertThat(work.keys).containsExactlyInAnyOrder("ERPDM-1234", "ERPDM-1240")
-        assertThat(work.getValue("ERPDM-1234")["branches"].map { it["ref"].asText() }).containsExactly("feature/erpdm-1234-vat")
-        val c = work.getValue("ERPDM-1234")["commits"].single()
-        assertThat(c["title"].asText()).isEqualTo("ERPDM-1234: add VAT")
+        assertThat(work.keys).containsExactlyInAnyOrder("SHOPS-1234", "SHOPS-1240")
+        assertThat(work.getValue("SHOPS-1234")["branches"].map { it["ref"].asText() }).containsExactly("feature/shops-1234-vat")
+        val c = work.getValue("SHOPS-1234")["commits"].single()
+        assertThat(c["title"].asText()).isEqualTo("SHOPS-1234: add VAT")
         assertThat(c["files"].map { it.asText() }).containsExactly("vat.kt")
         assertThat(t["unlinked"].map { it["title"].asText() }).contains("fix a typo", "SW-9 is not this team's key")
         assertThat(t["unlinked"].map { it["ref"].asText() }).doesNotContain("main")
@@ -494,9 +494,9 @@ class ProductApiTest : ApiTest() {
         get("/api/product/tickets?team=nope").andExpect(status().isNotFound)
 
         // a new pattern, a new scan: the old links go
-        patch("/api/teams/erp-dm", mapOf("key_pattern" to "VAT-\\d+")).andExpect(status().isOk)
+        patch("/api/teams/orders", mapOf("key_pattern" to "VAT-\\d+")).andExpect(status().isOk)
         post("/api/product/tickets/scan?project=$erp").andExpect(status().isOk)
-        assertThat(get("/api/product/tickets?team=erp-dm").json()["tickets"]).isEmpty()
+        assertThat(get("/api/product/tickets?team=orders").json()["tickets"]).isEmpty()
     }
 
     @Test

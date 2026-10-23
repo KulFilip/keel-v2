@@ -148,7 +148,7 @@ const DIFF = [
   "@@ -1,3 +1,4 @@",
   " class Repo {",
   "-    fun touch() = orm.save(row)",
-  '+    fun touch() = db.update("UPDATE tracking_subscription SET eta_updated_at = :at WHERE resolver_id IN (SELECT id FROM resolvers WHERE carrier = :carrier)")',
+  '+    fun touch() = db.update("UPDATE tracking_subscription SET vat_updated_at = :at WHERE resolver_id IN (SELECT id FROM resolvers WHERE carrier = :carrier)")',
   "+    // one statement",
   " }",
 ].join("\n");

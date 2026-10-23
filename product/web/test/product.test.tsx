@@ -890,9 +890,9 @@ describe("keel Product in keel's web", () => {
   it("a team gets its projects, its own Jira and a ticket-key pattern it can try first", async () => {
     let team: Team = {
       id: "erp",
-      name: "ERP DM",
+      name: "Orders",
       lead: "Sara",
-      jira_project: "ERPDM",
+      jira_project: "SHOPS",
       members: [],
       source: "manual",
       owns: [
@@ -902,7 +902,7 @@ describe("keel Product in keel's web", () => {
       updated_at: "",
       jira: { connection: null, labels: [] },
       key_pattern: null,
-      keys: "ERPDM-\\d+",
+      keys: "SHOPS-\\d+",
       projects: ["erp-core"],
     };
     const k = (): TeamKnowledge => ({ team, pages: [], suggestions: [] });
@@ -926,12 +926,12 @@ describe("keel Product in keel's web", () => {
       "PATCH /api/teams/erp": (b: Partial<Team>) =>
         (team = { ...team, ...b, keys: b.key_pattern || team.keys }),
       "POST /api/teams/key-pattern/test": (b: { pattern: string; text: string }) =>
-        b.pattern === "ERPDM-("
+        b.pattern === "SHOPS-("
           ? HttpResponse.json(
               { error: "The pattern does not compile", hint: "Close the bracket." },
               { status: 400 },
             )
-          : { pattern: b.pattern, keys: ["ERPDM-1234"] },
+          : { pattern: b.pattern, keys: ["SHOPS-1234"] },
     });
     await userEvent.click(
       await main().findByRole("tab", { name: "Projects and Jira" }),
@@ -980,7 +980,7 @@ describe("keel Product in keel's web", () => {
     );
     await waitFor(() =>
       expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({
-        jira_project: "ERPDM",
+        jira_project: "SHOPS",
         jira: {
           connection: "erp-ui",
           initiative_type: null,
@@ -998,19 +998,19 @@ describe("keel Product in keel's web", () => {
     // its ticket keys: the placeholder is the pattern keel uses now; try a branch name, then a broken pattern
     const keys = main().getByRole("heading", { name: "Ticket keys" }).closest("section")!;
     const pattern = within(keys).getByLabelText("Ticket-key pattern");
-    expect(pattern).toHaveAttribute("placeholder", "ERPDM-\\d+");
+    expect(pattern).toHaveAttribute("placeholder", "SHOPS-\\d+");
     await userEvent.type(
       within(keys).getByLabelText("A branch name or commit message"),
-      "feature/erpdm-1234-vat",
+      "feature/shops-1234-vat",
     );
     await userEvent.click(within(keys).getByRole("button", { name: "Try it" }));
     expect(await within(keys).findByLabelText("Keys found")).toHaveTextContent(
-      "Found ERPDM-1234",
+      "Found SHOPS-1234",
     );
     expect(
       calls.find((c) => c.path === "/api/teams/key-pattern/test")?.body,
-    ).toEqual({ pattern: "ERPDM-\\d+", text: "feature/erpdm-1234-vat" });
-    await userEvent.type(pattern, "ERPDM-(");
+    ).toEqual({ pattern: "SHOPS-\\d+", text: "feature/shops-1234-vat" });
+    await userEvent.type(pattern, "SHOPS-(");
     await userEvent.click(within(keys).getByRole("button", { name: "Try it" }));
     expect(await within(keys).findByRole("alert")).toHaveTextContent(
       "The pattern does not compile",
@@ -1020,7 +1020,7 @@ describe("keel Product in keel's web", () => {
   it("a team's Tickets list the keys keel found in git, what has no key, and scan again", async () => {
     const team: Team = {
       id: "erp",
-      name: "ERP DM",
+      name: "Orders",
       members: [],
       source: "manual",
       owns: [],
@@ -1040,12 +1040,12 @@ describe("keel Product in keel's web", () => {
       team: "erp",
       tickets: [
         {
-          key: "ERPDM-1234",
+          key: "SHOPS-1234",
           team: "erp",
-          branches: [link("branch", "feature/erpdm-1234-vat", "ERPDM-1234")],
+          branches: [link("branch", "feature/shops-1234-vat", "SHOPS-1234")],
           commits: [
-            link("commit", "abc12345ff", "ERPDM-1234", "ERPDM-1234 add vat"),
-            link("commit", "def67890aa", "ERPDM-1234", "ERPDM-1234 tests"),
+            link("commit", "abc12345ff", "SHOPS-1234", "SHOPS-1234 add vat"),
+            link("commit", "def67890aa", "SHOPS-1234", "SHOPS-1234 tests"),
           ],
           last_at: "2026-10-20T10:00:00Z",
         },
@@ -1069,8 +1069,8 @@ describe("keel Product in keel's web", () => {
     });
     await userEvent.click(await main().findByRole("tab", { name: "Tickets" }));
     const table = await main().findByRole("table", { name: "Tickets" });
-    expect(table).toHaveTextContent("ERPDM-1234");
-    expect(table).toHaveTextContent("feature/erpdm-1234-vat");
+    expect(table).toHaveTextContent("SHOPS-1234");
+    expect(table).toHaveTextContent("feature/shops-1234-vat");
     const none = main().getByRole("region", { name: "No ticket key" });
     expect(none).toHaveTextContent("No ticket key (1)");
     expect(none).toHaveTextContent("branch fix-typo in erp-core");
@@ -1115,7 +1115,7 @@ describe("keel Product in keel's web", () => {
     await userEvent.type(within(card).getByLabelText("Site URL"), "https://acme.atlassian.net");
     await userEvent.type(within(card).getByLabelText("Email"), "sara@acme.io");
     await userEvent.type(within(card).getByLabelText("API token"), "tok-123");
-    await userEvent.type(within(card).getByLabelText("Project key"), "ERPDM");
+    await userEvent.type(within(card).getByLabelText("Project key"), "SHOPS");
     await userEvent.click(within(card).getByRole("button", { name: "Test" }));
     expect(await within(card).findByText("Test OK: logged in as Sara.")).toBeInTheDocument();
     await userEvent.click(within(card).getByRole("button", { name: "Save" }));
@@ -1123,7 +1123,7 @@ describe("keel Product in keel's web", () => {
       kind: "cloud",
       base_url: "https://acme.atlassian.net",
       email: "sara@acme.io",
-      project_key: "ERPDM",
+      project_key: "SHOPS",
       token: "tok-123",
     };
     await waitFor(() =>
@@ -1354,7 +1354,7 @@ describe("keel Product in keel's web", () => {
     let running = false;
     const map = (): ProductMap => ({
       teams: [
-        { id: "erp", name: "ERP DM", lead: "Sara", projects: ["erp-core", "erp-ui"], jira_project: "ERPDM", keys: "ERPDM-\\d+" },
+        { id: "erp", name: "Orders", lead: "Sara", projects: ["erp-core", "erp-ui"], jira_project: "SHOPS", keys: "SHOPS-\\d+" },
         { id: "sw", name: "SW", lead: "Tom", projects: ["web-shop"], jira_project: "SW", keys: "SW-\\d+" },
       ],
       flows: [
@@ -1373,18 +1373,18 @@ describe("keel Product in keel's web", () => {
           edited: false,
           hidden: false,
           updated_at: "",
-          tickets: ["ERPDM-1234"],
+          tickets: ["SHOPS-1234"],
         },
       ],
       tickets: {
         team: null,
         tickets: [
           {
-            key: "ERPDM-1234",
-            branches: [{ project_id: "erp-core", kind: "branch", ref: "feature/erpdm-1234-vat", key: "ERPDM-1234" }],
+            key: "SHOPS-1234",
+            branches: [{ project_id: "erp-core", kind: "branch", ref: "feature/shops-1234-vat", key: "SHOPS-1234" }],
             commits: [
-              { project_id: "erp-core", kind: "commit", ref: "abc", key: "ERPDM-1234" },
-              { project_id: "erp-core", kind: "commit", ref: "def", key: "ERPDM-1234" },
+              { project_id: "erp-core", kind: "commit", ref: "abc", key: "SHOPS-1234" },
+              { project_id: "erp-core", kind: "commit", ref: "def", key: "SHOPS-1234" },
             ],
             last_at: "2026-10-20T10:00:00Z",
           },
@@ -1409,17 +1409,17 @@ describe("keel Product in keel's web", () => {
       }),
     });
     const teams = await main().findByRole("region", { name: "Teams" });
-    expect(within(teams).getByRole("button", { name: "Team ERP DM" })).toHaveTextContent(
-      "Jira ERPDM · keys ERPDM-\\d+",
+    expect(within(teams).getByRole("button", { name: "Team Orders" })).toHaveTextContent(
+      "Jira SHOPS · keys SHOPS-\\d+",
     );
     expect(main().getByText("No flows yet for: erp-ui, web-shop.")).toBeInTheDocument();
     const flows = main().getByRole("region", { name: "Business flows" });
     const flow = within(flows).getByRole("button", { name: "Flow Checkout" });
     expect(flow).toHaveTextContent("2 steps · 1 endpoint · 2 tables");
-    expect(within(flow).getByLabelText("Tickets")).toHaveTextContent("ERPDM-1234");
+    expect(within(flow).getByLabelText("Tickets")).toHaveTextContent("SHOPS-1234");
     const work = main().getByRole("region", { name: "Tickets and work" });
-    expect(work).toHaveTextContent("ERPDM-1234");
-    expect(work).toHaveTextContent("branch feature/erpdm-1234-vat");
+    expect(work).toHaveTextContent("SHOPS-1234");
+    expect(work).toHaveTextContent("branch feature/shops-1234-vat");
     expect(work).toHaveTextContent("2 commits · last 2026-10-20");
     expect(work).toHaveTextContent("1 branches or commits with no ticket key");
 

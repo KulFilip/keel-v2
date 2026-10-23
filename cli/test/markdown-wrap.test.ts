@@ -11,9 +11,9 @@ const color = makeTheme({ KEEL_TUI_THEME: "dark" }, 3).paint;
 const ANSWER = [
   "I read the four review comments on the pull request. Here is what each one asks and whether it is right. I did not check the CI run yet, because it was still running when I looked.",
   "",
-  "**Comment 1: keep `eta_updated_at`?** Valid, the column is read by the tracking page and the nightly export, so removing it would break both of them silently.",
+  "**Comment 1: keep `vat_updated_at`?** Valid, the column is read by the checkout page and the nightly export, so removing it would break both of them silently.",
   "**Comment 2: why raw SQL?** The query builder cannot express the lateral join here.",
-  "**Comment 4: use a factory in ParcelPerformEtaAbsentKeepsStoredTest.php:50.** Valid but optional. I changed nothing in that test file because it passes and the factory would only shorten it by a few lines.",
+  "**Comment 4: use a factory in PricingEngineVatAbsentKeepsStoredTest.php:50.** Valid but optional. I changed nothing in that test file because it passes and the factory would only shorten it by a few lines.",
 ].join("\n");
 const words = (s: string) => s.replace(/\*\*|`/g, "").split(/\s+/).filter(Boolean).join(" ");
 
@@ -31,12 +31,12 @@ describe("an answer in the transcript", () => {
   }
 
   it("folds a table's long cells onto more lines of their row instead of cutting them", () => {
-    const md = "| # | Verdict |\n|---|---|\n| 1 | Valid, the column is read by the tracking page. I did not check the CI run yet. |\n| 4 | Valid but optional. I changed nothing in that file. |";
+    const md = "| # | Verdict |\n|---|---|\n| 1 | Valid, the column is read by the checkout page. I did not check the CI run yet. |\n| 4 | Valid but optional. I changed nothing in that file. |";
     const ls = blockLines({ kind: "markdown", text: md }, 40, color).map(plain);
     for (const l of ls) expect(stringWidth(l)).toBeLessThanOrEqual(40);
     expect(ls.join("\n")).not.toContain("…");
     const cells = ls.filter((l) => l.includes("│")).map((l) => l.split("│")[2]?.trim() ?? "").filter(Boolean);
-    expect(cells.join(" ")).toBe("Verdict Valid, the column is read by the tracking page. I did not check the CI run yet. Valid but optional. I changed nothing in that file.");
+    expect(cells.join(" ")).toBe("Verdict Valid, the column is read by the checkout page. I did not check the CI run yet. Valid but optional. I changed nothing in that file.");
   });
 });
 
@@ -44,9 +44,9 @@ describe("bold around other inline styles", () => {
   const BOLD_ON = "\x1b[1m";
   it("takes code, a file:line and a link inside it, with no literal asterisks", () => {
     const cases: [string, string][] = [
-      ["**Comment 1: keep `eta_updated_at`?** Valid", "Comment 1: keep eta_updated_at? Valid"],
-      ["**Comment 4: use a factory in ParcelPerformEtaAbsentKeepsStoredTest.php:50.** Valid but optional.",
-        "Comment 4: use a factory in ParcelPerformEtaAbsentKeepsStoredTest.php:50. Valid but optional."],
+      ["**Comment 1: keep `vat_updated_at`?** Valid", "Comment 1: keep vat_updated_at? Valid"],
+      ["**Comment 4: use a factory in PricingEngineVatAbsentKeepsStoredTest.php:50.** Valid but optional.",
+        "Comment 4: use a factory in PricingEngineVatAbsentKeepsStoredTest.php:50. Valid but optional."],
       ["**see [the docs](https://x.io) first** then", "see the docs (https://x.io) first then"],
       ["**`run()` in src/app.ts:3**", "run() in src/app.ts:3"],
       ["**Comment 2: why raw SQL?** fine", "Comment 2: why raw SQL? fine"],
@@ -64,8 +64,8 @@ describe("bold around other inline styles", () => {
     expect(out.indexOf("\x1b[22m", out.indexOf("Test.php:50"))).toBeLessThan(out.indexOf("Valid"));
     expect(out.slice(out.indexOf("Valid"))).not.toContain(BOLD_ON);
     // what the renderer gives (no colours), as the person reads it
-    expect(renderMarkdown("**Comment 1: keep `eta_updated_at`?** Valid, **Comment 4: Test.php:50.** ok", PLAIN))
-      .toBe("Comment 1: keep eta_updated_at? Valid, Comment 4: Test.php:50. ok");
+    expect(renderMarkdown("**Comment 1: keep `vat_updated_at`?** Valid, **Comment 4: Test.php:50.** ok", PLAIN))
+      .toBe("Comment 1: keep vat_updated_at? Valid, Comment 4: Test.php:50. ok");
   });
 
   it("leaves a lone ** and a path's own underscores as they are", () => {

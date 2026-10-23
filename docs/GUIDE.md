@@ -771,7 +771,7 @@ setup:
 
 - `apt`: system packages (Debian and Ubuntu names). keel installs them as root in its container, in the background,
   when it starts, when a project is added and when a stack is saved. keel does not wait for it to start. The dashboard
-  shows what it does ("setup: installing php8.3-cli for carrier-router…").
+  shows what it does ("setup: installing php8.3-cli for billing-router…").
 - A stack that comes with the project (its own `.keel/stacks`, e.g. a cloned repo) never runs its `setup:` commands on
   its own. keel asks in the Inbox ("Run the setup commands of stack X?") and shows the exact commands; until you
   approve, the status says "needs approval". The approval is for those exact commands: change one and keel asks again.

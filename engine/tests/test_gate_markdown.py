@@ -6,12 +6,12 @@ from keel_engine.runtime.flow_actions import ac_evidence
 
 
 def test_code_and_fence_keep_code_out_of_markdown():
-    assert md.code("eta_updated_at") == "`eta_updated_at`" and md.code("a`b") == "``a`b``"
+    assert md.code("vat_updated_at") == "`vat_updated_at`" and md.code("a`b") == "``a`b``"
     body = "- removed line\n+ added_line\n```\nnested\n```"
     f = md.fence(body, "diff")
     assert f.startswith("````diff\n") and f.endswith("\n````"), "a longer fence than the one inside"
     assert md.fence("{}", "json") == "```json\n{}\n```"
-    assert md.safe_words("send eta_updated_at now") == "send `eta_updated_at` now"
+    assert md.safe_words("send vat_updated_at now") == "send `vat_updated_at` now"
     assert md.table(["a", "b"], [["x|y", "z"]]) == "| a | b |\n|---|---|\n| x\\|y | z |"
     assert md.verdict("safe for a rolling deploy") == "**Verdict: safe for a rolling deploy.**"
 

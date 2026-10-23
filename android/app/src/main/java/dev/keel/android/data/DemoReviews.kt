@@ -20,10 +20,10 @@ class DemoReviews {
     }
 
     val list = listOf(
-        PrSummary(412, "Keep the stored ETA when Parcel Perform sends none", "milad", "feature/ERPDM-1769", "main", updatedAt = ago(7200), mine = true),
-        PrSummary(409, "Carrier adapter: retry on 429 with backoff", "sara.k", "feature/ERPDM-1758", "main", updatedAt = ago(18_000), reviewRequested = true),
-        PrSummary(405, "Tracking page: show the last known ETA", "j.berg", "feature/ERPDM-1744", "main", updatedAt = ago(86_400), reviewRequested = true),
-        PrSummary(398, "Shipment search by reference", "milad", "feature/ERPDM-1650", "main", updatedAt = ago(172_800), mine = true),
+        PrSummary(412, "Keep the stored ETA when Pricing Engine sends none", "milad", "feature/SHOPS-1769", "main", updatedAt = ago(7200), mine = true),
+        PrSummary(409, "Carrier adapter: retry on 429 with backoff", "sara.k", "feature/SHOPS-1758", "main", updatedAt = ago(18_000), reviewRequested = true),
+        PrSummary(405, "Checkout page: show the last known ETA", "j.berg", "feature/SHOPS-1744", "main", updatedAt = ago(86_400), reviewRequested = true),
+        PrSummary(398, "Shipment search by reference", "milad", "feature/SHOPS-1650", "main", updatedAt = ago(172_800), mine = true),
     )
 
     private fun checks(n: Int, failed: String? = null) = (1..n).map { CheckRun(listOf("phpunit (8.3)", "phpstan", "php-cs-fixer", "deptrac", "composer audit", "eslint", "build", "e2e smoke", "migrations", "openapi diff", "coverage", "secrets", "docker", "sonar")[(it - 1) % 14], "success") } +
@@ -34,9 +34,9 @@ class DemoReviews {
             list[0],
             listOf(
                 DemoFile(
-                    "src/Eta/EtaWebhook.php", "modified",
+                    "src/Eta/VatWebhook.php", "modified",
                     """
-                    @@ -52,9 +52,14 @@ final class EtaWebhook
+                    @@ -52,9 +52,14 @@ final class VatWebhook
                          public function handle(EtaPayload ${d}payload): void
                          {
                              ${d}shipment = ${d}this->shipments->byTracking(${d}payload->tracking);
@@ -46,25 +46,25 @@ class DemoReviews {
                     +            return;
                     +        }
                     +        ${d}shipment->setEta(${d}payload->eta);
-                             ${d}shipment->touchEtaUpdatedAt(${d}this->clock->now());
+                             ${d}shipment->touchVatUpdatedAt(${d}this->clock->now());
                     +        ${d}this->shipments->save(${d}shipment);
-                             ${d}this->events->dispatch(new EtaChanged(${d}shipment->id()));
+                             ${d}this->events->dispatch(new VatChanged(${d}shipment->id()));
                          }
                      }
                     """.trimIndent(),
                 ),
                 DemoFile(
-                    "tests/Integration/Eta/EtaAbsentKeepsStoredTest.php", "added",
+                    "tests/Integration/Eta/VatAbsentKeepsStoredTest.php", "added",
                     """
                     @@ -0,0 +1,26 @@
                     +<?php
                     +
                     +namespace App\Tests\Integration\Eta;
                     +
-                    +use App\Eta\EtaWebhook;
+                    +use App\Eta\VatWebhook;
                     +use App\Tests\Integration\IntegrationTestCase;
                     +
-                    +final class EtaAbsentKeepsStoredTest extends IntegrationTestCase
+                    +final class VatAbsentKeepsStoredTest extends IntegrationTestCase
                     +{
                     +    protected function setUp(): void
                     +    {
@@ -99,8 +99,8 @@ class DemoReviews {
                     +{
                     +    public function up(Schema ${d}schema): void
                     +    {
-                    +        ${d}this->addSql('ALTER TABLE shipment RENAME COLUMN eta_at TO eta_updated_at');
-                    +        ${d}this->addSql('CREATE INDEX shipment_eta_updated ON shipment (eta_updated_at)');
+                    +        ${d}this->addSql('ALTER TABLE shipment RENAME COLUMN eta_at TO vat_updated_at');
+                    +        ${d}this->addSql('CREATE INDEX shipment_eta_updated ON shipment (vat_updated_at)');
                     +    }
                     +}
                     """.trimIndent(),
@@ -108,16 +108,16 @@ class DemoReviews {
             ),
             mutableListOf(
                 ReviewThread(
-                    "412-1", "tests/Integration/Eta/EtaAbsentKeepsStoredTest.php", 15, startLine = 13,
+                    "412-1", "tests/Integration/Eta/VatAbsentKeepsStoredTest.php", 15, startLine = 13,
                     comments = listOf(
                         ReviewComment("c1", "sara.k", "Maybe a factory would fit here?", ago(10_800)),
                         ReviewComment("c2", "milad", "Fair point, thanks. Will update it.", ago(3600)),
                     ),
                 ),
-                ReviewThread("412-2", "src/Eta/EtaWebhook.php", 56, comments = listOf(ReviewComment("c3", "sara.k", "Should this log the shipment too, not only the carrier (AC-3)?", ago(7000)))),
+                ReviewThread("412-2", "src/Eta/VatWebhook.php", 56, comments = listOf(ReviewComment("c3", "sara.k", "Should this log the shipment too, not only the carrier (AC-3)?", ago(7000)))),
                 ReviewThread(
                     "412-3", "migrations/Version20261020.php", 11, resolved = true,
-                    comments = listOf(ReviewComment("c4", "j.berg", "rename eta_at to eta_updated_at", ago(20_000)), ReviewComment("c5", "milad", "Renamed in 3c1f9a2. Thanks!", ago(18_000))),
+                    comments = listOf(ReviewComment("c4", "j.berg", "rename eta_at to vat_updated_at", ago(20_000)), ReviewComment("c5", "milad", "Renamed in 3c1f9a2. Thanks!", ago(18_000))),
                 ),
             ),
             checks(14), listOf("j.berg"),

@@ -3,8 +3,8 @@ package keel.product
 import keel.api.common.BadRequest
 
 /**
- * A team's ticket-key pattern (ERPDM-\d+, SW-\d+): checked when it is saved, then matched case-insensitive and with word
- * edges, so `feature/erpdm-1234-vat` and `ERPDM-1234: add VAT` both give ERPDM-1234. Only the first [TEXT_MAX]
+ * A team's ticket-key pattern (SHOPS-\d+, SW-\d+): checked when it is saved, then matched case-insensitive and with word
+ * edges, so `feature/shops-1234-vat` and `SHOPS-1234: add VAT` both give SHOPS-1234. Only the first [TEXT_MAX]
  * characters of a text are read.
  */
 object TicketKeys {
@@ -20,10 +20,10 @@ object TicketKeys {
     /** The saved form of [pattern] (trimmed; null when blank), or a BadRequest that says what is wrong. */
     fun check(pattern: String?): String? {
         val p = pattern?.trim()?.ifEmpty { null } ?: return null
-        if (p.length > MAX) throw BadRequest("The key pattern is too long ($MAX characters at most)", "Like ERPDM-\\d+")
-        if (NESTED.containsMatchIn(p)) throw BadRequest("The key pattern repeats a repeat", "Write ERPDM-\\d+, not (ERPDM-\\d+)+.")
-        val r = runCatching { Regex(p) }.getOrElse { throw BadRequest("The key pattern is not a valid pattern: ${it.message?.lineSequence()?.first()}", "Like ERPDM-\\d+") }
-        if (r.matches("")) throw BadRequest("The key pattern matches nothing at all", "Like ERPDM-\\d+")
+        if (p.length > MAX) throw BadRequest("The key pattern is too long ($MAX characters at most)", "Like SHOPS-\\d+")
+        if (NESTED.containsMatchIn(p)) throw BadRequest("The key pattern repeats a repeat", "Write SHOPS-\\d+, not (SHOPS-\\d+)+.")
+        val r = runCatching { Regex(p) }.getOrElse { throw BadRequest("The key pattern is not a valid pattern: ${it.message?.lineSequence()?.first()}", "Like SHOPS-\\d+") }
+        if (r.matches("")) throw BadRequest("The key pattern matches nothing at all", "Like SHOPS-\\d+")
         return p
     }
 

@@ -3,6 +3,7 @@ package keel.product
 import keel.api.addons.AddonScreen
 import keel.api.addons.KeelAddon
 import org.flywaydb.core.Flyway
+import org.flywaydb.core.api.CoreErrorCode
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -46,7 +47,7 @@ class ProductAddon : KeelAddon {
 @Component
 class ProductSchema(dataSource: DataSource) {
     init {
-        Flyway.configure()
+        val flyway = Flyway.configure()
             .dataSource(dataSource)
             .locations("classpath:db/product")
             .sqlMigrationPrefix("P")
@@ -54,6 +55,14 @@ class ProductSchema(dataSource: DataSource) {
             .baselineOnMigrate(true)
             .baselineVersion("0")
             .load()
-            .migrate()
+        // 0.18.47 changed only comments in P3 and P4 (an example key), so their checksums differ on a database that ran
+        // them: a checksum mismatch alone is repaired (the history takes the new checksums); any other problem still stops keel
+        val check = flyway.validateWithResult()
+        if (!check.validationSuccessful && check.invalidMigrations.orEmpty().isNotEmpty() &&
+            check.invalidMigrations.all { it.errorDetails?.errorCode == CoreErrorCode.CHECKSUM_MISMATCH }
+        ) {
+            flyway.repair()
+        }
+        flyway.migrate()
     }
 }

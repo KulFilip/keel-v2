@@ -119,28 +119,28 @@ def test_stack_check_reports_setup_errors_and_warns_about_root_commands(tmp_path
 # ------------------------------------------------------------------ the system part: union and plan
 
 def test_union_of_apt_over_the_registered_projects(tmp_path):
-    a = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, unzip, composer]\n")
+    a = _project(tmp_path, "billing-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, unzip, composer]\n")
     b = _project(tmp_path, "billing", PHP_STACK.replace("php-symfony", "php-laravel")
                  + "setup:\n  apt: [php8.3-cli, php8.3-pgsql]\n  run: ['echo tool']\n")
     c = _project(tmp_path, "plain", PHP_STACK.replace("php-symfony", "nothing"))       # no setup: not in the union
-    items = stack_setup.needs([("carrier-router", str(a)), ("billing", str(b)), ("plain", str(c))])
-    assert [(n["project"], n["stack"]) for n in items] == [("carrier-router", "php-symfony"), ("billing", "php-laravel")]
+    items = stack_setup.needs([("billing-router", str(a)), ("billing", str(b)), ("plain", str(c))])
+    assert [(n["project"], n["stack"]) for n in items] == [("billing-router", "php-symfony"), ("billing", "php-laravel")]
     assert items[0]["runtimes"] == ["php", "composer"]
     u = stack_setup.union(items)
     assert list(u["apt"]) == ["php8.3-cli", "unzip", "composer", "php8.3-pgsql"]
-    assert u["apt"]["php8.3-cli"] == ["carrier-router (php-symfony)", "billing (php-laravel)"]
+    assert u["apt"]["php8.3-cli"] == ["billing-router (php-symfony)", "billing (php-laravel)"]
     assert u["run"] == {"echo tool": ["billing (php-laravel)"]}
 
 
 def test_plan_in_the_container_installs_only_what_is_missing():
-    u = {"apt": {"php8.3-cli": ["carrier-router (php-symfony)"], "unzip": ["carrier-router (php-symfony)"],
+    u = {"apt": {"php8.3-cli": ["billing-router (php-symfony)"], "unzip": ["billing-router (php-symfony)"],
                  "golang-go": ["api (go)"]},
          "run": {"echo tool": ["billing (php-laravel)"]}}
     p = stack_setup.plan(u, present={"unzip"}, ran=set(), where="container")
     assert p["steps"] == [{"do": "apt", "packages": ["php8.3-cli", "golang-go"],
-                           "for": ["carrier-router (php-symfony)", "api (go)"]},
+                           "for": ["billing-router (php-symfony)", "api (go)"]},
                           {"do": "run", "command": "echo tool", "for": ["billing (php-laravel)"]}]
-    assert p["message"] == "installing php8.3-cli, golang-go for carrier-router, api…"
+    assert p["message"] == "installing php8.3-cli, golang-go for billing-router, api…"
     # after a restart from the cache: everything is there, the run command ran in this container
     done = stack_setup.plan(u, present={"php8.3-cli", "unzip", "golang-go"}, ran={stack_setup.run_key("echo tool")},
                             where="container")
@@ -148,12 +148,12 @@ def test_plan_in_the_container_installs_only_what_is_missing():
 
 
 def test_plan_outside_the_container_installs_nothing_and_says_what_is_missing():
-    items = [{"project": "carrier-router", "root": "/x", "stack": "php-symfony", "apt": ["php8.3-cli", "composer"],
+    items = [{"project": "billing-router", "root": "/x", "stack": "php-symfony", "apt": ["php8.3-cli", "composer"],
               "run": [], "runtimes": ["php", "composer"]}]
     u = stack_setup.union(items)
     p = stack_setup.plan(u, present=set(), ran=set(), where="native", have={"composer"}, items=items)
     assert p["steps"] == [] and p["missing"] == ["php"]
-    assert p["message"].startswith("carrier-router: php not found (stack php-symfony). keel does not install system "
+    assert p["message"].startswith("billing-router: php not found (stack php-symfony). keel does not install system "
                                    "packages outside its container")
     assert "sudo apt-get install php8.3-cli composer" in p["message"]
     assert stack_setup.plan(u, set(), set(), "native", have={"php", "composer"}, items=items)["message"] == ""
@@ -161,7 +161,7 @@ def test_plan_outside_the_container_installs_nothing_and_says_what_is_missing():
 
 def test_system_run_calls_the_helper_for_apt_only_and_says_so(tmp_path, monkeypatch):
     marker = tmp_path / "run-marker.txt"
-    root = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, composer]\n"
+    root = _project(tmp_path, "billing-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, composer]\n"
                     f"  run: ['id -un > {marker}']\n")
     calls = tmp_path / "calls.txt"
     helper = tmp_path / "fake-helper"
@@ -170,7 +170,7 @@ def test_system_run_calls_the_helper_for_apt_only_and_says_so(tmp_path, monkeypa
     monkeypatch.setattr(stack_setup, "FORCE_MODE", "container")
     monkeypatch.setattr(stack_setup, "HELPER_CMD", [str(helper)])
     monkeypatch.setattr(stack_setup, "RAN_DIR", str(tmp_path / "ran"))
-    monkeypatch.setattr(stack_setup, "known_roots", lambda: [("carrier-router", str(root))])
+    monkeypatch.setattr(stack_setup, "known_roots", lambda: [("billing-router", str(root))])
     monkeypatch.setattr(stack_setup, "dpkg_present", lambda pkgs: set())
     sysu = stack_setup.SystemSetup()
     sysu.run_once()
@@ -191,7 +191,7 @@ def test_system_run_calls_the_helper_for_apt_only_and_says_so(tmp_path, monkeypa
     helper.write_text("#!/bin/sh\necho 'E: Unable to locate package php8.3-cli'\nexit 100\n")
     sysu.run_once()
     st = sysu.status()
-    assert st["state"] == "failed" and st["line"].startswith("could not install php8.3-cli, composer for carrier-router "
+    assert st["state"] == "failed" and st["line"].startswith("could not install php8.3-cli, composer for billing-router "
                                                              "(exit 100): E: Unable to locate package")
 
 
@@ -397,7 +397,7 @@ def test_the_gate_is_never_answered_by_the_run_mode(client, repo):
 
 
 def test_in_the_container_a_flow_waits_for_the_packages_and_fails_clearly(tmp_path, monkeypatch):
-    root = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli]\n")
+    root = _project(tmp_path, "billing-router", PHP_STACK + "setup:\n  apt: [php8.3-cli]\n")
     monkeypatch.setattr(stack_setup, "FORCE_MODE", "container")
     monkeypatch.setattr(stack_setup, "dpkg_present", lambda pkgs: set())
     monkeypatch.setattr(stack_setup, "ran_markers", lambda: set())
@@ -411,11 +411,11 @@ def test_in_the_container_a_flow_waits_for_the_packages_and_fails_clearly(tmp_pa
             return True
 
         def status(self):
-            return {"state": "failed", "line": "could not install php8.3-cli for carrier-router (exit 100)", "log": []}
+            return {"state": "failed", "line": "could not install php8.3-cli for billing-router (exit 100)", "log": []}
 
     monkeypatch.setattr(stack_setup, "SYSTEM", Fake())
     r = stack_setup.prepare(str(root))
-    assert not r["ok"] and r["note"] == "could not install php8.3-cli for carrier-router (exit 100)"
+    assert not r["ok"] and r["note"] == "could not install php8.3-cli for billing-router (exit 100)"
     assert asked == [str(root)]
     monkeypatch.setattr(stack_setup, "dpkg_present", lambda pkgs: {"php8.3-cli"})
     assert stack_setup.prepare(str(root))["ok"]
@@ -456,7 +456,7 @@ def test_init_proposes_nothing_for_a_language_the_image_has(tmp_path):
 # ------------------------------------------------------------------ the setup check and native mode
 
 def test_setup_check_names_the_stack_whose_runtime_is_missing(tmp_path, monkeypatch):
-    root = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli]\n")
+    root = _project(tmp_path, "billing-router", PHP_STACK + "setup:\n  apt: [php8.3-cli]\n")
     monkeypatch.setattr(stack_setup.shutil, "which", lambda name: None if name == "php" else f"/usr/bin/{name}")
     monkeypatch.setattr(ladder.shutil, "which", lambda name: None if name == "php" else f"/usr/bin/{name}")
     monkeypatch.setattr(stack_setup, "FORCE_MODE", "container")
@@ -468,17 +468,17 @@ def test_setup_check_names_the_stack_whose_runtime_is_missing(tmp_path, monkeypa
 
 
 def test_native_mode_says_which_packages_are_missing_and_never_installs(tmp_path, monkeypatch):
-    root = _project(tmp_path, "carrier-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, composer]\n")
+    root = _project(tmp_path, "billing-router", PHP_STACK + "setup:\n  apt: [php8.3-cli, composer]\n")
     monkeypatch.setattr(stack_setup, "FORCE_MODE", "native")
     monkeypatch.setattr(stack_setup.shutil, "which", lambda name: None if name in ("php", "composer") else "/bin/x")
     called = []
     monkeypatch.setattr(stack_setup.SystemSetup, "_helper", staticmethod(lambda args: called.append(args) or (0, "")))
-    monkeypatch.setattr(stack_setup, "known_roots", lambda: [("carrier-router", str(root))])
+    monkeypatch.setattr(stack_setup, "known_roots", lambda: [("billing-router", str(root))])
     sysu = stack_setup.SystemSetup()
     sysu.run_once()
     st = sysu.status()
     assert called == [] and st["state"] == "missing" and st["missing"] == ["php", "composer"]
-    assert st["line"] == ("carrier-router: php, composer not found (stack php-symfony). keel does not install system "
+    assert st["line"] == ("billing-router: php, composer not found (stack php-symfony). keel does not install system "
                           "packages outside its container: install php, composer yourself (on Debian or Ubuntu: "
                           "sudo apt-get install php8.3-cli composer).")
     ok, why, _ = stack_setup.system_check(str(root))
