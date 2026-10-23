@@ -27,6 +27,18 @@ android {
             isMinifyEnabled = false
             buildConfigField("boolean", "DEMO", "false")
         }
+        // the build to put on a phone: shrunk (R8, unused resources out), 64-bit ARM only, with the demo, signed with the
+        // debug key — about a tenth of the debug APK
+        create("phone") {
+            initWith(getByName("release"))
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "DEMO", "true")
+            ndk { abiFilters += listOf("arm64-v8a") }
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

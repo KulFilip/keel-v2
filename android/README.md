@@ -1,5 +1,7 @@
 # keel for Android
 
+<p align="center"><img src="../docs/keel-android.gif" alt="keel's Android app with demo data" width="300"></p>
+
 The phone companion of keel v2: answer the questions flows wait at (gates), follow flows, review pull request threads
 with keel's "Is the reviewer right?" check, and chat with KeelBot (Ask / Fix / Edit). Kotlin, Jetpack Compose,
 Material 3, one activity; minSdk 28, target 36.
@@ -43,6 +45,7 @@ inbox and says "A question waits for you" for questions it has not told yet.
 cd android
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties   # or set ANDROID_HOME
 ./gradlew :app:assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assemblePhone        # app/build/outputs/apk/phone/app-phone.apk: shrunk, 64-bit ARM, ~11 MB (to put on a phone)
 ./gradlew :app:testDebugUnitTest    # JVM tests: pairing links, api client (MockWebServer), gate answers, view models
 ```
 

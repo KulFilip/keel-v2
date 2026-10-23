@@ -132,6 +132,10 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 ## On your phone
 
+<p align="center">
+  <img src="docs/keel-android.gif" alt="keel's Android app (demo data): the inbox, approving a spec, the flow, a pull request's threads and files, a file's diff with a review thread, and a KeelBot chat with its model picker" width="300">
+</p>
+
 The Android app ([android/](android/README.md)) answers keel's questions, follows flows, reviews pull request threads and
 chats with KeelBot. Start keel with `keel2 start --wifi` (your Wi-Fi), or share it with `keel2 share tailscale` (https
 on your tailnet) or `keel2 share tunnel` (a public https address). Then pair the app in **Settings › Devices › Pair a
