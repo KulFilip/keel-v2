@@ -2632,3 +2632,43 @@ The four review agents have names that say when each one runs. Their prompts did
 - Stored settings: api migration `V21__review_agent_names.sql` moves `agent_overrides` rows and the names in
   `skill_assign` once; a row already under the new name wins. Reading still maps an old key to the new name (new wins),
   and so does the engine for a thread's `models`, `skills`, `agents` and `state.agent_models` (a flow started before).
+
+## v0.18.46: local models and Vertex AI (feat/local-models)
+
+Two providers whose connection is more than one key. Both run in `mode: "api"` through the API runner (LangChain).
+
+- **`local`**: model servers on this computer or the network: Ollama, LM Studio, vLLM, llama.cpp server, any
+  OpenAI-compatible URL. A model id is `<server>/<model>` (`ollama/qwen3-coder:30b`). No effort. Cost $0 unless the
+  server sets a price. Built in core (not a plugin: a plugin cannot add a provider to the catalog, the runners and
+  the api's key routing yet), off until a server is added; the switch is `PUT /api/providers/local {enabled}`.
+- **`vertex`**: Claude (Anthropic on Vertex, efforts as the Anthropic API) and Gemini (Vertex's OpenAI-compatible
+  endpoint, no effort) in a Google Cloud project. Built-in model lists.
+
+```
+GET    /api/providers/local                         → { enabled, endpoints: [{ name, kind, url, context?, price_in?, price_out?, key_set, key_hint? }],
+                                                        kinds: string[], defaults: { [kind]: url } }
+PUT    /api/providers/local                         { enabled } → same
+PUT    /api/providers/local/endpoints/{name}        { kind: ollama|lmstudio|vllm|llamacpp|openai-compatible, url, key?, clear_key?, context?, price_in?, price_out? } → same
+DELETE /api/providers/local/endpoints/{name}        → same
+POST   /api/providers/local/endpoints/{name}/test   → engine POST /providers/local/test → { ok, ms, models?: [{id, label, context?}], error?, hint? }
+GET    /api/providers/vertex                        → { project, region, credentials: "service-account"|"adc", key_set, client_email?, ready }
+PUT    /api/providers/vertex                        { project, region, credentials_json?, clear_credentials? } → same
+```
+
+- Secrets: a server's key is `local.<name>`, the service-account key `VERTEX_CREDENTIALS`; neither is ever sent back.
+- The engine gets each connection as the provider's key (a JSON string): `keys.local = {"enabled": true, "endpoints":
+  [{name, kind, url, key?, context?, price_in?, price_out?}]}`, `keys.vertex = {"project", "region", "credentials"?}`.
+  The api's `SecretService.keyForProvider` gives it, so flows, KeelBot, the review check and `POST /providers/test` carry it.
+- Engine `POST /providers/models {keys}`: the catalog with `local` and `vertex` when they are set up (the api calls it
+  instead of `GET` when one is). A local model entry may carry `badge: "local"`, `tools: false` (it cannot call tools)
+  and `context` (tokens); the provider entry `source: "server"` and `problems?: string[]` (a server that did not answer).
+- Tool calls: Ollama's `/api/show` capabilities, else one probe per model, remembered in `$KEEL_DATA/local-models.json`.
+  A model without tool calls runs only ask-type calls (a read-only call outside a flow phase: KeelBot Ask, summaries;
+  `POST /agents/ask` sends no tools); a code step answers `{error, hint}` ("cannot call tools").
+- Context: the server's setting, else Ollama's `num_ctx` / the model's context length, else 8192; the prompt is packed
+  to fit (old turns first, then the middle of the prompt).
+- Setting `local_only` (bool, Models section, per project): a flow start, a KeelBot turn or a review check on a model
+  whose provider is not `local` (or `fake`) is refused with 400 `{error, hint}`.
+- `GET /api/connections` lists `vertex` and `local` (one mode, `api`; `key_set` = set up).
+- keel2: every container gets `--add-host host.docker.internal:host-gateway` (Linux), so the default server URLs
+  `http://host.docker.internal:11434` (Ollama) and `…:1234/v1` (LM Studio) reach the host; a native keel uses 127.0.0.1.
