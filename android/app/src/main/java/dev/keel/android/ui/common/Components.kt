@@ -62,6 +62,20 @@ import dev.keel.android.data.STEP_NAMES
 import dev.keel.android.ui.theme.K
 import dev.keel.android.ui.theme.Mono
 
+/** True while the app shows the demo keel's fake data (AppRoot provides it). */
+val LocalDemo = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** "DEMO" in warn colours, on every screen while the data is the demo's. */
+@Composable
+fun DemoChip(modifier: Modifier = Modifier) {
+    if (!LocalDemo.current) return
+    Text(
+        "DEMO", color = K.c.warnInk, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp, maxLines = 1,
+        modifier = modifier.clip(RoundedCornerShape(6.dp)).background(K.c.warnSoft).border(1.dp, K.c.warn.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 7.dp, vertical = 3.dp).semantics { contentDescription = "Demo data" },
+    )
+}
+
 /** keel's "k" mark: the accent square. */
 @Composable
 fun KeelMark(size: Dp = 22.dp, corner: Dp = 7.dp) {
@@ -230,14 +244,15 @@ fun PillButton(
 /** The 64dp top bar of a detail screen: back, title + mono subtitle, actions. */
 @Composable
 fun DetailBar(title: String, subtitle: String?, onBack: () -> Unit, backLabel: String, actions: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel, tint = K.c.fg)
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = K.c.fg)
-            if (!subtitle.isNullOrBlank()) Text(subtitle, fontFamily = Mono, fontSize = 12.sp, color = K.c.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+            Text(title, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = K.c.fg)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, fontFamily = Mono, fontSize = 12.sp, lineHeight = 15.sp, color = K.c.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        DemoChip(Modifier.padding(horizontal = 4.dp))
         actions()
     }
 }

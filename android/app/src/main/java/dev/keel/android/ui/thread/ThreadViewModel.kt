@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 
 enum class PrTab { THREADS, FILES, CHECKS }
 
+data class FileDiffState(val loading: Boolean = true, val rows: List<dev.keel.android.data.DiffRow> = emptyList(), val binary: Boolean = false, val truncated: Boolean = false, val error: Throwable? = null)
+
 data class ThreadUi(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
@@ -34,7 +36,10 @@ data class ThreadUi(
     val busy: String? = null,
     val actionError: Throwable? = null,
     val note: String? = null,
+    /** a file's diff for the diff screen, by path */
+    val files: Map<String, FileDiffState> = emptyMap(),
 ) {
+    val drafts get() = view?.drafts.orEmpty()
     val me get() = view?.me
     val open get() = view?.threads.orEmpty().filter { !it.resolved }
     val resolved get() = view?.threads.orEmpty().filter { it.resolved }
@@ -147,6 +152,58 @@ class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectI
             try {
                 val v = api.resolve(projectId, key, threadId, resolved)
                 _ui.update { s -> s.copy(busy = null, view = v, selected = v.threads.firstOrNull { !it.resolved }?.id, note = if (resolved) "Resolved." else "Opened again.") }
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = null, actionError = e) }
+            }
+        }
+    }
+
+    fun loadFile(path: String, force: Boolean = false) {
+        if (!force && _ui.value.files[path]?.let { it.error == null } == true) return
+        _ui.update { it.copy(files = it.files + (path to FileDiffState())) }
+        viewModelScope.launch {
+            try {
+                val d = api.diff(projectId, key, path)
+                _ui.update { it.copy(files = it.files + (path to FileDiffState(false, dev.keel.android.data.parseDiff(d.diff), d.binary, d.truncated))) }
+            } catch (e: Exception) {
+                _ui.update { it.copy(files = it.files + (path to FileDiffState(false, error = e))) }
+            }
+        }
+    }
+
+    /** A comment on a line: kept as a pending comment of your review until [sendReview] (the web's line comment). */
+    fun comment(path: String, line: Int, side: String, body: String) {
+        if (body.isBlank()) return
+        _ui.update { it.copy(busy = "comment", actionError = null) }
+        viewModelScope.launch {
+            try {
+                val d = api.addDraft(projectId, key, path, line, side, body.trim())
+                _ui.update { s -> s.copy(busy = null, view = s.view?.copy(drafts = s.view.drafts + d), note = "Comment on line $line kept for your review. Send the review to post it.") }
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = null, actionError = e) }
+            }
+        }
+    }
+
+    fun deleteDraft(id: String) {
+        viewModelScope.launch {
+            try {
+                api.deleteDraft(projectId, id)
+                _ui.update { s -> s.copy(view = s.view?.copy(drafts = s.view.drafts.filterNot { it.id == id })) }
+            } catch (e: Exception) {
+                _ui.update { it.copy(actionError = e) }
+            }
+        }
+    }
+
+    /** Post the pending comments as one review (COMMENT). */
+    fun sendReview() {
+        _ui.update { it.copy(busy = "review", actionError = null) }
+        viewModelScope.launch {
+            try {
+                val r = api.submitReview(projectId, key)
+                _ui.update { it.copy(busy = null, view = r.view ?: it.view?.copy(drafts = emptyList()), note = "Review sent: ${r.posted} comment${if (r.posted == 1) "" else "s"} posted.") }
+                if (r.view == null) load()
             } catch (e: Exception) {
                 _ui.update { it.copy(busy = null, actionError = e) }
             }

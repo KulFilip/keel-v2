@@ -276,6 +276,18 @@ data class ReviewThread(
 data class ChangedFile(val path: String, val status: String = "", val added: Int = 0, val removed: Int = 0, val binary: Boolean = false)
 
 @Serializable
+data class Draft(val id: String, val path: String? = null, val line: Int? = null, val side: String = "RIGHT", val body: String = "", val createdAt: String = "")
+
+@Serializable
+data class DraftBody(val key: String, val path: String?, val line: Int?, val side: String = "RIGHT", val body: String)
+
+@Serializable
+data class SubmitBody(val key: String, val event: String = "COMMENT", val body: String = "")
+
+@Serializable
+data class SubmitResult(val posted: Int = 0, val event: String = "", val url: String? = null, val view: ReviewView? = null)
+
+@Serializable
 data class ReviewView(
     val key: String,
     val kind: String = "pr",
@@ -295,6 +307,7 @@ data class ReviewView(
     val added: Int = 0,
     val removed: Int = 0,
     val threads: List<ReviewThread> = emptyList(),
+    val drafts: List<Draft> = emptyList(),
     val canPost: Boolean = false,
     val host: HostRef? = null,
     val me: String? = null,
@@ -403,7 +416,15 @@ data class HelperSession(
 data class NewSession(val mode: String = "ask", val title: String? = null)
 
 @Serializable
-data class PatchSession(val mode: String? = null, val title: String? = null)
+data class PatchSession(val mode: String? = null, val title: String? = null, val model: Model? = null)
+
+/** One model of the catalog (GET /api/providers/models): its efforts, when it has its own list. */
+data class CatalogModel(val id: String, val label: String, val efforts: List<String>? = null)
+
+/** One provider of the catalog: the modes it runs on (subscription, api, opencode...) with their models. */
+data class CatalogProvider(val id: String, val label: String, val modes: Map<String, List<CatalogModel>>, val efforts: List<String>) {
+    fun effortsOf(model: String, mode: String): List<String> = modes[mode]?.firstOrNull { it.id == model }?.efforts ?: efforts
+}
 
 @Serializable
 data class TurnBody(val text: String)

@@ -74,9 +74,10 @@ fun InboxScreen(
     val ui by vm.ui.collectAsStateWithLifecycle()
     val h by home.ui.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ProjectSwitcher(h.projects.map { it.id to it.name }, h.project, home::pickProject, Modifier.weight(1f))
+                dev.keel.android.ui.common.DemoChip()
                 IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = K.c.fg) }
             }
             Row(verticalAlignment = Alignment.Bottom) {
@@ -90,6 +91,7 @@ fun InboxScreen(
                 ui.today?.let { HeaderChip("${usd(it)} today", androidx.compose.ui.graphics.Color.Transparent, K.c.dim, K.c.border) }
             }
         }
+        val demo = dev.keel.android.ui.common.LocalDemo.current
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
             when {
                 ui.loading -> Loading()
@@ -99,6 +101,13 @@ fun InboxScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    if (demo) item {
+                        Text(
+                            "Demo data — pair a keel in Settings to see yours",
+                            fontSize = 13.sp, color = K.c.warnInk, maxLines = 2,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(K.c.warnSoft).clickable(role = Role.Button, onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
                     item { InlineError(ui.actionError, vm::clearActionError) }
                     if (ui.items.isEmpty() && ui.reviews.isEmpty()) {
                         item { EmptyState("Nothing waits for you", "When a flow asks something, it shows here and the phone tells you.") }

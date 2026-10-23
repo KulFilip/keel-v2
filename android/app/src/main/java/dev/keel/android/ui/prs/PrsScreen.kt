@@ -43,9 +43,12 @@ import dev.keel.android.ui.theme.Mono
 fun PrsScreen(vm: PrsViewModel, onOpen: (Int) -> Unit) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Pull requests", style = MaterialTheme.typography.headlineMedium, color = K.c.fg)
-            Segmented(listOf("review" to "To review", "mine" to "Mine", "all" to "All"), ui.filter, vm::setFilter, Modifier.fillMaxWidth().padding(vertical = 4.dp), height = 44.dp)
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Pull requests", style = MaterialTheme.typography.headlineMedium, color = K.c.fg, modifier = Modifier.weight(1f))
+                dev.keel.android.ui.common.DemoChip()
+            }
+            Segmented(listOf("review" to "To review", "mine" to "Mine", "all" to "All"), ui.filter, vm::setFilter, Modifier.fillMaxWidth(), height = 40.dp)
         }
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
             val list = ui.list

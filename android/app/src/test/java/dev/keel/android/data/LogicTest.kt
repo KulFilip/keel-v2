@@ -72,4 +72,34 @@ class LogicTest {
         assertEquals("Ran 2 commands · read 1 file", toolSummary(listOf(JobStep(kind = "tool"), JobStep(kind = "tool"), JobStep(kind = "read"), JobStep(kind = "text"))))
         assertEquals("SK", initials("sara.k"))
     }
+
+    @Test
+    fun `parses a unified diff with old and new numbers and finds threads on lines`() {
+        val rows = parseDiff("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -5,3 +5,4 @@ fun x\n a\n-b\n+c\n+d\n e")
+        assertEquals(DiffRow.Hunk("@@ -5,3 +5,4 @@ fun x"), rows[0])
+        assertEquals(DiffRow.Line(5, 5, ' ', "a"), rows[1])
+        assertEquals(DiffRow.Line(6, null, '-', "b"), rows[2])
+        assertEquals(DiffRow.Line(null, 6, '+', "c"), rows[3])
+        assertEquals(DiffRow.Line(7, 8, ' ', "e"), rows[5])
+        assertTrue(threadOnLine(ReviewThread("t", "x", 6), rows[3] as DiffRow.Line))
+        assertTrue(!threadOnLine(ReviewThread("t", "x", 6), rows[2] as DiffRow.Line))
+        assertTrue(threadOnLine(ReviewThread("t", "x", 6, side = "LEFT"), rows[2] as DiffRow.Line))
+    }
+
+    @Test
+    fun `reads the model catalog like the web and says which answers change files`() {
+        val c = parseCatalog(KeelJson.parseToJsonElement(
+            """{"codex":{"label":"Codex","modes":{"subscription":[{"id":"gpt-5"}]},"efforts":["low","high"]},
+               "copilot":{"label":"Copilot","modes":{"subscription":[{"id":"sonnet 5.5","efforts":["none","max"]}],"api":[]},"efforts":[]},
+               "old":[{"id":"m1","label":"M one"}],"broken":5}""",
+        ))
+        assertEquals(listOf("codex", "copilot", "old"), c.map { it.id })
+        assertEquals(listOf("low", "high"), c[0].effortsOf("gpt-5", "subscription"))
+        assertEquals(listOf("none", "max"), c[1].effortsOf("sonnet 5.5", "subscription"))
+        assertEquals(setOf("subscription"), c[1].modes.keys)
+        assertEquals("sonnet 5.5 · high", shortModel(Model("copilot", "subscription", "sonnet 5.5", "high")))
+        assertTrue(optionChangesFiles(QuestionOption("Fix the webhook", "1 file")))
+        assertTrue(!optionChangesFiles(QuestionOption("Start a fix flow", "test first")))
+        assertTrue(!optionChangesFiles(QuestionOption("Explain more")))
+    }
 }

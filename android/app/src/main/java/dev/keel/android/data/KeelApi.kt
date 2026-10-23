@@ -123,6 +123,23 @@ class KeelApi(
     suspend fun address(pid: String, key: String, threadId: String, note: String? = null): AddressResult =
         call("POST", "${r(pid)}/threads/${enc(threadId)}/address", KeyBody(key, note = note))
 
+    /** A comment on a line, kept as a pending comment of your review (the web's line comment, PendingTab). */
+    suspend fun addDraft(pid: String, key: String, path: String, line: Int, side: String, body: String): Draft =
+        call("POST", "${r(pid)}/drafts", DraftBody(key, path, line, side, body))
+
+    suspend fun deleteDraft(pid: String, id: String): Unit = callUnit("DELETE", "${r(pid)}/drafts/${enc(id)}")
+
+    /** Send the pending comments as one review (COMMENT | APPROVE | REQUEST_CHANGES). */
+    suspend fun submitReview(pid: String, key: String, event: String = "COMMENT", body: String = ""): SubmitResult =
+        call("POST", "${r(pid)}/submit", SubmitBody(key, event, body))
+
+    // ---------------------------------------------------------------- models
+    /** The model catalog the web's ModelPicker reads (GET /api/providers/models). */
+    suspend fun providerModels(): List<CatalogProvider> = parseCatalog(call<kotlinx.serialization.json.JsonElement>("GET", "/api/providers/models"))
+
+    suspend fun setChatModel(pid: String, sid: String, model: Model): HelperSession =
+        call("PATCH", "${h(pid)}/sessions/${enc(sid)}", PatchSession(model = model))
+
     // ---------------------------------------------------------------- KeelBot
     private fun h(pid: String) = "/api/projects/${enc(pid)}/helper"
 

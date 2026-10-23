@@ -88,7 +88,7 @@ fun FlowsScreen(vm: FlowsViewModel, onOpen: (RunRow) -> Unit) {
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("Flows", style = MaterialTheme.typography.headlineMedium, color = K.c.fg, modifier = Modifier.weight(1f))
                     val b = ui.budget
@@ -99,6 +99,7 @@ fun FlowsScreen(vm: FlowsViewModel, onOpen: (RunRow) -> Unit) {
                         else -> ""
                     }
                     Text(text, fontFamily = Mono, fontSize = 12.sp, color = K.c.dim)
+                    dev.keel.android.ui.common.DemoChip(Modifier.padding(start = 8.dp))
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChipK("All ${ui.count(FlowFilter.ALL)}", ui.filter == FlowFilter.ALL) { vm.setFilter(FlowFilter.ALL) }
