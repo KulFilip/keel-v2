@@ -42,7 +42,7 @@ class CoreSettingsSections(private val mapper: ObjectMapper) {
 
     @Bean
     fun modelSettings(): SettingsSection =
-        section("models", "Models", 20, "default_model", "implementer_model", "reviewer_model", "cheaper_model")
+        section("models", "Models", 20, "default_model", "implementer_model", "reviewer_model", "cheaper_model", "local_only")
 
     @Bean
     fun budgetSettings(): SettingsSection = section("budget", "Budget", 30, "cap_tokens", "on_cap", "usage_warn", "usage_pause")

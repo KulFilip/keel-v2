@@ -11,7 +11,11 @@ import org.springframework.web.bind.annotation.RestController
 data class Health(val ok: Boolean, val engine: Boolean, val version: String, val fake: Boolean, val native: Boolean = false)
 
 @RestController
-class HealthController(private val engine: EngineClient, build: ObjectProvider<BuildProperties>) {
+class HealthController(
+    private val engine: EngineClient,
+    build: ObjectProvider<BuildProperties>,
+    private val servers: ObjectProvider<keel.api.connections.ModelServerService>,
+) {
     private val version: String = build.ifAvailable?.version ?: "dev"
     private val native: Boolean = System.getenv("KEEL_NATIVE") == "1"
 
@@ -35,7 +39,11 @@ class HealthController(private val engine: EngineClient, build: ObjectProvider<B
     @GetMapping("/api/setup")
     fun setup(): JsonNode = engine.get("/setup/status")
 
-    /** The engine's model list per provider (`{ [provider]: {id, label}[] }`), passed through. */
+    /** The engine's model list per provider (`{ [provider]: {id, label}[] }`), passed through. 0.18.46 with local model
+     *  servers or Vertex AI set up, the engine gets their connections and lists those providers too. */
     @GetMapping("/api/providers/models")
-    fun models(): JsonNode = engine.models()
+    fun models(): JsonNode {
+        val keys = servers.ifAvailable?.catalogKeys().orEmpty()
+        return if (keys.isEmpty()) engine.models() else engine.post("/providers/models", mapOf("keys" to keys))
+    }
 }

@@ -373,6 +373,7 @@ class ReviewJudgeService(
         var tout = 0L
         var error: String? = null
         try {
+            keel.api.settings.LocalOnly.check(settings.effective(pid), listOf(model), "the review check")
             val answer = engine.post("/agents/ask", mapOf("model" to model, "system" to sys, "prompt" to prompt,
                 "keys" to secrets.engineKeys(model.provider, model.mode), "timeout" to 180), long = true)
             tin = answer.path("tokens_in").asLong(0)
