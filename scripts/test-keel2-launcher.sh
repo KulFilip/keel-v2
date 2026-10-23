@@ -148,6 +148,7 @@ reset; seed "$LATEST" sha256:old
 run_k -- start "$project"
 check "start replaces the keel" "$rc" 0
 yes_if "stop -t 25 before the removal" called "docker stop -t 25 $KEEL_NAME"
+yes_if "host.docker.internal reaches this computer (local models on Linux)" called "--add-host host.docker.internal:host-gateway"
 yes_if "the new container has --stop-timeout 25" called "docker run .*--stop-timeout 25"
 reset; seed "$LATEST" sha256:old
 run_k KEEL_STOP_TIMEOUT=40 -- stop
