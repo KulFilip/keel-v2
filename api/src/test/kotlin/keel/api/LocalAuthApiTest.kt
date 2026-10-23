@@ -47,7 +47,9 @@ class LocalAuthApiTest : ApiTest() {
     fun `every route refuses a caller that never signed in, and says how to sign in`() {
         val all = routes()
         assertThat(all.size).isGreaterThan(150)
-        val open = all.filter { (m, p) -> m == RequestMethod.GET && p == "/api/health" }
+        // open: health, and a phone's pairing (its one-time code is the credential: DevicesApiTest)
+        val open = all.filter { (m, p) -> (m == RequestMethod.GET && p == "/api/health") || (m == RequestMethod.POST && p == "/api/devices/pair") }
+        assertThat(open).hasSize(2)
         val wrong = (all - open.toSet()).mapNotNull { (m, p) ->
             val res = bare.perform(request(org.springframework.http.HttpMethod.valueOf(m.name), p).json()).andReturn().response
             if (res.status == 401 && res.getHeader(LocalAuth.AUTH_HEADER) == "sign-in" && res.contentAsString.contains("keel2 open")) null

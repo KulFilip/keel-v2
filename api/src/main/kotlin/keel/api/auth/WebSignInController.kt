@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController
 import java.time.Duration
 
 @RestController
-class WebSignInController(private val key: WebKey, private val codes: SignInCodes) {
+class WebSignInController(private val key: WebKey, private val codes: SignInCodes, private val limiter: AuthLimiter) {
 
     /** A one-time sign-in code, only for keel2 and keel's scripts (the internal token; [LocalAuth] checked it). */
     @PostMapping("/api/web/code")
@@ -26,8 +26,20 @@ class WebSignInController(private val key: WebKey, private val codes: SignInCode
 
     /** The link keel2 opens: a fresh code sets the sign-in cookie and goes to keel's page; a used or old one says so. */
     @GetMapping("/web/login")
-    fun login(@RequestParam(required = false) code: String?, @RequestParam(required = false) next: String?, response: HttpServletResponse) {
+    fun login(
+        @RequestParam(required = false) code: String?,
+        @RequestParam(required = false) next: String?,
+        request: HttpServletRequest,
+        response: HttpServletResponse,
+    ) {
+        // keel reachable from the Wi-Fi or a tunnel: wrong codes count like wrong keys (AuthLimiter)
+        if (limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) {
+            response.status = 429
+            response.setHeader("Retry-After", limiter.retryAfter().toString())
+            return
+        }
         if (!codes.use(code)) {
+            if (!code.isNullOrBlank()) limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
             response.status = HttpServletResponse.SC_FOUND
             response.setHeader(HttpHeaders.LOCATION, "/?signin=expired")
             return

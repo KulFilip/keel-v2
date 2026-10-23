@@ -29,6 +29,8 @@ data class KeelProperties(
     val allowedHosts: String = "",
     /** v0.18.1 other origins keel's own page may come from (KEEL_DEV_ORIGINS, comma-separated): the Vite dev server. */
     val devOrigins: String = "",
+    /** This keel's name (KEEL_NAME, set by keel2): what a paired phone shows. Blank = "keel". */
+    val name: String = "",
 ) {
     /** The command for keel's builtin MCP server. */
     val mcpPythonCommand: String by lazy {

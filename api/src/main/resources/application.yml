@@ -37,6 +37,7 @@ keel:
   public-url: ${KEEL_PUBLIC_URL:}
   allowed-hosts: ${KEEL_ALLOWED_HOSTS:}
   dev-origins: ${KEEL_DEV_ORIGINS:}
+  name: ${KEEL_NAME:}
 
 logging:
   level:
