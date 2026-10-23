@@ -1,4 +1,4 @@
-# keel v2 — GitHub, Ideas inbox, org memory, Vertex AI (plan, not started)
+# keel v2 — GitHub, Ideas inbox, org memory, Vertex AI, local models (plan, not started)
 
 Status: **plan only, nothing built.** Written on 2026-10-23 (keel 0.18.44) from a tester's feature list. Do not start
 before the person says so.
@@ -9,7 +9,7 @@ The feature list was checked against the code (0.18.44). What keel already has s
 
 | Request                                                | Today                                                                                       | Where                                                                        |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Git worktrees for parallel work                        | yes: a flow runs in the project folder or in its own worktree                               | `api/.../flow/FlowService.kt` (`where = folder                               | worktree`), Flyway V8 |
+| Git worktrees for parallel work                        | yes: a flow runs in the project folder or in its own worktree                               | `api/.../flow/FlowService.kt` (`where`: folder or worktree), Flyway V8       |
 | Idea → spec → test → code → review → PR                | yes: keel's flows                                                                           | `content/workflows`, `engine/keel_engine/runtime`                            |
 | Ideas as tasks                                         | yes: Tasks board (local or Jira), a task starts a flow; KeelBot hands a chat over to a flow | `plugins/tasks`, `plugins/keelbot` (`Helper.kt` handover)                    |
 | PM view: Initiative → Epic → Story, teams, ticket keys | yes (Product edition)                                                                       | `plugins/jira`, `plugins/tasks`, `docs/product/pm-jira-teams-design.md`      |
@@ -93,11 +93,37 @@ org- and instance-wide memory; running against an org's Copilot budget; Vertex A
 - Fits the existing model catalog (`catalog.py` modes, efforts) and the API runner (`api_runner.py`); usage and cost
   from Vertex's token counts.
 
+## 8b. Local models (Ollama, LM Studio, vLLM, llama.cpp) as a plugin
+
+Added on 2026-10-23 at the person's request. Today keel has no local model: only Claude, Codex, Copilot (CLI,
+OpenCode, GitHub Models) and the fake model. The API runner already talks to an OpenAI-style endpoint with a base URL
+(`api_runner.py`: `ChatOpenAI(..., base_url=GITHUB_MODELS_URL)`), so local servers fit without new model code.
+
+- **A plugin `local-models`** (engine part + web settings), off by default. It adds a provider `local` to the model
+  catalog with one or more **endpoints**: name, kind (Ollama, LM Studio, vLLM, llama.cpp server, any OpenAI-compatible
+  URL), base URL, an optional key.
+- **Reaching the host from Docker:** keel runs in a container, so `localhost` there is the container. The endpoint
+  default is `http://host.docker.internal:11434/v1` (Ollama) / `:1234/v1` (LM Studio); on Linux the launcher adds
+  `--add-host=host.docker.internal:host-gateway`. A native keel uses `http://127.0.0.1:…`.
+- **Models:** listed from the server (`GET /api/tags` for Ollama, `GET /v1/models` for the others), cached like the
+  other probes (`_cached`); shown in Settings › Models and the Agents page with a "local" badge.
+- **Tools:** keel's agents need tool calls. A model that cannot call tools is offered only for "ask" kinds (KeelBot Ask,
+  "Is the reviewer right?", summaries), never for code steps; keel checks this once per model with a tiny tool-call
+  test and remembers the answer.
+- **Cost and budget:** tokens counted from the server's usage fields, cost $0 (or a price the person sets); the budget
+  caps still count tokens.
+- **Context size:** read from the server where it says it (Ollama `num_ctx`), else a setting; keel trims the prompt to
+  fit (the same packing as the judge's context).
+- **Effort:** none, unless the server exposes a reasoning setting (then mapped like the Copilot effort).
+- **Use cases:** the cheap model for KeelBot Ask and the review check, offline work, code that may not leave the
+  machine (a project setting "local models only" refuses cloud providers for that project).
+- **Tests:** a fake OpenAI-compatible server in the tests (list models, chat with and without tool calls, usage).
+
 ## 9. Order (when the person says go)
 
 1. GitHub plugin: Issues ↔ Tasks, then repos (discover, clone, create).
 2. Ideas inbox (uses 1 for new projects and Issues as a source).
-3. Vertex AI provider (small, independent).
+3. Vertex AI provider and the local models plugin (both small, independent).
 4. Memory levels: account first, org after sign-in.
 5. Sign in with GitHub (design change).
 6. Copilot cloud agent and session board (after checking the current GitHub API).
