@@ -13,6 +13,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0",
     "langchain-core>=0.3",
     "langchain-anthropic>=0.3",
+    "anthropic[vertex]>=1.0",       # Vertex AI: Claude through AnthropicVertex, google-auth for Gemini's token
     "langchain-openai>=0.3",
     "langchain-mcp-adapters>=0.1",
     "mcp>=1.9",

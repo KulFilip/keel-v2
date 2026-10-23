@@ -41,6 +41,10 @@ export const SECTIONS: Sec[] = [
       help: (v) => (v as Model | undefined)?.provider === "fake"
         ? "Not set: the fake model never runs a real flow, so keel pauses and asks instead. Claude Haiku is the usual choice."
         : "Used only when a cap or a plan window is nearly used and you choose to switch. Claude Haiku by default." },
+    { key: "local_only", label: "Local models only", def: false, kind: { t: "bool", on: "yes", off: "no" },
+      help: (v) => v === true
+        ? "This project's agents, KeelBot and the review check run only on local models: keel refuses a cloud model, so the code stays on your machines."
+        : "Any model may run this project's agents. Turn it on for code that may not leave your machines (local models: Connections › Local models)." },
   ] },
   { id: "budget", title: "Budget", sub: "When a flow stops for cost. Extra caps for one project are on the Budget page.", rows: [
     { key: "cap_tokens", label: "Cap per flow (tokens)", kind: { t: "tokens" }, help: "A flow stops at this many tokens and does what you pick below. Start a flow can set its own cap." },

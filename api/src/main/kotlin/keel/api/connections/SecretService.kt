@@ -24,6 +24,8 @@ class SecretService(
     private val jdbc: JdbcTemplate,
     private val props: KeelProperties,
     private val kinds: ObjectProvider<ConnectionKind>,
+    /** Local model servers and Vertex AI: their connection is the provider's key for the engine (a JSON). */
+    private val servers: ObjectProvider<ModelServerService>,
 ) {
     private val random = SecureRandom()
 
@@ -128,6 +130,7 @@ class SecretService(
 
     /** The API key for a provider: stored secret first, then the environment. */
     fun keyForProvider(provider: String): String? {
+        if (provider in ModelServerService.PROVIDERS) return servers.ifAvailable?.engineConfig(provider)
         val name = KEY_NAMES[provider] ?: return null
         return (get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() })?.let { clean(name, it) }
     }
@@ -140,7 +143,7 @@ class SecretService(
 
     /** The keys a flow or a test needs for this model, under the names the engine reads (StartThread.keys). */
     fun engineKeys(provider: String, mode: String): Map<String, String> =
-        if (mode == "api") keyForProvider(provider)?.let { mapOf(provider to it) } ?: emptyMap()
+        if (mode == "api" || provider in ModelServerService.PROVIDERS) keyForProvider(provider)?.let { mapOf(provider to it) } ?: emptyMap()
         else loginFor(provider)?.let { mapOf(ENGINE_LOGIN_KEY.getValue(provider) to it) } ?: emptyMap()
 
     private fun checkName(name: String) {

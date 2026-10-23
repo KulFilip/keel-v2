@@ -25,6 +25,23 @@ data class Model(
     }
 }
 
+/**
+ * 0.18.46 "Local models only" (setting local_only): code that may not leave the machine. Only local models (and the fake
+ * model, which sends nothing anywhere) may run this project's agents.
+ */
+object LocalOnly {
+    val ALLOWED = setOf("local", "fake")
+
+    /** Refuses when [s] says local models only and one of [models] is a cloud model. [what]: who would run it. */
+    fun check(s: Settings, models: Collection<Model>, what: String = "This project's agents") {
+        if (!s.localOnly) return
+        val cloud = models.filter { it.provider !in ALLOWED }.map { "${it.provider} ${it.model}".trim() }.distinct()
+        if (cloud.isEmpty()) return
+        throw BadRequest("This project uses local models only, but $what would use ${cloud.joinToString()}.",
+            "Pick a local model (Connections › Local models) in Settings › Models or Agents, or turn off \"Local models only\" for this project.")
+    }
+}
+
 /** Settings, general or effective. A project stores only the keys it overrides. */
 data class Settings(
     val gatesMode: String = "every-ac",
@@ -37,6 +54,8 @@ data class Settings(
     val reviewerModel: Model = Model(),
     /** Used when a cap or a plan window is near and you choose "cheaper": never the fake model by default. */
     val cheaperModel: Model = Model("claude", "subscription", "haiku"),
+    /** 0.18.46 this project's agents run on local models only (provider local): keel refuses a cloud model for them. */
+    val localOnly: Boolean = false,
     val capTokens: Int = 500_000,
     val onCap: String = "pause",
     /** Plan windows (5-hour, weekly): warn before a subscription agent at this much used, pause at usagePause. */
@@ -61,7 +80,7 @@ data class Settings(
         val RUN_MODES = setOf("manual", "important", "auto", "readonly")
         val KEYS = listOf(
             "gates_mode", "run_mode", "fix_attempts", "coverage_min", "default_model", "implementer_model",
-            "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
+            "reviewer_model", "cheaper_model", "local_only", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
             "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "keel_mode",
         )
         /** Settings of the whole keel only: a project cannot override them. */

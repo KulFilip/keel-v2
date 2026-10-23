@@ -425,6 +425,9 @@ cmd_start() {
               --label "keel2.project=$project" --label "keel2.docker=$docker_mode" --label "keel2.keelv1=$keel_v1"
               --label "keel2.core=$core"
               -e KEEL_PROJECT_NAME="$(basename "$project")")
+  # host.docker.internal reaches this computer from inside keel (a local model server: Ollama, LM Studio); Docker
+  # Desktop knows the name, Linux needs it added.
+  args+=(--add-host host.docker.internal:host-gateway)
   # keel v1 is not part of keel v2: a checkout given with --with-keel-v1 is mounted read-only, and only its MCP
   # server is offered (off) in Tools, like any other MCP server.
   if [ -n "$keel_v1" ]; then args+=(-v "$keel_v1:/opt/keel-v1-optional:ro"); fi
@@ -434,8 +437,7 @@ cmd_start() {
     local sock; sock="$(docker_socket)"
     [ -S "$sock" ] || [ "$(os)" = mac ] || die "No Docker socket at $sock." "Is Docker running? With rootless Docker set DOCKER_HOST=unix:///run/user/\$UID/docker.sock"
     local gid; gid="$(docker run --rm -v "$sock:/var/run/docker.sock" --entrypoint stat "$IMAGE" -c %g /var/run/docker.sock 2>/dev/null || echo 0)"
-    args+=(-v "$project:$project" -v "$sock:/var/run/docker.sock" --group-add "$gid"
-           --add-host host.docker.internal:host-gateway -e KEEL_WORKSPACE="$project")
+    args+=(-v "$project:$project" -v "$sock:/var/run/docker.sock" --group-add "$gid" -e KEEL_WORKSPACE="$project")
     warn "Docker access is on: keel's agents can start containers on this computer (that is as strong as root)."
   else
     args+=(-v "$project:/workspace")

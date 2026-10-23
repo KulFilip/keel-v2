@@ -204,6 +204,9 @@ class FlowService(
         }
         val notes = listOfNotNull(raisedNote) + limits.notes
         if (limits.cheaper) models.keys.toList().forEach { models[it] = s.cheaperModel }
+        // 0.18.46 local models only: the models this workflow's agents run on (and the cheaper one, when a cap may switch to it)
+        keel.api.settings.LocalOnly.check(s, used.map { models[it] ?: models.getValue("default") } + models.getValue("default") +
+            listOfNotNull(s.cheaperModel.takeIf { s.onCap == "cheaper" }), "this flow's agents")
 
         val allow = mcp.allow(pid)
         val steps = wf.steps.map { st ->

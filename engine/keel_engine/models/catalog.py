@@ -45,6 +45,22 @@ DEFAULT_PRICES: dict[str, dict] = {
     "copilot:gpt-4.1": {"in": 0.0, "out": 0.0, "premium": 0, "premium_usd": 0.04},
     "copilot:gpt-5-mini": {"in": 0.0, "out": 0.0, "premium": 0, "premium_usd": 0.04},
     "copilot:*": {"in": 0.0, "out": 0.0, "premium": 1, "premium_usd": 0.04},
+    # a model on the person's own machine costs nothing here; an endpoint can set its own price (local.price)
+    "local:*": {"in": 0.0, "out": 0.0},
+    # Vertex AI bills the Google Cloud project: Claude about Anthropic's own prices, Gemini Google's (prices.json)
+    "vertex:claude-opus-5-5": {"in": 4.0, "out": 20.0},
+    "vertex:claude-sonnet-5-5": {"in": 2.0, "out": 10.0},
+    "vertex:claude-haiku-5-5": {"in": 0.1, "out": 0.5},
+    "vertex:claude-fable-5-1": {"in": 10.0, "out": 50.0},
+    "vertex:claude-opus-5": {"in": 5.0, "out": 25.0},
+    "vertex:claude-sonnet-5": {"in": 2.0, "out": 10.0},
+    "vertex:claude-haiku-4-5@20251001": {"in": 1.0, "out": 5.0},
+    "vertex:gemini-3-pro-preview": {"in": 2.0, "out": 12.0},
+    "vertex:gemini-3-flash-preview": {"in": 0.5, "out": 3.0},
+    "vertex:gemini-2.5-pro": {"in": 1.25, "out": 10.0},
+    "vertex:gemini-2.5-flash": {"in": 0.3, "out": 2.5},
+    "vertex:gemini-2.5-flash-lite": {"in": 0.1, "out": 0.4},
+    "vertex:*": {"in": 2.0, "out": 10.0},
 }
 
 # Typical tokens (thousands, in/out) and retry rate per agent, used until there is history.
@@ -71,6 +87,8 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "claude:*": 200_000,
     "codex:*": 200_000,
     "copilot:*": 200_000,
+    "vertex:*": 200_000,
+    "local:*": 8_192,      # the server's own window when it says (local.context_for)
 }
 
 
@@ -350,7 +368,7 @@ def probe_opencode() -> list[dict] | None:
 
 
 def _public(models: list[dict]) -> list[dict]:
-    return [{k: v for k, v in m.items() if k in ("id", "label", "efforts")} for m in models]
+    return [{k: v for k, v in m.items() if k in ("id", "label", "efforts", "badge", "tools", "context")} for m in models]
 
 
 def _efforts_union(models: list[dict]) -> list[str]:
@@ -383,6 +401,12 @@ def efforts_for(provider: str, mode: str, model_id: str) -> list[str] | None:
         return [] if "haiku" in m and not re.search(r"haiku-[5-9]", m) else list(CLAUDE_EFFORTS)
     if provider == "codex":
         return None
+    if provider == "local":
+        return []           # a local server has no effort setting keel knows of
+    if provider == "vertex":
+        from . import vertex
+
+        return vertex.efforts(model_id)
     if provider == "copilot":
         if mode == "opencode":
             return opencode_efforts(model_id)
@@ -401,9 +425,15 @@ def effort_for(model: dict | None) -> str | None:
     return effort if allowed is None or effort in allowed else None
 
 
-def build_catalog() -> dict:
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {"codex": pool.submit(probe_codex), "copilot": pool.submit(probe_copilot), "opencode": pool.submit(probe_opencode)}
+def build_catalog(keys: dict | None = None) -> dict:
+    """keys: the providers' connections the api sends (POST /providers/models): `local` (the local model servers) and
+    `vertex` (project, region). A provider among them shows only when it is set up."""
+    from . import local, vertex
+
+    keys = keys or {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {"codex": pool.submit(probe_codex), "copilot": pool.submit(probe_copilot), "opencode": pool.submit(probe_opencode),
+                   "local": pool.submit(local.catalog_entry, keys.get("local"))}
         deadline = time.monotonic() + DEADLINE
         found = {}
         for name, fut in futures.items():
@@ -439,4 +469,11 @@ def build_catalog() -> dict:
 
     fake = {"label": "Fake", "modes": {"api": MODELS["fake"]}, "efforts": list(FAKE_EFFORTS), "default": {"mode": "api", "model": "fake"},
             "source": "builtin"}
-    return {"claude": claude, "codex": codex, "copilot": copilot, "fake": fake}
+    out = {"claude": claude, "codex": codex, "copilot": copilot}
+    vx = vertex.catalog_entry(keys.get("vertex"))
+    if vx:
+        out["vertex"] = vx
+    if found["local"]:
+        out["local"] = found["local"]
+    out["fake"] = fake
+    return out

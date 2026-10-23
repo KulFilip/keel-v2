@@ -56,7 +56,7 @@ class SecretsApiTest : ApiTest() {
     @Test
     fun `connections list every provider and the machine tools`() {
         val c = get("/api/connections").json()
-        assertThat(c["providers"].map { it["id"].asText() }).containsExactly("fake", "claude", "codex", "copilot")
+        assertThat(c["providers"].map { it["id"].asText() }).containsExactly("fake", "claude", "codex", "copilot", "vertex", "local")
         assertThat(c["providers"].first { it["id"].asText() == "copilot" }["modes"].map { it["id"].asText() })
             .containsExactly("subscription", "opencode", "api")
         // keel v1 is not part of keel v2 (0.4.1): the machine list has no "keel" row any more

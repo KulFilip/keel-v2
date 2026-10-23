@@ -12,7 +12,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 data class Month(val tokens: Long, val costUsd: Double, val premiumRequests: Long, val flows: Int)
-data class Day(val day: String, val claude: Long, val codex: Long, val copilot: Long, val fake: Long)
+data class Day(val day: String, val claude: Long, val codex: Long, val copilot: Long, val fake: Long, val vertex: Long = 0, val local: Long = 0)
 /** A cap as the budget page shows it: the contract Cap plus a readable name and where it comes from. */
 data class BudgetCap(
     val id: String,
@@ -88,7 +88,7 @@ class BudgetService(
         ).groupBy { it.first }
         val days = (0L..13L).map { first.plusDays(it) }.map { d ->
             val rows = byDay[d.format(DateTimeFormatter.ISO_LOCAL_DATE)].orEmpty().associate { it.second to it.third }
-            Day(d.toString(), rows["claude"] ?: 0, rows["codex"] ?: 0, rows["copilot"] ?: 0, rows["fake"] ?: 0)
+            Day(d.toString(), rows["claude"] ?: 0, rows["codex"] ?: 0, rows["copilot"] ?: 0, rows["fake"] ?: 0, rows["vertex"] ?: 0, rows["local"] ?: 0)
         }
 
         val s = settings.effective(pid)

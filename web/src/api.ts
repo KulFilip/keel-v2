@@ -5,7 +5,8 @@ import { signInNeeded } from "./signIn";
 
 // ---------- shared types (copied from CONTRACT.md) ----------
 
-export type Provider = "fake" | "claude" | "codex" | "copilot";
+/** 0.18.46 vertex (Google Vertex AI) and local (a model server: Ollama, LM Studio, vLLM, llama.cpp) run in mode "api". */
+export type Provider = "fake" | "claude" | "codex" | "copilot" | "vertex" | "local";
 export type Mode = "subscription" | "api" | "opencode";
 export type Model = { provider: Provider; mode: Mode; model: string; effort?: string };
 
@@ -723,8 +724,10 @@ export type FlowLimits = {
 };
 export type CapsLeft = { caps: CapLeft[]; next_flow: FlowLimits };
 /** v0.3 model catalog (`GET /api/providers/models`): per provider, the models of each mode and the effort choices. */
-export type CatalogModel = { id: string; label: string; efforts?: string[] };
-export type CatalogSource = "cli" | "cache" | "builtin";
+/** 0.18.46 badge: "local" for a model on a local server; tools: false = it cannot call tools (ask-type uses only);
+ *  context: its window in tokens, when the server says. */
+export type CatalogModel = { id: string; label: string; efforts?: string[]; badge?: string; tools?: boolean; context?: number };
+export type CatalogSource = "cli" | "cache" | "builtin" | "server";
 export type CatalogProvider = {
   label: string;
   /** Only the modes this provider has. */
@@ -845,6 +848,8 @@ export type Settings = {
   implementer_model: Model;
   reviewer_model: Model;
   cheaper_model: Model;
+  /** 0.18.46 this project's agents run on local models only: keel refuses a cloud model for them */
+  local_only?: boolean;
   cap_tokens: number;
   on_cap: OnCap;
   /** warn / pause before a subscription agent when its plan window is this used (0..1) */
@@ -882,6 +887,21 @@ export type Connections = {
   }[];
   machine: { name: string; ok: boolean; version?: string }[];
 };
+
+/** 0.18.46 Connections › Local models: the model servers (never their keys) and the URL each kind usually has. */
+export type LocalServerKind = "ollama" | "lmstudio" | "vllm" | "llamacpp" | "openai-compatible";
+export type LocalEndpoint = {
+  name: string; kind: LocalServerKind; url: string; context?: number | null; price_in?: number | null; price_out?: number | null;
+  key_set: boolean; key_hint?: string | null;
+};
+export type LocalModels = { enabled: boolean; endpoints: LocalEndpoint[]; kinds: LocalServerKind[]; defaults: Record<string, string> };
+export type LocalEndpointBody = {
+  kind: LocalServerKind; url: string; key?: string; clear_key?: boolean; context?: number | null; price_in?: number | null; price_out?: number | null;
+};
+export type LocalTest = { ok: boolean; ms: number; models?: { id: string; label?: string; context?: number }[]; error?: string; hint?: string };
+/** 0.18.46 Connections › Vertex AI: never the service-account key, only its account's e-mail. */
+export type VertexView = { project: string; region: string; credentials: "service-account" | "adc"; key_set: boolean; client_email?: string | null; ready: boolean };
+export type VertexBody = { project: string; region: string; credentials_json?: string; clear_credentials?: boolean };
 
 export type NotificationType = "review" | "failed" | "budget" | "finished" | "started";
 export type Notification = {
@@ -1213,6 +1233,14 @@ export const api = {
   connections: () => get<Connections>("/connections"),
   setMode: (provider: string, mode: Mode) => put<void>(`/connections/${e(provider)}`, { mode }),
   setSecret: (name: string, value: string) => put<{ hint: string }>(`/secrets/${e(name)}`, { value }),
+  // 0.18.46 local model servers and Vertex AI
+  localModels: () => get<LocalModels>("/providers/local"),
+  setLocalModels: (enabled: boolean) => put<LocalModels>("/providers/local", { enabled }),
+  saveLocalEndpoint: (name: string, body: LocalEndpointBody) => put<LocalModels>(`/providers/local/endpoints/${e(name)}`, body),
+  deleteLocalEndpoint: (name: string) => del<LocalModels>(`/providers/local/endpoints/${e(name)}`),
+  testLocalEndpoint: (name: string) => post<LocalTest>(`/providers/local/endpoints/${e(name)}/test`),
+  vertex: () => get<VertexView>("/providers/vertex"),
+  saveVertex: (body: VertexBody) => put<VertexView>("/providers/vertex", body),
   deleteSecret: (name: string) => del(`/secrets/${e(name)}`),
   // v0.10.0 plugins: Database and Git
   plugins: (pid: string) => get<Plugin[]>(`/projects/${e(pid)}/plugins`),

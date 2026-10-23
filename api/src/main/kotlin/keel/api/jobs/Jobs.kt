@@ -142,7 +142,7 @@ class JobService(private val jdbc: JdbcTemplate) {
             "coalesce(model, '') || ' ' || coalesce(step, '') || ' ' || coalesce(phase, '') || ' ' || coalesce(ac, '') || ' ' || status"
 
         /** The provider names the web shows (web/src/format.ts PROV), so a search for "GPT" finds codex calls. */
-        private val PROVIDER_NAMES = mapOf("claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot", "fake" to "Fake model")
+        private val PROVIDER_NAMES = mapOf("claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot", "vertex" to "Vertex AI", "local" to "Local model", "fake" to "Fake model")
 
         /** At most 8 lower-case words. */
         fun searchWords(q: String?): List<String> =
