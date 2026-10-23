@@ -31,7 +31,8 @@ async def argv_of(tmp_path, monkeypatch, tool: str, runner, model: dict) -> list
     return (tmp_path / "argv").read_text().splitlines()
 
 
-def test_effort_for_keeps_only_what_the_model_takes():
+def test_effort_for_keeps_only_what_the_model_takes(monkeypatch):
+    monkeypatch.setenv("KEEL_COPILOT_BIN", "/nonexistent/copilot")   # a Copilot CLI on this machine must not count
     eff = catalog.effort_for
     assert eff({"provider": "claude", "mode": "subscription", "model": "sonnet", "effort": "xhigh"}) == "xhigh"
     assert eff({"provider": "claude", "mode": "api", "model": "claude-opus-5-5", "effort": "MAX"}) == "max"
@@ -49,7 +50,8 @@ def test_effort_for_keeps_only_what_the_model_takes():
     assert eff(None) is None
 
 
-def test_the_catalog_says_which_models_take_an_effort():
+def test_the_catalog_says_which_models_take_an_effort(monkeypatch):
+    monkeypatch.setenv("KEEL_COPILOT_BIN", "/nonexistent/copilot")   # a Copilot CLI on this machine must not count
     cat = catalog.build_catalog()
     claude = {m["id"]: m.get("efforts") for m in cat["claude"]["modes"]["subscription"]}
     assert claude["sonnet"] == ["low", "medium", "high", "xhigh", "max"] and claude["haiku"] == []
