@@ -55,6 +55,8 @@ const isThreadFilter = (v: unknown): v is ThreadFilter =>
   v === "waiting" || v === "open" || v === "resolved" || v === "all";
 const isIds = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
+/** how many dismissed answers one review remembers (the oldest are forgotten first) */
+export const HIDDEN_RUNS_CAP = 200;
 
 // ---------------------------------------------------------------- small helpers (exported for tests)
 
@@ -195,6 +197,19 @@ export function ThreadsView({
     [],
     { valid: isIds },
   );
+  // keel's answers you dismissed (a check, an extra button's answer), by thread and run, kept in this browser: the saved
+  // answer stays on the server and comes back at once when you ask again; a new run shows by itself
+  const [hiddenRuns, setHiddenRuns] = useStored<string[]>(
+    `keel2.review.judgeHidden.${pid}.${reviewKey}`,
+    [],
+    { store: "local", valid: isIds },
+  );
+  const hideRun = (id: string) =>
+    setHiddenRuns((h) =>
+      h.includes(id) ? h : [...h, id].slice(-HIDDEN_RUNS_CAP),
+    );
+  const showRun = (id: string) =>
+    setHiddenRuns((h) => h.filter((x) => x !== id));
   const toggleUnfolded = (id: string) =>
     setUnfolded((u) =>
       // ids of threads that are not in the review any more fall away
@@ -243,6 +258,9 @@ export function ThreadsView({
       ai={ai}
       running={running}
       seen={seen}
+      hidden={hiddenRuns}
+      onHide={hideRun}
+      onShow={showRun}
       onOpen={onOpen}
     />
   );
@@ -550,6 +568,9 @@ function ThreadBox({
   ai,
   running,
   seen,
+  hidden = [],
+  onHide,
+  onShow,
   onOpen,
 }: {
   pid: string;
@@ -559,6 +580,10 @@ function ThreadBox({
   ai: AiState | null;
   running: string[];
   seen: string | null;
+  /** the answers dismissed in this review: "<thread>|<run>" for a check, "<thread>|<button>|<run>" for a button's */
+  hidden?: string[];
+  onHide?: (id: string) => void;
+  onShow?: (id: string) => void;
   onOpen: Open;
 }) {
   const assistant = useSlot(SLOTS.assistant).length > 0;
@@ -582,6 +607,13 @@ function ThreadBox({
   const judging =
     running.includes(`judge:${t.id}`) || judge?.status === "running";
   const addressing = running.includes(`address:${t.id}`);
+  // keel's check you dismissed: hidden until you ask again (the saved answer, no new call) or a new check runs
+  const judgeId = judge ? `${t.id}|${judge.id}` : null;
+  const judgeHidden = !!judgeId && !judging && hidden.includes(judgeId);
+  const buttonRunId = (b: ThreadButtonInfo) => {
+    const run = ai?.buttons?.[`${b.id}|${t.id}`];
+    return run ? `${t.id}|${b.id}|${run.id}` : null;
+  };
   const waiting = waitsForYou(t, view.me);
   const canWork = view.kind === "pr" && !t.pending;
   const [dir, name] = pathParts(t.path ?? "");
@@ -704,7 +736,7 @@ function ThreadBox({
         {t.comments.map((c) => (
           <Message key={c.id} c={c} view={view} seen={seen} />
         ))}
-        {(judge || judging) && (
+        {(judge || judging) && !judgeHidden && (
           <CheckBox
             run={judge}
             busy={judging}
@@ -718,21 +750,28 @@ function ThreadBox({
             onAddress={(r) => setConfirm({ note: judgeNote(r) })}
             onAsk={followUp}
             onAgain={(harder) => void check({ again: true, harder })}
+            onDismiss={judgeId && onHide ? () => onHide(judgeId) : undefined}
           />
         )}
-        {(cfg?.buttons ?? []).map((b) => (
-          <ButtonAnswer
-            key={b.id}
-            b={b}
-            run={ai?.buttons?.[`${b.id}|${t.id}`] ?? null}
-            busy={running.includes(`button:${b.id}|${t.id}`)}
-            canPost={view.can_post && !t.pending}
-            onUse={useReply}
-            onAgain={() =>
-              void R.runButton(pid, reviewKey, t.id, b.id, { again: true })
-            }
-          />
-        ))}
+        {(cfg?.buttons ?? []).map((b) => {
+          const runId = buttonRunId(b);
+          const busyB = running.includes(`button:${b.id}|${t.id}`);
+          if (runId && !busyB && hidden.includes(runId)) return null;
+          return (
+            <ButtonAnswer
+              key={b.id}
+              b={b}
+              run={ai?.buttons?.[`${b.id}|${t.id}`] ?? null}
+              busy={busyB}
+              canPost={view.can_post && !t.pending}
+              onUse={useReply}
+              onAgain={() =>
+                void R.runButton(pid, reviewKey, t.id, b.id, { again: true })
+              }
+              onDismiss={runId && onHide ? () => onHide(runId) : undefined}
+            />
+          );
+        })}
         {(addressed || started) && (
           <p className="rv-tnote" role="status">
             {started ??
@@ -836,7 +875,10 @@ function ThreadBox({
                 ? `One quick check of this thread's lines: about ${kfmt(lo)}–${kfmt(hi)} tokens`
                 : `Runs the ${cfg?.judge?.workflow ?? "review"} workflow`
             }
-            onClick={() => void check()}
+            onClick={() =>
+              // a dismissed answer comes back as it was saved: no new check
+              judgeHidden && judgeId && onShow ? onShow(judgeId) : void check()
+            }
           >
             {judging ? "keel is checking…" : "✦ Is the reviewer right?"}
             {quick && !judge && !judging && (
@@ -873,11 +915,17 @@ function ThreadBox({
                   ? `Asks ${b.agent} (one quick call)`
                   : `Runs the ${b.workflow} workflow`
               }
-              onClick={() =>
+              onClick={() => {
+                // a dismissed answer comes back as it was saved: no new run
+                const runId = buttonRunId(b);
+                if (runId && hidden.includes(runId) && onShow) {
+                  onShow(runId);
+                  return;
+                }
                 void R.runButton(pid, reviewKey, t.id, b.id).then((s) => {
                   if (!s) failed(`keel could not run ${b.label}`);
-                })
-              }
+                });
+              }}
             >
               {b.label}
             </button>
@@ -943,6 +991,7 @@ export function CheckBox({
   onAddress,
   onAsk,
   onAgain,
+  onDismiss,
 }: {
   run: AiRun<JudgeResult> | null;
   busy: boolean;
@@ -956,6 +1005,8 @@ export function CheckBox({
   onAddress: (r: JudgeResult | null) => void;
   onAsk: (r: JudgeResult | null) => void;
   onAgain: (harder: boolean) => void;
+  /** hide this answer (it stays saved) */
+  onDismiss?: () => void;
 }) {
   const r = run?.result ?? null;
   const done = run?.status === "done" && r?.stage === "done";
@@ -986,6 +1037,9 @@ export function CheckBox({
           <span className="rv-dim rv-check-cost">
             {costLine(r, run?.updated_at)}
           </span>
+        )}
+        {!busy && onDismiss && (
+          <DismissX label="Dismiss keel's check" onClick={onDismiss} />
         )}
       </div>
       {busy && (
@@ -1089,10 +1143,35 @@ export function CheckBox({
                 Think harder
               </button>
             )}
+            {onDismiss && (
+              <button
+                type="button"
+                className="btn sm ghost rv-dismiss"
+                title="Hide keel's answer (asking again shows it, without a new check)"
+                onClick={onDismiss}
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         </>
       )}
     </section>
+  );
+}
+
+/** The small ✕ in the top-right corner of keel's answer: hides it (it stays saved). */
+function DismissX({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="rv-check-x"
+      aria-label={label}
+      title="Dismiss"
+      onClick={onClick}
+    >
+      ✕
+    </button>
   );
 }
 
@@ -1105,6 +1184,7 @@ function ButtonAnswer({
   canPost,
   onUse,
   onAgain,
+  onDismiss,
 }: {
   b: ThreadButtonInfo;
   run: AiRun<JudgeResult> | null;
@@ -1112,6 +1192,8 @@ function ButtonAnswer({
   canPost: boolean;
   onUse: (text: string) => void;
   onAgain: () => void;
+  /** hide this answer (it stays saved) */
+  onDismiss?: () => void;
 }) {
   if (!run && !busy) return null;
   const r = run?.result ?? null;
@@ -1132,6 +1214,9 @@ function ButtonAnswer({
           <span className="rv-dim rv-check-cost">
             {costLine(r, run.updated_at)}
           </span>
+        )}
+        {!working && onDismiss && (
+          <DismissX label={`Dismiss ${b.label}`} onClick={onDismiss} />
         )}
       </div>
       {working && <span className="pg-spin">keel is on it…</span>}
@@ -1169,6 +1254,16 @@ function ButtonAnswer({
             <button type="button" className="btn sm ghost" onClick={onAgain}>
               Ask again
             </button>
+            {onDismiss && (
+              <button
+                type="button"
+                className="btn sm ghost rv-dismiss"
+                title="Hide this answer (asking again shows it, without a new run)"
+                onClick={onDismiss}
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         </>
       )}

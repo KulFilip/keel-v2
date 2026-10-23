@@ -26,6 +26,7 @@ import * as R from "../store";
 import {
   ago,
   estimate,
+  HIDDEN_RUNS_CAP,
   ThreadsView,
   verdictLabel,
   waitsForYou,
@@ -756,5 +757,130 @@ describe("Settings › Code Review threads", () => {
       screen.getByRole("option", { name: "ticket-reviewer (now pr-reviewer)" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "pr-reviewer" })).toBeInTheDocument();
+  });
+});
+
+describe("dismissing keel's answer under a thread", () => {
+  const HIDDEN = `keel2.review.judgeHidden.${PID}.${KEY}`;
+  const checked = (id = "rr_1") =>
+    AI({
+      judges: {
+        T1: run(
+          {
+            stage: "done",
+            items: [{ claim: "indexes", verdict: "unclear", why: "maybe" }],
+            reply: "Let me look.",
+          },
+          { id },
+        ),
+      },
+    });
+  const checkBox = () =>
+    within(card(/line 2–3/)).queryByRole("region", {
+      name: "keel checked this thread",
+    });
+
+  it("Dismiss hides the check, it stays hidden after a remount, and asking again shows the saved one with no new check", async () => {
+    const { calls } = api(checked());
+    const first = show(checked());
+    await userEvent.click(
+      within(checkBox()!).getByRole("button", { name: "Dismiss" }),
+    );
+    expect(checkBox()).toBeNull();
+    expect(JSON.parse(localStorage.getItem(HIDDEN)!)).toEqual(["T1|rr_1"]);
+
+    first.unmount();
+    show(checked());
+    expect(checkBox()).toBeNull();
+    await userEvent.click(
+      within(card(/line 2–3/)).getByRole("button", {
+        name: /Is the reviewer right/,
+      }),
+    );
+    expect(checkBox()).not.toBeNull();
+    expect(within(checkBox()!).getByText("UNCLEAR")).toBeInTheDocument();
+    expect(calls.filter((x) => x.path.endsWith("/judge"))).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(HIDDEN)!)).toEqual([]);
+  });
+
+  it("the ✕ hides it too, and a new check (another run) shows again", async () => {
+    api(checked());
+    const first = show(checked());
+    await userEvent.click(
+      within(card(/line 2–3/)).getByRole("button", {
+        name: "Dismiss keel's check",
+      }),
+    );
+    expect(checkBox()).toBeNull();
+    first.unmount();
+    show(checked("rr_2"));
+    expect(checkBox()).not.toBeNull();
+  });
+
+  it("dismisses an extra button's answer, and the button shows the saved answer again without a new run", async () => {
+    const withButton = AI({
+      config: {
+        judge: {
+          mode: "quick",
+          workflow: "review",
+          allow_harder: true,
+          token_cap: 25000,
+          agent: "pr-reviewer",
+        },
+        address_workflow: "small",
+        buttons: [
+          {
+            id: "explain-simply",
+            label: "Explain simply",
+            mode: "ask",
+            agent: "explorer",
+          },
+        ],
+      },
+      buttons: {
+        "explain-simply|T1": run(
+          { stage: "done", text: "It keeps the size per user." },
+          { id: "rb_1", kind: "button" },
+        ),
+      },
+    });
+    const { calls } = api(withButton);
+    const first = show(withButton);
+    const t1 = () => card(/line 2–3/);
+    expect(
+      within(t1()).getByText("It keeps the size per user."),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(t1()).getByRole("button", { name: "Dismiss Explain simply" }),
+    );
+    expect(within(t1()).queryByText("It keeps the size per user.")).toBeNull();
+    first.unmount();
+    show(withButton);
+    expect(within(t1()).queryByText("It keeps the size per user.")).toBeNull();
+    await userEvent.click(
+      within(t1()).getByRole("button", { name: "Explain simply" }),
+    );
+    expect(
+      within(t1()).getByText("It keeps the size per user."),
+    ).toBeInTheDocument();
+    expect(calls.filter((x) => x.path.includes("/buttons/"))).toEqual([]);
+  });
+
+  it("remembers at most the cap of dismissed answers per review", async () => {
+    localStorage.setItem(
+      HIDDEN,
+      JSON.stringify(
+        Array.from({ length: HIDDEN_RUNS_CAP }, (_, i) => `old|r${i}`),
+      ),
+    );
+    api(checked());
+    show(checked());
+    await userEvent.click(
+      within(checkBox()!).getByRole("button", { name: "Dismiss" }),
+    );
+    const kept = JSON.parse(localStorage.getItem(HIDDEN)!) as string[];
+    expect(kept).toHaveLength(HIDDEN_RUNS_CAP);
+    expect(kept.at(-1)).toBe("T1|rr_1");
+    expect(kept).not.toContain("old|r0");
   });
 });
