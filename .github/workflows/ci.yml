@@ -62,6 +62,8 @@ jobs:
       - run: shellcheck -S warning scripts/test-keel2-worktree.sh && bash scripts/test-keel2-worktree.sh
       # backup and restore never cost the data: the archive is checked first, keel starts again, the file is private (fake docker)
       - run: shellcheck -S warning scripts/test-keel2-backup.sh && bash scripts/test-keel2-backup.sh
+      # phone access: start --wifi, share tailscale | tunnel | off (fake docker, curl, tailscale, cloudflared; nothing real)
+      - run: shellcheck -S warning scripts/test-keel2-remote.sh && bash scripts/test-keel2-remote.sh
       # the plugin publishing scripts (docs/plugins/14-publishing.md), and step 5's: the plugin repos and plugins.lock
       - run: shellcheck -S warning docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
       - run: shellcheck -S warning docs/plugins/tools/split-plugin.sh scripts/build-plugin-repo.sh scripts/fetch-locked-plugins.sh scripts/update-plugins-lock.sh

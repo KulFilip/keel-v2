@@ -14,8 +14,8 @@ set -euo pipefail
 export KEEL_NATIVE=1
 export KEEL_CONTENT="${KEEL_CONTENT:-$KEEL_APP/content}"
 export KEEL_PORT="${KEEL_PORT:-8080}"
-# the api has no login: on this computer it must listen on 127.0.0.1 only (Docker publishes 127.0.0.1:<port> instead)
-export SERVER_ADDRESS=127.0.0.1
+# 127.0.0.1 only, unless keel2 start --native --wifi asked for the network (KEEL_BIND): every call needs a sign-in (api LocalAuth)
+export SERVER_ADDRESS="${KEEL_BIND:-127.0.0.1}"
 export KEEL_ENGINE_PORT="${KEEL_ENGINE_PORT:-8090}"
 export KEEL_ENGINE_URL="http://127.0.0.1:$KEEL_ENGINE_PORT"
 export KEEL_API_URL="http://127.0.0.1:$KEEL_PORT"

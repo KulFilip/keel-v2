@@ -43,6 +43,14 @@
 #   keel2 plugins search [words] | update <name> | rollback <name>
 #   keel2 plugins safe          restart keel in safe mode: only the plugins inside the image load
 #   keel2 uninstall [--all]     remove the container, or stop a native keel (--all: also keel's data, after you confirm)
+#
+# Use keel from your phone (keel's Android app; pair it in the dashboard: Settings › Devices › Pair a phone):
+#   keel2 start --wifi [dir]    reachable on your Wi-Fi (plain http inside the network); restart keeps it, a start
+#                               without --wifi goes back to this computer only (KEEL_BIND=0.0.0.0 or an address: the same)
+#   keel2 share tailscale       https on your tailnet with `tailscale serve` (keel itself stays on 127.0.0.1)
+#   keel2 share tunnel          a public https address (Cloudflare quick tunnel; asks first: anyone can reach the page,
+#                               a phone still has to pair and the dashboard still needs your sign-in)
+#   keel2 share off [tailscale|tunnel]   stop sharing (both without a name) · keel2 share: what is shared now
 #   keel2 version | help
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
@@ -51,6 +59,8 @@
 # --core.
 # Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning, and to restore's question), KEEL_NATIVE_CLIS=0 (no agent CLIs),
 # KEEL_RELEASE_URL (where releases are downloaded from).
+# Phone: KEEL_BIND (127.0.0.1 default; --wifi = 0.0.0.0), KEEL_LAN_IP (the Wi-Fi address to show, when the guess is wrong),
+# KEEL_CLOUDFLARED_IMAGE (the tunnel's image when cloudflared is not installed), KEEL_YES=1 (yes to the tunnel's question).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
@@ -348,8 +358,12 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
 # ---------------------------------------------------------------- commands
 cmd_start() {
   local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" plugins="${KEEL_PLUGINS:-}" core=0 native=0 tgz="" src=""
+  local bind="${KEEL_BIND:-127.0.0.1}"
   while [ $# -gt 0 ]; do
     case "$1" in
+      --wifi) bind=0.0.0.0 ;;
+      --no-wifi) bind=127.0.0.1 ;;
+      --bind) [ $# -ge 2 ] || die "--bind needs an address (0.0.0.0, or one of this computer's)"; bind="$2"; shift ;;
       --docker) docker_mode=1 ;;
       --no-docker) docker_mode=0 ;;
       --safe) plugins=image ;;
@@ -368,6 +382,7 @@ cmd_start() {
     shift
   done
   case "$plugins" in ""|on|image|off) ;; *) die "KEEL_PLUGINS must be on, image or off (it is '$plugins')." ;; esac
+  bind_check "$bind"
   # --core: the core image (no plugin inside); KEEL_IMAGE, when set, still wins
   if [ "$core" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
   local project; project="$(project_path "${folder:-.}")"
@@ -376,7 +391,7 @@ cmd_start() {
     # the release holds every plugin (as the full image does); --core is the core image's, a Docker one
     [ "$core" = 1 ] && die "--core is for the Docker image (keel's core only)." "Native mode has every plugin: start with --safe for only the release's, or KEEL_PLUGINS=off for none."
     check_git "$project"
-    NATIVE_PLUGINS="$plugins"
+    NATIVE_PLUGINS="$plugins"; NATIVE_BIND="$bind"
     if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the release load. 'keel2 restart' loads all again."; fi
     native_start "$project" "$tgz" "$src"
     return 0
@@ -457,6 +472,10 @@ cmd_start() {
   if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the image load. 'keel2 restart' loads all again."; fi
   if [ "$core" = 1 ]; then info "  ${D}keel's core only: add the plugins you need in Control › Plugins (or a set: Developer, Review…).${N}"; fi
 
+  # phone access: --wifi / KEEL_BIND publishes keel on the network instead of 127.0.0.1 (remembered by the label)
+  local i; for i in "${!args[@]}"; do [ "${args[$i]}" = "127.0.0.1:$port:8080" ] && args[i]="$(publish_host "$bind"):$port:8080"; done
+  args+=(-e KEEL_NAME="$NAME" --label "keel2.bind=$bind")
+
   info "Starting keel for ${B}$project${N}…"
   [ ${#added[@]} = 0 ] || info "  ${D}and ${#added[@]} added folder(s): ${added[*]}${N}"
   local replaced=0
@@ -470,6 +489,8 @@ cmd_start() {
   fi
   wait_healthy "$port"
   ok "keel is running: ${B}http://localhost:$port${N}"
+  show_reach "$port" "$bind"
+  publish_addresses "$port"
   register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
@@ -516,6 +537,7 @@ cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the n
   if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
   local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
   if [ "$(label core)" = 1 ]; then extra+=(--core); fi
+  local b; b="$(label bind)"; if [ -n "$b" ] && [ -z "${KEEL_BIND:-}" ]; then extra+=(--bind "$b"); fi
   extra+=(${safe[@]+"${safe[@]}"})
   if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }
@@ -628,6 +650,7 @@ cmd_status() {
     off)   info "  plugins    off (KEEL_PLUGINS=off)" ;;
   esac
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
+  phone_line
   info "  data       volume $VOLUME"
 }
 
@@ -684,6 +707,249 @@ cmd_auth() {  # keel2 auth reset — v0.18.1 a new sign-in key (api auth/WebKey)
       [ -n "$k" ] || die "This keel has no sign-in key yet (keel 0.18.1 and newer make one)." "Update keel: keel2 update"
       printf '%s\n' "$k" ;;
     *) die "usage: keel2 auth reset | keel2 auth key" "reset makes a new sign-in key: every browser has to sign in again (keel2 open)." ;;
+  esac
+}
+
+# ---------------------------------------------------------------- phone access (keel's Android app)
+# keel2 start --wifi publishes keel on the network; keel2 share tailscale|tunnel gives it an https address. keel2 tells
+# keel every address it is reachable at (PUT /api/devices/addresses), for the pairing QR code in Settings › Devices.
+# What is shared lives in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.share/ (so it survives keel2 restart).
+CLOUDFLARED_IMAGE="${KEEL_CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.9.1}"
+TAILSCALE="${KEEL_TAILSCALE_BIN:-tailscale}"; CLOUDFLARED="${KEEL_CLOUDFLARED_BIN:-cloudflared}"   # tests: fakes
+share_dir() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/keel2/$NAME.share"; }
+
+bind_check() {  # bind_check <address>: 127.0.0.1, 0.0.0.0 or an IPv4 address of this computer
+  case "$1" in
+    127.0.0.1|0.0.0.0) return 0 ;;
+    *[!0-9.]*|"") die "KEEL_BIND / --bind must be an IPv4 address (it is '$1')." "keel2 start --wifi listens on every network (0.0.0.0)." ;;
+  esac
+}
+publish_host() { printf '%s' "$1"; }   # the address Docker publishes keel's port on
+
+lan_ips() {  # this computer's Wi-Fi / LAN addresses, one per line (KEEL_LAN_IP wins)
+  if [ -n "${KEEL_LAN_IP:-}" ]; then printf '%s\n' "$KEEL_LAN_IP" | tr ', ' '\n\n' | grep -v '^$' || true; return 0; fi
+  local ip i
+  {
+    if [ "$(os)" = mac ]; then
+      for i in en0 en1 en2 en3 en4 en5 en6; do
+        ip="$(ipconfig getifaddr "$i" 2>/dev/null || true)"; [ -n "$ip" ] && echo "$ip"
+      done
+    else
+      ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1 || true)"
+      if [ -n "$ip" ]; then echo "$ip"
+      else hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -vE '^(127|172\.17)\.' | head -3 || true; fi
+    fi
+  } | awk 'NF && !seen[$0]++'
+}
+
+wifi_urls() {  # wifi_urls <port> <bind>: the http URLs a phone on the same network uses
+  case "$2" in
+    127.0.0.1) return 0 ;;
+    0.0.0.0) local ip; while IFS= read -r ip; do echo "http://$ip:$1"; done < <(lan_ips) ;;
+    *) echo "http://$2:$1" ;;
+  esac
+}
+
+show_reach() {  # show_reach <port> <bind>: where a phone finds keel, after a start
+  [ "$2" = 127.0.0.1 ] && return 0
+  local u n=0
+  while IFS= read -r u; do ok "On your Wi-Fi: ${B}$u${N}"; n=1; done < <(wifi_urls "$1" "$2")
+  [ "$n" = 1 ] || warn "keel listens on the network ($2), but keel2 found no Wi-Fi address of this computer. Set KEEL_LAN_IP=<address>."
+  warn "Inside the Wi-Fi this is plain http: others on the network could read the traffic. Phones pair first (Settings › Devices)."
+  info "  ${D}https from anywhere: keel2 share tailscale · back to this computer only: keel2 start (without --wifi)${N}"
+}
+
+tunnel_alive() {
+  local d p; d="$(share_dir)"
+  if [ -f "$d/tunnel.pid" ]; then
+    p="$(cat "$d/tunnel.pid" 2>/dev/null || true)"
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null && ps -p "$p" -o command= 2>/dev/null | grep -q cloudflared
+    return
+  fi
+  [ -f "$d/tunnel.docker" ] && [ "$(docker inspect -f '{{.State.Running}}' "$(cat "$d/tunnel.docker")" 2>/dev/null || echo false)" = true ]
+}
+
+publish_addresses() {  # publish_addresses <port>: tells keel where it is reachable (an older keel ignores it)
+  local port="$1" bind d u json="" sep=""
+  bind="$(label bind)"; [ -n "$bind" ] || bind=127.0.0.1
+  d="$(share_dir)"
+  local items=()
+  while IFS= read -r u; do items+=("wifi $u"); done < <(wifi_urls "$port" "$bind")
+  if [ -f "$d/tailscale.url" ]; then
+    if [ "$(cat "$d/tailscale.port" 2>/dev/null)" = "$port" ]; then items+=("tailscale $(cat "$d/tailscale.url")")
+    else warn "keel moved to port $port, so the Tailscale address points nowhere: run keel2 share tailscale again"; fi
+  fi
+  if [ -f "$d/tunnel.url" ] && tunnel_alive; then
+    if [ "$(cat "$d/tunnel.port" 2>/dev/null)" = "$port" ]; then items+=("tunnel $(cat "$d/tunnel.url")")
+    else warn "keel moved to port $port, so the tunnel points nowhere: run keel2 share tunnel again"; fi
+  fi
+  local it; for it in ${items[@]+"${items[@]}"}; do
+    json="$json$sep{\"kind\":\"$(json_str "${it%% *}")\",\"url\":\"$(json_str "${it#* }")\"}"; sep=","
+  done
+  printf '{"urls":[%s]}' "$json" | kcurl -fsS -m 10 -X PUT -H 'Content-Type: application/json' --data-binary @- \
+    "$(api "$port")/devices/addresses" >/dev/null 2>&1 || true
+}
+
+share_port() {  # the running keel's port, or a clear stop
+  need_docker
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  running_port
+}
+
+share_tailscale() {
+  local port d st state dns serve hp url out
+  port="$(share_port)"; d="$(share_dir)"
+  command -v "$TAILSCALE" >/dev/null 2>&1 || die "Tailscale is not installed on this computer." \
+    "Install it (https://tailscale.com/download), sign in on this computer and on your phone, then: keel2 share tailscale"
+  st="$("$TAILSCALE" status --json 2>/dev/null)" || die "Tailscale does not answer." "Start the Tailscale app (Linux: sudo tailscale up), then try again."
+  { IFS= read -r state || true; IFS= read -r dns || true; } < <(printf '%s' "$st" | kpy -c 'import json, sys
+try: d = json.load(sys.stdin)
+except Exception: d = {}
+s = d.get("Self") or {}
+print(d.get("BackendState", "")); print((s.get("DNSName") or "").rstrip("."))')
+  [ "$state" = Running ] || die "Tailscale is not signed in or not connected (state: ${state:-unknown})." "Sign in: open the Tailscale app, or run: tailscale up"
+  [ -n "$dns" ] || die "Tailscale gave this computer no name." "Turn on MagicDNS in Tailscale's admin console (DNS), then try again."
+  # https on 443 when no other serve of yours uses it, else on keel's own port: keel2 never replaces your other serves
+  serve="$("$TAILSCALE" serve status --json 2>/dev/null | kpy -c 'import json, sys
+try: d = json.load(sys.stdin) or {}
+except Exception: d = {}
+port = sys.argv[1]
+tcp = d.get("TCP") or {}
+web = d.get("Web") or {}
+if "443" not in tcp: print("free"); sys.exit()
+mine = all(any(str(h.get("Proxy", "")).endswith(":" + port) for h in (v.get("Handlers") or {}).values())
+           for k, v in web.items() if k.endswith(":443"))
+print("mine" if mine else "taken")' "$port" || echo free)"
+  if [ "$serve" = taken ]; then hp="$port"; else hp=443; fi
+  info "Sharing keel on your tailnet (tailscale serve, https port $hp)…"
+  info "  ${D}If Tailscale asks you to turn on Serve or HTTPS certificates, follow its link, then run this again.${N}"
+  if ! out="$("$TAILSCALE" serve --bg --https="$hp" "http://127.0.0.1:$port" 2>&1 < /dev/null)"; then
+    printf '%s\n' "$out" | sed 's/^/    /'
+    die "tailscale serve did not work." "On Linux it may need: sudo tailscale set --operator=\$USER"
+  fi
+  if [ "$hp" = 443 ]; then url="https://$dns"; else url="https://$dns:$hp"; fi
+  mkdir -p "$d"
+  printf '%s\n' "$url" > "$d/tailscale.url"; printf '%s\n' "$port" > "$d/tailscale.port"; printf '%s\n' "$hp" > "$d/tailscale.https"
+  publish_addresses "$port"
+  ok "On your tailnet: ${B}$url${N}"
+  info "  ${D}Only your Tailscale devices reach it; keel itself still listens on 127.0.0.1. Pair a phone: Settings › Devices.${N}"
+  info "  ${D}Stop: keel2 share off tailscale${N}"
+}
+
+share_tunnel() {
+  local port d log url i cf
+  port="$(share_port)"; d="$(share_dir)"; mkdir -p "$d"
+  if [ ! -f "$d/tunnel.ok" ] && [ "${KEEL_YES:-0}" != 1 ]; then
+    warn "A tunnel gives keel a PUBLIC https address: anyone who has the link can reach keel's sign-in and pairing."
+    warn "Everything else still needs your sign-in or a paired phone, and wrong tries are slowed down."
+    if interactive; then ask_yes "Open a public tunnel?" || die "No tunnel opened."
+    else die "A tunnel is public, so keel2 asks first." "Run keel2 share tunnel in a terminal, or with KEEL_YES=1."; fi
+  fi
+  : > "$d/tunnel.ok"
+  share_stop_tunnel
+  log="$d/tunnel.log"; : > "$log"
+  cf="$(command -v "$CLOUDFLARED" || true)"
+  if [ -n "$cf" ]; then
+    nohup "$cf" tunnel --no-autoupdate --url "http://127.0.0.1:$port" >> "$log" 2>&1 < /dev/null &
+    echo $! > "$d/tunnel.pid"
+  else
+    command -v docker >/dev/null 2>&1 || die "A tunnel needs cloudflared or Docker." "Install cloudflared (macOS: brew install cloudflared), then try again."
+    docker info >/dev/null 2>&1 || die "Docker does not answer, and cloudflared is not installed." "Start Docker, or install cloudflared."
+    # Linux: the host's network (keel's port is on its 127.0.0.1); Docker Desktop: host.docker.internal reaches it
+    local net=(--network host) target="http://127.0.0.1:$port"
+    if [ "$(os)" != linux ]; then net=(--add-host=host.docker.internal:host-gateway); target="http://host.docker.internal:$port"; fi
+    docker rm -f "$NAME-tunnel" >/dev/null 2>&1 || true
+    docker run -d --name "$NAME-tunnel" --label "keel2.tunnel-for=$NAME" "${net[@]}" "$CLOUDFLARED_IMAGE" \
+      tunnel --no-autoupdate --url "$target" >/dev/null || die "Docker could not start the tunnel ($CLOUDFLARED_IMAGE)."
+    echo "$NAME-tunnel" > "$d/tunnel.docker"
+  fi
+  info "Opening a Cloudflare quick tunnel…"
+  url=""
+  for i in $(seq 1 "${KEEL_TUNNEL_WAIT:-40}"); do
+    if [ -f "$d/tunnel.docker" ]; then docker logs "$NAME-tunnel" > "$log" 2>&1 || true; fi
+    url="$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" 2>/dev/null | head -1 || true)"
+    [ -n "$url" ] && break
+    tunnel_alive || break
+    sleep 1
+  done
+  if [ -z "$url" ]; then
+    bad "The tunnel gave no address. Its last lines:"; tail -8 "$log" 2>/dev/null | sed 's/^/    /' || true
+    share_stop_tunnel
+    die "No tunnel." "Try again in a minute (Cloudflare's quick tunnels have no guarantee)."
+  fi
+  printf '%s\n' "$url" > "$d/tunnel.url"; printf '%s\n' "$port" > "$d/tunnel.port"
+  publish_addresses "$port"
+  ok "Public address: ${B}$url${N}"
+  warn "This address is public. A phone still has to pair, and the dashboard still needs your sign-in."
+  info "  ${D}It changes every time the tunnel starts. Stop: keel2 share off tunnel${N}"
+}
+
+share_stop_tunnel() {  # stops keel's tunnel (keel2's own process or container only), quietly
+  local d p; d="$(share_dir)"
+  if [ -f "$d/tunnel.pid" ]; then
+    p="$(cat "$d/tunnel.pid" 2>/dev/null || true)"
+    if [ -n "$p" ] && ps -p "$p" -o command= 2>/dev/null | grep -q cloudflared; then kill "$p" 2>/dev/null || true; fi
+  fi
+  if [ -f "$d/tunnel.docker" ]; then docker rm -f "$(cat "$d/tunnel.docker")" >/dev/null 2>&1 || true; fi
+  rm -f "$d/tunnel.pid" "$d/tunnel.docker" "$d/tunnel.url" "$d/tunnel.port"
+}
+
+share_stop_tailscale() {  # turns off keel's own serve (its https port only), quietly
+  local d hp; d="$(share_dir)"
+  [ -f "$d/tailscale.url" ] || return 0
+  hp="$(cat "$d/tailscale.https" 2>/dev/null || echo 443)"
+  if command -v "$TAILSCALE" >/dev/null 2>&1; then "$TAILSCALE" serve --https="$hp" off >/dev/null 2>&1 < /dev/null || warn "tailscale serve --https=$hp off did not work: see tailscale serve status"; fi
+  rm -f "$d/tailscale.url" "$d/tailscale.port" "$d/tailscale.https"
+}
+
+share_off() {  # share_off [tailscale|tunnel|all]
+  local what="${1:-all}" d port=""; d="$(share_dir)"
+  case "$what" in tailscale|tunnel|all) ;; *) die "usage: keel2 share off [tailscale|tunnel]" ;; esac
+  if [ "$what" != tunnel ]; then
+    if [ -f "$d/tailscale.url" ]; then share_stop_tailscale; ok "Tailscale sharing is off"; elif [ "$what" = tailscale ]; then info "keel is not shared on Tailscale."; fi
+  fi
+  if [ "$what" != tailscale ]; then
+    if [ -f "$d/tunnel.pid" ] || [ -f "$d/tunnel.docker" ]; then share_stop_tunnel; ok "The tunnel is closed"; elif [ "$what" = tunnel ]; then info "keel has no tunnel."; fi
+  fi
+  if keel_running; then port="$(running_port)"; [ -z "$port" ] || publish_addresses "$port"; fi
+}
+
+share_status() {
+  local d port="" bind u n=0; d="$(share_dir)"
+  if ! keel_running; then info "keel is ${B}not running${N}."; else port="$(running_port)"; fi
+  bind="$(label bind)"; [ -n "$bind" ] || bind=127.0.0.1
+  info "${B}keel2 share${N} — where your phone can reach keel"
+  [ -n "$port" ] && info "  this computer  http://localhost:$port"
+  if [ "$bind" = 127.0.0.1 ]; then info "  Wi-Fi          off ${D}(keel2 start --wifi)${N}"
+  else
+    while IFS= read -r u; do info "  Wi-Fi          $u ${D}(plain http)${N}"; n=1; done < <(wifi_urls "${port:-8080}" "$bind")
+    [ "$n" = 1 ] || info "  Wi-Fi          on ($bind), no address found ${D}(KEEL_LAN_IP=<address>)${N}"
+  fi
+  if [ -f "$d/tailscale.url" ]; then info "  Tailscale      $(cat "$d/tailscale.url")"
+  else info "  Tailscale      off ${D}(keel2 share tailscale)${N}"; fi
+  if [ -f "$d/tunnel.url" ]; then
+    if tunnel_alive; then info "  tunnel         $(cat "$d/tunnel.url") ${Y}(public)${N}"
+    else info "  tunnel         stopped ${D}(keel2 share tunnel opens a new one)${N}"; fi
+  else info "  tunnel         off ${D}(keel2 share tunnel)${N}"; fi
+  info "  ${D}Pair a phone: dashboard › Settings › Devices › Pair a phone${N}"
+}
+
+phone_line() {  # one line for keel2 status when keel is reachable beyond this computer
+  local b d parts=(); b="$(label bind)"; d="$(share_dir)"
+  if [ -n "$b" ] && [ "$b" != 127.0.0.1 ]; then parts+=("Wi-Fi"); fi
+  if [ -f "$d/tailscale.url" ]; then parts+=("Tailscale"); fi
+  if [ -f "$d/tunnel.url" ] && tunnel_alive; then parts+=("tunnel (public)"); fi
+  [ ${#parts[@]} = 0 ] || info "  phone      reachable on: ${parts[*]} (keel2 share)"
+}
+
+cmd_share() {  # keel2 share [tailscale | tunnel | off [tailscale|tunnel] | status]
+  local sub="${1:-status}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    tailscale) share_tailscale ;;
+    tunnel)    share_tunnel ;;
+    off|stop)  share_off "${1:-all}" ;;
+    status|"") share_status ;;
+    *) die "Unknown share command: $sub" "usage: keel2 share [tailscale | tunnel | off [tailscale|tunnel]]" ;;
   esac
 }
 
@@ -977,6 +1243,7 @@ cmd_uninstall() {
   resolve_volume
   # never delete a data volume another running keel still uses
   if [ "${1:-}" = "--all" ]; then volume_guard; fi
+  share_stop_tunnel; share_stop_tailscale   # nothing stays shared for a keel that is gone
   if container_exists; then remove_container; ok "removed the keel container"; fi
   if [ "${1:-}" = "--all" ]; then
     if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then info "No keel data to remove."; remove_folders_file; return 0; fi
@@ -1198,12 +1465,14 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   echo native > "$ND/mode"
   printf '%s\n' "$project" > "$ND/project"
   printf 'api=%s\nengine=%s\n' "$port" "$eport" > "$ND/run/ports"
+  # cmd_start sets NATIVE_BIND (a start without --wifi is 127.0.0.1); restart, update and restore keep the last one
+  local bind="${NATIVE_BIND:-${KEEL_BIND:-$(cat "$ND/bind" 2>/dev/null || echo 127.0.0.1)}}"; printf '%s\n' "$bind" > "$ND/bind"
   tok="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   (umask 077; printf '%s' "$tok" > "$ND/run/token")
   info "Starting keel natively for ${B}$project${N}…"
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" \
     KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
-    KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" \
+    KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" \
     nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"
   local i; for i in $(seq 1 180); do
@@ -1214,6 +1483,8 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   done
   curl -fs "$(api "$port")/health" >/dev/null 2>&1 || die "keel did not answer in 3 minutes." "See: keel2 logs"
   ok "keel is running natively: ${B}http://localhost:$port${N}"
+  show_reach "$port" "$bind"
+  publish_addresses "$port"
   local added=(); while IFS= read -r f; do [ "$f" != "$project" ] && [ -d "$f" ] && added+=("$f"); done < <(list_folders)
   register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Logs: keel2 logs${N}"
@@ -1240,6 +1511,7 @@ native_status() {
   info "  project    $(cat "$ND/project" 2>/dev/null)"
   local f; while IFS= read -r f; do info "  added      $f$([ -d "$f" ] || echo "  (missing)")"; done < <(list_folders)
   info "  files      $ND"
+  phone_line
   warn "agents run as you (native mode): they can read what you can."
 }
 
@@ -1341,6 +1613,7 @@ native_restore() {
 }
 
 native_uninstall() {
+  share_stop_tunnel; share_stop_tailscale
   native_running && native_stop_quiet
   if [ "${1:-}" = --all ]; then
     ask_yes "Remove $ND (keel's data, logins and history)?" || [ "${KEEL_YES:-0}" = 1 ] || die "Nothing removed."
@@ -1363,7 +1636,7 @@ if native_mode && ! docker_keel_running; then
   container_exists() { [ -f "$ND/project" ] && native_running; }
   container_running() { native_running; }
   running_port() { native_port; }
-  label() { case "$1" in project) cat "$ND/project" 2>/dev/null || true ;; docker) echo 0 ;; *) echo "" ;; esac; }
+  label() { case "$1" in project) cat "$ND/project" 2>/dev/null || true ;; docker) echo 0 ;; bind) cat "$ND/bind" 2>/dev/null || true ;; *) echo "" ;; esac; }
   keel_running() { native_running; }
   cmd_stop() {
     native_running || { info "keel is not running."; return 0; }
@@ -1372,7 +1645,7 @@ if native_mode && ! docker_keel_running; then
     native_stop_quiet && ok "keel stopped (your data and logins are kept in $ND/data)"
   }
   cmd_restart() {  # keel2 restart [--safe] [--force]
-    local a; NATIVE_PLUGINS=""
+    local a; NATIVE_PLUGINS=""; NATIVE_BIND="${KEEL_BIND:-$(cat "$ND/bind" 2>/dev/null || echo 127.0.0.1)}"
     for a in "$@"; do
       case "$a" in
         --force) KEEL_FORCE=1 ;;
@@ -1474,6 +1747,7 @@ case "$cmd" in
   folders)          cmd_folders ;;
   open)             cmd_open "$@" ;;
   auth)             cmd_auth "$@" ;;
+  share)            cmd_share "$@" ;;
   logs)             if native_mode && ! docker_keel_running; then [ -f "$ND/logs/keel.log" ] || die "keel has no log yet."; exec tail -n 100 -F "$ND/logs/keel.log"; fi
                     need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
   doctor|check)     cmd_doctor "$@" ;;
