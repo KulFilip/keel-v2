@@ -73,7 +73,10 @@ fun QuestionScreen(vm: FlowViewModel, onBack: () -> Unit, onFlow: () -> Unit) {
                 t == null -> EmptyState("This flow is gone", "keel does not know it any more.")
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     StepBars(stepOf(t.phase, t.status), K.c.accent, K.c.accentInk, big = true)
-                    ui.sent?.let { Banner(it, null, K.c.okSoft, K.c.okInk) }
+                    ui.sent?.let {
+                        Banner(it, null, K.c.okSoft, K.c.okInk)
+                        dev.keel.android.ui.common.PillButton("Follow the flow", onFlow, Modifier.fillMaxWidth())
+                    }
                     if (w == null || ui.form == null) {
                         if (ui.sent == null) EmptyState("Nothing to answer here now", "The flow is ${t.status}. Open the flow to see what it does.")
                     } else {

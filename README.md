@@ -129,6 +129,12 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 **Something wrong?** Run `keel2 doctor`. It tells you what to do.
 
+## On your phone
+
+The Android app ([android/](android/README.md)) answers keel's questions, follows flows, reviews pull request threads and
+chats with KeelBot. Start keel with `keel2 start --wifi`, open Settings › Phone (or run `keel2 pair`) and scan the QR code
+with the app. It talks to keel over your Wi-Fi, Tailscale or a tunnel; nothing goes through a server of ours.
+
 ## More
 
 - [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,
