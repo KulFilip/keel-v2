@@ -119,23 +119,23 @@ export function DevicesSection() {
     : true;
 
   return (
-    <div className="dv" data-testid="devices">
+    <div className="pdv" data-testid="devices">
       {err && (
-        <div className="dv-pad">
+        <div className="pdv-pad">
           <ErrorBox error={err} onRetry={() => void load()} />
         </div>
       )}
       {devices === null && !err && (
-        <p className="dv-pad sub">Loading devices…</p>
+        <p className="pdv-pad sub">Loading devices…</p>
       )}
       {devices !== null &&
         (devices.length === 0 ? (
-          <p className="dv-pad sub">No phone is paired yet.</p>
+          <p className="pdv-pad sub">No phone is paired yet.</p>
         ) : (
-          <ul className="dv-list" aria-label="Paired devices">
+          <ul className="pdv-list" aria-label="Paired devices">
             {devices.map((d) => (
-              <li key={d.id} className="dv-row">
-                <div className="dv-lab">
+              <li key={d.id} className="pdv-row">
+                <div className="pdv-lab">
                   <b>{d.name}</b>
                   <span className="sub">
                     {PLATFORM[d.platform] ?? d.platform}
@@ -149,7 +149,7 @@ export function DevicesSection() {
                     ) : null}
                   </span>
                 </div>
-                <div className="dv-ctl">
+                <div className="pdv-ctl">
                   {asking === d.id ? (
                     <Confirm
                       text={`Remove ${d.name}? It is signed out at once and has to pair again.`}
@@ -174,11 +174,11 @@ export function DevicesSection() {
           </ul>
         ))}
       {paired && (
-        <p className="dv-pad dv-ok" role="status">
+        <p className="pdv-pad pdv-ok" role="status">
           Paired: {paired}
         </p>
       )}
-      <div className="dv-pad dv-pair">
+      <div className="pdv-pad pdv-pair">
         {!pairing && (
           <button
             className="btn primary sm"
@@ -190,9 +190,9 @@ export function DevicesSection() {
           </button>
         )}
         {pairing && url && (
-          <div className="dv-qr" aria-label="Pair a phone" role="group">
+          <div className="pdv-qr" aria-label="Pair a phone" role="group">
             {!reachable && (
-              <p className="dv-hint" role="note">
+              <p className="pdv-hint" role="note">
                 keel only answers on this computer (127.0.0.1), so a phone
                 cannot reach it yet. Start keel with{" "}
                 <code>keel2 start --wifi</code> or{" "}
@@ -220,13 +220,13 @@ export function DevicesSection() {
               </div>
             )}
             {expired ? (
-              <p className="dv-hint" role="status">
+              <p className="pdv-hint" role="status">
                 This code expired. Make a new one.
               </p>
             ) : (
               <QrCode text={url.qr} label={`Pairing QR code for ${url.url}`} />
             )}
-            <div className="dv-facts">
+            <div className="pdv-facts">
               <span>Address</span>
               <b className="mono" data-testid="pair-url">
                 {url.url}
