@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 
 class ModelSpec(BaseModel):
-    provider: Literal["fake", "claude", "codex", "copilot"]
+    provider: Literal["fake", "claude", "codex", "copilot", "local", "vertex"]
     mode: Literal["subscription", "api", "opencode"] = "api"
     model: str = ""
     effort: str | None = None
@@ -284,11 +284,26 @@ class ProviderUsage(BaseModel):
 
 
 class ProviderTest(BaseModel):
-    provider: Literal["fake", "claude", "codex", "copilot"]
+    provider: Literal["fake", "claude", "codex", "copilot", "local", "vertex"]
     mode: Literal["subscription", "api", "opencode"] = "api"
     model: str = ""
     key: str | None = None
     effort: str | None = None    # the agent's thinking effort: the test runs with it, as its flows do
+
+
+class CatalogKeys(BaseModel):
+    """POST /providers/models: the connections of the providers the catalog asks a server for (`local`: the local model
+    servers, `vertex`: project and region), as the api's SecretService.engineKeys gives them. Never logged."""
+    keys: dict[str, str] | None = None
+
+
+class LocalEndpoint(BaseModel):
+    """POST /providers/local/test: one local model server, with its key (never logged)."""
+    name: str = Field(default="test", pattern=r"^[a-z0-9][a-z0-9-]{0,31}$")
+    kind: Literal["ollama", "lmstudio", "vllm", "llamacpp", "openai-compatible"] = "ollama"
+    url: str = Field(pattern=r"^https?://\S+$", max_length=500)
+    key: str | None = None
+    context: int | None = Field(default=None, ge=256, le=10_000_000)
 
 
 def _err(status: int, error: str, hint: str | None = None, errors: list[str] | None = None) -> JSONResponse:
@@ -732,6 +747,18 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.get("/providers/models")
     async def get_models():
         return await asyncio.to_thread(catalog.build_catalog)
+
+    @app.post("/providers/models")
+    async def post_models(body: CatalogKeys):
+        """The catalog with the providers the api has set up (local model servers, Vertex AI)."""
+        return await asyncio.to_thread(catalog.build_catalog, body.keys or {})
+
+    @app.post("/providers/local/test")
+    async def post_local_test(body: LocalEndpoint):
+        """Can keel reach this local model server, and which models does it have (Connections › Local models)."""
+        from .models import local
+
+        return await asyncio.to_thread(local.test_endpoint, body.model_dump(exclude_none=True))
 
     # the parts' routes last (built-in parts first, then add-ons), so they cannot shadow one of keel's own; what their
     # routes raise (PartError, DbError, GitError ...) is answered as {error, hint} with its status

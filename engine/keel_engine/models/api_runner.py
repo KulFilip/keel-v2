@@ -14,6 +14,15 @@ GITHUB_MODELS_URL = "https://models.github.ai/inference"
 
 
 def chat_model(provider: str, model: str, key: str | None, effort: str | None = None):
+    # local and vertex: the "key" is the provider's connection as JSON (the api's SecretService.engineKeys)
+    if provider == "local":
+        from . import local
+
+        return local.chat_model(key, model)
+    if provider == "vertex":
+        from . import vertex
+
+        return vertex.chat_model(key, model, effort)
     if not key:
         raise ModelError(f"No API key for {provider}.", "Add the key in Connections, or set it in the engine's environment.")
     if provider == "claude":
@@ -31,6 +40,17 @@ def chat_model(provider: str, model: str, key: str | None, effort: str | None = 
     if provider == "copilot":
         return ChatOpenAI(model=model or "openai/gpt-5", api_key=key, base_url=GITHUB_MODELS_URL, timeout=600, stream_usage=True)
     raise ModelError(f"Provider {provider} has no API mode.")
+
+
+def cost_usd(provider: str, model: str, key: str | None, tokens_in: int, tokens_out: int) -> float:
+    """keel's price table; a local endpoint's own price when the person set one."""
+    if provider == "local":
+        from . import local
+
+        p = local.price(key, model)
+        if p is not None:
+            return round((tokens_in * p["in"] + tokens_out * p["out"]) / 1e6, 6)
+    return catalog.cost_usd(provider, model, tokens_in, tokens_out)
 
 
 def _text(content) -> str:
@@ -91,12 +111,15 @@ class APIRunner:
         tools = req.toolbox.langchain_tools()
         mcp_tools, _client = await mcp.langchain_tools(req.mcp_specs, req.tools_allow)
         tools += mcp_tools
+        system, history, prompt = req.system, list(req.history), req.prompt
+        if provider == "local":
+            tools, system, history, prompt = await self._local(req, emit, model, tools, system, history, prompt)
         by_name = {t.name: t for t in tools}
         bound = llm.bind_tools(tools) if tools else llm
-        messages = [SystemMessage(req.system)] if req.system else []
+        messages = [SystemMessage(system)] if system else []
         # a Helper session's earlier turns, so the model has the conversation (CLIs continue their own sessions)
-        messages += [HumanMessage(t) if role == "user" else AIMessage(t) for role, t in req.history if t]
-        messages.append(HumanMessage(req.prompt))
+        messages += [HumanMessage(t) if role == "user" else AIMessage(t) for role, t in history if t]
+        messages.append(HumanMessage(prompt))
         tin = tout = 0
         text = ""
         for _ in range(MAX_TURNS):
@@ -131,8 +154,28 @@ class APIRunner:
             emit("error", f"Stopped after {MAX_TURNS} turns.")
         emit("answer", text[:20000])
         premium = 1 if provider == "copilot" else 0
-        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, cost_usd=catalog.cost_usd(provider, model, tin, tout),
+        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, cost_usd=cost_usd(provider, model, req.key, tin, tout),
                            premium_requests=premium)
+
+    @staticmethod
+    async def _local(req: AgentRequest, emit: Emit, model: str, tools: list, system: str, history: list, prompt: str):
+        """A local model: tools only when it can call them (a code step is refused without), and the prompt packed
+        into the server's context window."""
+        import asyncio
+
+        from . import local
+
+        ep, name = local.split(local.parse(req.key), model)
+        if tools and not await asyncio.to_thread(local.tool_support, ep, name):
+            if not local.ask_type(req):
+                raise local.refuse_without_tools(model, req.agent)
+            tools = []
+            emit("text", f"{model} cannot call tools: it answers from what is in the prompt.")
+        window = await asyncio.to_thread(local.context_for, ep, name)
+        system, history, prompt, trimmed = local.fit(system, history, prompt, window, local.tool_tokens(tools))
+        if trimmed:
+            emit("text", f"The prompt was shortened to fit {model}'s context window ({window} tokens).")
+        return tools, system, history, prompt
 
     @staticmethod
     def _step(emit: Emit, req: AgentRequest, name: str, args: dict, out: str, ms: int):

@@ -79,6 +79,8 @@ async def ask(model: dict, system: str, prompt: str, keys: dict | None = None, t
                                timeout=timeout, keys=keys)
             if m.get("mode") == "api":
                 from .api_runner import _text, chat_model
+                if m["provider"] == "local":     # the review check's and the Doctor's prompt, packed into the window
+                    system, prompt = await _fit_local(req.key, m.get("model", ""), system, prompt)
                 reply = await chat_model(m["provider"], m.get("model", ""), req.key, catalog_effort(m)).ainvoke([("system", system), ("human", prompt)])
                 usage = getattr(reply, "usage_metadata", None) or {}
                 return {"ok": True, "fake": False, "text": _text(reply.content), "tokens_in": int(usage.get("input_tokens", 0)),
@@ -89,6 +91,17 @@ async def ask(model: dict, system: str, prompt: str, keys: dict | None = None, t
         return {"ok": False, "fake": False, "text": "", "ms": ms(), "error": f"{exc}{(' ' + exc.hint) if exc.hint else ''}"}
     except Exception as exc:
         return {"ok": False, "fake": False, "text": "", "ms": ms(), "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+
+
+async def _fit_local(key: str | None, model: str, system: str, prompt: str) -> tuple[str, str]:
+    import asyncio
+
+    from . import local
+
+    ep, name = local.split(local.parse(key), model)
+    window = await asyncio.to_thread(local.context_for, ep, name)
+    system, _h, prompt, _t = local.fit(system, [], prompt, window)
+    return system, prompt
 
 
 async def test_provider(provider: str, mode: str, model: str, key: str | None = None, effort: str | None = None) -> dict:
