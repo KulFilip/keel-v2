@@ -3,16 +3,25 @@
 // declaration). A small bar: viewed, diff or whole file, previous / next file.
 
 import { useEffect, useState } from "react";
-import { Pill } from "@keel/web-sdk";
+import { Pill, useStored } from "@keel/web-sdk";
 import { linesLabel, prLabel } from "./reviewApi";
 import { neighbour } from "./ReviewSide";
 import { FileAtView, ReviewDiff, type Anchor, type LineSpan } from "./ReviewDiff";
-import { findingComment, ThreadCard } from "./ReviewPanel";
+import { findingComment } from "./ReviewPanel";
+import { InlineThread, lastSeen, openByDefault } from "./Threads";
 import { DraftCard } from "./PendingTab";
 import { askAboutFinding } from "./ReviewSide";
 import { keysFor } from "./keymap";
 import * as R from "./store";
 import type { Finding } from "./reviewApi";
+
+/** How many threads' open / folded choices one review remembers (the oldest are forgotten first). */
+export const INLINE_OPEN_CAP = 300;
+const isOpenMap = (v: unknown): v is Record<string, boolean> =>
+  !!v &&
+  typeof v === "object" &&
+  !Array.isArray(v) &&
+  Object.values(v).every((x) => typeof x === "boolean");
 
 export function ReviewFileTab({
   pid,
@@ -44,6 +53,26 @@ export function ReviewFileTab({
       ? { index: ui.change.index, n: ui.change.n }
       : null;
   const [, setChanges] = useState(0);
+  // the "new" tags in the code compare with your last visit of the Threads panel
+  const [seen] = useState(() => lastSeen(pid, reviewKey));
+  // the threads you opened or folded in the code, kept per review for this browser tab
+  const [openMap, setOpenMap] = useStored<Record<string, boolean>>(
+    `keel2.review.inline.${pid}.${reviewKey}`,
+    {},
+    { valid: isOpenMap },
+  );
+  const setOpen = (ids: string[], open: boolean) =>
+    setOpenMap((m) => {
+      const next = { ...m };
+      for (const id of ids) {
+        delete next[id]; // the newest choice goes last: the oldest are dropped first
+        next[id] = open;
+      }
+      const keys = Object.keys(next);
+      for (const k of keys.slice(0, Math.max(0, keys.length - INLINE_OPEN_CAP)))
+        delete next[k];
+      return next;
+    });
 
   if (!v)
     return (
@@ -64,22 +93,42 @@ export function ReviewFileTab({
 
   const anchors: Anchor[] = [];
   // an outdated thread is on code that is not in this diff any more: it is not drawn at its old line (the Threads list has it)
-  for (const t of v.threads.filter((x) => x.path === path && x.line && !x.outdated)) {
+  const fileThreads = v.threads.filter(
+    (x) => x.path === path && x.line && !x.outdated,
+  );
+  const isOpen = (t: (typeof fileThreads)[number]) =>
+    openMap[t.id] ?? openByDefault(t, v.me, seen);
+  const openPlace = (
+    p: string,
+    line?: number | null,
+    side: "RIGHT" | "LEFT" = "RIGHT",
+  ) =>
+    R.openPlace({
+      key: reviewKey,
+      path: p,
+      view: v.files.some((f) => f.path === p) ? "diff" : "code",
+      line: line ?? null,
+      side,
+    });
+  for (const t of fileThreads) {
     anchors.push({
       line: t.line!,
       side: t.side,
       startLine: t.start_line,
       startSide: t.start_side,
       node: (
-        <div className="rv-under">
-          <ThreadCard
+        <div className="rv-under rv-inline">
+          <InlineThread
             pid={pid}
             reviewKey={reviewKey}
+            view={v}
             t={t}
-            canPost={v.can_post}
-            compact
-            onReply={(th, b) => R.reply(pid, reviewKey, th.id, b)}
-            onResolve={(th, x) => R.resolve(pid, reviewKey, th.id, x)}
+            ai={r.ai}
+            running={r.running}
+            seen={seen}
+            onOpen={openPlace}
+            open={isOpen(t)}
+            onToggle={() => setOpen([t.id], !isOpen(t))}
           />
         </div>
       ),
@@ -250,6 +299,36 @@ export function ReviewFileTab({
           </span>
         )}
         <span className="rv-fbar-r">
+          {fileThreads.length > 0 && (
+            <span className="rv-seg" role="group" aria-label="Threads in this file">
+              <button
+                type="button"
+                disabled={fileThreads.every((t) => !isOpen(t))}
+                title="Fold every thread in this file"
+                onClick={() =>
+                  setOpen(
+                    fileThreads.map((t) => t.id),
+                    false,
+                  )
+                }
+              >
+                Close all
+              </button>
+              <button
+                type="button"
+                disabled={fileThreads.every((t) => isOpen(t))}
+                title="Open every thread in this file"
+                onClick={() =>
+                  setOpen(
+                    fileThreads.map((t) => t.id),
+                    true,
+                  )
+                }
+              >
+                Open all
+              </button>
+            </span>
+          )}
           {v.drafts.length > 0 && (
             <button
               type="button"

@@ -65,7 +65,7 @@
 .dv-row.cur, .dv-srow.cur { box-shadow: inset 3px 0 0 var(--accent); }
 .rv-dv .dv-code { cursor: text; }
 .rv-under { margin: 4px 12px 8px 9.5ch; max-width: 92ch; white-space: normal; font: 13px/1.5 var(--f-body); }
-.rv-under .rv-thread, .rv-draft, .rv-ai, .rv-compose { border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-side); padding: 8px 10px; display: grid; gap: 6px; }
+.rv-draft, .rv-ai, .rv-compose { border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-side); padding: 8px 10px; display: grid; gap: 6px; }
 .rv-ai { border-color: color-mix(in srgb, var(--accent) 45%, var(--ide-line)); background: color-mix(in srgb, var(--accent) 6%, var(--ide-side)); }
 .rv-draft { border-style: dashed; border-color: var(--run); }
 .rv-ai p, .rv-draft p { margin: 0; }
@@ -110,8 +110,6 @@
 .rv-find.muted { opacity: .65; }
 .rv-find-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .rv-find p { margin: 0; }
-.rv-thread { border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-bg); padding: 8px 10px; display: grid; gap: 6px; }
-.rv-thread.resolved { opacity: .7; }
 .rv-comment { display: grid; gap: 2px; }
 .rv-comment .md { font-size: 13px; }
 .rv-reply { display: grid; gap: 6px; }
@@ -158,6 +156,7 @@
 .rv-tsec-h.waiting .rv-dot, .rv-dot.waiting { background: var(--warn); }
 .rv-tsec-h.resolved .rv-dot, .rv-dot.resolved { background: var(--ok); }
 .rv-tsec-h.open .rv-dot, .rv-dot.you { background: var(--accent); }
+.rv-dot.open { background: var(--accent); }
 .rv-dot.reviewer { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--ide-line)); }
 
 /* one thread */
@@ -257,3 +256,22 @@
 .rv-btnrow-1 label:first-child { flex: 1 1 14ch; }
 .rv-btnrow-tools { margin-left: auto; display: flex; gap: 2px; }
 .rv-btnrow-p textarea { min-height: 64px; }
+
+/* a thread in the code (ReviewFileTab): a head that folds it to one line, and the Threads panel's box without the code
+   excerpt; it takes the code view's width (no fixed width) and long words wrap */
+.rv-under.rv-inline { max-width: none; min-width: 0; margin-right: 12px; overflow-wrap: anywhere; }
+.rv-ithread { display: grid; gap: 6px; min-width: 0; }
+.rv-ihead { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; padding: 5px 10px; border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-side); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rv-ithread.open .rv-ihead { border-color: color-mix(in srgb, var(--accent) 35%, var(--ide-line)); }
+.rv-ithread.resolved:not(.open) .rv-ihead { opacity: .75; }
+.rv-ihead:hover { background: color-mix(in srgb, var(--accent) 6%, var(--ide-side)); }
+.rv-ihead:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rv-icaret { width: 1ch; color: var(--rv-dim-fg); flex: none; }
+.rv-iwho { flex: none; }
+.rv-isum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rv-dim-fg); }
+.rv-ihead .rv-in, .rv-ihead .rv-pill, .rv-ihead .rv-new { flex: none; white-space: nowrap; }
+.rv-tcard.inline { border-radius: 10px; }
+.rv-tcard.inline .rv-tbody { padding: 10px 12px; }
+.rv-tcard.inline .rv-tacts { padding: 8px 12px; }
+.rv-tcard.inline .rv-check-box { margin-left: 0; }
+.rv-tcard-hi { padding: 6px 12px; gap: 6px; }

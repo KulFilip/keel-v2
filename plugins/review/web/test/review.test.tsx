@@ -1391,3 +1391,174 @@ describe("the Review view after you leave the Code page and come back", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("threads in the code (the file tab)", () => {
+  const PID = "ludus-engine";
+  const judged: AiState = {
+    overview: null,
+    findings: null,
+    decisions: {},
+    config: {
+      judge: {
+        mode: "quick",
+        workflow: "review",
+        allow_harder: true,
+        token_cap: 25000,
+        agent: "pr-reviewer",
+      },
+      address_workflow: "small",
+      buttons: [
+        {
+          id: "explain-simply",
+          label: "Explain simply",
+          mode: "ask",
+          agent: "explorer",
+        },
+      ],
+    },
+    judges: {
+      PRRT_1: {
+        id: "rr_1",
+        kind: "judge:PRRT_1",
+        status: "done",
+        stage: "done",
+        head_sha: "a".repeat(40),
+        stale: false,
+        sessions: [],
+        result: {
+          stage: "done",
+          items: [{ claim: "saving", verdict: "unclear", why: "no caller yet" }],
+          reply: "It is saved on purpose.",
+        },
+        error: null,
+        created_at: "",
+        updated_at: "",
+      },
+    },
+  };
+  const head = (tab: HTMLElement) =>
+    within(tab).getByRole("button", { name: /Should this be saved\?/ });
+  const go = (hash: string) =>
+    act(() => {
+      location.hash = hash;
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+
+  it("draws the Threads panel's box under the line: messages, keel's check, the buttons", async () => {
+    const s = reviewServer();
+    s.setAi(judged);
+    const side = await openPr(7);
+    const tab = await openFile(side, "src/Prefs.kt");
+    expect(await within(tab).findByText("Should this be saved?")).toBeInTheDocument();
+    const box = within(tab).getByRole("article", {
+      name: "Thread on src/Prefs.kt line 3",
+    });
+    expect(box).toHaveClass("inline");
+    // the code is right there: no excerpt and no file header
+    expect(within(box).queryByLabelText(/The code of/)).toBeNull();
+    expect(within(box).queryByRole("button", { name: /^Open src/ })).toBeNull();
+    expect(
+      within(box).getByRole("region", { name: "keel checked this thread" }),
+    ).toHaveTextContent("UNCLEAR");
+    for (const name of [
+      "Reply",
+      "✦ Is the reviewer right?",
+      "✦ Address it",
+      "Explain simply",
+      "Resolve",
+    ])
+      expect(within(box).getByRole("button", { name })).toBeInTheDocument();
+    // the head says who, what and that it waits for you
+    expect(head(tab)).toHaveAttribute("aria-expanded", "true");
+    expect(head(tab)).toHaveTextContent("bo");
+    expect(head(tab)).toHaveTextContent("0 replies");
+    expect(head(tab)).toHaveTextContent("Waiting for you");
+  });
+
+  it("folds by click and by keyboard, Close all / Open all, and keeps the choice after you leave and come back", async () => {
+    reviewServer();
+    const side = await openPr(7);
+    let tab = await openFile(side, "src/Prefs.kt");
+    await within(tab).findByText("Should this be saved?");
+    await userEvent.click(head(tab));
+    expect(head(tab)).toHaveAttribute("aria-expanded", "false");
+    expect(within(tab).queryByText("Should this be saved?")).toBeNull();
+    head(tab).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(head(tab)).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard(" ");
+    expect(head(tab)).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(within(tab).getByRole("button", { name: "Open all" }));
+    expect(head(tab)).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(within(tab).getByRole("button", { name: "Close all" }));
+    expect(head(tab)).toHaveAttribute("aria-expanded", "false");
+    expect(
+      JSON.parse(sessionStorage.getItem(`keel2.review.inline.${PID}.pr:7`)!),
+    ).toEqual({ PRRT_1: false });
+
+    go("#/flow");
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: /in review #7/ })).toBeNull(),
+    );
+    go("#/repo");
+    tab = await screen.findByRole("region", { name: "src/Prefs.kt in review #7" });
+    expect(await within(tab).findByRole("button", { name: /Should this be saved\?/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("starts a resolved thread folded", async () => {
+    const s = reviewServer();
+    s.views["pr:7"] = {
+      ...s.views["pr:7"],
+      threads: s.views["pr:7"].threads.map((t) => ({ ...t, resolved: true })),
+    };
+    const side = await openPr(7);
+    const tab = await openFile(side, "src/Prefs.kt");
+    const h = await within(tab).findByRole("button", { name: /Should this be saved\?/ });
+    expect(h).toHaveAttribute("aria-expanded", "false");
+    expect(h).toHaveTextContent("Resolved");
+    expect(h).not.toHaveTextContent("Waiting for you");
+  });
+
+  it("shares Dismiss and the reply draft with the Threads panel, without a reload", async () => {
+    const s = reviewServer();
+    s.setAi(judged);
+    const side = await openPr(7);
+    const tab = await openFile(side, "src/Prefs.kt");
+    await userEvent.click(within(side).getByRole("tab", { name: /^Threads/ }));
+    const check = (el: HTMLElement) =>
+      within(el).queryByRole("region", { name: "keel checked this thread" });
+    await waitFor(() => expect(check(side)).not.toBeNull());
+    expect(check(tab)).not.toBeNull();
+
+    // dismissed in the code: gone in the panel too
+    await userEvent.click(
+      within(tab).getByRole("button", { name: "Dismiss keel's check" }),
+    );
+    expect(check(tab)).toBeNull();
+    expect(check(side)).toBeNull();
+    // asked again in the panel: back in both, with no new check
+    await userEvent.click(
+      within(side).getByRole("button", { name: /Is the reviewer right/ }),
+    );
+    expect(check(side)).not.toBeNull();
+    expect(check(tab)).not.toBeNull();
+    // dismissed in the panel: gone in the code
+    await userEvent.click(within(check(side)!).getByRole("button", { name: "Dismiss" }));
+    expect(check(tab)).toBeNull();
+    expect(s.calls.filter((c) => c.path.includes("/judge"))).toEqual([]);
+
+    // a reply started in the code shows in the panel's box
+    await userEvent.click(within(tab).getByRole("button", { name: "Reply" }));
+    await userEvent.type(
+      within(tab).getByRole("textbox", { name: "Your reply" }),
+      "Saved on purpose",
+    );
+    expect(
+      await within(side).findByRole("textbox", { name: "Your reply" }),
+    ).toHaveValue("Saved on purpose");
+  });
+});

@@ -92,7 +92,27 @@ export type StoredOptions<T> = {
   drop?: (v: T) => boolean;
 };
 
-/** useState that is kept in the browser under [key]. A new key reads its own value (the state follows the key). */
+// every mounted useStored, by store and key: a write in one shows at once in the others (the Review panel and the
+// code view show the same draft); another browser tab's localStorage write comes in through the "storage" event
+type Listener = (value: unknown) => void;
+const listeners = new Map<string, Set<Listener>>();
+const slot = (kind: StoreKind, key: string) => `${kind}:${key}`;
+function listen(kind: StoreKind, key: string, fn: Listener): () => void {
+  const k = slot(kind, key);
+  let set = listeners.get(k);
+  if (!set) listeners.set(k, (set = new Set()));
+  set.add(fn);
+  return () => {
+    set!.delete(fn);
+    if (!set!.size) listeners.delete(k);
+  };
+}
+function tell(kind: StoreKind, key: string, value: unknown, except?: Listener) {
+  listeners.get(slot(kind, key))?.forEach((fn) => fn !== except && fn(value));
+}
+
+/** useState that is kept in the browser under [key]. A new key reads its own value (the state follows the key), and
+ *  every component that uses the same key shows the same value (a write in one updates the others). */
 export function useStored<T>(
   key: string,
   fallback: T,
@@ -103,6 +123,8 @@ export function useStored<T>(
   validRef.current = opts.valid;
   const dropRef = useRef(opts.drop);
   dropRef.current = opts.drop;
+  const fallbackRef = useRef(fallback);
+  fallbackRef.current = fallback;
   const [state, setState] = useState<{ key: string; value: T }>(() => ({
     key,
     value: readStored(key, fallback, kind, opts.valid),
@@ -112,27 +134,54 @@ export function useStored<T>(
     state.key === key
       ? state.value
       : readStored(key, fallback, kind, opts.valid);
+  // the newest value, also between a write and the next render (two writes in one click build on each other)
+  const latest = useRef({ key, value: current });
+  if (latest.current.key !== key) latest.current = { key, value: current };
   useEffect(() => {
     if (state.key !== key)
       setState({
         key,
-        value: readStored(key, fallback, kind, validRef.current),
+        value: readStored(key, fallbackRef.current, kind, validRef.current),
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+  const self = useRef<Listener | null>(null);
+  const onOther = useRef<Listener>(() => undefined);
+  onOther.current = (value: unknown) => {
+    const v =
+      value === undefined
+        ? readStored(key, fallbackRef.current, kind, validRef.current)
+        : (value as T);
+    latest.current = { key, value: v };
+    setState({ key, value: v });
+  };
+  useEffect(() => {
+    const fn: Listener = (v) => onOther.current(v);
+    self.current = fn;
+    const stop = listen(kind, key, fn);
+    // another browser tab wrote it (localStorage only fires there)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === key && kind === "local") fn(undefined);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      stop();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [kind, key]);
   const set = useCallback<Dispatch<SetStateAction<T>>>(
     (next) => {
-      setState((s) => {
-        const base =
-          s.key === key
-            ? s.value
-            : readStored(key, fallback, kind, validRef.current);
-        const value =
-          typeof next === "function" ? (next as (p: T) => T)(base) : next;
-        if (dropRef.current?.(value)) dropStored(key, kind);
-        else writeStored(key, value, kind);
-        return { key, value };
-      });
+      const base =
+        latest.current.key === key
+          ? latest.current.value
+          : readStored(key, fallbackRef.current, kind, validRef.current);
+      const value =
+        typeof next === "function" ? (next as (p: T) => T)(base) : next;
+      latest.current = { key, value };
+      if (dropRef.current?.(value)) dropStored(key, kind);
+      else writeStored(key, value, kind);
+      setState({ key, value });
+      tell(kind, key, value, self.current ?? undefined);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key, kind],

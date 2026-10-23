@@ -102,3 +102,22 @@ describe("useStoredScroll", () => {
     expect(readStored("s.box", 0)).toBe(90);
   });
 });
+
+describe("useStored in two places", () => {
+  it("shows a write in one at once in the other (same store and key), and not in another key", () => {
+    const a = renderHook(() => useStored<string[]>("live.k", [], { store: "local" }));
+    const b = renderHook(() => useStored<string[]>("live.k", [], { store: "local" }));
+    const other = renderHook(() => useStored<string[]>("live.other", [], { store: "local" }));
+    act(() => a.result.current[1]((h) => [...h, "x"]));
+    expect(b.result.current[0]).toEqual(["x"]);
+    act(() => b.result.current[1]((h) => [...h, "y"]));
+    expect(a.result.current[0]).toEqual(["x", "y"]);
+    expect(other.result.current[0]).toEqual([]);
+    // another browser tab's write comes in through the storage event
+    localStorage.setItem("live.k", JSON.stringify(["z"]));
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "live.k" }));
+    });
+    expect(a.result.current[0]).toEqual(["z"]);
+  });
+});

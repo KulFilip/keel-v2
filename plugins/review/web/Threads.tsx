@@ -17,7 +17,14 @@
 //   ● RESOLVED
 //   ✓ src/a.kt · L3   "Do we need this?" → You: yes     2 replies ›
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   askAssistant,
   ErrorBox,
@@ -58,6 +65,21 @@ const isIds = (v: unknown): v is string[] =>
 /** how many dismissed answers one review remembers (the oldest are forgotten first) */
 export const HIDDEN_RUNS_CAP = 200;
 
+/** keel's answers you dismissed in one review (a check: "<thread>|<run>", an extra button's: "<thread>|<button>|<run>"),
+ *  kept in this browser. The Threads panel and the threads in the code share it: a dismiss in one hides the answer in
+ *  the other at once. The saved answer stays on the server and comes back when you ask again; a new run shows. */
+export function useJudgeHidden(pid: string, reviewKey: string) {
+  const [hidden, setHidden] = useStored<string[]>(
+    `keel2.review.judgeHidden.${pid}.${reviewKey}`,
+    [],
+    { store: "local", valid: isIds },
+  );
+  const hide = (id: string) =>
+    setHidden((h) => (h.includes(id) ? h : [...h, id].slice(-HIDDEN_RUNS_CAP)));
+  const show = (id: string) => setHidden((h) => h.filter((x) => x !== id));
+  return { hidden, hide, show };
+}
+
 // ---------------------------------------------------------------- small helpers (exported for tests)
 
 const same = (a: string | null | undefined, b: string | null | undefined) =>
@@ -68,6 +90,31 @@ export function waitsForYou(t: ReviewThread, me: string | null): boolean {
   if (t.resolved || t.pending || !t.comments.length) return false;
   return !same(t.comments[t.comments.length - 1].author, me);
 }
+
+/** A message since your last visit that is not yours. */
+export function hasNew(
+  t: ReviewThread,
+  me: string | null,
+  seen: string | null,
+): boolean {
+  return !!seen && t.comments.some((c) => !same(c.author, me) && c.at > seen);
+}
+
+/** A thread in the code starts open when it waits for you, has something new, or is not resolved. */
+export function openByDefault(
+  t: ReviewThread,
+  me: string | null,
+  seen: string | null,
+): boolean {
+  return waitsForYou(t, me) || hasNew(t, me, seen) || !t.resolved;
+}
+
+/** The first line of a message that has text. */
+export const firstLine = (s: string) =>
+  s
+    .split("\n")
+    .find((x) => x.trim())
+    ?.trim() ?? "";
 
 export function initials(name: string): string {
   const parts = name.split(/[\s._-]+/).filter(Boolean);
@@ -197,19 +244,6 @@ export function ThreadsView({
     [],
     { valid: isIds },
   );
-  // keel's answers you dismissed (a check, an extra button's answer), by thread and run, kept in this browser: the saved
-  // answer stays on the server and comes back at once when you ask again; a new run shows by itself
-  const [hiddenRuns, setHiddenRuns] = useStored<string[]>(
-    `keel2.review.judgeHidden.${pid}.${reviewKey}`,
-    [],
-    { store: "local", valid: isIds },
-  );
-  const hideRun = (id: string) =>
-    setHiddenRuns((h) =>
-      h.includes(id) ? h : [...h, id].slice(-HIDDEN_RUNS_CAP),
-    );
-  const showRun = (id: string) =>
-    setHiddenRuns((h) => h.filter((x) => x !== id));
   const toggleUnfolded = (id: string) =>
     setUnfolded((u) =>
       // ids of threads that are not in the review any more fall away
@@ -258,9 +292,6 @@ export function ThreadsView({
       ai={ai}
       running={running}
       seen={seen}
-      hidden={hiddenRuns}
-      onHide={hideRun}
-      onShow={showRun}
       onOpen={onOpen}
     />
   );
@@ -399,11 +430,6 @@ function ResolvedRow({
   const first = t.comments[0];
   const last = t.comments[t.comments.length - 1];
   const replies = t.comments.length - 1;
-  const firstLine = (s: string) =>
-    s
-      .split("\n")
-      .find((x) => x.trim())
-      ?.trim() ?? "";
   return (
     <div className="rv-resolved">
       <button
@@ -439,6 +465,63 @@ function ResolvedRow({
         </span>
       </button>
       {open && expanded}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- one thread in the code, folded to a line
+
+/** A thread drawn under its lines in the code: a head you can fold it to (who, the first line, the replies, whether it
+ *  waits for you) and, open, the same box as in the Threads panel without the code excerpt. */
+export function InlineThread({
+  open,
+  onToggle,
+  ...box
+}: Omit<Parameters<typeof ThreadBox>[0], "inline"> & {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { t, view, seen } = box;
+  const me = view.me;
+  const waiting = waitsForYou(t, me);
+  const fresh = hasNew(t, me, seen);
+  const first = t.comments[0];
+  const replies = Math.max(0, t.comments.length - 1);
+  const tone = t.resolved ? "resolved" : waiting ? "waiting" : "open";
+  const body = useId();
+  return (
+    <div
+      className={`rv-ithread${open ? " open" : ""}${t.resolved ? " resolved" : ""}`}
+      data-thread={t.id}
+    >
+      <button
+        type="button"
+        className="rv-ihead"
+        aria-expanded={open}
+        aria-controls={open ? body : undefined}
+        title={open ? "Fold this thread" : "Open this thread"}
+        onClick={onToggle}
+      >
+        <span className="rv-icaret" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className={`rv-dot ${tone}`} aria-hidden="true" />
+        <b className="rv-iwho">
+          {first ? (same(first.author, me) ? "You" : first.author) : "Thread"}
+        </b>
+        <span className="rv-isum">"{firstLine(first?.body ?? "")}"</span>
+        <span className="rv-dim rv-in">
+          {replies} repl{replies === 1 ? "y" : "ies"}
+        </span>
+        {waiting && <span className="rv-pill warn">Waiting for you</span>}
+        {fresh && <span className="rv-new">new</span>}
+        {t.resolved && <span className="rv-pill ok">Resolved</span>}
+      </button>
+      {open && (
+        <div id={body}>
+          <ThreadBox {...box} inline />
+        </div>
+      )}
     </div>
   );
 }
@@ -560,7 +643,7 @@ function CodeLines({
 
 // ---------------------------------------------------------------- one thread
 
-function ThreadBox({
+export function ThreadBox({
   pid,
   reviewKey,
   view,
@@ -568,9 +651,7 @@ function ThreadBox({
   ai,
   running,
   seen,
-  hidden = [],
-  onHide,
-  onShow,
+  inline = false,
   onOpen,
 }: {
   pid: string;
@@ -580,12 +661,11 @@ function ThreadBox({
   ai: AiState | null;
   running: string[];
   seen: string | null;
-  /** the answers dismissed in this review: "<thread>|<run>" for a check, "<thread>|<button>|<run>" for a button's */
-  hidden?: string[];
-  onHide?: (id: string) => void;
-  onShow?: (id: string) => void;
+  /** drawn in the code under its lines: no code excerpt and no file header (the code is right there) */
+  inline?: boolean;
   onOpen: Open;
 }) {
+  const { hidden, hide: onHide, show: onShow } = useJudgeHidden(pid, reviewKey);
   const assistant = useSlot(SLOTS.assistant).length > 0;
   // the reply you are writing, kept (localStorage) until it is sent or cancelled: the box is open again when you come back
   const [text, setText, dropText] = R.useReviewDraft(
@@ -594,6 +674,12 @@ function ThreadBox({
     `reply.${t.id}`,
   );
   const [replying, setReplying] = useState(() => !!text);
+  // a reply box that is open again from a kept draft does not take the focus; one you open does
+  const [focusReply, setFocusReply] = useState(false);
+  // a draft started in the other place (the panel or the code) opens this box too
+  useEffect(() => {
+    if (text) setReplying(true);
+  }, [text]);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | { note?: string }>(null);
   const [err, setErr] = useState<R.Err | null>(null);
@@ -684,54 +770,68 @@ function ThreadBox({
 
   return (
     <article
-      className={`rv-tcard${waiting ? " waiting" : ""}${t.resolved ? " resolved" : ""}`}
+      className={`rv-tcard${waiting ? " waiting" : ""}${t.resolved ? " resolved" : ""}${inline ? " inline" : ""}`}
       data-thread={t.id}
       aria-label={`Thread on ${t.path ?? "the pull request"}${t.line ? ` line ${linesLabel(t)}` : ""}`}
     >
-      <header className="rv-tcard-h">
-        <svg
-          className="rv-ficon"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          aria-hidden="true"
-        >
-          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-          <path d="M14 3v6h6" />
-        </svg>
-        {t.path ? (
-          <button
-            type="button"
-            className="rv-tpath mono"
-            title={t.path}
-            aria-label={`Open ${t.path}${t.line ? ` at line ${t.line}` : ""}`}
-            onClick={() => onOpen(t.path!, t.line, t.side)}
-          >
-            {dir && <span className="rv-tdir">{dir}</span>}
-            <b className="rv-tname">{name}</b>
-          </button>
-        ) : (
-          <span className="rv-tpath">The pull request</span>
-        )}
-        {t.line != null && (
-          <span className="mono rv-tlines">L{linesLabel(t)}</span>
-        )}
-        {t.outdated && <span className="rv-pill idle">outdated</span>}
-        {t.pending && <span className="rv-pill run">pending</span>}
-        <span className={`rv-pill ${t.resolved ? "ok" : "warn"}`}>
-          {t.resolved ? "resolved" : "open"}
-        </span>
-      </header>
-      {t.path &&
-        t.line != null &&
-        !t.outdated &&
-        view.files.some((f) => f.path === t.path) && (
-          <CodeLines pid={pid} reviewKey={reviewKey} t={t} />
-        )}
+      {inline ? (
+        (t.start_line != null || t.outdated || t.pending) && (
+          <header className="rv-tcard-h rv-tcard-hi">
+            {t.start_line != null && (
+              <span className="rv-dim">lines {linesLabel(t)}</span>
+            )}
+            {t.outdated && <span className="rv-pill idle">outdated</span>}
+            {t.pending && <span className="rv-pill run">pending</span>}
+          </header>
+        )
+      ) : (
+        <>
+          <header className="rv-tcard-h">
+            <svg
+              className="rv-ficon"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+              <path d="M14 3v6h6" />
+            </svg>
+            {t.path ? (
+              <button
+                type="button"
+                className="rv-tpath mono"
+                title={t.path}
+                aria-label={`Open ${t.path}${t.line ? ` at line ${t.line}` : ""}`}
+                onClick={() => onOpen(t.path!, t.line, t.side)}
+              >
+                {dir && <span className="rv-tdir">{dir}</span>}
+                <b className="rv-tname">{name}</b>
+              </button>
+            ) : (
+              <span className="rv-tpath">The pull request</span>
+            )}
+            {t.line != null && (
+              <span className="mono rv-tlines">L{linesLabel(t)}</span>
+            )}
+            {t.outdated && <span className="rv-pill idle">outdated</span>}
+            {t.pending && <span className="rv-pill run">pending</span>}
+            <span className={`rv-pill ${t.resolved ? "ok" : "warn"}`}>
+              {t.resolved ? "resolved" : "open"}
+            </span>
+          </header>
+          {t.path &&
+            t.line != null &&
+            !t.outdated &&
+            view.files.some((f) => f.path === t.path) && (
+              <CodeLines pid={pid} reviewKey={reviewKey} t={t} />
+            )}
+        </>
+      )}
       <div className="rv-tbody">
         {t.comments.map((c) => (
           <Message key={c.id} c={c} view={view} seen={seen} />
@@ -802,7 +902,7 @@ function ThreadBox({
             aria-label="Your reply"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            autoFocus
+            autoFocus={focusReply}
           />
           <div className="rv-row">
             <button
@@ -860,7 +960,10 @@ function ThreadBox({
           <button
             type="button"
             className="btn sm primary"
-            onClick={() => setReplying(true)}
+            onClick={() => {
+              setFocusReply(true);
+              setReplying(true);
+            }}
           >
             Reply
           </button>
