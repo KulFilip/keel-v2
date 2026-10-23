@@ -117,7 +117,7 @@ cat > "$scratch/bin/ip" <<'FAKE'
 case "$*" in
   "-4 route get 1.1.1.1")
     [ "${FAKE_NO_ROUTE:-0}" = 1 ] && exit 2
-    echo "1.1.1.1 via 192.168.178.1 dev wlp3s0 src 192.168.178.27 uid 1000"; echo "    cache" ;;
+    echo "1.1.1.1 via 192.168.1.1 dev wlp3s0 src 192.168.1.20 uid 1000"; echo "    cache" ;;
   "-4 -o addr show scope global")
     [ "${FAKE_NO_ADDR:-0}" = 1 ] && exit 1
     echo "2: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\       valid_lft forever preferred_lft forever"
@@ -169,23 +169,23 @@ check "start --wifi works" "$rc" 0
 yes_if "--wifi publishes on every network" called "docker run .*-p 0.0.0.0:$PORT:8080"
 no_if "--wifi does not publish on 127.0.0.1 too" called "docker run .*-p 127.0.0.1:$PORT:8080"
 yes_if "--wifi is remembered on the container" called "docker run .*keel2.bind=0.0.0.0"
-has "--wifi prints the Wi-Fi URL (Linux: ip route)" "$out" "On your Wi-Fi: http://192.168.178.27:$PORT"
+has "--wifi prints the Wi-Fi URL (Linux: ip route)" "$out" "On your Wi-Fi: http://192.168.1.20:$PORT"
 has "--wifi warns about plain http" "$out" "plain http"
-check "keel learns its Wi-Fi address" "$(sent)" "{\"urls\":[{\"kind\":\"wifi\",\"url\":\"http://192.168.178.27:$PORT\"}]}"
+check "keel learns its Wi-Fi address" "$(sent)" "{\"urls\":[{\"kind\":\"wifi\",\"url\":\"http://192.168.1.20:$PORT\"}]}"
 
 : > "$FAKE_CALLS"; rm -f "$S/addresses"
 run_k -- restart
 check "restart works" "$rc" 0
 yes_if "restart keeps --wifi" called "docker run .*-p 0.0.0.0:$PORT:8080"
-has "restart sends the address again" "$(sent)" "192.168.178.27"
+has "restart sends the address again" "$(sent)" "192.168.1.20"
 
 : > "$FAKE_CALLS"
 run_k -- start "$project"
 yes_if "a start without --wifi is this computer only again" called "docker run .*-p 127.0.0.1:$PORT:8080"
 
 : > "$FAKE_CALLS"
-run_k KEEL_BIND=192.168.178.27 -- start "$project"
-yes_if "KEEL_BIND=<address> publishes on that address" called "docker run .*-p 192.168.178.27:$PORT:8080"
+run_k KEEL_BIND=192.168.1.20 -- start "$project"
+yes_if "KEEL_BIND=<address> publishes on that address" called "docker run .*-p 192.168.1.20:$PORT:8080"
 run_k KEEL_BIND=nonsense -- start "$project"
 no_if "KEEL_BIND must be an address" test "$rc" = 0
 
@@ -309,7 +309,7 @@ reset
 run_k KEEL_NATIVE_CLIS=0 -- start --native --wifi "$project"
 check "native start --wifi works" "$rc" 0
 check "keel-native-start gets KEEL_BIND=0.0.0.0 and the name" "$(native_env)" "0.0.0.0 keel-test-remote"
-has "native --wifi prints the Wi-Fi URL" "$out" "On your Wi-Fi: http://192.168.178.27:"
+has "native --wifi prints the Wi-Fi URL" "$out" "On your Wi-Fi: http://192.168.1.20:"
 has "keel learns its Wi-Fi address (native)" "$(sent)" '"kind":"wifi"'
 rm -f "$S/native-env"; run_k -- restart
 check "native restart keeps --wifi" "$(native_env)" "0.0.0.0 keel-test-remote"

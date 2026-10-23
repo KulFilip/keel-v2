@@ -36,15 +36,11 @@ class ProductSchemaTest {
     }
 
     @Test
-    fun `a history with a migration keel does not have still stops keel`(@TempDir dir: Path) {
+    fun `a failed migration in the history still stops keel`(@TempDir dir: Path) {
         val ds = sqlite(dir.resolve("keel.db"))
         ProductSchema(ds)
-        sql(
-            ds,
-            "INSERT INTO product_schema_history (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success) " +
-                "VALUES (99, '99', 'from elsewhere', 'SQL', 'P99__elsewhere.sql', 1, 'x', '2026-10-23 00:00:00', 1, 1)",
-        )
+        sql(ds, "UPDATE product_schema_history SET success = 0 WHERE version = '4'")
 
-        assertThatThrownBy { ProductSchema(ds) }.hasMessageContaining("99")
+        assertThatThrownBy { ProductSchema(ds) }.hasMessageContaining("failed")
     }
 }

@@ -3,7 +3,7 @@ package keel.product
 import keel.api.addons.AddonScreen
 import keel.api.addons.KeelAddon
 import org.flywaydb.core.Flyway
-import org.flywaydb.core.api.CoreErrorCode
+import org.flywaydb.core.api.ErrorCode
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -59,7 +59,7 @@ class ProductSchema(dataSource: DataSource) {
         // them: a checksum mismatch alone is repaired (the history takes the new checksums); any other problem still stops keel
         val check = flyway.validateWithResult()
         if (!check.validationSuccessful && check.invalidMigrations.orEmpty().isNotEmpty() &&
-            check.invalidMigrations.all { it.errorDetails?.errorCode == CoreErrorCode.CHECKSUM_MISMATCH }
+            check.invalidMigrations.all { it.errorDetails?.errorCode == ErrorCode.CHECKSUM_MISMATCH }
         ) {
             flyway.repair()
         }

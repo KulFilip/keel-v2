@@ -7,8 +7,8 @@ import org.junit.Test
 class PairLinksTest {
     @Test
     fun `reads a LAN link with an encoded address and name`() {
-        val link = PairLinks.parse("keel://pair?u=http%3A%2F%2F192.168.178.27%3A8088&c=7KQ-4MZ&n=milad%27s%20keel")
-        assertEquals(PairLink("http://192.168.178.27:8088", "7KQ-4MZ", "milad's keel"), link)
+        val link = PairLinks.parse("keel://pair?u=http%3A%2F%2F192.168.1.20%3A8088&c=7KQ-4MZ&n=my%20keel")
+        assertEquals(PairLink("http://192.168.1.20:8088", "7KQ-4MZ", "my keel"), link)
     }
 
     @Test

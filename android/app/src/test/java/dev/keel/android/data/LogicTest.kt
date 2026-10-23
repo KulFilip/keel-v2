@@ -10,8 +10,8 @@ import java.time.Instant
 
 class LogicTest {
     private val multi = ClarifyQuestion(
-        "carriers", "Which carriers first?",
-        options = listOf(QuestionOption("DHL", recommended = true), QuestionOption("PostNL", recommended = true), QuestionOption("UPS")),
+        "suppliers", "Which suppliers first?",
+        options = listOf(QuestionOption("Acme", recommended = true), QuestionOption("Globex", recommended = true), QuestionOption("Initech")),
         multiple = true,
     )
     private val single = ClarifyQuestion(
@@ -22,10 +22,10 @@ class LogicTest {
     @Test
     fun `answers follow the web's rules`() {
         // untouched: a multiple question sends its recommended options, a single one is left out
-        assertEquals(JsonObject(mapOf("carriers" to JsonArray(listOf(JsonPrimitive("DHL"), JsonPrimitive("PostNL"))))), answersOf(listOf(multi, single), emptyMap(), emptyMap()))
+        assertEquals(JsonObject(mapOf("suppliers" to JsonArray(listOf(JsonPrimitive("Acme"), JsonPrimitive("Globex"))))), answersOf(listOf(multi, single), emptyMap(), emptyMap()))
         // typed words win over a clicked option; on a multiple question they are added
-        val a = answersOf(listOf(multi, single), mapOf("carriers" to listOf("UPS"), "store" to listOf("audit table")), mapOf("carriers" to "GLS", "store" to "a file"))
-        assertEquals(JsonArray(listOf(JsonPrimitive("UPS"), JsonPrimitive("GLS"))), a["carriers"])
+        val a = answersOf(listOf(multi, single), mapOf("suppliers" to listOf("Initech"), "store" to listOf("audit table")), mapOf("suppliers" to "Umbrella", "store" to "a file"))
+        assertEquals(JsonArray(listOf(JsonPrimitive("Initech"), JsonPrimitive("Umbrella"))), a["suppliers"])
         assertEquals(JsonPrimitive("a file"), a["store"])
         // an option that takes a reason sends "<label>: <reason>"
         assertEquals(JsonPrimitive("other: syslog"), answersOf(listOf(single), mapOf("store" to listOf("other")), mapOf("store" to "syslog"))["store"])

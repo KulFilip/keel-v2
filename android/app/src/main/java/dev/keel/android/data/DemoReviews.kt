@@ -4,7 +4,7 @@ import java.time.Instant
 
 /**
  * The demo's pull requests, each with its own files, diffs, threads and checks (so #409 shows the retry change, not
- * the ETA one), and the pending comments of your review.
+ * the VAT one), and the pending comments of your review.
  */
 class DemoReviews {
     private fun ago(sec: Long) = Instant.now().minusSeconds(sec).toString()
@@ -20,10 +20,10 @@ class DemoReviews {
     }
 
     val list = listOf(
-        PrSummary(412, "Keep the stored ETA when Pricing Engine sends none", "milad", "feature/SHOPS-1769", "main", updatedAt = ago(7200), mine = true),
-        PrSummary(409, "Carrier adapter: retry on 429 with backoff", "sara.k", "feature/SHOPS-1758", "main", updatedAt = ago(18_000), reviewRequested = true),
-        PrSummary(405, "Checkout page: show the last known ETA", "j.berg", "feature/SHOPS-1744", "main", updatedAt = ago(86_400), reviewRequested = true),
-        PrSummary(398, "Shipment search by reference", "milad", "feature/SHOPS-1650", "main", updatedAt = ago(172_800), mine = true),
+        PrSummary(412, "Keep the stored VAT when Pricing Engine sends none", "alex", "feature/SHOPS-1769", "main", updatedAt = ago(7200), mine = true),
+        PrSummary(409, "Supplier adapter: retry on 429 with backoff", "sara.k", "feature/SHOPS-1758", "main", updatedAt = ago(18_000), reviewRequested = true),
+        PrSummary(405, "Checkout page: show the last known VAT", "j.berg", "feature/SHOPS-1744", "main", updatedAt = ago(86_400), reviewRequested = true),
+        PrSummary(398, "Order search by reference", "alex", "feature/SHOPS-1650", "main", updatedAt = ago(172_800), mine = true),
     )
 
     private fun checks(n: Int, failed: String? = null) = (1..n).map { CheckRun(listOf("phpunit (8.3)", "phpstan", "php-cs-fixer", "deptrac", "composer audit", "eslint", "build", "e2e smoke", "migrations", "openapi diff", "coverage", "secrets", "docker", "sonar")[(it - 1) % 14], "success") } +
@@ -34,34 +34,34 @@ class DemoReviews {
             list[0],
             listOf(
                 DemoFile(
-                    "src/Eta/VatWebhook.php", "modified",
+                    "src/Vat/VatWebhook.php", "modified",
                     """
                     @@ -52,9 +52,14 @@ final class VatWebhook
-                         public function handle(EtaPayload ${d}payload): void
+                         public function handle(VatPayload ${d}payload): void
                          {
-                             ${d}shipment = ${d}this->shipments->byTracking(${d}payload->tracking);
-                    -        ${d}shipment->setEta(${d}payload->eta);
-                    +        if (${d}payload->eta === null) {
-                    +            ${d}this->log->info('eta absent, kept', ['carrier' => ${d}payload->carrier]);
+                             ${d}order = ${d}this->orders->byCheckout(${d}payload->checkout);
+                    -        ${d}order->setVat(${d}payload->vat);
+                    +        if (${d}payload->vat === null) {
+                    +            ${d}this->log->info('vat absent, kept', ['supplier' => ${d}payload->supplier]);
                     +            return;
                     +        }
-                    +        ${d}shipment->setEta(${d}payload->eta);
-                             ${d}shipment->touchVatUpdatedAt(${d}this->clock->now());
-                    +        ${d}this->shipments->save(${d}shipment);
-                             ${d}this->events->dispatch(new VatChanged(${d}shipment->id()));
+                    +        ${d}order->setVat(${d}payload->vat);
+                             ${d}order->touchVatUpdatedAt(${d}this->clock->now());
+                    +        ${d}this->orders->save(${d}order);
+                             ${d}this->events->dispatch(new VatChanged(${d}order->id()));
                          }
                      }
                     """.trimIndent(),
                 ),
                 DemoFile(
-                    "tests/Integration/Eta/VatAbsentKeepsStoredTest.php", "added",
+                    "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", "added",
                     """
                     @@ -0,0 +1,26 @@
                     +<?php
                     +
-                    +namespace App\Tests\Integration\Eta;
+                    +namespace App\Tests\Integration\Vat;
                     +
-                    +use App\Eta\VatWebhook;
+                    +use App\Vat\VatWebhook;
                     +use App\Tests\Integration\IntegrationTestCase;
                     +
                     +final class VatAbsentKeepsStoredTest extends IntegrationTestCase
@@ -70,16 +70,16 @@ class DemoReviews {
                     +    {
                     +        parent::setUp();
                     +        ${d}conn = ${d}this->connection();
-                    +        ${d}conn->insert('carrier', ['id' => 7, 'name' => 'DHL']);
-                    +        ${d}conn->insert('resolver', ['carrier_id' => 7, 'kind' => 'parcel-perform']);
-                    +        ${d}conn->insert('shipment', ['id' => 41, 'tracking' => 'JD0001', 'eta' => '2026-10-21']);
+                    +        ${d}conn->insert('supplier', ['id' => 7, 'name' => 'Acme']);
+                    +        ${d}conn->insert('resolver', ['supplier_id' => 7, 'kind' => 'order-perform']);
+                    +        ${d}conn->insert('order', ['id' => 41, 'checkout' => 'JD0001', 'vat' => '2026-10-21']);
                     +    }
                     +
-                    +    public function test_absent_eta_keeps_the_stored_one(): void
+                    +    public function test_absent_vat_keeps_the_stored_one(): void
                     +    {
-                    +        ${d}this->webhook()->handle(${d}this->payload(tracking: 'JD0001', eta: null));
+                    +        ${d}this->webhook()->handle(${d}this->payload(checkout: 'JD0001', vat: null));
                     +
-                    +        self::assertSame('2026-10-21', ${d}this->shipment(41)->eta()?->format('Y-m-d'));
+                    +        self::assertSame('2026-10-21', ${d}this->order(41)->vat()?->format('Y-m-d'));
                     +    }
                     +}
                     +
@@ -99,8 +99,8 @@ class DemoReviews {
                     +{
                     +    public function up(Schema ${d}schema): void
                     +    {
-                    +        ${d}this->addSql('ALTER TABLE shipment RENAME COLUMN eta_at TO vat_updated_at');
-                    +        ${d}this->addSql('CREATE INDEX shipment_eta_updated ON shipment (vat_updated_at)');
+                    +        ${d}this->addSql('ALTER TABLE order RENAME COLUMN vat_at TO vat_updated_at');
+                    +        ${d}this->addSql('CREATE INDEX order_vat_updated ON order (vat_updated_at)');
                     +    }
                     +}
                     """.trimIndent(),
@@ -108,16 +108,16 @@ class DemoReviews {
             ),
             mutableListOf(
                 ReviewThread(
-                    "412-1", "tests/Integration/Eta/VatAbsentKeepsStoredTest.php", 15, startLine = 13,
+                    "412-1", "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", 15, startLine = 13,
                     comments = listOf(
                         ReviewComment("c1", "sara.k", "Maybe a factory would fit here?", ago(10_800)),
-                        ReviewComment("c2", "milad", "Fair point, thanks. Will update it.", ago(3600)),
+                        ReviewComment("c2", "alex", "Fair point, thanks. Will update it.", ago(3600)),
                     ),
                 ),
-                ReviewThread("412-2", "src/Eta/VatWebhook.php", 56, comments = listOf(ReviewComment("c3", "sara.k", "Should this log the shipment too, not only the carrier (AC-3)?", ago(7000)))),
+                ReviewThread("412-2", "src/Vat/VatWebhook.php", 56, comments = listOf(ReviewComment("c3", "sara.k", "Should this log the order too, not only the supplier (AC-3)?", ago(7000)))),
                 ReviewThread(
                     "412-3", "migrations/Version20261020.php", 11, resolved = true,
-                    comments = listOf(ReviewComment("c4", "j.berg", "rename eta_at to vat_updated_at", ago(20_000)), ReviewComment("c5", "milad", "Renamed in 3c1f9a2. Thanks!", ago(18_000))),
+                    comments = listOf(ReviewComment("c4", "j.berg", "rename vat_at to vat_updated_at", ago(20_000)), ReviewComment("c5", "alex", "Renamed in 3c1f9a2. Thanks!", ago(18_000))),
                 ),
             ),
             checks(14), listOf("j.berg"),
@@ -126,38 +126,38 @@ class DemoReviews {
             list[1],
             listOf(
                 DemoFile(
-                    "src/Carrier/HttpCarrierClient.php", "modified",
+                    "src/Supplier/HttpSupplierClient.php", "modified",
                     """
-                    @@ -31,12 +31,20 @@ final class HttpCarrierClient implements CarrierClient
-                         public function track(string ${d}tracking): TrackingResponse
+                    @@ -31,12 +31,20 @@ final class HttpSupplierClient implements SupplierClient
+                         public function track(string ${d}checkout): CheckoutResponse
                          {
-                    -        ${d}response = ${d}this->http->request('GET', ${d}this->url(${d}tracking));
+                    -        ${d}response = ${d}this->http->request('GET', ${d}this->url(${d}checkout));
                     -        if (${d}response->getStatusCode() === 429) {
-                    -            throw new CarrierThrottled(${d}this->carrier);
+                    -            throw new SupplierThrottled(${d}this->supplier);
                     +        for (${d}try = 1; ; ${d}try++) {
-                    +            ${d}response = ${d}this->http->request('GET', ${d}this->url(${d}tracking));
+                    +            ${d}response = ${d}this->http->request('GET', ${d}this->url(${d}checkout));
                     +            if (${d}response->getStatusCode() !== 429) {
                     +                break;
                     +            }
                     +            if (${d}try >= ${d}this->backoff->maxTries()) {
-                    +                throw new CarrierThrottled(${d}this->carrier, ${d}try);
+                    +                throw new SupplierThrottled(${d}this->supplier, ${d}try);
                     +            }
                     +            ${d}this->sleeper->sleep(${d}this->backoff->delay(${d}try, ${d}response->getHeaders(false)['retry-after'][0] ?? null));
                              }
 
-                             return TrackingResponse::fromArray(${d}response->toArray());
+                             return CheckoutResponse::fromArray(${d}response->toArray());
                          }
                     """.trimIndent(),
                 ),
                 DemoFile(
-                    "src/Carrier/Backoff.php", "added",
+                    "src/Supplier/Backoff.php", "added",
                     """
                     @@ -0,0 +1,24 @@
                     +<?php
                     +
-                    +namespace App\Carrier;
+                    +namespace App\Supplier;
                     +
-                    +/** Exponential backoff for a carrier that answers 429: 1 s, 2 s, 4 s, ... capped, Retry-After wins. */
+                    +/** Exponential backoff for a supplier that answers 429: 1 s, 2 s, 4 s, ... capped, Retry-After wins. */
                     +final class Backoff
                     +{
                     +    public function __construct(private int ${d}maxTries = 4, private int ${d}capMs = 8000) {}
@@ -180,14 +180,14 @@ class DemoReviews {
                     """.trimIndent(),
                 ),
                 DemoFile(
-                    "tests/Unit/Carrier/BackoffTest.php", "added",
+                    "tests/Unit/Supplier/BackoffTest.php", "added",
                     """
                     @@ -0,0 +1,18 @@
                     +<?php
                     +
-                    +namespace App\Tests\Unit\Carrier;
+                    +namespace App\Tests\Unit\Supplier;
                     +
-                    +use App\Carrier\Backoff;
+                    +use App\Supplier\Backoff;
                     +use PHPUnit\Framework\TestCase;
                     +
                     +final class BackoffTest extends TestCase
@@ -206,13 +206,13 @@ class DemoReviews {
             ),
             mutableListOf(
                 ReviewThread(
-                    "409-1", "src/Carrier/Backoff.php", 15,
+                    "409-1", "src/Supplier/Backoff.php", 15,
                     comments = listOf(
-                        ReviewComment("c6", "milad", "Should the delay have some jitter? Two workers would retry in lockstep.", ago(14_000)),
+                        ReviewComment("c6", "alex", "Should the delay have some jitter? Two workers would retry in lockstep.", ago(14_000)),
                         ReviewComment("c7", "sara.k", "Good catch: random_int jitter added, up to a quarter of the delay.", ago(5000)),
                     ),
                 ),
-                ReviewThread("409-2", "src/Carrier/HttpCarrierClient.php", 41, comments = listOf(ReviewComment("c8", "j.berg", "Sleeping in a web request: is this only called from the worker?", ago(4000)))),
+                ReviewThread("409-2", "src/Supplier/HttpSupplierClient.php", 41, comments = listOf(ReviewComment("c8", "j.berg", "Sleeping in a web request: is this only called from the worker?", ago(4000)))),
             ),
             checks(12), emptyList(),
         ),
@@ -220,35 +220,35 @@ class DemoReviews {
             list[2],
             listOf(
                 DemoFile(
-                    "templates/tracking/show.html.twig", "modified",
+                    "templates/checkout/show.html.twig", "modified",
                     """
                     @@ -18,7 +18,12 @@
-                       <section class="eta">
-                    -    <p>{{ shipment.eta|date('d M Y') }}</p>
-                    +    {% if shipment.eta %}
-                    +      <p>{{ shipment.eta|date('d M Y') }}</p>
+                       <section class="vat">
+                    -    <p>{{ order.vat|date('d M Y') }}</p>
+                    +    {% if order.vat %}
+                    +      <p>{{ order.vat|date('d M Y') }}</p>
                     +    {% else %}
-                    +      <p class="eta-last">Last known ETA: {{ shipment.lastKnownEta|date('d M Y') }}</p>
-                    +      <small>updated {{ shipment.etaUpdatedAt|ago }}</small>
+                    +      <p class="vat-last">Last known VAT: {{ order.lastKnownVat|date('d M Y') }}</p>
+                    +      <small>updated {{ order.vatUpdatedAt|ago }}</small>
                     +    {% endif %}
                        </section>
                     """.trimIndent(),
                 ),
                 DemoFile(
-                    "assets/tracking.css", "modified",
+                    "assets/checkout.css", "modified",
                     """
                     @@ -40,3 +40,7 @@
-                     .eta p { font-weight: 600; }
-                    +.eta-last { color: var(--dim); }
-                    +.eta small { display: block; font-size: 12px; }
+                     .vat p { font-weight: 600; }
+                    +.vat-last { color: var(--dim); }
+                    +.vat small { display: block; font-size: 12px; }
                     """.trimIndent(),
                 ),
             ),
             mutableListOf(
                 ReviewThread(
-                    "405-1", "templates/tracking/show.html.twig", 22,
+                    "405-1", "templates/checkout/show.html.twig", 22,
                     comments = listOf(
-                        ReviewComment("c9", "milad", "Show the date in the shipment's timezone?", ago(60_000)),
+                        ReviewComment("c9", "alex", "Show the date in the order's timezone?", ago(60_000)),
                         ReviewComment("c10", "j.berg", "It uses the reader's timezone, like the rest of the page. OK?", ago(30_000)),
                     ),
                 ),
@@ -259,9 +259,9 @@ class DemoReviews {
             list[3],
             listOf(
                 DemoFile(
-                    "src/Search/ShipmentSearch.php", "modified",
+                    "src/Search/OrderSearch.php", "modified",
                     """
-                    @@ -12,6 +12,10 @@ final class ShipmentSearch
+                    @@ -12,6 +12,10 @@ final class OrderSearch
                          public function find(string ${d}q): array
                          {
                     +        if (preg_match('/^[A-Z]{2}\d{4,}${d}/', ${d}q)) {
@@ -275,8 +275,8 @@ class DemoReviews {
             ),
             mutableListOf(
                 ReviewThread(
-                    "398-1", "src/Search/ShipmentSearch.php", 15, resolved = true,
-                    comments = listOf(ReviewComment("c11", "sara.k", "Is the reference always two letters?", ago(200_000)), ReviewComment("c12", "milad", "Yes, carrier prefix. Added a test.", ago(190_000))),
+                    "398-1", "src/Search/OrderSearch.php", 15, resolved = true,
+                    comments = listOf(ReviewComment("c11", "sara.k", "Is the reference always two letters?", ago(200_000)), ReviewComment("c12", "alex", "Yes, supplier prefix. Added a test.", ago(190_000))),
                 ),
             ),
             checks(14), listOf("sara.k", "j.berg"),
@@ -290,10 +290,10 @@ class DemoReviews {
         val s = p.summary
         return ReviewView(
             key = "pr:${s.number}", number = s.number, title = s.title, author = s.author, base = s.base, branch = s.branch,
-            url = "https://github.com/acme/tracking/pull/${s.number}", state = "open", checks = p.checks, approved = p.approved,
+            url = "https://github.com/acme/checkout/pull/${s.number}", state = "open", checks = p.checks, approved = p.approved,
             files = p.files.map { ChangedFile(it.path, it.status, it.added, it.removed) }, added = p.files.sumOf { it.added }, removed = p.files.sumOf { it.removed },
             threads = p.threads.toList(), drafts = p.drafts.toList(), canPost = true,
-            host = HostRef("github", "github.com", "acme/tracking", "https://github.com/acme/tracking"), me = "milad",
+            host = HostRef("github", "github.com", "acme/checkout", "https://github.com/acme/checkout"), me = "alex",
         )
     }
 
@@ -307,7 +307,7 @@ class DemoReviews {
     fun reply(threadId: String, body: String): ReviewView {
         val p = prOfThread(threadId) ?: prs.getValue(412)
         val i = p.threads.indexOfFirst { it.id == threadId }
-        if (i >= 0) p.threads[i] = p.threads[i].copy(comments = p.threads[i].comments + ReviewComment("r${System.nanoTime()}", "milad", body, Instant.now().toString()))
+        if (i >= 0) p.threads[i] = p.threads[i].copy(comments = p.threads[i].comments + ReviewComment("r${System.nanoTime()}", "alex", body, Instant.now().toString()))
         return view("pr:${p.summary.number}")
     }
 
@@ -330,7 +330,7 @@ class DemoReviews {
     fun submit(key: String?): SubmitResult {
         val p = prOf(key)
         val n = p.drafts.size
-        p.drafts.forEach { dr -> p.threads += ReviewThread("new-${dr.id}", dr.path, dr.line, dr.side, comments = listOf(ReviewComment("c-${dr.id}", "milad", dr.body, Instant.now().toString()))) }
+        p.drafts.forEach { dr -> p.threads += ReviewThread("new-${dr.id}", dr.path, dr.line, dr.side, comments = listOf(ReviewComment("c-${dr.id}", "alex", dr.body, Instant.now().toString()))) }
         p.drafts.clear()
         return SubmitResult(n, "COMMENT", null, view(key))
     }

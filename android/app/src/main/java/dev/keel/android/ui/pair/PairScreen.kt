@@ -115,7 +115,7 @@ fun PairScreen(vm: PairViewModel, saved: List<SavedKeel>, onBack: (() -> Unit)?)
         }
 
         SectionLabel("Or type them")
-        Field("keel's address", ui.url, vm::setUrl, "http://192.168.178.27:8080", KeyboardType.Uri)
+        Field("keel's address", ui.url, vm::setUrl, "http://192.168.1.20:8080", KeyboardType.Uri)
         Field("Pairing code", ui.code, vm::setCode, "e.g. 7KQ-4MZ", KeyboardType.Ascii)
         if (ui.error != null) Banner(ui.error!!, ui.hint, K.c.badSoft, K.c.badInk)
         PrimaryButton(if (ui.busy) "Pairing…" else "Pair this phone", vm::pair, busy = ui.busy)

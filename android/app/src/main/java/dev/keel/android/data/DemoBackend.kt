@@ -60,7 +60,7 @@ class DemoBackend {
                 questions = listOf(
                     ClarifyQuestion(
                         "suppliers", "Which suppliers should sync the VAT first?", "The adapter is built per supplier.",
-                        listOf(QuestionOption("Acme", recommended = true), QuestionOption("Globex", recommended = true), QuestionOption("Initech"), QuestionOption("GLS")),
+                        listOf(QuestionOption("Acme", recommended = true), QuestionOption("Globex", recommended = true), QuestionOption("Initech"), QuestionOption("Umbrella")),
                         multiple = true,
                     ),
                 ),
@@ -205,7 +205,7 @@ class DemoBackend {
             path.endsWith("/review/prs") -> {
                 val f = query["filter"] ?: "review"
                 val list = when (f) { "mine" -> prs.filter { it.mine }; "all" -> prs; else -> prs.filter { it.reviewRequested } }
-                ok(PrList.serializer(), PrList(HostRef("github", "github.com", "acme/checkout"), "milad", list, mapOf("review" to 2, "mine" to 2, "all" to 4)))
+                ok(PrList.serializer(), PrList(HostRef("github", "github.com", "acme/checkout"), "alex", list, mapOf("review" to 2, "mine" to 2, "all" to 4)))
             }
             path.endsWith("/review/view") -> ok(ReviewView.serializer(), reviews.view(query["key"]))
             path.endsWith("/review/diff") -> ok(FileDiff.serializer(), reviews.diff(query["key"], query["path"].orEmpty()))
