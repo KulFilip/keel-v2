@@ -735,9 +735,13 @@ lan_ips() {  # this computer's Wi-Fi / LAN addresses, one per line (KEEL_LAN_IP 
         ip="$(ipconfig getifaddr "$i" 2>/dev/null || true)"; [ -n "$ip" ] && echo "$ip"
       done
     else
+      # the address of the default route; else the global addresses of real interfaces (not Docker's, VPNs' or VMs');
+      # else hostname -I (Debian's hostname; Arch's has no -I)
       ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1 || true)"
-      if [ -n "$ip" ]; then echo "$ip"
-      else hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -vE '^(127|172\.17)\.' | head -3 || true; fi
+      [ -n "$ip" ] || ip="$(ip -4 -o addr show scope global 2>/dev/null \
+        | awk '$2 !~ /^(docker|br-|veth|virbr|tailscale|cni|flannel|zt|wg)/ { split($4, a, "/"); print a[1] }' | head -3 || true)"
+      [ -n "$ip" ] || ip="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -vE '^(127|172\.17)\.' | head -3 || true)"
+      [ -z "$ip" ] || printf '%s\n' "$ip"
     fi
   } | awk 'NF && !seen[$0]++'
 }

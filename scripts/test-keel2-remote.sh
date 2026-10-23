@@ -114,9 +114,15 @@ echo "${FAKE_OS:-Linux}"
 FAKE
 cat > "$scratch/bin/ip" <<'FAKE'
 #!/usr/bin/env bash
-[ "${FAKE_NO_ROUTE:-0}" = 1 ] && exit 2
-echo "1.1.1.1 via 192.168.178.1 dev enp3s0 src 192.168.178.27 uid 1000"
-echo "    cache"
+case "$*" in
+  "-4 route get 1.1.1.1")
+    [ "${FAKE_NO_ROUTE:-0}" = 1 ] && exit 2
+    echo "1.1.1.1 via 192.168.178.1 dev wlp3s0 src 192.168.178.27 uid 1000"; echo "    cache" ;;
+  "-4 -o addr show scope global")
+    [ "${FAKE_NO_ADDR:-0}" = 1 ] && exit 1
+    echo "2: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\       valid_lft forever preferred_lft forever"
+    echo "3: wlp3s0    inet 10.1.2.3/24 brd 10.1.2.255 scope global dynamic wlp3s0\       valid_lft 3600sec preferred_lft 3600sec" ;;
+esac
 FAKE
 cat > "$scratch/bin/hostname" <<'FAKE'
 #!/usr/bin/env bash
@@ -187,8 +193,12 @@ no_if "KEEL_BIND must be an address" test "$rc" = 0
 echo "the Wi-Fi address on Linux and macOS"
 reset
 run_k FAKE_NO_ROUTE=1 -- start --wifi "$project"
-has "Linux without a route: hostname -I, without Docker's bridge" "$out" "http://10.0.0.5:$PORT"
+has "Linux without a route: the real interface's address" "$out" "http://10.1.2.3:$PORT"
 hasnt "Docker's bridge address is never offered" "$out" "172.17.0.1"
+reset
+run_k FAKE_NO_ROUTE=1 FAKE_NO_ADDR=1 -- start --wifi "$project"
+has "Linux without ip's answers: hostname -I, without Docker's bridge" "$out" "http://10.0.0.5:$PORT"
+hasnt "hostname -I: Docker's bridge address is never offered" "$out" "172.17.0.1"
 reset
 run_k FAKE_OS=Darwin -- start --wifi "$project"
 has "macOS: ipconfig getifaddr en0" "$out" "On your Wi-Fi: http://192.168.1.20:$PORT"
