@@ -15,11 +15,17 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/MiladNalbandi/keel-v2/releases/download/v0.18.49/keel-v2-explainer.mp4">Video</a> ·
   <a href="#start">Install</a> ·
   <a href="docs/GUIDE.md">Guide</a> ·
   <a href="https://github.com/MiladNalbandi/keel-v2/wiki">Wiki</a> ·
   <a href="#plugins">Plugins</a> ·
   <a href="https://github.com/MiladNalbandi/keel-v2/releases">Releases</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/MiladNalbandi/keel-v2/releases/download/v0.18.49/keel-v2-explainer.mp4"><img src="docs/keel-video.jpg" alt="Watch the 4-minute tour of keel v2: a flow from spec to tested commits, the Inbox, Code and Code Review, KeelBot, plugins, the Supervisor, the budget, the terminal app and the phone app" width="640"></a>
+  <br><sub>The 4-minute tour (MP4): start, a flow, the Inbox, Code Review, KeelBot, plugins, the Supervisor, the terminal and the phone.</sub>
 </p>
 
 <p align="center">
