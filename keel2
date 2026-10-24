@@ -1264,6 +1264,111 @@ cmd_uninstall() {
 
 # keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]
 # stdio passthrough to keel's MCP server (in the container, or the native engine's). Nothing but MCP may reach stdout here.
+# 0.18.51 `keel2 mcp`'s relay (run with the computer's python3 when there is one; KEEL_MCP_RELAY=0 turns it off): the MCP
+# server lives in the container, so a keel restart or update ends it and the AI tool's connection broke ("timed out
+# connecting"). The relay stays on stdio with the tool; when the server ends it waits for keel, starts it again, repeats
+# the tool's initialize, and sends the calls that had no answer yet; if keel does not come back it answers them with an
+# error instead of leaving the tool waiting.
+MCP_RELAY_PY='
+import json, os, subprocess, sys, threading, time
+name, argv = sys.argv[1], sys.argv[2:]
+out_lock, state = threading.Lock(), threading.Condition()
+pending, init_line, child, ready, closing, restarting, seq = {}, None, None, False, False, False, [0]
+WAIT = int(os.environ.get("KEEL_MCP_RELAY_WAIT", "180"))
+def send_out(line):
+    with out_lock:
+        sys.stdout.write(line if line.endswith("\n") else line + "\n"); sys.stdout.flush()
+def running():
+    r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True)
+    return r.stdout.strip() == "true"
+def to_child(line):
+    try:
+        child.stdin.write(line if line.endswith("\n") else line + "\n"); child.stdin.flush(); return True
+    except (BrokenPipeError, OSError, ValueError, AttributeError):
+        return False
+def reader(p, my_init):
+    global ready
+    for line in p.stdout:
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            send_out(line); continue
+        if isinstance(msg, dict) and "method" not in msg and "id" in msg:
+            if my_init is not None and msg["id"] == my_init:
+                with state:
+                    ready = True; state.notify_all()
+                continue
+            pending.pop(json.dumps(msg["id"]), None)
+        send_out(line)
+    p.wait()
+    with state:
+        ready = False; state.notify_all()
+    if not closing:
+        threading.Thread(target=restart, daemon=True).start()
+def start(replay):
+    global child, ready
+    seq[0] += 1
+    my_init = None
+    child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    if replay and init_line is not None:
+        msg = json.loads(init_line); my_init = "keel2-relay-init-%d" % seq[0]; msg["id"] = my_init
+        threading.Thread(target=reader, args=(child, my_init), daemon=True).start()
+        to_child(json.dumps(msg))
+        with state:
+            state.wait_for(lambda: ready or child.poll() is not None, timeout=60)
+        if not ready:
+            return False
+        to_child(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        for line in list(pending.values()):
+            to_child(line)
+    else:
+        threading.Thread(target=reader, args=(child, None), daemon=True).start()
+        with state:
+            ready = True
+    return True
+def restart():
+    global restarting
+    with state:
+        if restarting or closing:
+            return
+        restarting = True
+    try:
+        deadline = time.time() + WAIT
+        while time.time() < deadline and not closing:
+            if running() and start(True):
+                return
+            time.sleep(1.5)
+        for key, line in list(pending.items()):
+            rid = json.loads(line)["id"]
+            send_out(json.dumps({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000,
+                "message": "keel is restarting or stopped: try again in a moment (keel2 status)"}}))
+            pending.pop(key, None)
+    finally:
+        with state:
+            restarting = False
+start(False)
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    try:
+        msg = json.loads(line)
+    except ValueError:
+        msg = None
+    if isinstance(msg, dict) and msg.get("method") == "initialize" and init_line is None:
+        init_line = line
+    if isinstance(msg, dict) and "method" in msg and "id" in msg:
+        pending[json.dumps(msg["id"])] = line
+    if ready and to_child(line):
+        continue
+    if child is None or child.poll() is not None:
+        threading.Thread(target=restart, daemon=True).start()
+closing = True
+try:
+    child.stdin.close(); child.wait(timeout=5)
+except Exception:
+    child.kill()
+'
+
 cmd_mcp() {
   local mode=--read-only print=0 extra=()
   while [ $# -gt 0 ]; do
@@ -1293,8 +1398,12 @@ cmd_mcp() {
   # keel_dashboard's links: the dashboard as this computer sees it, not the container's own port
   local public="${KEEL_PUBLIC_URL:-}"; [ -n "$public" ] || public="http://localhost:$(running_port)"
   # v0.16.1 the internal token file (docker/keel-start writes it) lets the server ask the api for its level's token
-  exec docker exec -i -e KEEL_PUBLIC_URL="$public" -e KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token "$NAME" \
-    /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
+  local server=(docker exec -i -e KEEL_PUBLIC_URL="$public" -e KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token "$NAME"
+    /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"})
+  if [ "${KEEL_MCP_RELAY:-1}" != 0 ] && command -v python3 >/dev/null 2>&1; then
+    exec python3 -c "$MCP_RELAY_PY" "$NAME" "${server[@]}"
+  fi
+  exec "${server[@]}"
 }
 
 # keel2 plugins list | install <name>[@version] | remove <name> [--delete-data] | search [words] | update <name>
