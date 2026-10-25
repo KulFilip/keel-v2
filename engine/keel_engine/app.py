@@ -21,7 +21,7 @@ from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .marketplace import MarketError
 from .models import catalog
-from .runtime import evals, hunt, rules_view, scan, stack_setup
+from .runtime import evals, hunt, rules_view, scan, stack_setup, task_pick
 from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
@@ -158,6 +158,18 @@ class Ask(BaseModel):
     prompt: str
     keys: dict[str, str] | None = None
     timeout: int = Field(default=300, ge=10, le=1800)
+
+
+class TaskPick(BaseModel):
+    """Task automations: the ticket and the workflows to pick from (runtime/task_pick.py)."""
+    model: ModelSpec | None = None
+    keys: dict[str, str] | None = None
+    timeout: int = Field(default=120, ge=10, le=600)
+    kind: str = "flow"
+    ticket: dict = Field(default_factory=dict)
+    workflows: list[dict] = Field(default_factory=list)
+    default: str = ""
+    facts: list[str] = Field(default_factory=list)
 
 
 class PluginCall(BaseModel):
@@ -743,6 +755,13 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/agents/ask")
     async def post_agents_ask(body: Ask):
         return await models.ask(body.model.model_dump(), body.system, body.prompt, body.keys, body.timeout)
+
+    @app.post("/tasks/pick")
+    async def post_tasks_pick(body: TaskPick):
+        """Task automations: the best flow for a ticket (one cheap model call, the default flow without a model)."""
+        data = body.model_dump()
+        data["model"] = body.model.model_dump() if body.model else None
+        return await task_pick.pick(data)
 
     @app.get("/providers/models")
     async def get_models():
