@@ -870,4 +870,28 @@ class ReviewApiTest : ApiTest() {
         assertThat(t["start_side"].asText()).isEqualTo("RIGHT")
         assertThat(t["line"].asInt()).isEqualTo(5)
     }
+
+    @Autowired lateinit var prJudge: keel.api.flow.PrCommentJudge
+
+    @Test
+    fun `the Tasks plugin's PR comment check reads the threads and the cheap check, and never repeats it`() {
+        val (pid, _) = githubPr()
+        models(pid)
+        val url = "https://github.com/acme/shop/pull/7"
+        val threads = prJudge.threads(pid, url)
+        assertThat(threads.author).isEqualTo("ana")
+        val bo = threads.threads.first { it.lastAuthor == "bo" }
+        assertThat(bo.lastBody).contains("Should 20 come from config?")
+        answer(good)
+        val before = asks()
+        val v = prJudge.check(pid, url, bo.id)
+        assertThat(v.verdict).isEqualTo("reviewer_right")                      // the strongest of the items
+        assertThat(v.why).startsWith("20 should come from config")
+        assertThat(v.reply).isEqualTo("Good point: I will read it from PagingProperties.")
+        assertThat(prJudge.check(pid, url, bo.id).verdict).isEqualTo("reviewer_right")
+        assertThat(asks()).isEqualTo(before + 1)                                  // the same comment: the kept answer
+        assertThat(writes()).isEmpty()                                             // a check posts nothing
+        assertThat(ReviewPrCommentJudge.keyOf("https://gitlab.example.com/shop/app/-/merge_requests/12")).isEqualTo("pr:12")
+        assertThat(ReviewPrCommentJudge.summary(listOf(mapOf("verdict" to "author_right"), mapOf("verdict" to "unclear")))).isEqualTo("unclear")
+    }
 }
