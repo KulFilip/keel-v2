@@ -28,3 +28,15 @@ def _db(tmp_path, name="a.db", script=""):
 def test_a_refused_statement_is_named_as_it_is(sql, word):
     kind, why = core.classify(sql, "postgres")
     assert kind == "never" and word in why and "ALIAS" not in why
+
+
+# ------------------------------------------------------------------ L8: a change of every row
+
+def test_an_update_or_delete_without_where_says_it_changes_every_row(tmp_path):
+    c = _db(tmp_path)
+    every = core.query(c, "UPDATE players SET name = 'x'", root=str(tmp_path), allow_change=True)
+    assert every["every_row"] is True and every["changed"] == 2
+    assert core.query(c, "DELETE FROM players", root=str(tmp_path), allow_change=True)["every_row"] is True
+    some = core.query(c, "UPDATE players SET name = 'x' WHERE id = 1", root=str(tmp_path), allow_change=True)
+    assert some["every_row"] is False
+    assert core.query(c, "INSERT INTO players(name) VALUES ('C')", root=str(tmp_path), allow_change=True)["every_row"] is False

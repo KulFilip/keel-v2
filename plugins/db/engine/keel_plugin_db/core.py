@@ -254,6 +254,12 @@ def _parse(text: str, kind: str) -> exp.Expression | None:
         return None
 
 
+def _every_row(text: str, kind: str) -> bool:
+    """An UPDATE or a DELETE without a WHERE: it changes every row of its table."""
+    st = _parse(text, kind)
+    return isinstance(st, (exp.Update, exp.Delete)) and not st.args.get("where")
+
+
 def _is_star(p: exp.Expression) -> bool:
     return isinstance(p, exp.Star) or (isinstance(p, exp.Column) and isinstance(p.this, exp.Star))
 
@@ -492,7 +498,7 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
         c.close()
     ms = int((time.monotonic() - t0) * 1000)
     if cls == "change":
-        return {**out, "changed": max(count, 0), "done": confirm, "ms": ms}
+        return {**out, "changed": max(count, 0), "done": confirm, "ms": ms, "every_row": _every_row(text, conn.kind)}
     hidden = secret_columns(text, conn.kind, cols) if mask else []
     shown = [[("•••" if i in hidden and v is not None else _value(v)) for i, v in enumerate(r)] for r in rows]
     return {**out, "columns": cols, "rows": shown, "count": len(shown), "truncated": truncated, "masked": [cols[i] for i in hidden],
