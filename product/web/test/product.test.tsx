@@ -15,6 +15,7 @@ import type {
   Detail,
   InitiativeJira,
   JiraView,
+  LinkedTicket,
   PlanView,
   ProductMap,
   Team,
@@ -1085,6 +1086,76 @@ describe("keel Product in keel's web", () => {
     expect(calls.some((c) => c.method === "POST" && c.path === "/api/product/tickets/scan")).toBe(true);
   });
 
+  it("B5: with no keel-wide Jira, a team and the initiatives default to a project's own connection, and no second token is asked", async () => {
+    const team: Team = {
+      id: "erp", name: "Orders", lead: "Sara", jira_project: "SHOPS", members: [], source: "manual",
+      owns: [{ team_id: "erp", project_id: "shop", glob: "**", source: "manual" }],
+      created_at: "", updated_at: "", jira: { connection: null, labels: [] }, key_pattern: null, keys: "SHOPS-\\d+", projects: ["shop"],
+    };
+    const conns = {
+      keel_wide: { project_id: null, name: "keel-wide (Jira for every project)", connected: false, kind: null, base_url: null, project_key: null },
+      projects: [{ project_id: "shop", name: "shop", connected: true, kind: "cloud", base_url: "https://shop.example.net", project_key: "SHOPS" }],
+      suggested: "shop",
+    };
+    const repos = [
+      { project_id: "shop", name: "shop", root: "/r/shop", teams: ["erp"] },
+      { project_id: "admin", name: "admin", root: "/r/admin", teams: [] },
+    ];
+    const notConnected: JiraView = { connected: false, settings: { kind: "cloud", base_url: "", email: null, project_key: null }, token_set: false, token_hint: null, me: null };
+    const calls = await open("#/teams", {
+      "GET /api/teams": [team],
+      "/api/initiatives/repos": repos,
+      "GET /api/jira": () => notConnected,
+      "GET /api/product/jira": { connection: null, project: null, type: null },
+      "PUT /api/product/jira": (b: unknown) => b,
+      "GET /api/product/jira/connections": conns,
+    });
+    // Jira for every project: the project's connection works, so no token form until asked
+    const card = (await main().findByRole("heading", { name: "Jira for every project" })).closest("section")!;
+    expect(await within(card).findByTestId("keel-jira-reuse")).toHaveTextContent("Not needed now: shop (https://shop.example.net) has a Jira connection");
+    expect(within(card).queryByLabelText("API token")).toBeNull();
+    // Initiatives in Jira: the project's own connection, not "keel-wide (not connected)"
+    const ini = main().getByRole("heading", { name: "Initiatives in Jira" }).closest("section")!;
+    const conn = await within(ini).findByLabelText("Connection");
+    await waitFor(() => expect(conn).toHaveValue("shop"));
+    expect(within(ini).getByRole("option", { name: "keel-wide (Jira for every project) · not connected" })).toBeInTheDocument();
+    expect(within(ini).queryByRole("option", { name: /admin/ })).toBeNull();          // no connection there
+    expect(within(ini).getByTestId("conn-note")).toHaveTextContent("keel picked shop's own connection (no second token)");
+    await userEvent.type(within(ini).getByLabelText("Initiative project key"), "PORT");
+    await userEvent.click(within(ini).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT" && c.path === "/api/product/jira")?.body).toEqual({ connection: "shop", project: "PORT", type: null }),
+    );
+    // asked anyway: the token form
+    await userEvent.click(within(card).getByRole("button", { name: "Set up a keel-wide connection" }));
+    expect(within(card).getByLabelText("API token")).toBeInTheDocument();
+  });
+
+  it("B5: a team's Jira defaults to its project's own connection when keel-wide has none", async () => {
+    const team: Team = {
+      id: "erp", name: "Orders", lead: "Sara", jira_project: "SHOPS", members: [], source: "manual",
+      owns: [{ team_id: "erp", project_id: "shop", glob: "**", source: "manual" }],
+      created_at: "", updated_at: "", jira: { connection: null, labels: [] }, key_pattern: null, keys: "SHOPS-\\d+", projects: ["shop"],
+    };
+    const calls = await open("#/teams/erp", {
+      "GET /api/teams/erp": { team, pages: [], suggestions: [] },
+      "/api/initiatives/repos": [{ project_id: "shop", name: "shop", root: "/r/shop", teams: ["erp"] }],
+      "GET /api/product/jira/connections": {
+        keel_wide: { project_id: null, name: "keel-wide", connected: false },
+        projects: [{ project_id: "shop", name: "shop", connected: true, base_url: "https://shop.example.net" }],
+        suggested: "shop",
+      },
+      "PATCH /api/teams/erp": (b: Partial<Team>) => ({ ...team, ...b }),
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Projects and Jira" }));
+    const jira = main().getByRole("heading", { name: "Jira" }).closest("section")!;
+    await waitFor(() => expect(within(jira).getByLabelText("Jira connection")).toHaveValue("shop"));
+    await userEvent.click(within(jira).getByRole("button", { name: "Save the Jira settings" }));
+    await waitFor(() =>
+      expect((calls.find((c) => c.method === "PATCH")?.body as { jira: { connection: string } }).jira.connection).toBe("shop"),
+    );
+  });
+
   it("saves the keel-wide Jira connection after a test, never shows its token, and where initiatives go", async () => {
     let view: JiraView = {
       connected: false,
@@ -1350,6 +1421,57 @@ describe("keel Product in keel's web", () => {
     expect(within(tab).queryByRole("button", { name: "Preview Jira tickets" })).toBeNull();
   });
 
+  it("B6: an initiative links tickets already on the Tasks boards, shows their status, and unlinks one", async () => {
+    const coupon: LinkedTicket = { key: "SHOPS-1234", project_id: "web-shop", task_id: "tk_1", title: "Coupon applies once", status: "in_progress",
+      external_status: "In Review", url: "https://shop.example.net/browse/SHOPS-1234", assignee: "ana", source: "jira", on_board: true,
+      initiatives: ["INI-2"], branches: 2, commits: 5 };
+    const report: LinkedTicket = { key: "SHOPS-1252", project_id: "web-shop", task_id: "tk_2", title: "Coupon report", status: "todo",
+      external_status: "To Do", source: "jira", on_board: true, initiatives: [], branches: 0, commits: 0 };
+    const banner: LinkedTicket = { key: "tk_9", project_id: "admin", task_id: "tk_9", title: "Euro banner", status: "todo", source: "local",
+      on_board: true, initiatives: [], branches: 0, commits: 0 };
+    let linked: LinkedTicket[] = [coupon];
+    const asked: string[] = [];
+    const calls = await open("#/initiatives/INI-2", {
+      "/api/initiatives/INI-2": () => detail({}, { linked }),
+      "GET /api/initiatives/INI-2/tickets/candidates": () => [report],
+      "POST /api/initiatives/INI-2/tickets": (b: { tasks: string[] }) =>
+        (linked = [...linked, ...[report, banner].filter((t) => b.tasks.includes(t.task_id!)).map((t) => ({ ...t, initiatives: ["INI-2"] }))]),
+      "DELETE /api/initiatives/INI-2/tickets/SHOPS-1234": () => (linked = linked.filter((t) => t.key !== "SHOPS-1234")),
+    });
+    server.use(http.get("/api/initiatives/INI-2/tickets/candidates", ({ request }) => {
+      const u = new URL(request.url);
+      asked.push(u.search);
+      return HttpResponse.json(u.searchParams.get("all") === "true" ? [report, banner] : [report]);
+    }));
+    const panel = (await main().findByRole("heading", { name: "Tickets" })).closest("section")!;
+    const list = await within(panel).findByRole("list", { name: "Linked tickets" });
+    expect(list).toHaveTextContent("SHOPS-1234In progressCoupon applies onceJira: In Review · web-shop · ana · 2 branches, 5 commits");
+    expect(within(list).getByRole("link", { name: "SHOPS-1234" })).toHaveAttribute("href", "https://shop.example.net/browse/SHOPS-1234");
+
+    // Add tickets: the initiative's repos first, every project when the box is off
+    await userEvent.click(within(panel).getByRole("button", { name: "Add tickets" }));
+    const add = within(panel).getByRole("group", { name: "Add tickets" });
+    const found = await within(add).findByRole("list", { name: "Tickets found" });
+    expect(within(found).getAllByRole("listitem")).toHaveLength(1);
+    await userEvent.click(within(add).getByLabelText("only this initiative's repos"));
+    await waitFor(() => expect(within(add).getAllByRole("checkbox", { name: /^Pick / })).toHaveLength(2));
+    expect(asked.at(-1)).toContain("all=true");
+    await userEvent.type(within(add).getByLabelText("Search tickets"), "coupon");
+    await waitFor(() => expect(asked.at(-1)).toContain("q=coupon"));
+    await userEvent.click(await within(add).findByRole("checkbox", { name: "Pick SHOPS-1252" }));
+    await userEvent.click(within(add).getByRole("button", { name: "Link 1 ticket" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "POST" && c.path === "/api/initiatives/INI-2/tickets")?.body).toEqual({ tasks: ["tk_2"] }),
+    );
+    await waitFor(() => expect(within(panel).getByRole("list", { name: "Linked tickets" })).toHaveTextContent("SHOPS-1252"));
+    expect(within(panel).queryByRole("group", { name: "Add tickets" })).toBeNull();
+
+    // Unlink
+    await userEvent.click(within(panel).getByRole("button", { name: "Unlink SHOPS-1234" }));
+    await waitFor(() => expect(within(panel).getByRole("list", { name: "Linked tickets" })).not.toHaveTextContent("SHOPS-1234"));
+    expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/initiatives/INI-2/tickets/SHOPS-1234")).toBe(true);
+  });
+
   it("the Product map shows the teams, their flows with the tickets that changed them, the work, and finds the flows again", async () => {
     let running = false;
     const map = (): ProductMap => ({
@@ -1396,6 +1518,12 @@ describe("keel Product in keel's web", () => {
         ? [{ thread_id: "t-9", projects: ["erp-core", "erp-ui", "web-shop"], status: "running", started_at: "" }]
         : [],
       not_analysed: ["erp-ui", "web-shop"],
+      board: [
+        { key: "SHOPS-1234", project_id: "erp-core", task_id: "tk_1", title: "Coupon applies once", status: "in_progress", external_status: "In Review",
+          url: "https://shop.example.net/browse/SHOPS-1234", source: "jira", on_board: true, initiatives: ["INI-2"], branches: 1, commits: 2 },
+        { key: "SHOPS-1300", project_id: "erp-ui", task_id: "tk_2", title: "Fix the login page", status: "todo", external_status: "To Do",
+          source: "jira", on_board: true, initiatives: [], branches: 0, commits: 0 },
+      ],
     });
     const calls = await open("#/product-map", {
       "GET /api/product/map": () => map(),
@@ -1422,6 +1550,13 @@ describe("keel Product in keel's web", () => {
     expect(work).toHaveTextContent("branch feature/shops-1234-vat");
     expect(work).toHaveTextContent("2 commits · last 2026-10-20");
     expect(work).toHaveTextContent("1 branches or commits with no ticket key");
+    // B6: the Jira tickets on the Tasks boards, with their initiative, not only the keys found in git
+    const board = within(work).getByRole("list", { name: "On the Tasks boards" });
+    expect(within(board).getAllByRole("listitem").map((l) => l.textContent)).toEqual([
+      "SHOPS-1234In ReviewCoupon applies onceINI-2 · erp-core · 2 commits",
+      "SHOPS-1300To DoFix the login pageno initiative · erp-ui",
+    ]);
+    expect(within(board).getByRole("link", { name: "SHOPS-1234" })).toHaveAttribute("href", "https://shop.example.net/browse/SHOPS-1234");
 
     // a flow's steps, with their file:line
     await userEvent.click(flow);

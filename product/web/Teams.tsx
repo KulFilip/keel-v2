@@ -3,7 +3,7 @@
 // keel projects, its own Jira (connection, project, issue types, labels), its ticket-key pattern and the ticket keys keel
 // found in its git. Two cards for all teams: the keel-wide Jira connection, and where an initiative's own ticket goes.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Async,
   Confirm,
@@ -19,6 +19,7 @@ import {
 import {
   productApi,
   type InitiativeJira,
+  type JiraConnections,
   type JiraKind,
   type JiraSave,
   type JiraTest,
@@ -38,6 +39,65 @@ const lines = (v: string, sep: RegExp = /\n/) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
+// ---------------------------------------------------------------- which Jira connection (B5)
+
+/** The Jira connections there are (null: not known, e.g. an older keel: every repo is offered, as before). */
+function useConnections() {
+  return useLoad("product-jira-connections", productApi.jiraConnections, { live: false }).data ?? null;
+}
+
+/**
+ * The connection a choice starts at: the saved one; else, when the keel-wide one is not connected, a connected project's
+ * own (one of [prefer] first, the team's projects), so keel never defaults to a connection that does not work.
+ */
+function startConnection(saved: string | null | undefined, conns: JiraConnections | null, prefer: string[] = []): string {
+  if (saved) return saved;
+  if (!conns || conns.keel_wide.connected) return "";
+  const ok = conns.projects.filter((c) => c.connected).map((c) => c.project_id!);
+  return prefer.find((p) => ok.includes(p)) ?? conns.suggested ?? "";
+}
+
+/** A connection select: keel-wide, and the projects' own connections (only the connected ones, when keel knows). */
+function ConnectionSelect({ id, value, onChange, conns, repos }: {
+  id: string; value: string; onChange: (v: string) => void; conns: JiraConnections | null; repos: RepoOwner[];
+}) {
+  const wide = conns && !conns.keel_wide.connected ? "keel-wide (Jira for every project) · not connected" : "keel-wide (Jira for every project)";
+  const own = conns
+    ? conns.projects.filter((c) => c.connected || c.project_id === value).map((c) => [c.project_id!,
+      `${c.name}'s own connection${c.connected ? (c.base_url ? ` · ${c.base_url}` : "") : " · not connected"}`] as const)
+    : repos.map((r) => [r.project_id, `${r.name}'s own connection`] as const);
+  const known = own.some(([p]) => p === value);
+  return (
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{wide}</option>
+      {own.map(([p, label]) => <option key={p} value={p}>{label}</option>)}
+      {value && !known && <option value={value}>{value}'s own connection · not connected</option>}
+    </select>
+  );
+}
+
+/** Why the select shows what it shows: keel picked a connected project's own, or there is no connection at all. */
+function ConnectionNote({ value, saved, conns }: { value: string; saved: string; conns: JiraConnections | null }) {
+  if (!conns) return null;
+  const name = conns.projects.find((c) => c.project_id === value)?.name ?? value;
+  if (value && value !== saved && !saved && !conns.keel_wide.connected)
+    return <span className="sub" data-testid="conn-note">The keel-wide connection is not set up, so keel picked {name}'s own connection (no second token). Save to keep it.</span>;
+  if (!value && !conns.keel_wide.connected && !conns.projects.some((c) => c.connected))
+    return <span className="sub bad" data-testid="conn-note">No Jira connection yet: connect a project's Jira in Connections › Jira.</span>;
+  return null;
+}
+
+/** Sets the start value once the connections arrive, unless the person chose already. */
+function useStartConnection(saved: string | null | undefined, conns: JiraConnections | null, prefer: string[], set: (v: string) => void) {
+  const touched = useRef(false);
+  const preferKey = prefer.join(",");
+  useEffect(() => {
+    if (!touched.current && conns) set(startConnection(saved, conns, preferKey ? preferKey.split(",") : []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conns, saved, preferKey]);
+  return () => { touched.current = true; };
+}
+
 export default function Teams({ arg }: AddonPageProps) {
   if (arg) return <TeamPage key={arg} id={arg} />;
   return <TeamList />;
@@ -46,6 +106,7 @@ export default function Teams({ arg }: AddonPageProps) {
 function TeamList() {
   const teams = useLoad("teams", productApi.teams);
   const repos = useLoad("team-repos", productApi.repos);
+  const conns = useConnections();
   const [editing, setEditing] = useState<Team | "new" | null>(null);
   const act = useAct();
   const [imported, setImported] = useState<string | null>(null);
@@ -151,8 +212,8 @@ function TeamList() {
         }}
       </Async>
       <div className="pd-cards">
-        <KeelJira />
-        <InitiativesInJira repos={repos.data ?? []} />
+        <KeelJira conns={conns} />
+        <InitiativesInJira repos={repos.data ?? []} conns={conns} />
       </div>
       {editing && (
         <TeamForm
@@ -333,6 +394,7 @@ function TeamForm({
 function TeamPage({ id }: { id: string }) {
   const k = useLoad(`team:${id}`, () => productApi.team(id));
   const repos = useLoad("team-repos", productApi.repos, { live: false });
+  const conns = useConnections();
   const [editing, setEditing] = useState(false);
   const [asking, setAsking] = useState(false);
   const [tab, setTab] = useState<"pages" | "setup" | "tickets">("pages");
@@ -401,6 +463,7 @@ function TeamPage({ id }: { id: string }) {
                   <TeamJiraForm
                     team={t.team}
                     repos={repos.data ?? []}
+                    conns={conns}
                     onChanged={(team) => k.setData({ ...t, team })}
                   />
                   <KeyPattern
@@ -658,14 +721,18 @@ type IssueTypeKey = (typeof ISSUE_TYPES)[number][0];
 function TeamJiraForm({
   team,
   repos,
+  conns,
   onChanged,
 }: {
   team: Team;
   repos: RepoOwner[];
+  conns: JiraConnections | null;
   onChanged: (t: Team) => void;
 }) {
   const j = team.jira;
-  const [connection, setConnection] = useState(j?.connection ?? "");
+  const mine = team.owns.map((o) => o.project_id);
+  const [connection, setConnection] = useState(() => startConnection(j?.connection, conns, mine));
+  const chose = useStartConnection(j?.connection, conns, mine, setConnection);
   const [project, setProject] = useState(team.jira_project ?? "");
   const [types, setTypes] = useState<Record<IssueTypeKey, string>>({
     initiative_type: j?.initiative_type ?? "",
@@ -706,18 +773,9 @@ function TeamJiraForm({
       <div className="pd-form">
         <div className="field">
           <label htmlFor={id("conn")}>Jira connection</label>
-          <select
-            id={id("conn")}
-            value={connection}
-            onChange={(e) => setConnection(e.target.value)}
-          >
-            <option value="">keel-wide (Jira for every project)</option>
-            {repos.map((r) => (
-              <option key={r.project_id} value={r.project_id}>
-                {r.name}'s own connection
-              </option>
-            ))}
-          </select>
+          <ConnectionSelect id={id("conn")} value={connection} conns={conns} repos={repos}
+            onChange={(v) => { chose(); setConnection(v); }} />
+          <ConnectionNote value={connection} saved={j?.connection ?? ""} conns={conns} />
         </div>
         <div className="field">
           <label htmlFor={id("project")}>Jira project key</label>
@@ -1000,8 +1058,10 @@ function TeamTickets({ id }: { id: string }) {
 // ---------------------------------------------------------------- Jira for all teams
 
 /** The Jira plugin's keel-wide connection: one site and token for keel Product's tickets. */
-function KeelJira() {
+function KeelJira({ conns }: { conns: JiraConnections | null }) {
   const r = useLoad("keel-jira", productApi.keelJira, { live: false });
+  const [anyway, setAnyway] = useState(false);
+  const own = conns?.projects.filter((c) => c.connected) ?? [];
   return (
     <Panel title="Jira for every project">
       <p className="sub">
@@ -1009,7 +1069,18 @@ function KeelJira() {
         project's own connection instead.
       </p>
       <Async r={r} what="Loading the Jira connection">
-        {(v) => (
+        {(v) => !v.connected && !v.token_set && own.length > 0 && !anyway ? (
+          // B5: a project's own connection works already: no second token is needed
+          <div className="pd-form" data-testid="keel-jira-reuse">
+            <p className="sub">
+              Not needed now: {own.map((c) => `${c.name} (${c.base_url ?? "Jira"})`).join(", ")} {own.length === 1 ? "has" : "have"} a Jira
+              connection, and the teams and initiatives use it. Set a keel-wide one only for teams whose projects have none.
+            </p>
+            <div className="pd-actions">
+              <button className="btn sm" type="button" onClick={() => setAnyway(true)}>Set up a keel-wide connection</button>
+            </div>
+          </div>
+        ) : (
           <KeelJiraForm
             key={`${v.connected}:${v.settings.base_url}`}
             v={v}
@@ -1187,7 +1258,7 @@ function KeelJiraForm({
 }
 
 /** Where an initiative's own ticket goes, above its epics; no project = none. */
-function InitiativesInJira({ repos }: { repos: RepoOwner[] }) {
+function InitiativesInJira({ repos, conns }: { repos: RepoOwner[]; conns: JiraConnections | null }) {
   const r = useLoad("initiative-jira", productApi.initiativeJira, {
     live: false,
   });
@@ -1204,6 +1275,7 @@ function InitiativesInJira({ repos }: { repos: RepoOwner[] }) {
             key={`${v.connection ?? ""}:${v.project ?? ""}:${v.type ?? ""}`}
             v={v}
             repos={repos}
+            conns={conns}
             onSaved={(n) => r.setData(n)}
           />
         )}
@@ -1215,13 +1287,16 @@ function InitiativesInJira({ repos }: { repos: RepoOwner[] }) {
 function InitiativeJiraForm({
   v,
   repos,
+  conns,
   onSaved,
 }: {
   v: InitiativeJira;
   repos: RepoOwner[];
+  conns: JiraConnections | null;
   onSaved: (v: InitiativeJira) => void;
 }) {
-  const [connection, setConnection] = useState(v.connection ?? "");
+  const [connection, setConnection] = useState(() => startConnection(v.connection, conns));
+  const chose = useStartConnection(v.connection, conns, [], setConnection);
   const [project, setProject] = useState(v.project ?? "");
   const [type, setType] = useState(v.type ?? "");
   const [saved, setSaved] = useState(false);
@@ -1244,18 +1319,9 @@ function InitiativeJiraForm({
     <div className="pd-form">
       <div className="field">
         <label htmlFor="ij-conn">Connection</label>
-        <select
-          id="ij-conn"
-          value={connection}
-          onChange={(e) => setConnection(e.target.value)}
-        >
-          <option value="">keel-wide (Jira for every project)</option>
-          {repos.map((r) => (
-            <option key={r.project_id} value={r.project_id}>
-              {r.name}'s own connection
-            </option>
-          ))}
-        </select>
+        <ConnectionSelect id="ij-conn" value={connection} conns={conns} repos={repos}
+          onChange={(x) => { chose(); setConnection(x); }} />
+        <ConnectionNote value={connection} saved={v.connection ?? ""} conns={conns} />
       </div>
       <div className="field">
         <label htmlFor="ij-project">Initiative project key</label>

@@ -68,9 +68,14 @@ export function StatusOf({
       </Pill>
     );
   if (s === "removed") return <Pill tone="warn">removed at restart</Pill>;
-  if (s === "off" || p.on === false) return <Pill tone="idle">Off</Pill>;
-  return <Pill tone="ok">On</Pill>;
+  // "Loaded" / "Not loaded", not "On" / "Off": beside a per-project control set to Off, "On" read as a contradiction.
+  // The status is keel-wide (keel loaded the plugin); the control beside it says where it is on.
+  if (s === "off" || p.on === false) return <Pill tone="idle" title={NOT_LOADED_TIP}>Not loaded</Pill>;
+  return <Pill tone="ok" title={LOADED_TIP}>Loaded</Pill>;
 }
+
+export const LOADED_TIP = "keel loaded this plugin: it can run. Where it is on (this project, every project or off) is set beside it.";
+export const NOT_LOADED_TIP = "Off for all of keel: keel does not load it until it is turned on.";
 
 export const titleOf = (p: { name: string; title?: string | null }) =>
   p.title || p.name;

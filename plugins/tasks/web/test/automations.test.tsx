@@ -179,6 +179,33 @@ describe("Task drawer: keel's help", () => {
     );
   });
 
+  it("Pick a flow for me says keel is picking, then links its proposal in the Inbox (B2)", async () => {
+    const user = userEvent.setup();
+    let answer: () => void = () => undefined;
+    server.use(
+      http.post("/api/tasks/:id/pick", async ({ params }) => {
+        await new Promise<void>((done) => { answer = done; });      // the model takes its time
+        db.tk.items.push({
+          id: 301, task_id: String(params.id), project_id: "ludus-engine", kind: "task-proposal", stage: "flow",
+          title: "I want to run the small flow on ABC-1", detail: "Why: a small change.", created_at: "", done_at: null,
+          data: { kind: "flow", workflow_id: "small", why: "a small change.", title: "Rank players", questions: [] },
+        } as never);
+        return HttpResponse.json(withWaiting(String(params.id)));
+      }),
+    );
+    await openTasks();
+    await user.click(await screen.findByRole("button", { name: "ABC-1: Rank players weekly" }));
+    const d = await screen.findByRole("dialog", { name: "ABC-1 · Rank players weekly" });
+    await user.click(within(d).getByRole("button", { name: "Pick a flow for me" }));
+    const status = await within(d).findByTestId("pick-status");
+    expect(status).toHaveTextContent("keel is picking a flow… the proposal will be in your Inbox.");
+    expect(within(d).getByRole("button", { name: "Picking…" })).toBeDisabled();
+    answer();
+    await waitFor(() => expect(within(d).getByTestId("pick-status")).toHaveTextContent("I want to run the small flow on ABC-1"));
+    expect(within(d).getByRole("link", { name: "Open it in the Inbox ▸" })).toHaveAttribute("href", "#/inbox/ludus-engine?item=task-item-301");
+    expect(await screen.findByText("keel picked a flow: I want to run the small flow on ABC-1. It waits in your Inbox.")).toBeInTheDocument();
+  });
+
   it("Review it asks keel for a review of the task's pull request", async () => {
     const user = userEvent.setup();
     server.use(

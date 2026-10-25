@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ErrorBox, Loading, Panel, Pill } from "../../components/ui";
 import { FROM, pendingOf, revokedText, updateOf, type LiveNote, type PluginsView } from "../../marketplaceApi";
 import { useApp, type Loaded } from "../../state";
-import { RemoveConfirm, StatusOf, canRemove, problemsOf, titleOf, usePluginAct } from "../PluginDetail";
+import { LOADED_TIP, RemoveConfirm, StatusOf, canRemove, problemsOf, titleOf, usePluginAct } from "../PluginDetail";
 import { ProjectPlace, useProjectPlugins } from "../PluginProjects";
 import { KeelMark, PluginIcon, nested, useInside } from "../pluginLook";
 import { AppliedNote, RowRestart } from "./Restart";
@@ -79,8 +79,8 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                 <th>Version</th>
                 <th>Parts</th>
                 <th>From</th>
-                <th>Status</th>
-                <th>On</th>
+                <th title="Whether keel loaded the plugin (for all of keel)">Status</th>
+                <th title="Off, this project or all projects; keel core is always on">Where it is on</th>
                 <th>
                   <span className="sr-only">Actions</span>
                 </th>
@@ -111,7 +111,7 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                 </td>
                 <td className="sub" data-label="From">the image</td>
                 <td>
-                  <Pill tone="ok">On</Pill>
+                  <Pill tone="ok" title={LOADED_TIP}>Loaded</Pill>
                 </td>
                 <td className="mk-oncell">
                   <Pill tone="ok">always on</Pill>

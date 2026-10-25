@@ -186,6 +186,23 @@ class JiraClientTest {
     }
 
     @Test
+    fun `a board ticket's wiki markup becomes the same readable text as ADF`() {
+        val wiki = "*Acceptance criteria*\n# Cart shows the total\n# Coupon applies _once_\n## per order\n\n" +
+            "h2. Notes\nSee [the spec|https://example.com/spec] and {{cart.total}}.\n{code:kotlin}\nval x = a*b*c\n{code}"
+        for (s in listOf(cloud, server)) {
+            s.add("ABC-5", "Coupons", "To Do", "Story", wiki)
+            val one = client(s).boardIssues("7", null).single { it.key == "ABC-5" }
+            assertThat(one.description).isEqualTo(
+                "Acceptance criteria\n- Cart shows the total\n- Coupon applies once\n  - per order\n\n" +
+                    "Notes\nSee the spec (https://example.com/spec) and cart.total.\nval x = a*b*c")
+        }
+        // plain text and snake_case names stay as they are
+        assertThat(JiraClient.wikiText("Players want ranks.\n\n- top ten\n- weekly")).isEqualTo("Players want ranks.\n\n- top ten\n- weekly")
+        assertThat(JiraClient.wikiText("set max_cart_size to 2*3")).isEqualTo("set max_cart_size to 2*3")
+        assertThat(JiraClient.wikiText("* *bold item*\n* [https://example.com]\n||a||b||\n|1|2|")).isEqualTo("- bold item\n- https://example.com\na | b\n1 | 2")
+    }
+
+    @Test
     fun `ADF becomes readable text`() {
         val doc = mapper.readTree("""{"type":"doc","content":[
             {"type":"heading","content":[{"type":"text","text":"Goal"}]},

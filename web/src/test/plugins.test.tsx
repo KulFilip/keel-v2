@@ -75,6 +75,10 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
     expect(choices(group)).toEqual(["Off*", "This project", "All projects"]);
     expect(within(row).queryByRole("switch")).toBeNull(); // the control is the only one: no second switch
+    // the status says keel loaded it (keel-wide), not "On" beside a control that says Off for this project
+    expect(within(row).getByText("Loaded")).toHaveAttribute("title", expect.stringContaining("Where it is on"));
+    expect(within(row).queryByText("On")).toBeNull();
+    expect(screen.getByRole("columnheader", { name: "Where it is on" })).toBeInTheDocument();
 
     await user.click(within(group).getByRole("radio", { name: "This project" }));
     await waitFor(() => expect(putsOf("ludus-engine", "db")).toEqual([{ enabled: true, scope: "project" }]));

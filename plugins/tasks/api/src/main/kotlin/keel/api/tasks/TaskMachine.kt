@@ -173,7 +173,10 @@ object TaskMachine {
         }
     }
 
-    /** A first mapping from the Jira statuses keel found (the user checks it in Connections › Jira). */
+    /**
+     * A first mapping from the Jira statuses keel found (the user checks it in Connections › Jira). Every status with a
+     * usual Jira name gets a value: the match, or [TaskStatus.DO_NOT_MOVE] when the board has nothing like it.
+     */
     fun suggest(statuses: List<Pair<String, String?>>): Map<String, String> {
         fun find(vararg rx: String): String? = rx.firstNotNullOfOrNull { r ->
             statuses.firstOrNull { Regex(r, RegexOption.IGNORE_CASE).containsMatchIn(it.first) }?.first
@@ -187,6 +190,14 @@ object TaskMachine {
         (find("^done$", "^closed$", "^resolved$") ?: statuses.firstOrNull { it.second == "done" }?.first)?.let { out[DONE] = it }
         find("cancel", "won.?t", "reject")?.let { out[CANCELLED] = it }
         find("block", "on hold")?.let { out[BLOCKED] = it }
+        // A status with no match keeps no usual name the board does not have ("Ready for Production" on a board without
+        // it): "do not move", so keel never tries a move that fails. Blocked and Cancelled move only when mapped anyway.
+        if (statuses.isNotEmpty()) {
+            for ((status, usual) in TaskStatus.DEFAULT_JIRA) {
+                if (status in out) continue
+                out[status] = statuses.firstOrNull { it.first.equals(usual, ignoreCase = true) }?.first ?: TaskStatus.DO_NOT_MOVE
+            }
+        }
         return out
     }
 }

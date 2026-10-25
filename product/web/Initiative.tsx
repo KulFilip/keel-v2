@@ -1,7 +1,7 @@
 // One initiative: where it is (the tracker), what waits for whom (the Next card), its documents by version, the
 // questions, the disagreements, the plan and its delivery, the runs, the history and the follow-ups.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Async,
   ClarifyForm,
@@ -23,6 +23,7 @@ import {
   type DocView,
   type Disagreement,
   type FollowUp,
+  type LinkedTicket,
   type PlanView,
   type Question,
   type RepoOwner,
@@ -244,11 +245,141 @@ function Loaded({
               <dd>{d.repos.map((r) => r.name).join(", ") || "—"}</dd>
             </dl>
           </Panel>
+          <LinkedTickets d={d} reload={reload} />
           <Disagreements d={d} set={set} reload={reload} />
           <FollowUps d={d} onChanged={reload} />
         </aside>
       </div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- B6: tickets already on the Tasks boards
+
+/** keel's task statuses in words (the Tasks plugin's). */
+const TASK_STATUS: Record<string, string> = {
+  todo: "To do", in_progress: "In progress", in_review: "In review", testing_pp: "Testing (PP)", ready_prod: "Ready",
+  done: "Done", cancelled: "Cancelled", blocked: "Blocked",
+};
+
+/** One ticket's line: key (a link to Jira), title, keel's status, Jira's status, project, assignee, git work. */
+function TicketLine({ t }: { t: LinkedTicket }) {
+  const work = [t.branches ? `${t.branches} branch${t.branches === 1 ? "" : "es"}` : "", t.commits ? `${t.commits} commit${t.commits === 1 ? "" : "s"}` : ""]
+    .filter(Boolean).join(", ");
+  return (
+    <>
+      <span className="pd-card-top">
+        {t.url ? <a className="mono" href={t.url} target="_blank" rel="noreferrer">{t.key}</a> : <b className="mono">{t.key}</b>}
+        {t.status ? <Pill tone={t.status === "done" ? "ok" : t.status === "blocked" ? "bad" : t.status === "todo" ? "idle" : "run"}>{TASK_STATUS[t.status] ?? t.status}</Pill>
+          : <Pill tone="warn">not on a Tasks board now</Pill>}
+      </span>
+      {t.title && <span>{t.title}</span>}
+      <span className="sub">
+        {[t.external_status ? `Jira: ${t.external_status}` : t.source === "local" ? "local task" : "", t.project_id ?? "", t.assignee ?? "", work]
+          .filter(Boolean).join(" · ")}
+      </span>
+    </>
+  );
+}
+
+/** The tickets on the teams' Tasks boards that belong to this initiative, and Add tickets to link more. */
+function LinkedTickets({ d, reload }: { d: Detail; reload: () => void }) {
+  const id = d.initiative.id;
+  const [list, setList] = useState<LinkedTicket[]>(d.linked ?? []);
+  useEffect(() => setList(d.linked ?? []), [d.linked]);
+  const [adding, setAdding] = useState(false);
+  const act = useAct();
+  const unlink = async (key: string) => {
+    const next = await act.run(`unlink:${key}`, () => productApi.unlinkTicket(id, key));
+    if (next) {
+      setList(next);
+      reload();
+    }
+  };
+  return (
+    <Panel title="Tickets">
+      <p className="sub">Tickets on the teams' Tasks boards (Jira or local) that belong to this initiative. Nothing changes in Jira.</p>
+      {list.length === 0 ? (
+        <p className="sub" data-testid="linked-empty">No ticket linked yet.</p>
+      ) : (
+        <ul className="pd-list" aria-label="Linked tickets">
+          {list.map((t) => (
+            <li key={t.key} className="pd-card pd-ticket">
+              <TicketLine t={t} />
+              <span className="pd-actions">
+                <button className="btn sm ghost" type="button" disabled={act.busy !== null} aria-label={`Unlink ${t.key}`}
+                  onClick={() => void unlink(t.key)}>Unlink</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {act.box}
+      {adding ? (
+        <AddTickets id={id} onLinked={(next) => { setList(next); reload(); }} onClose={() => setAdding(false)} />
+      ) : (
+        <div className="pd-actions"><button className="btn sm" type="button" onClick={() => setAdding(true)}>Add tickets</button></div>
+      )}
+    </Panel>
+  );
+}
+
+/** Search the Tasks boards (the initiative's repos, or every project) and link the chosen tickets. */
+function AddTickets({ id, onLinked, onClose }: { id: string; onLinked: (l: LinkedTicket[]) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [mine, setMine] = useState(true);
+  const [found, setFound] = useState<LinkedTicket[] | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const act = useAct();
+  useEffect(() => {
+    let live = true;
+    const t = window.setTimeout(() => {
+      void act.run("search", () => productApi.ticketCandidates(id, q.trim(), !mine)).then((r) => { if (live && r) setFound(r); });
+    }, 250);
+    return () => { live = false; window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, q, mine]);
+  const toggle = (t: LinkedTicket) => setPicked((p) => {
+    const n = new Set(p);
+    if (n.has(t.key)) n.delete(t.key); else n.add(t.key);
+    return n;
+  });
+  const link = async () => {
+    const chosen = (found ?? []).filter((t) => picked.has(t.key));
+    const next = await act.run("link", () => productApi.linkTickets(id, { tasks: chosen.map((t) => t.task_id!).filter(Boolean) }));
+    if (next) {
+      onLinked(next);
+      onClose();
+    }
+  };
+  return (
+    <div className="pd-form" role="group" aria-label="Add tickets">
+      <div className="pd-row">
+        <input type="search" aria-label="Search tickets" placeholder="key or title" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="chk"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> only this initiative's repos</label>
+      </div>
+      {found === null ? <p className="sub">Searching the Tasks boards…</p> : found.length === 0 ? (
+        <p className="sub">No ticket found{q.trim() ? ` for “${q.trim()}”` : ""}. Sync Jira on the Tasks board, or search every project.</p>
+      ) : (
+        <ul className="pd-list" aria-label="Tickets found">
+          {found.map((t) => (
+            <li key={t.key} className="pd-card pd-ticket">
+              <label className="chk">
+                <input type="checkbox" checked={picked.has(t.key)} onChange={() => toggle(t)} aria-label={`Pick ${t.key}`} />
+                <span><TicketLine t={t} /></span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {act.box}
+      <div className="pd-actions">
+        <button className="btn sm primary" type="button" disabled={!picked.size || act.busy !== null} onClick={() => void link()}>
+          {picked.size ? `Link ${picked.size} ticket${picked.size === 1 ? "" : "s"}` : "Link tickets"}
+        </button>
+        <button className="btn sm" type="button" onClick={onClose}>Close</button>
+      </div>
+    </div>
   );
 }
 

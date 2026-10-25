@@ -7,6 +7,9 @@ import keel.api.common.NotFound
 import keel.api.engine.EngineClient
 import keel.api.settings.SettingsService
 import org.springframework.stereotype.Service
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 
 /** [need]: what a mode that is not ready misses: "cli" (not installed) or "login" (no login saved); null when ready. */
 data class ModeView(val id: String, val label: String, val ready: Boolean, val detail: String, val need: String? = null)
@@ -38,6 +41,18 @@ class ConnectionService(
     /** Programs on this machine, checked in parallel and cached for a minute (MachineTools). */
     internal var tools = MachineTools()
 
+    /** OpenCode's own login file, where keel's agents' opencode reads it (tests point it elsewhere). */
+    internal var opencodeAuthFile: () -> Path = { opencodeAuthPath(System.getenv()) }
+
+    /**
+     * Whether OpenCode has a GitHub Copilot login (`opencode auth login`): its auth.json names "github-copilot". keel
+     * reads only that key's presence, never the token. A brand-new volume has none, so the mode is not ready.
+     */
+    fun opencodeLoggedIn(): Boolean = runCatching {
+        val f = opencodeAuthFile()
+        Files.isRegularFile(f) && READER.readTree(f.toFile()).path(OPENCODE_PROVIDER).isObject
+    }.getOrDefault(false)
+
     private fun selectedModes(): Map<String, String> = kv.get<Map<String, String>>(KEY) ?: emptyMap()
 
     private fun keyView(provider: String): Pair<Boolean, String?> {
@@ -62,7 +77,7 @@ class ConnectionService(
         val found = MACHINE.zip(machine).toMap()
         // A CLI mode is ready only when keel has its login too: keel's agents never use the person's own CLI login
         // (in the container, or in native mode where they have their own home). OpenCode keeps its own login
-        // (`opencode auth login`), so it needs none from keel.
+        // (`opencode auth login`, in its auth.json where keel's agents run): ready only when that file has one.
         fun cliMode(id: String, label: String, bin: String, loginSet: Boolean = true): ModeView {
             val t = found[bin] ?: tools.check(bin)
             return when {
@@ -86,7 +101,7 @@ class ConnectionService(
                 )
                 "copilot" -> listOf(
                     cliMode("subscription", "Copilot CLI", "copilot", loginSet),
-                    cliMode("opencode", "OpenCode", "opencode"),
+                    cliMode("opencode", "OpenCode", "opencode", opencodeLoggedIn()),
                     ModeView("api", "GitHub Models (token)", keySet, if (keySet) "Token saved." else "Add GITHUB_TOKEN."),
                 )
                 "vertex" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Vertex AI (Google Cloud)", ready, line)) }
@@ -161,7 +176,26 @@ class ConnectionService(
             "claude" to "claude setup-token, then Set up login",
             "codex" to "codex login, then Set up login",
             "copilot" to "Set up login",
+            "opencode" to "run opencode auth login (GitHub Copilot) inside keel's container",
         )
+        /** OpenCode's provider id for GitHub Copilot (its auth.json key, and `-m github-copilot/<model>`). */
+        const val OPENCODE_PROVIDER = "github-copilot"
+        private val READER = com.fasterxml.jackson.databind.ObjectMapper()
+
+        /**
+         * Where opencode keeps its login for keel's agents, as the engine runs it (models/cli.py safe_env):
+         * `$XDG_DATA_HOME/opencode/auth.json`, else `$HOME/.local/share/…`; in native mode the agents' own home under
+         * keel's data folder (`$KEEL_DATA/agent-home/home/.local/share/…`), never the person's.
+         */
+        fun opencodeAuthPath(env: Map<String, String>): Path {
+            val data = if (env["KEEL_NATIVE"] == "1") {
+                Paths.get(env["KEEL_DATA"]?.ifBlank { null } ?: "./.data").toAbsolutePath().resolve("agent-home/home/.local/share")
+            } else {
+                env["XDG_DATA_HOME"]?.ifBlank { null }?.let { Paths.get(it) }
+                    ?: Paths.get(env["HOME"]?.ifBlank { null } ?: System.getProperty("user.home")).resolve(".local/share")
+            }
+            return data.resolve("opencode/auth.json")
+        }
         /** What "This machine" lists, in this order. */
         val MACHINE = listOf("node", "git", "java", MachineTools.DOCKER, "claude", "codex", "copilot", "opencode")
     }

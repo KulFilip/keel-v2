@@ -258,11 +258,50 @@ export type InitiativeJira = {
   type?: string | null;
 };
 
+/** B5: a Jira connection a team or the initiatives can use (GET /api/product/jira/connections); no token. */
+export type JiraConnectionInfo = {
+  /** the keel project whose own connection it is; null = the keel-wide one */
+  project_id: string | null;
+  name: string;
+  connected: boolean;
+  kind?: string | null;
+  base_url?: string | null;
+  project_key?: string | null;
+};
+
+export type JiraConnections = {
+  keel_wide: JiraConnectionInfo;
+  projects: JiraConnectionInfo[];
+  /** null = keel-wide (connected, or no project is); else the project whose connection keel uses instead */
+  suggested: string | null;
+};
+
 export type RepoOwner = {
   project_id: string;
   name: string;
   root: string;
   teams: string[];
+};
+
+/** B6: a ticket on a team's Tasks board (a synced Jira ticket or a local task), linked to an initiative or not. */
+export type LinkedTicket = {
+  /** the Jira key; a local task's id when it has none */
+  key: string;
+  project_id?: string | null;
+  task_id?: string | null;
+  title?: string | null;
+  /** keel's task status; null when no Tasks board has it now */
+  status?: string | null;
+  external_status?: string | null;
+  url?: string | null;
+  assignee?: string | null;
+  source?: string | null;
+  on_board: boolean;
+  initiatives: string[];
+  branches: number;
+  commits: number;
+  last_at?: string | null;
+  added_at?: string | null;
 };
 
 export type Detail = {
@@ -277,6 +316,8 @@ export type Detail = {
   plan?: PlanView | null;
   repos: RepoOwner[];
   teams: string[];
+  /** B6: tickets already on the Tasks boards, linked to it (older keels: absent) */
+  linked?: LinkedTicket[];
 };
 
 export type TeamPath = {
@@ -445,6 +486,8 @@ export type ProductMap = {
   runs: FlowRun[];
   /** The team projects with no flows yet. */
   not_analysed: string[];
+  /** B6: the team projects' Jira tickets on the Tasks boards, with their initiatives (older keels: absent) */
+  board?: LinkedTicket[];
 };
 export type FlowEdit = { name?: string; summary?: string; hidden?: boolean };
 
@@ -481,6 +524,11 @@ export const productApi = {
   repos: () => get<RepoOwner[]>("/initiatives/repos"),
   create: (b: NewInitiative) => post<Detail>("/initiatives", b),
   get: (id: string) => get<Detail>(I(id)),
+  linkedTickets: (id: string) => get<LinkedTicket[]>(`${I(id)}/tickets`),
+  ticketCandidates: (id: string, q: string, all: boolean) =>
+    get<LinkedTicket[]>(`${I(id)}/tickets/candidates?q=${e(q)}${all ? "&all=true" : ""}`),
+  linkTickets: (id: string, b: { tasks?: string[]; keys?: string[] }) => post<LinkedTicket[]>(`${I(id)}/tickets`, b),
+  unlinkTicket: (id: string, key: string) => del<LinkedTicket[]>(`${I(id)}/tickets/${e(key)}`),
   patch: (id: string, b: Partial<NewInitiative>) => patch<Detail>(I(id), b),
   start: (id: string, stage?: string) =>
     post<Detail>(`${I(id)}/start`, stage ? { stage } : {}),
@@ -544,6 +592,7 @@ export const productApi = {
   ticketSend: (id: string, stories: string[] = []) =>
     post<SendResult>(`${I(id)}/tickets/send`, { stories }),
   initiativeJira: () => get<InitiativeJira>("/product/jira"),
+  jiraConnections: () => get<JiraConnections>("/product/jira/connections"),
   saveInitiativeJira: (b: InitiativeJira) =>
     put<InitiativeJira>("/product/jira", b),
   doc: (id: string, kind: string, version: number) =>

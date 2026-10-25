@@ -10,6 +10,7 @@ import {
   productApi,
   type FlowRun,
   type FlowView,
+  type LinkedTicket,
   type MapTeam,
   type ProductMap as PMap,
   type TeamTickets,
@@ -107,7 +108,7 @@ export default function ProductMap() {
                 }
                 onNew={setNewFor}
               />
-              <Work t={m.tickets} />
+              <Work t={m.tickets} board={m.board ?? []} />
             </div>
           </>
         )}
@@ -348,10 +349,32 @@ function FlowDetail({
   );
 }
 
-function Work({ t }: { t: TeamTickets }) {
+function Work({ t, board }: { t: TeamTickets; board: LinkedTicket[] }) {
   return (
     <section className="pd-map-col" aria-label="Tickets and work">
       <h2>Tickets and work</h2>
+      {/* B6: the Jira tickets on the team projects' Tasks boards, with the initiative each belongs to */}
+      <h3 className="pd-map-h">On the Tasks boards</h3>
+      {board.length === 0 ? (
+        <p className="sub">No Jira ticket on these projects' Tasks boards.</p>
+      ) : (
+        <ul className="pd-list" aria-label="On the Tasks boards">
+          {board.map((b) => (
+            <li key={b.key} className="pd-card pd-ticket">
+              <span className="pd-card-top">
+                {b.url ? <a className="mono" href={b.url} target="_blank" rel="noreferrer">{b.key}</a> : <b className="mono">{b.key}</b>}
+                {b.external_status && <Pill tone="idle">{b.external_status}</Pill>}
+              </span>
+              {b.title && <span>{b.title}</span>}
+              <span className="sub">
+                {[b.initiatives.length ? b.initiatives.join(", ") : "no initiative", b.project_id ?? "",
+                  b.commits ? count(b.commits, "commit") : ""].filter(Boolean).join(" · ")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <h3 className="pd-map-h">Keys found in git</h3>
       {t.tickets.length === 0 ? (
         <p className="sub">No ticket key found in git yet.</p>
       ) : (
