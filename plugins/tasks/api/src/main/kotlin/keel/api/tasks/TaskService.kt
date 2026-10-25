@@ -157,12 +157,7 @@ class TaskService(
         if (running != null) throw Conflict("A flow already runs for ${t.label}", "Open it on the Flow page, or stop it first.")
         val title = (t.externalKey?.let { "$it: " } ?: "") + (b.title?.trim()?.ifEmpty { null } ?: t.title)
         val request = buildString {
-            val asked = b.request?.trim()?.ifEmpty { null }
-            if (asked != null) append(asked)
-            else {
-                append(t.title)
-                if (t.description.isNotBlank()) append("\n\n").append(t.description)
-            }
+            append(b.request?.trim()?.ifEmpty { null } ?: ticketText(t))
             if (t.externalKey != null) append("\n\nJira ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
         }
         val state = try {
@@ -178,6 +173,9 @@ class TaskService(
         val tid = state.get("thread_id")?.asText()?.takeIf { it.isNotBlank() } ?: throw Conflict("The engine did not say which flow it started")
         return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}", actor)), events = true)
     }
+
+    /** What a flow is asked when nobody wrote it: the task's title and description as they are now. */
+    fun ticketText(t: Task): String = if (t.description.isBlank()) t.title else "${t.title}\n\n${t.description}"
 
     /**
      * v0.13.0: acceptance criteria written in a task's description, in a fenced block, go to the flow as its criteria;
