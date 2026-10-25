@@ -260,9 +260,11 @@ describe("the editor", () => {
     await user.click(within(side).getByRole("button", { name: "+ Add" }));
     form = await screen.findByRole("form", { name: "New database connection" });
     await user.type(within(form).getByLabelText("Name"), "shared");
+    // keel 0.18.55: with a project chosen, a new connection is that project's own unless the person picks All projects
     expect(
-      within(form).getByRole("button", { name: "All projects" }),
+      within(form).getByRole("button", { name: "This project" }),
     ).toHaveAttribute("aria-pressed", "true");
+    await user.click(within(form).getByRole("button", { name: "All projects" }));
     await user.click(within(form).getByRole("tab", { name: "Access" }));
     await user.click(
       within(form).getByRole("radio", { name: /Only these projects/ }),

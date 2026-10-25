@@ -46,7 +46,7 @@ export function DbManager({ pid, projectName, place, startNew, select, onChanged
   const projects = useLoad("dbx:projects", () => dbxApi.projects(), { live: false });
   const [filter, setFilter] = useState("");
   const [pick, setPick] = useState<Pick>(() =>
-    startNew ? { kind: "new", draft: newDraft(pid && place === "project" ? "project" : "global") } : null);
+    startNew ? { kind: "new", draft: newDraft(pid ? "project" : "global") } : null);
   const selecting = useRef(startNew ? undefined : select);
   const [found, setFound] = useState<{ name: string; kind: string; url: string; shown: string; source: string }[] | null>(null);
   const [finding, setFinding] = useState(false);
@@ -76,7 +76,9 @@ export function DbManager({ pid, projectName, place, startNew, select, onChanged
   const reload = async () => {
     await Promise.all([place === "control" ? globals.reload() : Promise.resolve(), pid ? mine.reload() : Promise.resolve()]);
   };
-  const add = () => setPick({ kind: "new", draft: newDraft(pid && place === "project" ? "project" : "global") });
+  // keel 0.18.55: with a project chosen (also in Control › Databases), a new connection is that project's own unless the
+  // person picks All projects
+  const add = () => setPick({ kind: "new", draft: newDraft(pid ? "project" : "global") });
   const find = async () => {
     setFinding(true);
     try {
