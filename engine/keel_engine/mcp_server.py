@@ -632,7 +632,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                           ctx: Context | None = None) -> str:
         """Answer what waits in keel's Inbox: a gate (approve or reject with why), questions (answers: id -> a label, a
         list of labels for a "pick any" question, or your own words), a named choice (choice, with why when it needs a
-        reason), or a task item (item_id). ask_person (or an approve of questions with no answers): keel asks the person
+        reason), or a task item (item_id; choice names its button: confirm, send_back, done, or for keel's proposals
+        start, other, later and review comments reply, address, handle). ask_person (or an approve of questions with no answers): keel asks the person
         the waiting question in a form through this client (elicitation: pick one, tick several, own words, a named
         choice with its reason) and sends their answer; a client without forms gets the question as text."""
         if not item_id:

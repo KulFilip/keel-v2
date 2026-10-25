@@ -1251,6 +1251,24 @@ allow it per agent. Saving the connection refreshes its env; deleting the connec
 ### Engine
 `ThreadState` gains `pr_url` (from `data.pr_url`, which `open_pr` sets when it opened the PR).
 
+### 0.18.52 task automations (docs/plans/task-automations.md)
+keel proposes, the person approves. Additive:
+- `GET|PUT /api/projects/{pid}/tasks/automations`: `{rules: {in_progress|in_review|blocked: {mode: off|propose|start, run_mode,
+  cap_tokens}}, keelbot: {account, label}, allow_reply, daily_auto_starts, pick_cap_tokens}`; the view adds `statuses`,
+  `modes`, `review_watch` (Code Review is on), `tracker` (Jira is connected), `auto_starts_today`.
+- `POST /api/tasks/{id}/pick` ("Pick a flow for me") and `POST /api/tasks/{id}/review` ("Review it"): open an Inbox item of
+  kind `task-proposal` (data: workflow_id, why, title, request, questions, kind flow | review); never start anything.
+- `POST /api/inbox/tasks/{item}/act`: kind `task-proposal` takes `start | other (workflow_id) | later` with `answers`
+  and `allow_dirty`; kind `task-review` (a KeelBot-owned ticket's new PR comment) takes `reply (note = edited text) |
+  address | handle`. Inbox items of these kinds carry `payload` (the data) and `questions` (clarify's shape).
+- `POST /api/tasks/{id}/start` gains `title`, `request`, `cap_tokens`; `POST /api/projects/{pid}/tasks/sync` gains
+  `comments_checked`; `GET /api/projects/{pid}/jira/users?q=` (the KeelBot account picker).
+- A Jira move seen by the sync (never keel's own: it sets `external_status` when it moves the ticket) runs the status's
+  rule; a review flow runs read-only (`own_branch` off) and never changes the task's status (`task_runs`).
+- engine `POST /tasks/pick`: one no-tools model call (`runtime/task_pick.py`), the default flow without a model.
+- api SDK `keel.api.flow.PrCommentJudge` (the Code Review plugin's bean): threads, the cheap check, reply, address.
+- core migration `V24__task_automations.sql`: `task_automations`, `task_watch`, `task_runs`, `task_inbox.data`.
+
 ### Web
 - **Run › Tasks** (the Tasks plugin: `plugins/tasks/web/Tasks.tsx`, `tasksApi.ts`): the board (To do, In progress, In review, Testing (PP), Ready, Done; Blocked
   when a task is blocked; cancelled under Done), cards (key or "local", type, assignee, flow status, PR, reviewers, "needs

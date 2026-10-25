@@ -230,8 +230,15 @@ def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: s
     """Answer what waits in keel's Inbox: a gate, questions (a label, a list of labels, or own words), a named choice
     (with why when it needs a reason), or a task item (item_id)."""
     if item_id:
-        api.post(f"/inbox/tasks/{_q(item_id)}/act", {"decision": decision, "why": why})
-        return f"task item {item_id}: {decision}."
+        # the api reads action + note (0.18.52: answers for a proposal's questions); decision/why kept for older apis
+        # choice names the item's button (confirm, send_back, done; 0.18.52 start, other, later, reply, address, handle)
+        body: dict[str, Any] = {"action": choice or decision, "decision": decision}
+        if why:
+            body.update(note=why, why=why)
+        if answers:
+            body["answers"] = answers
+        api.post(f"/inbox/tasks/{_q(item_id)}/act", body)
+        return f"task item {item_id}: {choice or decision}."
     w, tid = waiting_of(api, project, thread_id)
     if not w:
         return tid
