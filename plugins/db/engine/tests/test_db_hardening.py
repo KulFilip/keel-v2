@@ -110,5 +110,5 @@ def test_sqlite_still_returns_the_first_rows_and_says_truncated(tmp_path):
     k.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(50)])
     k.commit()
     k.close()
-    out = core.query(core.Conn("x", "sqlite", f"sqlite:{db}"), "SELECT a FROM t", limit=10)
+    out = core.query(core.Conn("x", "sqlite", f"sqlite:{db}"), "SELECT a FROM t", root=str(tmp_path), limit=10)
     assert out["count"] == 10 and out["truncated"] is True

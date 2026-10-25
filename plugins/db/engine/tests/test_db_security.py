@@ -20,6 +20,41 @@ def _db(tmp_path, name="a.db", script=""):
     return core.Conn("x", "sqlite", f"sqlite:{name}")
 
 
+# ------------------------------------------------------------------ S4: a SQLite file only inside the project
+
+def test_a_sqlite_file_inside_the_project_works_relative_or_absolute(tmp_path):
+    _db(tmp_path)
+    assert core.query(core.Conn("x", "sqlite", "sqlite:a.db"), "SELECT 1", root=str(tmp_path))["rows"] == [[1]]
+    assert core.query(core.Conn("x", "sqlite", f"sqlite:{tmp_path / 'a.db'}"), "SELECT 1", root=str(tmp_path))["rows"] == [[1]]
+
+
+def test_a_sqlite_file_outside_the_project_is_refused(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    outside = tmp_path / "other"
+    outside.mkdir()
+    _db(outside, "secret.db")
+    (proj / "link.db").symlink_to(outside / "secret.db")
+    for url in (f"sqlite:{outside / 'secret.db'}", "sqlite:../other/secret.db", "sqlite:link.db"):
+        with pytest.raises(core.DbError) as e:
+            core.query(core.Conn("x", "sqlite", url), "SELECT 1", root=str(proj))
+        assert e.value.status == 403 and "project folder" in str(e.value), url
+    with pytest.raises(core.DbError):
+        core.query(core.Conn("x", "sqlite", f"sqlite:{outside / 'secret.db'}"), "SELECT 1", root="")
+
+
+def test_keels_own_data_folder_is_refused_always(tmp_path, monkeypatch):
+    data = tmp_path / "proj" / "data"
+    data.mkdir(parents=True)
+    _db(data, "keel.db")
+    monkeypatch.setenv("KEEL_DATA", str(data))
+    with pytest.raises(core.DbError) as e:
+        core.query(core.Conn("x", "sqlite", "sqlite:data/keel.db"), "SELECT 1", root=str(tmp_path / "proj"))
+    assert "keel's own" in str(e.value)
+    with pytest.raises(core.DbError):
+        core._sqlite_path(core.Conn("x", "sqlite", "sqlite:/data/keel.db"), "/")
+
+
 # ------------------------------------------------------------------ S5: a password with @ and /
 
 @pytest.mark.parametrize("url,shown", [

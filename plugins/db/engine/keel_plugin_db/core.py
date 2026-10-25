@@ -226,12 +226,36 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
 
 # ------------------------------------------------------------------ connecting
 
+def _keel_data() -> list[Path]:
+    from keel_engine import config
+
+    out = [Path("/data")]
+    try:
+        out.append(config.data_dir())
+    except OSError:
+        pass
+    return out
+
+
+def _inside(p: Path, folder: Path) -> bool:
+    return p == folder or folder in p.parents
+
+
 def _sqlite_path(conn: Conn, root: str) -> Path:
-    raw = re.sub(r"^sqlite3?:(//)?", "", conn.url.strip())
-    p = Path(unquote(raw))
-    if not p.is_absolute():
-        p = Path(root or ".") / raw
-    return p
+    """The SQLite file, only inside the project folder (after symlinks), never in keel's own data (keel 0.18.55: an
+    absolute path such as /data/keel.db was keel's own database)."""
+    raw = unquote(re.sub(r"^sqlite3?:(//)?", "", conn.url.strip()))
+    hint = "Use a SQLite file inside the project folder, for example data/app.db."
+    if not root:
+        raise DbError(403, "keel opens a SQLite file only inside a project folder, and this call has no project.", hint)
+    base = Path(root).resolve()
+    p = Path(raw)
+    real = (p if p.is_absolute() else base / p).resolve()
+    if any(_inside(real, d.resolve()) for d in _keel_data()):
+        raise DbError(403, "keel never opens its own data folder (keel's own database) as a connection.", hint)
+    if not _inside(real, base):
+        raise DbError(403, f"The SQLite file {raw} is not inside the project folder.", hint)
+    return real
 
 
 def _connect(conn: Conn, root: str, *, read: bool):
