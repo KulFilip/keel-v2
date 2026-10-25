@@ -70,7 +70,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.18.51"
+KEEL2_VERSION="0.18.52"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -1268,7 +1268,7 @@ cmd_uninstall() {
 
 # keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]
 # stdio passthrough to keel's MCP server (in the container, or the native engine's). Nothing but MCP may reach stdout here.
-# 0.18.51 `keel2 mcp`'s relay (run with the computer's python3 when there is one; KEEL_MCP_RELAY=0 turns it off): the MCP
+# 0.18.52 `keel2 mcp`'s relay (run with the computer's python3 when there is one; KEEL_MCP_RELAY=0 turns it off): the MCP
 # server lives in the container, so a keel restart or update ends it and the AI tool's connection broke ("timed out
 # connecting"). The relay stays on stdio with the tool; when the server ends it waits for keel, starts it again, repeats
 # the tool's initialize, and sends the calls that had no answer yet; if keel does not come back it answers them with an
