@@ -18,6 +18,7 @@ import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useHasPage, useSlot } from "../sdk/registry";
 import { SLOTS, type InboxCardItem } from "../sdk/slots";
+import { queryValue } from "../routes";
 import { go, useApp, useLoad, useRoute } from "../state";
 import "../components/inbox.css";
 
@@ -266,7 +267,11 @@ export function InboxPage() {
   const cards = useSlot<InboxCardItem>(SLOTS.inboxCard);
   const cardOf = (kind: string) => cards.find((c) => Object.hasOwn(c.kinds, kind)) ?? null;
   const labelOf = (kind: string) => KIND_LABEL[kind] ?? cardOf(kind)?.kinds[kind] ?? kind;
-  const { arg } = useRoute();
+  const route = useRoute();
+  const { arg } = route;
+  // a link to one item (#/inbox/<project>?item=task-item-12, the task drawer's "Open it in the Inbox"): it comes into view
+  const wanted = queryValue(route, "item");
+  const shown = useRef("");
   const r = useLoad("inbox", () => inboxApi.list());
   const [project, setProject] = useState(arg ?? "");
   useEffect(() => setProject(arg ?? ""), [arg]);
@@ -314,6 +319,16 @@ export function InboxPage() {
     const target = els.find((el) => el.dataset.key === f.key) ?? els[Math.min(f.index, els.length - 1)] ?? emptyRef.current;
     target?.focus();
   }, [items]);
+
+  useEffect(() => {
+    if (!wanted || shown.current === wanted) return;
+    const it = items.find((x) => x.id === wanted);
+    const el = it && [...(listRef.current?.querySelectorAll<HTMLElement>("[data-testid=inbox-item]") ?? [])].find((e) => e.dataset.key === keyOf(it));
+    if (!el) return;
+    shown.current = wanted;
+    el.scrollIntoView?.({ block: "center" });
+    el.focus();
+  }, [items, wanted]);
 
   const done = async (msg: string, key: string) => {
     const i = items.findIndex((x) => keyOf(x) === key);

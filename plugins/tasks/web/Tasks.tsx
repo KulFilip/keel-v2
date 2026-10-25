@@ -238,6 +238,11 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
   );
 }
 
+const PICKING = "keel is picking a flow… the proposal will be in your Inbox.";
+
+/** The Inbox, on this item's project, with the item in view (the Inbox's ?item=, its id there: task-item-<id>). */
+const inboxItemHash = (it: TaskItem) => `${hashFor("inbox", it.project_id)}?item=task-item-${it.id}`;
+
 function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; onClose: () => void; onChanged: () => void }) {
   const { toast, setProjectId } = useApp();
   const r = useLoad(`task:${id}`, () => tasksApi.get(id));
@@ -247,9 +252,12 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
   const [pr, setPr] = useState("");
   const [note, setNote] = useState("");
   const [ask, setAsk] = useState<null | "cancel" | "delete" | "back">(null);
+  /** "Pick a flow for me": keel is picking (the model may take a while), or what it proposed (its Inbox item). */
+  const [picked, setPicked] = useState<null | { busy: true } | { busy: false; title: string; item: TaskItem | null }>(null);
   useEffect(() => {
     if (t && t.project_id !== pid) setProjectId(t.project_id);
   }, [t, pid, setProjectId]);
+  useEffect(() => setPicked(null), [id]);
 
   const run = async (what: () => Promise<Task | unknown>, msg: string) => {
     setBusy(true);
@@ -264,6 +272,27 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
       onChanged();
     } catch (e) {
       setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pick = async (task: Task) => {
+    setBusy(true);
+    setErr(null);
+    setPicked({ busy: true });
+    toast(PICKING);
+    try {
+      const next = await tasksApi.pick(task.id);
+      r.setData(next);
+      const item = [...next.waiting].reverse().find((it) => it.kind === "task-proposal") ?? null;
+      setPicked({ busy: false, title: item?.title ?? "keel made no proposal: see the history.", item });
+      toast(item ? `keel picked a flow: ${item.title}. It waits in your Inbox.` : "keel made no proposal: see the history.");
+      onChanged();
+    } catch (e) {
+      setErr(errorParts(e));
+      setPicked(null);
+      void r.reload();
     } finally {
       setBusy(false);
     }
@@ -329,11 +358,19 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
           {/* 0.18.52 keel's help: it picks the flow or proposes a review, and asks in the Inbox before anything runs */}
           {(canStart || (t.pr_url && t.status !== "done" && t.status !== "cancelled")) && (
             <div className="row tk-help" role="group" aria-label="keel's help">
-              {canStart && <button className="btn sm" type="button" disabled={busy} onClick={() => void run(() => tasksApi.pick(t.id), "keel picked a flow: see its proposal.")}>Pick a flow for me</button>}
+              {canStart && <button className="btn sm" type="button" disabled={busy} onClick={() => void pick(t)}>{picked?.busy ? "Picking…" : "Pick a flow for me"}</button>}
               {t.pr_url && t.status !== "done" && t.status !== "cancelled" && (
                 <button className="btn sm" type="button" disabled={busy} onClick={() => void run(() => tasksApi.review(t.id), "keel proposes a review: see its proposal.")}>Review it</button>
               )}
             </div>
+          )}
+
+          {picked && (
+            <p className="sub tk-picked" role="status" data-testid="pick-status">
+              {picked.busy ? PICKING : (
+                <>{picked.title}{picked.item && <> <a className="linkbtn" href={inboxItemHash(picked.item)}>Open it in the Inbox ▸</a></>}</>
+              )}
+            </p>
           )}
 
           {canStart && <StartBox t={t} pid={t.project_id} onStarted={(n) => { r.setData(n); toast(`${nameOf(n)}: the ${n.workflow_id} flow started.`); onChanged(); }} />}

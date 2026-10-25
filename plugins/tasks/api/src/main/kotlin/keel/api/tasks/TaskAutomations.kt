@@ -134,6 +134,9 @@ class TaskAutomations(
                 if (t.status == IN_REVIEW) "Use Review it for its pull request." else "Send it back to In progress first.")
         }
         running(t)?.let { throw Conflict("A flow already runs for ${t.label}", "Open it on the Flow page, or stop it first.") }
+        // the pick may wait for the model: the history says it started (and the proposal's line follows)
+        store.event(t.id, "automation", null, null, "You asked keel to pick a flow: it reads the ticket and this project's flows. Its proposal will be in your Inbox.", "user")
+        tasks.changed(t.projectId)
         flow(t, AutomationRule("propose"), "You asked keel to pick a flow", byRule = false)
         return tasks.get(id)
     }

@@ -62,6 +62,10 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(p["payload"]["fallback"].asBoolean()).isTrue()
         assertThat(p["detail"].asText()).contains("no model is set up")
         assertThat(engine.calls.count { it.path == "/tasks/pick" }).isEqualTo(asked)       // no model call
+        // B2: the history says keel was asked, before the proposal's own line
+        assertThat(task(id)["events"].map { it["note"].asText() }).containsSubsequence(
+            "You asked keel to pick a flow: it reads the ticket and this project's flows. Its proposal will be in your Inbox.",
+            "You asked keel to pick a flow: keel proposes the feature flow (its default). Why: ${p["payload"]["why"].asText()}")
 
         assertThat(unread(id)).hasSize(1)
 
