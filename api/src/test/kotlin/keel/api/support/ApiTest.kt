@@ -92,6 +92,8 @@ abstract class ApiTest {
             r.add("keel.internal-token") { TOKEN }
             r.add("keel.secret") { "" }
             r.add("keel.fake-on-real-projects") { true }
+            // B8a off: one test's model login must not change the next test's models (FirstModelLoginApiTest turns it on)
+            r.add("keel.first-login-default") { false }
             r.add("keel.keel-v1-optional") { dataDir.resolve("no-keel-v1").toString() }
             // v0.5.0 tasks (the Tasks plugin's keel.tasks.*, for the plugins' tests and Product's): effects on the event
             // thread, no background polls, GitHub = the stub, no token from the environment

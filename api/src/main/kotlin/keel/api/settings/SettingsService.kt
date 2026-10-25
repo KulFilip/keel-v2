@@ -70,6 +70,9 @@ class SettingsService(
 
     fun general(): Settings = fromMap(defaultsMap() + core(raw(GENERAL)))
 
+    /** Someone saved [key] in Settings › General (it is not keel's default). */
+    fun isGeneralSet(key: String): Boolean = raw(GENERAL).containsKey(key)
+
     fun updateGeneral(patch: Map<String, Any?>): Settings {
         check(patch, allowNull = false)
         val merged = patched(raw(GENERAL), patch)

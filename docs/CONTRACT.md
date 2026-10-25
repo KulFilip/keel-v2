@@ -302,6 +302,7 @@ GET    /api/connections                               → { providers: { id, lab
                                                         // v0.4.2: the 8 program checks (node git java docker claude codex copilot opencode) run in parallel, 5 s each, cached 1 min
 PUT    /api/connections/{provider}  { mode }
 PUT    /api/secrets/{name}   { value }   → { hint }   (stored AES-GCM in /data; never returned. 400 when a known login or key cannot be right: bad characters, a Claude token without sk-ant-, a Codex login that is not JSON)
+       (B8a a model login or key — Claude or Codex login, ANTHROPIC_API_KEY, OPENAI_API_KEY — and a finished POST /api/logins make that provider's default model the default, implementer and reviewer model when General has none saved for them; never a GitHub token, never with local_only on)
 DELETE /api/secrets/{name}
 POST   /api/connections/{provider}/test               → { ok, text?, ms, error? }
 

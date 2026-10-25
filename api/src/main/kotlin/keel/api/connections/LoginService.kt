@@ -38,6 +38,7 @@ data class LoginView(
 @Service
 class LoginService(
     private val secrets: SecretService,
+    private val firstLogin: FirstModelLogin,
     @Value("\${keel.login-pty:true}") private val usePty: Boolean,
     @Value("\${keel.login-commands.claude:claude setup-token}") private val claudeCmd: String,
     @Value("\${keel.login-commands.codex:codex login --device-auth}") private val codexCmd: String,
@@ -221,6 +222,7 @@ class LoginService(
         s.status = "done"
         s.message = "Logged in. Saved encrypted in keel's database as $name."
         log.info("{} login saved as {}", s.provider, name)
+        runCatching { firstLogin.saved(s.provider, "subscription") }
         s.proc.destroy()
     }
 

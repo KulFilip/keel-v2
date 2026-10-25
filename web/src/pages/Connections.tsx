@@ -175,7 +175,14 @@ export function connState(p: Conn): State {
   return { tone: "ok", text: p.login_set ? "Ready, logged in" : "Ready" };
 }
 
-function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
+/** B8a the agents' models that are still the fake model (default, implementer, reviewer), in words. */
+const AGENT_MODELS = [["default_model", "the default model"], ["implementer_model", "the implementer"], ["reviewer_model", "the reviewer"]] as const;
+function fakeAgents(s: Partial<Record<string, unknown>> | null | undefined): string[] {
+  if (!s) return [];
+  return AGENT_MODELS.filter(([k]) => (s[k] as Model | undefined)?.provider === "fake").map(([, words]) => words);
+}
+
+function Provider({ p, onChanged, fake = [] }: { p: Conn; onChanged: () => void; fake?: string[] }) {
   const { toast } = useApp();
   const [key, setKey] = useState("");
   const [hint, setHint] = useState(p.key_hint ?? "");
@@ -258,6 +265,12 @@ function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
           <button className="btn sm" type="button" onClick={runTest}>Test</button>
         </div>
       </header>
+      {p.id !== "fake" && fake.length > 0 && state.tone === "ok" && (p.login_set || keySet) && (
+        <p className="cn-need" role="note">
+          {HELP[p.id]?.name ?? p.label} is {p.login_set ? "logged in" : "ready"}, but {fake.join(", ")} still use{fake.length === 1 ? "s" : ""} the fake model, so
+          those agents do no real work. <button className="btn sm primary" type="button" onClick={useForAll}>Use {p.label} for all agents</button>
+        </p>
+      )}
       {state.need === "login" && <p className="cn-need">keel has no {HELP[p.id]?.name ?? p.label} login yet, so its agents cannot use your subscription. <b>Set up login</b> signs in from here, or paste a token.</p>}
       {state.need === "opencode" && <p className="cn-need">OpenCode has no GitHub Copilot login yet, so its agents cannot run. Run <code>opencode auth login</code> inside keel's container (for example <code>docker exec -it keel-v2 opencode auth login</code>), then press <b>Test</b>.</p>}
       {state.need === "cli" && <p className="cn-need">The {p.modes.find((x) => x.id === mode)?.label ?? "CLI"} is not installed in keel's image. Pick another way below, or build the image with INSTALL_CLIS=1.</p>}
@@ -338,6 +351,8 @@ function CheckingCard({ id }: { id: string }) {
 
 export function ConnectionsPage({ pid }: { pid: string }) {
   const conns = useLoad("connections", () => api.connections(), { live: false });
+  const general = useLoad("settings:general", () => api.generalSettings(), { live: false });
+  const fake = fakeAgents(general.data as Partial<Record<string, unknown>> | null);
   const kinds = useSlot<ConnectionKindItem>(SLOTS.connectionsKind);
   const c = conns.data;
   const providers = c ? [...c.providers].sort(order) : null;
@@ -349,7 +364,7 @@ export function ConnectionsPage({ pid }: { pid: string }) {
       <Section title="Providers" sub={!providers ? "Checking each provider: which CLIs are installed and which logins and keys are saved."
         : missing ? `${missing} provider${missing === 1 ? " needs" : "s need"} a login or a key before its agents can run.` : "Every provider is ready."}>
         <div className="cn-list">
-          {providers ? providers.map((p) => <Provider key={p.id} p={p} onChanged={() => void conns.reload()} />)
+          {providers ? providers.map((p) => <Provider key={p.id} p={p} fake={fake} onChanged={() => { void conns.reload(); void general.reload(); }} />)
             : !conns.error && ORDER.map((id) => <CheckingCard key={id} id={id} />)}
           {providers && !providers.length && <div className="panel"><EmptyState title="No provider known">The keel api lists none. Update keel and reload.</EmptyState></div>}
         </div>
