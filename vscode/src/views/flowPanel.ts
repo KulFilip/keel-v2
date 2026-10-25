@@ -80,11 +80,10 @@ export class FlowPanel implements vscode.Disposable {
         ],
       },
     );
-    this.panel.iconPath = vscode.Uri.joinPath(
-      extensionUri,
-      "media",
-      "keel.svg",
-    );
+    this.panel.iconPath = {
+      light: vscode.Uri.joinPath(extensionUri, "media", "keel-light.svg"),
+      dark: vscode.Uri.joinPath(extensionUri, "media", "keel-dark.svg"),
+    };
     this.panel.webview.html = webviewHtml(
       this.panel.webview,
       extensionUri,

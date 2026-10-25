@@ -104,13 +104,15 @@ export function testCounts(
   m = lastMatch(/test result: \w+\. (\d+) passed; (\d+) failed/g, t);
   if (m) return [Number(m[1]), Number(m[2])];
   const p = lastMatch(/(\d+) (?:passed|passing)\b/g, t);
-  const f = lastMatch(/(\d+) (?:failed|failing|errors?)\b/g, t);
+  const f = lastMatch(/(\d+) (?:failed|failing)\b/g, t);
+  // "N errors" counts only next to a passed count: a linter's "1 problem (1 error)" is not a test run
+  const e = p && !f ? lastMatch(/(\d+) errors?\b/g, t) : undefined;
   if (!p && !f) {
     const ok = [...t.matchAll(/^(ok|PASS)\s+\S+/gm)].length;
     const bad = [...t.matchAll(/^(FAIL|--- FAIL)\b/gm)].length;
     return ok + bad > 0 && /^(ok|FAIL)\s/m.test(t) ? [ok, bad] : undefined;
   }
-  return [p ? Number(p[1]) : 0, f ? Number(f[1]) : 0];
+  return [p ? Number(p[1]) : 0, f ? Number(f[1]) : e ? Number(e[1]) : 0];
 }
 
 const COMMAND_TOOLS = new Set([

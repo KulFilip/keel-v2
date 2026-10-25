@@ -1,5 +1,6 @@
 // The smoke test: starts the demo keel, then VS Code with the extension and the demo "shop" folder, and runs suite.ts
-// inside it. Uses the installed VS Code when VSCODE_EXECUTABLE is set, else downloads one (@vscode/test-electron).
+// inside it. Uses the installed VS Code when VSCODE_EXECUTABLE is set, else downloads one (@vscode/test-electron;
+// VSCODE_VERSION=1.90.0 tests the oldest VS Code the extension supports).
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
   try {
     await runTests({
       vscodeExecutablePath: process.env.VSCODE_EXECUTABLE || undefined,
+      version: process.env.VSCODE_VERSION || undefined,
       extensionDevelopmentPath: root,
       extensionTestsPath: path.join(__dirname, "suite"),
       extensionTestsEnv: { KEEL_VSCODE_TOKEN: "demo-token", KEEL_SMOKE_PORT: String(port) },

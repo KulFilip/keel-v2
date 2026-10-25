@@ -74,6 +74,10 @@ describe("event → activity line", () => {
     expect(testCounts("test result: ok. 5 passed; 0 failed")).toEqual([5, 0]);
     expect(testCounts("ok  \tshop/cart\t0.1s\nFAIL\tshop/pay\n")).toEqual([1, 1]);
     expect(testCounts("nothing here")).toBeUndefined();
+    // a linter's summary is not a test run
+    expect(testCounts("✖ 1 problem (1 error, 0 warnings)")).toBeUndefined();
+    expect(testCounts("== 3 passed, 1 error in 0.2s ==")).toEqual([3, 1]);
+    expect(testCounts("== 1 failed, 4 passed in 0.3s ==")).toEqual([4, 1]);
   });
 });
 
