@@ -621,8 +621,10 @@ class AgentMixin:
             # to this agent (at most clarify.MAX_ROUNDS rounds; then it must decide with the recommended options).
             # `rounds` on the step: a longer interview (the clarify flow's rounds), else clarify.MAX_ROUNDS
             rounds, cap = int(state.get("clarify_rounds") or 0), step.rounds or clarify.MAX_ROUNDS
-            asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text, clarify.STEP_QUESTIONS)] \
-                if rounds < cap else []
+            # 0.18.55 also the plain Markdown forms a real model writes instead of the fenced block ("# keel-questions"
+            # and a numbered list): else the questions were saved as the step's document
+            asked = [q for res, _m, _tb in agent_results
+                     for q in clarify.parse_questions(res.text, clarify.STEP_QUESTIONS, plain=True)] if rounds < cap else []
             upd["clarify"] = {"questions": asked[:clarify.STEP_QUESTIONS], "step": step.id,
                               **({"rounds": cap} if step.rounds else {})} if asked else {}
         if self._reviews(step):

@@ -32,6 +32,58 @@ def test_discover_asks_first_then_writes_the_brief_and_a_send_back_makes_v2(clie
     assert s["status"] == "done"
 
 
+HEADING_QUESTIONS = """# keel-questions
+
+1. **Which visitors should see the new behaviour first?**
+   - A) Everyone in the target group (recommended)
+   - B) Only logged-in visitors
+2. **How will you know it worked?**
+   - A) Checkout conversion in the target group (recommended)
+   - B) Fewer support tickets
+"""
+
+
+def _brief_asking(monkeypatch, first: str):
+    """The fake product manager asks with `first` (a real model's own form) before it writes the brief."""
+    from keel_product import fake
+
+    real = fake.BY_STEP[("product-manager", "brief")]
+
+    def brief(req):
+        if not req.feedback:
+            return None, "", first, {}
+        return real(req)
+
+    monkeypatch.setitem(fake.BY_STEP, ("product-manager", "brief"), brief)
+
+
+def test_questions_written_as_a_markdown_heading_and_list_are_questions_not_brief_v1(client, product_repo, monkeypatch):
+    # e2e 0.18.54: a real model wrote "# keel-questions" + a numbered list; brief v1 was only the questions
+    _brief_asking(monkeypatch, HEADING_QUESTIONS)
+    tid = start(client, product_repo, "product-discover", {})
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "approve_brief" and s["waiting"]["kind"] == "clarify"
+    qs = s["waiting"]["questions"]
+    assert [q["question"] for q in qs] == ["Which visitors should see the new behaviour first?", "How will you know it worked?"]
+    assert qs[0]["options"][0] == {"label": "Everyone in the target group", "description": "", "recommended": True}
+    assert docs_of(client, tid) == []                       # nothing saved as brief v1
+    s = decide(client, tid, payload={"answers": {"q1": "Only logged-in visitors"}})
+    assert s["waiting"]["step"] == "approve_brief" and s["waiting"].get("kind") != "clarify"
+    (v1,) = docs_of(client, tid, "brief")
+    assert v1["version"] == 1 and "## Outcome metric" in v1["text"] and "keel-questions" not in v1["text"]
+
+
+def test_a_brief_step_that_only_asks_in_its_own_words_holds_the_brief(client, product_repo, monkeypatch):
+    _brief_asking(monkeypatch, "Before I write the brief: who is the target group? And what does success look like?")
+    tid = start(client, product_repo, "product-discover", {})
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "approve_brief" and s["waiting"]["kind"] == "clarify"
+    assert "who is the target group?" in s["waiting"]["questions"][0]["why"]
+    assert docs_of(client, tid) == []
+    s = decide(client, tid, payload={"answers": {"q1": "EU visitors; conversion up"}})
+    assert docs_of(client, tid, "brief")[0]["version"] == 1
+
+
 def test_impact_runs_one_read_only_analyst_per_repo_and_merges_their_reports(client, product_repo, repos):
     tid = start(client, product_repo, "product-impact", {"repos": repos, "objection": ""})
     s = wait(client, tid)
@@ -64,6 +116,25 @@ def test_decide_writes_the_memo_builds_the_presentation_and_records_the_choice(c
     assert s["status"] == "done"
     (d,) = [e["data"] for e in client.bus.of(tid, "product.decision")]
     assert d["choice"] == "go" and d["option"] == "A" and d["recommended"] == "A" and d["why"] == "Most of the gain."
+
+
+def test_a_recommendation_written_as_option_b_full_is_recorded_as_option_b(client, product_repo, monkeypatch):
+    from keel_product import fake
+
+    real = fake.BY_STEP[("product-manager", "decision memo")]
+
+    def memo(req):
+        _a, _b, text, extra = real(req)
+        return _a, _b, text.replace("RECOMMEND: A", "**RECOMMEND:** Option B · Full"), extra
+
+    monkeypatch.setitem(fake.BY_STEP, ("product-manager", "decision memo"), memo)
+    tid = start(client, product_repo, "product-decide", {"docs": {"brief": "## Problem\nx"}, "versions": {}})
+    s = wait(client, tid)
+    html = (Path(product_repo) / docs_of(client, tid, "deck")[0]["path"]).read_text()
+    assert "Option B" in html
+    s = decide(client, tid, payload={"choice": "go"})
+    (d,) = [e["data"] for e in client.bus.of(tid, "product.decision")]
+    assert d["option"] == "B" and d["recommended"] == "B"
 
 
 def test_plan_checks_and_saves_the_plan_with_its_critical_path(client, product_repo):

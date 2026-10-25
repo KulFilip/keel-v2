@@ -28,12 +28,12 @@ BLOCK = re.compile(r"```[ \t]*keel-questions[ \t]*\n(.*?)\n[ \t]*```", re.S | re
 PREFIX = "Answers to your questions:"
 
 
-def parse_questions(text: str, limit: int = MAX_QUESTIONS) -> list[dict]:
+def parse_questions(text: str, limit: int = MAX_QUESTIONS, plain: bool = False) -> list[dict]:
     """The valid questions (at most `limit`) in the last keel-questions block of a text; [] when there is none or it is
-    broken."""
+    broken. `plain`: with no block, also the plain forms a model writes instead (parse_plain_questions)."""
     blocks = BLOCK.findall(text or "")
     if not blocks:
-        return []
+        return parse_plain_questions(text, limit) if plain else []
     try:
         raw = json.loads(blocks[-1])
     except ValueError:
@@ -64,6 +64,130 @@ def parse_questions(text: str, limit: int = MAX_QUESTIONS) -> list[dict]:
         if ids.count(q["id"]) > 1:
             q["id"] = f"{q['id']}-{n + 1}"
     return out
+
+
+# 0.18.55 the plain forms a real model writes instead of the fenced block (an e2e brief step wrote "# keel-questions"
+# and a numbered list): a heading or a "Questions:" line, numbered questions, options as "A) ..." / "- ..." lines.
+_HEAD = re.compile(r"^[ \t]{0,3}(?:#{1,6}[ \t]*|[*_]{2})?[ \t]*(?P<name>[\w ,'`-]{0,60}?)[ \t]*(?:[*_]{2})?[ \t]*"
+                   r"(?P<colon>:)?[ \t]*(?:[*_]{2})?[ \t]*$", re.M)
+_HEAD_NAME = re.compile(r"^`?keel[- ]questions`?$|^(?!open\b)(?:[\w,'-]+ ){0,8}questions(?: [\w,'-]+){0,6}$", re.I)
+_ITEM = re.compile(r"^[ \t]{0,3}(?:#{1,6}[ \t]*)?(?:[*_]{2})?(?:Q(?:uestion)?[ \t]*)?(\d{1,2})[ \t]*[.):][ \t]*(?:[*_]{2})?[ \t]*(\S.*)$",
+                   re.I | re.M)
+_LETTER = re.compile(r"^[ \t]*(?:[-*+][ \t]+)?(?:[*_]{2})?\(?([A-Fa-f])[ \t]*[).:\]\u00b7][ \t]*(?:[*_]{2})?[ \t]*(\S.*)$")
+_BULLET = re.compile(r"^[ \t]*[-*+][ \t]+(\S.*)$")
+_WHY = re.compile(r"^[ \t]*(?:[-*+][ \t]+)?(?:[*_]{2})?(?:why(?: it matters)?|because)(?:[*_]{2})?[ \t]*[:\u2014-][ \t]*(.+)$", re.I)
+_REC_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]+)?(?:[*_]{2})?recommend(?:ed|ation)?(?:[*_]{2})?[ \t]*:[ \t]*(?:[*_]{2})?\(?([A-Fa-f])\b", re.I)
+_REC_MARK = re.compile(r"[ \t]*(?:\(recommended\)|\[recommended]|[*_]{0,2}\(?recommended\)?[*_]{0,2}[ \t]*$|"
+                       r"[\u2014\u2013-][ \t]*recommended\b|\u2b50|\u2705)", re.I)
+_EMPH = re.compile(r"^(?:[*_]{1,2}|`)+|(?:[*_]{1,2}|`)+$")
+_DOC = re.compile(r"^[ \t]*(?:[*_]{2})?BEGIN-DOC", re.M)
+_NEXT_HEAD = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(?![*_]{0,2}(?:Q(?:uestion)?[ \t]*)?\d)\S", re.M | re.I)
+
+
+def _clean(s: str) -> str:
+    return _EMPH.sub("", s.strip()).strip()
+
+
+def _plain_section(text: str) -> tuple[int, int, bool] | None:
+    """(start, end, headed) of the questions in a text: after a questions heading (or a "Questions:" line) up to the
+    next heading or BEGIN-DOC; else, with no heading, the whole text up to BEGIN-DOC (headed False)."""
+    for m in _HEAD.finditer(text):
+        line = m.group(0)
+        name = (m.group("name") or "").strip()
+        marked = line.lstrip().startswith(("#", "**", "__")) or m.group("colon")
+        if not name or not marked or not _HEAD_NAME.match(name):
+            continue
+        start = m.end()
+        stop = len(text)
+        nxt = _NEXT_HEAD.search(text, start)
+        doc = _DOC.search(text, start)
+        for found in (nxt, doc):
+            if found and found.start() < stop:
+                stop = found.start()
+        return start, stop, True
+    doc = _DOC.search(text)
+    return 0, (doc.start() if doc else len(text)), False
+
+
+def parse_plain_questions(text: str, limit: int = MAX_QUESTIONS) -> list[dict]:
+    """Questions written as Markdown instead of a keel-questions block: a "# keel-questions" / "## Questions" heading or a
+    "Questions:" line, then numbered questions ("1. ...?", "**1. ...**", "Q1: ..."), each with its options as letter
+    lines ("A) ...", "- B. ...", "(C) ...") or bullets, an optional "Why: ..." line and "(recommended)" on an option (or
+    a "Recommended: B" line). With no heading, only numbered questions ending in "?" with 2 or more options count, so a
+    document's own lists are never read as questions. [] when there are none."""
+    text = text or ""
+    span = _plain_section(text)
+    if span is None:
+        return []
+    start, stop, headed = span
+    body = text[start:stop]
+    items = list(_ITEM.finditer(body))
+    out: list[dict] = []
+    for n, m in enumerate(items):
+        question = _clean(m.group(2))
+        rest = body[m.end():items[n + 1].start() if n + 1 < len(items) else len(body)]
+        opts, why, rec = [], "", None
+        for line in rest.splitlines():
+            if not line.strip():
+                continue
+            w = _WHY.match(line)
+            if w:
+                why = _clean(w.group(1))
+                continue
+            r = _REC_LINE.match(line)
+            if r:
+                rec = r.group(1).upper()
+                continue
+            lm = _LETTER.match(line)
+            bm = None if lm else _BULLET.match(line)
+            if not (lm or bm):
+                if not opts and not question.endswith("?") and line.strip():
+                    question = f"{question} {_clean(line)}".strip()     # a question wrapped over two lines
+                continue
+            raw = (lm.group(2) if lm else bm.group(1)).strip()
+            recommended = bool(_REC_MARK.search(raw))
+            raw = _clean(_REC_MARK.sub("", raw))
+            label, desc = raw, ""
+            for sep in (" \u2014 ", " \u2013 ", " - ", ": "):
+                if sep in raw and len(raw.split(sep, 1)[0]) <= 80:
+                    label, desc = (x.strip() for x in raw.split(sep, 1))
+                    break
+            label = _clean(label)
+            if label:
+                opts.append({"label": label[:120], "description": desc[:300], "recommended": recommended,
+                             "letter": lm.group(1).upper() if lm else ""})
+        opts = opts[:4]
+        if rec:
+            for o in opts:
+                o["recommended"] = o["letter"] == rec
+        if not question or (not headed and (not question.endswith("?") or len(opts) < 2)):
+            continue
+        if headed and not opts and not question.endswith("?"):
+            continue
+        for o in opts:
+            o.pop("letter", None)
+        if opts and not any(o["recommended"] for o in opts):
+            opts[0]["recommended"] = True
+        opts.sort(key=lambda o: not o["recommended"])
+        out.append({"id": f"q{len(out) + 1}", "question": question[:300], "why": why[:300], "options": opts})
+        if len(out) == limit:
+            break
+    return out
+
+
+def strip_plain_questions(text: str) -> str:
+    """The text without its plain-form questions (parse_plain_questions): the heading and the list go."""
+    text = text or ""
+    if not parse_plain_questions(text, STEP_QUESTIONS):
+        return text
+    start, stop, headed = _plain_section(text)
+    if headed:
+        head = text.rfind("\n", 0, max(start - 1, 0))
+        start = head + 1 if head >= 0 else 0
+    else:
+        first = _ITEM.search(text, start)
+        start = first.start() if first else start
+    return (text[:start] + text[stop:]).strip()
 
 
 def describe(questions: list[dict]) -> str:

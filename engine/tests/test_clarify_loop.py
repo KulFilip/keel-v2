@@ -22,6 +22,39 @@ def test_parse_keeps_valid_questions_and_marks_a_recommended_option():
     assert len(clarify.parse_questions("```keel-questions\n" + __import__("json").dumps(many) + "\n```")) == clarify.MAX_QUESTIONS
 
 
+PLAIN = """# keel-questions
+
+1. **Who should see the new prices first?**
+   - A) Every visitor in the target group (recommended)
+   - B) Only logged-in visitors
+2. How will we know it worked?
+   A) Checkout conversion — the main goal
+   B) Fewer support tickets
+   Why: it sets the outcome metric
+   Recommended: B
+"""
+
+
+def test_plain_markdown_questions_are_read_when_asked_for():
+    # 0.18.55 a real model wrote "# keel-questions" and a numbered list instead of the fenced block
+    assert clarify.parse_questions(PLAIN) == []                          # the strict form only, unless asked for
+    qs = clarify.parse_questions(PLAIN, clarify.STEP_QUESTIONS, plain=True)
+    assert [q["question"] for q in qs] == ["Who should see the new prices first?", "How will we know it worked?"]
+    assert [o["label"] for o in qs[0]["options"]] == ["Every visitor in the target group", "Only logged-in visitors"]
+    assert qs[0]["options"][0]["recommended"] and not qs[0]["options"][1]["recommended"]
+    assert qs[1]["options"][0] == {"label": "Fewer support tickets", "description": "", "recommended": True}
+    assert qs[1]["why"] == "it sets the outcome metric"
+    other = "Questions:\n1. Which visitors?\n(A) everyone\n(B) only some\n2) Is a launch date fixed?\n"
+    assert [len(q["options"]) for q in clarify.parse_questions(other, 6, plain=True)] == [2, 0]
+    headless = "I need to know:\n1. Who is it for?\n   A) Shoppers\n   B) Admins\n"
+    assert clarify.parse_questions(headless, 6, plain=True)[0]["options"][1]["label"] == "Admins"
+    # a document's own lists are never questions: an "Open questions" section, a list after BEGIN-DOC
+    doc = "BEGIN-DOC\n## Problem\nx\n## Open questions\n1. May we?\n   - A) yes\n   - B) no\nEND-DOC"
+    assert clarify.parse_questions(doc, 6, plain=True) == []
+    assert clarify.parse_questions("## Open questions\n1. Legal: may we?\n", 6, plain=True) == []
+    assert clarify.strip_plain_questions("Two things first.\n\n" + PLAIN) == "Two things first."
+
+
 def test_answers_text_uses_the_recommended_option_for_unanswered_questions():
     qs = clarify.parse_questions(BLOCK)
     t = clarify.answers_text(qs, {"identity": "C · Permissions"}, "keep it small", 1)

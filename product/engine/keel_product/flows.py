@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 from . import docs
-from .plan import BLOCK
+from .plan import find_json
 
 SLUG = re.compile(r"[^a-z0-9]+")
 PROJECT = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
@@ -26,15 +26,15 @@ MAX_FLOWS, MAX_STEPS, MAX_LIST = 12, 8, 20
 
 
 def parse(text: str) -> list[dict] | None:
-    """The flows in the last ```json block of a text (or the text itself as JSON); None when there are none."""
-    for raw in reversed(BLOCK.findall(text or "") or [text or ""]):
-        try:
-            data = json.loads(raw)
-        except ValueError:
-            continue
-        if isinstance(data, dict) and isinstance(data.get("flows"), list):
-            return [f for f in data["flows"] if isinstance(f, dict)]
-    return None
+    """The flows in the last ```json block of a text (or the text itself as JSON, or a bare object in its prose); None
+    when there are none."""
+    found = find_json(text, "flows")
+    if found is None:
+        return None
+    flows = [f for f in found["flows"] if isinstance(f, dict)]
+    if not all("name" in f or "id" in f or "steps" in f for f in flows):
+        return None
+    return flows
 
 
 def _cite(root: Path, cite: object) -> str | None:

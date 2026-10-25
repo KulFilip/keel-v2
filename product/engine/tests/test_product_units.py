@@ -30,6 +30,30 @@ def test_plan_parse_reads_the_last_json_block():
     assert plan.parse("no plan here") is None
 
 
+def test_structured_blocks_are_read_in_the_forms_a_real_model_writes():
+    # e2e 0.18.54: a real model does not always write the exact fenced form the step asks for
+    epics = '{"epics": [{"id": "PAY", "team": "payments", "stories": []}]}'
+    assert plan.parse("Plan:\n```\n" + epics + "\n```")["epics"][0]["id"] == "PAY"              # no language
+    assert plan.parse("Plan:\n```JSON\n" + epics + "\n```") is not None
+    assert plan.parse("Plan:\n~~~json\n" + epics + "\n~~~") is not None
+    assert plan.parse("Here is the plan: " + epics + " That is all.") is not None                 # no fence at all
+    assert plan.parse('```json\n{"epics": [{"id": "A", "team": "a", "stories": [],},],}\n```') is not None   # trailing commas
+    assert plan.parse('```json\n{"epics": ["just text"]}\n```') is None
+    assert flows.parse('The flows: {"flows": [{"id": "checkout", "name": "Checkout", "steps": []}]}')[0]["id"] == "checkout"
+    assert flows.parse("```\n" + '{"flows": [{"name": "Pay"}]}' + "\n```") == [{"name": "Pay"}]
+    assert docs.extract("**BEGIN-DOC**\n## Value\nx\n**END-DOC**\nRECOMMEND: A") == "## Value\nx"
+    assert docs.extract("# keel-questions\n1. Who?\n   - A) x\n   - B) y\n") == ""
+    # the decision's option and the impact's risk, when the marker line is dressed up or missing
+    assert [docs.option_letter(v) for v in ("B", "Option B", "B · Full", "**A**", "c")] == ["B", "B", "B", "A", "C"]
+    assert docs.option_letter("", "## Options\n...\nI recommend option A: most of the gain.") == "A"
+    assert docs.option_letter("Because it is cheap") == "Because it is cheap"
+    assert [docs.risk_of(t) for t in ("## Risk\nMedium: an API", "## Risk\n- **high**, a migration", "Risk: low", "x")] == \
+        ["medium", "high", "low", ""]
+    assert docs.only_questions("Before I write it: who is it for? What is the metric?")
+    assert not docs.only_questions("BEGIN-DOC\n## Problem\nWho? x\nEND-DOC")
+    assert not docs.only_questions("## Problem\nVisitors leave. Why?\n## Users\nall")
+
+
 def test_documents_are_versions_committed_in_the_product_repo(tmp_path):
     from product_support import git_repo
 
