@@ -1032,6 +1032,21 @@ checkout>`, then turn on "keel v1 (optional)" in Tools.
 **xal**: `clients/xal/` is a keel plugin for [xal](https://github.com/xal-sh/xal), a terminal coding harness, with
 `/keel:status`, `/keel:flow`, `/keel:approve`, `/keel:watch`, `/keel:diagram` and more (it signs in with `keel2 auth key`).
 
+## keel in Muxy
+
+[Muxy](https://github.com/muxy-app/muxy) is a macOS terminal with project split panes and a notification center.
+
+- `keel2 muxy hook` tells Muxy about every question that waits and every flow that is done or failed, one
+  notification each, never twice: `keel · shop: feature waits for you`, the question, the choices, and where to answer
+  (`keel2 tui` or the dashboard's Inbox). It only reads keel. `--project <name>` keeps one project, `--test` sends a
+  sample, `--install` starts it at login (a LaunchAgent; it asks first), `--uninstall` removes it.
+- `keel2 muxy workspace [folder]` opens the folder in Muxy with three panes: `keel2 tui` on the left, keel's live
+  events (`keel2 muxy hook --feed`) and a shell on the right. It also writes `.muxy/layouts/keel.json`, so Muxy's top
+  bar › Layouts › keel brings the same panes back.
+
+Muxy's notifications have no buttons yet, so you answer in keel2 tui or the dashboard. What Muxy has, what it lacks,
+and a proposal for buttons: [muxy.md](muxy.md), [muxy-proposal.md](muxy-proposal.md).
+
 ## keel2 commands
 
 `keel2` starts and manages keel. `keel2 help` lists everything.
@@ -1058,6 +1073,7 @@ checkout>`, then turn on "keel v1 (optional)" in Tools.
 | `keel2 sql` | open keel's SQLite database |
 | `keel2 mcp [--write\|--admin]` | keel's MCP server (see [MCP](#use-keel-from-claude-code-or-claude-desktop-mcp)) |
 | `keel2 plugins list\|install\|remove\|search\|update\|rollback\|safe` | manage plugins from the terminal |
+| `keel2 muxy hook [--project <name>] [--test\|--install\|--uninstall]` / `keel2 muxy workspace [folder]` | keel in Muxy (see [keel in Muxy](#keel-in-muxy)) |
 | `keel2 uninstall [--all]` | remove the container (`--all`: also keel's data, after you confirm) |
 | `keel2 version` | keel2's version and the image |
 

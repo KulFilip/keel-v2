@@ -161,6 +161,7 @@ It runs on a strong model, never raises a budget cap, and you can turn it on kee
 | `keel2 update` | get the newest version |
 | `keel2 doctor` | find problems and say how to fix them |
 | `keel2 start --wifi` / `keel2 share tailscale` | use keel from your phone (pair it in Settings › Devices) |
+| `keel2 muxy hook` / `keel2 muxy workspace` | keel in [Muxy](https://github.com/muxy-app/muxy) (a macOS terminal): questions and flow results as Muxy notifications, a ready workspace ([more](docs/muxy.md)) |
 | `keel2 help` | all commands |
 
 **Something wrong?** Run `keel2 doctor`. It tells you what to do.
