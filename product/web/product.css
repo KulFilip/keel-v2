@@ -113,3 +113,9 @@
   .pd-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pd-history li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+/* B6: tickets on the Tasks boards (an initiative's Tickets panel, the Product map) */
+.pd-map-h { margin: 10px 0 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
+.pd-list li.pd-ticket { flex-direction: column; align-items: stretch; }
+.pd-list li.pd-ticket .pd-actions { justify-content: flex-end; }
+.pd-list li.pd-ticket .chk { display: flex; gap: 8px; align-items: flex-start; }
+.pd-list li.pd-ticket .chk > span { display: flex; flex-direction: column; gap: 4px; flex: 1; }

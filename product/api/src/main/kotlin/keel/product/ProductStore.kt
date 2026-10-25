@@ -129,6 +129,9 @@ data class TicketLink(
 
 data class ProjectScan(val projectId: String, val at: String, val branches: Int, val commits: Int, val linked: Int, val error: String?)
 
+/** A ticket on a team's Tasks board linked to an initiative (P7__product_initiative_tickets.sql). */
+data class InitiativeTicket(val initiativeId: String, val key: String, val projectId: String?, val taskId: String?, val addedAt: String)
+
 /** A business flow of one repo (P6__product_flows.sql); [data] holds its steps, endpoints and tables. */
 data class BusinessFlow(
     val projectId: String,
@@ -491,6 +494,24 @@ class ProductStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMap
             r.threadId, json(r.projects), r.status, r.error, r.startedAt, r.endedAt,
         )
     }
+
+    // ---- tickets on the Tasks boards linked to an initiative (P7)
+    private fun initiativeTicket(rs: ResultSet) = InitiativeTicket(rs.getString("initiative_id"), rs.getString("key"), rs.getString("project_id"),
+        rs.getString("task_id"), rs.getString("added_at"))
+
+    /** Links a ticket; false when it was linked already. */
+    fun linkTicket(t: InitiativeTicket): Boolean = jdbc.update(
+        "INSERT OR IGNORE INTO product_initiative_tickets(initiative_id, key, project_id, task_id, added_at) VALUES (?, ?, ?, ?, ?)",
+        t.initiativeId, t.key, t.projectId, t.taskId, t.addedAt,
+    ) > 0
+
+    fun unlinkTicket(initiativeId: String, key: String): Boolean =
+        jdbc.update("DELETE FROM product_initiative_tickets WHERE initiative_id = ? AND key = ?", initiativeId, key) > 0
+
+    /** The linked tickets of one initiative (oldest first), or of every initiative. */
+    fun initiativeTickets(initiativeId: String? = null): List<InitiativeTicket> = if (initiativeId == null)
+        jdbc.query("SELECT * FROM product_initiative_tickets ORDER BY added_at, key") { rs, _ -> initiativeTicket(rs) }
+    else jdbc.query("SELECT * FROM product_initiative_tickets WHERE initiative_id = ? ORDER BY added_at, key", { rs, _ -> initiativeTicket(rs) }, initiativeId)
 
     // ---- ticket keys found in git
     fun replaceLinks(projectId: String, links: List<TicketLink>, scan: ProjectScan) {

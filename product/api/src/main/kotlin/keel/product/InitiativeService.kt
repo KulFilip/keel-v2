@@ -65,6 +65,8 @@ data class InitiativeDetail(
     val plan: PlanView?,
     val repos: List<RepoOwner>,
     val teams: List<String>,
+    /** B6: tickets already on the teams' Tasks boards, linked to it (InitiativeTickets). */
+    val linked: List<LinkedTicket> = emptyList(),
 )
 
 /**
@@ -84,6 +86,7 @@ class InitiativeService(
     private val settings: SettingsService,
     private val secrets: SecretService,
     private val delivery: DeliveryService,
+    private val tickets: InitiativeTickets,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -121,7 +124,7 @@ class InitiativeService(
         val plan = store.latest(id, "plan")?.let { delivery.planView(i, it) }
         return InitiativeDetail(i, StageView(i.stage, i.status, run?.threadId, waiting, next(i, run?.status == "waiting", waiting)), docs,
             store.questions(id), store.disagreements(id), store.runs(id), store.events(id), store.followUps(id), plan,
-            teams.repoOwners().filter { it.projectId in i.repos }, teamsOf(i))
+            teams.repoOwners().filter { it.projectId in i.repos }, teamsOf(i), tickets.list(i))
     }
 
     fun doc(id: String, kind: String, version: Int): ProductDoc = store.doc(id, kind, version) ?: throw NotFound("No $kind v$version for $id")

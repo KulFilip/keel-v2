@@ -37,6 +37,7 @@ class ProductController(
     private val sender: TicketSender,
     private val ticketApproval: TicketApproval,
     private val flowMap: FlowMap,
+    private val linkedTickets: InitiativeTickets,
 ) {
     private fun <T> on(block: () -> T): T {
         guard.on()
@@ -169,6 +170,24 @@ class ProductController(
     @PostMapping("/initiatives/{id}/tickets/ask")
     fun ticketAsk(@PathVariable id: String, @RequestBody(required = false) b: AskSendBody?): keel.api.approvals.Approval =
         on { ticketApproval.ask(initiatives.require(id), b ?: AskSendBody()) }
+
+    // ---- B6: tickets already on the teams' Tasks boards, linked to an initiative
+
+    @GetMapping("/initiatives/{id}/tickets")
+    fun linked(@PathVariable id: String): List<LinkedTicket> = on { linkedTickets.list(initiatives.require(id)) }
+
+    /** Tickets on the Tasks boards not linked yet: the initiative's repos (every project with all=true), matching q. */
+    @GetMapping("/initiatives/{id}/tickets/candidates")
+    fun ticketCandidates(@PathVariable id: String, @RequestParam(required = false) q: String?,
+                         @RequestParam(defaultValue = "false") all: Boolean): List<LinkedTicket> =
+        on { linkedTickets.candidates(initiatives.require(id), q, all) }
+
+    @PostMapping("/initiatives/{id}/tickets")
+    fun linkTickets(@PathVariable id: String, @RequestBody b: LinkBody): List<LinkedTicket> = on { linkedTickets.link(initiatives.require(id), b) }
+
+    @DeleteMapping("/initiatives/{id}/tickets/{key}")
+    fun unlinkTicket(@PathVariable id: String, @PathVariable key: String): List<LinkedTicket> =
+        on { linkedTickets.unlink(initiatives.require(id), key) }
 
     /** Where an initiative's own Jira ticket goes (unset: no initiative ticket; its id is a label on every ticket). */
     @GetMapping("/product/jira")

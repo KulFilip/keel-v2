@@ -41,8 +41,14 @@ The design is docs/product/pm-jira-teams-design.md. In short:
   `GET …/tickets/preview` shows what goes where; `POST …/tickets/send` makes Initiative (when `PUT /api/product/jira`
   says where) → Epic → Story → Sub-task and keeps every key, so a second send makes no twin. An agent can only ask
   (`POST …/tickets/ask`): an approval in the Inbox.
+- **Tickets you already have** (docs/plans/product-link-tickets.md): tickets on the teams' Tasks boards (synced Jira
+  tickets or local tasks) are linked to an initiative by hand: `GET …/tickets/candidates?q=&all=`, `POST …/tickets`
+  (`{tasks}` or `{keys}`), `DELETE …/tickets/{key}`, `GET …/tickets`. Nothing changes in Jira.
 - **Product map** (`GET /api/product/map`): the business flows a flow analyst found in each team repo
-  (`POST /api/product/flows/run`, read only, the `product-flows` workflow), with the tickets whose commits changed them.
+  (`POST /api/product/flows/run`, read only, the `product-flows` workflow), with the tickets whose commits changed them,
+  and the team projects' Jira tickets on the Tasks boards with their initiative (`board`).
+- **Jira connections** (`GET /api/product/jira/connections`): which one is connected; with no keel-wide connection a
+  team and the initiatives use a project's own (no second token).
 
 ## Modes
 

@@ -39,6 +39,8 @@ data class ProductMap(
     val runs: List<FlowRun>,
     /** The team projects with no flows yet. */
     val notAnalysed: List<String>,
+    /** B6: the team projects' tickets on the Tasks boards (Jira), with their initiatives and git work. */
+    val board: List<LinkedTicket> = emptyList(),
 )
 
 /**
@@ -53,6 +55,7 @@ class FlowMap(
     private val flows: FlowService,
     private val projects: ProjectService,
     private val links: TicketLinks,
+    private val tickets: InitiativeTickets,
 ) {
     companion object {
         const val WORKFLOW = "product-flows"
@@ -124,6 +127,7 @@ class FlowMap(
             links.tickets(team?.id),
             store.flowRuns().take(5),
             pids.filter { pid -> shown.none { it.projectId == pid } },
+            tickets.board(pids),
         )
     }
 

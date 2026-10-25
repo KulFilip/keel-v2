@@ -618,6 +618,63 @@ class ProductApiTest : ApiTest() {
     }
 
     @Test
+    fun `B6 tickets already on the Tasks boards are linked to an initiative, listed with their status, and shown on the Product map`() {
+        val (web, pay) = repos()
+        put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "SHOPS"))
+            .andExpect(status().isOk)
+        jira.add("SHOPS-1234", "Coupon applies once", "In Progress", "Story", "*Acceptance criteria*")
+        jira.add("SHOPS-1240", "Cart total in euro", "To Do", "Story")
+        post("/api/projects/$pay/tasks/sync").andExpect(status().isOk)
+        val local = post("/api/projects/$web/tasks", mapOf("title" to "Euro banner", "type" to "task")).andExpect(status().isOk).json()["id"].asText()
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Coupons", "idea" to "Link the tickets we have.", "repos" to listOf(pay))).json()["initiative"]["id"].asText()
+
+        // candidates: the initiative's repos by default, every project with all=true; q finds by key or title
+        val mine = get("/api/initiatives/$id/tickets/candidates").andExpect(status().isOk).json().map { it["key"].asText() }
+        assertThat(mine).contains("SHOPS-1234", "SHOPS-1240").doesNotContain(local)
+        assertThat(get("/api/initiatives/$id/tickets/candidates?all=true").json().map { it["key"].asText() }).contains(local)
+        assertThat(get("/api/initiatives/$id/tickets/candidates?q=coupon").json().map { it["key"].asText() }).containsExactly("SHOPS-1234")
+
+        // link by key (any case) and by task id
+        val one = post("/api/initiatives/$id/tickets", mapOf("keys" to listOf("shops-1234"))).andExpect(status().isOk).json().single()
+        assertThat(one["key"].asText()).isEqualTo("SHOPS-1234")
+        assertThat(one["title"].asText()).isEqualTo("Coupon applies once")
+        assertThat(one["status"].asText()).isEqualTo("in_progress")
+        assertThat(one["external_status"].asText()).isEqualTo("In Progress")
+        assertThat(one["url"].asText()).isEqualTo("${jira.url}/browse/SHOPS-1234")
+        assertThat(one["on_board"].asBoolean()).isTrue()
+        assertThat(one["initiatives"].map { it.asText() }).containsExactly(id)
+        val two = post("/api/initiatives/$id/tickets", mapOf("tasks" to listOf(local))).andExpect(status().isOk).json()
+        assertThat(two.map { it["key"].asText() }).containsExactly("SHOPS-1234", local)
+        assertThat(post("/api/initiatives/$id/tickets", mapOf("keys" to listOf("SHOPS-1234"))).json()).hasSize(2)          // not twice
+        assertThat(detail(id)["linked"].map { it["key"].asText() }).containsExactly("SHOPS-1234", local)
+        assertThat(get("/api/initiatives/$id/tickets").json()).hasSize(2)
+        assertThat(get("/api/initiatives/$id/tickets/candidates").json().map { it["key"].asText() }).doesNotContain("SHOPS-1234")
+
+        // what is refused, in the {error, hint} shape
+        post("/api/initiatives/$id/tickets", emptyMap<String, Any>()).andExpect(status().isBadRequest)
+        val bad = post("/api/initiatives/$id/tickets", mapOf("keys" to listOf("not a key"))).andExpect(status().isBadRequest).json()
+        assertThat(bad["hint"].asText()).contains("SHOPS-1234")
+        assertThat(post("/api/initiatives/$id/tickets", mapOf("keys" to listOf("ZZZ-1"))).andExpect(status().isNotFound).json()["hint"].asText())
+            .contains("Sync Jira")
+        post("/api/initiatives/$id/tickets", mapOf("tasks" to listOf("tk_nope"))).andExpect(status().isNotFound)
+        post("/api/initiatives/INI-999/tickets", mapOf("keys" to listOf("SHOPS-1234"))).andExpect(status().isNotFound)
+
+        // the Product map: the board's Jira tickets, with their initiative
+        val board = get("/api/product/map").andExpect(status().isOk).json()["board"]
+        val coupon = board.single { it["key"].asText() == "SHOPS-1234" }
+        assertThat(coupon["initiatives"].map { it.asText() }).containsExactly(id)
+        assertThat(coupon["project_id"].asText()).isEqualTo(pay)
+        assertThat(board.single { it["key"].asText() == "SHOPS-1240" }["initiatives"]).isEmpty()
+        assertThat(board.single { it["key"].asText() == local }["initiatives"].map { it.asText() }).containsExactly(id)   // a linked local task
+
+        // unlink: nothing changes in Jira
+        assertThat(delete("/api/initiatives/$id/tickets/SHOPS-1234").andExpect(status().isOk).json().map { it["key"].asText() }).containsExactly(local)
+        delete("/api/initiatives/$id/tickets/SHOPS-1234").andExpect(status().isNotFound)
+        assertThat(jira.issues.getValue("SHOPS-1234").status).isEqualTo("In Progress")
+    }
+
+    @Test
     fun `on Jira Server a story names its epic with the Epic Link field, and the team's own connection is used`() {
         val (_, pay) = repos()
         put("/api/projects/$pay/jira", mapOf("kind" to "server", "base_url" to server.url, "token" to server.token)).andExpect(status().isOk)
