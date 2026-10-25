@@ -26,6 +26,10 @@ class WikiApiTest : ApiTest() {
         val knowledge = wiki["sections"][1]["items"]          // 0.15.8: Specs come first
         assertThat(knowledge.first { it["id"].asText() == "kb:architecture" }["status"].asText()).isEqualTo("written")
         assertThat(knowledge.first { it["id"].asText() == "kb:domain" }["status"].asText()).isEqualTo("missing")
+        // 0.18.55 a workflow page carries its workflow's metadata: the menu groups the workflows by purpose with it
+        val feature = wiki["sections"][2]["items"].first { it["id"].asText() == "wf:feature" }
+        assertThat(feature["source"].asText()).isEqualTo("keel")
+        assertThat(feature.has("based_on")).isTrue()
         val page = get("/api/projects/$pid/wiki/page?id=kb:architecture").json()
         assertThat(page["markdown"].asText()).contains("Layers live in")
         assertThat(page["meta"]["cites"].asInt()).isEqualTo(2)

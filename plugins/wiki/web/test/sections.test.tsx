@@ -123,7 +123,7 @@ describe("Wiki menu sections", () => {
     const again = await nav();
     expect(section(again, "Specs")).toHaveAttribute("aria-expanded", "false");
     expect(section(again, "Workflows")).toHaveAttribute("aria-expanded", "false");
-    expect(section(again, "Architecture & knowledge")).toHaveAttribute("aria-expanded", "true");
+    expect(section(again, "Project knowledge")).toHaveAttribute("aria-expanded", "true");
   });
 
   it("keeps the open page's section open, even when it was closed", async () => {
@@ -133,7 +133,7 @@ describe("Wiki menu sections", () => {
     location.hash = "#/wiki/kb%3Aarchitecture";
     render(<App />);
     const n = await nav();
-    const kb = section(n, "Architecture & knowledge");
+    const kb = section(n, "Project knowledge");
     expect(kb).toHaveAttribute("aria-expanded", "true");
     expect(kb).toHaveAttribute("aria-disabled", "true");
     await user.click(kb);
@@ -142,7 +142,8 @@ describe("Wiki menu sections", () => {
     expect(section(n, "Specs")).toHaveAttribute("aria-expanded", "false");
     // searching shows the matches of a closed section
     await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "rank");
-    expect(within(n).getByRole("link", { name: /^Ranks/ })).toBeVisible();
+    // (the match is marked: jsdom, without layout, reads the <mark> as its own word)
+    expect(within(n).getByRole("link", { name: /^Rank ?s/ })).toBeVisible();
   });
 
   it("works without storage (a private window): it toggles and only forgets", async () => {
@@ -182,9 +183,10 @@ describe("Wiki menu sections", () => {
       expect(pick).toHaveAttribute("aria-expanded", "false");
       expect(pick).toHaveFocus();
       await user.click(pick);
-      await user.click(within(await nav()).getByRole("link", { name: "fix (keel)" }));
+      await user.click(within(await nav()).getByRole("button", { name: /^Fix/ }));
+      await user.click(within(await nav()).getByRole("link", { name: "fix" }));
       await waitFor(() => expect(location.hash).toBe("#/wiki/wf%3Afix"));
-      expect(screen.getByRole("button", { name: /^Page fix \(keel\)/ })).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByRole("button", { name: /^Page fix/ })).toHaveAttribute("aria-expanded", "false");
     } finally {
       window.matchMedia = had;
     }
@@ -197,7 +199,8 @@ describe("a spec's build status", () => {
     location.hash = "#/wiki/kb%3Aarchitecture";
     render(<App />);
     const n = await nav();
-    await waitFor(() => expect(within(n).getByRole("link", { name: /^Scores/ })).toHaveTextContent("in progress"));
+    // a flow that waits for you says so
+    await waitFor(() => expect(within(n).getByRole("link", { name: /^Scores/ })).toHaveTextContent("waiting"));
     expect(within(n).getByRole("link", { name: /^Login/ })).toHaveTextContent("built");
     expect(within(n).getByRole("link", { name: /^Export/ })).toHaveTextContent("not built");
     expect(within(n).getByRole("link", { name: /^Ranks/ })).toHaveTextContent("stopped");

@@ -24,11 +24,14 @@ import java.nio.file.Path
  *   label    the title without that number ("Wave fallback" for "SPEC-101: Wave fallback")
  *   updated  when the file last changed (ISO)
  *   also     the same file in another of keel's folders (a mixed project's docs/specs and .keel/specs): shown once
+ *   source   a workflow's origin (keel | yours | marketplace), addon its add-on ("product": keel Product's) and
+ *   basedOn  the workflow it is based on: the menu groups the workflows by purpose and tags the ones not keel's own
  */
 data class WikiItem(
     val id: String, val title: String, val status: String? = null,
     val kind: String? = null, val path: String? = null, val number: String? = null, val label: String? = null,
     val updated: String? = null, val also: List<String>? = null,
+    val source: String? = null, val addon: String? = null, val basedOn: String? = null,
 )
 data class WikiSection(val id: String, val title: String, val items: List<WikiItem>)
 /** notice: a problem with where keel's files are (an external layout whose folder keel cannot see); layout: its name. */
@@ -64,7 +67,9 @@ class WikiService(
             val f = root.resolve(rel)
             listOf(WikiItem("kb:index", title(f), "written", kind = "overview", path = rel, label = title(f), updated = mtime(f)))
         }.orEmpty()
-        val wfs = workflows.list(pid).map { WikiItem("wf:${it.id}", it.name, kind = "workflow", label = it.name) }
+        val wfs = workflows.list(pid).map {
+            WikiItem("wf:${it.id}", it.name, kind = "workflow", label = it.name, source = it.source, addon = it.addon, basedOn = it.basedOn)
+        }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
         val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)).filterNot { isIndex(it) }.map { "$d/${it.fileName}" } }
             .distinctBy { it.substringAfterLast('/') }

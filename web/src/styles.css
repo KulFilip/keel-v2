@@ -342,11 +342,11 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .adot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--run); animation: pulse 1.4s infinite; vertical-align: middle; }
 .wiki-grid { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 16px; align-items: start; }
 .wtree { display: flex; flex-direction: column; gap: 1px; position: sticky; top: calc(var(--bar-h, 0px) + 12px); }
-.wt-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; padding: 10px 10px 4px; display: flex; justify-content: space-between; gap: 6px; }
-.wt-h .sub { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
+.wt-h { font-size: 13.5px; color: var(--fg); font-weight: 500; padding: 7px 8px; min-height: 32px; margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+.wt-h .sub { font-weight: 400; font-size: 11px; }
 .wtree a { padding: 5px 10px; border-radius: 6px; color: var(--dim); text-decoration: none; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .wtree a:hover { background: var(--panel-2); color: var(--fg); }
-.wtree a[aria-current="page"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+.wtree a[aria-current="page"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .wh { margin: 0 0 6px; font-size: 20px; letter-spacing: -.01em; }
 .wh::first-letter { text-transform: uppercase; }
 .wdoc { max-width: 68ch; line-height: 1.65; }

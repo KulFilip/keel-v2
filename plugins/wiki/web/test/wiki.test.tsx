@@ -63,8 +63,10 @@ describe("Wiki", () => {
     expect(
       within(tree).getByRole("link", { name: "architecture" }),
     ).toHaveAttribute("aria-current", "page");
+    // the workflows are by purpose, closed until opened, without keel's "(keel)"
+    await userEvent.setup().click(within(tree).getByRole("button", { name: /^Build/ }));
     expect(
-      within(tree).getByRole("link", { name: "feature (keel)" }),
+      within(tree).getByRole("link", { name: "feature" }),
     ).toHaveAttribute("href", "#/wiki/wf%3Afeature");
   });
 

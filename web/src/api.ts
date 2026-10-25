@@ -469,6 +469,9 @@ export type MapResponse = KeelMap | { missing: string };
 export type WikiItem = {
   id: string; title: string; status?: string | null;
   kind?: string | null; path?: string | null; number?: string | null; label?: string | null; updated?: string | null; also?: string[] | null;
+  /** 0.18.55 a workflow page's workflow: where it comes from (keel | yours | marketplace), keel Product's ("product")
+   *  and what it is based on. The Wiki groups the workflows by purpose with them. */
+  source?: string | null; addon?: string | null; based_on?: string | null;
 };
 export type WikiTree = {
   sections: { id: string; title: string; items: WikiItem[] }[];
