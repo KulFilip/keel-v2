@@ -103,7 +103,12 @@ class ComponentInlays(private val editor: EditorEx, parent: Disposable) : Dispos
     }
 
     override fun dispose() {
-        items.values.forEach { editor.contentComponent.remove(it) }
+        val all = items.toMap()
         items.clear()
+        all.forEach { (inlay, c) ->
+            editor.contentComponent.remove(c)
+            if (inlay.isValid) Disposer.dispose(inlay)
+        }
+        editor.contentComponent.repaint()
     }
 }

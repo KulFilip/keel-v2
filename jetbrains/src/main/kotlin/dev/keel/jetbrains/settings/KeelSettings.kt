@@ -23,6 +23,9 @@ class KeelSettings : SimplePersistentStateComponent<KeelSettings.S>(S()) {
         var mode by string(MODE_LOCAL)
         var deviceName by string()
         var notify by property(true)
+
+        /** Review mode: a changed file counts as viewed once it is opened. */
+        var markViewed by property(true)
     }
 
     val url: String get() = state.url?.ifBlank { null } ?: DEFAULT_URL

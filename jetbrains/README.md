@@ -32,6 +32,29 @@ Settings › Tools › keel:
 | Tool window › KeelBot | Ask / Fix / Edit, model chip, tool log, file:line links, changed files with Diff / Undo / Done | `…/helper/sessions` (`GET`, `POST`, `PATCH {mode}` / `{model}`), `…/turn`, `…/stop`, `…/changes`, `…/undo`, `…/done`, `GET /api/jobs/{call}/steps` |
 | Editor | Ask KeelBot on a selection (**Ctrl+Alt+K**; rebind it in Keymap › Plugins › keel), "KeelBot changed lines a–b · Keep / Undo / Diff" | the same, plus `git diff -U0 HEAD` for the lines |
 
+## Review mode
+
+Choosing a PR in the Review tab (or Check out) turns review mode on for that PR, per project; it ends with Exit review
+mode or when another PR is chosen, and it stays while files are closed and opened again.
+
+- **Toolbar pill and status bar**: "Reviewing #7 · main ← feat/paging"; "Reviewing #7 · 5 files · 1 thread waits ·
+  Exit review mode" (a click: Exit review mode, Next change ↓, the Review tab). Each changed file has a banner with
+  Next change ↓ and Exit review mode.
+- **Project view**: ✚ new (green), ● changed (blue) after the file name, which keeps the IDE's own VCS colour, plus the
+  file's thread count and ✓ once viewed. Deleted files are in the Review tab's list (✕, struck through).
+- **Editors**: the PR's changed lines vs its base in a gutter layer of their own, beside the IDE's local-change marks:
+  a green bar for added lines, a blue bar for modified ones, a red ▶ where lines were removed ("changed in PR #7").
+  A click shows the old text with **Ask KeelBot what changed here** (the answer appears in a small card under the
+  block, with Open in KeelBot), **Comment on this change** (a pending comment) and **Show old** (the PR diff). The
+  same two actions are in the editor menu on a changed block. Review threads sit between the lines (folded); outdated
+  ones and comments on removed lines are a note at the top of the file.
+- **Review tab**: the PR's +/−, files and threads; Changed files (N) (a click opens the normal file, a deleted one its
+  diff); Mark a file viewed when I open it; Next change ↓; Submit review.
+
+The changed blocks come from keel's review diff of each file; when keel's diff fails or is cut short and the PR
+branch is checked out, from `git diff origin/<base>...HEAD -- <file>`. When the branch is not checked out, the marks
+follow the PR's head lines, which can differ from the file on disk: check the PR out to review it in place.
+
 Model and effort in Start a flow go along as flow options (`options.provider/mode/model/effort`); keel's start route
 has no model field yet, so the workflow's agents keep their own models until a workflow reads them.
 

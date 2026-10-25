@@ -118,6 +118,20 @@ class KeelBotPanel(private val project: Project, parent: Disposable) : JPanel(Bo
         if (sendIt) sendNow()
     }
 
+    /** Shows one chat (Open in KeelBot from review mode's answer card). */
+    fun openSession(sid: String) {
+        val pid = svc.pid ?: return
+        svc.io({ it.chat(pid, sid) }) { r ->
+            r.onSuccess {
+                session = it
+                mode = it.mode
+                render()
+                loadChanges()
+                if (busy) watch()
+            }.onFailure { note.text = KeelProjectService.say(it) }
+        }
+    }
+
     private fun load() {
         val pid = svc.pid ?: run {
             messages.removeAll()
