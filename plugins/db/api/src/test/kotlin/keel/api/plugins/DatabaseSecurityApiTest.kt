@@ -102,4 +102,17 @@ class DatabaseSecurityApiTest : ApiTest() {
         assertThat(data["sql"].asText()).doesNotContain("Sup3rS3cretHash")
         assertThat(data["sql"].asText().length).isLessThanOrEqualTo(2001)
     }
+
+    @Test
+    fun `the plugin's project routes need it on for the project`() {
+        val (pid, _) = newProject("dbsec-off")
+        get("/api/projects/$pid/db/connections").andExpect(status().isConflict)
+        post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "sqlite:app.db")).andExpect(status().isConflict)
+        get("/api/projects/$pid/db/suggest").andExpect(status().isConflict)
+        get("/api/projects/$pid/databases/suggest").andExpect(status().isConflict)
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
+        get("/api/projects/$pid/db/connections").andExpect(status().isOk)
+        post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "sqlite:app.db")).andExpect(status().isOk)
+        get("/api/projects/$pid/db/suggest").andExpect(status().isOk)
+    }
 }

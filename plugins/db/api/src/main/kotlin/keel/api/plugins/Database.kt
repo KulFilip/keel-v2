@@ -180,15 +180,19 @@ class DatabaseService(
     }
 
     // ---------------------------------------------------------------- the routes of keel 0.15 (by name, per project)
+    // keel 0.18.55: each needs the plugin on for the project (plugins.require), like schema and query; the editor's
+    // routes by id (Control › Databases, a project's Databases) stay open so connections can be set up before.
 
     /** keel 0.15's list. An agent (keel2 mcp) does not see a connection whose Access is none: not its host, user or database. */
     fun list(pid: String, agent: Boolean = false): List<DbConnection> {
         projects.require(pid)
+        plugins.require(pid, "db")
         return store.active(pid).filter { !agent || it.agentAccessEffective != "none" }.map(::conn)
     }
 
     /** The databases the project names (compose, .env.example, Spring's config, SQLite files) that are not saved yet. */
     fun suggest(pid: String): JsonNode {
+        plugins.require(pid, "db")
         val root = projects.root(pid).toString()
         val saved = store.active(pid).map { it.shown }.toSet()
         val out = engine.post("/plugins/db/suggest", mapOf("root" to root))
@@ -216,6 +220,7 @@ class DatabaseService(
 
     fun create(pid: String, body: DbConnectionBody): Map<String, Any?> {
         projects.require(pid)
+        plugins.require(pid, "db")
         val env = (body.env ?: "local").lowercase()
         // keel 0.15's route: agents keep what they had there (keel2 mcp's keel_db_change asked the person on local and test)
         val r = save(null, DbConfigBody(name = body.name.trim().ifBlank { "local" }, env = env,
@@ -226,14 +231,19 @@ class DatabaseService(
     }
 
     fun update(pid: String, name: String, body: DbConnectionBody): DbConnection {
+        plugins.require(pid, "db")
         val r = own(pid, name)
         val saved = save(r, DbConfigBody(url = body.url?.trim()?.ifBlank { null }, env = body.env), pid, pid)
         return conn(saved)
     }
 
-    fun delete(pid: String, name: String) = remove(own(pid, name))
+    fun delete(pid: String, name: String) {
+        plugins.require(pid, "db")
+        remove(own(pid, name))
+    }
 
     fun test(pid: String, name: String): Map<String, Any?> {
+        plugins.require(pid, "db")
         val r = active(pid, name)
         val t = testRow(r, pid)
         return mapOf("connection" to conn(byId(r.id)), "test" to t)

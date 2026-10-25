@@ -23,6 +23,10 @@ class DatabaseApiTest : ApiTest() {
     @Test
     fun `a connection's password is a secret, the web sees the address without it, and the test result is kept`() {
         val (pid, _) = newProject("plug-db")
+        // the plugin is off: none of its project routes (keel 0.18.55: the list, a new one and suggest too)
+        get("/api/projects/$pid/db/suggest").andExpect(status().isConflict)
+        post("/api/projects/$pid/db/query", mapOf("sql" to "select 1")).andExpect(status().isConflict)
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         get("/api/projects/$pid/db/suggest").andExpect(status().isOk)
         val made = post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "postgres://app:s3cret@localhost:5432/app", // keel:allow-secret
             "env" to "local", "source" to "docker-compose.yml (service db)")).andExpect(status().isOk).json()
@@ -41,9 +45,6 @@ class DatabaseApiTest : ApiTest() {
         assertThat(bad["connection"]["can_change"].asBoolean()).isFalse()           // prod: read only, always
         assertThat(bad["connection"]["error"].asText()).contains("password authentication failed", "Check the password.")
 
-        // the plugin is off: no schema, no query
-        post("/api/projects/$pid/db/query", mapOf("sql" to "select 1")).andExpect(status().isConflict)
-        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         assertThat(get("/api/projects/$pid/db/schema").json()["connection"].asText()).isEqualTo("local")   // local by default
         val q = post("/api/projects/$pid/db/query", mapOf("sql" to "update scores set value = 0", "change" to true)).json()
         assertThat(q["changed"].asInt()).isEqualTo(2)
@@ -79,6 +80,7 @@ class DatabaseApiTest : ApiTest() {
     @Test
     fun `a suggestion reaches the web without its password and is saved with the real address`() {
         val (pid, _) = newProject("plug-db-sugg")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         val sugg = get("/api/projects/$pid/db/suggest").andExpect(status().isOk).json()
         assertThat(sugg.toString()).doesNotContain(":app@")                                      // keel:allow-secret
         assertThat(sugg[0]["url"].asText()).isEqualTo("postgres://app:•••@localhost:15432/scores") // keel:allow-secret
@@ -96,16 +98,16 @@ class DatabaseApiTest : ApiTest() {
         put("/api/secrets/GITHUB_REPO_TOKEN", mapOf("value" to "ghp_exampletoken")).andExpect(status().isOk)
         // off for a project: its connections stay home
         val (off, _) = newProject("plug-db-off")
-        post("/api/projects/$off/db/connections", mapOf("name" to "local", "url" to "sqlite:app.db")).andExpect(status().isOk)
+        post("/api/projects/$off/databases", mapOf("name" to "local", "driver" to "sqlite", "default_db" to "app.db")).andExpect(status().isOk)
         engine.nextThreadIds.add("t-plug-db-0")
         post("/api/projects/$off/flows", mapOf("workflow_id" to "feature", "title" to "Off", "allow_fake" to true, "allow_dirty" to true))
             .andExpect(status().isOk)
         assertThat(engine.lastBody("/threads")!!["keys"].fieldNames().asSequence().toList()).contains("github").doesNotContain("db:local")
 
         val (pid, _) = newProject("plug-db-keys")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         post("/api/projects/$pid/db/connections", mapOf("name" to "local", "url" to "sqlite:app.db")).andExpect(status().isOk)
         post("/api/projects/$pid/db/connections", mapOf("name" to "ci", "url" to "sqlite:ci.db", "env" to "test")).andExpect(status().isOk)
-        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         engine.nextThreadIds.add("t-plug-db-1")
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Data", "allow_fake" to true, "allow_dirty" to true))
             .andExpect(status().isOk)
