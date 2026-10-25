@@ -7,7 +7,7 @@ import { errorParts } from "../api";
 import { inboxApi, type InboxItem } from "../inboxApi";
 import { useHasPage } from "../sdk/registry";
 import { go, useApp } from "../state";
-import { ErrorBox, Pill, Since } from "./ui";
+import { ErrorBox, Pill, Since, Ticks } from "./ui";
 
 type OpenTarget = { page?: string; arg?: string; label?: string };
 
@@ -48,7 +48,7 @@ export function ApprovalCard({ it, cardKey, kindLabel, onDone }: {
         <span className="sub"><b>{it.project_name}</b>{it.flow ? <> · asked by {it.flow}</> : null}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       {it.detail && <pre className="sub inbox-detail" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{it.detail}</pre>}
       <div className="field">
         <label htmlFor={`${hid}-why`}>Note (optional)</label>

@@ -2,7 +2,7 @@
 // the release, or say the Jira ticket was moved by hand. Moved from keel's pages/Inbox.tsx with the Tasks page.
 
 import { useState } from "react";
-import { ErrorBox, errorParts, go, Pill, Since, useApp, type InboxCardProps, type InboxTask } from "@keel/web-sdk";
+import { ErrorBox, errorParts, go, Pill, Since, Ticks, useApp, type InboxCardProps, type InboxTask } from "@keel/web-sdk";
 import { tasksApi } from "./tasksApi";
 import { AUTOMATION_KINDS, AutomationItem } from "./Automations";
 
@@ -34,8 +34,8 @@ function AutomationCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps
         <span className="sub"><b>{it.project_name}</b> · {t.key ? <span className="mono">{t.key}</span> : "task"} · {t.title}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
-      {it.detail && <p className="sub" style={{ margin: 0 }}>{it.detail}</p>}
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
+      {it.detail && <p className="sub" style={{ margin: 0 }}><Ticks text={it.detail} /></p>}
       <AutomationItem pid={it.project_id} kind={it.kind} data={data} actions={t.actions} idBase={hid}
         onAct={async (action, b) => {
           await tasksApi.actWith(t.item_id, action, b);
@@ -86,8 +86,8 @@ function TaskItemCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps) 
         <span className="sub"><b>{it.project_name}</b> · {t.key ? <span className="mono">{t.key}</span> : "task"} · {t.title}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
-      {it.detail && <p className="sub" style={{ margin: 0 }}>{it.detail}</p>}
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
+      {it.detail && <p className="sub" style={{ margin: 0 }}><Ticks text={it.detail} /></p>}
       {(askNote || t.actions.some((a) => a.needs_note)) && (
         <div className="field">
           {/* B11 the flow finished without a PR: the note box is its link */}

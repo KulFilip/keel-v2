@@ -8,7 +8,7 @@ import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify"
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type NotesSettingItem } from "../sdk/slots";
 import { useApp } from "../state";
-import { Drawer, Tabs } from "./ui";
+import { Drawer, Tabs, Ticks } from "./ui";
 
 function NoteSettings() {
   const { nset, saveNset, project, notifyLocal, toast, showMascot, setShowMascot } = useApp();
@@ -113,7 +113,7 @@ export function NotificationDrawer({ onClose }: { onClose: () => void }) {
               <li key={n.id} className="note-row">
                 <button type="button" className={`note ${n.read ? "" : "unread"} ${n.done ? "done" : ""} t-${NTONE[n.type] ?? "run"}`}
                   onClick={() => { openNote(n); onClose(); }}>
-                  <span className="row" style={{ justifyContent: "space-between" }}><b>{n.title}</b><span className="hint">{clock(n.at, false)}</span></span>
+                  <span className="row" style={{ justifyContent: "space-between" }}><b><Ticks text={n.title} /></b><span className="hint">{clock(n.at, false)}</span></span>
                   <span className="sub">{pname(n.project_id)} · {plainText(n.body)}</span>
                   {n.done && <span className="note-done">✓ decided</span>}
                 </button>

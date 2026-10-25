@@ -16,7 +16,7 @@ import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
 import { InstallRequestCard } from "../components/InstallRequestCard";
 import { ApprovalCard } from "../components/ApprovalCard";
-import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
+import { ErrorBox, Loading, PageHead, Pill, Since, Ticks } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useHasPage, useSlot } from "../sdk/registry";
 import { SLOTS, type InboxCardItem } from "../sdk/slots";
@@ -119,7 +119,7 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
         <span className="sub"><b>{it.project_name}</b> · {who}{mcp ? " (keel MCP)" : ` · ${it.flow}`}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       <pre className="code inbox-cmd">{q.command}</pre>
       <div className="field">
         <label htmlFor={`${hid}-why`}>Why not (optional, {who} reads it)</label>
@@ -164,7 +164,7 @@ function StackSetupCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) =
         <span className="sub"><b>{it.project_name}</b></span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       {p.warning && <p className="hint" role="note">{p.warning}</p>}
       <pre className="code inbox-cmd">{commands}</pre>
       <div className="row inbox-actions">
@@ -233,7 +233,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         <span className="sub"><b>{it.project_name}</b> · {it.flow}{it.workflow_id ? <> · <span className="mono">{it.workflow_id}</span></> : null}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       <RunModeNote mode={it.run_mode} kind={it.kind} title={it.title} auto={{ count: it.auto_approved ?? 0, last: it.last_auto }} />
       {it.kind === "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}

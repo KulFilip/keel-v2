@@ -83,6 +83,7 @@ export {
   Pill,
   Since,
   Tabs,
+  Ticks,
 } from "../components/ui";
 export type { PillTone } from "../components/ui";
 export {
