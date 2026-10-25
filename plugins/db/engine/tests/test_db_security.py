@@ -66,6 +66,35 @@ def test_the_docs_still_recommend_a_least_privilege_role():
     assert "least-privilege" in (core.__doc__ or "")
 
 
+# ------------------------------------------------------------------ S2: MySQL's executable comments and file access
+
+@pytest.mark.parametrize("sql", [
+    "SELECT name FROM players /*!50000 INTO OUTFILE '/tmp/x' */",
+    "UPDATE players SET name = 'a' /*!, password_hash = 'x' */ WHERE id = 1",
+    "SELECT 1 /*M!100000 INTO OUTFILE '/tmp/x' */",
+    "SELECT /*! LOAD_FILE('/etc/passwd') */ 1",
+])
+def test_mysql_executable_comments_are_refused(sql):
+    for kind in ("mysql",):
+        got, why = core.classify(sql, kind)
+        assert got == "never" and "/*!" in why, (sql, why)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT LOAD_FILE('/etc/passwd')",
+    "SELECT name FROM players INTO OUTFILE '/tmp/x'",
+    "SELECT name FROM players INTO DUMPFILE '/tmp/x'",
+    "LOAD DATA INFILE '/tmp/x' INTO TABLE players",
+    "LOAD DATA LOCAL INFILE '/tmp/x' INTO TABLE players",
+])
+def test_mysql_file_access_is_refused(sql):
+    assert core.classify(sql, "mysql")[0] == "never", sql
+
+
+def test_a_plain_mysql_comment_is_fine():
+    assert core.classify("SELECT 1 /* just a note */", "mysql") == ("read", "")
+
+
 # ------------------------------------------------------------------ S3: masked by the column a value comes from
 
 @pytest.mark.parametrize("sql,hidden", [

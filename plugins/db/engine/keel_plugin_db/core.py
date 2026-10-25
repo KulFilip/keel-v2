@@ -62,6 +62,9 @@ _DANGER_NAMES = (r"pg_(terminate|cancel)_backend|pg_reload_conf|pg_rotate_logfil
                  r"load_file|sys_(exec|eval)")
 DANGER_FN = re.compile(rf"^({_DANGER_NAMES})$", re.I)
 DANGER_CALL = re.compile(rf"(?<![\w$])({_DANGER_NAMES})\s*\(", re.I)
+# MySQL and MariaDB run what is inside /*! … */ and /*M! … */ (sqlglot reads them as comments); and their file access
+MYSQL_EXEC_COMMENT = re.compile(r"/\*M?!")
+FILE_ACCESS = re.compile(r"(?i)\bINTO\s+(OUTFILE|DUMPFILE)\b|\bLOAD\s+(DATA|XML)\b")
 COMPOSE = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 ADDRESS_HINT = ("Use postgres://user:password@host:5432/db, mysql://user:password@host:3306/db "  # keel:allow-secret
                 "or sqlite:path/to/file.db.")
@@ -194,6 +197,11 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
     if not text:
         return "never", "The query is empty."
     dialect = _dialect(kind)
+    if kind == "mysql" and MYSQL_EXEC_COMMENT.search(text):
+        return "never", ("keel does not run MySQL's executable comments (/*! … */, /*M! … */): MySQL runs what is "
+                         "inside them. Write the SQL without them.")
+    if FILE_ACCESS.search(text):
+        return "never", "keel does not read or write server files (INTO OUTFILE, INTO DUMPFILE, LOAD DATA)."
     try:
         stmts = [s for s in sqlglot.parse(text, read=dialect) if s is not None]
     except Exception as exc:  # sqlglot's ParseError, TokenError
