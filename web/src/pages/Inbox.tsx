@@ -15,6 +15,7 @@ import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
 import { InstallRequestCard } from "../components/InstallRequestCard";
+import { ApprovalCard } from "../components/ApprovalCard";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useHasPage, useSlot } from "../sdk/registry";
@@ -25,11 +26,13 @@ import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
-  permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup",
+  permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup", "product-jira-send": "send to Jira",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
 const PLUGIN_INSTALL = "plugin-install";
 const STACK_SETUP = "stack-setup";
+/** P4 an approval keel or a part asks itself (no flow behind it): answered at /approvals/{id}/decide. */
+const isApproval = (it: InboxItem) => it.step === "approval" && it.kind !== PLUGIN_INSTALL && it.kind !== STACK_SETUP;
 /** One waiting question: its id, else the step with the AC and the time it began to wait, so a gate that comes back to the
  *  same step is a new card (not the old one with its buttons stuck disabled). */
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? `${it.step}|${it.ac ?? ""}|${it.since ?? ""}`}`;
@@ -291,14 +294,14 @@ export function InboxPage() {
   const groups = useMemo(() => {
     const flowsOf = new Map<string, Set<string>>();
     for (const it of items) {
-      if (it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP) continue;
+      if (it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP || isApproval(it)) continue;
       flowsOf.set(it.project_id, (flowsOf.get(it.project_id) ?? new Set<string>()).add(it.thread_id));
     }
     if (![...flowsOf.values()].some((x) => x.size > 1)) return null;
     const order: string[] = [];
     const by = new Map<string, InboxItem[]>();
     for (const it of items) {
-      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
+      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP || isApproval(it) ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
       if (!by.has(g)) { by.set(g, []); order.push(g); }
       by.get(g)!.push(it);
     }
@@ -351,6 +354,7 @@ export function InboxPage() {
     if (it.permission) return <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.kind === STACK_SETUP) return <StackSetupCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.kind === PLUGIN_INSTALL) return <InstallRequestCard key={keyOf(it)} it={it} cardKey={keyOf(it)} onDone={(msg) => done(msg, keyOf(it))} />;
+    if (isApproval(it)) return <ApprovalCard key={keyOf(it)} it={it} cardKey={keyOf(it)} kindLabel={labelOf(it.kind)} onDone={(msg) => done(msg, keyOf(it))} />;
     // a task's item whose part has not loaded yet: it shows when its card registers
     if (it.task) return null;
     return <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;

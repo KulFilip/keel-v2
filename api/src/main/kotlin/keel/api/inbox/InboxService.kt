@@ -100,6 +100,7 @@ class InboxService(
     private val flows: FlowService,
     private val mapper: ObjectMapper,
     found: ObjectProvider<InboxSource>,
+    private val approvals: ObjectProvider<keel.api.approvals.ApprovalService>,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private data class Cached(val at: Long, val state: JsonNode)
@@ -167,7 +168,16 @@ class InboxService(
     /** Answers one inbox item the way the Flow page does; refuses when the thread now waits for something else. */
     fun act(tid: String, body: InboxAct): JsonNode {
         if (body.decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
-        jdbc.query("SELECT 1 FROM threads WHERE id = ?", { _, _ -> 1 }, tid).firstOrNull() ?: throw NotFound("No flow $tid")
+        if (jdbc.query("SELECT 1 FROM threads WHERE id = ?", { _, _ -> 1 }, tid).firstOrNull() == null) {
+            // P4 an approval keel or a part asked itself (keel Product's send to Jira) is no flow: approve or deny it
+            val svc = approvals.ifAvailable
+            val a = svc?.find(tid)
+            if (svc != null && a != null && !svc.engineOwned(a)) {
+                svc.decide(tid, if (body.decision == "approve") "approve" else "deny", body.why.orEmpty())
+                return mapper.valueToTree(mapOf("id" to tid, "status" to "decided"))
+            }
+            throw NotFound("No flow $tid")
+        }
         val now = runCatching { engine.thread(tid) }.getOrNull()
         if (now != null) {
             val waiting = now.get("waiting")

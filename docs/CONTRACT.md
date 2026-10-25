@@ -1010,6 +1010,9 @@ GET  /api/inbox?project=&kind=   → { items: InboxItem[], count, kinds: string[
 GET  /api/inbox/count            → { count, projects: {pid: n} }      (the database only)
 POST /api/inbox/{tid}/act  { decision, why?, payload?, id? }  → ThreadState
      (FlowService.resume — the Flow page's path; 409 when the thread no longer waits or now asks another question than `id`)
+     (P4 an approval keel or a part asked itself — step "approval", e.g. product-jira-send — is no flow: approve
+      approves it, reject denies it, → { id, status: "decided" }. Its payload.open {page, arg, label} is where the
+      Inbox's Open goes; the web answers it at POST /api/approvals/{id}/decide)
 InboxItem = { project_id, project_name, thread_id, flow (the flow's title), workflow_id, step,
               kind: gate | clarify | fix | budget | usage | dependency, title, detail (≤ 700 chars), more, options, choices?,
               choice_info? (v0.19.0), questions?, labels?, id?, phase?, ac?, run_mode?, auto_approved, last_auto?, since }

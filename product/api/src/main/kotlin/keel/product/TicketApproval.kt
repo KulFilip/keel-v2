@@ -40,7 +40,9 @@ class TicketApproval(
             if (p.problems.isNotEmpty()) append("\n\nProblems:\n").append(p.problems.joinToString("\n") { "- $it" })
         }
         return approvals.create(KIND, repo.projectId(), "Send ${p.creates} tickets of ${i.id} to Jira", detail,
-            mapOf("initiative" to i.id, "stories" to b.stories), requestedBy = b.by?.trim()?.ifEmpty { null } ?: "an agent")
+            // P4 the Inbox's Open goes to the initiative, not to a flow (there is none)
+            mapOf("initiative" to i.id, "stories" to b.stories, "open" to mapOf("page" to "initiatives", "arg" to i.id, "label" to "Open initiative")),
+            requestedBy = b.by?.trim()?.ifEmpty { null } ?: "an agent")
     }
 
     override fun decided(approval: Approval, decision: String, why: String) {
