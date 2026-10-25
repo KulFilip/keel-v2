@@ -178,6 +178,15 @@ on your tailnet) or `keel2 share tunnel` (a public https address). Then pair the
 phone**: scan the QR code. It talks to keel directly; nothing goes through a server of ours.
 [More](docs/GUIDE.md#use-keel-from-your-phone)
 
+## In your JetBrains IDE
+
+The keel plugin ([jetbrains/](jetbrains/README.md), IntelliJ IDEA, PyCharm, WebStorm and the other 2024.3+ IDEs)
+brings keel into the editor: review threads on the pull request's diff with "Is the reviewer right?", the questions
+your flows wait at (a balloon and "keel · N questions" in the status bar), Start a flow from a selection, and KeelBot
+with its changed lines marked in the editor. Build it with `cd jetbrains && ./gradlew buildPlugin`, install the zip
+(Settings › Plugins › ⚙ › Install Plugin from Disk), then connect in Settings › Tools › keel: keel2 on this computer,
+or a pairing code like the phone.
+
 ## More
 
 - [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,
