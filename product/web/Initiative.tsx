@@ -720,11 +720,13 @@ function SendBack({
   onSend: () => void;
 }) {
   return (
-    <span className="pd-inline">
-      <input
-        type="text"
+    <span className="pd-inline pd-sendback">
+      {/* several lines: what to change is often more than a few words */}
+      <textarea
+        className="pd-text short"
+        rows={3}
         aria-label="What to change"
-        placeholder="what to change"
+        placeholder="what to change (one or more lines)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
@@ -1928,9 +1930,22 @@ function Disagree({
   const [proposal, setProposal] = useState("");
   const [author, setAuthor] = useState("");
   const act = useAct();
+  // each form starts empty: the name of whoever wrote the last one must not stick (empty = you, the signed-in person)
+  const reset = () => {
+    setReason("");
+    setProposal("");
+    setAuthor("");
+  };
   if (!open)
     return (
-      <button className="btn sm" type="button" onClick={() => setOpen(true)}>
+      <button
+        className="btn sm"
+        type="button"
+        onClick={() => {
+          reset();
+          setOpen(true);
+        }}
+      >
         I disagree…
       </button>
     );
@@ -1945,8 +1960,7 @@ function Disagree({
     );
     if (r) {
       setOpen(false);
-      setReason("");
-      setProposal("");
+      reset();
       onDone();
     }
   };
@@ -1955,7 +1969,7 @@ function Disagree({
       <input
         type="text"
         aria-label="Who disagrees"
-        placeholder="your name (optional)"
+        placeholder="your name (empty: you)"
         value={author}
         onChange={(e) => setAuthor(e.target.value)}
       />
@@ -1981,7 +1995,14 @@ function Disagree({
       >
         Write it down
       </button>
-      <button className="btn sm" type="button" onClick={() => setOpen(false)}>
+      <button
+        className="btn sm"
+        type="button"
+        onClick={() => {
+          setOpen(false);
+          reset();
+        }}
+      >
         Cancel
       </button>
       {act.box}

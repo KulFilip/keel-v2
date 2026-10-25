@@ -425,15 +425,15 @@ describe("keel Product in keel's web", () => {
     expect(await main().findByText("Euro for the EU.")).toBeInTheDocument();
     const back = within(gateCard).getByRole("button", { name: "Send back" });
     expect(back).toBeDisabled();
-    await userEvent.type(
-      within(gateCard).getByLabelText("What to change"),
-      "Add the price rounding",
-    );
+    // the note is a box of several lines, not a one-line input
+    const what = within(gateCard).getByLabelText("What to change");
+    expect(what.tagName).toBe("TEXTAREA");
+    await userEvent.type(what, "Add the price rounding{enter}and the VAT line");
     await userEvent.click(back);
     await waitFor(() =>
       expect(
         calls.find((c) => c.path === "/api/initiatives/INI-2/send-back")?.body,
-      ).toEqual({ note: "Add the price rounding" }),
+      ).toEqual({ note: "Add the price rounding\nand the VAT line" }),
     );
     await userEvent.click(main().getByRole("tab", { name: "Questions" }));
     expect(main().getByRole("tabpanel")).toHaveTextContent(/Who sees euro\?.*keel asked · Brief.*EU and UK — you/);
@@ -518,6 +518,14 @@ describe("keel Product in keel's web", () => {
       .findByRole("region", { name: "Disagreements" })
       .catch(() => main().findByText(/Option A is cheaper/));
     expect(dis).toBeInTheDocument();
+    expect(
+      calls.find((c) => c.path === "/api/initiatives/INI-2/disagreements")?.body,
+    ).toMatchObject({ author: "Bo" });
+    // the next disagreement is someone else's: the form starts empty, not with "Bo"
+    await userEvent.click(main().getAllByRole("button", { name: "I disagree…" })[0]);
+    expect(main().getByLabelText("Who disagrees")).toHaveValue("");
+    expect(main().getByLabelText("Why you disagree")).toHaveValue("");
+    await userEvent.click(main().getByRole("button", { name: "Cancel" }));
     await userEvent.type(
       await main().findByLabelText("Decision on: Option A is cheaper"),
       "B stays: A can not do the UK",
