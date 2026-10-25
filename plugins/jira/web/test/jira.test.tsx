@@ -7,7 +7,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 // keel's own app and test harness: this test runs the Jira parts inside keel's web, as keel loads them
 import { App } from "../../../../web/src/App";
-import { db } from "../../../../web/src/test/setup";
+import { http, HttpResponse } from "msw";
+import { db, server } from "../../../../web/src/test/setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
@@ -43,6 +44,31 @@ describe("Connections › Jira", () => {
       status_map: { todo: "To Do", in_progress: "In Progress", in_review: "Code Review", testing_pp: "QA on PP", ready_prod: "Ready for Release", done: "Done", blocked: "-" },
       reviewer_field: "customfield_10010", jira_reviewers: ["rev@acme.com"], github_reviewers: ["ana", "org/team"],
     });
+  });
+
+  it("a keel status with no match on the board becomes do not move, and says so (B4)", async () => {
+    server.use(http.get("/api/projects/:pid/jira/discover", () => HttpResponse.json({
+      statuses: [{ name: "To Do", category: "new" }, { name: "In Progress", category: "indeterminate" }, { name: "In Review", category: "indeterminate" },
+        { name: "Testing", category: "indeterminate" }, { name: "Done", category: "done" }],
+      transitions: [], fields: [],
+      suggested: { todo: "To Do", in_progress: "In Progress", in_review: "In Review", testing_pp: "Testing", ready_prod: "-", done: "Done" },
+      keel_statuses: ["todo", "in_progress", "in_review", "testing_pp", "ready_prod", "done", "cancelled", "blocked"],
+    })));
+    const user = userEvent.setup();
+    location.hash = "#/connections";
+    render(<App />);
+    const card = await screen.findByTestId("jira-ludus-engine");
+    expect(await within(card).findByText("connected")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Edit" }));
+    await user.click(within(card).getByRole("button", { name: "Find statuses in Jira" }));
+    const ready = await within(card).findByLabelText("Jira status for Ready");
+    expect(ready).toHaveValue("-");
+    expect(within(card).getByTestId("jira-note-ready_prod")).toHaveTextContent("No match on the board (no “Ready for Production”): keel will not move the ticket.");
+    expect(within(card).getByLabelText("Jira status for Testing (PP)")).toHaveValue("Testing");
+    expect(within(card).queryByTestId("jira-note-testing_pp")).toBeNull();
+    await user.click(within(card).getByRole("button", { name: "Save mapping and reviewers" }));
+    await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/jira")).toHaveLength(1));
+    expect((calls("PUT", "/api/projects/ludus-engine/jira")[0].body as { status_map: Record<string, string> }).status_map).toMatchObject({ ready_prod: "-", testing_pp: "Testing" });
   });
 
   it("connects Jira Server for another project with a personal access token", async () => {

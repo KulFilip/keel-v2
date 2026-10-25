@@ -145,6 +145,14 @@ class TaskMachineTest {
         assertThat(s).containsEntry("todo", "Backlog").containsEntry("in_progress", "In Progress").containsEntry("in_review", "Code Review")
             .containsEntry("testing_pp", "QA on PP").containsEntry("ready_prod", "Ready for Release").containsEntry("done", "Done")
             .containsEntry("cancelled", "Won't Do").doesNotContainKey("blocked")
+        // B4: a keel status with no match on the board is "do not move", never a usual name the board does not have
+        val board = TaskMachine.suggest(listOf("To Do" to "new", "In Progress" to "indeterminate", "In Review" to "indeterminate",
+            "Testing" to "indeterminate", "Done" to "done"))
+        assertThat(board).containsEntry("todo", "To Do").containsEntry("in_progress", "In Progress").containsEntry("in_review", "In Review")
+            .containsEntry("testing_pp", "Testing").containsEntry("done", "Done").containsEntry("ready_prod", TaskStatus.DO_NOT_MOVE)
+            .doesNotContainKey("blocked").doesNotContainKey("cancelled")
+        assertThat(TaskMachine.jiraTarget("ready_prod", board)).isNull()
+        assertThat(TaskMachine.suggest(emptyList())).isEmpty()                         // nothing found: nothing to say
         assertThat(TaskTypes.defaultWorkflow("bug")).isEqualTo("fix")
         assertThat(TaskTypes.defaultWorkflow("story")).isEqualTo("feature")
         assertThat(TaskTypes.defaultWorkflow("task")).isEqualTo("change")

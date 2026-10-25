@@ -35,7 +35,10 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
       setFound(d);
       // fill the empty rows with the suggestion; what you chose stays
       setMap((m) => ({ ...d.suggested, ...Object.fromEntries(Object.entries(m).filter(([, v]) => v)) }));
-      toast(`Found ${d.statuses.length} statuses and ${d.fields.length} reviewer field${d.fields.length === 1 ? "" : "s"}.`);
+      // a keel status with no match on the board is "do not move" (the api's suggestion): say how many, and to save
+      const none = Object.values(d.suggested).filter((v) => v === "-").length;
+      toast(`Found ${d.statuses.length} statuses and ${d.fields.length} reviewer field${d.fields.length === 1 ? "" : "s"}.` +
+        (none ? ` ${none} keel status${none === 1 ? " has" : "es have"} no match: keel will not move the ticket for ${none === 1 ? "it" : "them"}. Save to keep it.` : ""));
     } catch (e) {
       setErr(errorParts(e));
     } finally {
@@ -56,6 +59,15 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
     }
   };
   const names = found?.statuses.map((s) => s.name) ?? [];
+  const known = new Set([...names, ...(found?.transitions ?? []).flatMap((t) => [t.name, t.to])].map((n) => n.toLowerCase()));
+  /** After "Find statuses": why a row will not move the ticket, or that its status is not on this board. */
+  const note = (s: TaskStatus, v: string): string | null => {
+    if (!found || !names.length) return null;
+    if (v === "-" && found.suggested[s] === "-") return `No match on the board${USUAL[s] ? ` (no “${USUAL[s]}”)` : ""}: keel will not move the ticket.`;
+    if (v && v !== "-" && !known.has(v.toLowerCase())) return `Jira has no status “${v}” here: a move would fail.`;
+    if (!v && USUAL[s] && !known.has(USUAL[s]!.toLowerCase())) return `Jira has no “${USUAL[s]}” here: pick a status, or do not move.`;
+    return null;
+  };
   const fields = found?.fields ?? [];
   return (
     <div className="jr-map" data-testid="jira-mapping">
@@ -82,6 +94,7 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
                       {opts.map((n) => <option key={n} value={n}>{n}</option>)}
                       <option value="-">do not move the ticket</option>
                     </select>
+                    {note(s, v) && <span className="hint jr-note" style={{ display: "block" }} data-testid={`jira-note-${s}`}>{note(s, v)}</span>}
                   </td>
                 </tr>
               );
