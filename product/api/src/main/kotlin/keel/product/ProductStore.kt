@@ -515,6 +515,17 @@ class ProductStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMap
         jdbc.update("DELETE FROM product_initiative_tickets WHERE initiative_id = ? AND key = ?", initiativeId, key) > 0
 
     /** The linked tickets of one initiative (oldest first), or of every initiative. */
+    /**
+     * P6 the keys keel itself made for each initiative, as (initiative, key): its stories' Jira keys and keel tasks
+     * (any plan version) and its own Jira tickets (the initiative, its epics). A ticket a send made is the initiative's
+     * without a link by hand.
+     */
+    fun sentKeys(): List<Pair<String, String>> = jdbc.query(
+        "SELECT initiative_id, jira_key FROM product_plan_items WHERE jira_key IS NOT NULL " +
+            "UNION SELECT initiative_id, task_id FROM product_plan_items WHERE task_id IS NOT NULL " +
+            "UNION SELECT initiative_id, jira_key FROM product_tickets",
+    ) { rs, _ -> rs.getString(1) to rs.getString(2) }
+
     fun initiativeTickets(initiativeId: String? = null): List<InitiativeTicket> = if (initiativeId == null)
         jdbc.query("SELECT * FROM product_initiative_tickets ORDER BY added_at, key") { rs, _ -> initiativeTicket(rs) }
     else jdbc.query("SELECT * FROM product_initiative_tickets WHERE initiative_id = ? ORDER BY added_at, key", { rs, _ -> initiativeTicket(rs) }, initiativeId)

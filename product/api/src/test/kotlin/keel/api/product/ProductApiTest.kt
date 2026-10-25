@@ -51,6 +51,9 @@ class ProductApiTest : ApiTest() {
 
     private lateinit var productPid: String
 
+    @org.springframework.beans.factory.annotation.Autowired
+    lateinit var productStore: keel.product.ProductStore
+
     @BeforeEach
     fun setUp() {
         WORKFLOWS.forEach { id ->
@@ -712,6 +715,32 @@ class ProductApiTest : ApiTest() {
         assertThat(delete("/api/initiatives/$id/tickets/SHOPS-1234").andExpect(status().isOk).json().map { it["key"].asText() }).containsExactly(local)
         delete("/api/initiatives/$id/tickets/SHOPS-1234").andExpect(status().isNotFound)
         assertThat(jira.issues.getValue("SHOPS-1234").status).isEqualTo("In Progress")
+    }
+
+    @Test
+    fun `P6 the stories an initiative sent to Jira or keel Tasks show that initiative on the Product map's board`() {
+        val (web, pay) = repos()
+        put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "SHOPS"))
+            .andExpect(status().isOk)
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Sent", "idea" to "Send, then look at the map.", "repos" to listOf(web, pay))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+        // the initiative's Jira send gave PAY-S1 its key (as TicketSender keeps it); Jira has the ticket, the board syncs it
+        val store = productStore
+        val version = detail(id)["plan"]["version"].asInt()
+        val s1 = store.items(id, version).single { it.id == "PAY-S1" }
+        store.saveItem(s1.copy(jiraKey = "SHOPS-1300"))
+        jira.add("SHOPS-1300", "PAY-S1 · Prices in euro", "To Do", "Story")
+        jira.add("SHOPS-1301", "Something else", "To Do", "Story")
+        post("/api/projects/$pay/tasks/sync").andExpect(status().isOk)
+        // and the web stories go to keel Tasks (local tasks, no Jira key)
+        post("/api/initiatives/$id/handoff", mapOf("target" to "tasks", "stories" to listOf("WEB-S1"))).andExpect(status().isOk)
+        val webTask = store.items(id, version).single { it.id == "WEB-S1" }.taskId!!
+
+        val board = get("/api/product/map").andExpect(status().isOk).json()["board"]
+        assertThat(board.single { it["key"].asText() == "SHOPS-1300" }["initiatives"].map { it.asText() }).containsExactly(id)
+        assertThat(board.single { it["key"].asText() == "SHOPS-1301" }["initiatives"]).isEmpty()
+        assertThat(board.single { it["key"].asText() == webTask }["initiatives"].map { it.asText() }).containsExactly(id)
     }
 
     @Test

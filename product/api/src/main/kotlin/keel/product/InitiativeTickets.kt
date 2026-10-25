@@ -66,8 +66,10 @@ class InitiativeTickets(
         t != null, initiatives, work?.branches?.size ?: 0, work?.commits?.size ?: 0, work?.lastAt, addedAt,
     )
 
+    /** Each key's initiatives: the tickets linked by hand, and (P6) the ones the initiative's own send or hand-off made. */
     private fun byInitiative(): Map<String, List<String>> =
-        store.initiativeTickets().groupBy({ it.key }, { it.initiativeId }).mapValues { (_, v) -> v.distinct() }
+        (store.initiativeTickets().map { it.key to it.initiativeId } + store.sentKeys().map { (ini, key) -> key to ini })
+            .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.distinct() }
 
     /** The task behind a link: by its id, else by its key on its project's board. */
     private fun taskOf(l: InitiativeTicket): Task? =
