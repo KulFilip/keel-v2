@@ -181,7 +181,7 @@ describe("Fix mode", () => {
       step: "helper", data: { id: "q9", command: "npm install left-pad", title: "KeelBot asks to run a command" } }) });
     await waitFor(() => t.probe.pick);
     expect(t.frame()).toContain("? KeelBot asks to run: npm install left-pad?");
-    expect(t.frame()).toContain("❯ Allow once");
+    expect(t.frame()).toContain("❯ 1. Allow once");
     t.r.stdin.write("\x1b[B");
     await tick(30);
     t.r.stdin.write("\x1b[B");

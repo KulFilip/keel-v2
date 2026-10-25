@@ -108,10 +108,12 @@ ASK_NOTE = ("You cannot switch the mode yourself and must not try another way ar
 ASK_PATH = PART_ASK_PATH               # where the guard hook asks (it checks the turn's key, then asks approvals.py)
 
 
-async def compact(sid: str) -> dict:
+async def compact(sid: str, keys: dict | None = None) -> dict:
     """Asks the model to summarise the stored conversation (0.18.19 in opencode's structured form, or to update the
     earlier summary), stores that summary as a note (never a user or helper turn) and starts a fresh engine_session: the next turn's prompt begins from the summary, not the old session.
-    Nothing in helper_messages is ever deleted; ctx_tokens resets to the summary's own size."""
+    Nothing in helper_messages is ever deleted; ctx_tokens resets to the summary's own size.
+    keys: the logins the api sends with a turn (0.18.54: without them a Claude login saved in Connections was missing)."""
+    keys = dict(keys or {})
     s = get(sid, messages=False)
     model = models.effective(s["model"])
     hist = history(sid)
@@ -123,7 +125,7 @@ async def compact(sid: str) -> dict:
     prompt = _transcript(hist, room) + "\n\n" + summary_prompt(update=earlier)
     req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, None), prompt=prompt, root=root, phase="none",
                        model=model, toolbox=ToolBox(root, "none", agent=AGENT, readonly=True), title=s["title"],
-                       step_name="compact", key=models.key_for(model["provider"], {}), history=[])
+                       step_name="compact", key=models.key_for(model["provider"], keys), keys=keys, history=[])
     res = await models.runner_for(model).run(req, lambda *_a, **_k: None)
     tin, tout, cached = int(res.tokens_in), int(res.tokens_out), int(res.tokens_cached)
     before = int(s.get("ctx_tokens") or 0)
@@ -321,7 +323,12 @@ class HelperRunner:
             if finalize_reverts(sid):         # 0.18.19 a new message makes /undo final (no /redo any more)
                 s = get(sid, messages=False)
             if s["ctx_window"] and s["ctx_tokens"] / s["ctx_window"] >= COMPACT_RATIO:
-                s = await compact(sid)
+                # 0.18.54 with the turn's logins; a summary that fails is a note, and the answer still goes (it was a
+                # 500 the TUI showed as "The engine refused the request")
+                try:
+                    s = await compact(sid, body.get("keys"))
+                except models.ModelError as exc:
+                    add_message(sid, "note", f"Could not compact this chat: {exc}", data={"compact_failed": True})
             if body.get("model"):
                 s = set_model(sid, body["model"])
             question, command = plugins.expand(s["root"], text, body.get("plugins"))

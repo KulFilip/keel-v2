@@ -216,7 +216,7 @@ describe("/project", () => {
     await waitFor(() => t.probe.started);
     expect(t.core.snapshot.project?.id).toBe("zeta");
     await t.run("/project");
-    expect(t.frame()).toMatch(/❯ zeta \(now\)/);
+    expect(t.frame()).toMatch(/❯ \d\. zeta \(now\)/);
     await t.enter();
     expect(t.frame()).toContain("Still on zeta.");
     await t.run("/project");

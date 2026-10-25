@@ -63,7 +63,7 @@ describe("the example screen: a chat with KeelBot about a waiting gate", () => {
       expect(line(s, "? What should I do next?")).toContain(open(p, "gate") + "? ");
       // an option: bold, "(recommended)" in its own colour, its description readable (no dim, no grey)
       const opt = line(s, "Ask KeelBot more");
-      expect(opt).toContain(BOLD + "  Ask KeelBot more");
+      expect(opt).toContain(BOLD + "  2. Ask KeelBot more");
       expect(opt).not.toContain(open(p, "meta") + "  it explains");
       expect(line(s, "(recommended)")).toContain(open(p, "recommended") + " (recommended)");
       // nothing on this screen is dimmed (SGR 2) in a palette with a known background

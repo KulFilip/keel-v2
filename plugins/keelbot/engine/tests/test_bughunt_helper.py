@@ -28,9 +28,9 @@ async def test_a_second_message_during_the_compact_waits_and_never_starts_a_seco
     helper.update(sid, ctx_tokens=int(s["ctx_window"] * 0.95))
     real = helper.compact
 
-    async def slow_compact(x):
+    async def slow_compact(x, keys=None):
         await asyncio.sleep(0.2)
-        return await real(x)
+        return await real(x, keys)
 
     monkeypatch.setattr(helper, "compact", slow_compact)
     first, second = await asyncio.gather(runner.turn(sid, {"text": "one"}), _later(runner, sid))

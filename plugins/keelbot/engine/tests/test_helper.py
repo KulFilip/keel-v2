@@ -916,3 +916,60 @@ def test_a_turn_answers_which_images_went_with_it_and_which_did_not(client, repo
     assert r.json()["images"] == [] and r.json()["images_skipped"][0]["path"] == "shot.png"
     s = wait_idle(client, s["id"])
     assert s["messages"][0]["data"]["images_skipped"][0]["path"] == "shot.png"
+
+
+# ------------------------------------------------------------------ 0.18.54 compact runs with the chat's login
+
+def _spy_runner(monkeypatch, fail_on=None):
+    """Records each AgentRequest the helper sends to a model; fail_on=<step_name> makes that step fail like a CLI."""
+    seen = []
+    real = helper.models.runner_for
+
+    def runner_for(model):
+        inner = real(model)
+
+        class Spy:
+            async def run(self, req, on_event):
+                seen.append(req)
+                if req.step_name == fail_on:
+                    raise helper.models.ModelError("`claude` is not logged in inside the container.", "Save a login.")
+                return await inner.run(req, on_event)
+        return Spy()
+    monkeypatch.setattr(helper.models, "runner_for", runner_for)
+    return seen
+
+
+def test_an_automatic_compact_gets_the_turns_logins(client, repo, monkeypatch):
+    """The summary before a turn runs the chat's model with the logins the api sent for the turn (it ran with none,
+    so a Claude login saved in Connections was missing and the turn failed with a 500)."""
+    seen = _spy_runner(monkeypatch)
+    s = new_session(client, repo)
+    helper.update(s["id"], ctx_tokens=int(s["ctx_window"] * 0.9))
+    ask(client, s["id"], "Where does it start?", keys={"claude_oauth": "test-login"})
+    compact = next(r for r in seen if r.step_name == "compact")
+    assert compact.keys.get("claude_oauth") == "test-login"
+
+
+def test_a_failed_automatic_compact_is_a_note_and_the_answer_still_goes(client, repo, monkeypatch):
+    _spy_runner(monkeypatch, fail_on="compact")
+    s = new_session(client, repo)
+    helper.update(s["id"], ctx_tokens=int(s["ctx_window"] * 0.9))
+    _, s = ask(client, s["id"], "Where does it start?")
+    notes = [m for m in s["messages"] if m["role"] == "note"]
+    assert notes and notes[0]["text"].startswith("Could not compact this chat: `claude` is not logged in")
+    assert s["messages"][-1]["role"] == "helper"
+
+
+def test_the_compact_route_passes_the_logins_and_answers_a_model_error_in_words(client, repo, monkeypatch):
+    seen = _spy_runner(monkeypatch)
+    s = new_session(client, repo)
+    _, s = ask(client, s["id"], "Where does it start?")
+    r = client.post(f"/helper/sessions/{s['id']}/compact", json={"keys": {"claude_oauth": "test-login"}})
+    assert r.status_code == 200, r.text
+    assert seen[-1].step_name == "compact" and seen[-1].keys.get("claude_oauth") == "test-login"
+    assert client.post(f"/helper/sessions/{s['id']}/compact").status_code == 200       # an old api sends no body
+
+    _spy_runner(monkeypatch, fail_on="compact")
+    r = client.post(f"/helper/sessions/{s['id']}/compact")
+    assert r.status_code == 502
+    assert "not logged in" in r.json()["error"] and r.json()["hint"] == "Save a login."
