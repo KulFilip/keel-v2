@@ -20,6 +20,52 @@ def _db(tmp_path, name="a.db", script=""):
     return core.Conn("x", "sqlite", f"sqlite:{name}")
 
 
+# ------------------------------------------------------------------ S1: PostgreSQL functions, also inside strings
+
+@pytest.mark.parametrize("sql", [
+    "SELECT query_to_xml('select pg_read_file(''/etc/hostname'')', true, true, '')",
+    "SELECT query_to_xml_and_xmlschema('select 1', true, true, '')",
+    "SELECT query_to_xmlschema('select 1', true, true, '')",
+    "SELECT cursor_to_xml('c', 1, true, true, '')",
+    "SELECT cursor_to_xmlschema('c', true, true, '')",
+    "SELECT table_to_xml('players', true, true, '')",
+    "SELECT table_to_xml_and_xmlschema('players', true, true, '')",
+    "SELECT database_to_xml(true, true, '')",
+    "SELECT schema_to_xml('public', true, true, '')",
+    "SELECT pg_ls_dir('.')",
+    "SELECT * FROM pg_ls_waldir()",
+    "SELECT * FROM pg_ls_logdir()",
+    "SELECT * FROM pg_ls_tmpdir()",
+    "SELECT dblink('host=x', 'select 1')",
+    "SELECT dblink_exec('host=x', 'drop table t')",
+    "SELECT lo_import('/etc/passwd')",
+    "SELECT lo_export(1, '/tmp/x')",
+    "SELECT pg_read_binary_file('/etc/passwd')",
+    "SELECT pg_stat_file('/etc/passwd')",
+    "SELECT pg_cancel_backend(1)",
+    "SELECT pg_terminate_backend(1)",
+    "SELECT pg_reload_conf()",
+    "SELECT set_config('work_mem', '1GB', false)",
+    "SELECT pg_catalog.pg_read_file('/etc/passwd')",
+    # a string another function runs as SQL: refused for the name inside it
+    "SELECT ts_stat('select pg_read_file(''/etc/hostname'')')",
+    "SELECT my_runner('select pg_ls_dir(''.'')')",
+    "SELECT query_to_xml($$select pg_read_file('/etc/hostname')$$, true, true, '')",
+])
+def test_server_functions_are_refused_also_inside_a_string(sql):
+    kind, why = core.classify(sql, "postgres")
+    assert kind == "never", (sql, why)
+    assert "does not call" in why
+
+
+def test_an_ordinary_read_with_strings_is_still_a_read():
+    assert core.classify("SELECT 'hello' AS greeting, lower(name) FROM players WHERE name = 'pg'", "postgres") == ("read", "")
+
+
+def test_the_docs_still_recommend_a_least_privilege_role():
+    assert "least-privilege" in (core.__doc__ or "")
+
+
 # ------------------------------------------------------------------ S3: masked by the column a value comes from
 
 @pytest.mark.parametrize("sql,hidden", [

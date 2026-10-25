@@ -17,6 +17,9 @@ project's own or a global one (scope); one keel cannot reach now comes with `una
     PluginError              keel's refusal of a part (status, message, hint): the app answers it as a 4xx
 
 keel runs in Docker: `localhost` in a url means the person's computer, so the engine connects to host.docker.internal.
+
+keel's rules are a second line, not the first: give each connection a least-privilege database role (a read-only user
+for reads, no superuser, no file or server functions), so the database itself refuses what keel's checks might miss.
 """
 
 from __future__ import annotations
@@ -50,9 +53,15 @@ TIMEOUT_S = 15
 CONNECT_S = 5
 MAX_TABLES = 300
 SECRET_COL = re.compile(r"pass(word|wd)?|secret|token|hash|salt|api_?key|private_?key|credential", re.I)
-# functions that act even inside a read-only transaction (end sessions, read server files, reach other servers)
-DANGER_FN = re.compile(r"^(pg_(terminate|cancel)_backend|pg_reload_conf|pg_rotate_logfile|pg_read_(binary_)?file|pg_ls_dir|"
-                       r"pg_stat_file|pg_promote|lo_(import|export)|dblink\w*|set_config|load_file|sys_(exec|eval))$", re.I)
+# functions that act even inside a read-only transaction (end sessions, read server files, reach other servers) and
+# those that run a string as SQL (query_to_xml, cursor_to_xml, ts_stat, dblink …): keel 0.18.55 refuses them by name in
+# the parsed statement and anywhere in its text, so a name inside a string literal (SQL another function runs) counts too
+_DANGER_NAMES = (r"pg_(terminate|cancel)_backend|pg_reload_conf|pg_rotate_logfile|pg_read_(binary_)?file|pg_ls_\w+|"
+                 r"pg_stat_file|pg_promote|pg_file_\w+|pg_logdir_ls|lo_\w+|dblink\w*|set_config|"
+                 r"(query|cursor)_to_xml\w*|(table|schema|database)_to_xml\w*|ts_stat|ts_rewrite|"
+                 r"load_file|sys_(exec|eval)")
+DANGER_FN = re.compile(rf"^({_DANGER_NAMES})$", re.I)
+DANGER_CALL = re.compile(rf"(?<![\w$])({_DANGER_NAMES})\s*\(", re.I)
 COMPOSE = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 ADDRESS_HINT = ("Use postgres://user:password@host:5432/db, mysql://user:password@host:3306/db "  # keel:allow-secret
                 "or sqlite:path/to/file.db.")
@@ -168,13 +177,15 @@ def _walk_has(node: exp.Expression, types: tuple) -> bool:
     return any(isinstance(n, types) for n in node.walk())
 
 
-def _danger_fn(st: exp.Expression) -> str:
-    """The name of a server-acting function the statement calls (in a SELECT, an UPDATE, an INSERT … anywhere), or ''."""
+def _danger_fn(st: exp.Expression, text: str = "") -> str:
+    """The name of a server-acting function the statement calls (in a SELECT, an UPDATE, an INSERT … anywhere), or
+    names in its text (a string literal another function runs as SQL, a dollar-quoted body), or ''."""
     for fn in st.find_all(exp.Anonymous, exp.Func):
         name = fn.name if isinstance(fn, exp.Anonymous) else (fn.sql_name() if hasattr(fn, "sql_name") else "")
         if name and DANGER_FN.match(str(name)):
             return str(name)
-    return ""
+    m = DANGER_CALL.search(text)
+    return m.group(1) if m else ""
 
 
 def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
@@ -182,7 +193,7 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
     text = (sql or "").strip().rstrip(";").strip()
     if not text:
         return "never", "The query is empty."
-    dialect = {"postgres": "postgres", "mysql": "mysql", "sqlite": "sqlite"}.get(kind, "postgres")
+    dialect = _dialect(kind)
     try:
         stmts = [s for s in sqlglot.parse(text, read=dialect) if s is not None]
     except Exception as exc:  # sqlglot's ParseError, TokenError
@@ -191,7 +202,7 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
         return "never", "One statement at a time: keel runs a single query."
     st = stmts[0]
     head = text.split(None, 1)[0].upper()
-    bad = _danger_fn(st)
+    bad = _danger_fn(st, text)
     if bad:
         return "never", f"keel does not call {bad}(): it acts on the server, not on data."
     if isinstance(st, exp.Command):
