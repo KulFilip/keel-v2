@@ -3,6 +3,12 @@ package keel.api.events
 import keel.api.budget.ProviderUsageStore
 import keel.api.common.Json
 import keel.api.common.Time
+import keel.api.notifications.NoticeText
+import keel.api.notifications.NoticeText.ASK
+import keel.api.notifications.NoticeText.FAIL
+import keel.api.notifications.NoticeText.OK
+import keel.api.notifications.NoticeText.RUN
+import keel.api.notifications.NoticeText.SKIP
 import keel.api.notifications.NotificationService
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -115,7 +121,7 @@ class EventService(
                 upsertThread(e, "running", at)
                 jdbc.update("UPDATE threads SET phase = COALESCE(?, phase), ac = COALESCE(?, ac) WHERE id = ?", d.str("phase"), d.str("ac"), e.threadId)
                 val agent = d.str("agent") ?: "An agent"
-                notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
+                notifications.create("started", e.projectId, "$RUN ${who(e)}$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
             }
             "agent.step" -> calls.step(e, at)
             // 0.18.17 the usage so far of a call that still runs: the Budget page, day caps and flow lists see it
@@ -124,7 +130,8 @@ class EventService(
                 val id = calls.finish(e, at) ?: return
                 if (d.str("status") == "failed") {
                     val agent = jdbc.queryForObject("SELECT COALESCE(agent, 'An agent') FROM agent_calls WHERE id = ?", String::class.java, id)
-                    notifications.create("failed", e.projectId, "$agent failed", d.str("result")?.take(200) ?: "The agent step did not finish.", "/jobs/$id")
+                    val result = d.str("result") ?: "The agent step did not finish."
+                    notifications.create("failed", e.projectId, "$FAIL ${who(e)}$agent failed", result, "/jobs/$id", summary = failLines(result))
                 }
             }
             // 0.18.15 a code step (the setup ladder, a test suite, a commit) is a job too: stored like an agent's call,
@@ -138,7 +145,8 @@ class EventService(
             "code.finished" -> {
                 val id = calls.finish(e, at) ?: return
                 if (d.str("status") == "failed") {
-                    notifications.create("failed", e.projectId, "A code step failed", d.str("result")?.take(200) ?: "The step did not finish.", "/jobs/$id")
+                    val result = d.str("result") ?: "The step did not finish."
+                    notifications.create("failed", e.projectId, "$FAIL ${who(e)}a code step failed", result, "/jobs/$id", summary = failLines(result))
                 }
             }
 
@@ -150,8 +158,12 @@ class EventService(
             }
             "gate.waiting" -> {
                 upsertThread(e, "waiting", at)
-                notifications.create("review", e.projectId, d.str("title") ?: "A gate waits for you", d.str("detail") ?: "", link,
-                    threadId = e.threadId, step = e.step)
+                // 0.18.55 a title a person understands and the engine's short lines (older engines: lines from the detail)
+                val title = NoticeText.gateTitle(notifications.projectName(e.projectId), d.str("kind"), d.str("flow") ?: workflowOf(e.threadId),
+                    e.step, d.str("step_name"), d.str("phase"), d.str("ac"), d.str("title"))
+                val lines = (d["summary"] as? List<*>)?.mapNotNull { it?.toString() }?.takeIf { it.isNotEmpty() }
+                notifications.create("review", e.projectId, title, d.str("detail") ?: d.str("title") ?: "", link,
+                    threadId = e.threadId, step = e.step, summary = lines)
                 changed(e)
             }
             "gate.decided" -> {
@@ -160,27 +172,38 @@ class EventService(
                 if (d.str("gate") != "unlock") notifications.markDone(e.threadId)
                 changed(e)
             }
-            "budget.warn" -> notifications.create("budget", e.projectId, "The flow is near its budget", d.str("detail") ?: budgetText(d), link)
+            "budget.warn" -> notifications.create("budget", e.projectId, "$ASK ${who(e)}the flow is near its budget", d.str("detail") ?: budgetText(d), link,
+                summary = budgetLines(d))
             "budget.stop" -> {
                 upsertThread(e, "waiting", at)
-                notifications.create("budget", e.projectId, "A budget cap stopped the flow", d.str("detail") ?: budgetText(d), link)
+                notifications.create("budget", e.projectId, "$ASK ${who(e)}a budget cap stopped the flow", d.str("detail") ?: budgetText(d), link,
+                    summary = budgetLines(d))
             }
-            "guard.refused" -> notifications.create(
-                "failed", e.projectId, "Guard reverted an edit",
-                d.str("text") ?: listOfNotNull(d.str("agent"), d.str("path")?.let { "tried to change $it" }, d.str("phase")?.let { "in $it" }).joinToString(" "),
-                link,
-            )
+            "guard.refused" -> {
+                val tried = listOfNotNull(d.str("agent"), d.str("path")?.let { "tried to change $it" }).joinToString(" ")
+                notifications.create(
+                    "failed", e.projectId, "$FAIL ${who(e)}guard undid an edit",
+                    d.str("text") ?: listOfNotNull(tried.ifBlank { null }, d.str("phase")?.let { "in $it" }).joinToString(" "),
+                    link, summary = listOfNotNull(tried.ifBlank { null }?.let { "$FAIL $it" }, d.str("phase")?.let { "$SKIP the edit was put back ($it step)" }),
+                )
+            }
             "thread.done" -> {
                 upsertThread(e, "done", at)
                 notifications.markDone(e.threadId, read = false)
-                notifications.create("finished", e.projectId, "The flow is done", d.str("title") ?: "All steps finished.", link)
+                @Suppress("UNCHECKED_CAST")
+                val warned = (d["warnings"] as? List<*>).orEmpty().mapNotNull { it?.toString()?.ifBlank { null } }
+                notifications.create("finished", e.projectId, NoticeText.doneTitle(flowLabel(e)), d.str("title") ?: "All steps finished.", link,
+                    summary = if (warned.isEmpty()) listOf("$OK All steps finished")
+                    else NoticeText.clip(listOf("$SKIP Finished with ${warned.size} warning${if (warned.size == 1) "" else "s"}") + warned.map { "$SKIP $it" }))
                 changed(e)
             }
             "thread.failed" -> {
                 upsertThread(e, "failed", at)
                 jdbc.update("UPDATE threads SET error = ? WHERE id = ?", d.str("error"), e.threadId)
                 notifications.markDone(e.threadId, read = false)
-                notifications.create("failed", e.projectId, "The flow failed", d.str("error")?.take(200) ?: "A step failed.", link)
+                val error = d.str("error") ?: "A step failed."
+                notifications.create("failed", e.projectId, NoticeText.failedTitle(flowLabel(e), error), error, link,
+                    summary = failLines(error, 2))
                 changed(e)
             }
         }
@@ -190,6 +213,29 @@ class EventService(
     private fun changed(e: EngineEvent) {
         if (e.projectId.isNotBlank()) hub.publish(e.projectId, "project.changed", mapOf("id" to e.projectId))
     }
+
+    /** "shop: " before a title that names no flow, so the bell list says which project (blank: no project). */
+    private fun who(e: EngineEvent): String = notifications.projectName(e.projectId.ifBlank { null })?.let { "$it: " } ?: ""
+
+    /** The flow's name in a done or failed title: its own title, or "<project>: <workflow>" when it has none. */
+    private fun flowLabel(e: EngineEvent): String? {
+        val row = jdbc.query("SELECT title, workflow_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) to rs.getString(2) }, e.threadId)
+            .firstOrNull()
+        row?.first?.ifBlank { null }?.let { return it }
+        val wf = row?.second ?: e.data.str("workflow_id") ?: e.data.str("workflow") ?: return null
+        return listOfNotNull(notifications.projectName(e.projectId.ifBlank { null }), wf).joinToString(": ")
+    }
+
+    private fun workflowOf(threadId: String): String? =
+        jdbc.query("SELECT workflow_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) }, threadId).firstOrNull()
+
+    /** A failure's short lines: its first facts, each with ✗ (no exception class names). */
+    private fun failLines(text: String, max: Int = NoticeText.MAX_LINES): List<String> =
+        NoticeText.clip(NoticeText.fromBody(text, max).mapIndexed { i, l ->
+            if (l.startsWith("+")) l else "$FAIL " + if (i == 0) NoticeText.shortReason(l, NoticeText.LINE) else l
+        }, max)
+
+    private fun budgetLines(d: Map<String, Any?>): List<String>? = budgetText(d).trimEnd('.').ifBlank { null }?.let { listOf("$ASK $it") }
 
     private fun budgetText(d: Map<String, Any?>): String {
         val used = d.long("tokens") ?: d.long("used")

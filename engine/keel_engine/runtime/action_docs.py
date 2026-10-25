@@ -563,7 +563,8 @@ DOCS: dict[str, dict] = {
     },
     "init_summary": {
         "summary": "Writes the hand-over's text: rungs passed / not checked, knowledge sections written or kept, what "
-                   "was not checked (behaviour, a fast init's stack), and the flows to start next.",
+                   "was not checked (behaviour, a fast init's stack), and the flows to start next; and the notification's "
+                   "short lines (setup checks passed / skipped, the knowledge sections written).",
     },
     # ---------------------------------------------------------------- review-pr (ticket_actions.py)
     "ticket_prep": {

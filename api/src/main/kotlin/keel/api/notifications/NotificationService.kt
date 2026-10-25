@@ -1,6 +1,7 @@
 package keel.api.notifications
 
 import keel.api.common.Db
+import keel.api.common.Json
 import keel.api.common.KvStore
 import keel.api.common.Time
 import keel.api.events.EventHub
@@ -21,6 +22,11 @@ data class Notification(
     val threadId: String? = null,
     val step: String? = null,
     val done: Boolean = false,
+    /**
+     * 0.18.55 at most three short lines, each one fact with a mark (✓ ⤼ ✗ ◆): what the toast and the bell list show.
+     * [body] keeps the full text (the Inbox, an opened notification, older clients).
+     */
+    val summary: List<String> = emptyList(),
 )
 
 data class NotificationKinds(
@@ -68,9 +74,13 @@ class NotificationService(
     /**
      * Creates a notification unless the user turned that kind off, or the project's
      * `notify` setting says "needs_you" (review only) or "none".
+     *
+     * The title never shows a snake_case id (core's own titles start with a mark, ◆ ✗ ✓; the web shows the type's mark
+     * before one that has none). [summary]: the short lines; none given, they are made from [body] by whole lines (never
+     * a cut word, "+N more" when there are more).
      */
     fun create(type: String, projectId: String?, title: String, body: String, link: String?,
-               threadId: String? = null, step: String? = null): Notification? {
+               threadId: String? = null, step: String? = null, summary: List<String>? = null): Notification? {
         if (!settings().kinds.allows(type)) return null
         if (projectId != null) {
             when (runCatching { settings.effective(projectId).notify }.getOrDefault("all")) {
@@ -79,27 +89,42 @@ class NotificationService(
             }
         }
         val at = Time.now()
+        val shown = NoticeText.humanize(title.trim()).ifBlank { "keel" }
+        val lines = NoticeText.clip(summary ?: NoticeText.fromBody(body))
         val id = Db.insertId(
             jdbc,
-            "INSERT INTO notifications(type, project_id, title, body, link, at, read, thread_id, step, done) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
-            type, projectId, title, body, link, at, threadId?.takeIf { it.isNotBlank() }, step,
+            "INSERT INTO notifications(type, project_id, title, body, link, at, read, thread_id, step, done, summary) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?)",
+            type, projectId, shown, body, link, at, threadId?.takeIf { it.isNotBlank() }, step, Json.write(lines),
         )
-        val n = Notification(id, type, projectId, title, body, link, at, false, threadId?.takeIf { it.isNotBlank() }, step, false)
+        val n = Notification(id, type, projectId, shown, body, link, at, false, threadId?.takeIf { it.isNotBlank() }, step, false, lines)
         hub.publish(projectId, "notification", n)
         return n
     }
 
     fun list(limit: Int): List<Notification> =
         jdbc.query(
-            "SELECT id, type, project_id, title, body, link, at, read, thread_id, step, done FROM notifications ORDER BY id DESC LIMIT ?",
+            "SELECT id, type, project_id, title, body, link, at, read, thread_id, step, done, summary FROM notifications ORDER BY id DESC LIMIT ?",
             { rs, _ ->
                 Notification(
                     rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
                     rs.getString(6), rs.getString(7), rs.getInt(8) == 1, rs.getString(9), rs.getString(10), rs.getInt(11) == 1,
+                    summaryOf(rs.getString(12)),
                 )
             },
             limit.coerceIn(1, 500),
         )
+
+    /** A project's name for a title ("shop"), or its id when keel has no such project. */
+    fun projectName(projectId: String?): String? {
+        if (projectId.isNullOrBlank()) return null
+        return runCatching {
+            jdbc.query("SELECT name FROM projects WHERE id = ?", { rs, _ -> rs.getString(1) }, projectId).firstOrNull()
+        }.getOrNull()?.ifBlank { null } ?: projectId
+    }
+
+    /** A stored summary (a JSON array); a row from before 0.18.55 has none. */
+    private fun summaryOf(raw: String?): List<String> =
+        if (raw.isNullOrBlank()) emptyList() else runCatching { Json.readList(raw) }.getOrDefault(emptyList())
 
     fun readAll(): Int = jdbc.update("UPDATE notifications SET read = 1 WHERE read = 0")
 

@@ -390,7 +390,7 @@ def _init_summary(a: ActionInput) -> ActionResult:
     kept, what was not checked, the fast-init warning, and the flows to start next."""
     from .. import layout
     from ..tools import git
-    from . import init_gates
+    from . import init_gates, notice
 
     rungs = a.state.get("ladder") or []
     by = lambda st: [r for r in rungs if r.get("status") == st]  # noqa: E731
@@ -422,7 +422,10 @@ def _init_summary(a: ActionInput) -> ActionResult:
                   "as unproven."]
     lines += ["", "What next (start a flow):", *[f"- {name}: {about}" for name, about in NEXT_FLOWS],
               "", "Approve to finish init."]
-    return ActionResult(True, "hand-over summary ready", update={"data": {**a.data, "hand_over_detail": "\n".join(lines)}})
+    # 0.18.55 the notification's short lines, from the counts and names (the detail above stays the full text)
+    short = notice.hand_over(len(passed), len(skipped), [r["name"] for r in failed], written, kept)
+    return ActionResult(True, "hand-over summary ready",
+                        update={"data": {**a.data, "hand_over_detail": "\n".join(lines), "hand_over_summary": short}})
 
 
 def ladder_optional() -> set[int]:

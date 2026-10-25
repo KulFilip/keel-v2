@@ -208,7 +208,7 @@ class Engine:
             if waiting:
                 await self._set_status(tid, "waiting")
                 kind = waiting.get("kind")
-                data = {"kind": kind, "title": waiting.get("title"), "detail": waiting.get("detail")}
+                data = {"kind": kind, "title": waiting.get("title"), "detail": waiting.get("detail"), **self._notice(ctx, waiting)}
                 if kind == "budget":
                     ctx.emit("budget.warn", step=waiting.get("step"), data={**data, "paused": True})
                 ctx.emit("gate.waiting", step=waiting.get("step"), data=data)
@@ -257,6 +257,15 @@ class Engine:
     def _has_ladder(ctx: ThreadContext) -> bool:
         names = {"ladder", "ladder_soft"}
         return any(names & set(s.actions()) or any(l.sub in names for l in s.lanes or []) for s in ctx.workflow.steps)
+
+    @staticmethod
+    def _notice(ctx: ThreadContext, waiting: dict) -> dict:
+        """0.18.55 what the api needs for a notification a person can read: the flow, the step's name and phase, the
+        criterion, and the gate's short lines (summary) when it has them."""
+        step = ctx.workflow.step(str(waiting.get("step") or ""))
+        out = {"flow": ctx.workflow.flow, "step_name": step.name if step else None, "phase": step.phase if step else None,
+               "ac": waiting.get("ac"), "summary": waiting.get("summary")}
+        return {k: v for k, v in out.items() if v}
 
     @staticmethod
     def _waiting(snap) -> dict | None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from . import choices as choices_mod, clarify, flow_actions, init_gates, markers, md, prompts, ship as ship_mod, spec_check
+from . import choices as choices_mod, clarify, flow_actions, init_gates, markers, md, notice, prompts, ship as ship_mod, spec_check
 from .. import rules
 from ..workflows.model import Loop, Step
 from .gate_state import deep_gates
@@ -123,6 +123,15 @@ class GateMixin:
         if step.menus and not no_criteria:
             detail = f"{detail}\n\n{self._folded_menus(i)}"
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
+        # 0.18.55 the notification's short lines: what a step before wrote for it (the init hand-over), or from the
+        # criterion, the item or the spec's criteria; none: the api makes them from the detail
+        wrote = (state.get("data") or {}).get(f"{step.id}_summary")
+        short = (wrote if isinstance(wrote, list) else None) or notice.gate(
+            ac=ac, acs=acs, item=item, no_criteria=no_criteria, spec_phase=step.phase in ("spec", "triage"))
+        if short:
+            question["summary"] = list(short)
+        if ac:
+            question["ac"] = ac["id"]
         routes = isinstance(step.choices, dict) and not no_criteria
         context = f"{self.wf.flow}:{step.id}"
         if routes:
@@ -216,7 +225,9 @@ class GateMixin:
                 "detail": f"{step.name} was sent back {n} time(s) in a row (the limit is {limit}, settings.sendback_limit). "
                           "Another round may change nothing. Go on anyway: this send-back goes ahead and the count starts "
                           "again. Stop: the flow stops here (the work so far stays; rewind to go on later).",
-                "options": _c.OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}}, gate="rounds")
+                "options": _c.OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"},
+                "summary": [f"{notice.FAIL} Sent back {notice.plural(n, 'time')} in a row", f"{notice.ASK} Go on anyway, or stop here"]},
+                gate="rounds")
             self.ctx.emit("gate.decided", step=step.id, data={"gate": f"{step.name} send-back limit",
                                                               "decision": answer.get("decision"), "why": answer.get("why") or ""})
             if answer.get("decision") != "approve":
@@ -484,7 +495,7 @@ class GateMixin:
         answer, extra = self._ask(state, {
             "step": step.id, "kind": "clarify", "title": title,
             "detail": clarify.describe(asked), "questions": asked, "options": ["approve"],
-            "labels": {"approve": "Send my answers"}})
+            "labels": {"approve": "Send my answers"}, "summary": notice.questions(asked)})
         payload = answer.get("payload") or {}
         given = dict(payload.get("answers") or {}) if isinstance(payload.get("answers"), dict) else {}
         said_why = (answer.get("why") or "").strip()
