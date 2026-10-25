@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
-  linkAction, Loading, PageHead, Pill, RunModePicker, Tabs, useApp, useLoad, useRoute, WorkspaceDoctor,
+  InitAsk, isInitFlow, linkAction, Loading, needsInit, PageHead, Pill, RunModePicker, Tabs, useApp, useLoad, useRoute, useStartInit,
+  WorkspaceDoctor,
   type LauncherCtx as Ctx, type LauncherItem as Item, type LauncherSourceItem, type PillTone, type RunMode, type Workflow,
 } from "@keel/web-sdk";
 import {
@@ -194,6 +195,13 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
   const [allowDirty, setAllowDirty] = useState(false);
   const [allowFake, setAllowFake] = useState(false);
   const [doctor, setDoctor] = useState(false);
+  // keel 0.18.55 a project keel does not know yet: ask once before the flow starts (Run init first / Start anyway)
+  const { projects } = useApp();
+  const proj = projects.find((x) => x.id === pid);
+  const unknown = needsInit(proj) && !isInitFlow(wfs?.find((w) => w.id === wid) ?? { id: wid });
+  const [asking, setAsking] = useState(false);
+  const [askedOk, setAskedOk] = useState(false);
+  const init = useStartInit(proj);
   useEffect(() => {
     tasksApi.workflows(pid).then((l) => {
       setWfs(l);
@@ -204,7 +212,12 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
   }, [pid, t.type]);
   const dirty = !!err && /uncommitted changes/i.test(err.message);
   const fake = !!err && /fake model/i.test(err.message);
-  const start = async () => {
+  const start = async (anyway = askedOk) => {
+    if (unknown && !anyway) {
+      setAsking(true);
+      return;
+    }
+    setAsking(false);
     setBusy(true);
     setErr(null);
     try {
@@ -220,7 +233,7 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
       <h3>Start a flow</h3>
       <div className="field">
         <label htmlFor="tk-wf">Workflow</label>
-        <select id="tk-wf" value={wid} onChange={(e) => setWid(e.target.value)} disabled={!wfs}>
+        <select id="tk-wf" value={wid} onChange={(e) => { setWid(e.target.value); setAsking(false); setAskedOk(false); }} disabled={!wfs}>
           {!wfs && <option value="">Loading…</option>}
           {wfs?.map((w) => <option key={w.id} value={w.id}>{w.name}{w.id === DEFAULT_FLOW[t.type] ? " (for a " + t.type + ")" : ""}</option>)}
         </select>
@@ -233,7 +246,12 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
       {(dirty || allowDirty) && <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>}
       {(fake || allowFake) && <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway</label>}
       {err && <ErrorBox error={err} />}
-      <div className="row"><button className="btn primary" type="button" onClick={start} disabled={busy || !wid}>{busy ? "Starting…" : "Start flow"}</button></div>
+      {asking && proj && (
+        <InitAsk name={proj.name || proj.id} busy={init.busy} onInit={() => void init.start()}
+          onAnyway={() => { setAskedOk(true); void start(true); }} onCancel={() => setAsking(false)} />
+      )}
+      {init.err && <ErrorBox error={init.err} />}
+      <div className="row"><button className="btn primary" type="button" onClick={() => void start()} disabled={busy || init.busy || !wid}>{busy ? "Starting…" : "Start flow"}</button></div>
     </section>
   );
 }

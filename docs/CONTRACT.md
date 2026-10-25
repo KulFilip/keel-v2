@@ -2724,3 +2724,19 @@ PUT    /api/providers/vertex                        { project, region, credentia
 - `GET /api/connections` lists `vertex` and `local` (one mode, `api`; `key_set` = set up).
 - keel2: every container gets `--add-host host.docker.internal:host-gateway` (Linux), so the default server URLs
   `http://host.docker.internal:11434` (Ollama) and `…:1234/v1` (LM Studio) reach the host; a native keel uses 127.0.0.1.
+
+## keel 0.18.55: init when a project is added (feat/init-on-add)
+
+```
+Project += {configured: boolean}   (the project has a .keel/config.yml: keel knows it; the init flow writes it)
+```
+- Additive: `GET /api/projects`, `GET /api/projects/{pid}`, `POST /api/projects` and `POST /api/projects/bulk`'s
+  `added` carry it. Same test as the engine's `rules` config (`configured`). A client that does not get it (an older
+  keel) treats the project as known and shows no init hint.
+- Web: after **Add projects** (and the first time a project found by itself is opened on the Flow page) a card
+  **Set up keel for <project>** offers **Set up now (recommended)** (starts `init` and opens it) or **Later**. An
+  unconfigured project shows a banner on the Flow page; **Start a flow** and the Tasks **Start** ask once
+  ("keel does not know this project yet": **Run init first (recommended)** / **Start anyway**).
+- keel TUI: the start box and `/project` say `/flow init`; `/flow <other>` asks the same once; `/flow init` needs no idea.
+- MCP: `keel_start_flow` (with or without a type) puts one line about `init` first for such a project; it starts
+  what it was asked to start, as before.

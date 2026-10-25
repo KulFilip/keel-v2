@@ -35,6 +35,8 @@ data class Project(
     val running: Int,
     /** v0.7.x: flows that run or wait, in the project folder and in worktrees */
     val flows: Int = 0,
+    /** keel 0.18.55 keel knows this project: it has a .keel/config.yml (the init flow writes it) */
+    val configured: Boolean = false,
 )
 
 @Service
@@ -204,8 +206,11 @@ class ProjectService(
         val waiting = inbox.getObject().waiting(row.id)
         val running = jdbc.queryForObject("SELECT COUNT(*) FROM agent_calls WHERE project_id = ? AND status = 'running'", Int::class.java, row.id) ?: 0
         val flows = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status IN ('running','waiting')", Int::class.java, row.id) ?: 0
-        return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running, flows)
+        return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running, flows, configured(root))
     }
+
+    /** keel 0.18.55 the same test as the engine's (rules/__init__.py `configured`): the project has a .keel/config.yml. */
+    fun configured(root: Path): Boolean = Files.isRegularFile(root.resolve(".keel").resolve("config.yml"))
 
     private fun acCounts(thread: JsonNode?): List<Int> {
         val list = thread?.get("acs")

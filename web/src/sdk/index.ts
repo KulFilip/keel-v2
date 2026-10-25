@@ -107,6 +107,9 @@ export { agoText } from "../components/UsageStrip";
 // starting a flow: the run mode picker, and the Doctor that cleans the project folder when a start is refused
 export { RunModePicker } from "../components/RunMode";
 export { WorkspaceDoctor } from "../components/WorkspaceDoctor";
+// keel 0.18.55 a project keel does not know yet (no .keel/config.yml): the ask before a flow starts on it (Run init
+// first / Start anyway), the test, and starting init (the Tasks Start box asks it)
+export { InitAsk, isInitFlow, needsInit, startInit, useStartInit } from "../components/InitAsk";
 
 // keel's workflow pictures (the Flow page and the builder draw with them; the Wiki plugin shows a workflow read only):
 // the blocks, the step table, the graph with zoom, the Blocks / Table / Graph choice, the tokens per step, and the

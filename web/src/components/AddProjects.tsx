@@ -12,10 +12,13 @@ import {
   type FolderWalk,
   type Folders,
   type FoundRepo,
+  type Project,
 } from "../api";
 import { plural } from "../format";
 import { useApp } from "../state";
 import { Drawer, ErrorBox, Loading } from "./ui";
+import { needsInit } from "./InitAsk";
+import { SetupCard } from "./InitSetup";
 
 type Err = { message: string; hint?: string; details?: string[] };
 
@@ -169,7 +172,7 @@ function FolderWalker({
 }
 
 /** The manual way, as before: one folder by its path inside the container, with an optional name. */
-function AddByPath({ onAdded }: { onAdded: () => void }) {
+function AddByPath({ onAdded }: { onAdded: (p: Project) => void }) {
   const { reloadProjects, setProjectId, toast } = useApp();
   const [root, setRoot] = useState("/workspace/");
   const [name, setName] = useState("");
@@ -183,7 +186,7 @@ function AddByPath({ onAdded }: { onAdded: () => void }) {
       await reloadProjects();
       setProjectId(p.id);
       toast(`${p.name} added.`);
-      onAdded();
+      onAdded(p);
     } catch (e) {
       setErr(errorParts(e));
     } finally {
@@ -232,6 +235,9 @@ function AddByPath({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+/** At most this many setup cards after one add; the others offer it when they open (Flow page). */
+const SETUP_CARDS = 3;
+
 export function AddProjectsDrawer({ onClose }: { onClose: () => void }) {
   const { reloadProjects, toast, project, setProjectId } = useApp();
   const [data, setData] = useState<Folders | null>(null);
@@ -243,6 +249,10 @@ export function AddProjectsDrawer({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState<Err | null>(null);
   const [result, setResult] = useState<BulkAdded | null>(null);
   const [walking, setWalking] = useState<string | null>(null);
+  // keel 0.18.55 the projects just added that keel does not know yet: each gets "Set up keel for <project>"
+  const [setup, setSetup] = useState<Project[]>([]);
+  const offer = (added: Project[]) => setSetup((s) => [...s.filter((x) => !added.some((a) => a.id === x.id)), ...added.filter(needsInit)]);
+  const later = (id: string) => setSetup((s) => s.filter((x) => x.id !== id));
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -288,6 +298,7 @@ export function AddProjectsDrawer({ onClose }: { onClose: () => void }) {
       setVersion((v) => v + 1);
       setPicked(new Set());
       if (r.added.length) toast(`${plural(r.added.length, "project")} added.`);
+      offer(r.added);
       await Promise.all([reloadProjects(), load()]);
     } catch (e) {
       setErr(errorParts(e));
@@ -350,6 +361,12 @@ export function AddProjectsDrawer({ onClose }: { onClose: () => void }) {
         </>
       }
     >
+      {setup.slice(0, SETUP_CARDS).map((p, i) => (
+        <SetupCard key={p.id} project={p} focus={i === 0} onLater={() => later(p.id)} onStarted={onClose} />
+      ))}
+      {setup.length > SETUP_CARDS && (
+        <p className="hint">{plural(setup.length - SETUP_CARDS, "more project")} keel does not know yet: each one offers the same when you open it.</p>
+      )}
       {result && (
         <div className="ap-result" role="status" aria-label="Result">
           {result.added.length ? (
@@ -473,7 +490,8 @@ export function AddProjectsDrawer({ onClose }: { onClose: () => void }) {
           })}
         </>
       )}
-      <AddByPath onAdded={onClose} />
+      {/* added by hand: closes, or first offers init for a project keel does not know yet */}
+      <AddByPath onAdded={(p) => (needsInit(p) ? offer([p]) : onClose())} />
       {n > 0 && (
         <p className="hint ap-picked" aria-live="polite">
           {plural(n, "repo")} ticked: {[...picked].map(lastPart).join(", ")}

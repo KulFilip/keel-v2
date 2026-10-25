@@ -205,9 +205,34 @@ function askQuestions(ctx: Ctx, t: ThreadState, k: number, answers: Answers): Pr
 }
 
 function pickWorkflowThen(ctx: Ctx, rows: Workflow[], then: (w: Workflow) => Promise<Reply> | Reply, title: string): Reply {
-  return { blocks: [], pick: { title, choices: rows.map((w) => ({ label: w.id, value: w.id, hint: `${w.name} · ${w.steps.length} steps` })),
+  // keel 0.18.55 a project keel does not know yet: init first, marked recommended
+  const unknown = ctx.core.snapshot.project?.configured === false;
+  const list = unknown ? [...rows.filter(isInit), ...rows.filter((w) => !isInit(w))] : rows;
+  return { blocks: [], pick: { title: unknown ? `${title} (keel does not know this project yet: init first)` : title,
+    choices: list.map((w) => ({ label: w.id + (unknown && isInit(w) ? " (recommended)" : ""), value: w.id,
+      hint: unknown && isInit(w) ? "sets keel up: the stack, the test commands, .keel/config.yml, the project knowledge" : `${w.name} · ${w.steps.length} steps` })),
     then: (v) => then(rows.find((w) => w.id === v)!) } };
 }
+
+/** The init flow, or a workflow made from it. */
+const isInit = (w: Pick<Workflow, "id" | "based_on">) => w.id === "init" || w.based_on === "keel/init" || w.based_on === "init";
+
+/** keel 0.18.55 another flow on a project keel does not know yet: ask once (Run init first / Start anyway); else go on. */
+function initFirst(ctx: Ctx, w: Workflow, rows: Workflow[], flags: Parameters<typeof startFlow>[3], go: () => Promise<Reply> | Reply): Promise<Reply> | Reply {
+  const p = ctx.core.snapshot.project;
+  if (p?.configured !== false || isInit(w)) return go();
+  const init = rows.find(isInit);
+  return { blocks: [{ kind: "notice", text: `keel does not know ${p.name || p.id} yet (no .keel/config.yml). init finds the stack and the test commands, `
+      + "and writes .keel/config.yml and the project knowledge: flows work better after it." }],
+    pick: { title: "keel does not know this project yet", choices: [
+      ...(init ? [{ label: "Run init first (recommended)", value: "init", hint: `then /flow ${w.id}` }] : []),
+      { label: "Start anyway", value: "anyway", hint: `the ${w.id} flow, as asked` }],
+    then: (v) => (v === "init" && init ? startInitFlow(ctx, flags) : go()) } };
+}
+
+/** /flow init needs no idea: it sets keel up for the project. */
+const startInitFlow = (ctx: Ctx, flags: Parameters<typeof startFlow>[3]) =>
+  startFlow(ctx, "init", `Set up keel for ${needProject(ctx).name || needProject(ctx).id}`, flags);
 
 async function flowDiagram(ctx: Ctx, zoom?: string): Promise<Reply> {
   const p = needProject(ctx);
@@ -233,12 +258,13 @@ export const FLOW_IMPLS: Impl[] = [
       const [first, ...more] = rest.split(/\s+/);
       const wf = rows.find((w) => w.id === first);
       const idea = wf ? more.join(" ").trim() : "";
-      const ask = (w: Workflow): Reply => ({ blocks: [], ask: { prompt: `What should the ${w.id} flow do? (one or two sentences)`,
-        then: (t) => (t.trim() ? startFlow(ctx, w.id, t.trim(), flags) : text("Not started: the idea was empty.")) } });
-      if (wf && idea) return startFlow(ctx, wf.id, idea, flags);
-      if (wf) return ask(wf);
+      const ask = (w: Workflow): Promise<Reply> | Reply => (w.id === "init" ? startInitFlow(ctx, flags)
+        : { blocks: [], ask: { prompt: `What should the ${w.id} flow do? (one or two sentences)`,
+          then: (t) => (t.trim() ? startFlow(ctx, w.id, t.trim(), flags) : text("Not started: the idea was empty.")) } });
+      if (wf && idea) return initFirst(ctx, wf, rows, flags, () => startFlow(ctx, wf.id, idea, flags));
+      if (wf) return initFirst(ctx, wf, rows, flags, () => ask(wf));
       if (first) return fail(`No workflow "${first}". This project has: ${rows.map((w) => w.id).join(", ")}`);
-      return pickWorkflowThen(ctx, rows, ask, "Which flow?");
+      return pickWorkflowThen(ctx, rows, (w) => initFirst(ctx, w, rows, flags, () => ask(w)), "Which flow?");
     },
   },
   { name: "flows", run: async (ctx) => text(fmt.flows(await api.runs(needProject(ctx).id, undefined, 20), P(ctx))) },
