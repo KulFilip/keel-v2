@@ -221,7 +221,7 @@ class TaskAutomations(
         tasks.openItem(t, PROPOSAL, kind, "I want to $what on ${t.label}", "Why: ${pick.why}$ask", mapOf(
             "kind" to kind, "workflow_id" to pick.workflowId, "why" to pick.why, "title" to pick.title, "request" to pick.request,
             "questions" to pick.questions, "settings" to pick.settings, "fallback" to pick.fallback, "model" to pick.model,
-            "run_mode" to rule.runMode, "cap_tokens" to rule.capTokens, "trigger" to why, "pr_url" to t.prUrl, "ticket" to ticketSig(t),
+            "run_mode" to rule.runMode, "cap_tokens" to rule.capTokens, "trigger" to why, "pr_url" to t.prUrl, "ticket_sig" to ticketSig(t),
         ))
         store.event(t.id, "automation", null, null, "$why: keel proposes the ${pick.workflowId} flow${if (pick.fallback) " (its default)" else ""}. Why: ${pick.why}", "keel")
         tasks.changed(t.projectId)
@@ -264,7 +264,7 @@ class TaskAutomations(
                     val cap = (d["cap_tokens"] as? Number)?.toInt()
                     // B12 the ticket changed since the proposal (or the proposal is keel's default, which only copied the
                     // ticket): the flow gets the ticket as it is now, not the proposal's old copy of it
-                    val changed = d["ticket"]?.let { it != ticketSig(t) } ?: false
+                    val changed = d["ticket_sig"]?.let { it != ticketSig(t) } ?: false
                     val fresh = changed || d["fallback"] == true
                     val asked = if (fresh) "" else d["request"]?.toString().orEmpty()
                     if (d["kind"] == "review") {
