@@ -22,6 +22,7 @@ jobs:
       cli: ${{ steps.f.outputs.cli }}
       xal: ${{ steps.f.outputs.xal }}
       plugin_tool: ${{ steps.f.outputs.plugin_tool }}
+      vscode: ${{ steps.f.outputs.vscode }}
       shell: ${{ steps.f.outputs.shell }}
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +38,7 @@ jobs:
             cli: [*ci, 'cli/**', 'web/src/**', 'content/**']
             xal: [*ci, 'clients/xal/**', 'web/src/components/events.ts']
             plugin_tool: [*ci, 'tools/keel-plugin/**', 'plugins/**', 'content/workflows/**']
+            vscode: [*ci, 'vscode/**']
             shell: [*ci, 'keel2', 'install.sh', 'scripts/**', 'e2e/**', 'docker/**', 'Dockerfile', 'engine/**', 'cli/**', 'web/**', 'plugins.lock', 'tools/keel-plugin/**']
   scripts:
     needs: changes
@@ -246,6 +248,22 @@ jobs:
         with: { node-version: 24 }
       - run: node --test test/*.test.ts && npm install --no-save --no-audit --no-fund typescript@5.9.3 @types/node@24 && npx tsc --noEmit -p .
         working-directory: clients/xal
+  # the VS Code extension (vscode/): typecheck (extension + webviews), unit tests, and the .vsix it ships as
+  vscode:
+    needs: changes
+    if: needs.changes.outputs.vscode == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: vscode/package-lock.json }
+      - run: npm ci && npm run typecheck && npm test && npm run package
+        working-directory: vscode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keel-vscode
+          path: vscode/keel-vscode-*.vsix
+          if-no-files-found: error
   web:
     needs: changes
     if: needs.changes.outputs.web == 'true'

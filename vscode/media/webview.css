@@ -1,0 +1,464 @@
+/* keel's webviews: only VS Code's theme variables, so light, dark and high contrast follow the editor. */
+:root {
+  --k-accent: var(--vscode-textLink-foreground);
+  --k-ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  --k-bad: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+  --k-warn: var(--vscode-charts-yellow, var(--vscode-editorWarning-foreground));
+  --k-muted: var(--vscode-descriptionForeground);
+  --k-line: var(
+    --vscode-panel-border,
+    var(--vscode-widget-border, rgba(128, 128, 128, 0.35))
+  );
+  --k-card: var(
+    --vscode-editorWidget-background,
+    var(--vscode-sideBar-background)
+  );
+  --k-mono: var(--vscode-editor-font-family, monospace);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  line-height: 1.45;
+}
+
+body.sidebar {
+  background: var(--vscode-sideBar-background);
+}
+
+.app {
+  padding: 12px 16px 24px;
+  max-width: 1100px;
+}
+
+body.sidebar .app {
+  padding: 8px 10px 0;
+}
+
+h1 {
+  font-size: 1.35em;
+  margin: 4px 0 8px;
+  font-weight: 600;
+}
+
+h2 {
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--k-muted);
+  margin: 18px 0 6px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--k-muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--k-line);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.chip.accent {
+  border-color: var(--k-accent);
+  color: var(--k-accent);
+}
+
+.chip.ok {
+  border-color: var(--k-ok);
+  color: var(--k-ok);
+}
+
+.chip.bad {
+  border-color: var(--k-bad);
+  color: var(--k-bad);
+}
+
+.chip.warn {
+  border-color: var(--k-warn);
+  color: var(--k-warn);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+button.toggle {
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--k-line);
+  padding: 2px 10px;
+}
+
+button.toggle.on {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground, transparent);
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.danger {
+  background: transparent;
+  color: var(--k-bad);
+  border-color: var(--k-bad);
+}
+
+a,
+.link {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+a:hover,
+.link:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
+  background: none;
+}
+
+textarea,
+input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--k-line));
+  border-radius: 2px;
+  padding: 5px 7px;
+}
+
+textarea:focus,
+input[type="text"]:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.card {
+  border: 1px solid var(--k-line);
+  background: var(--k-card);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+
+.card.gate {
+  border-color: var(--k-accent);
+  border-left-width: 3px;
+}
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.steps .arrow {
+  color: var(--k-muted);
+}
+
+.acs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.acs li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+
+.dot {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.dot.green {
+  color: var(--k-ok);
+}
+
+.dot.red {
+  color: var(--k-bad);
+}
+
+.dot.doing {
+  color: var(--k-accent);
+}
+
+.dot.todo {
+  color: var(--k-muted);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.choice-desc {
+  margin: 2px 0 6px;
+}
+
+.question {
+  margin: 10px 0;
+}
+
+.question label {
+  display: block;
+  padding: 2px 0;
+}
+
+.problem {
+  color: var(--k-bad);
+}
+
+.note {
+  margin: 6px 0;
+}
+
+.note.bad {
+  color: var(--k-bad);
+}
+
+/* the live activity */
+.now .agent {
+  padding: 2px 0;
+}
+
+.now .agent .live {
+  color: var(--k-ok);
+}
+
+.feed {
+  border: 1px solid var(--k-line);
+  border-radius: 4px;
+  max-height: 60vh;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 4px 8px;
+  font-size: 0.95em;
+}
+
+.line {
+  padding: 1px 0;
+}
+
+.line .head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.line .time {
+  color: var(--k-muted);
+  font-family: var(--k-mono);
+  font-size: 0.9em;
+}
+
+.line .mark {
+  width: 14px;
+  text-align: center;
+  flex: none;
+}
+
+.line .who {
+  color: var(--k-muted);
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.line.bad .mark,
+.line.bad .title {
+  color: var(--k-bad);
+}
+
+.line.test-ok .mark,
+.line.test-ok .title {
+  color: var(--k-ok);
+}
+
+.line.gate .mark,
+.line.gate .title {
+  color: var(--k-accent);
+}
+
+.add {
+  color: var(--k-ok);
+  font-size: 0.9em;
+}
+
+.del {
+  color: var(--k-bad);
+  font-size: 0.9em;
+}
+
+pre,
+.detail {
+  font-family: var(--k-mono);
+  font-size: 0.92em;
+  background: var(--vscode-textCodeBlock-background, var(--k-card));
+  padding: 6px 8px;
+  margin: 4px 0 4px 22px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 3px;
+}
+
+.md {
+  margin: 4px 0 4px 22px;
+}
+
+.md pre {
+  margin-left: 0;
+}
+
+code {
+  font-family: var(--k-mono);
+  font-size: 0.92em;
+  background: var(--vscode-textCodeBlock-background, transparent);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+}
+
+blockquote {
+  margin: 4px 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--vscode-textBlockQuote-border, var(--k-line));
+  color: var(--k-muted);
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--k-muted);
+}
+
+/* KeelBot */
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 320px;
+}
+
+.chat .top {
+  flex: none;
+  padding: 6px 0;
+}
+
+.chat .messages {
+  flex: 1;
+  min-height: 140px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.chat .bottom {
+  flex: none;
+  padding: 6px 0 8px;
+  border-top: 1px solid var(--k-line);
+}
+
+.msg {
+  margin: 8px 0;
+}
+
+.msg.user .bubble {
+  background: var(--k-card);
+  border: 1px solid var(--k-line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  white-space: pre-wrap;
+}
+
+.msg .who {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.msg .md {
+  margin-left: 0;
+}
+
+.msg .md p {
+  margin: 4px 0;
+}
+
+.composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.composer textarea {
+  min-height: 52px;
+  resize: vertical;
+}
+
+.changes li {
+  list-style: none;
+}
+
+.changes {
+  padding: 0;
+  margin: 4px 0;
+}

@@ -187,6 +187,15 @@ with its changed lines marked in the editor. Build it with `cd jetbrains && ./gr
 (Settings › Plugins › ⚙ › Install Plugin from Disk), then connect in Settings › Tools › keel: keel2 on this computer,
 or a pairing code like the phone.
 
+## In VS Code
+
+The keel extension ([vscode/](vscode/README.md), VS Code 1.90+) has the same features as the JetBrains plugin: your
+flows with their live activity (the running agents, their edits, commands and tests), the questions they wait at (a
+notification and "◆ keel: 1 question" in the status bar), review threads on the pull request's changed lines in the
+normal editors, Start a flow, and KeelBot (Ctrl+Alt+K on a selection). Build it with
+`cd vscode && npm ci && npm run package`, install it with `code --install-extension keel-vscode-0.1.0.vsix`, then run
+**keel: Connect**: keel2 on this computer, an API key, or a pairing code like the phone. [More](docs/vscode.md)
+
 ## More
 
 - [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, where keel keeps its files (keel v1 layouts), Docker mode,

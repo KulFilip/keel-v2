@@ -1,0 +1,414 @@
+{
+  "name": "keel-vscode",
+  "displayName": "keel",
+  "description": "keel v2 in VS Code: your flows and their live activity, the questions they wait at, pull request review in the editor, and KeelBot.",
+  "version": "0.1.0",
+  "publisher": "keel",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MiladNalbandi/keel-v2"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "keywords": [
+    "keel",
+    "agents",
+    "code review",
+    "workflow"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "keel",
+      "properties": {
+        "keel.url": {
+          "type": "string",
+          "default": "http://localhost:8088",
+          "markdownDescription": "keel's address, like `http://localhost:8088`, `http://192.168.1.20:8088` or an https Tailscale name. The sign-in key is never kept here: **keel: Connect** keeps it in VS Code's secret storage."
+        },
+        "keel.useLocalKeel2": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When no key is stored, ask `keel2 auth key` on this computer for keel's sign-in key (kept in memory only)."
+        },
+        "keel.notifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when a flow of this project waits for you."
+        },
+        "keel.review.filter": {
+          "type": "string",
+          "enum": [
+            "review",
+            "assigned",
+            "mine",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Pull requests that ask for your review",
+            "Pull requests assigned to you",
+            "Your own pull requests",
+            "All open pull requests"
+          ],
+          "default": "review",
+          "description": "Which pull requests the Review view lists."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "keel",
+          "title": "keel",
+          "icon": "media/keel.svg"
+        }
+      ]
+    },
+    "views": {
+      "keel": [
+        {
+          "id": "keel.flows",
+          "name": "Flows"
+        },
+        {
+          "id": "keel.inbox",
+          "name": "Inbox"
+        },
+        {
+          "id": "keel.review",
+          "name": "Review"
+        },
+        {
+          "id": "keel.changedFiles",
+          "name": "Changed files",
+          "when": "keel.reviewMode"
+        },
+        {
+          "type": "webview",
+          "id": "keel.keelbot",
+          "name": "KeelBot"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "keel.flows",
+        "contents": "keel is not connected.\n[Connect to keel](command:keel.connect)\nkeel's address is the setting keel.url (now the default http://localhost:8088).",
+        "when": "!keel.connected"
+      },
+      {
+        "view": "keel.flows",
+        "contents": "This folder is not one of keel's projects.\n[Pick the keel project](command:keel.pickProject)",
+        "when": "keel.connected && !keel.hasProject"
+      },
+      {
+        "view": "keel.flows",
+        "contents": "No flows yet.\n[Start a flow](command:keel.startFlow)",
+        "when": "keel.connected && keel.hasProject"
+      },
+      {
+        "view": "keel.inbox",
+        "contents": "Nothing waits for you.",
+        "when": "keel.connected"
+      },
+      {
+        "view": "keel.review",
+        "contents": "No pull requests for this filter.\n[Change the filter](command:keel.review.filter)",
+        "when": "keel.connected && keel.hasProject"
+      }
+    ],
+    "commands": [
+      {
+        "command": "keel.connect",
+        "title": "Connect",
+        "category": "keel",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "keel.signOut",
+        "title": "Sign out",
+        "category": "keel"
+      },
+      {
+        "command": "keel.pickProject",
+        "title": "Pick project",
+        "category": "keel"
+      },
+      {
+        "command": "keel.refresh",
+        "title": "Refresh",
+        "category": "keel",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "keel.startFlow",
+        "title": "Start a flow",
+        "category": "keel",
+        "icon": "$(add)"
+      },
+      {
+        "command": "keel.startFlowFromSelection",
+        "title": "Start a flow from selection",
+        "category": "keel"
+      },
+      {
+        "command": "keel.openFlow",
+        "title": "Open flow",
+        "category": "keel"
+      },
+      {
+        "command": "keel.stopFlow",
+        "title": "Stop flow",
+        "category": "keel",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "keel.openInbox",
+        "title": "Open inbox",
+        "category": "keel"
+      },
+      {
+        "command": "keel.answerItem",
+        "title": "Answer",
+        "category": "keel"
+      },
+      {
+        "command": "keel.openKeelBot",
+        "title": "Open KeelBot",
+        "category": "keel"
+      },
+      {
+        "command": "keel.askKeelBot",
+        "title": "Ask KeelBot about selection",
+        "category": "keel"
+      },
+      {
+        "command": "keel.review.open",
+        "title": "Review pull request",
+        "category": "keel",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "keel.review.exit",
+        "title": "Exit review mode",
+        "category": "keel",
+        "icon": "$(close)"
+      },
+      {
+        "command": "keel.review.filter",
+        "title": "Filter pull requests",
+        "category": "keel",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "keel.review.openFile",
+        "title": "Open changed file",
+        "category": "keel"
+      },
+      {
+        "command": "keel.review.openThread",
+        "title": "Open review thread",
+        "category": "keel"
+      },
+      {
+        "command": "keel.review.nextChange",
+        "title": "Next change",
+        "category": "keel",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "keel.review.askAboutChange",
+        "title": "Ask KeelBot what changed here",
+        "category": "keel"
+      },
+      {
+        "command": "keel.review.reply",
+        "title": "Reply",
+        "category": "keel"
+      },
+      {
+        "command": "keel.review.resolve",
+        "title": "Resolve",
+        "category": "keel",
+        "icon": "$(check)"
+      },
+      {
+        "command": "keel.review.unresolve",
+        "title": "Unresolve",
+        "category": "keel",
+        "icon": "$(discard)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "keel.startFlow",
+          "when": "view == keel.flows && keel.hasProject",
+          "group": "navigation@1"
+        },
+        {
+          "command": "keel.refresh",
+          "when": "view == keel.flows || view == keel.inbox || view == keel.review",
+          "group": "navigation@9"
+        },
+        {
+          "command": "keel.review.filter",
+          "when": "view == keel.review",
+          "group": "navigation@2"
+        },
+        {
+          "command": "keel.review.nextChange",
+          "when": "view == keel.changedFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "keel.review.exit",
+          "when": "view == keel.changedFiles || (view == keel.review && keel.reviewMode)",
+          "group": "navigation@3"
+        },
+        {
+          "command": "keel.connect",
+          "when": "view == keel.flows",
+          "group": "secondary"
+        },
+        {
+          "command": "keel.pickProject",
+          "when": "view == keel.flows && keel.connected",
+          "group": "secondary"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "keel.stopFlow",
+          "when": "view == keel.flows && viewItem == flow-active",
+          "group": "inline"
+        },
+        {
+          "command": "keel.review.open",
+          "when": "view == keel.review && viewItem == pr",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "keel.askKeelBot",
+          "when": "editorTextFocus",
+          "group": "keel@1"
+        },
+        {
+          "command": "keel.startFlowFromSelection",
+          "when": "editorHasSelection && keel.hasProject",
+          "group": "keel@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "keel.review.nextChange",
+          "when": "keel.reviewMode && keel.reviewFile",
+          "group": "navigation@50"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "keel.review.reply",
+          "group": "inline@1",
+          "when": "commentController == keel-review"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "keel.review.resolve",
+          "group": "inline@1",
+          "when": "commentController == keel-review && commentThread == keel-open"
+        },
+        {
+          "command": "keel.review.unresolve",
+          "group": "inline@1",
+          "when": "commentController == keel-review && commentThread == keel-resolved"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "keel.openFlow",
+          "when": "false"
+        },
+        {
+          "command": "keel.answerItem",
+          "when": "false"
+        },
+        {
+          "command": "keel.stopFlow",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.openFile",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.openThread",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.askAboutChange",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.reply",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.resolve",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.unresolve",
+          "when": "false"
+        },
+        {
+          "command": "keel.review.nextChange",
+          "when": "keel.reviewMode"
+        },
+        {
+          "command": "keel.review.exit",
+          "when": "keel.reviewMode"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "keel.askKeelBot",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p src/webview",
+    "test": "vitest run",
+    "test:smoke": "node esbuild.mjs && tsc -p test/smoke && node out/smoke/test/smoke/run.js",
+    "package": "node esbuild.mjs --production && vsce package --no-dependencies -o keel-vscode-0.1.0.vsix",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.19",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
