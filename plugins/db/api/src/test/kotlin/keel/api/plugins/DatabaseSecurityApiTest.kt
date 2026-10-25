@@ -86,4 +86,20 @@ class DatabaseSecurityApiTest : ApiTest() {
         get("/api/databases/$id").andExpect(status().isOk)
         assertThat(get("/api/projects/$pid/db/connections").json().map { it["name"].asText() }).contains("secretdb", "open")
     }
+
+    @Test
+    fun `an MCP query is in the audit with its SQL, at the read level too, its secrets masked`() {
+        val (pid, _) = newProject("dbsec-audit")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
+        post("/api/projects/$pid/databases", mapOf("name" to "local", "driver" to "sqlite", "default_db" to "app.db")).andExpect(status().isOk)
+        val sql = "select name from users where password_hash = 'Sup3rS3cretHash' and note = 'x" + "y".repeat(3000) + "'"
+        post("/api/projects/$pid/db/query", mapOf("sql" to sql, "connection" to "local", "mask" to true), via).andExpect(status().isOk)
+        val rows = jdbc.queryForList("SELECT data_json FROM events WHERE project_id = ? AND type = 'mcp.call'", String::class.java, pid)
+        assertThat(rows).hasSize(1)
+        val data = mapper.readTree(rows[0])
+        assertThat(data["tool"].asText()).isEqualTo("keel_db_query")
+        assertThat(data["sql"].asText()).startsWith("select name from users where password_hash = '•••'")
+        assertThat(data["sql"].asText()).doesNotContain("Sup3rS3cretHash")
+        assertThat(data["sql"].asText().length).isLessThanOrEqualTo(2001)
+    }
 }
