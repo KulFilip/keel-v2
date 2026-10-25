@@ -872,7 +872,9 @@ export type Settings = {
   env_names: string[];
   mcp: string[];
 };
-export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings };
+export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings;
+  /** B15 the General keys someone saved (the others are keel's defaults). */
+  general_saved?: string[] };
 
 export type Connections = {
   providers: {

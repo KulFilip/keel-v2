@@ -36,7 +36,7 @@ class CapsApiTest : ApiTest() {
             "default_model" to mapOf("provider" to "fake", "mode" to "api", "model" to "fake"),
             "implementer_model" to mapOf("provider" to "fake", "mode" to "api", "model" to "fake"),
             "reviewer_model" to mapOf("provider" to "fake", "mode" to "api", "model" to "fake"),
-            "cap_tokens" to 500_000, "on_cap" to "pause",
+            "on_cap" to "pause",                // the cap: keel's default 500k (one saved here would never be raised, B15)
         )).andExpect(status().isOk)
         val now = Instant.now()
         call(pid, now, 100_000, 50_000, 2.0, "subscription")
@@ -248,6 +248,16 @@ class CapsApiTest : ApiTest() {
         state = withEstimate(1_340_000) { startBody(pid).andExpect(status().isOk).json() }
         assertThat(engine.lastBody("/threads")!!["settings"]["cap_tokens"].asInt()).isEqualTo(0)
         assertThat(state.has("cap_note")).isFalse()
+    }
+
+    @Test
+    fun `a cap someone saved in Settings is never raised (B15)`() {
+        val pid = project("caps-estimate-saved")
+        put("/api/projects/$pid/settings", mapOf("cap_tokens" to 400_000)).andExpect(status().isOk)
+        val state = withEstimate(1_340_000) { startBody(pid).andExpect(status().isOk).json() }
+        assertThat(engine.lastBody("/threads")!!["settings"]["cap_tokens"].asInt()).isEqualTo(400_000)
+        assertThat(state["cap_note"].asText()).isEqualTo("This flow keeps the cap of 400k saved in Settings, below the estimate's high end plus 30% (1.8M): it may reach the cap before it is done.")
+        assertThat(get("/api/projects/$pid/settings").json()["general_saved"].map { it.asText() }).doesNotContain("cap_tokens")
     }
 
     @Test

@@ -294,7 +294,7 @@ POST   /api/usage/providers/{id}/refresh              → ProviderUsage     // c
 type ProviderUsage = { id, name, kind: "subscription"|"api", source, fetched_at?, windows: { window, label, used_pct?, used?, cap?, remaining?, resets_at?, status? }[], live, can_refresh, error?, note? }
 GET    /api/settings/general                          → Settings
 PUT    /api/settings/general        Partial<Settings>
-GET    /api/projects/{pid}/settings                   → { general: Settings, overrides: Partial<Settings>, effective: Settings }
+GET    /api/projects/{pid}/settings                   → { general: Settings, overrides: Partial<Settings>, effective: Settings, general_saved: string[] }   (general_saved: the General keys someone saved, B15)
 PUT    /api/projects/{pid}/settings  { [key]: value | null }    (null = use general)
 type Settings = { gates_mode, keel_rules, fix_attempts, coverage_min, default_model: Model, implementer_model: Model, reviewer_model: Model, cheaper_model: Model,
                   cap_tokens, on_cap, branch_pattern, web_lane_worktree, push_pr, notify: "all"|"needs_you"|"none", env_names: string[], mcp: string[] }
@@ -1080,7 +1080,9 @@ For each cap the api computes what is **left now**, then the binding (smallest l
   Start-a-flow drawer gives: max(Settings cap, the estimate's `high` × 1.3 rounded up to 10k), the estimate counting the
   `acs` given (none: 3). A raise says so first in `cap_note` ("keel raised this flow's cap from 500k (Settings) to 1.8M:
   the estimate's high end plus 30%."). An explicit `cap_tokens`, a Settings cap of 0 (no cap) or a failed estimate stay
-  as they are, and the project caps still bind (the smallest left wins; then the raise is not mentioned).
+  as they are, and the project caps still bind (the smallest left wins; then the raise is not mentioned). B15 only keel's
+  default cap is raised: a `cap_tokens` someone saved in Settings (General or the project) stays, and `cap_note` says it
+  is below the estimate ("This flow keeps the cap of 400k saved in Settings, below …").
 - A flow gets what is left when it **starts**; two flows started together can each use it.
 
 ```
@@ -2395,7 +2397,7 @@ Plan: `docs/plans/0.17.5.md`.
 - **Stall ladder** (a per-AC check in a per-AC loop that has a retry target and no `after_rounds`): round 1 the same agent with the failure; round 2 an `investigator` (phase review, read only) reads it and proposes, its text joins the feedback (`data.ladder_proposal`); round 3 the agent's model is escalated once (`data.ladder_escalated = {agent, ac, before}`, restored when the loop moves to another criterion); after `fix_attempts` (default 3) rounds: `{type: "stuck", choices: ["retry", "skip", "edit", "stop"]}`; `retry` is one more round, then the question again. Gate log `stall <AC> round <n>: …`.
 - **BLOCKED** marker (registered, free text) on `red` and `green`: `BLOCKED: <tooling | needs AC-x>: <what>`; the implementer's `GREEN-RESULT: stalled` counts as BLOCKED (`markers.blocked`). Branches `red_blocked` / `green_blocked` → `red_stuck` / `green_stuck` (action `stuck`): unfinished criteria it names are built first (gate log "keel moved …", `data.ac_order.from = keel`); otherwise `{type: "blocked", choices: ["retry", "skip", "edit", "stop"]}`.
 - **Failed agent calls in the flow's usage**: what a failed call used (`ModelError.usage`: an error, a turn limit) is kept in `ThreadContext.unbooked` and booked into `state.usage` by the next agent step, the finish, or a failed end. The Flow page, `keel_status`, `keel_flows` and the cap now count it like the Budget page (`agent_calls`).
-- **Start a flow** (web): while the cap is the Settings default, it follows the estimate's high end plus 30% (rounded up to 10k) and says so; a cap below the estimate's high end shows a warning.
+- **Start a flow** (web): while the cap is keel's default (nobody saved `cap_tokens`, B15), it follows the estimate's high end plus 30% (rounded up to 10k) and says so; a cap below the estimate's high end shows a warning.
 - **Out of turns**: a `ModelError` with `max_turns` (claude `error_max_turns`) continues the agent's own session once with a "continue" prompt (`compiler.run_or_continue`: claude `--resume`, codex `exec resume`; the session from the step's memory, else the request's). The cut-off run's tokens are added to the result; a second limit is raised with both counted.
 - **Fewer approve-only stops**: the plan ends with `CONTRACT-DELTA: yes | none` (or says "Contract delta: none"); `spec_sync` sets `data.contract = yes | no`; `contract`, `contract_diff`, `contract_gate` and `contract_commit` have `when: {data: contract, equals: "yes"}`. `show_diff` in phase contract with nothing written sets `data.contract = "no"`. An amendment that moves the API shape sets it to `yes` again. Step field `menus: true` (gates; feature's `spec_gate`): the gate's text lists the skip menus after it and its approval's `payload.skip` (and `lenses`) decides them; the menus then log `gate <id> approve: chosen at spec_gate` and do not stop. An unknown name or a skip without a reason still asks at the menu. Feature flow, run mode important, 3 criteria on the fake model: 7 stops → 5 (4 without a contract delta).
 - **A gate's exits for this time**: `data["<gate id>_without"]` lists dict-choice exits a step before the gate ruled out; the question leaves them out and an answer that names one is asked again (gate log `unknown choice`). `amend_loop` has no `first` when no other criterion is unfinished (`data.amend_loop_without = ["first"]`).

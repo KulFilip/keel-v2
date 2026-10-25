@@ -36,6 +36,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [cap, setCap] = useState("");
   // v0.17.5 the cap from Settings, while the person has not typed another one: it follows the estimate (with headroom)
   const [capDefault, setCapDefault] = useState("");
+  // B15 a cap someone saved in Settings (General or this project): it is the cap, the estimate never raises it
+  const [capSaved, setCapSaved] = useState(false);
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [runMode, setRunMode] = useState<RunMode>("manual");
   const [modeDefault, setModeDefault] = useState<RunMode>("manual");
@@ -87,6 +89,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
       setCapDefault(c);
+      setCapSaved("cap_tokens" in (s.overrides ?? {}) || !!s.general_saved?.includes("cap_tokens"));
       setOnCap(s.effective.on_cap);
       // v0.4.1: the project's default run mode (Settings › Run mode); this flow may pick another
       const m = s.effective.run_mode ?? "manual";
@@ -121,7 +124,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
 
   // v0.17.5 a cap below the estimate stops the flow half way (a real run: 1.49M tokens against a 500K default): the cap
   // follows the estimate's high end plus 30% while it is still the Settings default; a cap the person typed stays.
-  const follow = est ? capForEstimate(capDefault, est.high) : null;
+  const follow = est && !capSaved ? capForEstimate(capDefault, est.high) : null;
   useEffect(() => {
     if (follow && cap === capDefault) setCap(follow.cap);
   }, [follow?.cap]); // eslint-disable-line react-hooks/exhaustive-deps

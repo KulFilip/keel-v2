@@ -195,14 +195,21 @@ class FlowService(
         val cheaperOk = s.cheaperModel.provider != "fake" || models.values.all { it.provider == "fake" }
         // A start without a cap (the API, MCP keel_start_flow, keel2 /flow, a KeelBot button) gets what the Start-a-flow
         // drawer gives: the Settings cap, raised to the estimate's high end + 30% when that is above it. The caps still bind.
-        val raised = if (cap?.capTokens == null) capForEstimate(pid, wf.yaml, acs?.size, s.capTokens) else null
+        // B15 only keel's default cap is raised: a cap someone saved in Settings (General or this project) is the cap.
+        val capSaved = settings.isSet(pid, "cap_tokens")
+        val wanted = if (cap?.capTokens == null) capForEstimate(pid, wf.yaml, acs?.size, s.capTokens) else null
+        val raised = wanted?.takeIf { !capSaved }
         val limits = capPlanner.limits(pid, cap?.capTokens ?: raised, cap?.onCap, cheaperOk)
         limits.refused?.let { throw Conflict(it.error, it.hint) }
         val raisedNote = raised?.takeIf { limits.tokensFrom == "flow" }?.let {
             "keel raised this flow's cap from ${CapText.tokens(s.capTokens.toDouble())} (Settings) to ${CapText.tokens(it.toDouble())}: " +
                 "the estimate's high end plus 30%."
         }
-        val notes = listOfNotNull(raisedNote) + limits.notes
+        val keptNote = wanted?.takeIf { capSaved && limits.tokensFrom == "settings" }?.let {
+            "This flow keeps the cap of ${CapText.tokens(s.capTokens.toDouble())} saved in Settings, below the estimate's high end plus 30% " +
+                "(${CapText.tokens(it.toDouble())}): it may reach the cap before it is done."
+        }
+        val notes = listOfNotNull(raisedNote, keptNote) + limits.notes
         if (limits.cheaper) models.keys.toList().forEach { models[it] = s.cheaperModel }
         // 0.18.46 local models only: the models this workflow's agents run on (and the cheaper one, when a cap may switch to it)
         keel.api.settings.LocalOnly.check(s, used.map { models[it] ?: models.getValue("default") } + models.getValue("default") +
