@@ -25,6 +25,7 @@ data class LoginView(
     val code: String? = null,      // device code to type on that page (codex, copilot)
     val message: String,
     val hint: String? = null,      // last characters of the saved secret
+    val error: String? = null,     // Claude: why the last code was refused (the box shows it in red); null when all is well
 )
 
 /**
@@ -42,6 +43,8 @@ class LoginService(
     @Value("\${keel.login-commands.claude:claude setup-token}") private val claudeCmd: String,
     @Value("\${keel.login-commands.codex:codex login --device-auth}") private val codexCmd: String,
     @Value("\${keel.login-commands.copilot:copilot login --device-code}") private val copilotCmd: String,
+    /** Claude: how long keel waits for a token or an error after a code, before it stops the login and says so. */
+    @Value("\${keel.login-code-timeout-seconds:60}") private val codeTimeoutSec: Long = 60,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -54,6 +57,17 @@ class LoginService(
         @Volatile var hint: String? = null
         /** v0.15.6 the Copilot CLI's "store the token in a plain file?" question was answered */
         @Volatile var consented = false
+        /** Claude: a code was sent and keel waits for the token or an error (since [codeSentAt], System.nanoTime) */
+        @Volatile var checking = false
+        @Volatile var codeSentAt = 0L
+        /** Claude: why the CLI refused the last code, shown in the box until the next code */
+        @Volatile var error: String? = null
+        /** Claude: the CLI refused a code and will ask "Press Enter to retry"; keel presses it once */
+        @Volatile var retryPending = false
+        /** Claude: Enter was pressed for a retry; the next link the CLI prints replaces [url] */
+        @Volatile var newLinkWanted = false
+        /** A message that ends the login for good (the code timeout); [finish] keeps it */
+        @Volatile var failure: String? = null
         val started: Instant = Instant.now()
     }
 
@@ -110,12 +124,25 @@ class LoginService(
     fun code(id: String, code: String): LoginView {
         val s = sessions[id] ?: throw NotFound("No login called $id", "Start the login again.")
         if (s.provider != "claude") throw BadRequest("Only the Claude login asks for a code")
+        if (s.status in setOf("done", "failed", "cancelled")) throw Conflict("This login has ended", "Press Start again for a new link.")
         val c = code.trim()
         if (c.isEmpty() || c.length > 2000 || c.any { it.isWhitespace() }) throw BadRequest("Paste the code exactly as the page shows it (one piece, no spaces)")
-        s.stdin.write((c + if (usePty) "\r" else "\n").toByteArray())   // Enter in a terminal is \r
-        s.stdin.flush()
+        // only what the CLI prints after this code counts for its answer (an error, the token): start a fresh buffer
+        synchronized(s.out) { s.out.setLength(0) }
+        s.error = null
+        s.retryPending = false
+        s.newLinkWanted = false
+        s.codeSentAt = System.nanoTime()
+        s.checking = true
         s.status = "waiting"
         s.message = "Checking the code…"
+        try {
+            s.stdin.write((c + enter()).toByteArray())
+            s.stdin.flush()
+        } catch (e: java.io.IOException) {
+            s.checking = false
+            throw Conflict("The Claude CLI has stopped", "Press Start again for a new link.")
+        }
         return view(s)
     }
 
@@ -129,7 +156,9 @@ class LoginService(
         return view(s)
     }
 
-    private fun view(s: Session) = LoginView(s.id, s.provider, s.status, s.url, s.code, s.message, s.hint)
+    private fun view(s: Session) = LoginView(s.id, s.provider, s.status, s.url, s.code, s.message, s.hint, s.error)
+
+    private fun enter() = if (usePty) "\r" else "\n"   // Enter in a terminal is \r
 
     private fun read(s: Session) {
         PtyOutput.pump(s.proc, s.out, 200_000, 100_000) { parse(s) }
@@ -140,9 +169,11 @@ class LoginService(
     private fun parse(s: Session) {
         if (s.status in setOf("done", "failed", "cancelled")) return
         val text = clean(s)
-        if (s.url == null) {
-            s.url = Regex("https://[^\\s\"'<>]+").findAll(text).map { it.value.trimEnd('.', ',', ')') }
-                .firstOrNull { "device" in it || "oauth" in it || "authorize" in it }
+        if (s.url == null || s.newLinkWanted) {
+            findLink(text)?.let { link ->
+                s.url = link
+                s.newLinkWanted = false
+            }
         }
         if (s.provider != "claude" && s.code == null) s.code = Regex("\\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\\b").find(text)?.value
         // v0.15.6 after the person authorized, the Copilot CLI finds no keychain in keel's container and asks
@@ -172,8 +203,48 @@ class LoginService(
             }
         }
         if (s.provider == "claude") {
-            Regex("sk-ant-oat01-[A-Za-z0-9_\\-]{20,}").find(text.filterNot { it.isWhitespace() })?.let { save(s, "CLAUDE_CODE_OAUTH_TOKEN", it.value) }
+            CLAUDE_TOKEN.find(text.filterNot { it.isWhitespace() })?.let { save(s, "CLAUDE_CODE_OAUTH_TOKEN", it.value); return }
+            claudeAnswer(s, text)
         }
+    }
+
+    /**
+     * Claude, after a code: the CLI refuses a code it did not make the link for (each `setup-token` run has its own PKCE
+     * state, so a code from an older box or browser tab always fails) with "OAuth error: Request failed with status code
+     * 400" and "Press Enter to retry." keel shows why, presses Enter once, and takes the new link the CLI then prints.
+     */
+    private fun claudeAnswer(s: Session, text: String) {
+        if (s.checking) {
+            val refusal = refusal(text) ?: return
+            s.checking = false
+            s.error = "Claude did not accept that code ($refusal). A code only works with the link from THIS box: " +
+                "press Open claude.com here, sign in again, and paste the new code."
+            s.message = s.error!!
+            s.status = "code_needed"
+            s.retryPending = true
+        }
+        if (s.retryPending && squashed(text).contains("pressentertoretry")) {
+            s.retryPending = false
+            s.newLinkWanted = true
+            synchronized(s.out) { s.out.setLength(0) }   // the new link is the next one printed
+            runCatching {
+                s.stdin.write(enter().toByteArray())
+                s.stdin.flush()
+            }
+        }
+    }
+
+    /** Called every 2 s while the CLI runs: a code that got no answer at all ends the login with what the CLI printed last. */
+    private fun checkCodeTimeout(s: Session) {
+        if (!s.checking || s.status != "waiting") return
+        if (System.nanoTime() - s.codeSentAt < TimeUnit.SECONDS.toNanos(codeTimeoutSec)) return
+        s.checking = false
+        val last = lastLine(clean(s).lines().filterNot { isEcho(it) }.joinToString("\n"))
+        s.failure = "Claude did not answer within $codeTimeoutSec s after the code" +
+            (last?.let { " (the CLI printed last: \"$it\")" } ?: " (the CLI printed nothing after it)") +
+            ". Press Start again, open the new link, and paste the new code."
+        s.message = s.failure!!
+        s.status = "failed"
     }
 
     private fun finish(s: Session) {
@@ -183,7 +254,7 @@ class LoginService(
         var ended = false
         while (!ended && System.nanoTime() < deadline && s.status !in setOf("done", "cancelled", "failed")) {
             ended = s.proc.waitFor(2, TimeUnit.SECONDS)
-            if (!ended) collect(s)
+            if (!ended) { collect(s); checkCodeTimeout(s) }
         }
         if (!ended && s.status != "done") keel.api.common.Proc.killTree(s.proc)
         Thread.sleep(200)
@@ -192,6 +263,9 @@ class LoginService(
         if (s.status !in setOf("done", "cancelled")) {
             s.status = "failed"
             s.message = when {
+                s.failure != null -> s.failure!!
+                s.error != null -> s.error!!.substringBefore(" A code only works") +
+                    " A code only works with the link from the same box: press Start again, open the new link, sign in, and paste the new code."
                 !ended -> "The login took longer than 15 minutes and was stopped. Start it again."
                 else -> lastLine(clean(s))?.let { "The login did not finish: $it" } ?: "The login did not finish. Start it again."
             }
@@ -233,6 +307,38 @@ class LoginService(
     }
 
     /** A short, safe last line for an error (anything that looks like a token is cut out). */
-    private fun lastLine(text: String): String? = text.lines().map { it.trim() }.lastOrNull { it.length in 4..200 }
-        ?.replace(Regex("(sk-ant-[A-Za-z0-9_\\-]+|gh[opsu]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)"), "…")
+    private fun lastLine(text: String): String? = text.lines().map { it.trim() }.lastOrNull { it.length in 4..200 }?.let(::redact)
+
+    companion object {
+        /** `claude setup-token`'s long-lived token: sk-ant-oat01-… today, a newer sk-ant-oatNN-… later. */
+        val CLAUDE_TOKEN = Regex("sk-ant-oat\\d{2}-[A-Za-z0-9_\\-]{20,}")
+
+        internal fun findLink(text: String): String? = Regex("https://[^\\s\"'<>]+").findAll(text).map { it.value.trimEnd('.', ',', ')') }
+            .firstOrNull { "device" in it || "oauth" in it || "authorize" in it }
+
+        /** The terminal output without any white space, lower case: the CLI's redraws can drop or squash the spaces. */
+        private fun squashed(text: String) = text.filterNot { it.isWhitespace() }.lowercase()
+
+        /** The CLI's masked echo of the pasted code ("****…tail"): its visible tail must never count as an error. */
+        private fun isEcho(line: String) = line.trim().let { it.startsWith("*") || it.contains("*****") }
+
+        /**
+         * Why the Claude CLI refused a code, from what it printed after the code, or null when it has not refused it (yet):
+         * "OAuth error 400" from "OAuth error: Request failed with status code 400", else the error line itself.
+         */
+        internal fun refusal(text: String): String? {
+            val lines = text.lines().map { it.replace(Regex("\\*{3,}\\S*"), "").trim() }.filter { it.isNotEmpty() }
+            val errorLine = lines.firstOrNull { Regex("(?i)error|invalid").containsMatchIn(it) }
+            val flat = squashed(lines.joinToString("\n"))
+            if (errorLine == null && "pressentertoretry" !in flat) return null
+            val status = Regex("(?i)status\\s*code\\s*(\\d{3})").find(lines.joinToString("\n"))?.groupValues?.get(1)
+            return when {
+                "oautherror" in flat && status != null -> "OAuth error $status"
+                errorLine != null -> redact(errorLine).take(160)
+                else -> "it asked to retry"
+            }
+        }
+
+        private fun redact(line: String) = line.replace(Regex("(sk-ant-[A-Za-z0-9_\\-]+|gh[opsu]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)"), "…")
+    }
 }

@@ -158,8 +158,8 @@ class ConnectionService(
         return when {
             bad.isNotEmpty() -> "The saved $what has characters a token never has (${bad.toSet().joinToString("") { if (it.isWhitespace()) "␣" else it.toString() }}): " +
                 "probably a copy with spaces, line breaks or • dots. Paste it again in one piece."
-            provider == "claude" && mode == "subscription" && !v.startsWith("sk-ant-oat01-") ->
-                "The saved Claude login token does not start with sk-ant-oat01- (it has ${v.length} characters). Copy the whole token that `claude setup-token` prints and save it again."
+            provider == "claude" && mode == "subscription" && !v.startsWith("sk-ant-oat") ->
+                "The saved Claude login token does not start with sk-ant-oat (like sk-ant-oat01-; it has ${v.length} characters). Copy the whole token that `claude setup-token` prints and save it again."
             provider == "claude" && mode == "api" && !v.startsWith("sk-ant-") -> "The saved Anthropic API key does not start with sk-ant-. Check that you pasted the right key."
             else -> null
         }

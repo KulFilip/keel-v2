@@ -1020,7 +1020,7 @@ export type GitHubState = { set: boolean; hint: string | null; from: "keel" | "e
 export type GitHubLoginView = { id: string; status: "starting" | "waiting" | "done" | "failed" | "cancelled"; host: string; url: string | null; code: string | null;
   message: string; login: string | null; scopes: string[]; via: string | null };
 export type LoginView = { id: string; provider: string; status: "starting" | "waiting" | "code_needed" | "done" | "failed" | "cancelled";
-  url?: string | null; code?: string | null; message: string; hint?: string | null };
+  url?: string | null; code?: string | null; message: string; hint?: string | null; error?: string | null };
 
 // ---- workspace Doctor ----
 export type DoctorAction = "commit" | "stash" | "exclude" | "ignore" | "keep";

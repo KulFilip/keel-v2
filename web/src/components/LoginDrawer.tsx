@@ -9,7 +9,8 @@ import { useApp } from "../state";
 import { Drawer } from "./ui";
 
 /** What every login answers with, whatever endpoint it comes from. */
-export type LoginBase = { id: string; status: string; url?: string | null; code?: string | null; message: string };
+/** error: why the last step was refused (a Claude code); the login still runs, the box shows it in red. */
+export type LoginBase = { id: string; status: string; url?: string | null; code?: string | null; message: string; error?: string | null };
 
 export type LoginAdapter<V extends LoginBase> = {
   start: () => Promise<V>;
@@ -118,8 +119,8 @@ export function LoginDrawer<V extends LoginBase>({ title, intro, note, adapter, 
               )}
               {steps?.({ login, setLogin, setErr })}
               <li>
-                <span role="status" className={login.status === "done" ? "okc" : login.status === "failed" ? "badc" : "sub"}>
-                  {login.status === "done" ? `✓ ${doneText(login)}` : login.status === "failed" ? `✕ ${login.message}` : `… ${login.message}`}
+                <span role="status" className={login.status === "done" ? "okc" : login.status === "failed" || login.error ? "badc" : "sub"}>
+                  {login.status === "done" ? `✓ ${doneText(login)}` : login.status === "failed" || login.error ? `✕ ${login.message}` : `… ${login.message}`}
                 </span>
                 {status}
               </li>

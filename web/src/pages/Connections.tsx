@@ -82,7 +82,7 @@ const HELP: Record<string, { name: string; here: string; paste: { steps: string[
   claude: {
     name: "Claude",
     here: "keel starts `claude setup-token` inside the container. You sign in on claude.com; the page then shows a code that you paste below. keel saves the long-lived token.",
-    paste: { steps: ["On your computer run `claude setup-token`.", "Copy the whole token it prints (starts with sk-ant-oat01-).", "Paste it below and press Save."] },
+    paste: { steps: ["On your computer run `claude setup-token`.", "Copy the whole token it prints (starts with sk-ant-oat, for example sk-ant-oat01-).", "Paste it below and press Save."] },
   },
   codex: {
     name: "GPT / Codex",
@@ -134,13 +134,17 @@ function LoginHelper({ p, onClose, onSaved }: { p: Connections["providers"][numb
       onClose={onClose}
       openHint={p.id === "claude" ? " and sign in with your Claude account" : ""}
       steps={(ctx) => p.id === "claude" && ctx.login?.status === "code_needed" ? (
-        <li>
-          <label htmlFor="login-code">After you sign in, the page shows a code. Paste it here:</label>
+        <li className="login-paste">
+          <p className="sub" style={{ margin: 0 }} aria-label="Steps">
+            <b>1</b> Open claude.com · <b>2</b> Log in · <b>3</b> Copy the code · <b>4</b> Paste it here
+          </p>
+          <label htmlFor="login-code"><b>After you sign in, the page shows a code. Paste it here:</b></label>
           <div className="row">
             <input id="login-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" placeholder="code from the Claude page"
-              style={{ flex: "1 1 220px" }} onKeyDown={(e) => e.key === "Enter" && void send(ctx)} />
-            <button className="btn sm primary" type="button" onClick={() => void send(ctx)} disabled={busy || !code.trim()}>Send</button>
+              autoFocus style={{ flex: "1 1 220px", fontSize: "1.05em", padding: "8px 10px" }} onKeyDown={(e) => e.key === "Enter" && void send(ctx)} />
+            <button className="btn primary" type="button" onClick={() => void send(ctx)} disabled={busy || !code.trim()}>Send</button>
           </div>
+          <p className="sub" style={{ margin: 0 }}>Use the link from this box; a code from an older tab will not work.</p>
         </li>
       ) : null}
       status={test && <div className={test.ok ? "okc" : "badc"}>{test.ok ? "Test: " : "Test failed: "}{test.text}</div>}

@@ -70,7 +70,7 @@ class LoginTokensApiTest : ApiTest() {
         val res = post("/api/connections/claude/test").andExpect(status().isOk).json()
         assertThat(res["error"].asText()).contains("characters a token never has").doesNotContain("abcdef")
         secretStore.put("CLAUDE_CODE_OAUTH_TOKEN", "half-of-a-token-ABC")
-        assertThat(post("/api/connections/claude/test").json()["error"].asText()).contains("does not start with sk-ant-oat01-").contains("19 characters")
+        assertThat(post("/api/connections/claude/test").json()["error"].asText()).contains("does not start with sk-ant-oat ").contains("19 characters")
         engine.providerTestAnswer = null
     }
 
