@@ -35,7 +35,7 @@ export function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJ
   const title = showNow ? `${step!.name} now` : `What ${x?.name ?? step?.name ?? stepId} does`;
   const toggle = now && step ? <StepModeToggle value={showNow ? "now" : "details"} onChange={setPick} /> : null;
   const details = error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />;
-  const live = showNow ? <StepNow pid={pid} thread={thread} step={step!} job={job} onJump={onJump} /> : null;
+  const live = showNow ? <StepNow pid={pid} thread={thread} workflow={workflow} step={step!} job={job} onJump={onJump} /> : null;
   if (drawer) {
     return (
       <Drawer title={title} onClose={onClose}>
@@ -85,14 +85,14 @@ function StepAbout({ step, x }: { step: Step; x: StepExplanation | null }) {
 
 /** v0.15.2 What happens in the step now: the waiting card (Go to it) or the running card, the agent's newest steps, and
  * this step's events since it started. */
-function StepNow({ pid, thread, step, job, onJump }: { pid: string; thread: ThreadState; step: Step; job: Job | null; onJump: () => void }) {
+function StepNow({ pid, thread, workflow, step, job, onJump }: { pid: string; thread: ThreadState; workflow: Workflow; step: Step; job: Job | null; onJump: () => void }) {
   const waits = thread.status === "waiting" && !!thread.waiting && thread.waiting.step.replace(/__fix$/, "") === step.id;
   const runs = !waits && (!!job || (thread.status === "running" && (thread.current ?? "").replace(/__fix$/, "") === step.id));
   return (
     <>
       {waits ? <WaitsCard thread={thread} onJump={onJump} /> : runs ? <RunningCard step={step} name={step.name} ac={job?.ac ?? thread.ac} job={job} /> : null}
       {job && <JobFeed job={job} />}
-      <EventsPanel pid={pid} thread={thread} step={step.id} title={`Events of ${step.name}`} />
+      <EventsPanel pid={pid} thread={thread} workflow={workflow} step={step.id} title={`Events of ${step.name}`} />
     </>
   );
 }

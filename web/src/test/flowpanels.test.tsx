@@ -58,7 +58,7 @@ describe("Flow steps: a click shows the step", () => {
     const events = within(s).getByRole("region", { name: "Events of AC gate" });
     const lines = within(events).getByLabelText("What happened, newest first");
     expect(lines).toHaveTextContent("AC gate waits for you");
-    expect(lines).toHaveTextContent("s8 started");
+    expect(lines).toHaveTextContent("s8 (AC gate) started");
     expect(lines).not.toHaveTextContent("s8 finished");
     expect(lines).not.toHaveTextContent("criterion-reviewer start");
     expect(within(events).queryAllByTestId("event-checkpoint")).toHaveLength(0);

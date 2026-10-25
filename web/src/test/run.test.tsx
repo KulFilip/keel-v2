@@ -133,7 +133,7 @@ describe("Flow side panel: Now", () => {
     const side = await screen.findByRole("complementary", { name: "Now, the selected step and checkpoints" });
     const rows = await within(side).findAllByTestId("event-checkpoint");
     expect(rows.map((r) => r.textContent)).toEqual([
-      expect.stringContaining("commit feat(AC-002) a81c3f0"), expect.stringContaining("verify_green"), expect.stringContaining("green"),
+      expect.stringContaining("commit feat(AC-002) a81c3f0"), expect.stringContaining("verify green"), expect.stringContaining("green"),
     ]);
     expect(within(side).queryByText("Nothing happened yet. Events show here as they happen.")).not.toBeInTheDocument();
     expect(within(side).getByRole("button", { name: "Go to it" })).toBeInTheDocument();

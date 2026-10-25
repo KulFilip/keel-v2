@@ -177,7 +177,7 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
               noResume={readOnly && !readOnly.resumable ? "Only the last stopped flow can be resumed." : undefined} />}
           {job && <JobFeed job={job} />}
           <RulesNowPanel thread={thread} />
-          <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} readOnly={!!readOnly} />
+          <EventsPanel pid={pid} thread={thread} workflow={workflow} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} readOnly={!!readOnly} />
         </div>
       ) : side === "step" ? (
         selected ? <StepPanel key={selected} pid={pid} thread={thread} workflow={workflow} stepId={selected} running={running} onClose={onClose} onJump={onJump} />
