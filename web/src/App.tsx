@@ -3,7 +3,7 @@
 // addons.ts).
 
 import { Suspense, useEffect } from "react";
-import { addonPage, useFeatures } from "./addons";
+import { addonPage, useFeatures, useView } from "./addons";
 import "./corePages";
 import { Shell } from "./components/Shell";
 import { NoProject } from "./components/ui";
@@ -73,6 +73,21 @@ function Router() {
       /* jsdom */
     }
   }, [page]);
+  // a Product-only keel (or the Product view) has no Flow page: the start page (an empty link) and a link to Flow open
+  // Product's first page, else the Inbox
+  const features = useFeatures();
+  const view = useView();
+  const devShown = features.parts.dev !== false && (features.mode !== "both" || view !== "product");
+  const landing = features.loaded && !devShown ? (features.screens[0]?.id ?? SCREEN.inbox) : null;
+  useEffect(() => {
+    if (page === SCREEN.flow && landing) location.replace(`#/${landing}`);
+  }, [page, landing]);
+  if (page === SCREEN.flow && landing)
+    return (
+      <div className="empty loading" role="status">
+        Loading…
+      </div>
+    );
   if (page === SCREEN.projects)
     return (
       <PageBoundary resetKey={page}>
