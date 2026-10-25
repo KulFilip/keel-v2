@@ -18,7 +18,10 @@ export type AuthKind = "key" | "device" | "local";
  */
 export class Auth {
   private localKey: string | undefined;
-  private localTried = false;
+  /** When keel2 auth key was last tried (0: never); a failed try is repeated after a minute (keel may start later). */
+  private localTriedAt = 0;
+  /** Signed out by hand: keel2's key is not read on its own until the next Connect. */
+  private signedOut = false;
   private readonly changed = new vscode.EventEmitter<void>();
   /** The address or the sign-in changed: connect again. */
   readonly onDidChange = this.changed.event;
@@ -56,8 +59,8 @@ export class Auth {
     const allowed = vscode.workspace
       .getConfiguration("keel")
       .get<boolean>("useLocalKeel2", true);
-    if (allowed && !this.localTried && isLocal(this.baseUrl())) {
-      this.localTried = true;
+    if (allowed && !this.signedOut && Date.now() - this.localTriedAt > 60_000 && isLocal(this.baseUrl())) {
+      this.localTriedAt = Date.now();
       try {
         this.localKey = await readLocalKey();
       } catch {
@@ -70,7 +73,7 @@ export class Auth {
   /** keel refused the sign-in: forget it (a removed device, or keel2 auth reset made a new key). */
   async removed(): Promise<void> {
     this.localKey = undefined;
-    this.localTried = false;
+    this.localTriedAt = 0;
     const k = this.kind();
     if (k === "key" || k === "device") {
       await this.ctx.secrets.delete(this.secretKey());
@@ -82,7 +85,7 @@ export class Auth {
     await this.ctx.secrets.delete(this.secretKey());
     await this.ctx.globalState.update(this.kindKey(), undefined);
     this.localKey = undefined;
-    this.localTried = true; // not again on its own: Connect turns it back on
+    this.signedOut = true; // not again on its own: Connect turns it back on
     this.changed.fire();
   }
 
@@ -151,7 +154,7 @@ export class Auth {
         await this.ctx.secrets.delete(this.secretKey(base));
         await this.ctx.globalState.update(this.kindKey(base), "local");
         this.localKey = key;
-        this.localTried = true;
+        this.signedOut = false;
       } else if (how.id === "key") {
         const key = await vscode.window.showInputBox({
           title: "keel: API key",
@@ -199,6 +202,7 @@ export class Auth {
     await this.ctx.secrets.store(this.secretKey(base), token);
     await this.ctx.globalState.update(this.kindKey(base), kind);
     this.localKey = undefined;
+    this.signedOut = false;
   }
 
   /** A read that needs the sign-in: a wrong key fails here, before it is kept. */
