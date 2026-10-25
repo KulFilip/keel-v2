@@ -37,9 +37,25 @@ def db_schema(api: KeelApi, project: str | None = None, connection: str | None =
     return _schema_text(api.get(f"/projects/{pid}/db/schema", connection=connection), table or "")
 
 
+def _as_tool(api: KeelApi, tool: str, client: str | None = None) -> KeelApi:
+    """The api for one read tool's call, saying who asks (X-Keel-Client, X-Keel-Tool): keel's audit records a query by
+    its tool and its SQL at every level (api McpAudit, keel 0.18.55)."""
+    acting = getattr(api, "acting", None)
+    return acting(client or getattr(api, "client", "an MCP client"), tool) if acting else api
+
+
+def _client_of(ctx) -> str | None:
+    try:
+        params = ctx.session.client_params if ctx else None
+        return params.clientInfo.name if params and params.clientInfo else None
+    except Exception:  # noqa: BLE001 - only a label
+        return None
+
+
 def db_query(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None) -> str:
     from .tools import query_text
 
+    api = _as_tool(api, "keel_db_query")
     pid = _project(api, project)["id"]
     _plugin_on(api, pid, "db")
     return query_text(api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "mask": True}))
@@ -89,10 +105,11 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
             return guard(db_schema, api, project, connection, table)
 
         @srv.tool(annotations=ro, structured_output=False)
-        def keel_db_query(sql: str, project: str | None = None, connection: str | None = None) -> str:
+        def keel_db_query(sql: str, project: str | None = None, connection: str | None = None,
+                          ctx: Context | None = None) -> str:
             """Database plugin: one read-only query (SELECT, EXPLAIN, SHOW) under keel's rules: at most 200 rows and 15
-            seconds; columns named like a secret show as •••."""
-            return guard(db_query, api, sql, project, connection)
+            seconds; columns that hold a secret show as •••."""
+            return guard(db_query, _as_tool(api, "keel_db_query", _client_of(ctx)), sql, project, connection)
 
         return
     rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
