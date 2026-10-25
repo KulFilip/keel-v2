@@ -168,7 +168,7 @@ class TaskService(
         val state = try {
             flows.start(t.projectId, wid, title.take(200), criteria(t.description),
                 FlowCap(capTokens = b.capTokens, runMode = b.runMode?.trim()?.ifEmpty { null }),
-                allowFake = b.allowFake, allowDirty = b.allowDirty, request = request)
+                allowFake = b.allowFake, allowDirty = b.allowDirty, request = request, branch = "new")
         } catch (e: ApiException) {
             // A used-up cap, uncommitted files, the fake model, an unknown workflow: the task stays where it is and its history says why.
             store.event(id, "start_refused", t.status, t.status, "The $wid flow did not start: ${e.message}${e.hint?.let { " $it" } ?: ""}", "keel")

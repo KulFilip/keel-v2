@@ -1104,6 +1104,8 @@ export const api = {
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;
+    /** B8 continue: stay on the branch the project folder is on (default: a new branch from the base branch) */
+    branch?: "new" | "continue";
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>

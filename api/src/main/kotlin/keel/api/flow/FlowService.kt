@@ -253,7 +253,7 @@ class FlowService(
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
               allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
               options: Map<String, Any?>? = null, where: String? = null, model: Model? = null,
-              ownBranch: Boolean = true): JsonNode {
+              ownBranch: Boolean = true, branch: String? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap, model)
@@ -265,7 +265,7 @@ class FlowService(
         if (wt == null) {
             refuseDirty(root, allowDirty)
             // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on
-            if (ownBranch) madeBranch = ownBranch(pid, root, title, workflowId)
+            if (ownBranch) madeBranch = ownBranch(pid, root, title, workflowId, branch)
         } else {
             start = start.copy(root = wt.path)
         }
@@ -423,19 +423,53 @@ class FlowService(
         }.onFailure { log.warn("could not undo the branch {} in {}: {}", made.name, root, it.message) }
     }
 
-    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String): MadeBranch? {
+    /**
+     * The flow's own branch in the project folder. On the base branch it always gets one (feat/{slug}). On another branch
+     * [mode] decides: "new" (the start dialog, Tasks, MCP and the TUI by default) makes one from the base branch, so a
+     * flow never stacks its commits on what another flow (or init) left checked out; "continue" (the person picked
+     * "Continue this branch") and null (a caller that put the branch there itself: CI fix, review address) stay.
+     */
+    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String, mode: String? = null): MadeBranch? {
         if (isDemo(root)) return null
         val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val base = workspace.base(root) ?: return null
-        if (current != base) return null
-        val tip = workspace.git(root, "rev-parse", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
+        val fromBase = current != base
+        if (fromBase && mode != "new") return null
+        val tip = workspace.git(root, "rev-parse", if (fromBase) "refs/heads/$base" else "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var name = first
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
-        val r = workspace.git(root, "checkout", "-q", "-b", name)
-        if (!r.ok) throw Conflict("Could not create the branch $name", r.err.ifBlank { r.out }.take(300))
+        val r = if (fromBase) workspace.git(root, "checkout", "-q", "-b", name, base) else workspace.git(root, "checkout", "-q", "-b", name)
+        if (!r.ok) throw Conflict("Could not create the branch $name" + (if (fromBase) " from $base" else ""), r.err.ifBlank { r.out }.take(300))
         return MadeBranch(name, current, tip)
+    }
+
+    /**
+     * B8: init that ends without a commit on the branch it got leaves the project folder where it found it: back on the
+     * base branch, and the empty branch dropped (uncommitted files stay: both branches point at the same commit). Only
+     * when the folder is still on that branch and it has no commit the base does not have.
+     */
+    fun releaseEmptyBranch(tid: String) {
+        val row = jdbc.query("SELECT project_id, workflow_id, worktree FROM threads WHERE id = ?",
+            { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, tid).firstOrNull() ?: return
+        val (pid, workflow, wt) = row
+        if (workflow != "init" || !wt.isNullOrBlank()) return
+        runCatching {
+            val root = projects.root(pid)
+            if (isDemo(root)) return
+            val made = docs.flow(tid).items.firstOrNull { it.kind == "branch" }?.ref ?: return
+            val base = workspace.base(root) ?: return
+            if (made == base) return
+            val current = workspace.gitOut(root, "rev-parse", "--abbrev-ref", "HEAD") ?: return
+            if (current != made) return
+            val ahead = workspace.gitOut(root, "rev-list", "--count", "$base..$made")?.toIntOrNull() ?: return
+            if (ahead != 0) return
+            val back = workspace.git(root, "checkout", "-q", base)
+            if (!back.ok) { log.warn("could not switch {} back to {}: {}", root, base, back.err.take(200)); return }
+            workspace.git(root, "branch", "-d", made)
+            log.info("init {} made no commit: {} is back on {} and {} is gone", tid, root, base, made)
+        }.onFailure { log.warn("could not release the empty branch of {}: {}", tid, it.message) }
     }
 
     /** Stores the latest ThreadState we saw, so the UI has something when the engine is down. */
@@ -522,6 +556,7 @@ class FlowService(
         val state = engine.stop(tid)
         save(tid, state)
         jdbc.update("UPDATE agent_calls SET status = 'stopped', ended_at = COALESCE(ended_at, ?) WHERE thread_id = ? AND status = 'running'", Time.now(), tid)
+        releaseEmptyBranch(tid)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
     }
