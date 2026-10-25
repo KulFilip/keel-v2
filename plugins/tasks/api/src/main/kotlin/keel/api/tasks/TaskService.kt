@@ -222,7 +222,17 @@ class TaskService(
         val item = store.item(itemId) ?: throw NotFound("No inbox item $itemId")
         if (item.doneAt != null) throw Conflict("This was answered already", "Reload the inbox.")
         return when (item.kind) {
-            "task" -> when (b.action) {
+            "task" -> if (item.stage == TaskMachine.PR_STAGE) when (b.action) {
+                // B11 the flow finished without a PR: paste its link (the task goes to review), or put the ask aside
+                "pr" -> setPr(item.taskId, b.note?.trim().orEmpty())
+                "later" -> {
+                    closeItem(item.id)
+                    store.event(item.taskId, "flow", null, null, "Not now: you put aside opening the pull request.", "user")
+                    changed(item.projectId)
+                    get(item.taskId)
+                }
+                else -> throw BadRequest("action must be pr or later")
+            } else when (b.action) {
                 "confirm" -> confirm(item.taskId, ConfirmTask(item.stage ?: "", b.note))
                 "send_back" -> move(item.taskId, MoveTask(IN_PROGRESS, b.note))
                 else -> throw BadRequest("action must be confirm or send_back")
@@ -276,7 +286,8 @@ class TaskService(
                 val pr = if (t.status == IN_PROGRESS && t.prUrl == null) {
                     runCatching { engine.thread(e.threadId).get("pr_url")?.takeIf { !it.isNull }?.asText() }.getOrNull()
                 } else null
-                quietly(t) { fire(t.id, if (pr != null) Trigger.PrOpened(pr, "keel") else Trigger.FlowDone()) }
+                val why = if (pr == null && t.status == IN_PROGRESS) runCatching { store.noPrReason(e.threadId) }.getOrNull() else null
+                quietly(t) { fire(t.id, if (pr != null) Trigger.PrOpened(pr, "keel") else Trigger.FlowDone(why = why)) }
             }
             "thread.failed" -> {
                 val t = store.byThread(e.threadId) ?: return
@@ -362,7 +373,10 @@ class TaskService(
         next = store.update(next)
         store.event(id, plan.kind, t.status, plan.to, plan.note, plan.actor)
         if (plan.to != t.status) closeItems(id, kind = "task")
-        plan.openItem?.let { openItem(next, "task", it.stage, it.title, it.detail) }
+        plan.openItem?.let {
+            closeItems(id, kind = "task", stage = it.stage)          // one per stage: a second flow's ask replaces the first's
+            openItem(next, "task", it.stage, it.title, it.detail)
+        }
         return next to plan
     }
 

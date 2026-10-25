@@ -126,6 +126,18 @@ class TaskStore(private val jdbc: JdbcTemplate) {
         return jdbc.update(sql.toString(), *args.toTypedArray())
     }
 
+    /**
+     * B11 why the flow [threadId] opened no pull request: the newest note of its open_pr step that says so ("not pushed,
+     * and keel never pushes", "No GitHub token", "Run mode auto"), without the "Copy the PR body" tail; null when none.
+     */
+    fun noPrReason(threadId: String): String? =
+        jdbc.query("SELECT data_json FROM events WHERE thread_id = ? AND type = 'step.finished' ORDER BY id DESC LIMIT 60",
+            { rs, _ -> rs.getString(1) }, threadId)
+            .asSequence()
+            .mapNotNull { runCatching { Json.readMap(it)["note"]?.toString() }.getOrNull() }
+            .firstOrNull { NO_PR.containsMatchIn(it) }
+            ?.substringBefore(" Copy the PR body")?.trim()?.take(400)
+
     fun closeItem(id: Long): Boolean = jdbc.update("UPDATE task_inbox SET done_at = ? WHERE id = ? AND done_at IS NULL", Time.now(), id) > 0
 
     /** The thread row the api keeps (status, phase), for the task's flow line. */
@@ -135,6 +147,8 @@ class TaskStore(private val jdbc: JdbcTemplate) {
     ).firstOrNull()
 
     companion object {
+        private val NO_PR = Regex("no PR opened|opens no PR|not pushed, and keel never pushes|are not pushed")
+
         fun newId(): String = "tk_" + UUID.randomUUID().toString().replace("-", "").take(12)
     }
 }

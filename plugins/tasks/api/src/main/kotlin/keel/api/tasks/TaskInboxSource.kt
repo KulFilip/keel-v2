@@ -35,7 +35,9 @@ class TaskInboxSource(private val tasks: TaskStore, private val mapper: ObjectMa
                 InboxTaskAction("address", "Address it (small flow)"),
                 InboxTaskAction("handle", "I'll handle it"),
             )
-            else -> listOf(
+            // B11 the flow finished without a PR: its link (the note box), or Not now
+            else -> if (it.stage == TaskMachine.PR_STAGE) listOf(InboxTaskAction("pr", "Save the PR link", needsNote = true), InboxTaskAction("later", "Not now"))
+            else listOf(
                 InboxTaskAction("confirm", if (it.stage == "prod") "Shipped, confirm" else "PP works, confirm"),
                 InboxTaskAction("send_back", "Send back", needsNote = true),
             )
