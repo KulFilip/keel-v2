@@ -92,7 +92,7 @@ class DatabaseSecurityApiTest : ApiTest() {
         val (pid, _) = newProject("dbsec-audit")
         put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         post("/api/projects/$pid/databases", mapOf("name" to "local", "driver" to "sqlite", "default_db" to "app.db")).andExpect(status().isOk)
-        val sql = "select name from users where password_hash = 'Sup3rS3cretHash' and note = 'x" + "y".repeat(3000) + "'"
+        val sql = "select name from users where password_hash = 'Sup3rS3cretHash' and note = 'x" + "y".repeat(3000) + "'" // keel:allow-secret
         post("/api/projects/$pid/db/query", mapOf("sql" to sql, "connection" to "local", "mask" to true), via).andExpect(status().isOk)
         val rows = jdbc.queryForList("SELECT data_json FROM events WHERE project_id = ? AND type = 'mcp.call'", String::class.java, pid)
         assertThat(rows).hasSize(1)

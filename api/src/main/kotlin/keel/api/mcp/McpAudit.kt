@@ -78,12 +78,12 @@ class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate,
         const val SQL_MAX = 2000
         private const val BODY_MAX = 64 * 1024
         private const val MASK = "•••"
-        private const val SECRET = "\\w*(?:pass(?:word|wd)?|secret|token|hash|salt|api_?key|private_?key|credential)\\w*"
+        private const val HIDDEN_COLUMN = "\\w*(?:pass(?:word|wd)?|secret|token|hash|salt|api_?key|private_?key|credential)\\w*"
         private const val LIT = "'(?:[^']|'')*'"
         /** `password_hash = '…'`, `token <> '…'`, `secret LIKE '…'` */
-        private val SECRET_CMP = Regex("(?i)(\\b$SECRET[`\"\\]]?\\s*(?:=|<>|!=|:=|\\bi?like\\b)\\s*)$LIT")
+        private val SECRET_CMP = Regex("(?i)(\\b$HIDDEN_COLUMN[`\"\\]]?\\s*(?:=|<>|!=|:=|\\bi?like\\b)\\s*)$LIT")
         /** `token IN ('…', '…')` */
-        private val SECRET_IN = Regex("(?i)(\\b$SECRET[`\"\\]]?\\s+in\\s*)\\(([^)]*)\\)")
+        private val SECRET_IN = Regex("(?i)(\\b$HIDDEN_COLUMN[`\"\\]]?\\s+in\\s*)\\(([^)]*)\\)")
         /** `INSERT INTO t (…, password, …) VALUES (…)`: every literal of its values */
         private val INSERT = Regex("(?is)^(\\s*insert\\s+into\\s+[^(]+\\(([^)]*)\\)\\s*values)(.*)$")
         private val IDENTIFIED = Regex("(?i)(\\bidentified\\s+(?:with\\s+\\S+\\s+)?by\\s+)$LIT")
@@ -94,7 +94,7 @@ class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate,
         fun auditSql(sql: String): String {
             var out = sql
             INSERT.matchEntire(out)?.let { m ->
-                if (Regex("(?i)\\b$SECRET\\b").containsMatchIn(m.groupValues[2])) {
+                if (Regex("(?i)\\b$HIDDEN_COLUMN\\b").containsMatchIn(m.groupValues[2])) {
                     out = m.groupValues[1] + LITERAL.replace(m.groupValues[3]) { "'$MASK'" }
                 }
             }
