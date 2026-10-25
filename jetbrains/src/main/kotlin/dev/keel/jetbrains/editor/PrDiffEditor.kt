@@ -47,7 +47,8 @@ object PrDiffEditor {
     fun open(project: Project, path: String, line: Int? = null, side: String = "RIGHT") {
         val session = ReviewSession.of(project)
         val prKey = session.key ?: return
-        session.call({ api, pid, key -> api.diff(pid, key, path) }) { r ->
+        val pid = KeelProjectService.of(project).pid ?: return
+        KeelProjectService.of(project).io({ api -> api.diff(pid, prKey, path) }) { r ->
             r.onFailure { KeelNotifier.error(project, "Could not read the diff of $path", KeelProjectService.say(it)) }
             r.onSuccess { fd ->
                 if (fd.binary) {

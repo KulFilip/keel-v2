@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
@@ -37,6 +38,7 @@ dependencies {
         create(IntelliJPlatformType.IntellijIdeaCommunity, "2024.3")
         bundledPlugin("Git4Idea")
         pluginVerifier()
+        testFramework(TestFrameworkType.Platform)
     }
     // the IDE brings Kotlin and kotlinx.coroutines; keep them out of the plugin
     implementation("com.squareup.okhttp3:okhttp:4.12.0") { exclude(group = "org.jetbrains.kotlin") }
@@ -45,6 +47,7 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin")
     }
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.opentest4j:opentest4j:1.3.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0") { exclude(group = "org.jetbrains.kotlin") }
 }
 

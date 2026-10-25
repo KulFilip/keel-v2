@@ -114,25 +114,18 @@ class StartFlowDialog(private val project: Project, private val prefill: Prefill
         row("Title") { cell(title).align(AlignX.FILL) }
         row { label("What should keel build? (your own words)") }
         row { cell(JBScrollPane(request).apply { preferredSize = Dimension(JBUI.scale(520), JBUI.scale(110)) }).align(Align.FILL) }
-        buttonsGroup("Where") {
-            row { cell(worktree) }
-            row { cell(folder) }
-        }
+        // the radio buttons go in as one plain panel: the DSL wants its own bound button groups otherwise
+        row("Where:") { cell(KeelUi.row(worktree, folder, gap = 12)) }
         row("Model") {
             cell(model)
             label("effort:")
             cell(effort)
         }
         row { comment("Each agent of the workflow has its model in keel's settings; this choice goes along as a flow option.") }
-        buttonsGroup("Run mode") {
-            row {
-                cell(manual)
-                cell(important)
-                cell(supervisor)
-                label("cap:")
-                cell(cap)
-                label("tokens")
-            }
+        row("Run mode:") { cell(KeelUi.row(manual, important, supervisor, gap = 12)) }
+        row("Cap:") {
+            cell(cap)
+            label("tokens")
         }
         row { comment("keel never pushes. Tested commits land on a new branch.") }
     }

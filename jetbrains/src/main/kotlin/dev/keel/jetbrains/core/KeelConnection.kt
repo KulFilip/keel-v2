@@ -12,6 +12,8 @@ import dev.keel.jetbrains.api.deviceName
 import dev.keel.jetbrains.settings.KeelCredentials
 import dev.keel.jetbrains.settings.KeelSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
 
@@ -24,12 +26,15 @@ class KeelConnection {
     @Volatile private var secret: String? = null
     @Volatile private var api: KeelApi? = null
     @Volatile private var builtFor: String? = null
+    private val signIn = Mutex()
 
     /** The client, signed in. Blocking work (keel2, PasswordSafe) runs on the IO pool. */
-    suspend fun ensure(): KeelApi = withContext(Dispatchers.IO) {
+    suspend fun ensure(): KeelApi = withContext(Dispatchers.IO) { signIn.withLock { build() } }
+
+    private fun build(): KeelApi {
         val s = KeelSettings.get()
         val key = "${s.url}|${s.mode}"
-        api?.takeIf { builtFor == key && secret != null }?.let { return@withContext it }
+        api?.takeIf { builtFor == key && secret != null }?.let { return it }
         val token = when (s.mode) {
             KeelSettings.MODE_PAIRED -> KeelCredentials.deviceToken(s.url)
                 ?: throw KeelException(401, "This IDE is not paired with keel.", "Settings › Tools › keel: pair with a code, or use keel2 on this computer.")
@@ -41,7 +46,7 @@ class KeelConnection {
         }
         secret = token
         builtFor = key
-        KeelApi(s.url, token = { secret }, onRemoved = ::removed).also { api = it }
+        return KeelApi(s.url, token = { secret }, onRemoved = ::removed).also { api = it }
     }
 
     /** A client without sign-in (pairing, health). */

@@ -39,7 +39,7 @@ has no model field yet, so the workflow's agents keep their own models until a w
 
 ```sh
 cd jetbrains
-./gradlew test           # JVM tests: pairing, Bearer, inbox, gate answers (409), review threads, KeelBot, mapping, keel2's key
+./gradlew test           # JVM tests (pairing, Bearer, inbox, gate answers + 409, review threads, KeelBot, mapping, keel2 key) and headless IDE tests (panels, gate, editor threads, dialog, settings)
 ./gradlew buildPlugin    # build/distributions/keel-jetbrains-<version>.zip
 ./gradlew verifyPlugin   # the JetBrains plugin verifier against IntelliJ IDEA Community 2024.3
 ```

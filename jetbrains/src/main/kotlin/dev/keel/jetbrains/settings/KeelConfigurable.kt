@@ -50,9 +50,8 @@ class KeelConfigurable(private val project: Project) : Configurable {
         projects.renderer = SimpleListCellRenderer.create("Found by its folder (automatic)") { p -> p?.let { "${it.name} (${it.root.ifBlank { it.id }})" } ?: "Found by its folder (automatic)" }
         return panel {
             row("keel address:") { cell(url).align(AlignX.FILL).comment("Default ${KeelSettings.DEFAULT_URL}; a Tailscale or tunnel address works too.") }
-            buttonsGroup("Sign in") {
-                row { cell(local) }
-                row { cell(paired) }
+            group("Sign in", indent = false) {
+                row { cell(dev.keel.jetbrains.ui.KeelUi.stack().apply { add(local); add(paired) }) }
                 indent {
                     row("Code:") { cell(code); cell(pair); cell(pairState) }
                     row("This IDE is called:") { cell(name).align(AlignX.FILL) }
@@ -78,7 +77,7 @@ class KeelConfigurable(private val project: Project) : Configurable {
     override fun isModified(): Boolean {
         val s = KeelSettings.get()
         return url.text.trim() != s.url || (if (paired.isSelected) KeelSettings.MODE_PAIRED else KeelSettings.MODE_LOCAL) != s.mode ||
-            name.text.trim() != s.state.deviceName.orEmpty() || notify.isSelected != s.state.notify ||
+            name.text.trim() != (s.state.deviceName ?: KeelConnection.defaultDeviceName()) || notify.isSelected != s.state.notify ||
             (projects.selectedItem as? KeelProject)?.id != KeelProjectSettings.of(project).state.projectId
     }
 

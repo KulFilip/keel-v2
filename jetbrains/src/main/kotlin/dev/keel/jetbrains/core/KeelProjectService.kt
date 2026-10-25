@@ -117,8 +117,9 @@ class KeelProjectService(val project: Project, val scope: CoroutineScope) : Disp
         if (!KeelSettings.get().state.notify) return
         val mine = pid ?: return
         val now = questions.filter { it.projectId == mine }
-        val fresh = now.filter { told.add(keyOf(it)) }
-        if (fresh.isNotEmpty() && told.size > fresh.size + 200) told.retainAll(now.map(::keyOf).toSet())
+        val fresh = synchronized(told) {
+            now.filter { told.add(keyOf(it)) }.also { if (told.size > 300) told.retainAll(now.map(::keyOf).toSet()) }
+        }
         if (fresh.isEmpty()) return
         edt { fresh.take(3).forEach { KeelNotifier.question(project, it) } }
     }
