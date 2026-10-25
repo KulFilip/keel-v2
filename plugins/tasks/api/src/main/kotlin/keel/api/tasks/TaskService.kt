@@ -459,7 +459,7 @@ class TaskService(
     /** Opens an Inbox item and its notification (the phone, Muxy and the IDE follow the Inbox's notifications). */
     fun openItem(t: Task, kind: String, stage: String?, title: String, detail: String, data: Map<String, Any?>? = null): TaskItem {
         val item = store.openItem(t, kind, stage, title, detail, data)
-        runCatching { notifications.create("review", t.projectId, title, detail.take(200), "/tasks/${t.id}", threadId = itemRef(item.id)) }
+        runCatching { notifications.create("review", t.projectId, title, detail, "/tasks/${t.id}", threadId = itemRef(item.id)) }
         return item
     }
 

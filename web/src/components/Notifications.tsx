@@ -3,7 +3,8 @@
 import { useState } from "react";
 import "./inbox.css";
 import type { Notification as Note, NotificationSettings } from "../api";
-import { clock, plainText } from "../format";
+import { clock } from "../format";
+import { noticeView } from "../noticeText";
 import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify";
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type NotesSettingItem } from "../sdk/slots";
@@ -93,6 +94,7 @@ function NoteSettings() {
       <button className="btn" type="button" onClick={() => notifyLocal({
         id: `test-${Date.now()}`, type: "review", project_id: project?.id ?? "", title: "Test notification",
         body: "This is how a gate that waits for you looks", link: "#/flow", at: new Date().toISOString(), read: false,
+        summary: ["◆ This is how a gate that waits for you looks"],
       })}>Send a test notification</button>
     </>
   );
@@ -113,9 +115,9 @@ export function NotificationDrawer({ onClose }: { onClose: () => void }) {
               <li key={n.id} className="note-row">
                 <button type="button" className={`note ${n.read ? "" : "unread"} ${n.done ? "done" : ""} t-${NTONE[n.type] ?? "run"}`}
                   onClick={() => { openNote(n); onClose(); }}>
-                  <span className="row" style={{ justifyContent: "space-between" }}><b>{n.title}</b><span className="hint">{clock(n.at, false)}</span></span>
-                  <span className="sub">{pname(n.project_id)} · {plainText(n.body)}</span>
-                  {n.done && <span className="note-done">✓ decided</span>}
+                  <NoteHead note={n} />
+                  <NoteLines note={n} />
+                  <span className="note-meta hint">{where(n, pname(n.project_id))}{clock(n.at, false)}{n.done && <> · <span className="note-done">✓ decided</span></>}</span>
                 </button>
                 <span className="note-acts">
                   {!n.read && <button type="button" className="btn sm ghost" aria-label={`Mark read: ${n.title}`} title="Mark read" onClick={() => markRead(n.id)}>✓</button>}
@@ -140,21 +142,48 @@ export function NotificationDrawer({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** The title: one bold line with its mark (an ellipsis when it is too long; the whole title is its tooltip). */
+function NoteHead({ note }: { note: Note }) {
+  const v = noticeView(note);
+  return (
+    <b className="note-title" title={`${v.mark} ${v.title}`}>
+      <span className="note-mark" aria-hidden="true">{v.mark}</span> {v.title}
+    </b>
+  );
+}
+
+/** At most three short lines (the api's summary, or lines made from the body). The full text is in the Inbox. */
+function NoteLines({ note }: { note: Note }) {
+  const { lines } = noticeView(note);
+  if (!lines.length) return null;
+  return (
+    // spans, not ul/li: a bell row is a button, and a button holds only phrasing content
+    <span className="note-lines" role="list" data-testid="note-lines">
+      {lines.map((l, i) => <span key={i} role="listitem">{l}</span>)}
+    </span>
+  );
+}
+
+/** "shop · " before the time, unless the title already starts with the project ("◆ shop: approve the spec?"). */
+function where(note: Note, project: string): string {
+  return project && !noticeView(note).title.startsWith(project) ? `${project} · ` : "";
+}
+
 function PopupCard({ note, onClose }: { note: Note; onClose: () => void }) {
   const { openNote, projects } = useApp();
   const pname = projects.find((p) => p.id === note.project_id)?.name ?? note.project_id;
   return (
     <div className={`pop t-${NTONE[note.type] ?? "run"}`} role="status">
       <div className="pop-h">
-        <b>{note.title}</b>
+        <NoteHead note={note} />
         <button type="button" className="btn sm ghost" aria-label="Dismiss" onClick={onClose}>×</button>
       </div>
-      <span className="sub">{pname} · {plainText(note.body)}</span>
-      <div className="row">
+      <NoteLines note={note} />
+      <div className="pop-foot">
         <button className={`btn sm ${note.type === "review" ? "warn" : ""}`} type="button" onClick={() => { openNote(note); onClose(); }}>
           {note.type === "review" ? "Review now" : "Open"}
         </button>
-        <span className="hint">{clock(note.at, false)}</span>
+        <span className="hint">{where(note, pname)}{clock(note.at, false)}</span>
       </div>
     </div>
   );

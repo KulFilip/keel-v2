@@ -442,9 +442,9 @@ describe("cross-project notifications", () => {
       within(pops).getAllByText("Guard reverted an edit in platform"),
     ).toHaveLength(1);
     expect(pops.querySelectorAll(".pop")).toHaveLength(1);
-    expect(
-      within(pops).getByText(/platform · investigator/),
-    ).toBeInTheDocument();
+    // 0.18.55 the short line, and the project beside the time
+    expect(within(pops).getByRole("listitem")).toHaveTextContent("investigator tried to edit Tally.kt");
+    expect(within(pops).getByText(/^platform · /)).toBeInTheDocument();
     expect(screen.getByTestId("unread")).toHaveTextContent("2");
   });
 

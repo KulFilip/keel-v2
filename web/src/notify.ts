@@ -2,6 +2,7 @@
 // Settings are stored by the api (/api/notification-settings) so every browser on this machine agrees.
 
 import type { Notification as Note, NotificationSettings, NotificationType } from "./api";
+import { noticeView } from "./noticeText";
 
 export const NOTIFY_DEFAULTS: NotificationSettings = {
   sound: true,
@@ -148,7 +149,8 @@ export async function askPermission(): Promise<NotificationPermission | "unsuppo
 export function desktopPop(n: Note, projectName: string, onClick: () => void) {
   if (!canNotify() || window.Notification.permission !== "granted") return;
   try {
-    const d = new window.Notification(`keel · ${n.title}`, { body: `${projectName || n.project_id} · ${n.body}`, tag: `keel-${n.id}` });
+    const v = noticeView(n);
+    const d = new window.Notification(`${v.mark} ${v.title}`, { body: [...v.lines, `keel · ${projectName || n.project_id}`].join("\n"), tag: `keel-${n.id}` });
     d.onclick = () => {
       window.focus();
       onClick();

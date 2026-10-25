@@ -306,7 +306,11 @@ DELETE /api/secrets/{name}
 POST   /api/connections/{provider}/test               → { ok, text?, ms, error? }
 
 # notifications
-GET    /api/notifications?limit=50                    → Notification[]   { id, type: "review"|"failed"|"budget"|"finished"|"started", project_id, title, body, link, at, read }
+GET    /api/notifications?limit=50                    → Notification[]   { id, type: "review"|"failed"|"budget"|"finished"|"started", project_id, title, body, link, at, read, summary }
+       summary (0.18.55): at most 3 short lines, one fact each with a mark (✓ ⤼ ✗ ◆), made from structured data (an older
+       row: []); the toast and the bell list show it, body keeps the full text. Titles say what to do ("◆ shop: approve
+       the spec?", "◆ shop is set up — check it", "✓ Add CSV export is done", "✗ Fix the totals stopped: <reason>"),
+       never a step id. The engine's gate.waiting adds { flow, step_name, phase, ac, summary } for them.
 POST   /api/notifications/read-all      POST /api/notifications/{id}/read
 GET    /api/notification-settings     PUT same       { sound, volume, tone, popup, desktop, scope, kinds: {review, failed, budget, finished, started}, quiet }
 

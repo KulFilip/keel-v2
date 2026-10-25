@@ -917,6 +917,8 @@ export type Notification = {
   thread_id?: string | null;
   step?: string | null;
   done?: boolean;
+  /** 0.18.55 at most three short lines (each one fact with a mark): what the toast and the bell list show. */
+  summary?: string[];
 };
 export type NotificationSettings = {
   sound: boolean;

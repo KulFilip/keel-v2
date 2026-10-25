@@ -167,8 +167,10 @@ class EventsApiTest : ApiTest() {
         // started is off by default
         assertThat(types).containsExactlyInAnyOrder("finished", "budget", "failed", "failed", "review")
         val review = mine.first { it["type"].asText() == "review" }
-        assertThat(review["title"].asText()).isEqualTo("AC gate waits for you")
+        // an older engine sends only the step's title: it gets the project's name and the mark
+        assertThat(review["title"].asText()).isEqualTo("◆ events-notes: AC gate waits for you")
         assertThat(review["body"].asText()).contains("AC-002")
+        assertThat(review["summary"].map { it.asText() }).containsExactly("AC-002 Refuse a negative score")
         assertThat(review["read"].asBoolean()).isFalse()
         assertThat(mine.first { it["type"].asText() == "budget" }["body"].asText()).isEqualTo("400k of 500k tokens used.")
 
@@ -178,6 +180,63 @@ class EventsApiTest : ApiTest() {
         post("/api/notifications/${review["id"].asLong()}/read").andExpect(status().isOk)
         assertThat(get("/api/notifications").json().first { it["id"].asLong() == review["id"].asLong() }["read"].asBoolean()).isTrue()
         post("/api/notifications/999999/read").andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `notifications have a title a person reads and at most three short lines, the full text stays in the body`() {
+        val (pid, _) = newProject("notes-shop")
+        val handOver = listOf(
+            "Setup ladder: 3 of 12 rungs passed, 9 skipped. The commands that passed are in .keel/RUNNING.md.",
+            "Knowledge: wrote architecture, domain, conventions (in .keel/knowledge/).",
+            "Layout: keel — keel's files stay in .keel/, out of git.",
+        ).joinToString("\n")
+        send(listOf(
+            ev("thread.started", pid, "t-init", data = mapOf("workflow" to "init", "title" to "")),
+            ev("gate.waiting", pid, "t-init", step = "hand_over", data = mapOf("kind" to "gate", "title" to "hand over", "detail" to handOver,
+                "flow" to "init", "step_name" to "hand over", "phase" to "setup",
+                "summary" to listOf("✓ 3 setup checks passed · 9 skipped", "✓ Knowledge: architecture, domain, conventions"))),
+            ev("thread.started", pid, "t-feat", data = mapOf("workflow" to "feature", "title" to "Add CSV export")),
+            ev("gate.waiting", pid, "t-feat", step = "spec_gate", data = mapOf("kind" to "gate", "title" to "spec approval",
+                "detail" to "AC-001 [API] Export orders as CSV\nAC-002 [WEB] A button downloads the file", "flow" to "feature", "phase" to "spec",
+                "step_name" to "spec approval")),
+            ev("gate.waiting", pid, "t-feat", step = "round_gate", data = mapOf("kind" to "clarify", "title" to "The explorer has 2 questions before the spec",
+                "detail" to "1. Which columns?\n2. Which date format?", "flow" to "feature", "phase" to "spec", "step_name" to "your answers",
+                "summary" to listOf("◆ Which columns?", "◆ Which date format?"))),
+            ev("gate.waiting", pid, "t-feat", step = "ac_gate", data = mapOf("kind" to "gate", "title" to "AC gate · AC-002", "detail" to "long evidence",
+                "flow" to "feature", "phase" to "gate", "step_name" to "AC gate", "ac" to "AC-002", "summary" to listOf("◆ AC-002: A button downloads the file"))),
+            ev("agent.started", pid, "t-feat", "c-notes", "green", mapOf("agent" to "implementer", "provider" to "fake")),
+            ev("agent.finished", pid, "t-feat", "c-notes", "green", mapOf("status" to "failed", "result" to "tests still red")),
+            ev("thread.done", pid, "t-feat"),
+            ev("thread.started", pid, "t-fix", data = mapOf("workflow" to "fix", "title" to "Fix the totals")),
+            ev("thread.failed", pid, "t-fix", data = mapOf("error" to
+                "RuntimeError: the build broke while compiling the order module because a dependency is missing\nTraceback (most recent call last): ...")),
+        )).andExpect(status().isOk)
+
+        val mine = get("/api/notifications?limit=50").json().filter { it["project_id"].asText() == pid }
+        fun note(title: String) = mine.firstOrNull { it["title"].asText() == title }
+            ?: throw AssertionError("no notification titled '$title' in ${mine.map { it["title"].asText() }}")
+        fun lines(title: String) = note(title)["summary"].map { it.asText() }
+
+        // the init hand-over: a title a person understands, two facts; the long text (paths, layout) stays in the body
+        assertThat(lines("◆ notes-shop is set up — check it"))
+            .containsExactly("✓ 3 setup checks passed · 9 skipped", "✓ Knowledge: architecture, domain, conventions")
+        assertThat(note("◆ notes-shop is set up — check it")["body"].asText()).contains("Layout: keel", ".keel/RUNNING.md")
+        // the spec gate: no summary from the engine, lines from the detail
+        assertThat(lines("◆ notes-shop: approve the spec?")).containsExactly("AC-001 [API] Export orders as CSV", "AC-002 [WEB] A button downloads the file")
+        assertThat(lines("◆ notes-shop: your answers are needed")).containsExactly("◆ Which columns?", "◆ Which date format?")
+        assertThat(lines("◆ notes-shop: check AC-002")).containsExactly("◆ AC-002: A button downloads the file")
+        assertThat(lines("✗ notes-shop: implementer failed")).containsExactly("✗ tests still red")
+        assertThat(lines("✓ Add CSV export is done")).containsExactly("✓ All steps finished")
+
+        val failed = mine.first { it["title"].asText().startsWith("✗ Fix the totals stopped: ") }["title"].asText()
+        val reason = failed.removePrefix("✗ Fix the totals stopped: ")
+        assertThat(reason).doesNotContain("RuntimeError").endsWith("…")
+        // cut after a whole word: the words before "…" are the start of the error's own words
+        assertThat("the build broke while compiling the order module because a dependency is missing ").startsWith(reason.removeSuffix("…") + " ")
+
+        // never a step id or snake_case, never more than three lines
+        assertThat(mine.map { it["title"].asText() }).noneMatch { Regex("[a-z]+_[a-z]+").containsMatchIn(it) }
+        assertThat(mine).allMatch { it["summary"].size() <= 3 }
     }
 
     @Test
