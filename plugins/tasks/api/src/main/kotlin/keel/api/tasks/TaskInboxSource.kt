@@ -40,7 +40,10 @@ class TaskInboxSource(private val tasks: TaskStore, private val mapper: ObjectMa
                 InboxTaskAction("send_back", "Send back", needsNote = true),
             )
         }
-        val questions = (d["questions"] as? List<*>)?.takeIf { q -> q.isNotEmpty() }?.let { q -> mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(q) }
+        // clarify's shape for the card's question form: options as {label}
+        val questions = (d["questions"] as? List<*>)?.takeIf { q -> q.isNotEmpty() }?.map { q ->
+            (q as? Map<*, *>)?.let { m -> m + ("options" to (m["options"] as? List<*>).orEmpty().map { o -> if (o is Map<*, *>) o else mapOf("label" to o.toString()) }) }
+        }?.let { q -> mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(q) }
         return InboxItem(
             projectId = it.projectId, projectName = "", threadId = t.threadId ?: "", flow = t.title, workflowId = d["workflow_id"]?.toString() ?: t.workflowId,
             step = null, kind = it.kind, title = it.title, detail = it.detail, more = false, options = emptyList(), id = "task-item-${it.id}",

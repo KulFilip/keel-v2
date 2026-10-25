@@ -121,6 +121,7 @@ class JiraAutomationsApiTest : ApiTest() {
         assertThat(p["detail"].asText()).contains("New behaviour on the cart page.").contains("1 question(s) first")
         assertThat(p["payload"]["workflow_id"].asText()).isEqualTo("feature")
         assertThat(p["questions"].single()["question"].asText()).isEqualTo("Mobile too?")
+        assertThat(p["questions"].single()["options"].map { it["label"].asText() }).containsExactly("yes", "no")
         assertThat(p["task"]["actions"].map { it["id"].asText() }).containsExactly("start", "other", "later")
         val sent = picks.single()
         assertThat(sent["kind"].asText()).isEqualTo("flow")

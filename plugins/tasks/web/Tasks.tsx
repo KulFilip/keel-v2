@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_FLOW, STATUS_LABEL, tasksApi, type NewTask, type Task, type TaskEvent, type TaskItem, type TaskList, type TaskStatus, type TaskType,
 } from "./tasksApi";
+import { AutomationItem, AutomationsDrawer } from "./Automations";
 
 /** The board's columns, in order; Blocked shows only when a task is blocked, cancelled tasks sit under Done. */
 const COLUMNS: TaskStatus[] = ["todo", "in_progress", "in_review", "testing_pp", "ready_prod", "done"];
@@ -175,6 +176,15 @@ function ItemBox({ it, onAct, busy }: { it: TaskItem; onAct: (action: string, no
   );
 }
 
+/** The buttons of a proposal or review comment in the drawer (the Inbox gets the same list from the api). */
+function itemActions(it: TaskItem): { id: string; label: string }[] {
+  const d = it.data ?? {};
+  if (it.kind === "task-proposal") {
+    return d.no_pr ? [{ id: "later", label: "Not now" }] : [{ id: "start", label: "Start" }, { id: "other", label: "Use another flow" }, { id: "later", label: "Not now" }];
+  }
+  return [...(d.reply ? [{ id: "reply", label: "Use keel's reply" }] : []), { id: "address", label: "Address it (small flow)" }, { id: "handle", label: "I'll handle it" }];
+}
+
 function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: Task) => void }) {
   const [wfs, setWfs] = useState<Workflow[] | null>(null);
   const [wid, setWid] = useState("");
@@ -298,10 +308,33 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
           </dl>
           {t.status === "blocked" && <div className="errbox" role="note"><b>Blocked</b><span className="sub">{t.blocked_reason ?? "No reason given."} Start a new flow, or move it by hand.</span></div>}
 
-          {t.waiting.map((it) => (
+          {t.waiting.filter((it) => it.kind === "task" || it.kind === "jira-manual").map((it) => (
             <ItemBox key={it.id} it={it} busy={busy} onAct={(action, n) => run(() => tasksApi.act(it.id, action, n),
               action === "done" ? "Recorded: you moved it in Jira." : action === "confirm" ? "Confirmed." : "Sent back to In progress.")} />
           ))}
+          {t.waiting.filter((it) => it.kind === "task-proposal" || it.kind === "task-review").map((it) => (
+            <section key={it.id} className="tk-sec tk-item" aria-label={it.title}>
+              <h3>{it.title}</h3>
+              {it.detail && <p className="sub">{it.detail}</p>}
+              <AutomationItem pid={t.project_id} kind={it.kind} data={it.data ?? {}} actions={itemActions(it)} idBase={`tk-item-${it.id}`}
+                onAct={async (action, b) => {
+                  const next = await tasksApi.actWith(it.id, action, b);
+                  r.setData(next);
+                  toast(action === "later" ? "Put aside." : action === "handle" ? "Noted: you handle it." : "Done.");
+                  onChanged();
+                }} />
+            </section>
+          ))}
+
+          {/* 0.18.52 keel's help: it picks the flow or proposes a review, and asks in the Inbox before anything runs */}
+          {(canStart || (t.pr_url && t.status !== "done" && t.status !== "cancelled")) && (
+            <div className="row tk-help" role="group" aria-label="keel's help">
+              {canStart && <button className="btn sm" type="button" disabled={busy} onClick={() => void run(() => tasksApi.pick(t.id), "keel picked a flow: see its proposal.")}>Pick a flow for me</button>}
+              {t.pr_url && t.status !== "done" && t.status !== "cancelled" && (
+                <button className="btn sm" type="button" disabled={busy} onClick={() => void run(() => tasksApi.review(t.id), "keel proposes a review: see its proposal.")}>Review it</button>
+              )}
+            </div>
+          )}
 
           {canStart && <StartBox t={t} pid={t.project_id} onStarted={(n) => { r.setData(n); toast(`${nameOf(n)}: the ${n.workflow_id} flow started.`); onChanged(); }} />}
 
@@ -401,6 +434,7 @@ export function TasksPage({ pid }: { pid: string }) {
   const [making, setMaking] = useState(false);
   const [open, setOpen] = useState<string | null>(arg ?? null);
   const [syncing, setSyncing] = useState(false);
+  const [automations, setAutomations] = useState(false);
   useEffect(() => setOpen(arg ?? null), [arg]);
 
   const me = r.data?.sync.me ?? null;
@@ -419,7 +453,7 @@ export function TasksPage({ pid }: { pid: string }) {
     try {
       const s = await tasksApi.sync(pid);
       if (!s.ok) toast(`Sync failed: ${s.error ?? "unknown"}`);
-      else toast(s.jira ? `Synced: ${s.created} new, ${s.updated} changed, ${s.moved} moved${s.reviews_checked ? `; ${s.reviews_checked} PR(s) read` : ""}.`
+      else toast(s.jira ? `Synced: ${s.created} new, ${s.updated} changed, ${s.moved} moved${s.reviews_checked ? `; ${s.reviews_checked} PR(s) read` : ""}${s.comments_checked ? `; ${s.comments_checked} review comment(s) checked` : ""}.`
         : s.reviews_checked ? `${s.reviews_checked} PR(s) read, ${s.reviews_moved} approved.` : "Nothing to sync: Jira is not connected.");
       await Promise.all([r.reload(), reloadProjects()]);
     } catch (e) {
@@ -437,9 +471,11 @@ export function TasksPage({ pid }: { pid: string }) {
     <>
       <PageHead title="Tasks" sub="Your tickets as a board. Start a flow for one; keel moves it through review, PP testing and production, and asks you at PP and release."
         actions={<>
+          <button className="btn" type="button" onClick={() => setAutomations(true)}>Automations</button>
           <button className="btn" type="button" onClick={() => void sync()} disabled={syncing}>{syncing ? "Syncing…" : "Sync now"}</button>
           <button className="btn primary" type="button" onClick={() => setMaking(true)}>New task</button>
         </>} />
+      {automations && <AutomationsDrawer pid={pid} onClose={() => setAutomations(false)} />}
       {r.data && <SyncLine data={r.data} busy={syncing} />}
       <div className="row tk-filters" role="group" aria-label="Filters">
         <Tabs value={who} options={[["all", "All"], ["mine", "Mine"]]} onChange={setWho} label="Whose tasks" />
