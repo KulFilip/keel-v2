@@ -204,3 +204,19 @@ def test_the_seeds_evidence_block_is_whole_up_to_its_cap():
     assert block.count("x") == prompts.EVIDENCE_MAX + block.split("\n\n", 1)[0].count("x")
     assert prompts.evidence_block({}) == "" and prompts.evidence_block(None) == ""
     assert "- a\n- b" in prompts.evidence_block({"evidence": ["a", "b"]})
+
+
+def test_the_spec_writer_is_told_the_next_free_spec_number(tmp_path):
+    """A project's first spec is 001 (a real run's first spec was 004: the agent picked the number); the next one
+    follows the highest number in the specs folder."""
+    root = tmp_path / "repo"
+    (root / "docs" / "specs").mkdir(parents=True)
+    assert prompts.next_spec_number(root, "docs/specs") == "001"
+    assert prompts.next_spec_number(root, "no/such/folder") == "001"
+    (root / "docs" / "specs" / "001-login.md").write_text("x")
+    (root / "docs" / "specs" / "003-rank.md").write_text("x")
+    (root / "docs" / "specs" / "README.md").write_text("x")
+    assert prompts.next_spec_number(root, "docs/specs") == "004"
+    writer = prompts.task_prompt(agent="explorer", phase="spec", step_name="spec", title="t", root=str(root), ac=None, acs=[],
+                                 feedback=None)
+    assert "as 004-<kebab-name>.md (its id 004" in writer
