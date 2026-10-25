@@ -224,6 +224,69 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
     return "never", f"keel does not run {type(st).__name__.upper()} statements."
 
 
+def _dialect(kind: str) -> str:
+    return {"postgres": "postgres", "mysql": "mysql", "sqlite": "sqlite"}.get(kind, "postgres")
+
+
+def _parse(text: str, kind: str) -> exp.Expression | None:
+    try:
+        return sqlglot.parse_one(text, read=_dialect(kind))
+    except Exception:  # sqlglot's ParseError, TokenError
+        return None
+
+
+def _is_star(p: exp.Expression) -> bool:
+    return isinstance(p, exp.Star) or (isinstance(p, exp.Column) and isinstance(p.this, exp.Star))
+
+
+def _branches(node: exp.Expression) -> list[exp.Select]:
+    """The SELECTs whose columns are the result's: one, or each side of a UNION / INTERSECT / EXCEPT."""
+    if isinstance(node, exp.Select):
+        return [node]
+    if isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+        return _branches(node.left) + _branches(node.right)
+    if isinstance(node, exp.Subquery):
+        return _branches(node.this)
+    return []
+
+
+def secret_columns(text: str, kind: str, cols: list) -> list[int]:
+    """The result's columns that hold a secret: named like one, or (keel 0.18.55) computed from one under another name
+    (`password_hash AS h`, `upper(token)`, a subquery's or a CTE's alias of it). keel reads the SQL; when it cannot, only
+    the names count."""
+    names = [str(c).lower() for c in cols]
+    hidden = {i for i, c in enumerate(names) if SECRET_COL.search(c)}
+    st = _parse(text, kind)
+    if st is None:
+        return sorted(hidden)
+    tainted: set[str] = set()
+
+    def secret(node: exp.Expression) -> bool:
+        return any(SECRET_COL.search(c.name or "") or (c.name or "").lower() in tainted for c in node.find_all(exp.Column))
+
+    grown = True
+    while grown:                                  # an alias of an alias of a secret is a secret too
+        grown = False
+        for al in st.find_all(exp.Alias):
+            a = (al.alias or "").lower()
+            if a and a not in tainted and secret(al.this):
+                tainted.add(a)
+                grown = True
+    hidden |= {i for i, c in enumerate(names) if c in tainted}
+    for sel in _branches(st):
+        projs = list(sel.expressions)
+        positional = len(projs) == len(cols) and not any(_is_star(p) for p in projs)
+        for i, p in enumerate(projs):
+            if _is_star(p) or not secret(p):
+                continue
+            if positional:
+                hidden.add(i)
+            else:
+                out = (p.alias_or_name or "").lower()
+                hidden |= {j for j, c in enumerate(names) if c == out}
+    return sorted(hidden)
+
+
 # ------------------------------------------------------------------ connecting
 
 def _keel_data() -> list[Path]:
@@ -411,7 +474,7 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
     ms = int((time.monotonic() - t0) * 1000)
     if cls == "change":
         return {**out, "changed": max(count, 0), "done": confirm, "ms": ms}
-    hidden = [i for i, col in enumerate(cols) if mask and SECRET_COL.search(str(col))]
+    hidden = secret_columns(text, conn.kind, cols) if mask else []
     shown = [[("•••" if i in hidden and v is not None else _value(v)) for i, v in enumerate(r)] for r in rows]
     return {**out, "columns": cols, "rows": shown, "count": len(shown), "truncated": truncated, "masked": [cols[i] for i in hidden],
             "ms": ms}

@@ -20,6 +20,31 @@ def _db(tmp_path, name="a.db", script=""):
     return core.Conn("x", "sqlite", f"sqlite:{name}")
 
 
+# ------------------------------------------------------------------ S3: masked by the column a value comes from
+
+@pytest.mark.parametrize("sql,hidden", [
+    ("SELECT password_hash AS h FROM players", ["h"]),
+    ("SELECT name, upper(password_hash) AS up FROM players", ["up"]),
+    ("SELECT h FROM (SELECT password_hash AS h FROM players) AS x", ["h"]),
+    ("WITH t AS (SELECT password_hash AS h FROM players) SELECT h AS k FROM t", ["k"]),
+    ("SELECT name FROM players UNION ALL SELECT password_hash FROM players", ["name"]),
+    ("SELECT * FROM players", ["password_hash"]),
+])
+def test_a_secret_column_is_masked_under_any_name(tmp_path, sql, hidden):
+    c = _db(tmp_path)
+    out = core.query(c, sql, root=str(tmp_path), mask=True)
+    assert out["masked"] == hidden
+    for col in hidden:
+        i = out["columns"].index(col)
+        assert all(r[i] == "•••" for r in out["rows"])
+    assert "h1" not in json.dumps(out["rows"])
+
+
+def test_a_plain_column_is_not_masked(tmp_path):
+    out = core.query(_db(tmp_path), "SELECT name FROM players", root=str(tmp_path), mask=True)
+    assert out["masked"] == [] and out["rows"] == [["Ada"], ["Bo"]]
+
+
 # ------------------------------------------------------------------ S4: a SQLite file only inside the project
 
 def test_a_sqlite_file_inside_the_project_works_relative_or_absolute(tmp_path):
