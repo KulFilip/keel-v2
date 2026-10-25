@@ -123,6 +123,40 @@ describe("Task drawer: uncommitted files", () => {
   });
 });
 
+describe("Task drawer: a project keel does not know yet", () => {
+  it("keel 0.18.55 asks once before the start: Start anyway starts the task's flow, Run init first starts init", async () => {
+    db.projects[0].configured = false;
+    localStorage.setItem("keel2.init-offered.ludus-engine", "true");
+    const user = userEvent.setup();
+    await openTasks();
+    await user.click(await screen.findByRole("button", { name: "ABC-1: Rank players weekly" }));
+    const d = await screen.findByRole("dialog", { name: "ABC-1 · Rank players weekly" });
+    const start = within(d).getByRole("region", { name: "Start a flow" });
+    await waitFor(() => expect(within(start).getByLabelText("Workflow")).toHaveValue("feature"));
+    await user.click(within(start).getByRole("button", { name: "Start flow" }));
+    const ask = await within(start).findByRole("group", { name: "keel does not know this project yet" });
+    expect(calls("POST", "/api/tasks/tk_1/start")).toHaveLength(0);
+    await user.click(within(ask).getByRole("button", { name: "Run init first (recommended)" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/flows")).toHaveLength(1));
+    expect(calls("POST", "/api/projects/ludus-engine/flows")[0].body).toMatchObject({ workflow_id: "init" });
+    expect(calls("POST", "/api/tasks/tk_1/start")).toHaveLength(0);
+  });
+
+  it("Start anyway starts the task's flow", async () => {
+    db.projects[0].configured = false;
+    const user = userEvent.setup();
+    await openTasks();
+    await user.click(await screen.findByRole("button", { name: "ABC-1: Rank players weekly" }));
+    const d = await screen.findByRole("dialog", { name: "ABC-1 · Rank players weekly" });
+    const start = within(d).getByRole("region", { name: "Start a flow" });
+    await waitFor(() => expect(within(start).getByLabelText("Workflow")).toHaveValue("feature"));
+    await user.click(within(start).getByRole("button", { name: "Start flow" }));
+    await user.click(await within(start).findByRole("button", { name: "Start anyway" }));
+    await waitFor(() => expect(calls("POST", "/api/tasks/tk_1/start")).toHaveLength(1));
+    expect(calls("POST", "/api/tasks/tk_1/start")[0].body).toMatchObject({ workflow_id: "feature" });
+  });
+});
+
 describe("Task drawer", () => {
   it("starts a flow with the workflow its type picks, takes the PR link, and walks it through PP to done", async () => {
     const user = userEvent.setup();

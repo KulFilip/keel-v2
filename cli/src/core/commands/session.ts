@@ -69,6 +69,8 @@ export const SESSION_IMPLS: Impl[] = [
           { kind: "ok", text: `now on project ${p?.name || id}${p?.branch ? ` · branch ${p.branch}` : ""}` },
           { kind: "dim", text: [
             ...(t ? [`  flow     ${t.workflow_id} "${t.title}" · ${t.status}${t.current ? ` at ${t.current}` : ""}`] : []),
+            // keel 0.18.55 a project keel does not know yet (with no flow, the next line says it)
+            ...(t && fmt.initHint(p, t) ? [`  setup    ${fmt.initHint(p, t)}`] : []),
             `  waiting  ${fmt.waitingBrief(inbox, p)}`,
             `  next     ${fmt.next(p, flow).split("\n")[0]}`,
           ].join("\n") },

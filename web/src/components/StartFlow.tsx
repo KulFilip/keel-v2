@@ -8,6 +8,7 @@ import { RunModePicker } from "./RunMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
 import { SIZE_FLOWS, suggestFlow } from "../flowSize";
+import { InitAsk, isInitFlow, needsInit, useStartInit } from "./InitAsk";
 
 const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to cheaper models"], ["stop", "stop"]];
 
@@ -53,6 +54,16 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [where, setWhere] = useState<FlowWhere>("auto");
   const inWorktree = where === "worktree" || (where === "auto" && folderBusy);
   const fakeRefused = !!err && /fake model/i.test(err.message);
+  // keel 0.18.55 a project keel does not know yet: before another flow starts, ask once (Run init first / Start anyway)
+  const proj = projects.find((x) => x.id === p);
+  const unknown = needsInit(proj) && !isInitFlow(wfs?.find((w) => w.id === wid) ?? { id: wid });
+  const [asking, setAsking] = useState(false);
+  const [askedOk, setAskedOk] = useState(false);
+  useEffect(() => {
+    setAsking(false);
+    setAskedOk(false);
+  }, [p, wid]);
+  const init = useStartInit(proj, onClose);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
 
   useEffect(() => {
@@ -138,12 +149,17 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
 
   // Flows that build nothing (a review, a hunt, a lint …) need no "what to build": they get a title of their own.
   const needsTitle = !NO_BUILD.has(wid);
-  const start = async () => {
+  const start = async (anyway = askedOk) => {
     if (needsTitle && !title.trim()) {
       setTitleErr(true);
       document.getElementById("sf-what")?.focus();
       return;
     }
+    if (unknown && !anyway) {
+      setAsking(true);
+      return;
+    }
+    setAsking(false);
     setBusy(true);
     setErr(null);
     try {
@@ -179,7 +195,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     <Drawer title="Start a flow" onClose={onClose}
       footer={<>
         <button className="btn" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn primary" type="button" onClick={start} disabled={busy || !wid || !p}>{busy ? "Starting…" : "Start flow"}</button>
+        <button className="btn primary" type="button" onClick={() => void start()} disabled={busy || init.busy || !wid || !p}>{busy ? "Starting…" : "Start flow"}</button>
       </>}>
       <div className="field">
         <label htmlFor="sf-p">Project</label>
@@ -304,6 +320,15 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       <RunModePicker value={runMode} onChange={(m) => { modePicked.current = true; setRunMode(m); }}
         hint={`The project default is ${modeDefault} (Settings › Run mode). You can change it on the Flow page while the flow runs.`} />
       {err && <ErrorBox error={err} />}
+      {asking && proj && (
+        <InitAsk name={proj.name || proj.id} busy={init.busy} onInit={() => void init.start()}
+          onAnyway={() => { setAskedOk(true); void start(true); }} onCancel={() => setAsking(false)} />
+      )}
+      {/* init refused (uncommitted files, the fake model): this drawer moves to init, with its boxes for that */}
+      {init.err && wid !== "init" && <ErrorBox error={init.err} />}
+      {init.err && wid !== "init" && wfs?.some((w) => w.id === "init") && (
+        <button className="btn" type="button" onClick={() => { setErr(init.err); setWid("init"); }}>Start init from this form</button>
+      )}
       {(fakeRefused || allowFake) && (
         <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway (it writes example files and commits them on the flow's branch)</label>
       )}

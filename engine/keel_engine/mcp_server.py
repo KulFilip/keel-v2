@@ -64,8 +64,9 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     from . import mcp_flows
 
     p = _project(api, project)
+    first = init_first(p, type)
     if not type:
-        return mcp_flows.startable(api, p["id"])
+        return first + mcp_flows.startable(api, p["id"])
     idea = (request or idea or "").strip()
     if not idea and not (ticket or pr):
         raise ApiError("the request is empty: say in a sentence or two what the flow should build or fix "
@@ -103,6 +104,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
            else "The flow is starting: it has not reached its first step yet.")
     out = [f'started {type} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
            "recorded as started via MCP.", now]
+    if first:
+        out.insert(0, first.rstrip("\n"))
     if state.get("waiting"):
         out.append(f"It waits for a human: {state['waiting'].get('title')}. Decide it in the dashboard or with keel_approve_gate.")
     elif state.get("status") == "running":
@@ -111,6 +114,28 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         out.append(str(state["cap_note"]))
     out.append(f"Watch it: {dashboard_url(api, 'flow', p['id'])}")
     return "\n".join(out)
+
+
+def init_first(p: dict, type: str | None) -> str:
+    """keel 0.18.55 a project keel does not know yet (configured false: no .keel/config.yml) gets one line about the
+    init flow first. Only a line: the flow asked for still starts. An older keel sends no `configured`: no line."""
+    if p.get("configured") is not False or type == "init":
+        return ""
+    return (f"keel does not know {p.get('name') or p['id']} yet (no .keel/config.yml). Run init first: "
+            "keel_start_flow(type='init', idea='set up keel for this project') finds the stack and the test commands, "
+            "and writes .keel/config.yml and the project knowledge; flows work better after it.\n")
+
+
+def startable(api: KeelApi, project: str | None = None) -> str:
+    """keel_start_flow with no type: the flows the project can start, after the init line for a project keel does not
+    know yet (the project as the tool finds it; when it cannot tell which one, just the list, as before)."""
+    from . import mcp_flows
+
+    try:
+        first = init_first(_project(api, project), None)
+    except ApiError:
+        first = ""
+    return first + mcp_flows.startable(api, project)
 
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
@@ -620,7 +645,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         project's setting); pass it here when the person names one, not with keel_run_mode afterwards."""
         if not type:
             from . import mcp_flows
-            return guard(mcp_flows.startable, api, project)
+            return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode)
 

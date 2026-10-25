@@ -19,6 +19,8 @@ import { FlowRuns } from "../../components/FlowRuns";
 import { ResumeRow } from "../../components/ResumeRow";
 import { RunHistory } from "../../components/RunHistory";
 import { StartFlowDrawer } from "../../components/StartFlow";
+import { initOffered, isInitFlow, markInitOffered, needsInit } from "../../components/InitAsk";
+import { InitBanner, SetupCard } from "../../components/InitSetup";
 import { type BlocksHandle } from "../../components/Blocks";
 import { useWide } from "../../components/useWide";
 import { Async, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../../components/ui";
@@ -65,6 +67,11 @@ export function FlowPage({ pid }: { pid: string }) {
     setViewing(r);
     if (r) window.setTimeout(() => top.current?.scrollIntoView?.({ block: "start" }), 0);
   };
+  // keel 0.18.55 a project keel does not know yet: the setup card the first time it opens here (a project found by
+  // itself), the banner after that; neither while its init flow runs or waits
+  const [offered, setOffered] = useState(() => initOffered(pid));
+  useEffect(() => setOffered(initOffered(pid)), [pid]);
+  const unknown = !!flow.data && project?.id === pid && needsInit(project) && !(live && isInitFlow(flow.data.workflow));
   // after Resume the flow runs: show it live (the project's flow, or that flow by its id)
   const resumed = async (r: RunRow) => {
     setViewing(null);
@@ -74,6 +81,8 @@ export function FlowPage({ pid }: { pid: string }) {
   };
   return (
     <>
+      {unknown && project && (offered ? <InitBanner project={project} />
+        : <SetupCard project={project} onLater={() => setOffered(true)} onStarted={() => { markInitOffered(pid); setOffered(true); void flow.reload(); }} />)}
       <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} loading={!flow.data} history={!history} />
       {showBoard(board.data) && (
         <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
@@ -158,7 +167,7 @@ function EarlierRun({ pid, run, onBack, onResumed }: { pid: string; run: RunRow;
   );
 }
 
-const isInit = (w: Workflow) => w.id === "init" || w.based_on === "keel/init" || w.based_on === "init";
+const isInit = (w: Workflow) => isInitFlow(w);
 
 
 /** The right column: what is happening now (and the running agent's last steps), the selected step, checkpoints. */

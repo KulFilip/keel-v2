@@ -285,6 +285,8 @@ export type Project = {
   running: number;
   /** v0.7.x: flows that run or wait, in the project folder and in worktrees */
   flows?: number;
+  /** keel 0.18.55 keel knows this project (it has a .keel/config.yml; the init flow writes it). Missing from an older keel. */
+  configured?: boolean;
 };
 
 // v0.15.7 Add projects from your folders (GET /api/folders, GET /api/folders/browse, POST /api/projects/bulk)

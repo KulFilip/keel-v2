@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { api, type Job, type Project } from "../api";
 import { AddProjectsDrawer } from "../components/AddProjects";
 import { EmptyState } from "../components/EmptyState";
+import { needsInit } from "../components/InitAsk";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { agoText } from "../components/UsageStrip";
 import { ErrorBox, Loading, PageHead, Pill } from "../components/ui";
@@ -42,6 +43,7 @@ function ProjectRow({ p, shown, act, onStart }: { p: Project; shown: boolean; ac
         <h2 className="proj-name" id={`proj-${p.id}`}>
           <button type="button" className="linkbtn" onClick={(e) => { e.stopPropagation(); open("flow"); }} title={`Open ${p.name}`}>{p.name}</button>
           {shown && <span className="tag" title="The project the other screens show now">current</span>}
+          {needsInit(p) && <span className="tag" data-testid="not-set-up" title="keel does not know this project yet: open it to set it up (init)">not set up</span>}
         </h2>
         <span className="sub mono proj-root" title={p.root}>{p.root}</span>
       </div>

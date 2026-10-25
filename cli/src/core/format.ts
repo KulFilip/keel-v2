@@ -193,10 +193,19 @@ No flow yet. Start one: ${c.accent("/flow")}`;
   return out.join("\n");
 }
 
+/** keel 0.18.55 keel does not know the project yet (no .keel/config.yml; an older keel does not say): what to do, in
+ *  one line; null when it knows it, or while its init flow runs or waits. */
+export function initHint(p: Project | null, t: ThreadState | null | undefined, c: Paint = PLAIN): string | null {
+  if (!p || p.configured !== false) return null;
+  if (t && t.workflow_id === "init" && (t.status === "running" || t.status === "waiting")) return null;
+  return `keel does not know this project yet: ${c.bold(c.gate("/flow init"))} sets it up (finds the stack and the test commands, writes .keel/config.yml and the project knowledge).`;
+}
+
 export function next(p: Project | null, view: FlowView | null, c: Paint = PLAIN): string {
   const t = view?.thread;
   const cmd = (x: string) => c.bold(c.gate(x));
   if (!p) return "no project: add one in the dashboard (All projects › Add projects), then /project.";
+  if (!t && p.configured === false) return `no flow yet, and keel does not know this project: start with ${cmd("/flow init")} (recommended), then ${c.accent("/flow")} for the rest.`;
   if (!t) return `no flow: start one with ${c.accent("/flow")} (feature, change, fix, diagnose, review, cover, ship, hunt, lint, init …).`;
   const w = t.waiting;
   const ac = t.ac ? ` for ${t.ac}` : "";

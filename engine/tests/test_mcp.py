@@ -439,6 +439,22 @@ async def test_start_flow_on_a_fake_model_keel_needs_allow_fake(stub):
     assert stub.posts[-1][1]["allow_fake"] is True and "recorded as started via MCP" in text
 
 
+async def test_start_flow_on_a_project_keel_does_not_know_mentions_init_first(stub, monkeypatch):
+    """keel 0.18.55 a project with no .keel/config.yml (configured false): keel_start_flow's answer puts the init flow
+    first, with and without a type; the flow asked for still starts. A project keel knows, or init itself: no line."""
+    monkeypatch.setitem(PROJECTS[0], "configured", False)
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0)
+    assert text.startswith("keel does not know shop yet (no .keel/config.yml). Run init first: keel_start_flow(type='init'")
+    assert stub.posts[-1][1]["workflow_id"] == "feature" and "recorded as started via MCP" in text
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    listed = await call(srv, "keel_start_flow", {})
+    assert listed.startswith("keel does not know shop yet") and "  feature " in listed
+    assert mcp_server.init_first(PROJECTS[0], "init") == ""
+    monkeypatch.setitem(PROJECTS[0], "configured", True)
+    assert "keel does not know" not in mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0)
+    assert "keel does not know" not in await call(srv, "keel_start_flow", {})
+
+
 def test_start_flow_refuses_an_unknown_type_and_an_empty_idea(stub):
     import pytest as _pytest
 

@@ -68,6 +68,8 @@ export function stubKeel() {
     ] as Record<string, unknown>[],
     // where POST /flows says the new flow is; null for both is a reply sent before the graph reached its first step
     startAt: { current: "preflight", phase: "preflight" } as { current: string | null; phase: string | null },
+    // keel 0.18.55 the demo project's `configured` (false: keel does not know it yet, no .keel/config.yml); unset: not sent
+    configured: undefined as boolean | undefined,
   };
   const reviewView = (key: string) => ({ key, kind: key.startsWith("pr:") ? "pr" : "branch", number: key.startsWith("pr:") ? Number(key.slice(3)) : null,
     title: key === "pr:8" ? "Mine" : "Save the page size", author: "ana", base: "main", branch: "feat/paging", base_sha: "b", head_sha: "h", url: null, state: "open",
@@ -87,7 +89,7 @@ export function stubKeel() {
     const key = `${method} ${path}`;
     switch (key) {
       case "GET /api/health": return [200, { ok: true, engine: true, version: "0.17.3", fake: true, native: false }];
-      case "GET /api/projects": return [200, [project, ...["alpha", "zeta"].map((id) => ({ ...project, id, name: id, root: `/work/${id}`, branch: "main",
+      case "GET /api/projects": return [200, [{ ...project, ...(state.configured === undefined ? {} : { configured: state.configured }) }, ...["alpha", "zeta"].map((id) => ({ ...project, id, name: id, root: `/work/${id}`, branch: "main",
         flow: null, phase: null, waiting: 0, running: 0 }))]];
       case "GET /api/projects/demo/flow": return [200, { thread: state.thread, workflow }];
       case "GET /api/projects/demo/flows/t1": return [200, { thread: state.thread, workflow }];
@@ -95,7 +97,7 @@ export function stubKeel() {
       case "GET /api/inbox": return [200, { items: state.thread.status === "waiting" ? [inboxItem] : [], count: 1, kinds: ["gate"], projects: [] }];
       case "GET /api/jobs": return [200, query.get("status") === "running" ? [job] : [job]];
       case "GET /api/jobs/j1/steps": return [200, { steps: [{ n: 3, at: AT, kind: "tool", tool: "read_file", text: "src/app.ts" }], running: true }];
-      case "GET /api/projects/demo/workflows": return [200, [workflow]];
+      case "GET /api/projects/demo/workflows": return [200, [workflow, ...(state.configured === false ? [{ ...workflow, id: "init", name: "init (keel)" }] : [])]];
       case "GET /api/projects/demo/runs": return [200, [{ thread_id: "t1", title: "Add a health endpoint", workflow_id: "feature", status: "waiting", phase: "spec",
         current: "spec_gate", waiting: "spec approval", acs_done: 0, acs_total: 2, tokens: 15400, where: "folder", branch: "keel/health", error: null,
         created_at: AT, updated_at: AT, cost_usd: 0.42, latest: true }]];

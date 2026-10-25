@@ -133,6 +133,9 @@ export function startLines(s: Snapshot, width: number, p: Paint): string[] {
   else {
     body.push(label("project  ") + (pr ? p.bold(pr.name || pr.id) + p.dim(" · branch ") + p.run(pr.branch || "-") : "none yet: add one in the dashboard"));
     if (t) body.push(label("flow     ") + p.accent(t.workflow_id) + ` "${t.title}" · ` + fmt.badge(t.status, p) + (t.current ? p.dim(` at ${t.current}`) : ""));
+    // keel 0.18.55 a project keel does not know yet: the setup line (wrapped, not cut: it names /flow init)
+    const setup = fmt.initHint(pr, t, p);
+    if (setup) wrapAnsi(setup, inner - 9, { hard: true, trim: false }).split("\n").forEach((l, i) => body.push(label(i ? "         " : "setup    ") + l));
     const waits = fmt.waitingBrief(s.inbox, pr);
     body.push(label("waiting  ") + (s.inbox.length ? p.bold(p.gate(waits)) : p.ok(waits)));
     body.push(label("next     ") + fmt.next(pr, s.flow, p).split("\n")[0]);

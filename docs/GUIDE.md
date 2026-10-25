@@ -1146,6 +1146,25 @@ added folder is mounted at the **same path** as on your computer, and every git 
 of repos: each repo directly inside it). More repos later? All projects › Add projects lets you pick them. A folder
 that no longer exists is skipped (`keel2 folders` marks it).
 
+**Set keel up for a project you add** (0.18.55). A project keel does not know yet has no `.keel/config.yml`. After
+**Add projects** (and the first time a project keel found by itself opens on the Flow page) keel offers the
+[init](#init) flow:
+
+```
+ ┌ Set up keel for shop ──────────────────────────────────────────────────────┐
+ │ init finds the stack and the test commands, and writes .keel/config.yml    │
+ │ and the project knowledge.                                                 │
+ │ [ Set up now (recommended) ]  [ Later ]                                    │
+ └────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Set up now** starts init and opens it; it stops at its first question for you. **Later** puts the card away.
+- Until init has written the config, the Flow page shows a line with **Run init**, All projects marks the project
+  **not set up**, and **Start a flow** or a task's **Start** ask once: **Run init first (recommended)** or
+  **Start anyway**. Nothing is blocked.
+- keel TUI: the start box says `/flow init`, `/flow` lists init first, and another flow asks the same. `/flow init`
+  needs no idea. MCP: `keel_start_flow` puts a line about init first for such a project.
+
 **A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.
 
 ## Git worktree projects
