@@ -18,8 +18,8 @@ BEGIN, END = "BEGIN-DOC", "END-DOC"
 LOCK_TRIES, LOCK_WAIT = 6, 0.25
 QUESTIONS = re.compile(r"```[ \t]*keel-questions[ \t]*\n.*?\n[ \t]*```", re.S | re.I)
 # the doc markers as a model may dress them: **BEGIN-DOC**, `BEGIN-DOC`, BEGIN DOC
-BEGIN_RE = re.compile(r"[*_`]*BEGIN[- ]DOC[*_`]*", re.I)
-END_RE = re.compile(r"[*_`]*END[- ]DOC[*_`]*", re.I)
+BEGIN_RE = re.compile(r"[*_`]*\bBEGIN[- ]DOC\b[*_`]*")
+END_RE = re.compile(r"[*_`]*\bEND[- ]DOC\b[*_`]*")
 SECTION = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+\S", re.M)
 ASK_LIMIT = 6
 
