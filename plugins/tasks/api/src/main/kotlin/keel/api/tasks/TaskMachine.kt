@@ -14,7 +14,7 @@ sealed interface Trigger {
     val actor: String
 
     /** The user pressed Start: a flow runs for the task now. */
-    data class Start(val workflowId: String, val threadId: String, val link: String?) : Trigger { override val actor = "user" }
+    data class Start(val workflowId: String, val threadId: String, val link: String?, override val actor: String = "user") : Trigger
 
     /** The flow's open_pr step opened the PR (actor keel), or the user pasted its link (actor user). */
     data class PrOpened(val url: String, override val actor: String) : Trigger

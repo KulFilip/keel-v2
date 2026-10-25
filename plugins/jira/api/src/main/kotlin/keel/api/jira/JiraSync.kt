@@ -6,6 +6,7 @@ import keel.api.projects.ProjectService
 import keel.api.tasks.SyncInfo
 import keel.api.tasks.SyncResult
 import keel.api.tasks.Task
+import keel.api.tasks.TaskAutomations
 import keel.api.tasks.TaskMachine
 import keel.api.tasks.TaskService
 import keel.api.tasks.TaskStatus
@@ -35,6 +36,7 @@ class JiraSync(
     private val tasks: TaskService,
     private val projects: ProjectService,
     private val hub: EventHub,
+    private val automations: TaskAutomations,
 ) : TicketTracker {
     private val log = LoggerFactory.getLogger(javaClass)
     private val tried = ConcurrentHashMap<String, Instant>()
@@ -66,12 +68,13 @@ class JiraSync(
             val missing = store.openKeys(pid).filter { it !in seen }.take(100)
             // A ticket that left the query (done, reassigned) is still followed; one that no longer exists makes Jira refuse
             // the whole "key in (…)" query, so that part is best effort.
-            val extra = if (missing.isEmpty()) emptyList() else runCatching { client.search("key in (${missing.joinToString(",")})", 100) }.getOrDefault(emptyList())
+            val extra = (if (missing.isEmpty()) emptyList() else runCatching { client.search("key in (${missing.joinToString(",")})", 100) }.getOrDefault(emptyList())) +
+                keelBotIssues(pid, client, seen)
             if (jira.me(pid) == null) runCatching { jira.setMe(pid, client.myself()) }
             var created = 0
             var updated = 0
             var moved = 0
-            for (i in issues + extra.filter { it.key !in seen }) {
+            for (i in (issues + extra.filter { it.key !in seen }).distinctBy { it.key }) {
                 when (upsert(pid, s, i)) {
                     Change.CREATED -> created++
                     Change.UPDATED -> updated++
@@ -91,7 +94,29 @@ class JiraSync(
 
     private enum class Change { CREATED, UPDATED, MOVED, NONE }
 
+    /**
+     * 0.18.52 tickets assigned to KeelBot (or with its label) that the connection's own query leaves out (it reads
+     * "assignee = currentUser()" by default). Best effort: a query Jira refuses only means no extra tickets.
+     */
+    private fun keelBotIssues(pid: String, client: JiraClient, seen: Set<String>): List<JiraIssue> {
+        val kb = automations.settings(pid).keelbot
+        val jql = listOfNotNull(kb.account?.let { "assignee = \"$it\"" }, kb.label?.let { "labels = \"$it\"" })
+        if (jql.isEmpty()) return emptyList()
+        return runCatching { client.search("(${jql.joinToString(" OR ")}) AND statusCategory != Done", 100) }.getOrDefault(emptyList())
+            .filter { it.key !in seen }
+    }
+
     private fun upsert(pid: String, s: JiraSettings, i: JiraIssue): Change {
+        val change = upsertTask(pid, s, i)
+        // 0.18.52 KeelBot's tickets: keel watches their PR's review comments
+        store.byKey(pid, i.key)?.let { t ->
+            runCatching { automations.onTicketSeen(t.id, automations.owns(pid, listOf(i.assigneeId, i.assignee), i.labels)) }
+                .onFailure { log.warn("keelbot owner of {}: {}", i.key, it.message) }
+        }
+        return change
+    }
+
+    private fun upsertTask(pid: String, s: JiraSettings, i: JiraIssue): Change {
         if (i.key.isBlank()) return Change.NONE
         val url = "${s.baseUrl}/browse/${i.key}"
         val title = i.summary.ifBlank { i.key }.take(300)
@@ -118,7 +143,10 @@ class JiraSync(
         if (what.isNotEmpty()) store.event(t.id, "jira_update", null, null, "Updated from Jira: ${what.joinToString()}.", "jira")
         if (!i.status.equals(t.externalStatus, ignoreCase = true)) {
             val to = TaskMachine.keelStatus(i.status, i.category, s.statusMap, t.status)
-            tasks.fire(t.id, Trigger.JiraMoved(t.externalStatus, i.status, to?.takeIf { it != t.status }))
+            val before = store.require(t.id)
+            val after = tasks.fire(t.id, Trigger.JiraMoved(t.externalStatus, i.status, to?.takeIf { it != t.status }))
+            // 0.18.52 a move made in Jira (never keel's own: it set external_status when it moved the ticket)
+            runCatching { automations.onJiraMoved(before, after) }.onFailure { log.warn("automation for {}: {}", i.key, it.message) }
             return Change.MOVED
         }
         return if (what.isNotEmpty()) Change.UPDATED else Change.NONE

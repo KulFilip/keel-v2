@@ -38,6 +38,9 @@ data class JiraIssue(
     val assignee: String?,
     val priority: String?,
     val updated: String?,
+    /** 0.18.52 the assignee's account id (Cloud) or user name (Server), and the ticket's labels (KeelBot ownership). */
+    val assigneeId: String? = null,
+    val labels: List<String> = emptyList(),
 )
 
 data class JiraStatus(val name: String, val category: String?)
@@ -186,6 +189,25 @@ class JiraClient(
     fun fields(): List<JiraField> = get("/rest/api/2/field", "the field list").mapNotNull { f ->
         val id = f.text("id") ?: return@mapNotNull null
         JiraField(id, f.text("name") ?: id, f.get("schema")?.text("type"), f.get("schema")?.text("items"), f.get("custom")?.asBoolean() == true)
+    }
+
+    /** 0.18.52 the ticket's newest comments, oldest first, as "<author>: <text>" (REST v2: plain text on Cloud and Server). */
+    override fun comments(key: String, max: Int): List<String> {
+        val n = get("/rest/api/2/issue/${enc(key)}/comment?maxResults=${max.coerceIn(1, 50)}&orderBy=-created", "the comments of $key")
+        return n.get("comments")?.mapNotNull { c ->
+            val body = c.get("body")?.let { if (it.isTextual) it.asText() else adfText(it) }?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val who = c.get("author")?.let { it.text("displayName") ?: it.text("name") } ?: "?"
+            "$who: ${body.take(1000)}"
+        }.orEmpty().take(max).reversed()
+    }
+
+    /** 0.18.52 users whose name or email matches [query] (the KeelBot account picker). */
+    fun findUsers(query: String, max: Int = 20): List<JiraUser> {
+        val q = if (cloud) "query=${enc(query)}" else "username=${enc(query)}"
+        return get("/rest/api/2/user/search?$q&maxResults=${max.coerceIn(1, 50)}", "the user search").mapNotNull { u ->
+            val name = u.text("displayName") ?: u.text("name") ?: return@mapNotNull null
+            JiraUser(name, accountId = u.text("accountId"), username = u.text("name"), email = u.text("emailAddress"))
+        }
     }
 
     /** Cloud user pickers want an accountId: an email address is looked up; anything else is taken as the id. */
@@ -338,11 +360,13 @@ class JiraClient(
             assignee = f.get("assignee")?.let { it.text("displayName") ?: it.text("name") },
             priority = f.get("priority")?.text("name"),
             updated = f.text("updated"),
+            assigneeId = f.get("assignee")?.let { it.text("accountId") ?: it.text("name") },
+            labels = f.get("labels")?.mapNotNull { l -> l.asText().takeIf { it.isNotBlank() } }.orEmpty(),
         )
     }
 
     companion object {
-        const val FIELDS = "summary,status,issuetype,assignee,priority,description,updated"
+        const val FIELDS = "summary,status,issuetype,assignee,priority,description,updated,labels"
 
         private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8).replace("+", "%20")
         private fun JsonNode.text(k: String): String? = get(k)?.takeIf { !it.isNull }?.asText()?.takeIf { it.isNotEmpty() }

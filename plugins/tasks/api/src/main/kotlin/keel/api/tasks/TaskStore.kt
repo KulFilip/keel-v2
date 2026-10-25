@@ -72,6 +72,8 @@ class TaskStore(private val jdbc: JdbcTemplate) {
     fun delete(id: String) {
         jdbc.update("DELETE FROM task_events WHERE task_id = ?", id)
         jdbc.update("DELETE FROM task_inbox WHERE task_id = ?", id)
+        jdbc.update("DELETE FROM task_watch WHERE task_id = ?", id)
+        jdbc.update("DELETE FROM task_runs WHERE task_id = ?", id)
         jdbc.update("DELETE FROM tasks WHERE id = ?", id)
     }
 
@@ -90,15 +92,18 @@ class TaskStore(private val jdbc: JdbcTemplate) {
 
     // ---- inbox items ----
 
-    private val itemCols = "id, task_id, project_id, kind, stage, title, detail, created_at, done_at"
+    private val itemCols = "id, task_id, project_id, kind, stage, title, detail, created_at, done_at, data"
     private fun item(rs: ResultSet) = TaskItem(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
-        rs.getString(6), rs.getString(7) ?: "", rs.getString(8), rs.getString(9))
+        rs.getString(6), rs.getString(7) ?: "", rs.getString(8), rs.getString(9), data(rs.getString(10)))
 
-    fun openItem(t: Task, kind: String, stage: String?, title: String, detail: String): TaskItem {
+    private fun data(json: String?): Map<String, Any?>? =
+        if (json.isNullOrBlank()) null else runCatching { Json.read<Map<String, Any?>>(json) }.getOrNull()
+
+    fun openItem(t: Task, kind: String, stage: String?, title: String, detail: String, data: Map<String, Any?>? = null): TaskItem {
         val at = Time.now()
-        val id = Db.insertId(jdbc, "INSERT INTO task_inbox(task_id, project_id, kind, stage, title, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            t.id, t.projectId, kind, stage, title.take(300), detail.take(2000), at)
-        return TaskItem(id, t.id, t.projectId, kind, stage, title.take(300), detail.take(2000), at, null)
+        val id = Db.insertId(jdbc, "INSERT INTO task_inbox(task_id, project_id, kind, stage, title, detail, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            t.id, t.projectId, kind, stage, title.take(300), detail.take(2000), at, data?.let { Json.write(it) })
+        return TaskItem(id, t.id, t.projectId, kind, stage, title.take(300), detail.take(2000), at, null, data)
     }
 
     fun item(id: Long): TaskItem? = jdbc.query("SELECT $itemCols FROM task_inbox WHERE id = ?", { rs, _ -> item(rs) }, id).firstOrNull()

@@ -46,6 +46,9 @@ interface TicketClient {
 
     /** Puts [users] in the ticket's user field [fieldId]. */
     fun setUsers(key: String, fieldId: String, users: List<String>)
+
+    /** 0.18.52 the ticket's newest comments as "<author>: <text>", oldest first (the flow pick reads them). */
+    fun comments(key: String, max: Int = 10): List<String> = emptyList()
 }
 
 /** A move: [moved] false = the ticket was in [to] already. */

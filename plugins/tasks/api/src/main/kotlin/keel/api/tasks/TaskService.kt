@@ -141,7 +141,10 @@ class TaskService(
     // ---- the lifecycle: actions ----------------------------------------------------------------
 
     /** Start: a flow for the task (its type picks the workflow unless the user picked one). Never starts by itself. */
-    fun start(id: String, b: StartTask): TaskView {
+    fun start(id: String, b: StartTask): TaskView = start(id, b, "user")
+
+    /** [actor] keel: an automation rule started it (the history and the Jira comment say so). */
+    fun start(id: String, b: StartTask, actor: String): TaskView {
         val t = store.require(id)
         val wid = b.workflowId?.trim()?.ifEmpty { null } ?: TaskTypes.defaultWorkflow(t.type)
         try {
@@ -151,14 +154,19 @@ class TaskService(
         }
         val running = t.threadId?.let { store.flow(it) }?.takeIf { it.status in setOf("running", "waiting") }
         if (running != null) throw Conflict("A flow already runs for ${t.label}", "Open it on the Flow page, or stop it first.")
-        val title = (t.externalKey?.let { "$it: " } ?: "") + t.title
+        val title = (t.externalKey?.let { "$it: " } ?: "") + (b.title?.trim()?.ifEmpty { null } ?: t.title)
         val request = buildString {
-            append(t.title)
-            if (t.description.isNotBlank()) append("\n\n").append(t.description)
+            val asked = b.request?.trim()?.ifEmpty { null }
+            if (asked != null) append(asked)
+            else {
+                append(t.title)
+                if (t.description.isNotBlank()) append("\n\n").append(t.description)
+            }
             if (t.externalKey != null) append("\n\nJira ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
         }
         val state = try {
-            flows.start(t.projectId, wid, title.take(200), criteria(t.description), FlowCap(runMode = b.runMode?.trim()?.ifEmpty { null }),
+            flows.start(t.projectId, wid, title.take(200), criteria(t.description),
+                FlowCap(capTokens = b.capTokens, runMode = b.runMode?.trim()?.ifEmpty { null }),
                 allowFake = b.allowFake, allowDirty = b.allowDirty, request = request)
         } catch (e: ApiException) {
             // A used-up cap, uncommitted files, the fake model, an unknown workflow: the task stays where it is and its history says why.
@@ -167,7 +175,7 @@ class TaskService(
             throw e
         }
         val tid = state.get("thread_id")?.asText()?.takeIf { it.isNotBlank() } ?: throw Conflict("The engine did not say which flow it started")
-        return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}")), events = true)
+        return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}", actor)), events = true)
     }
 
     /**
@@ -447,8 +455,9 @@ class TaskService(
         store.event(t.id, "jira_manual", null, null, "Asked you to move ${t.externalKey} to $target in Jira by hand.", "keel")
     }
 
-    private fun openItem(t: Task, kind: String, stage: String?, title: String, detail: String): TaskItem {
-        val item = store.openItem(t, kind, stage, title, detail)
+    /** Opens an Inbox item and its notification (the phone, Muxy and the IDE follow the Inbox's notifications). */
+    fun openItem(t: Task, kind: String, stage: String?, title: String, detail: String, data: Map<String, Any?>? = null): TaskItem {
+        val item = store.openItem(t, kind, stage, title, detail, data)
         runCatching { notifications.create("review", t.projectId, title, detail.take(200), "/tasks/${t.id}") }
         return item
     }
@@ -473,7 +482,7 @@ class TaskService(
     }
 
     /** Writes a note unless the last event already says it (the review poll runs every few minutes). */
-    private fun once(t: Task, kind: String, note: String) {
+    fun once(t: Task, kind: String, note: String) {
         if (store.events(t.id).lastOrNull()?.note != note) store.event(t.id, kind, null, null, note, "keel")
     }
 
@@ -481,9 +490,9 @@ class TaskService(
         secrets.get("GITHUB_TOKEN") ?: secrets.get("GH_TOKEN")
             ?: (if (props.githubFromEnv) (System.getenv("GITHUB_TOKEN") ?: System.getenv("GH_TOKEN"))?.takeIf { it.isNotBlank() } else null)
 
-    private fun changed(pid: String) = hub.publish(pid, "project.changed", mapOf("id" to pid))
+    fun changed(pid: String) = hub.publish(pid, "project.changed", mapOf("id" to pid))
 
-    private fun link(t: Task) = "${props.publicUrl.trim().trimEnd('/').ifBlank { "http://127.0.0.1:8080" }}/#/tasks/${t.id}"
+    fun link(t: Task) = "${props.publicUrl.trim().trimEnd('/').ifBlank { "http://127.0.0.1:8080" }}/#/tasks/${t.id}"
 
     private fun browse(pid: String, key: String) = tracker()?.connection(pid)?.baseUrl?.let { "$it/browse/$key" }
 

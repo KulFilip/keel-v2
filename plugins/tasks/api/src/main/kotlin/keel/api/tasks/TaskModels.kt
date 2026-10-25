@@ -134,14 +134,16 @@ data class TaskItem(
     val id: Long,
     val taskId: String,
     val projectId: String,
-    /** task | jira-manual */
+    /** task | jira-manual | task-proposal | task-review */
     val kind: String,
-    /** task: pp | prod; jira-manual: the Jira status, or "reviewers" */
+    /** task: pp | prod; jira-manual: the Jira status, or "reviewers"; task-proposal: flow | review; task-review: the thread id */
     val stage: String?,
     val title: String,
     val detail: String,
     val createdAt: String,
     val doneAt: String?,
+    /** task-proposal / task-review: the proposal or the review comment (TaskAutomations); null for the other kinds. */
+    val data: Map<String, Any?>? = null,
 )
 
 /** The Tasks page's sync line: the project's tracker connection (Jira), or not connected. */
@@ -166,6 +168,8 @@ data class SyncResult(
     val hint: String? = null,
     val reviewsChecked: Int = 0,
     val reviewsMoved: Int = 0,
+    /** 0.18.52 new review comments keel checked on KeelBot-owned tickets' PRs. */
+    val commentsChecked: Int = 0,
 )
 
 // ---- request bodies ----
@@ -198,9 +202,22 @@ data class StartTask(
     val runMode: String? = null,
     val allowDirty: Boolean = false,
     val allowFake: Boolean = false,
+    /** 0.18.52 a proposal's title and request for the flow (default: the task's), and a token cap for the flow. */
+    val title: String? = null,
+    val request: String? = null,
+    val capTokens: Int? = null,
 )
 
 data class ConfirmTask(val stage: String = "", val note: String? = null)
 data class MoveTask(val to: String = "", val note: String? = null)
 data class PrBody(val url: String = "")
-data class ItemAct(val action: String = "", val note: String? = null)
+data class ItemAct(
+    val action: String = "",
+    val note: String? = null,
+    /** 0.18.52 a proposal's "Use another flow": the workflow the person picked. */
+    val workflowId: String? = null,
+    /** 0.18.52 a proposal's questions: question id → a label, a list of labels, or the person's own words. */
+    val answers: Map<String, Any?>? = null,
+    /** 0.18.52 a proposal's Start: start even with uncommitted files in the project (they stay out of keel's commits). */
+    val allowDirty: Boolean = false,
+)

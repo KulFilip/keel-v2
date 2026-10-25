@@ -53,6 +53,10 @@ class JiraController(private val jira: JiraService, private val mcp: McpService,
     @GetMapping("/jira/discover")
     fun discover(@PathVariable pid: String, @RequestParam(required = false) key: String?): JiraDiscovery = jira.discover(pid, key)
 
+    /** 0.18.52 the KeelBot account picker (Tasks › Automations): Jira users matching [q]. */
+    @GetMapping("/jira/users")
+    fun users(@PathVariable pid: String, @RequestParam q: String): List<JiraUser> = jira.users(pid, q)
+
     @GetMapping("/mcp-catalog")
     fun catalog(@PathVariable pid: String): List<CatalogEntry> {
         projects.require(pid)

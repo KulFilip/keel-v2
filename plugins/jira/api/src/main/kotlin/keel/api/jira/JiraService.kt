@@ -207,6 +207,19 @@ class JiraService(
         }
     }
 
+    /** 0.18.52 Jira users matching [q] (two characters at least). */
+    fun users(pid: String, q: String): List<JiraUser> {
+        val query = q.trim()
+        if (query.length < 2) throw BadRequest("Type two letters at least")
+        if (query.length > 100) throw BadRequest("The search is too long")
+        val c = requireClient(pid)
+        return try {
+            c.findUsers(query)
+        } catch (e: JiraException) {
+            throw JiraFailed(e)
+        }
+    }
+
     fun markSynced(pid: String, error: String?) {
         if (error == null) jdbc.update("UPDATE jira_connections SET last_sync_at = ?, last_sync_error = NULL WHERE project_id = ?", Time.now(), pid)
         else jdbc.update("UPDATE jira_connections SET last_sync_error = ? WHERE project_id = ?", error.take(500), pid)

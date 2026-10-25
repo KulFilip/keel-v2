@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component
 @Component
 class TaskPoll(
     private val tasks: TaskService,
+    private val automations: TaskAutomations,
     private val trackers: ObjectProvider<TicketTracker>,
     private val props: TaskProperties,
 ) {
@@ -22,6 +23,10 @@ class TaskPoll(
     fun tick() {
         if (!props.scheduler) return
         trackers.orderedStream().forEach { t -> runCatching { t.poll() }.onFailure { log.warn("ticket sync: {}", it.message) } }
-        if (ticks++ % 2 == 0L) runCatching { tasks.checkReviews(null) }.onFailure { log.warn("PR review check: {}", it.message) }
+        if (ticks++ % 2 == 0L) {
+            runCatching { tasks.checkReviews(null) }.onFailure { log.warn("PR review check: {}", it.message) }
+            // 0.18.52 the review comments on KeelBot-owned tickets' PRs
+            runCatching { automations.watchReviews(null) }.onFailure { log.warn("PR comment watch: {}", it.message) }
+        }
     }
 }
