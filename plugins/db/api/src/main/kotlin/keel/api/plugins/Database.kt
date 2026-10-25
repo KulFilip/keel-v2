@@ -7,12 +7,17 @@ import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Forbidden
+import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.engine.EngineClient
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import java.nio.file.Files
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.UUID
 
 data class DbConnectionBody(val name: String = "", val url: String? = null, val env: String? = null, val source: String? = null)
@@ -131,6 +136,7 @@ class DatabaseService(
     private val projects: ProjectService,
     private val plugins: PluginService,
     private val store: DatabaseStore,
+    private val props: KeelProperties,
 ) {
     private fun conn(r: DbRow) = DbConnection(r.name, r.kind, r.env, r.shown, r.source, r.ok, r.server, r.tables, r.error, r.checkedAt,
         r.env in CHANGE_ENVS, r.id, if (r.global) "global" else "project", r.driver)
@@ -429,6 +435,7 @@ class DatabaseService(
         val drv = driver?.lowercase() ?: throw BadRequest("Pick the kind of database", "MySQL, MariaDB, PostgreSQL or SQLite.")
         if (drv !in DbUrls.DRIVERS) throw BadRequest("keel does not know the database $drv", "MySQL, MariaDB, PostgreSQL or SQLite.")
         if (drv == "sqlite" && mode != "env") mode = "host"
+        if (drv == "sqlite" && mode != "env") checkSqlite(db, target, body.projects ?: old?.takeIf { it.global }?.let { store.allowed(it.id) }, pid)
         if (mode !in MODES) throw BadRequest("Connect with host, socket, url or env")
         if (port != null && port !in 1..65535) throw BadRequest("A port is a number from 1 to 65535")
         val envVar = (body.envVar ?: old?.envVar)?.trim()?.ifBlank { null }
@@ -475,6 +482,40 @@ class DatabaseService(
         val unavailable = if (mode != "env" && full == null) "keel has no address for $name" to "Fill in the connection's fields." else null
         return Prepared(draft.copy(shown = shown), full, old == null || address != store.address(old) || exact != null || typed != null,
             body.projects, unavailable)
+    }
+
+    /**
+     * keel 0.18.55: a SQLite file lies inside a project folder it is for (a project's own: its folder; one for every
+     * project: the folders of the projects it names, else of any project), never in keel's own data folder (/data,
+     * KEEL_DATA: keel's own database). Symlinks are followed where the file exists; the engine checks again when it opens it.
+     */
+    private fun checkSqlite(file: String?, target: String, allow: List<String>?, pid: String?) {
+        val raw = file?.trim()?.removePrefix("file:").orEmpty()
+        if (raw.isEmpty()) return
+        val hint = "Use a SQLite file inside the project folder, for example data/app.db."
+        val p = try { Paths.get(raw) } catch (e: InvalidPathException) { throw BadRequest("keel cannot read this SQLite path", hint) }
+        val roots = when {
+            target != DatabaseStore.GLOBAL -> listOf(target)
+            !allow.isNullOrEmpty() -> allow + listOfNotNull(pid)
+            pid != null -> listOf(pid)
+            else -> projects.idsByRoot().values.toList()
+        }.mapNotNull { id -> projects.find(id)?.root?.let { Paths.get(it) } }.map(::real)
+        val data = listOf(Paths.get("/data"), props.dataDir).map(::real)
+        val files = if (p.isAbsolute) listOf(real(p)) else {
+            if (p.normalize().startsWith("..")) throw BadRequest("The SQLite file must be inside the project folder", hint)
+            roots.map { real(it.resolve(p)) }
+        }
+        if (files.any { f -> data.any { f.startsWith(it) } }) throw BadRequest("keel never opens its own data folder as a SQLite connection", hint)
+        if (p.isAbsolute && roots.none { files[0].startsWith(it) }) throw BadRequest("The SQLite file must be inside the project folder", hint)
+    }
+
+    /** The path with its symlinks resolved as far as it exists (a file not made yet keeps its name under its real folder). */
+    private fun real(p: Path): Path {
+        val abs = p.toAbsolutePath().normalize()
+        var base: Path? = abs
+        while (base != null && !Files.exists(base)) base = base.parent
+        if (base == null) return abs
+        return runCatching { base.toRealPath().resolve(base.relativize(abs)) }.getOrDefault(abs)
     }
 
     private fun save(old: DbRow?, body: DbConfigBody, target: String, pid: String?): DbRow {

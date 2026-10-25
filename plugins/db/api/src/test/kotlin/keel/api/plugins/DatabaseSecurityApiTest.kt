@@ -38,4 +38,25 @@ class DatabaseSecurityApiTest : ApiTest() {
         post("/api/projects/$pid/db/query", mapOf("sql" to "select password_hash from users", "connection" to "local")).andExpect(status().isOk)
         assertThat(engine.lastBody("/plugins/db/query")!!["mask"].asBoolean()).isFalse()
     }
+
+    @Test
+    fun `a SQLite file must be inside the project, never in keel's data`() {
+        val (pid, root) = newProject("dbsec-sqlite")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
+        val sqlite = { file: String -> mapOf("name" to "f${file.hashCode().toUInt()}", "driver" to "sqlite", "default_db" to file) }
+        for (bad in listOf("/data/keel.db", props.dataDir.resolve("keel.db").toString(), "../elsewhere.db", "/etc/app.db")) {
+            val r = post("/api/projects/$pid/databases", sqlite(bad)).andExpect(status().isBadRequest).json()
+            assertThat(r["error"].asText()).contains("SQLite")
+        }
+        post("/api/projects/$pid/databases", mapOf("name" to "u", "url" to "sqlite:/data/keel.db")).andExpect(status().isBadRequest)
+        post("/api/projects/$pid/db/connections", mapOf("name" to "u2", "url" to "sqlite:///data/keel.db")).andExpect(status().isBadRequest)
+        post("/api/projects/$pid/databases", sqlite("data/app.db")).andExpect(status().isOk)
+        post("/api/projects/$pid/databases", sqlite(root.resolve("app.db").toString())).andExpect(status().isOk)
+
+        // a connection for every project: inside a project it is for
+        post("/api/databases", sqlite("/tmp/other.db") + mapOf("projects" to listOf(pid))).andExpect(status().isBadRequest)
+        val g = post("/api/databases", sqlite(root.resolve("shared.db").toString()) + mapOf("projects" to listOf(pid)))
+            .andExpect(status().isOk).json()
+        delete("/api/databases/${g["id"].asText()}").andExpect(status().isOk)
+    }
 }
