@@ -584,6 +584,46 @@ class ProductApiTest : ApiTest() {
     }
 
     @Test
+    fun `P3 P5 every save of the plan is a new version, checked again, with its files in one commit`() {
+        val (webPid, payPid) = repos()
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Versions", "idea" to "Edit the plan.", "repos" to listOf(webPid, payPid))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+        assertThat(detail(id)["plan"]["version"].asInt()).isEqualTo(1)
+
+        // e2e 0.18.54: a hand edit of an estimate left total_days and critical_days as keel first wrote them
+        val v2 = patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("estimate_days" to listOf(4, 6))).andExpect(status().isOk).json()["plan"]
+        assertThat(v2["version"].asInt()).isEqualTo(2)
+        assertThat(v2["total_days"].map { it.asDouble() }).containsExactly(8.0, 11.0)          // PAY-S1 2–3, PAY-S2 4–6, WEB-S1 2
+        assertThat(v2["critical_days"].asDouble()).isEqualTo(9.0)                               // PAY-S1 (3) → PAY-S2 (6)
+        assertThat(v2["critical_path"].map { it.asText() }).containsExactly("PAY-S1", "PAY-S2")
+        assertThat(v2["teams"]["payments"].map { it.asDouble() }).containsExactly(6.0, 9.0)
+        assertThat(v2["edited"].asBoolean()).isTrue()
+
+        // README: every document is a versioned commit — plan-v2.json and .md, one commit; v1 is kept as it was
+        val root = java.nio.file.Paths.get(get("/api/product").json()["root"].asText())
+        val json = Files.readString(root.resolve("initiatives/$id/plan-v2.json"))
+        assertThat(mapper.readTree(json)["epics"].flatMap { it["stories"] }.single { it["id"].asText() == "PAY-S2" }["estimate_days"].map { it.asDouble() })
+            .containsExactly(4.0, 6.0)
+        assertThat(Files.readString(root.resolve("initiatives/$id/plan-v2.md"))).contains("8–11 developer days").contains("Critical path: PAY-S1 → PAY-S2 (9 days)")
+        val log = keel.api.common.Proc.run(listOf("git", "log", "--name-only", "--format=%s", "-1"), root, 10).out
+        assertThat(log).contains("$id: plan v2 (by hand: Changed the story PAY-S2)").contains("initiatives/$id/plan-v2.json").contains("initiatives/$id/plan-v2.md")
+        val d = detail(id)
+        assertThat(d["docs"]["plan"]["versions"].map { it.asInt() }).containsExactly(1, 2)       // the version picker
+        assertThat(get("/api/initiatives/$id/docs/plan/1").json()["data"]["total_days"].map { it.asDouble() }).containsExactly(5.0, 7.0)
+
+        // a refused edit makes no version; the next save is v3, and the stories go on from v2's
+        patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("criteria" to listOf("not a criterion"))).andExpect(status().isBadRequest)
+        assertThat(detail(id)["plan"]["version"].asInt()).isEqualTo(2)
+        val v3 = delete("/api/initiatives/$id/plan/stories/PAY-S2").andExpect(status().isOk).json()["plan"]
+        assertThat(v3["version"].asInt()).isEqualTo(3)
+        assertThat(v3["total_days"].map { it.asDouble() }).containsExactly(4.0, 5.0)
+        assertThat(v3["critical_days"].asDouble()).isEqualTo(5.0)                               // PAY-S1 (3) → WEB-S1 (2)
+        assertThat(v3["epics"].flatMap { it["stories"] }.map { it["id"].asText() }).containsExactlyInAnyOrder("PAY-S1", "WEB-S1")
+        assertThat(get("/api/initiatives/$id/docs/plan/2").json()["data"]["counts"]["stories"].asInt()).isEqualTo(3)
+    }
+
+    @Test
     fun `B5 the Jira connections say which one is connected, and an initiative ticket uses a project's own when keel-wide has none`() {
         val (web, pay) = repos()
         put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "PAY"))

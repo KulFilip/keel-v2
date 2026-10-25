@@ -1360,6 +1360,43 @@ describe("keel Product in keel's web", () => {
     expect(await within(epic).findByText("Rounding rule")).toBeInTheDocument();
   });
 
+  it("P5: each save of the plan is a version: the picker shows an older one as it was", async () => {
+    const d = () =>
+      detail(
+        { stage: "delivery", status: "ready" },
+        {
+          docs: {
+            plan: { kind: "plan", version: 2, versions: [1, 2], path: "initiatives/INI-2/plan-v2.json", text: "", created_at: "2026-10-08T10:00:00Z" },
+          },
+          plan: { ...draftPlan(), total_days: [8, 11], critical_days: 9, critical_path: ["PAY-S1", "PAY-S2"] },
+        },
+      );
+    await open("#/initiatives/INI-2", {
+      "GET /api/initiatives/INI-2": () => d(),
+      "GET /api/teams": [],
+      "GET /api/initiatives/INI-2/docs/plan/1": {
+        initiative_id: "INI-2", kind: "plan", version: 1, path: "initiatives/INI-2/plan-v1.json", text: "", created_at: "2026-10-08T09:00:00Z",
+        data: {
+          plan: { epics: [{ id: "PAY", title: "Prices API v2", team: "payments", stories: [
+            { id: "PAY-S1", title: "Prices in euro", repo: "payments-api", estimate_days: [2, 3], depends_on: [], criteria: ["AC-1 [API] currency"] },
+            { id: "PAY-S2", title: "Rates job", repo: "payments-api", estimate_days: [1, 2], depends_on: ["PAY-S1"], criteria: [] },
+          ] }] },
+          counts: { epics: 1, stories: 2, tasks: 1 }, total_days: [3, 5], critical_path: ["PAY-S1", "PAY-S2"], critical_days: 5, problems: [],
+        },
+      },
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Plan" }));
+    const tab = main().getByRole("tabpanel");
+    expect(within(tab).getByText(/keel checked it again/)).toBeInTheDocument();
+    const pick = within(tab).getByRole("combobox", { name: "Plan version" });
+    expect(within(pick).getAllByRole("option").map((o) => o.textContent)).toEqual(["v2 (latest)", "v1"]);
+    await userEvent.selectOptions(pick, "1");
+    expect(await within(tab).findByText(/3–5 d in total/)).toBeInTheDocument();
+    expect(within(tab).getByText(/Critical path: PAY-S1 → PAY-S2 \(5 days\)/)).toBeInTheDocument();
+    expect(within(tab).getByText("an older version, read only")).toBeInTheDocument();
+    expect(within(tab).queryByRole("button", { name: "Edit PAY-S2" })).toBeNull();
+  });
+
   it("previews the Jira tickets, then sends the new ones after a confirm", async () => {
     let sent = false;
     const plan = () => {

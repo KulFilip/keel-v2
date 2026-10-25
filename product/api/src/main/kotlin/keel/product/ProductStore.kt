@@ -406,6 +406,12 @@ class ProductStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMap
         )
     }
 
+    /** The highest plan version any epic or story draft has (0 = none): a new version starts above it. */
+    fun planRowsVersion(id: String): Int = jdbc.queryForObject(
+        "SELECT MAX(v) FROM (SELECT COALESCE(MAX(version), 0) v FROM product_plan_items WHERE initiative_id = ? " +
+            "UNION ALL SELECT COALESCE(MAX(version), 0) FROM product_plan_epics WHERE initiative_id = ?)", Int::class.java, id, id,
+    ) ?: 0
+
     fun deleteItem(id: String, version: Int, sid: String) {
         jdbc.update("DELETE FROM product_plan_items WHERE initiative_id = ? AND version = ? AND id = ?", id, version, sid)
     }
