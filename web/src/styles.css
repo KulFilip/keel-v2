@@ -960,8 +960,10 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
   border-radius: 8px; font-size: 13px; color: var(--fg); }
 .fl-needs.is-bad { border-color: var(--bad); background: var(--bad-soft); }
 .fl-needs .btn { margin-left: auto; }
-.fl-live { position: sticky; top: calc(var(--bar-h, 0px) + 8px); z-index: 3; display: flex; justify-content: center; height: 0; overflow: visible; }
-.fl-live button { margin-top: 4px; border: 1px solid var(--run); background: var(--panel); color: var(--run); border-radius: 999px; padding: 3px 12px; font: inherit;
+/* "Jump to live" takes its own row above the steps (with height 0 it floated over the first block's text: "1 step ran ·
+   1s" under the pill); it still sticks to the top while the steps scroll under it */
+.fl-live { position: sticky; top: calc(var(--bar-h, 0px) + 8px); z-index: 3; display: flex; justify-content: center; margin: 0 0 8px; pointer-events: none; }
+.fl-live button { pointer-events: auto; margin: 0; border: 1px solid var(--run); background: var(--panel); color: var(--run); border-radius: 999px; padding: 3px 12px; font: inherit;
   font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .sx-chev { display: inline-block; transition: transform .15s; font-size: 11px; }
 .sc-inc .sc-mouth > .sx-sec > .sx-h { margin: 10px 0 6px 8px; }
@@ -1107,11 +1109,16 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 }
 
 /* the Flow page: summary bar, live blocks | side panel, then the details */
-.fl-bar { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 12px 20px; align-items: end; margin-bottom: 14px; }
+/* a wrapping row: the title block takes the room it needs (at least 360px) and the stats and the buttons go under it
+   when there is no room beside it (a grid with two auto columns squeezed the title to one word a line at ~1500px) */
+.fl-bar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; margin-bottom: 14px; }
+.fl-bar-main { flex: 1 1 360px; min-width: 0; }
+.fl-bar > .actions { flex: 0 1 auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-left: auto; }
+.fl-branch { display: inline-block; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .fl-bar h1 { font-size: 22px; line-height: 1.2; margin: 0; letter-spacing: -.015em; text-wrap: balance; }
 .fl-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 4px; color: var(--dim); font-size: 13px; }
 .fl-facts b { color: var(--fg); font-weight: 600; }
-.fl-stats { display: flex; gap: 18px; align-items: end; }
+.fl-stats { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; flex: 0 1 auto; min-width: 0; }
 .fl-stat { display: grid; gap: 2px; }
 .fl-stat-l { font-size: 12px; color: var(--dim); }
 .fl-stat-v { font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -1133,8 +1140,9 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 @media (max-width: 1099px) {
   .fl { grid-template-columns: minmax(0,1fr); }
   .fl-side { position: static; max-height: none; overflow: visible; }
-  .fl-bar { grid-template-columns: minmax(0,1fr); align-items: start; }
-  .fl-stats { flex-wrap: wrap; }
+  .fl-bar { align-items: flex-start; }
+  .fl-bar-main { flex-basis: 100%; }
+  .fl-bar > .actions { margin-left: 0; justify-content: flex-start; }
   .fl-scroll { max-height: 70vh; overflow-y: auto; scrollbar-width: thin; }
 }
 @media (max-width: 600px) {
