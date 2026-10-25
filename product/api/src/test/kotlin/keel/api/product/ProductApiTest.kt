@@ -744,6 +744,26 @@ class ProductApiTest : ApiTest() {
     }
 
     @Test
+    fun `the team api reads camelCase fields too, not only snake_case`() {
+        // e2e 0.18.54: jiraProject, capacityDays and keyPattern were dropped without a word
+        val (_, pay) = repos()
+        delete("/api/teams/camel")
+        val t = post("/api/teams", mapOf("name" to "camel", "jiraProject" to "CML", "capacityDays" to 8, "keyPattern" to "(CML|OLD)-\\d+",
+            "owns" to listOf(mapOf("projectId" to pay, "glob" to "src/**")), "jira" to mapOf("epicType" to "Feature", "epicLinkField" to "customfield_1")))
+            .andExpect(status().isOk).json()
+        assertThat(t["jira_project"].asText()).isEqualTo("CML")
+        assertThat(t["capacity_days"].asDouble()).isEqualTo(8.0)
+        assertThat(t["keys"].asText()).isEqualTo("(CML|OLD)-\\d+")
+        assertThat(t["owns"].single()["project_id"].asText()).isEqualTo(pay)
+        assertThat(t["jira"]["epic_type"].asText()).isEqualTo("Feature")
+        assertThat(t["jira"]["epic_link_field"].asText()).isEqualTo("customfield_1")
+        val u = patch("/api/teams/camel", mapOf("capacityDays" to 3, "jira_project" to "CM2")).andExpect(status().isOk).json()
+        assertThat(u["capacity_days"].asDouble()).isEqualTo(3.0)
+        assertThat(u["jira_project"].asText()).isEqualTo("CM2")
+        delete("/api/teams/camel")
+    }
+
+    @Test
     fun `on Jira Server a story names its epic with the Epic Link field, and the team's own connection is used`() {
         val (_, pay) = repos()
         put("/api/projects/$pay/jira", mapOf("kind" to "server", "base_url" to server.url, "token" to server.token)).andExpect(status().isOk)

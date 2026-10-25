@@ -1,5 +1,6 @@
 package keel.product
 
+import com.fasterxml.jackson.annotation.JsonAlias
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import keel.api.common.Time
@@ -182,12 +183,12 @@ data class Team(
 data class TeamJira(
     /** The keel project whose Jira connection the team uses; null = keel's keel-wide connection. */
     val connection: String? = null,
-    val initiativeType: String? = null,
-    val epicType: String? = null,
-    val storyType: String? = null,
-    val subtaskType: String? = null,
+    @JsonAlias("initiativeType") val initiativeType: String? = null,
+    @JsonAlias("epicType") val epicType: String? = null,
+    @JsonAlias("storyType") val storyType: String? = null,
+    @JsonAlias("subtaskType") val subtaskType: String? = null,
     /** Jira Server and Data Center: the Epic Link field (customfield_…) a story names its epic with; blank = found by name. */
-    val epicLinkField: String? = null,
+    @JsonAlias("epicLinkField") val epicLinkField: String? = null,
     val labels: List<String> = emptyList(),
     val component: String? = null,
 )
