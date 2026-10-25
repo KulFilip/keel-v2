@@ -277,11 +277,14 @@ def has_loop(steps: list, after: int) -> bool:
     return any(s.per_ac for s in covered(steps, after))
 
 
-def gate_mode_question() -> dict:
-    """keel v1's start picker: the AC gates for this flow only (the project's gates_mode stays the default)."""
-    return {"id": "gate_mode", "question": "When should keel stop for the criteria's gates in this flow?",
-            "why": "Only this flow; the project's gate mode setting stays as it is. Unanswered: the project's setting.",
-            "options": [{"label": k, "description": v, "recommended": False} for k, v in GATE_MODES.items()], "multiple": False}
+def gate_mode_question(chosen: str | None = None) -> dict:
+    """keel v1's start picker: the AC gates for this flow only (the project's gates_mode stays the default). `chosen`
+    (B10: an answer before a skip menu asked again): that mode is marked, and kept when this one is not answered."""
+    why = "Only this flow; the project's gate mode setting stays as it is. Unanswered: " + \
+        (f"{chosen}, as you answered before." if chosen in GATE_MODES else "the project's setting.")
+    return {"id": "gate_mode", "question": "When should keel stop for the criteria's gates in this flow?", "why": why,
+            "options": [{"label": k, "description": v, "recommended": k == chosen} for k, v in GATE_MODES.items()],
+            "multiple": False}
 
 
 def gate_mode_of(payload: dict) -> str | None:
@@ -295,25 +298,49 @@ def gate_mode_of(payload: dict) -> str | None:
 def skip_question(units: list[dict]) -> dict:
     """The skip menu as a question a form can show (0.19.0): tick the steps to skip, each with its band; nothing is
     ticked by default (every step runs). The answer comes back as payload.answers.skip with payload.reasons."""
+    # B9 each ticked step takes its own reason (a form shows a field per ticked option: payload.reasons), and the
+    # question has no "own words": words typed there were read as one more step's name
     return {"id": "skip", "question": "Which steps should keel skip this time?",
             "why": "Every skip needs a reason: it is shown again at the final review and printed in the PR body.",
-            "options": [{"label": u["name"], "description": BANDS[u["band"]], "recommended": False} for u in units],
-            "multiple": True}
+            "options": [{"label": u["name"], "description": BANDS[u["band"]], "recommended": False, "why": "required"}
+                        for u in units],
+            "multiple": True, "own_words": False}
 
 
-def skip_payload(payload: dict) -> dict:
+def skip_payload(payload: dict, names: list[str] | set[str] | None = None) -> dict:
     """payload.answers.skip (the steps ticked) with payload.reasons {step: why} as today's payload.skip map; a
-    payload.skip already there wins for the steps it names."""
+    payload.skip already there wins for the steps it names. With the skippable `names` (B9): a ticked "<step>: <reason>"
+    is that step with its reason, and words that name no step (a client's own-words box) are the reason of the ticked
+    steps that have none, instead of a step keel does not know."""
     answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
     ticked = answers.get("skip")
     if ticked in (None, "", []):
         return payload
     ticked = [ticked] if isinstance(ticked, str) else [str(x) for x in ticked if str(x).strip()]
     reasons = payload.get("reasons") if isinstance(payload.get("reasons"), dict) else {}
+    reasons = {str(k): v for k, v in reasons.items() if str(v or "").strip()}
     have = payload.get("skip")
     have = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in have if isinstance(x, dict)} \
         if isinstance(have, list) else dict(have) if isinstance(have, dict) else {}
-    skip = {name: reasons.get(name) for name in ticked}
+    if names is None:
+        skip = {name: reasons.get(name) for name in ticked}
+        return {**payload, "skip": {**skip, **have}}
+    known = set(names)
+    skip: dict = {}
+    words: list[str] = []
+    for x in ticked:
+        name, _, said = x.partition(":")
+        if x in known:
+            skip[x] = reasons.get(x)
+        elif name.strip() in known and said.strip():
+            skip[name.strip()] = reasons.get(name.strip()) or said.strip()
+        else:
+            words.append(x.strip())
+    why = "; ".join(w for w in words if w)
+    if why and skip and any(not str(v or "").strip() for v in skip.values()):
+        skip = {k: v if str(v or "").strip() else why for k, v in skip.items()}
+    elif words:
+        skip.update({w: reasons.get(w) for w in words})       # still a name keel does not know: parse_skips says so
     return {**payload, "skip": {**skip, **have}}
 
 

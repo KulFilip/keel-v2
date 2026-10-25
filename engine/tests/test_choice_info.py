@@ -128,6 +128,30 @@ def test_the_skip_menu_as_a_question_and_its_answers():
     assert ship.skip_payload(old) is old and ship.parse_skips(old, units)[0][0]["reason"] == "no linter yet"
 
 
+def test_a_skip_takes_its_reason_and_own_words_are_no_step_name():
+    """B9: each ticked step needs its reason (the form's field per option); words a client typed in its own-words box
+    are the reason of the ticked steps that have none, not one more step keel does not know."""
+    units = [{"name": "lint", "band": "optional", "steps": ["lint"]}, {"name": "cover", "band": "deferred", "steps": ["cover"]}]
+    names = [u["name"] for u in units]
+    q = ship.skip_question(units)
+    assert all(o["why"] == "required" for o in q["options"]) and q["own_words"] is False
+    own = ship.skip_payload({"answers": {"skip": ["lint", "no linter in this repo yet"]}}, names)
+    assert ship.parse_skips(own, units)[0] == [{"step": "lint", "band": "optional", "reason": "no linter in this repo yet"}]
+    said = ship.skip_payload({"answers": {"skip": ["cover: CI measures it"]}}, names)
+    assert ship.parse_skips(said, units)[0] == [{"step": "cover", "band": "deferred", "reason": "CI measures it"}]
+    given = ship.skip_payload({"answers": {"skip": ["lint", "cover", "both later"]}, "reasons": {"lint": "no linter"}}, names)
+    assert {s["step"]: s["reason"] for s in ship.parse_skips(given, units)[0]} == {"lint": "no linter", "cover": "both later"}
+    unknown = ship.skip_payload({"answers": {"skip": ["nonsense"]}}, names)
+    assert ship.parse_skips(unknown, units)[2].startswith("nonsense cannot be skipped here")
+
+
+def test_the_gate_mode_question_marks_the_mode_answered_before():
+    """B10: a skip menu asked again keeps the gate mode answered before (marked, and kept when unanswered)."""
+    q = ship.gate_mode_question("end")
+    assert [o["label"] for o in q["options"] if o["recommended"]] == ["end"] and "end, as you answered before" in q["why"]
+    assert not any(o["recommended"] for o in ship.gate_mode_question()["options"])
+
+
 def test_auto_mode_answers_a_multiple_question_with_every_recommended_option():
     q = {"kind": "clarify", "title": "three questions", "options": ["approve", "reject"], "questions": [
         {"id": "run", "question": "?", "options": [{"label": "this machine", "recommended": True}, {"label": "dev container"}]},

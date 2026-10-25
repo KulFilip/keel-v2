@@ -618,6 +618,21 @@ def test_the_gate_mode_for_this_flow_is_chosen_at_the_spec_gate(client, repo, mo
     assert "gate mode for this flow: end (was every-ac)" in s["gate_log"]
 
 
+def test_the_gate_mode_holds_when_a_skip_without_reason_is_asked_again(client, repo, monkeypatch):
+    """B10: the spec gate's gate mode was lost when the menu asked again about a skip without its reason (B9)."""
+    by_step(monkeypatch, {})
+    tid = start(client, repo)
+    s = wait(client, tid)
+    s = decide(client, tid, payload={"choice": "approve", "answers": {"skip": ["security"], "gate_mode": "end"}})
+    assert s["waiting"]["step"] == "options" and "skipping security needs a reason" in s["waiting"]["title"]
+    mode_q = next(q for q in s["waiting"]["questions"] if q["id"] == "gate_mode")
+    assert [o["label"] for o in mode_q["options"] if o["recommended"]] == ["end"]
+    s = decide(client, tid, payload={"answers": {"skip": ["security", *SKIPS]}, "reasons": {"security": "no new endpoint", **SKIPS}})
+    s, gates = gates_until_done(client, tid, s)
+    assert gates.count("ac_gate") == 1, gates
+    assert "gate mode for this flow: end (was every-ac)" in s["gate_log"]
+
+
 # ------------------------------------------------------------------ "ready to ship?"
 
 def test_ready_to_ship_shows_the_state_and_can_show_the_diff_or_stop(client, repo, monkeypatch):

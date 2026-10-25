@@ -54,7 +54,7 @@ export function answersOf(
     if (q.multiple) {
       const ticked =
         p === undefined ? defaultPick(q) : Array.isArray(p) ? p : p ? [p] : [];
-      const list = [...ticked, ...(t ? [t] : [])];
+      const list = [...ticked, ...(t && q.own_words !== false ? [t] : [])];
       if (list.length) out[q.id] = list;
     } else if (t) {
       const r = reasonOption(q, p);
@@ -62,6 +62,49 @@ export function answersOf(
     } else if (p) out[q.id] = Array.isArray(p) ? p[0] : p;
   }
   return out;
+}
+
+/** B9 where the form keeps the reason of one ticked option of a `multiple` question (in `typed`, next to its own words). */
+export const reasonKey = (questionId: string, label: string) => `${questionId}::${label}`;
+
+/** The ticked options of a `multiple` question that take a reason (a skip menu's steps). */
+function reasonPicks(q: ClarifyQuestion, picked: ClarifyAnswers): string[] {
+  if (!q.multiple) return [];
+  const p = q.id in picked ? picked[q.id] : undefined;
+  const ticked = p === undefined ? defaultPick(q) : Array.isArray(p) ? p : p ? [p] : [];
+  return ticked.filter((label) => {
+    const why = q.options.find((o) => o.label === label)?.why;
+    return why === "required" || why === "optional";
+  });
+}
+
+/** B9 the reasons typed for ticked options, by option label (the resume's payload.reasons). */
+export function reasonsOf(questions: ClarifyQuestion[], picked: ClarifyAnswers, typed: ClarifyAnswers): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const q of questions) {
+    for (const label of reasonPicks(q, picked)) {
+      const t = String(typed[reasonKey(q.id, label)] ?? "").trim();
+      if (t) out[label] = t;
+    }
+  }
+  return out;
+}
+
+/** B9 why the answers cannot be sent yet: a ticked option that needs a reason has none ("" = they can). */
+export function reasonsMissing(questions: ClarifyQuestion[], picked: ClarifyAnswers, typed: ClarifyAnswers): string {
+  for (const q of questions) {
+    for (const label of reasonPicks(q, picked)) {
+      const o = q.options.find((x) => x.label === label);
+      if (o?.why === "required" && !String(typed[reasonKey(q.id, label)] ?? "").trim()) return `Write why for “${label}” first: it needs a reason.`;
+    }
+  }
+  return "";
+}
+
+/** The questions' part of a resume's payload: the answers, and the reasons of ticked options when there are some. */
+export function questionsPayload(questions: ClarifyQuestion[], picked: ClarifyAnswers, typed: ClarifyAnswers): Record<string, unknown> {
+  const reasons = reasonsOf(questions, picked, typed);
+  return { answers: answersOf(questions, picked, typed), ...(Object.keys(reasons).length ? { reasons } : {}) };
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");

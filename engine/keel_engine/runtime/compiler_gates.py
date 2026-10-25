@@ -337,14 +337,17 @@ class GateMixin:
         units = ship_mod.skip_units(self.wf.steps, i)
         detail = ship_mod.skip_menu_detail(self.wf.steps, i)
         title, extra_all = step.name, {}
+        mode_payload: dict = {}
         folded = self._folded_answer(i, state)
         if folded:
             # v0.17.5 decided at an earlier gate (the spec gate): its skips for this menu, no second stop. A name no menu
             # knows, or a skip without a reason, still asks here.
             gid, payload = folded
-            payload = ship_mod.skip_payload(payload)
             mine = {u["name"] for u in units}
             known = {u["name"] for j in self._menu_steps(-1) for u in ship_mod.skip_units(self.wf.steps, j)}
+            payload = ship_mod.skip_payload(payload, known)
+            # B10 the gate mode answered there holds even when this menu asks again about a skip
+            mode_payload = payload
             raw = payload.get("skip") or {}
             raw = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in raw if isinstance(x, dict)} \
                 if isinstance(raw, list) else raw
@@ -368,15 +371,23 @@ class GateMixin:
                 note = ("skipped: " + ", ".join(f"{s['step']} ({s['reason']})" for s in skips)) if skips else "every step runs"
                 return {"gates": gates, "data": data, "note": f"{note} (chosen at {gid})"[:300]}, self.nav.after(i)
             title = f"{step.name}: {problem}"
+        loop = ship_mod.has_loop(self.wf.steps, i)
+        names = [u["name"] for u in units]
         while True:
             ask = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": ["approve"],
                    "labels": {"approve": "Run these steps"}}
             if units:
                 ask["questions"] = [ship_mod.skip_question(units)]
+            if loop:
+                # B10 the gate mode is asked again with the skip, the earlier answer marked and kept when unanswered
+                ask["questions"] = ask.get("questions", []) + [ship_mod.gate_mode_question(ship_mod.gate_mode_of(mode_payload))]
             answer, extra = self._ask(state, ask, gate="skip-menu")
             extra_all.update(extra)
             state = {**state, **extra}
-            skips, lenses, problem = ship_mod.parse_skips(ship_mod.skip_payload(answer.get("payload") or {}), units)
+            got = answer.get("payload") or {}
+            if ship_mod.gate_mode_of(got):
+                mode_payload = got
+            skips, lenses, problem = ship_mod.parse_skips(ship_mod.skip_payload(got, names), units)
             if not problem:
                 break
             title = f"{step.name}: {problem}"
@@ -386,7 +397,7 @@ class GateMixin:
         data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
         if lenses:
             data["lenses_chosen"] = lenses
-        self._gate_mode(i, gates, answer.get("payload") or {})
+        self._gate_mode(i, gates, got if ship_mod.gate_mode_of(got) else mode_payload)
         gates["log"].append(f"gate {step.id} approve" + (f": {why}" if why else ""))
         for sk in skips:
             gates["log"].append(f"gate {step.id} skip {sk['step']} ({sk['band']}): {sk['reason']}")

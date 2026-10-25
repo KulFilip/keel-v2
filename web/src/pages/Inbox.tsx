@@ -8,7 +8,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorParts } from "../api";
-import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
+import { ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
+import { questionsPayload, reasonsMissing } from "../questions";
 import { ChoiceForm } from "../components/ChoiceForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
@@ -180,11 +181,17 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
       window.setTimeout(() => document.getElementById(whyId)?.focus(), 0);
       return;
     }
+    // B9 a ticked step of a skip menu needs its reason before the answer goes
+    const missing = decision === "approve" && it.questions?.length ? reasonsMissing(it.questions, picked, typed) : "";
+    if (missing) {
+      setErr({ message: missing });
+      return;
+    }
     setBusy(true);
     setErr(null);
     const body: InboxAnswer = { decision, id: it.id ?? undefined, ...(said.trim() ? { why: said.trim() } : {}) };
     // keel 0.18.13 a gate may ask questions next to its choices (hunt lenses, a skip menu): both go back together
-    if (it.questions?.length) body.payload = { ...(payload ?? {}), answers: answersOf(it.questions, picked, typed) };
+    if (it.questions?.length) body.payload = { ...(payload ?? {}), ...questionsPayload(it.questions, picked, typed) };
     else if (payload) body.payload = payload;
     try {
       await inboxApi.act(it.thread_id, body);

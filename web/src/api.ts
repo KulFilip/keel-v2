@@ -115,6 +115,8 @@ export type ClarifyQuestion = {
   options: { label: string; description?: string; recommended?: boolean; why?: "required" | "optional" }[];
   /** keel 0.18.9 several options may be picked (the answer is a list) */
   multiple?: boolean;
+  /** B9 false: no "own words" box (a skip menu: words there were read as a step's name) */
+  own_words?: boolean;
 };
 /** keel 0.18.13 what one named choice of a waiting question means (same order as `choices`): its words, whether it
  *  needs a reason (`why`), and which one a plain approve takes (`default`). Answer: approve with payload {choice: name}. */
