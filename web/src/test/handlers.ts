@@ -2,7 +2,7 @@
 
 import type { Device } from "../devicesApi";
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
@@ -46,6 +46,8 @@ export function createDb() {
     /** keel 0.18.9 the folder has changes main has too: a switch to main is refused unless keel stashes them */
     gitDirty: false,
     focus: { project: null as string | null, chats: {} as Record<string, string>, by: null as string | null, client: null as string | null },
+    /** keel 0.18.54 each flow's stored decision events (GET .../flows/:tid/decisions) */
+    decisions: {} as Record<string, EngineEvent[]>,
     flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
     /** v0.7.x: each project's board (GET /flows) and the flows in worktrees by id (GET /flows/:tid) */
     boards: {} as Record<string, FlowBoard>,
@@ -245,6 +247,7 @@ export function handlers(db: Db) {
     http.post("/api/threads/:tid/stop", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),
     http.get("/api/threads/:tid/history", () => HttpResponse.json(fx.checkpoints)),
     // keel 0.18.11 each step's calls added up, built from the jobs like the api does (StepRuns.kt)
+    http.get("/api/projects/:pid/flows/:tid/decisions", ({ params }) => HttpResponse.json(db.decisions[String(params.tid)] ?? [])),
     http.get("/api/projects/:pid/flows/:tid/step-runs", ({ params }) =>
       HttpResponse.json(fx.stepRunsOf(fx.jobs.filter((j) => j.project_id === params.pid && j.thread_id === params.tid)))),
     http.post("/api/threads/:tid/rewind", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),

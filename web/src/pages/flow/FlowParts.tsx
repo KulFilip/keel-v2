@@ -183,7 +183,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
   );
 }
 
-export type FlowSide = "now" | "step" | "checkpoints";
+export type FlowSide = "now" | "step" | "decisions" | "checkpoints";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */

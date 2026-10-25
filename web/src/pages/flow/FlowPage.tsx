@@ -24,6 +24,7 @@ import { useWide } from "../../components/useWide";
 import { Async, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../../components/ui";
 import { acLabel, clock } from "../../format";
 import { go, useApp, useLoad, useRoute } from "../../state";
+import { DecisionsPanel } from "./Decisions";
 import { EventsPanel } from "./EventsPanel";
 import {
   BudgetMeter,
@@ -169,7 +170,7 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
   const name = selected ? workflow.steps.find((s) => s.id === selected)?.name ?? selected : null;
   return (
     <aside className="fl-side" aria-label="Now, the selected step and checkpoints">
-      <Tabs value={side} onChange={setSide} label="Flow details" options={[["now", "Now"], ["step", name ? `Step: ${name}` : "Step"], ["checkpoints", "Checkpoints"]]} />
+      <Tabs value={side} onChange={setSide} label="Flow details" options={[["now", "Now"], ["step", name ? `Step: ${name}` : "Step"], ["decisions", "Decisions"], ["checkpoints", "Checkpoints"]]} />
       {side === "now" ? (
         <div className="grid" style={{ gap: 12 }}>
           {thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
@@ -182,6 +183,8 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
       ) : side === "step" ? (
         selected ? <StepPanel key={selected} pid={pid} thread={thread} workflow={workflow} stepId={selected} running={running} onClose={onClose} onJump={onJump} />
           : <div className="panel"><div className="panel-body wb-hint"><b>Select a block to see what it does.</b><span className="sub">Its task, the rules of its phase, where it goes next and what it did in this flow.</span></div></div>
+      ) : side === "decisions" ? (
+        <DecisionsPanel pid={pid} thread={thread} workflow={workflow} />
       ) : (
         <CheckpointsPanel thread={thread} history={history.data} error={history.error} onRewound={onDone} readOnly={!!readOnly} />
       )}
