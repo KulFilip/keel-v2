@@ -181,9 +181,10 @@ class DatabaseService(
 
     // ---------------------------------------------------------------- the routes of keel 0.15 (by name, per project)
 
-    fun list(pid: String): List<DbConnection> {
+    /** keel 0.15's list. An agent (keel2 mcp) does not see a connection whose Access is none: not its host, user or database. */
+    fun list(pid: String, agent: Boolean = false): List<DbConnection> {
         projects.require(pid)
-        return store.active(pid).map(::conn)
+        return store.active(pid).filter { !agent || it.agentAccessEffective != "none" }.map(::conn)
     }
 
     /** The databases the project names (compose, .env.example, Spring's config, SQLite files) that are not saved yet. */
@@ -265,8 +266,8 @@ class DatabaseService(
 
     // ---------------------------------------------------------------- global and per project (by id)
 
-    /** Control › Databases: every global connection. */
-    fun globals(): List<DbEntry> = store.globals().map { entry(it) }
+    /** Control › Databases: every global connection (an agent: those it may use). */
+    fun globals(agent: Boolean = false): List<DbEntry> = store.globals().filter { !agent || it.agentAccessEffective != "none" }.map { entry(it) }
 
     /** A project's Databases: its own, the globals it sees (overridden when it has its own of that name), the ones it hides.
      *  An agent (keel2 mcp) sees only the ones it may use. */
@@ -276,7 +277,12 @@ class DatabaseService(
         return if (agent) seen.filter { !it.hidden && !it.overridden && it.agentAccessEffective != "none" } else seen
     }
 
-    fun get(id: String): DbEntry = entry(byId(id))
+    /** One connection; to an agent, one whose Access is none does not exist (keel 0.18.55: it showed host, port, user, db). */
+    fun get(id: String, agent: Boolean = false): DbEntry {
+        val r = byId(id)
+        if (agent && r.agentAccessEffective == "none") throw NotFound("No database connection with the id $id")
+        return entry(r)
+    }
 
     fun createGlobal(body: DbConfigBody): DbEntry {
         val target = if (body.scope == "project") body.project?.also { projects.require(it) }

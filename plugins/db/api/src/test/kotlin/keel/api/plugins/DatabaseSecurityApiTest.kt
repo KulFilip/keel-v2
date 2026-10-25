@@ -59,4 +59,31 @@ class DatabaseSecurityApiTest : ApiTest() {
             .andExpect(status().isOk).json()
         delete("/api/databases/${g["id"].asText()}").andExpect(status().isOk)
     }
+
+    @Test
+    fun `a connection agents may not use shows nothing of itself to them`() {
+        val (pid, _) = newProject("dbsec-none")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
+        val hid = post("/api/projects/$pid/databases", mapOf("name" to "secretdb", "driver" to "postgres", "host" to "db.internal.example",
+            "port" to 6543, "username" to "svc", "default_db" to "payroll", "agent_access" to "none")).andExpect(status().isOk).json()
+        post("/api/projects/$pid/databases", mapOf("name" to "open", "driver" to "sqlite", "default_db" to "o.db")).andExpect(status().isOk)
+        val id = hid["id"].asText()
+        val admin = via + mapOf("X-Keel-Mcp-Token" to tokens.tokenFor("admin"))
+
+        agentGet("/api/databases/$id", admin).andExpect(status().isNotFound)
+        val listed = agentGet("/api/projects/$pid/db/connections").andExpect(status().isOk).json()
+        assertThat(listed.map { it["name"].asText() }).contains("open").doesNotContain("secretdb")
+        assertThat(listed.toString()).doesNotContain("db.internal.example", "payroll")
+
+        val g = post("/api/databases", mapOf("name" to "gnone", "driver" to "sqlite", "default_db" to "g.db", "agent_access" to "none",
+            "projects" to listOf(pid))).andExpect(status().isOk).json()
+        try {
+            assertThat(agentGet("/api/databases", admin).andExpect(status().isOk).json().map { it["name"].asText() }).doesNotContain("gnone")
+        } finally {
+            delete("/api/databases/${g["id"].asText()}")
+        }
+        // the person still sees everything
+        get("/api/databases/$id").andExpect(status().isOk)
+        assertThat(get("/api/projects/$pid/db/connections").json().map { it["name"].asText() }).contains("secretdb", "open")
+    }
 }
