@@ -503,8 +503,9 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
         raise
     except Exception as exc:
         raise _connect_error(conn, exc) from exc
+    limit = max(1, min(limit, MAX_ROWS))
     try:
-        cols, rows, truncated, count = _run(c, conn, text, max(1, min(limit, MAX_ROWS)), stream=cls == "read")
+        cols, rows, truncated, count = _run(c, conn, text, limit, stream=cls == "read")
         if cls == "change":
             (c.commit if confirm else c.rollback)()
         else:
@@ -526,7 +527,7 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
     hidden = secret_columns(text, conn.kind, cols) if mask else []
     shown = [[("•••" if i in hidden and v is not None else _value(v, conn.kind)) for i, v in enumerate(r)] for r in rows]
     return {**out, "columns": cols, "rows": shown, "count": len(shown), "truncated": truncated, "masked": [cols[i] for i in hidden],
-            "ms": ms}
+            "limit": limit, "ms": ms}
 
 
 def test(conn: Conn, root: str = "") -> dict:

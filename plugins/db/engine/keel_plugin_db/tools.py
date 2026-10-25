@@ -41,6 +41,15 @@ def pick(keys: dict | None, name: str = "", *, agent: bool = False) -> core.Conn
     return core.conn_of(next(iter(conns.values())))
 
 
+def _limit(v) -> int:
+    """An agent's `limit`: a number from 1 to MAX_ROWS; anything else is MAX_ROWS."""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return core.MAX_ROWS
+    return max(1, min(n, core.MAX_ROWS))
+
+
 def _cell(v) -> str:
     s = "NULL" if v is None else str(v)
     s = s.replace("|", "\\|").replace("\n", " ")
@@ -82,7 +91,7 @@ def _schema_text(sch: dict, table: str = "") -> str:
 def query_text(r: dict) -> str:
     head = f"{r['count']} row{'' if r['count'] == 1 else 's'} from {r['connection']} ({r['ms']} ms)"
     if r.get("truncated"):
-        head += f"; more rows exist (keel returns at most {core.MAX_ROWS}): add a WHERE or a LIMIT"
+        head += f"; more rows exist (keel returned at most {r.get('limit') or core.MAX_ROWS}): add a WHERE or a LIMIT"
     if r.get("masked"):
         head += f"; hidden as •••: {', '.join(r['masked'])}"
     return head + "\n" + table_text(r["columns"], r["rows"])
@@ -174,7 +183,7 @@ def call(c: dict, tool: str, args: dict) -> str:
             return _schema_text(core.schema(conn, c["root"]), str(args.get("table") or ""))
         if tool == "db_query":
             return query_text(core.query(conn, str(args.get("sql") or ""), root=c["root"], mask=True,
-                                         limit=min(int(args.get("limit") or core.MAX_ROWS), core.MAX_ROWS)))
+                                         limit=_limit(args.get("limit"))))
         if tool == "db_change":
             return _change(c, conn, str(args.get("sql") or ""))
         return f"Unknown tool {tool}."

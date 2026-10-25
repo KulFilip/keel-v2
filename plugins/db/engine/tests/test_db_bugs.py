@@ -30,6 +30,16 @@ def test_a_broken_sqlite_file_is_a_failed_test_not_an_error(tmp_path):
     assert out["ok"] is False and out["error"]
 
 
+# ------------------------------------------------------------------ L3: an agent's limit
+
+def test_an_agents_limit_that_is_not_a_number_is_no_crash_and_the_text_says_its_limit(scores):
+    c = {"keys": keys(conn()), "root": str(scores)}
+    out = tools.call(c, "db_query", {"sql": "SELECT name FROM players", "limit": "abc"})
+    assert out.startswith("3 rows from local")
+    out = tools.call(c, "db_query", {"sql": "SELECT name FROM players", "limit": 2})
+    assert "at most 2" in out and "at most 200" not in out
+
+
 # ------------------------------------------------------------------ L4: the real statement's name
 
 @pytest.mark.parametrize("sql,word", [("LISTEN news", "LISTEN"), ("NOTIFY news", "NOTIFY"), ("DISCARD ALL", "DISCARD")])
