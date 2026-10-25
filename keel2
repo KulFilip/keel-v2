@@ -37,6 +37,10 @@
 #   keel2 mcp [--write|--admin] keel's MCP server on stdio, for Claude Code / Claude Desktop to start: read-only by
 #                               default, --write decides gates and starts flows, --admin also stops flows and changes
 #                               projects (--allow t1,t2 keeps only those tools). keel2 mcp --print-config shows how
+#   keel2 muxy hook [--project <name>]   keel's waiting questions and flow results as notifications in Muxy (a
+#                               macOS terminal); --test sends one sample; --install starts it at login (asks first;
+#                               --uninstall). It only reads: answer in keel2 tui or the dashboard
+#   keel2 muxy workspace [dir]  open the folder in Muxy with keel2 tui, keel's live events and a shell (docs/muxy.md)
 #   keel2 plugins list          the plugins keel has: what loads, what is off, what is left out and why
 #   keel2 plugins install <name>[@version]   install a plugin from the marketplace (and the plugins it needs)
 #   keel2 plugins remove <name> [--delete-data]   remove an installed plugin (its tables stay)
@@ -1406,6 +1410,528 @@ cmd_mcp() {
   exec "${server[@]}"
 }
 
+# ---------------------------------------------------------------- Muxy (docs/muxy.md)
+# Muxy is a macOS terminal (libghostty) with project split panes and an in-app notification center fed by a Unix
+# socket. keel2 muxy hook follows keel's live events (GET only: it never answers a question) and posts one Muxy
+# notification per waiting question and per flow result; keel2 muxy workspace opens a folder in Muxy with keel2 tui,
+# keel's live events and a shell. The socket line is Muxy's own format: `<type>|<pane id>|<title>|<body>`, one per line.
+# The hook runs with the computer's python3 (KEEL_MUXY_PY=0: the plain fallback, only the number of waiting questions).
+MUXY_HOOK_PY='
+import hashlib, json, os, socket, subprocess, sys, time
+name, api, public, want, pane, seen_dir, sock_path = sys.argv[1:8]
+flags = set(sys.argv[8:])
+key = os.environ.get("KEEL_WEB_KEY", "")
+POLL = float(os.environ.get("KEEL_MUXY_POLL") or 15)
+DOWN = float(os.environ.get("KEEL_MUXY_DOWN") or 120)
+ONCE, FEED, TEST = "--once" in flags, "--feed" in flags, "--test" in flags
+NOMUXY = "Muxy is not running (no socket at %s): the notifications wait until it starts" % sock_path
+NOLIVE = "keel live events are not available: checking keel every %d s" % POLL
+pending, said, names, top = {}, set(), {}, [0]
+
+class Auth(Exception):
+    pass
+
+def log(msg):
+    print(time.strftime("%H:%M:%S") + "  " + msg, flush=True)
+
+def note(msg):
+    if msg not in said:
+        said.add(msg)
+        log(msg)
+
+def clean(s, n):
+    s = " ".join(str(s or "").replace("|", " ").split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+def curl(path, stream):
+    args = ["curl", "-s", "-H", "@-", "-H", "X-Keel-Via: muxy"]
+    if stream:
+        args += ["-N", "--fail", "-H", "Accept: text/event-stream"]
+    else:
+        args += ["--max-time", "20", "-w", "\n%{http_code}", "-H", "Accept: application/json"]
+    p = subprocess.Popen(args + [api + path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p.stdin.write(("Authorization: Bearer " + key + "\n").encode())
+    p.stdin.close()
+    return p
+
+def get(path):
+    p = curl(path, False)
+    out = p.stdout.read().decode("utf-8", "replace")
+    p.wait()
+    body, _, code = out.rpartition("\n")
+    if code.strip() in ("401", "403"):
+        raise Auth()
+    if code.strip() != "200":
+        return None
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+def send(title, body):
+    line = "keel|%s|%s|%s\n" % (pane, clean(title, 120), clean(body, 500))
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect(sock_path)
+        s.sendall(line.encode("utf-8"))
+        s.close()
+        return True
+    except OSError:
+        return False
+
+def mark(k):
+    return os.path.join(seen_dir, hashlib.sha1(k.encode("utf-8")).hexdigest())
+
+def claim(k):
+    try:
+        os.makedirs(seen_dir, exist_ok=True)
+        fd = os.open(mark(k), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    os.write(fd, k.encode("utf-8"))
+    os.close(fd)
+    return True
+
+def unclaim(k):
+    try:
+        os.remove(mark(k))
+    except OSError:
+        pass
+
+def deliver(k, title, body):
+    if k in pending or not claim(k):
+        return
+    if send(title, body):
+        said.discard(NOMUXY)
+        log("-> Muxy  " + clean(title, 120))
+        return
+    unclaim(k)
+    pending[k] = (title, body)
+    while len(pending) > 30:
+        pending.pop(next(iter(pending)))
+    note(NOMUXY)
+
+def flush():
+    if not pending or not os.path.exists(sock_path):
+        return
+    for k in list(pending):
+        title, body = pending.pop(k)
+        deliver(k, title, body)
+
+def load_names():
+    v = get("/projects")
+    if isinstance(v, list):
+        for p in v:
+            if isinstance(p, dict) and p.get("id"):
+                names[p["id"]] = p.get("name") or p["id"]
+
+def pname(pid):
+    return names.get(pid or "", "") or (pid or "")
+
+def wanted(pid, label=""):
+    if not want:
+        return True
+    w = want.lower()
+    return w in ((pid or "").lower(), (label or pname(pid)).lower())
+
+def question(it):
+    pid = it.get("project_id") or ""
+    label = it.get("project_name") or pname(pid)
+    if not wanted(pid, label):
+        return
+    what = it.get("flow") or it.get("kind") or "a question"
+    title = "keel · %s: %s waits for you" % (label or "keel", what)
+    qs = [q for q in (it.get("questions") or []) if isinstance(q, dict)]
+    text = it.get("title") or ""
+    if qs:
+        more = " (+%d more)" % (len(qs) - 1) if len(qs) > 1 else ""
+        text = (text + ": " if text else "") + (qs[0].get("question") or "") + more
+    choices = it.get("choices") or it.get("options") or []
+    if not choices and len(qs) == 1:
+        choices = [o.get("label", "") for o in (qs[0].get("options") or []) if isinstance(o, dict)]
+    parts = [text.rstrip(". ")]
+    if choices:
+        parts.append("Choices: " + " / ".join(str(c) for c in choices[:6]))
+    parts.append("Answer in keel2 tui or " + public + "/inbox")
+    tid = it.get("thread_id") or ""
+    k = "q:%s:%s" % (tid, it.get("id") or it.get("step") or it.get("kind") or "")
+    deliver(k, title, ". ".join(p for p in parts if p))
+    if k not in pending and it.get("step"):
+        claim("q:%s:%s" % (tid, it["step"]))
+
+def inbox(thread=None):
+    v = get("/inbox")
+    if not isinstance(v, dict):
+        return None
+    found = False
+    for it in v.get("items") or []:
+        if isinstance(it, dict) and (thread is None or it.get("thread_id") == thread):
+            question(it)
+            found = True
+    return found
+
+def notification(n):
+    typ, pid = n.get("type") or "", n.get("project_id")
+    if typ == "started" or n.get("done") or n.get("read") or not wanted(pid):
+        return
+    if typ == "review" and n.get("thread_id"):
+        waits = inbox(n["thread_id"])
+        if waits is not None:
+            return
+    label = pname(pid)
+    title = ("keel · %s: " % label if label else "keel: ") + (n.get("title") or typ)
+    tail = ("Answer in keel2 tui or " if typ == "review" else "See ") + public + (n.get("link") or "/inbox")
+    body = ". ".join(p for p in [clean(n.get("body"), 300).rstrip(". "), tail] if p)
+    if typ == "review" and n.get("thread_id"):
+        k = "q:%s:%s" % (n["thread_id"], n.get("step") or "")
+    else:
+        k = "n:%s" % n.get("id")
+    deliver(k, title, body)
+
+def feed(ev, d):
+    if not FEED or not isinstance(d, dict):
+        return
+    t, pid = d.get("type") or ev, d.get("project_id") or ""
+    if not wanted(pid):
+        return
+    data = d.get("data") if isinstance(d.get("data"), dict) else {}
+    who = pname(pid)
+    if t == "agent.started":
+        log("   %s · %s started (%s, %s)" % (who, data.get("agent") or "an agent", d.get("step") or "", data.get("model") or data.get("provider") or ""))
+    elif t == "agent.finished":
+        log("   %s · %s %s" % (who, data.get("agent") or "the agent", data.get("status") or "finished"))
+    elif t in ("thread.finished", "thread.failed", "thread.started"):
+        log("   %s · flow %s" % (who, t.split(".")[1]))
+
+def handle(ev, raw):
+    try:
+        d = json.loads(raw)
+    except ValueError:
+        return
+    if ev == "notification" and isinstance(d, dict):
+        notification(d)
+    elif ev == "project.changed":
+        load_names()
+    else:
+        feed(ev, d)
+
+def sse():
+    p = curl("/events" if FEED else "/events?project=*", True)
+    ev, data, up = "message", [], False
+    for raw in p.stdout:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if not up:
+            up = True
+            if NOLIVE in said:
+                said.discard(NOLIVE)
+                log("keel live events are back")
+        flush()
+        if line.startswith(":"):
+            continue
+        if line == "":
+            if data:
+                handle(ev, "\n".join(data))
+            ev, data = "message", []
+        elif line.startswith("event:"):
+            ev = line[6:].strip()
+        elif line.startswith("data:"):
+            data.append(line[5:].lstrip())
+    if p.wait() != 0 and not up:
+        get("/inbox/count")
+    return up
+
+def baseline():
+    ns = get("/notifications?limit=50")
+    if isinstance(ns, list):
+        top[0] = max([n.get("id") or 0 for n in ns if isinstance(n, dict)] + [top[0]])
+        return True
+    return False
+
+def poll():
+    if inbox() is None:
+        return False
+    ns = get("/notifications?limit=50")
+    if not isinstance(ns, list):
+        return False
+    for n in sorted([n for n in ns if isinstance(n, dict)], key=lambda n: n.get("id") or 0):
+        if (n.get("id") or 0) > top[0]:
+            top[0] = n.get("id") or 0
+            if n.get("type") != "review":
+                notification(n)
+    return True
+
+if TEST:
+    ok = send("keel · test: a question waits for you",
+              "This is how keel questions look in Muxy. Choices: approve / send back. Answer in keel2 tui or " + public + "/inbox")
+    print("sent a test notification to Muxy" if ok else "Muxy is not running: nothing was sent (" + sock_path + ")", flush=True)
+    sys.exit(0 if ok else 2)
+try:
+    load_names()
+    if want and names and not any(wanted(i) for i in names):
+        print("keel has no project named %s. Its projects: %s" % (want, ", ".join(sorted(names.values()))), flush=True)
+        sys.exit(5)
+    baseline()
+    log("following keel%s for Muxy (Ctrl+C to stop)" % (" project " + want if want else ""))
+    if not os.path.exists(sock_path):
+        note(NOMUXY)
+    inbox()
+    down = None
+    while True:
+        up = sse()
+        if ONCE:
+            poll()
+            flush()
+            break
+        if not up:
+            note(NOLIVE)
+        if poll():
+            down = None
+        else:
+            down = down or time.time()
+            note("keel does not answer: trying again")
+            if time.time() - down > DOWN:
+                sys.exit(4)
+        flush()
+        time.sleep(1 if up else POLL)
+except Auth:
+    print("keel refused the sign-in key (keel2 auth reset makes a new one): reading it again", flush=True)
+    sys.exit(3)
+except KeyboardInterrupt:
+    sys.exit(0)
+'
+
+muxy_socket() { printf '%s' "${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"; }
+muxy_seen_dir() { printf '%s' "${XDG_STATE_HOME:-$HOME/.local/state}/keel2/$NAME.muxy-seen"; }
+muxy_clean() { printf '%s' "$1" | tr '|\r\n\t' '    ' | cut -c "1-$2"; }
+muxy_send() {  # muxy_send <socket> <pane> <title> <body> — the plain fallback's one line to Muxy (nc -U)
+  [ -S "$1" ] && command -v nc >/dev/null 2>&1 || return 1
+  printf 'keel|%s|%s|%s\n' "$2" "$(muxy_clean "$3" 120)" "$(muxy_clean "$4" 500)" | nc -w 2 -U "$1" >/dev/null 2>&1
+}
+
+muxy_web_key() {  # the sign-in key (keel2 auth key), for the hook's Authorization header; never printed
+  if native_mode && ! docker_keel_running; then cat "$ND/data/run/web-key" 2>/dev/null || true
+  else docker exec "$NAME" cat /data/run/web-key 2>/dev/null || true; fi
+}
+
+muxy_hook_plain() {  # muxy_hook_plain <api> <public> <socket> <pane> <once>: no python3 — the number of waiting questions
+  local api="$1" public="$2" sock="$3" pane="$4" once="$5" last=-1 n key
+  warn "python3 is not on this computer: Muxy hears only how many questions wait (install python3 for the full notifications)"
+  while :; do
+    key="$(muxy_web_key)"
+    n="$(curl -s --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$key") "$api/inbox/count" 2>/dev/null \
+      | sed -n 's/.*"count":\([0-9][0-9]*\).*/\1/p' | head -1)"
+    if [ -n "$n" ]; then
+      if [ "$n" -gt 0 ] && [ "$n" -gt "$last" ]; then
+        if muxy_send "$sock" "$pane" "keel: $n question(s) wait for you" "Answer in keel2 tui or $public/inbox"; then
+          info "$(date +%H:%M:%S)  -> Muxy  keel: $n question(s) wait for you"
+        else warn "Muxy is not running (no socket at $sock)"; fi
+      fi
+      last="$n"
+    fi
+    [ "$once" = 1 ] && return 0
+    sleep "${KEEL_MUXY_POLL:-15}"
+  done
+}
+
+muxy_agent_label() { printf 'dev.keel.keel2.muxy-hook.%s' "$NAME"; }
+muxy_agent_plist() { printf '%s/%s.plist' "${KEEL_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}" "$(muxy_agent_label)"; }
+xml_str() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+keel2_self() { printf '%s/%s' "$(cd "$(dirname "$0")" && pwd -P)" "$(basename "$0")"; }
+
+muxy_install() {  # muxy_install [project]: a user LaunchAgent that runs keel2 muxy hook --wait at login (asks first)
+  [ "$(os)" = mac ] || die "Muxy runs on macOS only, so --install is for a Mac." "Run keel2 muxy hook in a terminal instead."
+  local plist label log self uid v
+  plist="$(muxy_agent_plist)"; label="$(muxy_agent_label)"; self="$(keel2_self)"
+  log="${KEEL_MUXY_LOG:-$HOME/Library/Logs/keel2-muxy-hook.log}"
+  info "Muxy has no place to start a helper with it (docs/muxy.md), so keel2 sets up a LaunchAgent for your user:"
+  info "  $plist"
+  info "  it runs: keel2 muxy hook --wait${1:+ --project $1}   (it waits for keel and for Muxy; log: $log)"
+  info "  remove it with: keel2 muxy hook --uninstall"
+  if [ "${KEEL_YES:-0}" != 1 ] && ! ask_yes "Install it?"; then
+    info "Not installed. (Answer y in a terminal, or KEEL_YES=1 installs it without asking.)"
+    return 1
+  fi
+  mkdir -p "$(dirname "$plist")" "$(dirname "$log")"
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+    printf '<plist version="1.0">\n<dict>\n  <key>Label</key><string>%s</string>\n' "$(xml_str "$label")"
+    printf '  <key>ProgramArguments</key>\n  <array>\n'
+    for v in "$self" muxy hook --wait ${1:+--project "$1"}; do printf '    <string>%s</string>\n' "$(xml_str "$v")"; done
+    printf '  </array>\n  <key>EnvironmentVariables</key>\n  <dict>\n'
+    printf '    <key>PATH</key><string>%s</string>\n' "$(xml_str "$PATH")"
+    printf '    <key>KEEL_NAME</key><string>%s</string>\n' "$(xml_str "$NAME")"
+    for v in KEEL2_HOME XDG_STATE_HOME MUXY_SOCKET_PATH; do
+      [ -n "${!v:-}" ] && printf '    <key>%s</key><string>%s</string>\n' "$v" "$(xml_str "${!v}")"
+    done
+    printf '  </dict>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n  <key>ThrottleInterval</key><integer>30</integer>\n'
+    printf '  <key>StandardOutPath</key><string>%s</string>\n  <key>StandardErrorPath</key><string>%s</string>\n' "$(xml_str "$log")" "$(xml_str "$log")"
+    printf '</dict>\n</plist>\n'
+  } > "$plist"
+  uid="$(id -u)"
+  launchctl bootout "gui/$uid" "$plist" >/dev/null 2>&1 || true
+  if launchctl bootstrap "gui/$uid" "$plist" 2>/dev/null || launchctl load -w "$plist" 2>/dev/null; then
+    ok "installed: keel2 muxy hook starts at login and runs now (log: $log)"
+  else
+    warn "the LaunchAgent is written ($plist) but launchctl did not start it: it starts at the next login"
+  fi
+}
+
+muxy_uninstall() {
+  local plist; plist="$(muxy_agent_plist)"
+  if [ ! -f "$plist" ]; then info "keel2 muxy hook is not installed (no $plist)."; return 0; fi
+  launchctl bootout "gui/$(id -u)" "$plist" >/dev/null 2>&1 || launchctl unload "$plist" >/dev/null 2>&1 || true
+  rm -f "$plist"
+  ok "removed: keel2 muxy hook no longer starts at login"
+}
+
+muxy_hook() {  # keel2 muxy hook [--project <name>] [--pane <id>] [--wait] [--feed] [--test] [--install | --uninstall]
+  local project="" pane="" wait=0 once=0 feed=0 test=0 act="" rc port key public flags
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project) [ $# -ge 2 ] || die "--project needs a keel project name"; project="$2"; shift ;;
+      --project=*) project="${1#--project=}" ;;
+      --pane) [ $# -ge 2 ] || die "--pane needs a Muxy pane id (muxy list-panes)"; pane="$2"; shift ;;
+      --wait) wait=1 ;;
+      --feed) feed=1 ;;
+      --once) once=1 ;;   # tests: one pass over the live stream, then leave
+      --test) test=1 ;;
+      --install) act=install ;;
+      --uninstall) act=uninstall ;;
+      *) die "Unknown option $1" "usage: keel2 muxy hook [--project <name>] [--test] [--install | --uninstall]" ;;
+    esac
+    shift
+  done
+  case "$act" in install) muxy_install "$project"; return ;; uninstall) muxy_uninstall; return ;; esac
+  local sock; sock="$(muxy_socket)"
+  # inside a Muxy pane the notifications belong to that pane (a click goes there); elsewhere Muxy picks the active one
+  pane="${pane:-${MUXY_PANE_ID:-}}"
+  [ -t 1 ] && feed=1
+  local py=0; [ "${KEEL_MUXY_PY:-1}" != 0 ] && command -v python3 >/dev/null 2>&1 && py=1
+  if [ "$test" = 1 ]; then
+    public="the dashboard"
+    if keel_running; then public="${KEEL_PUBLIC_URL:-http://localhost:$(running_port)}"; fi
+    if [ "$py" = 1 ]; then python3 -c "$MUXY_HOOK_PY" "$NAME" "" "$public" "" "$pane" "" "$sock" --test; return; fi
+    muxy_send "$sock" "$pane" "keel · test: a question waits for you" "This is how keel questions look in Muxy. Answer in keel2 tui or $public/inbox" \
+      && { info "sent a test notification to Muxy"; return 0; }
+    die "Muxy is not running: nothing was sent ($sock)"
+  fi
+  flags=(); [ "$feed" = 1 ] && flags+=(--feed); [ "$once" = 1 ] && flags+=(--once)
+  while :; do
+    if ! keel_running; then
+      [ "$wait" = 1 ] || die "keel is not running, so there is nothing to tell Muxy." "Start it: keel2 start /path/to/project" \
+        "(keel2 muxy hook --wait waits for keel instead; --install does that at login)"
+      sleep "${KEEL_MUXY_POLL:-15}"; continue
+    fi
+    port="$(running_port)"; public="${KEEL_PUBLIC_URL:-http://localhost:$port}"
+    if [ "$py" = 0 ]; then muxy_hook_plain "http://127.0.0.1:$port/api" "$public" "$sock" "$pane" "$once"; return; fi
+    key="$(muxy_web_key)"
+    [ -n "$key" ] || die "This keel has no sign-in key yet (keel 0.18.1 and newer make one)." "Update keel: keel2 update"
+    rc=0
+    KEEL_WEB_KEY="$key" python3 -c "$MUXY_HOOK_PY" "$NAME" "http://127.0.0.1:$port/api" "$public" "$project" "$pane" \
+      "$(muxy_seen_dir)" "$sock" ${flags[@]+"${flags[@]}"} || rc=$?
+    case "$rc" in
+      0) return 0 ;;
+      3|4) [ "$once" = 1 ] && return "$rc"; sleep 5 ;;   # a new sign-in key, or keel went away: read the port and key again
+      5) exit 1 ;;
+      *) return "$rc" ;;
+    esac
+  done
+}
+
+muxy_cli() {  # the muxy command line: KEEL_MUXY_CLI, muxy on PATH, or the one inside Muxy.app
+  local c app=Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli
+  for c in "${KEEL_MUXY_CLI:-}" "$(command -v muxy 2>/dev/null || true)" "/Applications/Muxy.app/$app" "$HOME/Applications/Muxy.app/$app"; do
+    if [ -n "$c" ] && [ -x "$c" ]; then printf '%s' "$c"; return 0; fi
+  done
+  return 1
+}
+
+keel2_cmd() {  # how a Muxy pane runs this keel2: `keel2` when that is this file, else its path; KEEL_NAME when it is not the default
+  local self pre=""; self="$(keel2_self)"
+  [ "$NAME" != keel-v2 ] && pre="KEEL_NAME=$(printf '%q' "$NAME") "
+  if [ "$(command -v keel2 2>/dev/null || true)" -ef "$self" ]; then printf '%skeel2' "$pre"; else printf '%s%q' "$pre" "$self"; fi
+}
+
+muxy_steps() {  # muxy_steps <folder> <tui command> <live command>
+  info ""
+  info "In Muxy: open $1 (muxy $1), then top bar › Layouts › keel (it replaces that worktree's terminals)."
+  info "Or by hand, three panes:"
+  info "  left (big)      $2"
+  info "  right, top      $3     (keel's live events; it also sends keel's notifications to Muxy)"
+  info "  right, bottom   a shell"
+}
+
+muxy_workspace() {  # keel2 muxy workspace [folder] [--layout-only] [--force]
+  local folder="" layout_only=0 force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --layout-only) layout_only=1 ;;
+      --force) force=1 ;;
+      -*) die "Unknown option $1" "usage: keel2 muxy workspace [folder] [--layout-only] [--force]" ;;
+      *) [ -z "$folder" ] || die "keel2 muxy workspace takes one folder"; folder="$1" ;;
+    esac
+    shift
+  done
+  folder="$(project_path "${folder:-$PWD}")"
+  local k tui live file new
+  k="$(keel2_cmd)"; tui="$k tui"; live="$k muxy hook --feed"
+  # the layout Muxy reads (.muxy/layouts/<name>.json, Muxy's docs/layouts/schema.md): no sizes in the schema, so the
+  # left pane gets half the width and the two on the right a quarter each
+  file="$folder/.muxy/layouts/keel.json"
+  new="$(printf '{\n  "layout": "horizontal",\n  "panes": [\n    { "tab": { "name": "keel", "command": "%s" } },\n    {\n      "layout": "vertical",\n      "panes": [\n        { "tab": { "name": "keel live", "command": "%s" } },\n        { "tab": { "name": "shell" } }\n      ]\n    }\n  ]\n}' \
+    "$(json_str "$tui")" "$(json_str "$live")")"
+  if [ -f "$file" ] && [ "$(cat "$file")" = "$new" ]; then ok "the Muxy layout is there: $file"
+  elif [ -f "$file" ] && [ "$force" != 1 ]; then warn "$file is different from keel's: left as it is (--force writes keel's)"
+  else mkdir -p "$(dirname "$file")" && printf '%s\n' "$new" > "$file" && ok "wrote the Muxy layout: $file (commit it, or add .muxy/ to .gitignore)"; fi
+  if [ "$layout_only" = 1 ]; then muxy_steps "$folder" "$tui" "$live"; return 0; fi
+  local cli sock i
+  sock="$(muxy_socket)"
+  if ! cli="$(muxy_cli)"; then
+    warn "the muxy command line was not found (Muxy › Install CLI, or install Muxy in /Applications)"
+    muxy_steps "$folder" "$tui" "$live"; return 0
+  fi
+  if [ ! -S "$sock" ]; then   # Muxy is not running: its command line starts it with the folder
+    "$cli" "$folder" >/dev/null 2>&1 || true
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ -S "$sock" ] && break; [ "$i" = 15 ] || sleep 1; done
+    if [ ! -S "$sock" ]; then warn "Muxy did not start (no socket at $sock)"; muxy_steps "$folder" "$tui" "$live"; return 0; fi
+    sleep 1
+  fi
+  local right shell left
+  if ! { "$cli" create-project "$folder" >/dev/null 2>&1 || "$cli" "$folder" >/dev/null 2>&1; } \
+    || ! "$cli" switch-project "$folder" >/dev/null 2>&1 \
+    || ! right="$("$cli" split-right --project "$folder" "$live" 2>/dev/null)" || [ -z "${right//[[:space:]]/}" ] \
+    || ! shell="$("$cli" split-down --from "${right//[[:space:]]/}" 2>/dev/null)"; then
+    warn "Muxy did not take the panes (an older Muxy?)"; muxy_steps "$folder" "$tui" "$live"; return 0
+  fi
+  right="${right//[[:space:]]/}"; shell="${shell//[[:space:]]/}"
+  left="$("$cli" list-panes 2>/dev/null | awk -F'\t' -v a="$right" -v b="$shell" -v d="$folder" \
+    '$1 != a && $1 != b { if ($3 == d) { print $1; found = 1; exit } if (first == "") first = $1 } END { if (!found && first != "") print first }')"
+  if [ -n "$left" ] && "$cli" send --pane "$left" "$tui" >/dev/null 2>&1 && "$cli" send-keys --pane "$left" Enter >/dev/null 2>&1; then
+    ok "Muxy: $folder with keel2 tui (left), keel's live events (right, top) and a shell (right, bottom)"
+  else
+    ok "Muxy: $folder with keel's live events (right, top) and a shell (right, bottom)"
+    warn "start keel's terminal app in the left pane yourself: $tui"
+  fi
+}
+
+cmd_muxy() {  # keel2 muxy hook | workspace (docs/muxy.md)
+  local sub="${1:-}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    hook) muxy_hook "$@" ;;
+    workspace|ws) muxy_workspace "$@" ;;
+    ""|help|-h|--help)
+      info "keel2 muxy hook [--project <name>]   keel's questions and flow results as Muxy notifications (Ctrl+C stops)"
+      info "                --test               send one sample notification"
+      info "                --install            start it at login (a LaunchAgent; asks first) · --uninstall"
+      info "keel2 muxy workspace [folder]        open the folder in Muxy with keel2 tui, keel's live events and a shell"
+      info "                --layout-only        only write .muxy/layouts/keel.json (Muxy › Layouts › keel)"
+      info "More: docs/muxy.md" ;;
+    *) die "Unknown muxy command: $sub" "usage: keel2 muxy hook [--project <name>] [--test] [--install | --uninstall] | keel2 muxy workspace [folder]" ;;
+  esac
+}
+
 # keel2 plugins list | install <name>[@version] | remove <name> [--delete-data] | search [words] | update <name>
 #              | rollback <name> | safe
 # The plugin host's command line inside the container (keel-engine plugins, docs/plugins/13-step4-contract.md §5).
@@ -1872,6 +2398,7 @@ case "$cmd" in
   backup)           cmd_backup "$@" ;;
   restore)          cmd_restore "$@" ;;
   mcp)              cmd_mcp "$@" ;;
+  muxy)             cmd_muxy "$@" ;;
   plugins)          cmd_plugins "$@" ;;
   sql)              if native_mode && ! docker_keel_running; then
                       command -v sqlite3 >/dev/null 2>&1 || die "keel2 sql needs sqlite3 on this computer." "Install it: $(native_hint sqlite3)"

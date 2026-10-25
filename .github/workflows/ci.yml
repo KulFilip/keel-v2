@@ -65,6 +65,8 @@ jobs:
       # phone access: start --wifi, share tailscale | tunnel | off (fake docker, curl, tailscale, cloudflared; nothing real)
       - run: shellcheck -S warning scripts/test-keel2-remote.sh && bash scripts/test-keel2-remote.sh
       - run: shellcheck -S warning scripts/test-keel2-mcp-relay.sh && bash scripts/test-keel2-mcp-relay.sh
+      # keel2 muxy hook | workspace: Muxy notifications from keel's events, read-only (fake docker, curl, Muxy socket, muxy CLI)
+      - run: shellcheck -S warning scripts/test-keel2-muxy.sh && bash scripts/test-keel2-muxy.sh
       # the plugin publishing scripts (docs/plugins/14-publishing.md), and step 5's: the plugin repos and plugins.lock
       - run: shellcheck -S warning docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
       - run: shellcheck -S warning docs/plugins/tools/split-plugin.sh scripts/build-plugin-repo.sh scripts/fetch-locked-plugins.sh scripts/update-plugins-lock.sh
