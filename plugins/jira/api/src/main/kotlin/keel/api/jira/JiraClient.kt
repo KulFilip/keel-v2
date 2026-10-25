@@ -59,7 +59,8 @@ data class JiraMove(override val moved: Boolean, override val from: String?, ove
  * - search: Cloud GET /rest/api/3/search/jql (the enhanced search, nextPageToken; falls back to /rest/api/2/search when
  *   a site answers 404), Server GET /rest/api/2/search (startAt/total). Cloud's v3 returns the description as ADF,
  *   which [adfText] turns into plain text.
- * - board: GET /rest/agile/1.0/board/{id}/issue (both)
+ * - board: GET /rest/agile/1.0/board/{id}/issue (both). It (and every v2 read) gives the description as wiki markup,
+ *   which [wikiText] turns into the same plain text.
  * - transitions: GET/POST /rest/api/2/issue/{key}/transitions (both)
  * - comment: POST /rest/api/2/issue/{key}/comment with a plain-text body. v2 takes plain text (wiki markup) on Cloud
  *   and Server alike; Cloud's v3 would need ADF, so keel always uses v2 for comments.
@@ -351,7 +352,8 @@ class JiraClient(
             summary = f.text("summary") ?: "",
             description = when {
                 desc == null || desc.isNull -> ""
-                desc.isTextual -> desc.asText()
+                // REST v2 and the agile API (board) give Jira wiki markup: the same readable text as the ADF path
+                desc.isTextual -> wikiText(desc.asText())
                 else -> adfText(desc)
             }.trim().take(20_000),
             status = f.get("status")?.text("name") ?: "",
@@ -370,6 +372,61 @@ class JiraClient(
 
         private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8).replace("+", "%20")
         private fun JsonNode.text(k: String): String? = get(k)?.takeIf { !it.isNull }?.asText()?.takeIf { it.isNotEmpty() }
+
+        private val WIKI_BLOCK = Regex("""\{(code|noformat)(?::[^}]*)?\}([\s\S]*?)\{\1\}""")
+        private val WIKI_HEADING = Regex("""^(?:h[1-6]|bq)\.\s+(.*)$""")
+        private val WIKI_LIST = Regex("""^([*#-]+)\s+(.*)$""")
+        private val WIKI_RULE = Regex("""^-{4,}$""")
+        private val WIKI_MACRO = Regex("""\{(?:quote|panel|color|section|column)(?::[^}]*)?\}""")
+        private val WIKI_LINK = Regex("""\[([^|\[\]]+)\|([^\[\]]+)]""")
+        private val WIKI_URL = Regex("""\[((?:https?|mailto|ftp):[^\[\]|]+)]""")
+        private val WIKI_MENTION = Regex("""\[~([^\[\]]+)]""")
+        private val WIKI_MONO = Regex("""\{\{(.+?)}}""")
+        private val WIKI_BOLD = Regex("""(?<![\w*])\*(\S(?:.*?\S)?)\*(?![\w*])""")
+        private val WIKI_ITALIC = Regex("""(?<![\w_])_(\S(?:.*?\S)?)_(?![\w_])""")
+        private val WIKI_UNDER = Regex("""(?<![\w+])\+(\S(?:.*?\S)?)\+(?![\w+])""")
+
+        /**
+         * Jira wiki markup (REST v2 and the agile board API) → the same plain text [adfText] gives: no `*bold*`/`_italic_`
+         * marks, headings (`h1.`–`h6.`) as plain lines, list items (`*`, `#`, `-`) as "- " (two spaces per extra level),
+         * `{code}`/`{noformat}` blocks as their text, links `[text|url]` as "text (url)", tables as "a | b".
+         */
+        fun wikiText(wiki: String): String {
+            val blocks = mutableListOf<String>()
+            val text = WIKI_BLOCK.replace(wiki.replace("\r\n", "\n")) { m ->
+                blocks += m.groupValues[2].trim('\n')
+                "\uE000${blocks.size - 1}\uE000"
+            }
+            fun inline(s: String): String {
+                var t = s
+                t = WIKI_MACRO.replace(t, "")
+                t = WIKI_MENTION.replace(t) { "@" + it.groupValues[1].removePrefix("accountid:") }
+                t = WIKI_LINK.replace(t) { m ->
+                    val (label, url) = m.groupValues[1].trim() to m.groupValues[2].trim()
+                    if (label == url) url else "$label ($url)"
+                }
+                t = WIKI_URL.replace(t) { it.groupValues[1] }
+                t = WIKI_MONO.replace(t) { it.groupValues[1] }
+                t = WIKI_BOLD.replace(t) { it.groupValues[1] }
+                t = WIKI_ITALIC.replace(t) { it.groupValues[1] }
+                t = WIKI_UNDER.replace(t) { it.groupValues[1] }
+                return t.replace("\\\\", "\n")
+            }
+            val lines = text.split('\n').map { raw ->
+                val line = raw.trim()
+                val heading = WIKI_HEADING.find(line)
+                val item = WIKI_LIST.find(line)
+                when {
+                    WIKI_RULE.matches(line) -> ""
+                    heading != null -> inline(heading.groupValues[1])
+                    item != null -> "  ".repeat(item.groupValues[1].length - 1) + "- " + inline(item.groupValues[2])
+                    line.startsWith("|") -> inline(line).trim('|').split(Regex("""\|\|?""")).joinToString(" | ") { it.trim() }
+                    else -> inline(raw.trimEnd())
+                }
+            }
+            val joined = lines.joinToString("\n").replace(Regex("\uE000(\\d+)\uE000")) { blocks[it.groupValues[1].toInt()] }
+            return joined.replace(Regex("\n{3,}"), "\n\n").trim()
+        }
 
         /** Atlassian Document Format (Cloud v3) → plain text: paragraphs and headings on their own lines, list items "- ". */
         fun adfText(node: JsonNode): String {
