@@ -124,19 +124,30 @@ def conn_of(d: dict) -> Conn:
 
 _SECRET_PARAM = re.compile(r"(?i)([?&;])(password|passwd|pwd|pass|secret|token|api_?key|access_?token|sslpassword)=([^&;#]*)")
 _SCHEME_RE = re.compile(r"^((?:jdbc:)?[A-Za-z][A-Za-z0-9+.\-]*://)(.*)$", re.S)
+_QUERY_START = re.compile(r"[?;][A-Za-z_][\w.\-]*=")
+
+
+def _userinfo_end(rest: str) -> int:
+    """Where user:password ends in `rest` (the address after scheme://): the LAST @ before the query (a password may hold
+    unencoded @ / ? #), or -1 when there is no password. keel 0.18.55: the first @ left a password's tail visible."""
+    q = _QUERY_START.search(rest)
+    at = rest.rfind("@", 0, q.start() if q else len(rest))
+    if at < 0:
+        return -1
+    info = rest[:at]
+    colon = info.find(":")
+    return at if colon >= 0 and ("@" not in info or colon < info.find("@")) else -1
 
 
 def masked_url(url: str) -> str:
     """The url with every secret as •••, to show: the password of user:pw@host (the password may hold any character, up to
-    the last @ of the address) and the value of ?password=, &pwd=, ;secret=, token= … in the query (any case)."""
+    the last @ before the host) and the value of ?password=, &pwd=, ;secret=, token= … in the query (any case)."""
     out = url
     m = _SCHEME_RE.match(out)
     if m:
         head, rest = m.groups()
-        authority = re.split(r"[/?#]", rest, 1)[0]
-        # a clean address has its @ before the first / ? #; a password with a / or ? makes the @ come later
-        at = authority.rfind("@") if "@" in authority else rest.rfind("@")
-        if at >= 0 and ":" in rest[:at]:
+        at = _userinfo_end(rest)
+        if at >= 0:
             user = rest[:at].split(":", 1)[0]
             out = f"{head}{user}:•••@{rest[at + 1:]}"
     return _SECRET_PARAM.sub(lambda g: f"{g.group(1)}{g.group(2)}=•••", out)
