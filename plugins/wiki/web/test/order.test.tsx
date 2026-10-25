@@ -1,5 +1,5 @@
-// The wiki's order: the menu grouped by kind (Overview, Architecture & knowledge, Specs by build status, Decisions,
-// Workflows), a stable order in each group (specs newest first, decisions by number, knowledge not written last),
+// The wiki's order: the menu grouped by kind (Specs, Project knowledge, Decisions, Workflows, Overview), a stable order
+// in each group (specs that need you first then newest first, decisions by number, knowledge not written folded last),
 // readable titles, the same file once, empty groups left out, the filter, and on a page its breadcrumb and "On this page".
 // A keel before the order (only id, title, status) gets the same menu from the ids.
 
@@ -162,13 +162,13 @@ describe("the menu's order (nav.ts)", () => {
   it("groups by kind in a fixed order and leaves empty groups out", () => {
     const g = buildNav(tree, specs);
     expect(g.map((x) => x.title)).toEqual([
-      "Overview",
-      "Architecture & knowledge",
       "Specs",
+      "Project knowledge",
       "Decisions",
       "Workflows",
+      "Overview",
     ]);
-    expect(ids(groupItems(g[0]))).toEqual(["kb:index", "runbook"]);
+    expect(ids(groupItems(g.find((x) => x.id === "overview")!))).toEqual(["kb:index", "runbook"]);
     const noAdr = buildNav({
       sections: tree.sections.filter((s) => s.id !== "decisions"),
     });
@@ -183,18 +183,21 @@ describe("the menu's order (nav.ts)", () => {
     ]);
   });
 
-  it("specs by build status (in progress, stopped, not built yet, done), newest first in each", () => {
+  it("specs in one list: waiting for you, running, stopped, not built yet, done, newest first in each", () => {
     const s = buildNav(tree, specs).find((x) => x.id === "specs")!;
-    expect(s.parts.map((p) => [p.title, ids(p.items)])).toEqual([
-      ["In progress", ["spec:docs/specs/SPEC-110-cleanup.md"]],
-      ["Not built yet", ["spec:docs/specs/SPEC-200-web.md"]],
-      [
-        "Done",
-        [
-          "spec:docs/specs/SPEC-102-parse.md",
-          "spec:docs/specs/SPEC-101-wave.md",
-        ],
-      ],
+    expect(s.parts).toHaveLength(1);
+    expect(ids(s.parts[0].items)).toEqual([
+      "spec:docs/specs/SPEC-110-cleanup.md",
+      "spec:docs/specs/SPEC-200-web.md",
+      "spec:docs/specs/SPEC-102-parse.md",
+      "spec:docs/specs/SPEC-101-wave.md",
+    ]);
+    // a flow that waits for you comes before one that runs
+    const waits = new Map(specs);
+    waits.set("spec:docs/specs/SPEC-101-wave.md", { ...status("spec:docs/specs/SPEC-101-wave.md", "in_progress"), status: "waiting" });
+    expect(ids(buildNav(tree, waits).find((x) => x.id === "specs")!.parts[0].items).slice(0, 2)).toEqual([
+      "spec:docs/specs/SPEC-101-wave.md",
+      "spec:docs/specs/SPEC-110-cleanup.md",
     ]);
     // without the status: one list, newest first
     const plain = buildNav(tree).find((x) => x.id === "specs")!;
@@ -220,7 +223,7 @@ describe("the menu's order (nav.ts)", () => {
     ]);
     expect(
       groupItems(g.find((x) => x.id === "workflows")!).map((i) => i.title),
-    ).toEqual(["feature (keel)", "fix (keel)"]);
+    ).toEqual(["feature", "fix"]);
   });
 
   it("an older keel's tree (id, title, status only) gets the same groups, numbers and labels from the ids", () => {
@@ -260,17 +263,17 @@ describe("the menu's order (nav.ts)", () => {
     };
     const g = buildNav(old);
     expect(g.map((x) => x.id)).toEqual([
-      "overview",
-      "knowledge",
       "specs",
+      "knowledge",
       "decisions",
+      "overview",
       "extra",
     ]);
-    expect(groupItems(g[2]).map((i) => [i.number, i.title])).toEqual([
+    expect(groupItems(g[0]).map((i) => [i.number, i.title])).toEqual([
       ["10", "Beta"],
       ["2", "Alpha"],
     ]);
-    expect(groupItems(g[3])[0].title).toBe("Use X");
+    expect(groupItems(g[2])[0].title).toBe("Use X");
     expect(firstPage(g)).toBe("kb:architecture");
     expect(
       numberOf({ id: "spec:docs/specs/v1.1.0-plugin.md", title: "x" }),
@@ -302,7 +305,7 @@ describe("the menu's order (nav.ts)", () => {
     const at = placeOf(g, "spec:docs/specs/SPEC-110-cleanup.md")!;
     expect([at.group.title, at.part.title, at.item.also]).toEqual([
       "Specs",
-      "In progress",
+      undefined,
       [".keel/specs/SPEC-110-cleanup.md"],
     ]);
   });
@@ -318,7 +321,7 @@ describe("the menu's order (nav.ts)", () => {
     expect(ids(filterNav(g, "WAVE").flatMap(groupItems))).toEqual([
       "spec:docs/specs/SPEC-101-wave.md",
     ]);
-    expect(ids(filterNav(g, "keel fix").flatMap(groupItems))).toEqual([
+    expect(ids(filterNav(g, "fix").flatMap(groupItems))).toEqual([
       "wf:fix",
     ]);
     expect(filterNav(g, "nothing-like-this")).toEqual([]);
@@ -376,31 +379,27 @@ describe("the Wiki page in order", () => {
     await user.click(within(toc).getByRole("button", { name: "Data" }));
 
     const n = screen.getByRole("navigation", { name: "Wiki pages" });
-    const heads = within(n)
-      .getAllByRole("button")
-      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    const heads = [...n.querySelectorAll<HTMLElement>("button.wt-h")].map((b) => b.textContent);
     expect(heads.map((h) => h?.replace(/[▾▸]/g, ""))).toEqual([
-      "Overview2",
-      "Architecture & knowledge3",
       "Specs4",
+      "Project knowledge2",
       "Decisions2",
       "Workflows2",
     ]);
-    const inProgress = await within(n).findByRole("group", {
-      name: "Specs: In progress",
-    });
-    expect(
-      within(inProgress).getByRole("link", { name: /Cleanup/ }),
-    ).toHaveTextContent("110Cleanupin progress×2");
-    const done = within(n).getByRole("group", { name: "Specs: Done" });
-    expect(
-      within(done)
-        .getAllByRole("link")
-        .map((a) => a.textContent),
-    ).toEqual(["102Fail-soft parsingbuilt", "101Wave fallbackbuilt"]);
-    expect(within(n).getByRole("link", { name: /Domain/ })).toHaveTextContent(
-      "not written",
+    // the short overview is two links at the top, the index called Overview
+    expect(within(n).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    expect(within(n).getByRole("link", { name: "How to run this project" })).toBeInTheDocument();
+    const specList = document.getElementById(within(n).getByRole("button", { name: /^Specs/ }).getAttribute("aria-controls")!)!;
+    await waitFor(() =>
+      expect(within(specList).getAllByRole("link").map((a) => a.textContent)).toEqual([
+        "110Cleanuprunning×2",
+        "200Web port",
+        "102Fail-soft parsingbuilt",
+        "101Wave fallbackbuilt",
+      ]),
     );
+    expect(within(n).getByRole("button", { name: /^1 not written/ })).toHaveAttribute("aria-expanded", "false");
+    expect(within(n).queryByRole("link", { name: /Domain/ })).not.toBeInTheDocument();
   });
 
   it("a spec page says where it is and that the same file is in another folder; old links still open", async () => {
@@ -411,7 +410,7 @@ describe("the Wiki page in order", () => {
       name: "Breadcrumb",
     });
     await waitFor(() =>
-      expect(crumbs).toHaveTextContent("Wiki›Specs›In progress"),
+      expect(crumbs).toHaveTextContent(/^Wiki›Specs$/),
     );
     expect(
       await screen.findByText(/The same file is also in/),

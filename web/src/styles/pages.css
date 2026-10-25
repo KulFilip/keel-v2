@@ -264,7 +264,7 @@ a.chip.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .wk-miss { font-size: 11.5px; color: var(--faint); }
 .wk-pick { display: grid; gap: 4px; margin-bottom: 12px; }
 .wk-pick select { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 10px; font-weight: 600; width: 100%; }
-.wk-search { margin-bottom: 8px; }
+.wk-search { margin-bottom: 8px; position: sticky; top: 0; z-index: 1; background: var(--bg); }
 .wk-search .pg-search { width: 100%; }
 /* 0.17.3 the Wiki menu's sections open and close; a spec's build status (docs/plugins/24-wiki-sections-spec-status.md) */
 .wt-sec { display: flex; flex-direction: column; gap: 1px; }
@@ -274,11 +274,32 @@ button.wt-h { background: none; border: 0; border-radius: 6px; width: 100%; text
 button.wt-h:hover { color: var(--fg); background: var(--panel-2); }
 button.wt-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button.wt-h[aria-disabled="true"] { cursor: default; }
-button.wt-h[aria-disabled="true"]:hover { background: none; color: var(--faint); }
-.wt-car { display: inline-block; width: 1.1em; }
+button.wt-h[aria-disabled="true"]:hover { background: none; color: var(--fg); }
+.wt-car { display: inline-block; width: 16px; flex: none; text-align: center; color: var(--dim); font-size: 15px; line-height: 1; }
+/* 0.18.55 the sidebar: one-line titles, a quiet count, folds for the workflow purposes and the sections not written */
+.wt-ht { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-list a { padding-left: 30px; }
+.wt-top { display: flex; flex-direction: column; gap: 1px; padding-bottom: 4px; }
+.wt-fold-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+button.wt-fold { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: 0; border-radius: 6px; padding: 5px 8px 5px 22px; min-height: 28px; font: inherit; font-size: 12.5px; color: var(--dim); text-align: left; cursor: pointer; }
+button.wt-fold:hover { background: var(--panel-2); color: var(--fg); }
+button.wt-fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.wt-fold[aria-disabled="true"] { cursor: default; }
+button.wt-fold[aria-disabled="true"]:hover { background: none; color: var(--dim); }
+.wt-fold-sub .wt-list a, .wt-fold-missing .wt-list a { padding-left: 44px; }
+.wt-fold-missing button.wt-fold { color: var(--faint); }
+.wt-act { flex: none; border: 0; background: none; padding: 3px 8px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: none; white-space: nowrap; }
+.wt-act:hover { background: var(--accent-soft); }
+.wt-act:disabled { opacity: .6; cursor: default; }
+.wt-err { font-size: 11.5px; color: var(--bad); padding: 0 8px 4px 22px; }
+.wt-tag { flex: none; font-size: 10px; line-height: 15px; padding: 0 5px; border: 1px solid var(--border); border-radius: 999px; color: var(--faint); }
+.wt-tag-product { color: var(--accent); border-color: var(--accent-soft); }
+.wtree mark { background: var(--warn-soft); color: inherit; border-radius: 2px; padding: 0 1px; }
+.wt-none { display: grid; gap: 8px; justify-items: start; padding: 8px 10px; font-size: 12.5px; color: var(--dim); }
 .wk-sp { font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 0 7px; line-height: 17px; white-space: nowrap; flex: none; }
 .wk-sp-built { background: var(--ok-soft); color: var(--ok); }
 .wk-sp-in_progress { background: var(--run-soft); color: var(--run); }
+.wk-sp-waiting { background: var(--accent-soft); color: var(--accent); }
 .wk-sp-stopped { background: var(--warn-soft); color: var(--warn); }
 .wk-sp-not_built { background: var(--panel-2); color: var(--dim); }
 .wk-build { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 4px 0 14px; display: grid; gap: 8px; max-width: 68ch; background: var(--panel-2); }
@@ -296,7 +317,7 @@ button.wt-h[aria-disabled="true"]:hover { background: none; color: var(--faint);
    breadcrumb and "On this page" */
 .wk-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); max-height: calc(100vh - var(--bar-h, 0px) - 24px); display: flex; flex-direction: column; min-height: 0; }
 .wk-side .wtree { position: static; overflow-y: auto; min-height: 0; padding-bottom: 8px; }
-.wt-n { font-size: 10.5px; font-weight: 600; color: var(--faint); background: var(--panel-2); border-radius: 999px; padding: 0 6px; line-height: 16px; letter-spacing: 0; text-transform: none; flex: none; }
+.wt-n { font-size: 10.5px; font-weight: 500; color: var(--faint); background: var(--panel-2); border-radius: 999px; padding: 0 6px; line-height: 16px; letter-spacing: 0; text-transform: none; flex: none; }
 .wt-part { display: flex; flex-direction: column; gap: 1px; }
 .wt-sub { font-size: 11px; color: var(--faint); padding: 6px 10px 2px 22px; display: flex; align-items: center; gap: 6px; }
 .wtree a .wt-t { min-width: 0; overflow-wrap: anywhere; }
