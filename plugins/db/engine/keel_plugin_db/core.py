@@ -415,11 +415,35 @@ def _connect_error(conn: Conn, exc: Exception) -> DbError:
     return DbError(502, f"keel could not reach {conn.name}: {msg}", hint)
 
 
-def _value(v):
+def _duration(v: _dt.timedelta, kind: str = "") -> str:
+    """An interval as ISO-8601 (P1DT2H3M4.5S); MySQL's TIME as MySQL writes it (-10:30:00)."""
+    us = v // _dt.timedelta(microseconds=1)
+    sign, us = ("-" if us < 0 else ""), abs(us)
+    if kind == "mysql":
+        h, rest = divmod(us, 3_600_000_000)
+        m, rest = divmod(rest, 60_000_000)
+        s, frac = divmod(rest, 1_000_000)
+        return f"{sign}{h:02d}:{m:02d}:{s:02d}" + (f".{frac:06d}".rstrip("0") if frac else "")
+    days, rest = divmod(us, 86_400_000_000)
+    h, rest = divmod(rest, 3_600_000_000)
+    m, rest = divmod(rest, 60_000_000)
+    secs = rest / 1_000_000
+    t = "".join(f"{n}{u}" for n, u in ((h, "H"), (m, "M")) if n) + (f"{secs:.6f}".rstrip("0").rstrip(".") + "S" if rest else "")
+    out = f"P{days}D" if days else "P"
+    if t:
+        out += "T" + t
+    return sign + (out if out != "P" else "PT0S")
+
+
+def _value(v, kind: str = ""):
     if v is None or isinstance(v, (bool, int, float, str)):
         return v
     if isinstance(v, (decimal.Decimal, uuid.UUID)):
         return str(v)
+    if isinstance(v, (dict, list)):                      # json and jsonb (and arrays) as JSON, not Python's repr
+        return json.dumps(v, ensure_ascii=False, default=str)
+    if isinstance(v, _dt.timedelta):
+        return _duration(v, kind)
     if isinstance(v, (_dt.datetime, _dt.date, _dt.time)):
         return v.isoformat(sep=" ") if isinstance(v, _dt.datetime) else v.isoformat()
     if isinstance(v, (bytes, bytearray, memoryview)):
@@ -500,7 +524,7 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
     if cls == "change":
         return {**out, "changed": max(count, 0), "done": confirm, "ms": ms, "every_row": _every_row(text, conn.kind)}
     hidden = secret_columns(text, conn.kind, cols) if mask else []
-    shown = [[("•••" if i in hidden and v is not None else _value(v)) for i, v in enumerate(r)] for r in rows]
+    shown = [[("•••" if i in hidden and v is not None else _value(v, conn.kind)) for i, v in enumerate(r)] for r in rows]
     return {**out, "columns": cols, "rows": shown, "count": len(shown), "truncated": truncated, "masked": [cols[i] for i in hidden],
             "ms": ms}
 

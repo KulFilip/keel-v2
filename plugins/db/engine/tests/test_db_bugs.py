@@ -30,6 +30,19 @@ def test_a_refused_statement_is_named_as_it_is(sql, word):
     assert kind == "never" and word in why and "ALIAS" not in why
 
 
+# ------------------------------------------------------------------ L5: json and intervals
+
+def test_json_is_json_and_an_interval_is_iso_8601():
+    assert core._value({"a": 1, "b": [1, 2]}) == '{"a": 1, "b": [1, 2]}'
+    assert core._value([1, "x"]) == '[1, "x"]'
+    assert core._value(dt.timedelta(days=1)) == "P1D"
+    assert core._value(dt.timedelta(hours=1, minutes=2, seconds=3.5)) == "PT1H2M3.5S"
+    assert core._value(dt.timedelta(days=2, hours=3)) == "P2DT3H"
+    assert core._value(dt.timedelta(0)) == "PT0S"
+    assert core._value(dt.timedelta(days=-1)) == "-P1D"
+    assert core._value(dt.timedelta(hours=10, minutes=30), "mysql") == "10:30:00"     # MySQL's TIME
+
+
 # ------------------------------------------------------------------ L8: a change of every row
 
 def test_an_update_or_delete_without_where_says_it_changes_every_row(tmp_path):
