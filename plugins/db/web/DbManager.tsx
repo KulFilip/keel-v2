@@ -184,7 +184,7 @@ export function DbManager({ pid, projectName, place, startNew, select, onChanged
         </aside>
       )}
       {showEditor && (
-        <main className="dbx-main">
+        <section className="dbx-main" aria-label="Connection">
           {narrow && <button type="button" className="btn sm ghost dbx-back" onClick={() => setPick(null)}>← Back to the list</button>}
           {chosen?.source === "global" && pid && (
             <div className="dbx-shared">
@@ -211,7 +211,7 @@ export function DbManager({ pid, projectName, place, startNew, select, onChanged
               <p className="sub">A connection for all projects is set once and used everywhere; a project's own wins inside it.</p>
             </div>
           )}
-        </main>
+        </section>
       )}
     </div>
   );

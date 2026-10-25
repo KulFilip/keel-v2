@@ -280,6 +280,13 @@ describe("the editor", () => {
     );
   });
 
+  it("is one page with one main: the editor is a section inside it", async () => {
+    await openPage();
+    await screen.findByText(/Pick a connection on the left/);
+    expect(document.querySelectorAll("main main")).toHaveLength(0);
+    expect(screen.getByRole("region", { name: "Connection" })).toBeInTheDocument();
+  });
+
   it("tests the connection, shows the result and then offers the server's databases", async () => {
     const user = userEvent.setup();
     const side = await openPage();
