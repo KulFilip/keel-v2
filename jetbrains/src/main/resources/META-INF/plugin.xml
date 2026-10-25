@@ -21,6 +21,9 @@
     <postStartupActivity implementation="dev.keel.jetbrains.core.KeelStartup"/>
     <statusBarWidgetFactory id="keel.status" implementation="dev.keel.jetbrains.ui.KeelStatusWidgetFactory" order="first"/>
     <notificationGroup id="keel" displayType="BALLOON"/>
+    <statusBarWidgetFactory id="keel.review" implementation="dev.keel.jetbrains.ui.KeelReviewWidgetFactory" order="after keel.status"/>
+    <projectViewNodeDecorator implementation="dev.keel.jetbrains.ui.ReviewModeDecorator"/>
+    <editorNotificationProvider implementation="dev.keel.jetbrains.ui.ReviewModeBanner"/>
     <intentionAction>
       <language/>
       <className>dev.keel.jetbrains.actions.AskKeelBotIntention</className>
@@ -40,6 +43,10 @@
               description="Start a keel flow in this project"/>
       <action id="keel.Open" class="dev.keel.jetbrains.actions.OpenKeelAction" text="Open keel"
               description="Show keel's flows and the questions that wait for you"/>
+      <action id="keel.NextChange" class="dev.keel.jetbrains.ui.NextChangeAction" text="Next PR Change"
+              description="Review mode: the next changed block of the pull request"/>
+      <action id="keel.ExitReviewMode" class="dev.keel.jetbrains.ui.ExitReviewModeAction" text="Exit Review Mode"
+              description="End keel's review mode for this project"/>
     </group>
     <group id="keel.EditorMenu">
       <separator/>
@@ -53,7 +60,15 @@
               text="keel: Start a Flow from Selection" description="Start a keel flow; the request starts with the selected code"/>
       <action id="keel.AddReviewComment" class="dev.keel.jetbrains.editor.AddReviewCommentAction"
               text="keel: Comment on This Line" description="A pending comment of your review on this line of the pull request"/>
+      <action id="keel.AskWhatChanged" class="dev.keel.jetbrains.ui.AskWhatChangedAction" text="Ask KeelBot What Changed Here"
+              description="Review mode: KeelBot explains this changed block of the pull request"/>
+      <action id="keel.CommentOnChange" class="dev.keel.jetbrains.ui.CommentOnChangeAction" text="Comment on This Change"
+              description="Review mode: a pending comment of your review on this changed block"/>
       <add-to-group group-id="EditorPopupMenu" anchor="last"/>
     </group>
+    <action id="keel.ReviewPill" class="dev.keel.jetbrains.ui.ReviewPillAction" text="Reviewing"
+            description="keel review mode: Exit review mode, Next change, the Review tab">
+      <add-to-group group-id="MainToolbarRight" anchor="first"/>
+    </action>
   </actions>
 </idea-plugin>

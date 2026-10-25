@@ -71,12 +71,16 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private val pending = KeelUi.scrollStack().apply { border = JBUI.Borders.empty(8) }
     private val overview = KeelUi.scrollStack().apply { border = JBUI.Borders.empty(8) }
     private val prNote = KeelUi.muted("")
+    private val summary = KeelUi.muted("")
+    private val markViewed = com.intellij.ui.components.JBCheckBox("Mark a file viewed when I open it")
+    private val mode = dev.keel.jetbrains.core.ReviewMode.of(project)
 
     init {
         add(listCard(), LIST)
         add(prCard(), PR)
         svc.onChange(parent) { if (session.key == null) loadPrs() }
-        session.onChange(parent) { renderPr() }
+        session.onChange(parent) { if (session.key == null) show(LIST) else renderPr() }
+        mode.onChange(parent) { fileList.repaint() }
         loadPrs()
     }
 
@@ -125,6 +129,7 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
 
     private fun openPr(n: Int) {
         session.open("pr:$n")
+        mode.enter("pr:$n")
         prTitle.text = "#$n …"
         show(PR)
     }
@@ -133,23 +138,30 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private fun prCard(): JPanel {
         val p = JPanel(BorderLayout())
         val head = KeelUi.stack().apply { border = JBUI.Borders.empty(6, 8) }
-        head.add(KeelUi.row(KeelUi.link("← Pull requests") { session.close(); show(LIST); loadPrs() }, ci, KeelUi.link("Refresh") { session.reload(refresh = true) }).full())
+        head.add(KeelUi.row(KeelUi.link("← Pull requests") { show(LIST); loadPrs() }, ci, KeelUi.link("Refresh") { session.reload(refresh = true) }).full())
         head.add(prTitle.full())
         head.add(prSub.full())
         val submit = JButton("Submit review").apply { addActionListener { submitReview(null) } }
         val approve = JButton("Approve").apply { addActionListener { submitReview("APPROVE") } }
         val checkout = JButton("Check out").apply { addActionListener { checkout() } }
-        head.add(KeelUi.row(submit, approve, checkout, prNote).full())
+        head.add(summary.full())
+        val next = JButton("Next change ↓").apply { addActionListener { ReviewModeText.nextChange(project) } }
+        head.add(KeelUi.row(submit, approve, checkout, next, prNote).full())
+        markViewed.isSelected = dev.keel.jetbrains.settings.KeelSettings.get().state.markViewed
+        markViewed.isOpaque = false
+        markViewed.addActionListener { dev.keel.jetbrains.settings.KeelSettings.get().state.markViewed = markViewed.isSelected }
+        head.add(KeelUi.row(markViewed, KeelUi.link("Exit review mode") { mode.exit() }).full())
         p.add(head, BorderLayout.NORTH)
 
-        fileList.cellRenderer = com.intellij.ui.SimpleListCellRenderer.create("") { f -> "+${f.added} −${f.removed}   ${f.path}" + if (f.binary) " (binary)" else "" }
+        fileList.cellRenderer = FileRenderer()
         fileList.emptyText.text = "No changed files"
         fileList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                fileList.selectedValue?.let { PrDiffEditor.open(project, it.path) }
+                val f = fileList.selectedValue ?: return
+                openChanged(f, diff = e.clickCount > 1 && e.isAltDown)
             }
         })
-        tabs.addTab("Changes", JBScrollPane(fileList))
+        tabs.addTab("Changed files", JBScrollPane(fileList))
 
         val tp = JPanel(BorderLayout())
         val group = ButtonGroup()
@@ -173,7 +185,8 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
             override fun mouseClicked(e: MouseEvent) {
                 val t = threadList.selectedValue ?: return
                 val path = t.path ?: return
-                PrDiffEditor.open(project, path, t.line, t.side)
+                val inEditor = mode.active && !t.outdated && t.side != "LEFT" && t.line != null
+                if (!inEditor || !KeelUi.openFile(project, path, t.line)) PrDiffEditor.open(project, path, t.line, t.side)
             }
         })
         tp.add(JBScrollPane(threadList), BorderLayout.CENTER)
@@ -199,7 +212,9 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         files.replaceAll(v.files)
         val counts = v.threads.groupingBy { threadStateOf(it, v.me) }.eachCount()
         chips.forEach { (s, b) -> b.text = "${s.label} · ${counts[s] ?: 0}" }
-        tabs.setTitleAt(0, "Changes ${v.files.size}")
+        tabs.setTitleAt(0, "Changed files (${v.files.size})")
+        summary.text = "+${v.added} −${v.removed} · ${v.files.size} file${if (v.files.size == 1) "" else "s"} · ${v.threads.size} thread${if (v.threads.size == 1) "" else "s"}" +
+            if (mode.active && mode.prKey == v.key) " · ${mode.viewed.size} viewed" else ""
         tabs.setTitleAt(1, "Threads ${v.threads.size}")
         tabs.setTitleAt(2, if (v.drafts.isEmpty()) "Pending" else "Pending ${v.drafts.size}")
         fillThreads()
@@ -297,9 +312,44 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
                     }
                 }
                 VirtualFileManager.getInstance().asyncRefresh(null)
-                KeelNotifier.info(project, "On $branch now")
+                KeelNotifier.info(project, "On $branch now", "Review mode shows the PR's changes in the editor.")
+                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                    session.key?.let { k -> if (mode.prKey == k) mode.reload() else mode.enter(k) }
+                }
             }
         }.queue()
+    }
+
+    /** A changed file: the normal file in review mode (deleted, or not in this folder: its diff). */
+    private fun openChanged(f: ChangedFile, diff: Boolean) {
+        val status = dev.keel.jetbrains.api.prFileStatusOf(f.status)
+        if (diff || status == dev.keel.jetbrains.api.PrFileStatus.DELETED || f.binary || !KeelUi.openFile(project, f.path, mode.ranges[f.path]?.firstOrNull()?.start ?: 1)) {
+            PrDiffEditor.open(project, f.path)
+        }
+        mode.markViewed(f.path)
+    }
+
+    private inner class FileRenderer : ListCellRenderer<ChangedFile> {
+        override fun getListCellRendererComponent(list: JList<out ChangedFile>, value: ChangedFile, index: Int, sel: Boolean, focus: Boolean): Component {
+            val st = dev.keel.jetbrains.api.prFileStatusOf(value.status)
+            val p = KeelUi.row().apply {
+                border = JBUI.Borders.empty(3, 6)
+                isOpaque = true
+                background = if (sel) UIUtil.getListSelectionBackground(focus) else UIUtil.getListBackground()
+            }
+            p.add(com.intellij.ui.components.JBLabel(st.mark).apply { foreground = ReviewModeText.color(st) })
+            val name = com.intellij.ui.components.JBLabel(if (st == dev.keel.jetbrains.api.PrFileStatus.DELETED) "<html><s>${KeelUi.esc(value.path)}</s></html>" else value.path)
+            if (sel) name.foreground = UIUtil.getListSelectionForeground(focus)
+            p.add(name)
+            val bits = listOfNotNull(
+                ReviewModeText.fileThreads(mode, value.path),
+                st.word.takeIf { st != dev.keel.jetbrains.api.PrFileStatus.MODIFIED },
+                listOfNotNull(value.added.takeIf { it > 0 }?.let { "+$it" }, value.removed.takeIf { it > 0 }?.let { "−$it" }).joinToString(" ").ifBlank { null },
+                "viewed ✓".takeIf { value.path in mode.viewed },
+            )
+            p.add(KeelUi.muted(bits.joinToString(" · ")))
+            return p
+        }
     }
 
     private inner class PrRenderer : ListCellRenderer<PrSummary> {

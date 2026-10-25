@@ -32,10 +32,12 @@ import javax.swing.JPanel
 class ThreadComponent(
     private val project: Project,
     private var thread: ReviewThread,
+    /** null: open when it waits for you (the PR diff); false: folded (normal editors in review mode) */
+    startOpen: Boolean? = null,
     private val onSize: (ThreadComponent) -> Unit,
 ) : JPanel(BorderLayout()) {
     private val session = ReviewSession.of(project)
-    private var open = threadStateOf(thread, session.view?.me) == ThreadState2.WAITING
+    private var open = startOpen ?: (threadStateOf(thread, session.view?.me) == ThreadState2.WAITING)
     private var busy: String? = null
     private var note: String? = null
     private var draftReply: String = ""
@@ -64,6 +66,7 @@ class ThreadComponent(
             KeelUi.bold(first?.author ?: "?"),
             KeelUi.muted("\"" + firstLine(first?.body.orEmpty(), 70) + "\""),
             if (thread.comments.size > 1) KeelUi.muted("· ${thread.comments.size - 1} repl${if (thread.comments.size == 2) "y" else "ies"}") else KeelUi.muted(""),
+            session.judgeOf(thread.id)?.result?.items?.firstOrNull()?.let { KeelUi.muted("· keel: ${verdictLabel(it.verdict).lowercase()}") } ?: KeelUi.muted(""),
             stateChip(state),
         ).apply {
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
