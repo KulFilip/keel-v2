@@ -49,6 +49,7 @@ case "$1" in
       *State.Running*) echo true ;;
       *keel2.project*) cat "$S/project" ;;
       *keel2.bind*) cat "$S/bind" ;;
+      *keel2.hosts*) cat "$S/hosts" 2>/dev/null || true ;;
       *keel2.docker*) echo 0 ;;
       "{{.Config.Image}}") echo ghcr.io/miladnalbandi/keel-v2:latest ;;
     esac
@@ -57,19 +58,19 @@ case "$1" in
   rm)
     if [ -f "$S/tunnel" ] && [ "$last" = "$(cat "$S/tunnel")" ]; then rm -f "$S/tunnel"; exit 0; fi
     case "$last" in *-tunnel) exit 0 ;; esac
-    rm -f "$S/exists" "$S/project" "$S/bind"; exit 0 ;;
+    rm -f "$S/exists" "$S/project" "$S/bind" "$S/hosts"; exit 0 ;;
   run)
-    name=""; prev=""; bind=""; proj=""
+    name=""; prev=""; bind=""; proj=""; hosts=""
     for a in "$@"; do
       [ "$prev" = --name ] && name="$a"
-      case "$a" in keel2.project=*) proj="${a#keel2.project=}" ;; keel2.bind=*) bind="${a#keel2.bind=}" ;; esac
+      case "$a" in keel2.project=*) proj="${a#keel2.project=}" ;; keel2.bind=*) bind="${a#keel2.bind=}" ;; keel2.hosts=*) hosts="${a#keel2.hosts=}" ;; esac
       prev="$a"
     done
     case "$name" in
       "") exit 0 ;;
       *-tunnel) echo "$name" > "$S/tunnel"; echo c0ffee; exit 0 ;;
     esac
-    touch "$S/exists"; echo "$proj" > "$S/project"; echo "$bind" > "$S/bind"; echo c0ffee; exit 0 ;;
+    touch "$S/exists"; echo "$proj" > "$S/project"; echo "$bind" > "$S/bind"; echo "$hosts" > "$S/hosts"; echo c0ffee; exit 0 ;;
   exec)
     case "$*" in
       *internal-token*) printf 'faketoken' ;;
@@ -127,6 +128,7 @@ FAKE
 cat > "$scratch/bin/hostname" <<'FAKE'
 #!/usr/bin/env bash
 [ "${1:-}" = -I ] && echo "172.17.0.1 10.0.0.5 fd00::1 "
+[ "${1:-}" = -s ] && echo "Server"
 FAKE
 cat > "$scratch/bin/ipconfig" <<'FAKE'
 #!/usr/bin/env bash
@@ -161,6 +163,7 @@ check "plain start works" "$rc" 0
 yes_if "plain start publishes on 127.0.0.1" called "docker run .*-p 127.0.0.1:$PORT:8080"
 yes_if "the container knows its name (the phone shows it)" called "docker run .*KEEL_NAME=keel-test-remote"
 hasnt "plain start prints no Wi-Fi URL" "$out" "On your Wi-Fi"
+no_if "plain start adds no host names" called "docker run .*KEEL_ALLOWED_HOSTS"
 check "keel gets an empty address list" "$(sent)" '{"urls":[]}'
 
 reset
@@ -169,6 +172,8 @@ check "start --wifi works" "$rc" 0
 yes_if "--wifi publishes on every network" called "docker run .*-p 0.0.0.0:$PORT:8080"
 no_if "--wifi does not publish on 127.0.0.1 too" called "docker run .*-p 127.0.0.1:$PORT:8080"
 yes_if "--wifi is remembered on the container" called "docker run .*keel2.bind=0.0.0.0"
+yes_if "--wifi lets keel answer on this computer's name (server.local)" called "docker run .*KEEL_ALLOWED_HOSTS=server.local,server"
+has "--wifi prints this computer's name" "$out" "On your network: http://server.local:$PORT"
 has "--wifi prints the Wi-Fi URL (Linux: ip route)" "$out" "On your Wi-Fi: http://192.168.1.20:$PORT"
 has "--wifi warns about plain http" "$out" "plain http"
 check "keel learns its Wi-Fi address" "$(sent)" "{\"urls\":[{\"kind\":\"wifi\",\"url\":\"http://192.168.1.20:$PORT\"}]}"
@@ -177,6 +182,7 @@ check "keel learns its Wi-Fi address" "$(sent)" "{\"urls\":[{\"kind\":\"wifi\",\
 run_k -- restart
 check "restart works" "$rc" 0
 yes_if "restart keeps --wifi" called "docker run .*-p 0.0.0.0:$PORT:8080"
+yes_if "restart keeps the names, once each" called "docker run .*KEEL_ALLOWED_HOSTS=server.local,server "
 has "restart sends the address again" "$(sent)" "192.168.1.20"
 
 : > "$FAKE_CALLS"

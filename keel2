@@ -481,6 +481,10 @@ cmd_start() {
   # phone access: --wifi / KEEL_BIND publishes keel on the network instead of 127.0.0.1 (remembered by the label)
   local i; for i in "${!args[@]}"; do [ "${args[$i]}" = "127.0.0.1:$port:8080" ] && args[i]="$(publish_host "$bind"):$port:8080"; done
   args+=(-e KEEL_NAME="$NAME" --label "keel2.bind=$bind")
+  # 0.18.55 the names keel answers on besides localhost: KEEL_ALLOWED_HOSTS (restart and update keep it, by the
+  # label), and on the network (--wifi) this computer's own name and <name>.local, so http://server.local:8088 works
+  local hosts; hosts="$(allowed_hosts "$bind")"
+  if [ -n "$hosts" ]; then args+=(-e "KEEL_ALLOWED_HOSTS=$hosts" --label "keel2.hosts=$hosts"); fi
 
   info "Starting keel for ${B}$project${N}…"
   [ ${#added[@]} = 0 ] || info "  ${D}and ${#added[@]} added folder(s): ${added[*]}${N}"
@@ -752,6 +756,19 @@ lan_ips() {  # this computer's Wi-Fi / LAN addresses, one per line (KEEL_LAN_IP 
   } | awk 'NF && !seen[$0]++'
 }
 
+own_name() {  # this computer's short name (server for server.local), empty when it has none
+  local h; h="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"; h="${h%%.*}"
+  case "$h" in ""|localhost|*[!A-Za-z0-9-]*) return 0 ;; esac
+  printf '%s\n' "$h" | tr 'A-Z' 'a-z'
+}
+
+allowed_hosts() {  # allowed_hosts <bind>: KEEL_ALLOWED_HOSTS, else the running container's; plus the own name on the network
+  local hosts="${KEEL_ALLOWED_HOSTS:-}" h
+  [ -n "$hosts" ] || hosts="$(label hosts)"
+  if [ "$1" != 127.0.0.1 ]; then h="$(own_name)"; [ -z "$h" ] || hosts="${hosts:+$hosts,}$h.local,$h"; fi
+  printf '%s' "$hosts" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -
+}
+
 wifi_urls() {  # wifi_urls <port> <bind>: the http URLs a phone on the same network uses
   case "$2" in
     127.0.0.1) return 0 ;;
@@ -763,6 +780,9 @@ wifi_urls() {  # wifi_urls <port> <bind>: the http URLs a phone on the same netw
 show_reach() {  # show_reach <port> <bind>: where a phone finds keel, after a start
   [ "$2" = 127.0.0.1 ] && return 0
   local u n=0
+  # this computer's name too (server.local): computers find it by name; phones get the addresses (not every phone
+  # resolves .local names)
+  local h; h="$(own_name)"; if [ "$2" = 0.0.0.0 ] && [ -n "$h" ]; then ok "On your network: ${B}http://$h.local:$1${N}"; fi
   while IFS= read -r u; do ok "On your Wi-Fi: ${B}$u${N}"; n=1; done < <(wifi_urls "$1" "$2")
   [ "$n" = 1 ] || warn "keel listens on the network ($2), but keel2 found no Wi-Fi address of this computer. Set KEEL_LAN_IP=<address>."
   warn "Inside the Wi-Fi this is plain http: others on the network could read the traffic. Phones pair first (Settings › Devices)."
