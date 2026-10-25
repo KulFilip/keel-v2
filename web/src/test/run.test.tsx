@@ -312,6 +312,21 @@ describe("Inbox", () => {
     expect(within(screen.getByRole("article", { name: "Approve new dependency" })).queryByRole("button", { name: "Show more" })).toBeNull();
   });
 
+  it("Show more on a cut detail loads the whole text from the flow", async () => {
+    const user = userEvent.setup();
+    const cut = inboxItems()[0];
+    inboxServer([{ ...cut, detail: `${"A long final review line.\n".repeat(20)}…`, more: true }]);
+    server.use(http.get("/api/projects/:pid/flows/:tid", () => HttpResponse.json({ workflow: null,
+      thread: { thread_id: cut.thread_id, status: "waiting", waiting: { step: cut.step, kind: "gate", title: cut.title, options: ["approve"],
+        detail: `${"A long final review line.\n".repeat(20)}The very last line of the review.` } } })));
+    await at("#/inbox");
+    const gate = await screen.findByRole("article", { name: cut.title });
+    expect(within(gate).queryByText("The very last line of the review.")).toBeNull();
+    await user.click(within(gate).getByRole("button", { name: "Show more" }));
+    expect(await within(gate).findByText(/The very last line of the review\./)).toBeInTheDocument();
+    expect(within(gate).queryByText("The rest is on the Flow page.")).toBeNull();
+  });
+
   it("after an answer the focus moves to the next item, and to the empty state after the last", async () => {
     const user = userEvent.setup();
     inboxServer(inboxItems());

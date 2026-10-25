@@ -7,7 +7,7 @@
 // v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { errorParts } from "../api";
+import { api, errorParts } from "../api";
 import { ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { questionsPayload, reasonsMissing } from "../questions";
 import { ChoiceForm } from "../components/ChoiceForm";
@@ -41,18 +41,32 @@ const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? `${it.step}|${it.ac
 const LONG_LINES = 6;
 const LONG_CHARS = 420;
 
-function Detail({ text, id }: { text: string; id: string }) {
-  const long = text.split("\n").length > LONG_LINES || text.length > LONG_CHARS;
+/** A pause's text, folded when long. `more`: the Inbox got it cut (700 characters): Show more loads the whole text
+ *  from the flow (before, it only unfolded the cut part and the rest stayed on the Flow page). */
+function Detail({ text, id, more, full }: { text: string; id: string; more?: boolean; full?: () => Promise<string | null> }) {
+  const [whole, setWhole] = useState<string | null>(null);
+  const shown = whole ?? text;
+  const long = !!more || shown.split("\n").length > LONG_LINES || shown.length > LONG_CHARS;
   const [open, setOpen] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const toggle = async () => {
+    if (!open && more && whole === null && full) {
+      const t = await full().catch(() => null);
+      if (t) setWhole(t);
+      else setMissing(true);
+    }
+    setOpen((o) => !o);
+  };
   return (
     <div className="inbox-detail-wrap">
       {/* a gate's text is Markdown (a PR body, a final review), with `$ command` output folded, as on the Flow page */}
-      <div id={id} className={`inbox-detail md${long ? (open ? " open" : " folded") : ""}`}><GateDetail text={text} /></div>
+      <div id={id} className={`inbox-detail md${long ? (open ? " open" : " folded") : ""}`}><GateDetail text={shown} /></div>
       {long && (
-        <button className="btn sm ghost inbox-more" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        <button className="btn sm ghost inbox-more" type="button" aria-expanded={open} aria-controls={id} onClick={() => void toggle()}>
           {open ? "Show less" : "Show more"}
         </button>
       )}
+      {more && (missing || !full) && <span className="hint">The rest is on the Flow page.</span>}
     </div>
   );
 }
@@ -225,13 +239,13 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
           onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : it.detail ? (
-        <Detail text={it.detail} id={`${hid}-detail`} />
+        <Detail text={it.detail} id={`${hid}-detail`} more={it.more}
+          full={async () => (await api.flowOf(it.project_id, it.thread_id)).thread?.waiting?.detail ?? null} />
       ) : null}
       {it.kind !== "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
           onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : null}
-      {it.more && <span className="hint">The rest is on the Flow page.</span>}
       {!info && (askWhy || !b.needWhy) && (
         <div className="field">
           <label htmlFor={whyId}>{b.whyLabel}</label>
