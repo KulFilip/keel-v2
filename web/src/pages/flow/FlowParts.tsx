@@ -135,7 +135,10 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
           <span><b>{workflow.name}</b> v{workflow.version}</span>
           <span>phase <b>{phaseTitle(thread.phase)}</b>{phaseAt(workflow, thread) ? <span className="sub"> ({phaseAt(workflow, thread)})</span> : null}</span>
           <Pill tone={tone}>{label}</Pill>
-          <span>branch <span className="mono">{readOnly ? branch ?? "—" : project?.branch ?? "—"}</span></span>
+          {(() => {
+            const b = (readOnly ? branch : project?.branch) ?? "—";
+            return <span>branch <span className="mono fl-branch" title={b}>{b}</span></span>;
+          })()}
           <CopyId id={thread.thread_id} />
         </div>
       </div>
@@ -180,7 +183,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
   );
 }
 
-export type FlowSide = "now" | "step" | "checkpoints";
+export type FlowSide = "now" | "step" | "decisions" | "checkpoints";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */

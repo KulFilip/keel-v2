@@ -6,6 +6,7 @@ import { StepView } from "../../components/StepView";
 import { KIND } from "../../components/workflow";
 import { useJobSteps } from "../Live";
 import { Drawer, ErrorBox, GoButton, Loading, Prov } from "../../components/ui";
+import { StepDecisions } from "./Decisions";
 import { EventsPanel } from "./EventsPanel";
 import { RunningCard, WaitsCard, stepIdOf } from "./FlowParts";
 
@@ -34,13 +35,15 @@ export function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJ
   const showNow = now && !!step && pick === "now";
   const title = showNow ? `${step!.name} now` : `What ${x?.name ?? step?.name ?? stepId} does`;
   const toggle = now && step ? <StepModeToggle value={showNow ? "now" : "details"} onChange={setPick} /> : null;
-  const details = error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />;
-  const live = showNow ? <StepNow pid={pid} thread={thread} step={step!} job={job} onJump={onJump} /> : null;
+  // keel 0.18.54 what was answered at this step in this flow (who, when, the answers, each round), above what it does
+  const decided = <StepDecisions pid={pid} thread={thread} workflow={workflow} stepId={stepId} x={x} />;
+  const details = <div className="grid" style={{ gap: 16 }}>{decided}{error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />}</div>;
+  const live = showNow ? <StepNow pid={pid} thread={thread} workflow={workflow} step={step!} job={job} onJump={onJump} /> : null;
   if (drawer) {
     return (
       <Drawer title={title} onClose={onClose}>
         {toggle}
-        {showNow ? <><StepAbout step={step!} x={x} />{live}</> : details}
+        {showNow ? <><StepAbout step={step!} x={x} />{decided}{live}</> : details}
       </Drawer>
     );
   }
@@ -53,7 +56,7 @@ export function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJ
   if (!showNow) return <section className="panel" aria-label={title}>{head}<div className="panel-body">{details}</div></section>;
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <section className="panel" aria-label={title}>{head}<div className="panel-body"><StepAbout step={step!} x={x} /></div></section>
+      <section className="panel" aria-label={title}>{head}<div className="panel-body grid" style={{ gap: 12 }}><StepAbout step={step!} x={x} />{decided}</div></section>
       {live}
     </div>
   );
@@ -85,14 +88,14 @@ function StepAbout({ step, x }: { step: Step; x: StepExplanation | null }) {
 
 /** v0.15.2 What happens in the step now: the waiting card (Go to it) or the running card, the agent's newest steps, and
  * this step's events since it started. */
-function StepNow({ pid, thread, step, job, onJump }: { pid: string; thread: ThreadState; step: Step; job: Job | null; onJump: () => void }) {
+function StepNow({ pid, thread, workflow, step, job, onJump }: { pid: string; thread: ThreadState; workflow: Workflow; step: Step; job: Job | null; onJump: () => void }) {
   const waits = thread.status === "waiting" && !!thread.waiting && thread.waiting.step.replace(/__fix$/, "") === step.id;
   const runs = !waits && (!!job || (thread.status === "running" && (thread.current ?? "").replace(/__fix$/, "") === step.id));
   return (
     <>
       {waits ? <WaitsCard thread={thread} onJump={onJump} /> : runs ? <RunningCard step={step} name={step.name} ac={job?.ac ?? thread.ac} job={job} /> : null}
       {job && <JobFeed job={job} />}
-      <EventsPanel pid={pid} thread={thread} step={step.id} title={`Events of ${step.name}`} />
+      <EventsPanel pid={pid} thread={thread} workflow={workflow} step={step.id} title={`Events of ${step.name}`} />
     </>
   );
 }

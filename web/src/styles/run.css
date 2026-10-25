@@ -212,6 +212,46 @@ a.btn { text-decoration: none; }
 .events .ev-cp { grid-template-columns: 50px minmax(0, 1fr); }
 .events .ev-cp .sub { overflow-wrap: anywhere; }
 .events .ev-cp > span:last-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* keel 0.18.54 each event reads as a row: the time (mono), the kind as a small coloured label (body font), then what
+   happened in the body font. A step that starts or ends is a thin divider; a gate's decision is a badge with its answers
+   as a numbered question → answer list; an agent's answer is Markdown folded to about three lines. Colours are the app's
+   tokens, so both themes follow. */
+.ev-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 8px; }
+.ev-filter { padding: 1px; }
+.ev-filter button { padding: 2px 9px; font-size: 12px; }
+.ev-filter button[aria-pressed="true"] { background: var(--accent-soft); color: var(--fg); }
+.ev-order { font-size: 11.5px; }
+.events { font-family: var(--f-body); line-height: 1.45; }
+.events > .ev-row { grid-template-columns: 44px 70px minmax(0, 1fr); align-items: baseline; padding: 3px 0; }
+.events .t { font-size: 11px; }
+.events .k { --kc: var(--dim); justify-self: start; font-family: var(--f-body); font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--kc); background: color-mix(in srgb, var(--kc) 13%, transparent); border-radius: 4px; padding: 0 5px;
+  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.events .k-agent { --kc: var(--accent); }
+.events .k-gate { --kc: var(--warn); }
+.events .k-supervisor { --kc: var(--met); }
+.events .k-flow, .events .k-tool { --kc: var(--run); }
+.events .k-guard { --kc: var(--bad); }
+.events .k-budget { --kc: var(--warn); }
+.events .k-usage, .events .k-event, .events .k-phase { --kc: var(--faint); }
+.ev-body { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.ev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.ev-head .pill { font-size: 11px; padding: 0 8px; }
+.ev-by { font-size: 11.5px; color: var(--met); font-weight: 600; }
+.ev-qa { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 12.5px; }
+.ev-qa li::marker { color: var(--faint); font-size: 11.5px; }
+.ev-q { display: block; color: var(--dim); }
+.ev-a { display: block; color: var(--fg); font-weight: 600; }
+.ev-md-wrap { display: grid; gap: 2px; justify-items: start; min-width: 0; width: 100%; }
+.ev-md { font-size: 12.5px; line-height: 1.5; width: 100%; color: var(--fg); }
+.ev-md h1, .ev-md h2, .ev-md h3, .ev-md h4 { font-size: 13px; margin: .4em 0 .15em; }
+.ev-md.is-folded { max-height: 4.6em; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent); mask-image: linear-gradient(to bottom, #000 55%, transparent); }
+.ev-more { font-size: 12px; color: var(--accent); font-weight: 600; }
+.events > .ev-div { grid-template-columns: 44px minmax(0, 1fr); align-items: center; margin: 4px 0 2px; }
+.ev-div-t { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--dim); font-weight: 600; }
+.ev-div-t::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.ev-div.ev-start .ev-div-t { color: var(--fg); }
+.bigview .ev-md.is-folded { max-height: 7.5em; }
 
 /* ---------- Inbox ---------- */
 .inbox-filters, .inbox-list { max-width: 940px; }
@@ -231,10 +271,11 @@ a.btn { text-decoration: none; }
   .fl-bar h1 { font-size: 18px; }
   .fl-facts { font-size: 12px; gap: 2px 10px; }
   .fl-tid, .fl-est { display: none; }
-  .fl-stats { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: end; }
+  .fl-stats { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: end; flex: 1 1 100%; }
   .fl-meter { width: 100%; }
   .fl-stat-v b { font-size: 15px; }
-  .fl-bar .actions { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
+  .fl-bar .actions { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; flex: 1 1 100%; }
+  .fl-branch { max-width: 20ch; }
   .fl-bar .actions .btn { padding-inline: 10px; }
   .fl-bar .actions .runmode-switch { flex: 1 1 auto; min-width: 0; }
   .fl-bar .actions .runmode-switch select { min-width: 0; width: 100%; }
@@ -447,3 +488,23 @@ dl.tk-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; display: flex; f
   .side-head .ps-btn { min-height: 34px; padding: 5px 9px; }
 }
 @media (pointer: coarse) { .ps-opt { padding-block: 9px; } }
+
+/* keel 0.18.54 Decisions (pages/flow/Decisions.tsx): the Decisions tab and a step's "What was decided here" */
+.dc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.dc { display: grid; gap: 5px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--panel); min-width: 0; }
+.dc:has(.p-ok) { border-left-color: var(--ok); }
+.dc:has(.p-warn) { border-left-color: var(--warn); }
+.dc:has(.p-bad) { border-left-color: var(--bad); }
+.dc-supervisor { background: color-mix(in srgb, var(--met) 6%, var(--panel)); }
+.dc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.dc-head .pill { font-size: 11px; padding: 0 8px; }
+.dc-step { font-size: 13px; }
+.dc-round { font-size: 11px; font-weight: 700; color: var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 0 5px; }
+.dc-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--dim); }
+.dc-meta time { font-family: var(--f-mono); font-size: 11.5px; }
+.dc-by { color: var(--fg); }
+.dc-by.by-supervisor { color: var(--met); }
+.dc-by.by-auto, .dc-by.by-keel { color: var(--run); }
+.dc-times { color: var(--warn); }
+.dc-order { font-weight: 400; }
+.dc-sec { padding-bottom: 4px; border-bottom: 1px solid var(--border); }

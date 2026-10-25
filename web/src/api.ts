@@ -1109,6 +1109,9 @@ export const api = {
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
   history: (tid: string) => get<Checkpoint[]>(`/threads/${e(tid)}/history`),
   stepRuns: (pid: string, tid: string) => get<StepRunFacts[]>(`/projects/${e(pid)}/flows/${e(tid)}/step-runs`),
+  /** keel 0.18.54 the flow's gate decisions (who answered, the answers) and what the Supervisor said, oldest first: the
+   *  stored gate.decided / supervisor.decided / .escalated / .paused events */
+  flowDecisions: (pid: string, tid: string) => get<EngineEvent[]>(`/projects/${e(pid)}/flows/${e(tid)}/decisions`),
   rewind: (tid: string, checkpoint_id: string) => post<ThreadState>(`/threads/${e(tid)}/rewind`, { checkpoint_id }),
   estimate: (pid: string, workflow_id: string, acs: number) =>
     get<Estimate>(`/projects/${e(pid)}/estimate${q({ workflow_id, acs })}`),
