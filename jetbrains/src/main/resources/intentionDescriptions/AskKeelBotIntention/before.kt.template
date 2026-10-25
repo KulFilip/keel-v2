@@ -1,0 +1,1 @@
+val total = <spot>orders.sumOf { it.amount }</spot>

@@ -3,7 +3,7 @@ package dev.keel.jetbrains.api
 /**
  * Which keel project an IDE project is. keel usually runs in Docker, so its project root (`/projects/shop`) and the
  * IDE's base path (`/Users/ana/code/shop`) differ: compare the whole path first, then the folder name, then keel's
- * project name. A project picked by hand in the settings always wins.
+ * project name. A project picked by hand in the settings always wins; no match means "pick it in the settings".
  */
 object ProjectMapper {
     data class Match(val project: Project, val how: String)
@@ -20,7 +20,8 @@ object ProjectMapper {
             projects.filter { slug(it.name) == slug(folder) || slug(it.id) == slug(folder) }
                 .singleOrNull()?.let { return Match(it, "name") }
         }
-        return projects.singleOrNull()?.let { Match(it, "only") }
+        // no guess beyond this: a wrong project would show another project's questions in this window
+        return null
     }
 
     fun normPath(p: String): String = p.trim().replace('\\', '/').trimEnd('/').ifEmpty { "/" }

@@ -19,7 +19,7 @@ class IdeLogicTest {
         assertEquals("p2", ProjectMapper.match("/Users/ana/work/billing-api", listOf(p("p2", "Billing API", "/w/x"), p("p3", "other", "/w/y")))?.project?.id)
         assertEquals("picked", ProjectMapper.match("/Users/ana/code/shop", list, pickedId = "p2")?.how)
         assertNull(ProjectMapper.match("/Users/ana/code/unknown", list))
-        assertEquals("only", ProjectMapper.match("/Users/ana/code/unknown", list.take(1))?.how)
+        assertNull(ProjectMapper.match("/Users/ana/code/unknown", list.take(1)))
         assertEquals("p1", ProjectMapper.match("C:\\code\\shop", list)?.project?.id)
     }
 

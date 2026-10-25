@@ -1,0 +1,59 @@
+<idea-plugin>
+  <id>dev.keel.jetbrains</id>
+  <name>keel</name>
+  <vendor>keel</vendor>
+  <description><![CDATA[
+    <p>keel inside the IDE: answer the questions your keel flows wait at, review pull request threads in the editor with
+    keel's "Is the reviewer right?" check, start a flow from a selection, and chat with KeelBot (Ask / Fix / Edit).</p>
+    <ul>
+      <li><b>Review</b>: pull requests, threads inside the file's diff, Reply / Resolve / Address it, pending comments, Submit review.</li>
+      <li><b>Flows</b>: the flow list, a flow's steps and criteria, and its waiting question with named choices.</li>
+      <li><b>Start a flow</b>: Tools menu, the tool window, or Alt+Enter on a selection.</li>
+      <li><b>KeelBot</b>: a chat with file links; its changed lines show in the editor with Keep / Undo / Diff.</li>
+    </ul>
+    <p>Connect in Settings › Tools › keel: use keel2 on this computer, or pair with a code like the phone app.</p>
+  ]]></description>
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="keel" anchor="right" icon="/icons/keel.svg" factoryClass="dev.keel.jetbrains.ui.KeelToolWindowFactory"/>
+    <projectConfigurable parentId="tools" id="keel" displayName="keel" instance="dev.keel.jetbrains.settings.KeelConfigurable"/>
+    <postStartupActivity implementation="dev.keel.jetbrains.core.KeelStartup"/>
+    <statusBarWidgetFactory id="keel.status" implementation="dev.keel.jetbrains.ui.KeelStatusWidgetFactory" order="first"/>
+    <notificationGroup id="keel" displayType="BALLOON"/>
+    <intentionAction>
+      <language/>
+      <className>dev.keel.jetbrains.actions.AskKeelBotIntention</className>
+      <category>keel</category>
+    </intentionAction>
+    <intentionAction>
+      <language/>
+      <className>dev.keel.jetbrains.actions.StartFlowIntention</className>
+      <category>keel</category>
+    </intentionAction>
+  </extensions>
+
+  <actions>
+    <group id="keel.ToolsMenu" text="keel" popup="true" icon="/icons/keel.svg">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+      <action id="keel.StartFlow" class="dev.keel.jetbrains.actions.StartFlowAction" text="Start a Flow…"
+              description="Start a keel flow in this project"/>
+      <action id="keel.Open" class="dev.keel.jetbrains.actions.OpenKeelAction" text="Open keel"
+              description="Show keel's flows and the questions that wait for you"/>
+    </group>
+    <group id="keel.EditorMenu">
+      <separator/>
+      <action id="keel.AskKeelBot" class="dev.keel.jetbrains.actions.AskKeelBotAction" text="Ask KeelBot"
+              description="Ask KeelBot about the selected code">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt K"/>
+        <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="ctrl alt K" replace-all="true"/>
+        <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl alt K" replace-all="true"/>
+      </action>
+      <action id="keel.StartFlowFromSelection" class="dev.keel.jetbrains.actions.StartFlowFromSelectionAction"
+              text="keel: Start a Flow from Selection" description="Start a keel flow; the request starts with the selected code"/>
+      <action id="keel.AddReviewComment" class="dev.keel.jetbrains.editor.AddReviewCommentAction"
+              text="keel: Comment on This Line" description="A pending comment of your review on this line of the pull request"/>
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+    </group>
+  </actions>
+</idea-plugin>
