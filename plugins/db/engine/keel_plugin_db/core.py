@@ -30,6 +30,7 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -353,10 +354,11 @@ def _connect(conn: Conn, root: str, *, read: bool):
         p = urlsplit(conn.url.removeprefix("jdbc:"))
         q = _params(p.query)
         host = q.get("host") if str(q.get("host") or "").startswith("/") else _host(p.hostname)   # a socket folder
-        c = psycopg.connect(host=host, port=p.port or 5432, user=unquote(p.username or "") or None,
-                            password=unquote(p.password or q.get("password") or "") or None,
-                            dbname=unquote((p.path or "/").lstrip("/")) or None, connect_timeout=CONNECT_S, application_name="keel",
-                            **({"sslmode": q["sslmode"]} if q.get("sslmode") else {}))
+        user, password = _login(p, q)
+        c = _within(lambda: psycopg.connect(
+            host=host, port=p.port or 5432, user=user or None, password=password or None,
+            dbname=unquote((p.path or "/").lstrip("/")) or None, connect_timeout=max(1, round(CONNECT_S)), application_name="keel",
+            **({"sslmode": q["sslmode"]} if q.get("sslmode") else {})))
         c.read_only = read
         with c.cursor() as cur:
             cur.execute(f"SET statement_timeout = {TIMEOUT_S * 1000}")
@@ -367,11 +369,12 @@ def _connect(conn: Conn, root: str, *, read: bool):
         p = urlsplit(conn.url.removeprefix("jdbc:"))
         q = _params(p.query)
         sock = q.get("unix_socket") or q.get("socket")
-        c = pymysql.connect(host=_host(p.hostname), port=p.port or 3306, user=unquote(p.username or "") or None,
-                            password=unquote(p.password or q.get("password") or ""),
-                            database=unquote((p.path or "/").lstrip("/")) or None, **({"unix_socket": sock} if sock else {}),
-                            connect_timeout=CONNECT_S, read_timeout=TIMEOUT_S + 5, write_timeout=TIMEOUT_S + 5,
-                            autocommit=False, charset="utf8mb4")
+        user, password = _login(p, q)
+        c = _within(lambda: pymysql.connect(
+            host=_host(p.hostname), port=p.port or 3306, user=user or None, password=password,
+            database=unquote((p.path or "/").lstrip("/")) or None, **({"unix_socket": sock} if sock else {}),
+            connect_timeout=max(1, round(CONNECT_S)), read_timeout=TIMEOUT_S + 5, write_timeout=TIMEOUT_S + 5,
+            autocommit=False, charset="utf8mb4"))
         with c.cursor() as cur:
             for stmt in ("SET SESSION max_execution_time = %d" % (TIMEOUT_S * 1000),
                          "SET SESSION max_statement_time = %d" % TIMEOUT_S):   # MySQL, MariaDB
@@ -388,6 +391,49 @@ def _connect(conn: Conn, root: str, *, read: bool):
     deadline = time.monotonic() + TIMEOUT_S
     c.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
     return c
+
+
+def _login(p, q: dict[str, str]) -> tuple[str, str]:
+    """The user and the password: from user:password@ in the address, else from ?user=&password= (a JDBC address)."""
+    user = unquote(p.username) if p.username else q.get("user", "")
+    password = unquote(p.password) if p.password else q.get("password", "")
+    return user, password
+
+
+def _within(connect):
+    """The driver's connect, cut at keel's own timeout (CONNECT_S, the one the api and the editor say): a driver may try
+    each address of a host, each with its own timeout. A connection that comes too late is closed."""
+    box: dict = {}
+    lock = threading.Lock()
+    done = threading.Event()
+
+    def run():
+        try:
+            c = connect()
+        except BaseException as exc:  # noqa: BLE001 - handed to the caller
+            box["error"] = exc
+        else:
+            with lock:
+                late = box.get("late")
+                box["conn"] = c
+            if late:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+        finally:
+            done.set()
+
+    threading.Thread(target=run, name="keel-db-connect", daemon=True).start()
+    if not done.wait(CONNECT_S + 0.5):
+        with lock:
+            box["late"] = True
+            c = box.get("conn")
+        if c is None:
+            raise TimeoutError(f"no answer within {CONNECT_S:g} s")
+    if "error" in box:
+        raise box["error"]
+    return box["conn"]
 
 
 def _params(query: str) -> dict[str, str]:

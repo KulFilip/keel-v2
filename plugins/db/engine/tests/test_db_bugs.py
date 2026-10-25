@@ -22,6 +22,51 @@ def _db(tmp_path, name="a.db", script=""):
     return core.Conn("x", "sqlite", f"sqlite:{name}")
 
 
+# ------------------------------------------------------------------ M3: a JDBC address's ?user=&password=
+
+def test_a_jdbc_address_gives_its_user_and_password(monkeypatch):
+    got = {}
+
+    class Cur:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, *a):
+            pass
+
+    class C:
+        read_only = False
+
+        def cursor(self, *a):
+            return Cur()
+
+    import psycopg
+    import pymysql
+
+    monkeypatch.setattr(psycopg, "connect", lambda **kw: got.setdefault("pg", kw) and C())
+    monkeypatch.setattr(pymysql, "connect", lambda **kw: got.setdefault("my", kw) and C())
+    core._connect(core.Conn("j", "postgres", "jdbc:postgresql://h:5432/d?user=app&password=pw%40x"), "", read=True)
+    core._connect(core.Conn("j", "mysql", "jdbc:mysql://h:3306/d?user=app&password=pw2"), "", read=True)
+    assert (got["pg"]["user"], got["pg"]["password"]) == ("app", "pw@x")
+    assert (got["my"]["user"], got["my"]["password"]) == ("app", "pw2")
+
+
+# ------------------------------------------------------------------ T1: an address that never answers
+
+def test_a_connect_that_never_answers_stops_at_keels_timeout(monkeypatch):
+    import psycopg
+
+    monkeypatch.setattr(core, "CONNECT_S", 0.3)
+    monkeypatch.setattr(psycopg, "connect", lambda **kw: time.sleep(4))
+    t0 = time.monotonic()
+    out = core.test(core.Conn("slow", "postgres", "postgres://u@10.255.255.1/d"))
+    assert out["ok"] is False and "0.3 s" in out["error"]
+    assert time.monotonic() - t0 < 2.5
+
+
 # ------------------------------------------------------------------ L2: a broken SQLite file
 
 def test_a_broken_sqlite_file_is_a_failed_test_not_an_error(tmp_path):
