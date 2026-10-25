@@ -99,3 +99,37 @@ def test_a_test_says_the_server_its_tables_and_how_long_and_lists_the_databases(
         "env": "local"})
     failed = db.test(bad)
     assert not failed["ok"] and "Wr0ngPassw0rd" not in failed["error"] + failed["hint"]
+
+
+def test_a_cut_schema_keeps_the_projects_schema_first(server, monkeypatch):
+    conn, t = server
+    if conn.kind != "postgres":
+        pytest.skip("MySQL reads only the connected database")
+    _admin(conn, f"create schema aaa_{t}")
+    try:
+        for i in range(3):
+            _admin(conn, f"create table aaa_{t}.x{i} (id integer)")
+        monkeypatch.setattr(db, "MAX_TABLES", 2)
+        out = db.schema(conn)
+        assert out["truncated"] is True and out["total"] >= 5
+        assert not [x["name"] for x in out["tables"] if x["name"].startswith(f"aaa_{t}.")]
+    finally:
+        _admin(conn, f"drop schema aaa_{t} cascade")
+
+
+def test_json_and_intervals_come_back_readable(server):
+    conn, _ = server
+    if conn.kind == "postgres":
+        r = db.query(conn, "select '{\"a\": 1}'::jsonb as j, interval '1 day 2 hours' as i")
+        assert r["rows"] == [['{"a": 1}', "P1DT2H"]]
+    else:
+        r = db.query(conn, "select json_object('a', 1) as j, cast('10:30:00' as time) as i")
+        assert r["rows"][0][1] == "10:30:00"
+
+
+def test_a_jdbc_address_with_user_and_password_in_its_query_connects(server):
+    conn, _ = server
+    p = db.urlsplit(conn.url)
+    jdbc = f"jdbc:{'postgresql' if conn.kind == 'postgres' else 'mysql'}://{p.hostname}:{p.port}{p.path}" \
+           f"?user={p.username}&password={p.password}"
+    assert db.test(db.conn_of({"name": "jdbc", "url": jdbc, "env": "local"}))["ok"] is True

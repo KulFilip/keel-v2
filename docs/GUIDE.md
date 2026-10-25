@@ -817,6 +817,11 @@ pages you use.
     workflow of code steps only checks your data with no model and no tokens.
   A change of data (INSERT, UPDATE, DELETE) runs only on a **local** or **test** database: keel counts the rows first,
   then you press **Run it**. Staging and prod are read only for everyone. Schema changes belong in your migrations.
+  keel refuses functions that reach the server (files, other sessions, settings, SQL run from a string such as
+  `query_to_xml` or `dblink`), MySQL's executable comments (`/*! … */`) and file access (`INTO OUTFILE`, `LOAD DATA`),
+  and masks secret columns for agents also under another name. These rules are a second line: still give each
+  connection a **least-privilege database role** (a read-only user where agents only read, never a superuser). A
+  SQLite file must be inside the project folder.
 - **Git**: connect GitHub in **Connections › GitHub**: press **Sign in with GitHub**, open the link (github.com/login/device)
   and type the one-time code keel shows (there is a Copy button and an **Open GitHub** button). keel notices by itself
   when you allow access, and the card says "connected as <login> · scopes · host". Under it, **or paste a token** still

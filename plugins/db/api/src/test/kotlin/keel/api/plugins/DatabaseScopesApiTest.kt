@@ -82,6 +82,7 @@ class DatabaseScopesApiTest : ApiTest() {
         val (a, _) = newProject("dbs-a")
         val (b, _) = newProject("dbs-b")
         val (c, _) = newProject("dbs-c")
+        listOf(a, b, c).forEach { put("/api/projects/$it/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk) }
         val g = post("/api/databases", mapOf("name" to "shared", "env" to "test", "driver" to "postgres", "host" to "pg.team", "port" to 5432,
             "username" to "team", "password" to "teamPW77", "default_db" to "app", "projects" to listOf(a, b))).andExpect(status().isOk).json()
         val gid = g["id"].asText()

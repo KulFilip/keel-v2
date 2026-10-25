@@ -35,6 +35,18 @@ class DbUrlsTest {
     }
 
     @Test
+    fun `a password with unencoded at and slash is read and masked up to the last at before the host`() {
+        val url = "postgres://app:p@ss/w@rd@localhost:5432/db" // keel:allow-secret
+        assertThat(DatabaseService.shownOf(url)).isEqualTo("postgres://app:•••@localhost:5432/db") // keel:allow-secret
+        val a = DbUrls.parse(url)!!
+        assertThat(listOf(a.username, a.password, a.host, a.port, a.database)).containsExactly("app", "p@ss/w@rd", "localhost", 5432, "db")
+        assertThat(DatabaseService.shownOf("mysql://root:a/b@c@db:3306/x")).isEqualTo("mysql://root:•••@db:3306/x") // keel:allow-secret
+        assertThat(DatabaseService.shownOf("postgres://u:pw@h/db?application_name=a@b")) // keel:allow-secret
+            .isEqualTo("postgres://u:•••@h/db?application_name=a@b") // keel:allow-secret
+        assertThat(DatabaseService.shownOf("postgres://u@h:5432/d")).isEqualTo("postgres://u@h:5432/d")
+    }
+
+    @Test
     fun `sockets and IPv6 hosts`() {
         assertThat(DbUrls.build(DbAddress("postgres", username = "app", database = "db", socket = "/var/run/postgresql"), false))
             .isEqualTo("postgres://app@/db?host=%2Fvar%2Frun%2Fpostgresql")

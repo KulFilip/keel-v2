@@ -59,9 +59,7 @@ object DbUrls {
         }
         if (!raw.contains("://")) return DbAddress(driver)
         val rest = raw.substringAfter("://").substringBefore('#')
-        // a clean address has its @ before the first / ?; a password with a / or ? makes the @ come later (as shownOf)
-        val authority = rest.split('/', '?', limit = 2)[0]
-        val at = if ('@' in authority) authority.lastIndexOf('@') else rest.lastIndexOf('@')
+        val at = userinfoEnd(rest)
         val userinfo = if (at >= 0) rest.substring(0, at) else null
         val after = if (at >= 0) rest.substring(at + 1) else rest
         val hostEnd = after.indexOfFirst { it == '/' || it == '?' }.let { if (it < 0) after.length else it }
@@ -89,6 +87,25 @@ object DbUrls {
         }
         return DbAddress(driver, host?.ifBlank { null }, port, user, password, decode(path).ifBlank { null }, socket,
             kept.joinToString("&").ifEmpty { null }, secret.joinToString("&").ifEmpty { null })
+    }
+
+    private val QUERY_START = Regex("[?;][A-Za-z_][\\w.\\-]*=")
+
+    /**
+     * Where user[:password] ends in [rest] (the address after scheme://), or -1 when it has none. A password may hold an
+     * unencoded @ / ?: the LAST @ before the query, when the text before it is user:password (its : before its first @);
+     * else the @ of a clean user@host (an @ after the host is in the path). keel 0.18.55: the first @ of the authority
+     * left a password's tail (p@ss/w@rd) in the shown address. Same rule as the engine's masked_url.
+     */
+    fun userinfoEnd(rest: String): Int {
+        val q = QUERY_START.find(rest)?.range?.first ?: rest.length
+        val at = if (q > 0) rest.lastIndexOf('@', q - 1) else -1
+        if (at < 0) return -1
+        val info = rest.substring(0, at)
+        if ('@' !in info) return at
+        val colon = info.indexOf(':')
+        if (colon >= 0 && colon < info.indexOf('@')) return at
+        return rest.split('/', '?', '#', limit = 2)[0].indexOf('@')
     }
 
     private fun hostAndPort(s: String): Pair<String?, Int?> {

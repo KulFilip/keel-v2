@@ -22,7 +22,7 @@ internal fun HttpServletRequest.fromAgent(): Boolean = getAttribute(McpLevelGuar
 @RequestMapping("/api/projects/{pid}/db")
 class DatabaseController(private val db: DatabaseService) {
     @GetMapping("/connections")
-    fun list(@PathVariable pid: String): List<DbConnection> = db.list(pid)
+    fun list(@PathVariable pid: String, request: HttpServletRequest): List<DbConnection> = db.list(pid, request.fromAgent())
 
     @PostMapping("/connections")
     fun create(@PathVariable pid: String, @RequestBody body: DbConnectionBody): Map<String, Any?> = db.create(pid, body)
@@ -65,7 +65,7 @@ class DatabaseController(private val db: DatabaseService) {
 class DatabasesController(private val db: DatabaseService) {
     // ---- every project (Control › Databases)
     @GetMapping("/api/databases")
-    fun globals(): List<DbEntry> = db.globals()
+    fun globals(request: HttpServletRequest): List<DbEntry> = db.globals(request.fromAgent())
 
     @PostMapping("/api/databases")
     fun createGlobal(@RequestBody body: DbConfigBody): DbEntry = db.createGlobal(body)
@@ -78,7 +78,7 @@ class DatabasesController(private val db: DatabaseService) {
         db.serverDatabases(body, project)
 
     @GetMapping("/api/databases/{id}")
-    fun one(@PathVariable id: String): DbEntry = db.get(id)
+    fun one(@PathVariable id: String, request: HttpServletRequest): DbEntry = db.get(id, request.fromAgent())
 
     @PutMapping("/api/databases/{id}")
     fun update(@PathVariable id: String, @RequestBody body: DbConfigBody, @RequestParam(required = false) project: String?): DbEntry =

@@ -6,6 +6,26 @@
 import { useEffect, useState } from "react";
 import { ErrorBox, errorParts, useLoad } from "@keel/web-sdk";
 import { dbApi, type DbResult } from "./dbApi";
+import { tableSelect } from "./dbModel";
+
+/** keel 0.18.55: the confirm of a change without a WHERE says, in red, that it changes every row. */
+export function EveryRow({ r }: { r: DbResult }) {
+  if (r.kind !== "change" || !r.every_row) return null;
+  return (
+    <p className="db-err qp-every" role="alert">
+      No WHERE: this changes every row: {r.changed} row{r.changed === 1 ? "" : "s"}
+    </p>
+  );
+}
+
+/** A schema keel cut at 300 tables says so. */
+export function TablesShown({ shown, total }: { shown: number; total?: number }) {
+  return (
+    <span className="sub">
+      showing {shown} of {total ?? shown} tables
+    </span>
+  );
+}
 
 export function ResultTable({ r }: { r: DbResult }) {
   if (r.kind === "change") return null;
@@ -110,7 +130,7 @@ export function QueryPanel({ pid }: { pid: string }) {
     }
   };
   const open = (table: string) => {
-    const text = `SELECT * FROM ${table} LIMIT 20`;
+    const text = tableSelect(table, current?.kind ?? "postgres", 20);
     setSql(text);
     void run(text);
   };
@@ -159,20 +179,28 @@ export function QueryPanel({ pid }: { pid: string }) {
           ) : !schema.data ? (
             <span className="sub">Reading the tables…</span>
           ) : (
-            <ul aria-label="Tables">
-              {tables.map((t) => (
-                <li key={t.name}>
-                  <button
-                    type="button"
-                    className="qp-table-btn"
-                    onClick={() => open(t.name)}
-                    title={t.columns.map((c) => c.name).join(", ")}
-                  >
-                    {t.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              {schema.data.truncated && (
+                <TablesShown
+                  shown={schema.data.tables.length}
+                  total={schema.data.total}
+                />
+              )}
+              <ul aria-label="Tables">
+                {tables.map((t) => (
+                  <li key={t.name}>
+                    <button
+                      type="button"
+                      className="qp-table-btn"
+                      onClick={() => open(t.name)}
+                      title={t.columns.map((c) => c.name).join(", ")}
+                    >
+                      {t.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
         <div className="qp-main">
@@ -225,6 +253,7 @@ export function QueryPanel({ pid }: { pid: string }) {
                   in {result.connection} ({result.env}). keel ran it once and
                   rolled it back to count.
                 </span>
+                <EveryRow r={result} />
                 <button
                   type="button"
                   className="btn sm primary"

@@ -35,6 +35,9 @@ export type LiveSchema = {
   connection: string;
   kind: string;
   tables: LiveTable[];
+  /** keel shows at most 300 tables (the project's schema first): truncated, and how many there are */
+  truncated?: boolean;
+  total?: number;
 };
 /** A query's result: a read (columns, rows) or a change (changed; done: run for real, else counted and rolled back). */
 export type DbResult = {
@@ -50,6 +53,8 @@ export type DbResult = {
   masked?: string[];
   changed?: number;
   done?: boolean;
+  /** an UPDATE or a DELETE without a WHERE: it changes every row of its table */
+  every_row?: boolean;
 };
 type Tested = {
   connection: DbConnection;

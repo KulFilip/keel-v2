@@ -56,13 +56,19 @@ class ProductSchema(dataSource: DataSource) {
             .baselineVersion("0")
             .load()
         // 0.18.47 changed only comments in P3 and P4 (an example key), so their checksums differ on a database that ran
-        // them: a checksum mismatch alone is repaired (the history takes the new checksums); any other problem still stops keel
+        // them: a checksum mismatch alone is repaired (the history takes the new checksums); any other problem still stops keel.
+        // 0.18.55: a migration that waits to run (an upgrade that skips versions, 0.18.46 -> 0.18.54 and its new P7) is
+        // listed too, as "resolved, not applied": it is what migrate runs next, not a problem, so it does not count here.
         val check = flyway.validateWithResult()
-        if (!check.validationSuccessful && check.invalidMigrations.orEmpty().isNotEmpty() &&
-            check.invalidMigrations.all { it.errorDetails?.errorCode == ErrorCode.CHECKSUM_MISMATCH }
-        ) {
+        val applied = check.invalidMigrations.orEmpty().filter { it.errorDetails?.errorCode !in PENDING }
+        if (!check.validationSuccessful && applied.isNotEmpty() && applied.all { it.errorDetails?.errorCode == ErrorCode.CHECKSUM_MISMATCH }) {
             flyway.repair()
         }
         flyway.migrate()
+    }
+
+    private companion object {
+        /** Validation entries for migrations not run yet: migrate runs them. */
+        val PENDING = setOf(ErrorCode.RESOLVED_VERSIONED_MIGRATION_NOT_APPLIED, ErrorCode.RESOLVED_REPEATABLE_MIGRATION_NOT_APPLIED)
     }
 }

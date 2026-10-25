@@ -197,8 +197,10 @@ function ConnNode({
           {schema.data && (
             <li className="db-row db-meta sub">
               {KIND[c.kind] ?? c.kind}
-              {c.server ? ` · ${c.server}` : ""} · {schema.data.tables.length}{" "}
-              tables
+              {c.server ? ` · ${c.server}` : ""} ·{" "}
+              {schema.data.truncated
+                ? `showing ${schema.data.tables.length} of ${schema.data.total ?? schema.data.tables.length} tables`
+                : `${schema.data.tables.length} tables`}
             </li>
           )}
           {tables.map((t) => (

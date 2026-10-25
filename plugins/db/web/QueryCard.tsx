@@ -7,7 +7,7 @@ import { useState } from "react";
 import { CodeBlock, errorParts, type KeelbotCardProps } from "@keel/web-sdk";
 import { AskFixButton } from "@keel/web-sdk";
 import { dbApi, type DbResult } from "./dbApi";
-import { ResultTable } from "./QueryPanel";
+import { EveryRow, ResultTable } from "./QueryPanel";
 
 function parseJson<T>(body: string): T | null {
   try {
@@ -77,6 +77,7 @@ export function QueryCard({ pid, block }: KeelbotCardProps) {
             </b>{" "}
             in {r.connection}.
           </span>
+          <EveryRow r={r} />
           <button
             type="button"
             className="btn sm primary"

@@ -7,16 +7,21 @@ import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Forbidden
+import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.engine.EngineClient
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import java.nio.file.Files
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.UUID
 
 data class DbConnectionBody(val name: String = "", val url: String? = null, val env: String? = null, val source: String? = null)
-/** mask: a model reads the rows (keel2 mcp), so columns named like a secret come back as •••. */
+/** mask: a model reads the rows, so columns that hold a secret come back as •••; an agent's call (keel2 mcp) is always masked. */
 data class DbQueryBody(val connection: String = "", val sql: String = "", val change: Boolean = false, val confirm: Boolean = false,
                        val mask: Boolean = false)
 
@@ -131,6 +136,7 @@ class DatabaseService(
     private val projects: ProjectService,
     private val plugins: PluginService,
     private val store: DatabaseStore,
+    private val props: KeelProperties,
 ) {
     private fun conn(r: DbRow) = DbConnection(r.name, r.kind, r.env, r.shown, r.source, r.ok, r.server, r.tables, r.error, r.checkedAt,
         r.env in CHANGE_ENVS, r.id, if (r.global) "global" else "project", r.driver)
@@ -174,14 +180,19 @@ class DatabaseService(
     }
 
     // ---------------------------------------------------------------- the routes of keel 0.15 (by name, per project)
+    // keel 0.18.55: each needs the plugin on for the project (plugins.require), like schema and query; the editor's
+    // routes by id (Control › Databases, a project's Databases) stay open so connections can be set up before.
 
-    fun list(pid: String): List<DbConnection> {
+    /** keel 0.15's list. An agent (keel2 mcp) does not see a connection whose Access is none: not its host, user or database. */
+    fun list(pid: String, agent: Boolean = false): List<DbConnection> {
         projects.require(pid)
-        return store.active(pid).map(::conn)
+        plugins.require(pid, "db")
+        return store.active(pid).filter { !agent || it.agentAccessEffective != "none" }.map(::conn)
     }
 
     /** The databases the project names (compose, .env.example, Spring's config, SQLite files) that are not saved yet. */
     fun suggest(pid: String): JsonNode {
+        plugins.require(pid, "db")
         val root = projects.root(pid).toString()
         val saved = store.active(pid).map { it.shown }.toSet()
         val out = engine.post("/plugins/db/suggest", mapOf("root" to root))
@@ -209,6 +220,7 @@ class DatabaseService(
 
     fun create(pid: String, body: DbConnectionBody): Map<String, Any?> {
         projects.require(pid)
+        plugins.require(pid, "db")
         val env = (body.env ?: "local").lowercase()
         // keel 0.15's route: agents keep what they had there (keel2 mcp's keel_db_change asked the person on local and test)
         val r = save(null, DbConfigBody(name = body.name.trim().ifBlank { "local" }, env = env,
@@ -219,14 +231,19 @@ class DatabaseService(
     }
 
     fun update(pid: String, name: String, body: DbConnectionBody): DbConnection {
+        plugins.require(pid, "db")
         val r = own(pid, name)
         val saved = save(r, DbConfigBody(url = body.url?.trim()?.ifBlank { null }, env = body.env), pid, pid)
         return conn(saved)
     }
 
-    fun delete(pid: String, name: String) = remove(own(pid, name))
+    fun delete(pid: String, name: String) {
+        plugins.require(pid, "db")
+        remove(own(pid, name))
+    }
 
     fun test(pid: String, name: String): Map<String, Any?> {
+        plugins.require(pid, "db")
         val r = active(pid, name)
         val t = testRow(r, pid)
         return mapOf("connection" to conn(byId(r.id)), "test" to t)
@@ -239,14 +256,15 @@ class DatabaseService(
     }
 
     /** The person's own query: a read, or a change on a local or test database (counted first, then `confirm`). An agent's
-     *  (keel2 mcp) also needs the connection's Access: none refuses all, a change needs "change after approval". */
+     *  (keel2 mcp) also needs the connection's Access: none refuses all, a change needs "change after approval"; and its
+     *  rows are always masked (keel 0.18.55: `"mask": false` from an MCP client no longer shows a secret column). */
     fun query(pid: String, body: DbQueryBody, agent: Boolean = false): JsonNode {
         plugins.require(pid, "db")
         if (body.sql.isBlank()) throw BadRequest("Write a query first")
         if (body.sql.length > 20_000) throw BadRequest("The query is too long")
         val name = body.connection.ifBlank { default(pid) }
         return engine.post("/plugins/db/query", mapOf("root" to projects.root(pid).toString(), "connection" to spec(pid, name, agent, body.change),
-            "sql" to body.sql, "change" to body.change, "confirm" to body.confirm, "mask" to body.mask), long = true)
+            "sql" to body.sql, "change" to body.change, "confirm" to body.confirm, "mask" to (body.mask || agent)), long = true)
     }
 
     /** The local connection, else the test one, else the first. */
@@ -258,8 +276,8 @@ class DatabaseService(
 
     // ---------------------------------------------------------------- global and per project (by id)
 
-    /** Control › Databases: every global connection. */
-    fun globals(): List<DbEntry> = store.globals().map { entry(it) }
+    /** Control › Databases: every global connection (an agent: those it may use). */
+    fun globals(agent: Boolean = false): List<DbEntry> = store.globals().filter { !agent || it.agentAccessEffective != "none" }.map { entry(it) }
 
     /** A project's Databases: its own, the globals it sees (overridden when it has its own of that name), the ones it hides.
      *  An agent (keel2 mcp) sees only the ones it may use. */
@@ -269,7 +287,12 @@ class DatabaseService(
         return if (agent) seen.filter { !it.hidden && !it.overridden && it.agentAccessEffective != "none" } else seen
     }
 
-    fun get(id: String): DbEntry = entry(byId(id))
+    /** One connection; to an agent, one whose Access is none does not exist (keel 0.18.55: it showed host, port, user, db). */
+    fun get(id: String, agent: Boolean = false): DbEntry {
+        val r = byId(id)
+        if (agent && r.agentAccessEffective == "none") throw NotFound("No database connection with the id $id")
+        return entry(r)
+    }
 
     fun createGlobal(body: DbConfigBody): DbEntry {
         val target = if (body.scope == "project") body.project?.also { projects.require(it) }
@@ -428,6 +451,7 @@ class DatabaseService(
         val drv = driver?.lowercase() ?: throw BadRequest("Pick the kind of database", "MySQL, MariaDB, PostgreSQL or SQLite.")
         if (drv !in DbUrls.DRIVERS) throw BadRequest("keel does not know the database $drv", "MySQL, MariaDB, PostgreSQL or SQLite.")
         if (drv == "sqlite" && mode != "env") mode = "host"
+        if (drv == "sqlite" && mode != "env") checkSqlite(db, target, body.projects ?: old?.takeIf { it.global }?.let { store.allowed(it.id) }, pid)
         if (mode !in MODES) throw BadRequest("Connect with host, socket, url or env")
         if (port != null && port !in 1..65535) throw BadRequest("A port is a number from 1 to 65535")
         val envVar = (body.envVar ?: old?.envVar)?.trim()?.ifBlank { null }
@@ -474,6 +498,40 @@ class DatabaseService(
         val unavailable = if (mode != "env" && full == null) "keel has no address for $name" to "Fill in the connection's fields." else null
         return Prepared(draft.copy(shown = shown), full, old == null || address != store.address(old) || exact != null || typed != null,
             body.projects, unavailable)
+    }
+
+    /**
+     * keel 0.18.55: a SQLite file lies inside a project folder it is for (a project's own: its folder; one for every
+     * project: the folders of the projects it names, else of any project), never in keel's own data folder (/data,
+     * KEEL_DATA: keel's own database). Symlinks are followed where the file exists; the engine checks again when it opens it.
+     */
+    private fun checkSqlite(file: String?, target: String, allow: List<String>?, pid: String?) {
+        val raw = file?.trim()?.removePrefix("file:").orEmpty()
+        if (raw.isEmpty()) return
+        val hint = "Use a SQLite file inside the project folder, for example data/app.db."
+        val p = try { Paths.get(raw) } catch (e: InvalidPathException) { throw BadRequest("keel cannot read this SQLite path", hint) }
+        val roots = when {
+            target != DatabaseStore.GLOBAL -> listOf(target)
+            !allow.isNullOrEmpty() -> allow + listOfNotNull(pid)
+            pid != null -> listOf(pid)
+            else -> projects.idsByRoot().values.toList()
+        }.mapNotNull { id -> projects.find(id)?.root?.let { Paths.get(it) } }.map(::real)
+        val data = listOf(Paths.get("/data"), props.dataDir).map(::real)
+        val files = if (p.isAbsolute) listOf(real(p)) else {
+            if (p.normalize().startsWith("..")) throw BadRequest("The SQLite file must be inside the project folder", hint)
+            roots.map { real(it.resolve(p)) }
+        }
+        if (files.any { f -> data.any { f.startsWith(it) } }) throw BadRequest("keel never opens its own data folder as a SQLite connection", hint)
+        if (p.isAbsolute && roots.none { files[0].startsWith(it) }) throw BadRequest("The SQLite file must be inside the project folder", hint)
+    }
+
+    /** The path with its symlinks resolved as far as it exists (a file not made yet keeps its name under its real folder). */
+    private fun real(p: Path): Path {
+        val abs = p.toAbsolutePath().normalize()
+        var base: Path? = abs
+        while (base != null && !Files.exists(base)) base = base.parent
+        if (base == null) return abs
+        return runCatching { base.toRealPath().resolve(base.relativize(abs)) }.getOrDefault(abs)
     }
 
     private fun save(old: DbRow?, body: DbConfigBody, target: String, pid: String?): DbRow {
@@ -560,16 +618,15 @@ class DatabaseService(
         private val SECRET_PARAM = Regex("([?&;])(password|passwd|pwd|pass|secret|token|api_?key|access_?token|sslpassword)=([^&;#]*)", RegexOption.IGNORE_CASE)
         private val URL_IN_TEXT = Regex("""(?:jdbc:)?[A-Za-z][A-Za-z0-9+.\-]*://\S+""")
 
-        /** The address with every secret as •••: the password of user:pw@host (it may hold any character, up to the last @ of
-         *  the address) and the value of ?password=, &pwd=, ;secret=, token= … (any case). Same rules as the engine's masked_url. */
+        /** The address with every secret as •••: the password of user:pw@host (it may hold any character, up to the last @
+         *  before the host: [DbUrls.userinfoEnd]) and the value of ?password=, &pwd=, ;secret=, token= … (any case). Same
+         *  rules as the engine's masked_url. */
         fun shownOf(url: String): String {
             var out = url.trim()
             SCHEME.matchEntire(out)?.let { m ->
                 val head = m.groupValues[1]
                 val rest = m.groupValues[2]
-                val authority = rest.split('/', '?', '#', limit = 2)[0]
-                // a clean address has its @ before the first / ? #; a password with a / or ? makes the @ come later
-                val at = if ('@' in authority) authority.lastIndexOf('@') else rest.lastIndexOf('@')
+                val at = DbUrls.userinfoEnd(rest)
                 if (at >= 0 && ':' in rest.substring(0, at)) out = head + rest.substring(0, at).substringBefore(':') + ":$MASK@" + rest.substring(at + 1)
             }
             return SECRET_PARAM.replace(out) { "${it.groupValues[1]}${it.groupValues[2]}=$MASK" }

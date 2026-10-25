@@ -191,6 +191,7 @@ class DbApi:
     def __init__(self, on=("db",), answer="allow"):
         self.on, self.answer, self.polls = on, answer, 0
         self.posts: list[tuple[str, dict]] = []
+        self.audit: list[dict] = []
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         path, body = req.url.path, (json.loads(req.content) if req.content else {})
@@ -200,6 +201,7 @@ class DbApi:
             return httpx.Response(200, json=[{"name": n, "enabled": n in self.on} for n in ("db", "git")])
         if path == "/api/projects/shop/db/query":
             self.posts.append((path, body))
+            self.audit.append({k: req.headers.get(k) for k in ("X-Keel-Via", "X-Keel-Client", "X-Keel-Tool")})
             if body.get("change"):
                 return httpx.Response(200, json={"connection": "local", "sql": body["sql"], "changed": 2, "done": bool(body.get("confirm"))})
             return httpx.Response(200, json={"connection": "local", "columns": ["name", "api_key"], "rows": [["Ada", "•••"]],
@@ -230,6 +232,13 @@ def test_its_keel_mcp_tools_read_through_the_api_and_say_when_it_is_off(no_proje
     off = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(DbApi(on=())))
     with pytest.raises(mcp_server.ApiError, match="The Database plugin is off for shop"):
         db_mcp.db_query(off, "select 1", "shop")
+
+
+def test_its_read_query_says_which_tool_asked_so_keels_audit_records_it(no_project):
+    s = DbApi()
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s)).acting("Claude Code", "")
+    db_mcp.db_query(api, "select name from players", "shop")
+    assert s.audit[-1] == {"X-Keel-Via": "mcp", "X-Keel-Client": "Claude Code", "X-Keel-Tool": "keel_db_query"}
 
 
 def test_its_acting_tool_waits_for_the_persons_inbox_answer(no_project):
