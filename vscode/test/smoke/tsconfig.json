@@ -10,5 +10,5 @@
     "outDir": "../../out/smoke",
     "types": ["node", "vscode"]
   },
-  "include": ["./*.ts"]
+  "include": ["./*.ts", "./suite/*.ts"]
 }
