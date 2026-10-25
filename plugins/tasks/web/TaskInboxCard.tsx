@@ -2,7 +2,7 @@
 // the release, or say the Jira ticket was moved by hand. Moved from keel's pages/Inbox.tsx with the Tasks page.
 
 import { useState } from "react";
-import { ErrorBox, errorParts, go, Pill, Since, useApp, type InboxCardProps, type InboxTask } from "@keel/web-sdk";
+import { ErrorBox, errorParts, go, Pill, Since, Ticks, useApp, type InboxCardProps, type InboxTask } from "@keel/web-sdk";
 import { tasksApi } from "./tasksApi";
 import { AUTOMATION_KINDS, AutomationItem } from "./Automations";
 
@@ -34,8 +34,8 @@ function AutomationCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps
         <span className="sub"><b>{it.project_name}</b> · {t.key ? <span className="mono">{t.key}</span> : "task"} · {t.title}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
-      {it.detail && <p className="sub" style={{ margin: 0 }}>{it.detail}</p>}
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
+      {it.detail && <p className="sub" style={{ margin: 0 }}><Ticks text={it.detail} /></p>}
       <AutomationItem pid={it.project_id} kind={it.kind} data={data} actions={t.actions} idBase={hid}
         onAct={async (action, b) => {
           await tasksApi.actWith(t.item_id, action, b);
@@ -68,7 +68,8 @@ function TaskItemCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps) 
     setErr(null);
     try {
       await tasksApi.act(t.item_id, a.id, note.trim() || undefined);
-      await onDone(a.id === "done" ? `${t.key ?? t.title}: recorded.` : a.id === "send_back" ? `${t.key ?? t.title}: sent back.` : `${t.key ?? t.title}: confirmed.`);
+      const said: Record<string, string> = { done: "recorded", send_back: "sent back", pr: "PR link saved, the task is in review", later: "put aside" };
+      await onDone(`${t.key ?? t.title}: ${said[a.id] ?? "confirmed"}.`);
     } catch (e) {
       setErr(errorParts(e));
       setBusy(false);
@@ -85,12 +86,18 @@ function TaskItemCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps) 
         <span className="sub"><b>{it.project_name}</b> · {t.key ? <span className="mono">{t.key}</span> : "task"} · {t.title}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
-      {it.detail && <p className="sub" style={{ margin: 0 }}>{it.detail}</p>}
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
+      {it.detail && <p className="sub" style={{ margin: 0 }}><Ticks text={it.detail} /></p>}
       {(askNote || t.actions.some((a) => a.needs_note)) && (
         <div className="field">
-          <label htmlFor={noteId}>{t.actions.some((a) => a.needs_note) ? "Note (needed to send back)" : "Note"}</label>
-          <textarea id={noteId} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          {/* B11 the flow finished without a PR: the note box is its link */}
+          {t.actions.some((a) => a.id === "pr") ? <>
+            <label htmlFor={noteId}>Pull request link</label>
+            <input id={noteId} type="url" value={note} onChange={(e) => setNote(e.target.value)} placeholder="https://github.com/acme/app/pull/12" />
+          </> : <>
+            <label htmlFor={noteId}>{t.actions.some((a) => a.needs_note) ? "Note (needed to send back)" : "Note"}</label>
+            <textarea id={noteId} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          </>}
         </div>
       )}
       <div className="row inbox-actions">

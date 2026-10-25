@@ -196,3 +196,10 @@ export function Confirm({ text, yes, onYes, onNo, busy }: { text: ReactNode; yes
     </div>
   );
 }
+
+/** Text keel or an agent wrote with `code` spans (titles, notes, a proposal's why): the spans show as code, not as raw
+ *  backticks. Everything else stays plain text. */
+export function Ticks({ text }: { text: string | null | undefined }) {
+  const parts = String(text ?? "").split(/(`[^`\n]+`)/g);
+  return <>{parts.map((p, i) => (p.length > 2 && p.startsWith("`") && p.endsWith("`") ? <code key={i}>{p.slice(1, -1)}</code> : p))}</>;
+}

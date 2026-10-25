@@ -7,14 +7,16 @@
 // v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { errorParts } from "../api";
-import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
+import { api, errorParts } from "../api";
+import { ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
+import { questionsPayload, reasonsMissing } from "../questions";
 import { ChoiceForm } from "../components/ChoiceForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
 import { InstallRequestCard } from "../components/InstallRequestCard";
-import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
+import { ApprovalCard } from "../components/ApprovalCard";
+import { ErrorBox, Loading, PageHead, Pill, Since, Ticks } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useHasPage, useSlot } from "../sdk/registry";
 import { SLOTS, type InboxCardItem } from "../sdk/slots";
@@ -24,11 +26,13 @@ import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
-  permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup",
+  permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup", "product-jira-send": "send to Jira",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
 const PLUGIN_INSTALL = "plugin-install";
 const STACK_SETUP = "stack-setup";
+/** P4 an approval keel or a part asks itself (no flow behind it): answered at /approvals/{id}/decide. */
+const isApproval = (it: InboxItem) => it.step === "approval" && it.kind !== PLUGIN_INSTALL && it.kind !== STACK_SETUP;
 /** One waiting question: its id, else the step with the AC and the time it began to wait, so a gate that comes back to the
  *  same step is a new card (not the old one with its buttons stuck disabled). */
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? `${it.step}|${it.ac ?? ""}|${it.since ?? ""}`}`;
@@ -37,18 +41,32 @@ const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? `${it.step}|${it.ac
 const LONG_LINES = 6;
 const LONG_CHARS = 420;
 
-function Detail({ text, id }: { text: string; id: string }) {
-  const long = text.split("\n").length > LONG_LINES || text.length > LONG_CHARS;
+/** A pause's text, folded when long. `more`: the Inbox got it cut (700 characters): Show more loads the whole text
+ *  from the flow (before, it only unfolded the cut part and the rest stayed on the Flow page). */
+function Detail({ text, id, more, full }: { text: string; id: string; more?: boolean; full?: () => Promise<string | null> }) {
+  const [whole, setWhole] = useState<string | null>(null);
+  const shown = whole ?? text;
+  const long = !!more || shown.split("\n").length > LONG_LINES || shown.length > LONG_CHARS;
   const [open, setOpen] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const toggle = async () => {
+    if (!open && more && whole === null && full) {
+      const t = await full().catch(() => null);
+      if (t) setWhole(t);
+      else setMissing(true);
+    }
+    setOpen((o) => !o);
+  };
   return (
     <div className="inbox-detail-wrap">
       {/* a gate's text is Markdown (a PR body, a final review), with `$ command` output folded, as on the Flow page */}
-      <div id={id} className={`inbox-detail md${long ? (open ? " open" : " folded") : ""}`}><GateDetail text={text} /></div>
+      <div id={id} className={`inbox-detail md${long ? (open ? " open" : " folded") : ""}`}><GateDetail text={shown} /></div>
       {long && (
-        <button className="btn sm ghost inbox-more" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        <button className="btn sm ghost inbox-more" type="button" aria-expanded={open} aria-controls={id} onClick={() => void toggle()}>
           {open ? "Show less" : "Show more"}
         </button>
       )}
+      {more && (missing || !full) && <span className="hint">The rest is on the Flow page.</span>}
     </div>
   );
 }
@@ -101,7 +119,7 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
         <span className="sub"><b>{it.project_name}</b> · {who}{mcp ? " (keel MCP)" : ` · ${it.flow}`}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       <pre className="code inbox-cmd">{q.command}</pre>
       <div className="field">
         <label htmlFor={`${hid}-why`}>Why not (optional, {who} reads it)</label>
@@ -146,7 +164,7 @@ function StackSetupCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) =
         <span className="sub"><b>{it.project_name}</b></span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       {p.warning && <p className="hint" role="note">{p.warning}</p>}
       <pre className="code inbox-cmd">{commands}</pre>
       <div className="row inbox-actions">
@@ -180,11 +198,17 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
       window.setTimeout(() => document.getElementById(whyId)?.focus(), 0);
       return;
     }
+    // B9 a ticked step of a skip menu needs its reason before the answer goes
+    const missing = decision === "approve" && it.questions?.length ? reasonsMissing(it.questions, picked, typed) : "";
+    if (missing) {
+      setErr({ message: missing });
+      return;
+    }
     setBusy(true);
     setErr(null);
     const body: InboxAnswer = { decision, id: it.id ?? undefined, ...(said.trim() ? { why: said.trim() } : {}) };
     // keel 0.18.13 a gate may ask questions next to its choices (hunt lenses, a skip menu): both go back together
-    if (it.questions?.length) body.payload = { ...(payload ?? {}), answers: answersOf(it.questions, picked, typed) };
+    if (it.questions?.length) body.payload = { ...(payload ?? {}), ...questionsPayload(it.questions, picked, typed) };
     else if (payload) body.payload = payload;
     try {
       await inboxApi.act(it.thread_id, body);
@@ -209,19 +233,19 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         <span className="sub"><b>{it.project_name}</b> · {it.flow}{it.workflow_id ? <> · <span className="mono">{it.workflow_id}</span></> : null}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
-      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       <RunModeNote mode={it.run_mode} kind={it.kind} title={it.title} auto={{ count: it.auto_approved ?? 0, last: it.last_auto }} />
       {it.kind === "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
           onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : it.detail ? (
-        <Detail text={it.detail} id={`${hid}-detail`} />
+        <Detail text={it.detail} id={`${hid}-detail`} more={it.more}
+          full={async () => (await api.flowOf(it.project_id, it.thread_id)).thread?.waiting?.detail ?? null} />
       ) : null}
       {it.kind !== "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
           onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : null}
-      {it.more && <span className="hint">The rest is on the Flow page.</span>}
       {!info && (askWhy || !b.needWhy) && (
         <div className="field">
           <label htmlFor={whyId}>{b.whyLabel}</label>
@@ -284,14 +308,14 @@ export function InboxPage() {
   const groups = useMemo(() => {
     const flowsOf = new Map<string, Set<string>>();
     for (const it of items) {
-      if (it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP) continue;
+      if (it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP || isApproval(it)) continue;
       flowsOf.set(it.project_id, (flowsOf.get(it.project_id) ?? new Set<string>()).add(it.thread_id));
     }
     if (![...flowsOf.values()].some((x) => x.size > 1)) return null;
     const order: string[] = [];
     const by = new Map<string, InboxItem[]>();
     for (const it of items) {
-      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
+      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP || isApproval(it) ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
       if (!by.has(g)) { by.set(g, []); order.push(g); }
       by.get(g)!.push(it);
     }
@@ -344,6 +368,7 @@ export function InboxPage() {
     if (it.permission) return <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.kind === STACK_SETUP) return <StackSetupCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.kind === PLUGIN_INSTALL) return <InstallRequestCard key={keyOf(it)} it={it} cardKey={keyOf(it)} onDone={(msg) => done(msg, keyOf(it))} />;
+    if (isApproval(it)) return <ApprovalCard key={keyOf(it)} it={it} cardKey={keyOf(it)} kindLabel={labelOf(it.kind)} onDone={(msg) => done(msg, keyOf(it))} />;
     // a task's item whose part has not loaded yet: it shows when its card registers
     if (it.task) return null;
     return <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;

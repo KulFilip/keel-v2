@@ -121,7 +121,8 @@ class EventService(
                 upsertThread(e, "running", at)
                 jdbc.update("UPDATE threads SET phase = COALESCE(?, phase), ac = COALESCE(?, ac) WHERE id = ?", d.str("phase"), d.str("ac"), e.threadId)
                 val agent = d.str("agent") ?: "An agent"
-                notifications.create("started", e.projectId, "$RUN ${who(e)}$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
+                notifications.create("started", e.projectId, "$RUN ${who(e)}$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id",
+                    threadId = e.threadId, step = e.step)
             }
             "agent.step" -> calls.step(e, at)
             // 0.18.17 the usage so far of a call that still runs: the Budget page, day caps and flow lists see it
@@ -131,7 +132,9 @@ class EventService(
                 if (d.str("status") == "failed") {
                     val agent = jdbc.queryForObject("SELECT COALESCE(agent, 'An agent') FROM agent_calls WHERE id = ?", String::class.java, id)
                     val result = d.str("result") ?: "The agent step did not finish."
-                    notifications.create("failed", e.projectId, "$FAIL ${who(e)}$agent failed", result, "/jobs/$id", summary = failLines(result))
+                    // B3 with its thread: the next decided gate (or the flow's end) marks it done, like the gate's own notification
+                    notifications.create("failed", e.projectId, "$FAIL ${who(e)}$agent failed", result, "/jobs/$id", summary = failLines(result),
+                        threadId = e.threadId, step = e.step)
                 }
             }
             // 0.18.15 a code step (the setup ladder, a test suite, a commit) is a job too: stored like an agent's call,
@@ -146,7 +149,8 @@ class EventService(
                 val id = calls.finish(e, at) ?: return
                 if (d.str("status") == "failed") {
                     val result = d.str("result") ?: "The step did not finish."
-                    notifications.create("failed", e.projectId, "$FAIL ${who(e)}a code step failed", result, "/jobs/$id", summary = failLines(result))
+                    notifications.create("failed", e.projectId, "$FAIL ${who(e)}a code step failed", result, "/jobs/$id", summary = failLines(result),
+                        threadId = e.threadId, step = e.step)
                 }
             }
 
@@ -173,11 +177,11 @@ class EventService(
                 changed(e)
             }
             "budget.warn" -> notifications.create("budget", e.projectId, "$ASK ${who(e)}the flow is near its budget", d.str("detail") ?: budgetText(d), link,
-                summary = budgetLines(d))
+                summary = budgetLines(d), threadId = e.threadId, step = e.step)
             "budget.stop" -> {
                 upsertThread(e, "waiting", at)
                 notifications.create("budget", e.projectId, "$ASK ${who(e)}a budget cap stopped the flow", d.str("detail") ?: budgetText(d), link,
-                    summary = budgetLines(d))
+                    summary = budgetLines(d), threadId = e.threadId, step = e.step)
             }
             "guard.refused" -> {
                 val tried = listOfNotNull(d.str("agent"), d.str("path")?.let { "tried to change $it" }).joinToString(" ")
@@ -185,6 +189,7 @@ class EventService(
                     "failed", e.projectId, "$FAIL ${who(e)}guard undid an edit",
                     d.str("text") ?: listOfNotNull(tried.ifBlank { null }, d.str("phase")?.let { "in $it" }).joinToString(" "),
                     link, summary = listOfNotNull(tried.ifBlank { null }?.let { "$FAIL $it" }, d.str("phase")?.let { "$SKIP the edit was put back ($it step)" }),
+                    threadId = e.threadId, step = e.step,
                 )
             }
             "thread.done" -> {

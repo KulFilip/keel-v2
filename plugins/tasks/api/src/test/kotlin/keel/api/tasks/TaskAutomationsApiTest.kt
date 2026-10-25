@@ -51,7 +51,9 @@ class TaskAutomationsApiTest : ApiTest() {
     }
 
     @Test
-    fun `Pick a flow for me proposes the type's default without a model, and Not now puts it aside`() {
+    fun `Pick a flow for me proposes the type's default without a model, and Not now puts it aside`(
+        @org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate,
+    ) {
         val (pid, _) = newProject("auto-pick-default")
         val id = newTask(pid, "Checkout crashes")
         val asked = engine.calls.count { it.path == "/tasks/pick" }
@@ -74,6 +76,10 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(proposals(pid)).hasSize(1)
         assertThat(unread(id)).hasSize(1)
 
+        // B3 one from 0.18.54, made without its item: it goes too once the task waits for nothing
+        jdbc.update("INSERT INTO notifications(type, project_id, title, body, link, at, read, done) VALUES ('review', ?, 'old proposal', '', ?, '2026-10-24T10:00:00Z', 0, 0)",
+            pid, "/tasks/$id")
+        assertThat(unread(id)).hasSize(2)
         post("/api/inbox/tasks/${proposals(pid).single()["task"]["item_id"].asLong()}/act", mapOf("action" to "later")).andExpect(status().isOk)
         assertThat(proposals(pid)).isEmpty()
         // B3: the answered proposal's notification is done and read: the bell's count goes down
@@ -119,5 +125,52 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(engine.lastBody("/threads")!!["request"].asText()).startsWith("Make CI green.")
         assertThat(unread(id)).isEmpty()                                                                      // Start: read too
         post("/api/inbox/tasks/$item/act", mapOf("action" to "start")).andExpect(status().isConflict)           // answered already
+    }
+
+    @Test
+    fun `a ticket changed after the proposal starts with the ticket as it is now (B12)`() {
+        val (pid, _) = newProject("auto-pick-stale")
+        put("/api/projects/$pid/settings", mapOf("default_model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "sonnet")))
+            .andExpect(status().isOk)
+        engine.extraRoutes["/tasks/pick"] = { _ ->
+            200 to mapOf("ok" to true, "pick" to mapOf("workflow" to "feature", "why" to "A crash.", "title" to "Fix the cart crash",
+                "request" to "Old summary: the cart crashes.", "questions" to emptyList<Any>(), "settings" to emptyMap<String, Any>(), "fallback" to false))
+        }
+        val id = newTask(pid, "Checkout crashes")
+        post("/api/tasks/$id/pick").andExpect(status().isOk)
+        val item = proposals(pid).single()["task"]["item_id"].asLong()
+        put("/api/tasks/$id", mapOf("description" to "Only the payment step crashes, with a card from abroad.")).andExpect(status().isOk)
+        engine.nextThreadIds += "t-stale-1"
+        post("/api/inbox/tasks/$item/act", mapOf("action" to "start", "allow_dirty" to true)).andExpect(status().isOk)
+        val sent = engine.lastBody("/threads")!!
+        assertThat(sent["request"].asText()).startsWith("Checkout crashes\n\nOnly the payment step crashes").doesNotContain("Old summary")
+        assertThat(sent["title"].asText()).isEqualTo("Checkout crashes")
+        assertThat(task(id)["events"].map { it["note"].asText() }).contains("The ticket changed after keel's proposal: the flow got the ticket as it is now.")
+    }
+
+    @Test
+    fun `keel's default proposal never sends its old copy of the ticket (B12)`() {
+        val (pid, _) = newProject("auto-pick-fallback")
+        val id = newTask(pid, "Checkout crashes")
+        post("/api/tasks/$id/pick").andExpect(status().isOk)
+        val item = proposals(pid).single()["task"]["item_id"].asLong()
+        put("/api/tasks/$id", mapOf("title" to "Payment step crashes")).andExpect(status().isOk)
+        engine.nextThreadIds += "t-stale-2"
+        post("/api/inbox/tasks/$item/act", mapOf("action" to "start", "allow_dirty" to true)).andExpect(status().isOk)
+        val sent = engine.lastBody("/threads")!!
+        assertThat(sent["request"].asText()).startsWith("Payment step crashes\n\nThe cart page crashes.")
+        assertThat(sent["title"].asText()).isEqualTo("Payment step crashes")
+    }
+
+    @Test
+    fun `starting the task's flow answers keel's open proposal`() {
+        val (pid, _) = newProject("auto-pick-started")
+        val id = newTask(pid, "Checkout crashes")
+        post("/api/tasks/$id/pick").andExpect(status().isOk)
+        assertThat(proposals(pid)).hasSize(1)
+        engine.nextThreadIds += "t-started-1"
+        post("/api/tasks/$id/start", mapOf("workflow_id" to "feature", "allow_dirty" to true)).andExpect(status().isOk)
+        assertThat(proposals(pid)).isEmpty()
+        assertThat(unread(id)).isEmpty()
     }
 }

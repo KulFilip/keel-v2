@@ -17,7 +17,8 @@ data class LoginCode(val code: String = "")
 
 @RestController
 @RequestMapping("/api")
-class ConnectionController(private val connections: ConnectionService, private val secrets: SecretService, private val logins: LoginService) {
+class ConnectionController(private val connections: ConnectionService, private val secrets: SecretService, private val logins: LoginService,
+                           private val firstLogin: FirstModelLogin) {
 
     /** Log a CLI in from the dashboard (inside the container); the result is saved encrypted. */
     @PostMapping("/logins")
@@ -46,7 +47,9 @@ class ConnectionController(private val connections: ConnectionService, private v
         secrets.checkShape(name, body.value)
         // a pasted GitHub token is not the one "Sign in with GitHub" saved: who that was no longer applies
         if (name == GitHubLoginService.TOKEN && secrets.has(GitHubLoginService.INFO)) secrets.delete(GitHubLoginService.INFO)
-        return mapOf("hint" to secrets.put(name, body.value))
+        val hint = secrets.put(name, body.value)
+        firstLogin.savedSecret(name)
+        return mapOf("hint" to hint)
     }
 
     @DeleteMapping("/secrets/{name}")

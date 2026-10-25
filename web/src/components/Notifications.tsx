@@ -9,7 +9,7 @@ import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify"
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type NotesSettingItem } from "../sdk/slots";
 import { useApp } from "../state";
-import { Drawer, Tabs } from "./ui";
+import { Drawer, Tabs, Ticks } from "./ui";
 
 function NoteSettings() {
   const { nset, saveNset, project, notifyLocal, toast, showMascot, setShowMascot } = useApp();
@@ -147,7 +147,7 @@ function NoteHead({ note }: { note: Note }) {
   const v = noticeView(note);
   return (
     <b className="note-title" title={`${v.mark} ${v.title}`}>
-      <span className="note-mark" aria-hidden="true">{v.mark}</span> {v.title}
+      <span className="note-mark" aria-hidden="true">{v.mark}</span> <Ticks text={v.title} />
     </b>
   );
 }
@@ -159,7 +159,7 @@ function NoteLines({ note }: { note: Note }) {
   return (
     // spans, not ul/li: a bell row is a button, and a button holds only phrasing content
     <span className="note-lines" role="list" data-testid="note-lines">
-      {lines.map((l, i) => <span key={i} role="listitem">{l}</span>)}
+      {lines.map((l, i) => <span key={i} role="listitem"><Ticks text={l} /></span>)}
     </span>
   );
 }

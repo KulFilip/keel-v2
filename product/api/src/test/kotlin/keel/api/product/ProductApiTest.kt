@@ -579,7 +579,13 @@ class ProductApiTest : ApiTest() {
         assertThat(asked["kind"].asText()).isEqualTo("product-jira-send")
         assertThat(asked["title"].asText()).isEqualTo("Send 1 tickets of $id to Jira")
         assertThat(jira.issues.size).isEqualTo(count)
-        post("/api/approvals/${asked["id"].asText()}/decide", mapOf("decision" to "approve", "why" to "ok")).andExpect(status().isOk)
+        // P4 the Inbox item opens the initiative and its Approve (POST /inbox/{id}/act) decides the approval, not a flow
+        val item = get("/api/inbox").json()["items"].single { it["id"].asText() == asked["id"].asText() }
+        assertThat(item["step"].asText()).isEqualTo("approval")
+        assertThat(item["options"].map { it.asText() }).containsExactly("approve", "deny")
+        assertThat(item["payload"]["open"]["page"].asText()).isEqualTo("initiatives")
+        assertThat(item["payload"]["open"]["arg"].asText()).isEqualTo(id)
+        post("/api/inbox/${asked["id"].asText()}/act", mapOf("decision" to "approve", "why" to "ok")).andExpect(status().isOk)
         val refund = jira.issues.values.single { it.summary.startsWith("PAY-S3") }
         assertThat(refund.fields["parent"]).isEqualTo(payEpic)
         assertThat(jira.issues.filterValues { it.type == "Epic" }).hasSize(2)

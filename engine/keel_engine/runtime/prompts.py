@@ -177,7 +177,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "not a step of the work: \"imports are updated\" or \"all calls use the new name\" are steps, and so "
                      "is \"behaviour stays the same\" when the existing tests already prove it. A small change usually "
                      "needs one to three criteria.")
-        where = (f"Write the spec under {lay.specs}/ with numbered criteria" if phase == "spec"
+        nnn = next_spec_number(root, lay.specs)
+        where = (f"Write the spec under {lay.specs}/ as {nnn}-<kebab-name>.md (its id {nnn}: the next free number there) "
+                 f"with numbered criteria" if phase == "spec"
                  else "List the criteria in your answer (no spec file: a small change keeps them inline)")
         lines.append(f"{where}, one per line, in this form:\n"
                      "- **AC-1** [API] <what must be true>\n"
@@ -248,6 +250,20 @@ def evidence_block(seed: dict | None) -> str:
             "Unverified and open questions. Fill the spec's first sections from it too (In plain words, For engineers, "
             "What will change, Payload changes, Database changes, Architecture). Do not summarise it away.\n\n"
             + text[:EVIDENCE_MAX])
+
+
+_SPEC_NO = re.compile(r"^(\d{3,4})-")
+
+
+def next_spec_number(root: str | Path, specs: str) -> str:
+    """The next free spec number in the project's specs folder ("001" when it has none): the highest NNN- name there
+    plus one. Before, the agent picked a number itself and a project's first spec could be 004."""
+    folder = Path(root) / specs
+    try:
+        used = [int(m.group(1)) for p in folder.iterdir() if (m := _SPEC_NO.match(p.name))]
+    except OSError:
+        used = []
+    return f"{(max(used) + 1) if used else 1:03d}"
 
 
 def spec_template_line() -> str:

@@ -157,18 +157,13 @@ class TaskService(
         if (running != null) throw Conflict("A flow already runs for ${t.label}", "Open it on the Flow page, or stop it first.")
         val title = (t.externalKey?.let { "$it: " } ?: "") + (b.title?.trim()?.ifEmpty { null } ?: t.title)
         val request = buildString {
-            val asked = b.request?.trim()?.ifEmpty { null }
-            if (asked != null) append(asked)
-            else {
-                append(t.title)
-                if (t.description.isNotBlank()) append("\n\n").append(t.description)
-            }
+            append(b.request?.trim()?.ifEmpty { null } ?: ticketText(t))
             if (t.externalKey != null) append("\n\nJira ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
         }
         val state = try {
             flows.start(t.projectId, wid, title.take(200), criteria(t.description),
                 FlowCap(capTokens = b.capTokens, runMode = b.runMode?.trim()?.ifEmpty { null }),
-                allowFake = b.allowFake, allowDirty = b.allowDirty, request = request,
+                allowFake = b.allowFake, allowDirty = b.allowDirty, request = request, branch = "new",
                 // the engine names the ticket in every commit of the flow (data.ticket), so the ticket scan links them
                 options = t.externalKey?.let { mapOf("ticket" to it) })
         } catch (e: ApiException) {
@@ -178,8 +173,13 @@ class TaskService(
             throw e
         }
         val tid = state.get("thread_id")?.asText()?.takeIf { it.isNotBlank() } ?: throw Conflict("The engine did not say which flow it started")
+        // a flow runs now: keel's open proposal to run one is answered (it no longer waits in the Inbox)
+        closeItems(id, kind = TaskAutomations.PROPOSAL, stage = "flow")
         return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}", actor)), events = true)
     }
+
+    /** What a flow is asked when nobody wrote it: the task's title and description as they are now. */
+    fun ticketText(t: Task): String = if (t.description.isBlank()) t.title else "${t.title}\n\n${t.description}"
 
     /**
      * v0.13.0: acceptance criteria written in a task's description, in a fenced block, go to the flow as its criteria;
@@ -226,7 +226,17 @@ class TaskService(
         val item = store.item(itemId) ?: throw NotFound("No inbox item $itemId")
         if (item.doneAt != null) throw Conflict("This was answered already", "Reload the inbox.")
         return when (item.kind) {
-            "task" -> when (b.action) {
+            "task" -> if (item.stage == TaskMachine.PR_STAGE) when (b.action) {
+                // B11 the flow finished without a PR: paste its link (the task goes to review), or put the ask aside
+                "pr" -> setPr(item.taskId, b.note?.trim().orEmpty())
+                "later" -> {
+                    closeItem(item.id)
+                    store.event(item.taskId, "flow", null, null, "Not now: you put aside opening the pull request.", "user")
+                    changed(item.projectId)
+                    get(item.taskId)
+                }
+                else -> throw BadRequest("action must be pr or later")
+            } else when (b.action) {
                 "confirm" -> confirm(item.taskId, ConfirmTask(item.stage ?: "", b.note))
                 "send_back" -> move(item.taskId, MoveTask(IN_PROGRESS, b.note))
                 else -> throw BadRequest("action must be confirm or send_back")
@@ -280,7 +290,8 @@ class TaskService(
                 val pr = if (t.status == IN_PROGRESS && t.prUrl == null) {
                     runCatching { engine.thread(e.threadId).get("pr_url")?.takeIf { !it.isNull }?.asText() }.getOrNull()
                 } else null
-                quietly(t) { fire(t.id, if (pr != null) Trigger.PrOpened(pr, "keel") else Trigger.FlowDone()) }
+                val why = if (pr == null && t.status == IN_PROGRESS) runCatching { store.noPrReason(e.threadId) }.getOrNull() else null
+                quietly(t) { fire(t.id, if (pr != null) Trigger.PrOpened(pr, "keel") else Trigger.FlowDone(why = why)) }
             }
             "thread.failed" -> {
                 val t = store.byThread(e.threadId) ?: return
@@ -366,7 +377,10 @@ class TaskService(
         next = store.update(next)
         store.event(id, plan.kind, t.status, plan.to, plan.note, plan.actor)
         if (plan.to != t.status) closeItems(id, kind = "task")
-        plan.openItem?.let { openItem(next, "task", it.stage, it.title, it.detail) }
+        plan.openItem?.let {
+            closeItems(id, kind = "task", stage = it.stage)          // one per stage: a second flow's ask replaces the first's
+            openItem(next, "task", it.stage, it.title, it.detail)
+        }
         return next to plan
     }
 
@@ -471,7 +485,11 @@ class TaskService(
      */
     fun closeItem(id: Long): Boolean {
         val closed = store.closeItem(id)
-        if (closed) runCatching { notifications.markDone(itemRef(id)) }
+        if (closed) runCatching {
+            notifications.markDone(itemRef(id))
+            // B3 a notification from before items had their own (0.18.54 and older) goes once its task waits for nothing
+            store.item(id)?.taskId?.let { tid -> if (store.openItems(tid).isEmpty()) notifications.markDoneUnthreaded("/tasks/$tid") }
+        }
         return closed
     }
 

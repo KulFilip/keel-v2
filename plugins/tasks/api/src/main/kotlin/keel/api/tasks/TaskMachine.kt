@@ -20,7 +20,7 @@ sealed interface Trigger {
     data class PrOpened(val url: String, override val actor: String) : Trigger
 
     /** The flow ended well but keel knows no PR (no token, auto mode, nothing pushed). */
-    data class FlowDone(val note: String? = null) : Trigger { override val actor = "keel" }
+    data class FlowDone(val note: String? = null, val why: String? = null) : Trigger { override val actor = "keel" }
 
     /** The flow failed or was stopped. */
     data class FlowEnded(val failed: Boolean, val reason: String) : Trigger { override val actor = "keel" }
@@ -71,6 +71,8 @@ class IllegalMove(override val message: String, val hint: String? = null) : Runt
  * (database, Inbox, Jira, GitHub); docs/CONTRACT.md "v0.5.0: tasks and Jira" has the table.
  */
 object TaskMachine {
+    /** B11 the stage of a task item that asks for the PR's link after a flow finished without one. */
+    const val PR_STAGE = "pr"
     private fun label(s: String) = TaskStatus.LABELS[s] ?: s
     private fun tail(note: String?) = note?.trim()?.takeIf { it.isNotEmpty() }?.let { " — $it" } ?: ""
 
@@ -101,9 +103,14 @@ object TaskMachine {
                     askReviewers = tr.url != t.prUrl, prUrl = tr.url)
                 else -> throw IllegalMove("${t.label} is ${label(s)}: its PR link cannot change now.")
             }
-            is Trigger.FlowDone -> Plan(s, "flow",
-                tr.note ?: if (s == IN_PROGRESS) "The flow finished without a pull request. Open the PR, then paste its link on the task."
-                else "The flow finished.", tr.actor)
+            is Trigger.FlowDone -> {
+                val why = tr.why?.trim()?.ifEmpty { null }
+                val noPr = "The flow finished without a pull request.${why?.let { " $it" } ?: ""}"
+                // B11 not only in the history: the Inbox asks for the PR's link (the bell with it)
+                Plan(s, "flow", tr.note ?: if (s == IN_PROGRESS) "$noPr Open the PR, then paste its link on the task." else "The flow finished.", tr.actor,
+                    openItem = if (s == IN_PROGRESS) OpenItem(PR_STAGE, "${t.label}: the flow finished, open its pull request",
+                        "$noPr Open the PR, then paste its link here.") else null)
+            }
             is Trigger.FlowEnded -> {
                 val what = if (tr.failed) "failed" else "was stopped"
                 if (s == IN_PROGRESS) Plan(BLOCKED, "blocked", "The flow $what: ${tr.reason}", tr.actor, moveJira = true,

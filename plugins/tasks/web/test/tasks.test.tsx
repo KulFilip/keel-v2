@@ -263,6 +263,30 @@ describe("Inbox task items", () => {
     expect(await screen.findByText("Nothing is waiting for you")).toBeInTheDocument();
   });
 
+  it("a flow that finished without a PR asks for its link (B11)", async () => {
+    const user = userEvent.setup();
+    let list: InboxItem[] = [{ ...items()[0], title: "ABC-2: the flow finished, open its pull request",
+      detail: "The flow finished without a pull request. The branch feat/abc-2 is not pushed. Open the PR, then paste its link here.",
+      task: { ...items()[0].task!, status: "in_progress", stage: "pr",
+        actions: [{ id: "pr", label: "Save the PR link", needs_note: true }, { id: "later", label: "Not now", needs_note: false }] } }];
+    server.use(
+      http.get("/api/inbox", () => HttpResponse.json({ items: list, count: list.length, kinds: ["task"], projects: [] } satisfies InboxView)),
+      http.post("/api/inbox/tasks/:id/act", async ({ request, params }) => {
+        db.calls.push({ method: "POST", path: `/api/inbox/tasks/${params.id}/act`, body: await request.json() });
+        list = [];
+        return HttpResponse.json({ id: "tk_2" });
+      }),
+    );
+    location.hash = "#/inbox";
+    render(<App />);
+    const card = await screen.findByRole("article", { name: "ABC-2: the flow finished, open its pull request" });
+    await user.click(within(card).getByRole("button", { name: "Save the PR link" }));
+    expect(calls("POST", "/api/inbox/tasks/100/act")).toHaveLength(0);                     // the link first
+    await user.type(within(card).getByLabelText("Pull request link"), "https://github.com/acme/app/pull/7");
+    await user.click(within(card).getByRole("button", { name: "Save the PR link" }));
+    await waitFor(() => expect(calls("POST", "/api/inbox/tasks/100/act")[0]?.body).toEqual({ action: "pr", note: "https://github.com/acme/app/pull/7" }));
+  });
+
   it("Open task goes to the task's drawer", async () => {
     const user = userEvent.setup();
     server.use(http.get("/api/inbox", () => HttpResponse.json({ items: items().slice(0, 1), count: 1, kinds: ["task"], projects: [] })));

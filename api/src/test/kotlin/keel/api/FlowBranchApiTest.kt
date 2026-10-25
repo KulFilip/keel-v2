@@ -65,4 +65,74 @@ class FlowBranchApiTest : ApiTest() {
         assertThat(row["worktree"]).isEqualTo("flow-f-001-ranks-abc123")
         assertThat(row["branch"]).isEqualTo("fix/f-001-ranks")
     }
+
+    @Test
+    fun `B8 a flow started on another branch gets its own branch from the base branch`() {
+        val (pid, root) = newProject("branch-from-base")
+        git(root, "checkout", "-q", "-b", "feat/init-2026-10-25")           // what init left checked out, no commit
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Players see their rank", "allow_fake" to true))
+            .andExpect(status().isOk)
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/players-see-their-rank")
+        assertThat(git(root, "rev-parse", "HEAD").trim()).isEqualTo(git(root, "rev-parse", "main").trim())
+    }
+
+    @Test
+    fun `B8 a branch with commits of its own is not the base of the next flow`() {
+        val (pid, root) = newProject("branch-not-stacked")
+        git(root, "checkout", "-q", "-b", "fix/old-work")
+        java.nio.file.Files.writeString(root.resolve("old.txt"), "old\n")
+        git(root, "add", "old.txt"); git(root, "commit", "-q", "-m", "old work")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "New thing", "allow_fake" to true)).andExpect(status().isOk)
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/new-thing")
+        assertThat(java.nio.file.Files.exists(root.resolve("old.txt"))).isFalse()
+    }
+
+    @Test
+    fun `B8 continue this branch stays on the branch the folder is on`() {
+        val (pid, root) = newProject("branch-continue")
+        git(root, "checkout", "-q", "-b", "feat/my-work")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "More of it", "allow_fake" to true, "branch" to "continue"))
+            .andExpect(status().isOk)
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/my-work")
+    }
+
+    @Test
+    fun `B8 init that made no commit gives the folder back on the base branch`() {
+        val init = engine.featureTemplate + mapOf("id" to "init", "name" to "init (keel)")
+        engine.extraTemplates += init
+        try {
+            val (pid, root) = newProject("init-empty-branch")
+            engine.nextThreadIds.add("t-init-empty")
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "init", "title" to "init 2026-10-25", "allow_fake" to true)).andExpect(status().isOk)
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/init-2026-10-25")
+            java.nio.file.Files.writeString(root.resolve("README.md"), "# demo, changed\n")      // uncommitted: it stays
+            post("/internal/events", listOf(mapOf("type" to "thread.done", "thread_id" to "t-init-empty", "project_id" to pid,
+                "at" to java.time.Instant.now().toString(), "data" to mapOf("title" to "init"))), mapOf("X-Keel-Token" to TOKEN))
+                .andExpect(status().isOk)
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("main")
+            assertThat(git(root, "branch", "--list", "feat/init-*").trim()).isEmpty()
+            assertThat(java.nio.file.Files.readString(root.resolve("README.md"))).contains("changed")
+        } finally {
+            engine.extraTemplates -= init
+        }
+    }
+
+    @Test
+    fun `B8 init that committed keeps its branch`() {
+        val init = engine.featureTemplate + mapOf("id" to "init", "name" to "init (keel)")
+        engine.extraTemplates += init
+        try {
+            val (pid, root) = newProject("init-kept-branch")
+            engine.nextThreadIds.add("t-init-kept")
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "init", "title" to "init 2026-10-25", "allow_fake" to true)).andExpect(status().isOk)
+            java.nio.file.Files.writeString(root.resolve("setup.txt"), "x\n")
+            git(root, "add", "setup.txt"); git(root, "commit", "-q", "-m", "chore: keel setup")
+            post("/internal/events", listOf(mapOf("type" to "thread.done", "thread_id" to "t-init-kept", "project_id" to pid,
+                "at" to java.time.Instant.now().toString(), "data" to mapOf("title" to "init"))), mapOf("X-Keel-Token" to TOKEN))
+                .andExpect(status().isOk)
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/init-2026-10-25")
+        } finally {
+            engine.extraTemplates -= init
+        }
+    }
 }

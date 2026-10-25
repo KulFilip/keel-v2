@@ -2,7 +2,8 @@ import { copyText } from "../../clipboard";
 import { useRef, useState } from "react";
 import { api, errorParts, type Blocker, type Step, type ThreadState, type Workflow } from "../../api";
 import { CodeBlock, FoldedText } from "../../components/Code";
-import { answersOf, ClarifyForm, type ClarifyAnswers } from "../../components/ClarifyForm";
+import { ClarifyForm, type ClarifyAnswers } from "../../components/ClarifyForm";
+import { questionsPayload, reasonsMissing } from "../../questions";
 import { ChoiceForm } from "../../components/ChoiceForm";
 import { Markdown, type FoldLabels } from "../../components/Markdown";
 import { autoLines, RunModeNote } from "../../components/RunMode";
@@ -179,6 +180,12 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
       toast("Write why first, so the agent knows what to change.");
       return;
     }
+    // B9 a ticked step of a skip menu needs its reason before the answer goes
+    const missing = decision === "approve" && w.questions?.length ? reasonsMissing(w.questions, picked, typed) : "";
+    if (missing) {
+      toast(missing);
+      return;
+    }
     // a ref, not `busy`: the state is stale until the next render, so a second key in the same frame would post again
     if (inFlight.current) return;
     inFlight.current = true;
@@ -186,7 +193,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
     setErr(null);
     try {
       // keel 0.18.13 a gate may ask questions next to its choices (hunt lenses, a skip menu): both go back together
-      const answers = w.questions?.length ? { ...(extra ?? {}), answers: answersOf(w.questions, picked, typed) } : extra;
+      const answers = w.questions?.length ? { ...(extra ?? {}), ...questionsPayload(w.questions, picked, typed) } : extra;
       await api.resume(thread.thread_id, decision, said.trim() || undefined, answers);
       setPicked({});
       setTyped({});

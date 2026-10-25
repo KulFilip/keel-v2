@@ -151,6 +151,12 @@ class TaskAutomations(
 
     private fun running(t: Task) = t.threadId?.let { store.flow(it) }?.takeIf { it.status in setOf("running", "waiting") }
 
+    /** B12 which ticket text a proposal was made from (title and description), to see at Start whether it changed since. */
+    private fun ticketSig(t: Task): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256").digest("${t.title}\u0000${t.description}".toByteArray())
+        return md.take(8).joinToString("") { "%02x".format(it) }
+    }
+
     private fun flow(t: Task, rule: AutomationRule, why: String, byRule: Boolean) {
         if (running(t) != null) {
             note(t, "$why, but a flow already runs for it: keel proposes nothing.")
@@ -215,7 +221,7 @@ class TaskAutomations(
         tasks.openItem(t, PROPOSAL, kind, "I want to $what on ${t.label}", "Why: ${pick.why}$ask", mapOf(
             "kind" to kind, "workflow_id" to pick.workflowId, "why" to pick.why, "title" to pick.title, "request" to pick.request,
             "questions" to pick.questions, "settings" to pick.settings, "fallback" to pick.fallback, "model" to pick.model,
-            "run_mode" to rule.runMode, "cap_tokens" to rule.capTokens, "trigger" to why, "pr_url" to t.prUrl,
+            "run_mode" to rule.runMode, "cap_tokens" to rule.capTokens, "trigger" to why, "pr_url" to t.prUrl, "ticket_sig" to ticketSig(t),
         ))
         store.event(t.id, "automation", null, null, "$why: keel proposes the ${pick.workflowId} flow${if (pick.fallback) " (its default)" else ""}. Why: ${pick.why}", "keel")
         tasks.changed(t.projectId)
@@ -256,13 +262,19 @@ class TaskAutomations(
                     val answers = answers(d, b.answers)
                     val runMode = d["run_mode"]?.toString()
                     val cap = (d["cap_tokens"] as? Number)?.toInt()
+                    // B12 the ticket changed since the proposal (or the proposal is keel's default, which only copied the
+                    // ticket): the flow gets the ticket as it is now, not the proposal's old copy of it
+                    val changed = d["ticket_sig"]?.let { it != ticketSig(t) } ?: false
+                    val fresh = changed || d["fallback"] == true
+                    val asked = if (fresh) "" else d["request"]?.toString().orEmpty()
                     if (d["kind"] == "review") {
-                        startReview(t, wid, FlowPick(wid, "", "", d["request"]?.toString().orEmpty()), runMode, cap, answers)
+                        startReview(t, wid, FlowPick(wid, "", "", asked), runMode, cap, answers)
                     } else {
-                        val request = listOf(d["request"]?.toString().orEmpty(), answers).filter { it.isNotBlank() }.joinToString("\n\n")
-                        tasks.start(t.id, StartTask(wid, runMode, allowDirty = b.allowDirty, title = if (b.action == "start") d["title"]?.toString() else null,
+                        val request = listOf(asked.ifBlank { if (answers.isBlank()) "" else tasks.ticketText(t) }, answers).filter { it.isNotBlank() }.joinToString("\n\n")
+                        tasks.start(t.id, StartTask(wid, runMode, allowDirty = b.allowDirty, title = if (b.action == "start" && !fresh) d["title"]?.toString() else null,
                             request = request.ifBlank { null }, capTokens = cap))
                     }
+                    if (changed) store.event(t.id, "automation", null, null, "The ticket changed after keel's proposal: the flow got the ticket as it is now.", "keel")
                     tasks.closeItem(item.id)
                     store.event(t.id, "automation", null, null, "You started the $wid flow from keel's proposal${if (b.action == "other") " (another flow than keel's ${d["workflow_id"]})" else ""}.", "user")
                 }

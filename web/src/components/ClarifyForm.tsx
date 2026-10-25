@@ -5,7 +5,7 @@
 // keel 0.18.13 the recommended options come first; a `multiple` question starts with its recommended options ticked
 // (until the person touches it); the number keys 1–4 pick an option of the question that has the focus.
 import type { ClarifyQuestion } from "../api";
-import { answersOf, byRecommended, defaultPick, reasonOption, type ClarifyAnswers } from "../questions";
+import { answersOf, byRecommended, defaultPick, reasonKey, reasonOption, type ClarifyAnswers } from "../questions";
 
 // the answers moved to questions.ts (keel2 and KeelBot read them too); these stay for older imports and the SDK
 export { answersOf, type ClarifyAnswers };
@@ -64,10 +64,18 @@ export function ClarifyForm({ questions, picked, typed, onPick, onType }: {
                 );
               })}
             </div>
-            <input className="clarify-other" type="text" aria-label={reasonFor ? `Why “${reasonFor}”: ${q.question}` : `Your own answer to: ${q.question}`}
-              placeholder={reasonFor ? `why “${reasonFor}”${q.options.find((o) => o.label === reasonFor)?.why === "required" ? " (needed)" : ""}`
-                : q.multiple ? "and/or in your own words" : "or answer in your own words"} value={String(typed[q.id] ?? "")}
-              onChange={(e) => onType(q.id, e.target.value)} />
+            {/* B9 a ticked option that takes a reason (a skip menu's step) gets its own reason field */}
+            {q.multiple && ticked.filter((label) => { const w = q.options.find((o) => o.label === label)?.why; return w === "required" || w === "optional"; }).map((label) => (
+              <input key={label} className="clarify-other clarify-reason" type="text" aria-label={`Why “${label}”: ${q.question}`}
+                placeholder={`why “${label}”${q.options.find((o) => o.label === label)?.why === "required" ? " (needed)" : ""}`}
+                value={String(typed[reasonKey(q.id, label)] ?? "")} onChange={(e) => onType(reasonKey(q.id, label), e.target.value)} />
+            ))}
+            {!(q.multiple && q.own_words === false) && (
+              <input className="clarify-other" type="text" aria-label={reasonFor ? `Why “${reasonFor}”: ${q.question}` : `Your own answer to: ${q.question}`}
+                placeholder={reasonFor ? `why “${reasonFor}”${q.options.find((o) => o.label === reasonFor)?.why === "required" ? " (needed)" : ""}`
+                  : q.multiple ? "and/or in your own words" : "or answer in your own words"} value={String(typed[q.id] ?? "")}
+                onChange={(e) => onType(q.id, e.target.value)} />
+            )}
           </fieldset>
         );
       })}

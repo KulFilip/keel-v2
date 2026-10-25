@@ -28,6 +28,9 @@ data class StartFlow(
     val runMode: String? = null,
     /** v0.7.x: folder | worktree | auto (default: the project folder when it is free, else a worktree of its own). */
     val where: String? = null,
+    /** B8: new (default: its own branch from the base branch, also when the folder is on another branch) | continue
+     *  (stay on the branch the project folder is on; on the base branch it still gets its own). */
+    val branch: String? = null,
 )
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
@@ -45,7 +48,7 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
         flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
-            body.request, body.options, body.where)
+            body.request, body.options, body.where, branch = if (body.branch == "continue") "continue" else "new")
 
     /** v0.7.x: the project's flows side by side (folder and worktrees), the files they share, conflicts, a merge order. */
     @GetMapping("/projects/{pid}/flows")

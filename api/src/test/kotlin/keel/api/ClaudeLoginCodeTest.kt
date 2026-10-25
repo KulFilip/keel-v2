@@ -29,7 +29,7 @@ class ClaudeLoginCodeTest {
     private fun service(script: String, timeoutSec: Long = 60): LoginService {
         val f = dir.resolve("fake-claude.sh")
         Files.writeString(f, script)
-        return LoginService(secrets, false, "sh $f", "true", "true", timeoutSec)
+        return LoginService(secrets, keel.api.connections.FirstModelLogin(mock(keel.api.settings.SettingsService::class.java), false), false, "sh $f", "true", "true", timeoutSec)
     }
 
     private fun LoginService.waitUntil(id: String, ok: (LoginView) -> Boolean): LoginView {

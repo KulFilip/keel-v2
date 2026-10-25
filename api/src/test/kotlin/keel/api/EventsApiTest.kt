@@ -240,6 +240,31 @@ class EventsApiTest : ApiTest() {
     }
 
     @Test
+    fun `a failed step's notification is done once the next gate is decided (B3)`(@org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate) {
+        val (pid, _) = newProject("events-b3")
+        val tid = "t-b3"
+        send(listOf(
+            ev("thread.started", pid, tid, data = mapOf("title" to "B3")),
+            ev("code.started", pid, tid, "k1", "suite", mapOf("agent" to "keel")),
+            ev("code.finished", pid, tid, "k1", "suite", mapOf("status" to "failed", "result" to "2 tests failed")),
+            ev("agent.started", pid, tid, "a1", "green", mapOf("agent" to "implementer", "provider" to "fake")),
+            ev("agent.finished", pid, tid, "a1", "green", mapOf("status" to "failed", "result" to "tests still red")),
+        )).andExpect(status().isOk)
+        // one from 0.18.54, made without its thread: its link is the job
+        jdbc.update("INSERT INTO agent_calls(id, project_id, thread_id, agent, status, started_at) VALUES ('k0', ?, ?, 'keel', 'failed', '2026-10-24T10:00:00Z')", pid, tid)
+        jdbc.update("INSERT INTO notifications(type, project_id, title, body, link, at, read, done) VALUES ('failed', ?, 'A code step failed', '', '/jobs/k0', '2026-10-24T10:00:00Z', 0, 0)", pid)
+        val mine = { get("/api/notifications?limit=100").json().filter { it["project_id"].asText() == pid } }
+        assertThat(mine().filter { it["type"].asText() == "failed" }).hasSize(3).allMatch { !it["read"].asBoolean() && !it["done"].asBoolean() }
+        assertThat(mine().filter { it["link"].asText() == "/jobs/k1" }.single()["thread_id"].asText()).isEqualTo(tid)
+
+        send(listOf(
+            ev("gate.waiting", pid, tid, step = "g1", data = mapOf("kind" to "gate", "title" to "AC gate waits for you")),
+            ev("gate.decided", pid, tid, step = "g1", data = mapOf("gate" to "ac", "decision" to "approve")),
+        )).andExpect(status().isOk)
+        assertThat(mine()).hasSize(4).allMatch { it["read"].asBoolean() && it["done"].asBoolean() }
+    }
+
+    @Test
     fun `notification settings and the project notify setting are respected`() {
         val (pid, _) = newProject("events-settings")
         val s = get("/api/notification-settings").json()

@@ -958,7 +958,10 @@ def knowledge_check(a: ActionInput) -> ActionResult:
     if not r["pass"]:
         return ActionResult(False, f"The knowledge base has {len(r['problems'])} problem(s).", "\n".join(r["problems"]))
     cites = sum(s["citations"] for s in checked)
-    return ActionResult(True, f"Knowledge base: {len(checked)} section(s), {cites} citation(s), no problems.")
+    from .init_actions import arch_from_knowledge       # init_actions imports this module
+    arch_note = arch_from_knowledge(a.root)
+    return ActionResult(True, f"Knowledge base: {len(checked)} section(s), {cites} citation(s), no problems."
+                        + (f" {arch_note}." if arch_note else ""))
 
 
 def push_check(a: ActionInput) -> ActionResult:

@@ -115,6 +115,8 @@ export type ClarifyQuestion = {
   options: { label: string; description?: string; recommended?: boolean; why?: "required" | "optional" }[];
   /** keel 0.18.9 several options may be picked (the answer is a list) */
   multiple?: boolean;
+  /** B9 false: no "own words" box (a skip menu: words there were read as a step's name) */
+  own_words?: boolean;
 };
 /** keel 0.18.13 what one named choice of a waiting question means (same order as `choices`): its words, whether it
  *  needs a reason (`why`), and which one a plain approve takes (`default`). Answer: approve with payload {choice: name}. */
@@ -881,7 +883,9 @@ export type Settings = {
   env_names: string[];
   mcp: string[];
 };
-export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings };
+export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings;
+  /** B15 the General keys someone saved (the others are keel's defaults). */
+  general_saved?: string[] };
 
 export type Connections = {
   providers: {
@@ -1115,6 +1119,8 @@ export const api = {
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;
+    /** B8 continue: stay on the branch the project folder is on (default: a new branch from the base branch) */
+    branch?: "new" | "continue";
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>

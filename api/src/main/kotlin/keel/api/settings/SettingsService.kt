@@ -10,7 +10,13 @@ import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
-data class ProjectSettings(val general: Settings, val overrides: Map<String, Any?>, val effective: Settings)
+data class ProjectSettings(
+    val general: Settings,
+    val overrides: Map<String, Any?>,
+    val effective: Settings,
+    /** B15 the General keys someone saved (the rest are keel's defaults): a cap the person set is never raised. */
+    val generalSaved: Set<String> = emptySet(),
+)
 
 /** One plugin's own settings for the web, without the prefix. For General, overrides is empty. */
 data class PluginSettingsView(val general: Map<String, Any?>, val overrides: Map<String, Any?>, val effective: Map<String, Any?>)
@@ -70,6 +76,12 @@ class SettingsService(
 
     fun general(): Settings = fromMap(defaultsMap() + core(raw(GENERAL)))
 
+    /** Someone saved [key] in Settings › General (it is not keel's default). */
+    fun isGeneralSet(key: String): Boolean = raw(GENERAL).containsKey(key)
+
+    /** B15 someone saved [key] for project [pid], or in General: a value the person chose, not keel's default. */
+    fun isSet(pid: String, key: String): Boolean = raw(project(pid)).containsKey(key) || isGeneralSet(key)
+
     fun updateGeneral(patch: Map<String, Any?>): Settings {
         check(patch, allowNull = false)
         val merged = patched(raw(GENERAL), patch)
@@ -85,7 +97,7 @@ class SettingsService(
         val general = general()
         val overrides = overrides(pid)
         val effective = fromMap(toMap(general) + overrides)
-        return ProjectSettings(general, overrides, effective)
+        return ProjectSettings(general, overrides, effective, core(raw(GENERAL)).keys)
     }
 
     fun effective(pid: String): Settings = forProject(pid).effective

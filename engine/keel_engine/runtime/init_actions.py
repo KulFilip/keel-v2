@@ -93,6 +93,30 @@ def _arch_set(a: ActionInput) -> ActionResult:
     return ActionResult(True, f"architecture: {style} ({conf}, {source}) written to .keel/config.yml")
 
 
+_KNOWLEDGE_STYLE = re.compile(r"^\s*Style:\s*\**\s*`?([a-z][a-z-]*)`?\s*\**\s*\(\s*(high|medium|low)\b", re.I | re.M)
+
+
+def arch_from_knowledge(root: str) -> str | None:
+    """The architecture the knowledge base names (its architecture section's "Style: **layered** (high, ...)") when
+    .keel/config.yml says unknown: an init's config said "unknown" while its knowledge base said a style with high
+    confidence. A style a person set is never changed. Returns what it wrote, or None."""
+    from . import knowledge
+    have = (rules.load_config(root) or {}).get("architecture") or {}
+    if not _config_file(root).is_file() or (have.get("style") or "unknown") != "unknown" \
+            or have.get("source") not in (None, "detected", "surveyed"):
+        return None
+    f = Path(root) / knowledge.knowledge_dir(root) / "architecture.md"
+    m = _KNOWLEDGE_STYLE.search(f.read_text(errors="replace")) if f.is_file() else None
+    if not m or m.group(1).lower() not in arch.STYLES:
+        return None
+    style, conf = m.group(1).lower(), m.group(2).lower()
+
+    def change(cfg):
+        cfg["architecture"] = {**(cfg.get("architecture") or {}), "style": style, "confidence": conf, "source": "knowledge"}
+    _edit_config(root, change)
+    return f"architecture: {style} ({conf}) from the knowledge base written to .keel/config.yml (it said unknown)"
+
+
 # ------------------------------------------------------------------ ladder repair
 
 # The setup-doctor is read-only (content/agents/setup-doctor.md): it proposes, the person decides. The commands it

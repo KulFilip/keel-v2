@@ -206,6 +206,11 @@ signin_url() {  # signin_url <api port> [page port] — a one-time sign-in link 
   printf 'http://localhost:%s%s' "${2:-$1}" "$path"
 }
 
+has_model_login() {  # has_model_login <port> — keel has a saved model login or key (GET /api/connections)
+  local body; body="$(kcurl -fs -m 10 "$(api "$1")/connections" 2>/dev/null)" || return 1
+  printf '%s' "$body" | tr -d ' \n' | grep -Eq '"(login_set|key_set)":true'
+}
+
 open_signed_in() {  # open_signed_in <port> — the dashboard, signed in (an older keel: just the page)
   local u; u="$(signin_url "$1")" || u="http://localhost:$1"
   open_url "$u"
@@ -502,7 +507,12 @@ cmd_start() {
   show_reach "$port" "$bind"
   publish_addresses "$port" "$bind"
   register_added "$port" ${added[@]+"${added[@]}"}
-  info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
+  # a restart keeps the logins (the volume): say so, instead of asking for a login that is there
+  if has_model_login "$port"; then
+    info "  ${D}Your model logins are saved: Control › Connections shows which (keys and logins stay across restarts).${N}"
+  else
+    info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
+  fi
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
   [ "${KEEL_OPEN:-1}" = 1 ] && open_signed_in "$port" || true
 }

@@ -48,6 +48,10 @@ class TaskMachineTest {
         assertThat(done.to).isEqualTo("in_progress")
         assertThat(done.note).contains("paste its link")
         assertThat(done.moveJira).isFalse()
+        assertThat(done.openItem?.stage).isEqualTo(TaskMachine.PR_STAGE)                          // B11 the Inbox asks too
+        assertThat(TaskMachine.plan(task("in_progress"), Trigger.FlowDone(why = "No GitHub token for the engine.")).openItem!!.detail)
+            .contains("No GitHub token for the engine.")
+        assertThat(TaskMachine.plan(task("in_review"), Trigger.FlowDone()).openItem).isNull()
         val failed = TaskMachine.plan(task("in_progress"), Trigger.FlowEnded(true, "verify_green failed"))
         assertThat(failed.to).isEqualTo("blocked")
         assertThat(failed.blockedReason).isEqualTo("verify_green failed")

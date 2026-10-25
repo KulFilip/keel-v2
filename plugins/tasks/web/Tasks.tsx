@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
-  InitAsk, isInitFlow, linkAction, Loading, needsInit, PageHead, Pill, RunModePicker, Tabs, useApp, useLoad, useRoute, useStartInit,
+  InitAsk, isInitFlow, linkAction, Loading, needsInit, PageHead, Pill, RunModePicker, Tabs, Ticks, useApp, useLoad, useRoute, useStartInit,
   WorkspaceDoctor,
   type LauncherCtx as Ctx, type LauncherItem as Item, type LauncherSourceItem, type PillTone, type RunMode, type Workflow,
 } from "@keel/web-sdk";
@@ -135,7 +135,7 @@ function History({ events }: { events: TaskEvent[] }) {
             {e.from_status && e.to_status && e.from_status !== e.to_status && (
               <b className="tk-ev-move">{STATUS_LABEL[e.from_status as TaskStatus] ?? e.from_status} → {STATUS_LABEL[e.to_status as TaskStatus] ?? e.to_status}. </b>
             )}
-            {e.note}
+            <Ticks text={e.note} />
           </span>
         </li>
       ))}
@@ -276,6 +276,10 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
     if (t && t.project_id !== pid) setProjectId(t.project_id);
   }, [t, pid, setProjectId]);
   useEffect(() => setPicked(null), [id]);
+  // the proposal was answered (Start, Not now, here or in the Inbox): its "keel picked a flow" line goes too
+  useEffect(() => {
+    if (picked && !picked.busy && picked.item && t && !t.waiting.some((w) => w.id === picked.item!.id)) setPicked(null);
+  }, [t, picked]);
 
   const run = async (what: () => Promise<Task | unknown>, msg: string) => {
     setBusy(true);
@@ -362,7 +366,7 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
           {t.waiting.filter((it) => it.kind === "task-proposal" || it.kind === "task-review").map((it) => (
             <section key={it.id} className="tk-sec tk-item" aria-label={it.title}>
               <h3>{it.title}</h3>
-              {it.detail && <p className="sub">{it.detail}</p>}
+              {it.detail && <p className="sub"><Ticks text={it.detail} /></p>}
               <AutomationItem pid={t.project_id} kind={it.kind} data={it.data ?? {}} actions={itemActions(it)} idBase={`tk-item-${it.id}`}
                 onAct={async (action, b) => {
                   const next = await tasksApi.actWith(it.id, action, b);

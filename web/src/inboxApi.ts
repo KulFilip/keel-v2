@@ -65,7 +65,7 @@ export type Approval = {
 export type InboxTask = {
   id: string; item_id: number; key: string | null; url: string | null; title: string; status: string; stage: string | null; pr_url: string | null;
   /** 0.18.52 also keel's proposals (start | other | later) and a KeelBot-owned ticket's review comments (reply | address | handle) */
-  actions: { id: "confirm" | "send_back" | "done" | "start" | "other" | "later" | "reply" | "address" | "handle"; label: string; needs_note: boolean }[];
+  actions: { id: "confirm" | "send_back" | "done" | "start" | "other" | "later" | "reply" | "address" | "handle" | "pr"; label: string; needs_note: boolean }[];
 };
 export type InboxView = { items: InboxItem[]; count: number; kinds: string[]; projects: { id: string; name: string; count: number }[] };
 export type InboxAnswer = { decision: "approve" | "reject"; why?: string; payload?: Record<string, unknown>; id?: string | null };

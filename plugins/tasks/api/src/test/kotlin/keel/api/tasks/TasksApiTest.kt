@@ -120,9 +120,21 @@ class TasksApiTest : ApiTest() {
         post("/api/tasks/$a/start", mapOf("allow_dirty" to true)).andExpect(status().isOk)
         engine.nextThreadIds += "t-np-b"
         post("/api/tasks/$b/start", mapOf("allow_dirty" to true)).andExpect(status().isOk)
+        // the open_pr step said why (B11): the history and an Inbox item say it, and the item takes the PR's link
+        send(ev("step.finished", pid, "t-np-a", data = mapOf("name" to "open_pr", "note" to
+            "The branch feat/a is not pushed, and keel never pushes. Push it (git push -u origin feat/a), then open the PR. Copy the PR body (shown at the gate) into your PR.")))
         send(ev("thread.done", pid, "t-np-a"))
         assertThat(task(a)["status"].asText()).isEqualTo("in_progress")
-        assertThat(notes(task(a)).last()).contains("without a pull request")
+        assertThat(notes(task(a)).last()).contains("without a pull request").contains("feat/a is not pushed").doesNotContain("Copy the PR body")
+        val ask = inboxOf(pid).single { it["task"]["id"].asText() == a }
+        assertThat(ask["title"].asText()).endsWith("the flow finished, open its pull request")
+        assertThat(ask["detail"].asText()).contains("git push -u origin feat/a")
+        assertThat(ask["task"]["actions"].map { it["id"].asText() }).containsExactly("pr", "later")
+        val askId = ask["task"]["item_id"].asLong()
+        post("/api/inbox/tasks/$askId/act", mapOf("action" to "pr", "note" to "not a link")).andExpect(status().isBadRequest)
+        post("/api/inbox/tasks/$askId/act", mapOf("action" to "pr", "note" to "https://github.com/acme/app/pull/7")).andExpect(status().isOk)
+        assertThat(task(a)["status"].asText()).isEqualTo("in_review")
+        assertThat(inboxOf(pid).filter { it["task"]["id"].asText() == a }).isEmpty()
         engine.overrides["t-np-b"] = mapOf("status" to "done", "pr_url" to "https://github.com/acme/app/pull/9")
         send(ev("thread.done", pid, "t-np-b"))
         assertThat(task(b)["status"].asText()).isEqualTo("in_review")
