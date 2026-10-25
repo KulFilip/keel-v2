@@ -51,7 +51,9 @@ class TaskAutomationsApiTest : ApiTest() {
     }
 
     @Test
-    fun `Pick a flow for me proposes the type's default without a model, and Not now puts it aside`() {
+    fun `Pick a flow for me proposes the type's default without a model, and Not now puts it aside`(
+        @org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate,
+    ) {
         val (pid, _) = newProject("auto-pick-default")
         val id = newTask(pid, "Checkout crashes")
         val asked = engine.calls.count { it.path == "/tasks/pick" }
@@ -74,6 +76,10 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(proposals(pid)).hasSize(1)
         assertThat(unread(id)).hasSize(1)
 
+        // B3 one from 0.18.54, made without its item: it goes too once the task waits for nothing
+        jdbc.update("INSERT INTO notifications(type, project_id, title, body, link, at, read, done) VALUES ('review', ?, 'old proposal', '', ?, '2026-10-24T10:00:00Z', 0, 0)",
+            pid, "/tasks/$id")
+        assertThat(unread(id)).hasSize(2)
         post("/api/inbox/tasks/${proposals(pid).single()["task"]["item_id"].asLong()}/act", mapOf("action" to "later")).andExpect(status().isOk)
         assertThat(proposals(pid)).isEmpty()
         // B3: the answered proposal's notification is done and read: the bell's count goes down

@@ -469,7 +469,11 @@ class TaskService(
      */
     fun closeItem(id: Long): Boolean {
         val closed = store.closeItem(id)
-        if (closed) runCatching { notifications.markDone(itemRef(id)) }
+        if (closed) runCatching {
+            notifications.markDone(itemRef(id))
+            // B3 a notification from before items had their own (0.18.54 and older) goes once its task waits for nothing
+            store.item(id)?.taskId?.let { tid -> if (store.openItems(tid).isEmpty()) notifications.markDoneUnthreaded("/tasks/$tid") }
+        }
         return closed
     }
 

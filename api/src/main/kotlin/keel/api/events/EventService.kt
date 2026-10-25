@@ -115,7 +115,8 @@ class EventService(
                 upsertThread(e, "running", at)
                 jdbc.update("UPDATE threads SET phase = COALESCE(?, phase), ac = COALESCE(?, ac) WHERE id = ?", d.str("phase"), d.str("ac"), e.threadId)
                 val agent = d.str("agent") ?: "An agent"
-                notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
+                notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id",
+                    threadId = e.threadId, step = e.step)
             }
             "agent.step" -> calls.step(e, at)
             // 0.18.17 the usage so far of a call that still runs: the Budget page, day caps and flow lists see it
@@ -124,7 +125,9 @@ class EventService(
                 val id = calls.finish(e, at) ?: return
                 if (d.str("status") == "failed") {
                     val agent = jdbc.queryForObject("SELECT COALESCE(agent, 'An agent') FROM agent_calls WHERE id = ?", String::class.java, id)
-                    notifications.create("failed", e.projectId, "$agent failed", d.str("result")?.take(200) ?: "The agent step did not finish.", "/jobs/$id")
+                    // B3 with its thread: the next decided gate (or the flow's end) marks it done, like the gate's own notification
+                    notifications.create("failed", e.projectId, "$agent failed", d.str("result")?.take(200) ?: "The agent step did not finish.", "/jobs/$id",
+                        threadId = e.threadId, step = e.step)
                 }
             }
             // 0.18.15 a code step (the setup ladder, a test suite, a commit) is a job too: stored like an agent's call,
@@ -138,7 +141,8 @@ class EventService(
             "code.finished" -> {
                 val id = calls.finish(e, at) ?: return
                 if (d.str("status") == "failed") {
-                    notifications.create("failed", e.projectId, "A code step failed", d.str("result")?.take(200) ?: "The step did not finish.", "/jobs/$id")
+                    notifications.create("failed", e.projectId, "A code step failed", d.str("result")?.take(200) ?: "The step did not finish.", "/jobs/$id",
+                        threadId = e.threadId, step = e.step)
                 }
             }
 
@@ -160,15 +164,17 @@ class EventService(
                 if (d.str("gate") != "unlock") notifications.markDone(e.threadId)
                 changed(e)
             }
-            "budget.warn" -> notifications.create("budget", e.projectId, "The flow is near its budget", d.str("detail") ?: budgetText(d), link)
+            "budget.warn" -> notifications.create("budget", e.projectId, "The flow is near its budget", d.str("detail") ?: budgetText(d), link,
+                threadId = e.threadId, step = e.step)
             "budget.stop" -> {
                 upsertThread(e, "waiting", at)
-                notifications.create("budget", e.projectId, "A budget cap stopped the flow", d.str("detail") ?: budgetText(d), link)
+                notifications.create("budget", e.projectId, "A budget cap stopped the flow", d.str("detail") ?: budgetText(d), link,
+                    threadId = e.threadId, step = e.step)
             }
             "guard.refused" -> notifications.create(
                 "failed", e.projectId, "Guard reverted an edit",
                 d.str("text") ?: listOfNotNull(d.str("agent"), d.str("path")?.let { "tried to change $it" }, d.str("phase")?.let { "in $it" }).joinToString(" "),
-                link,
+                link, threadId = e.threadId, step = e.step,
             )
             "thread.done" -> {
                 upsertThread(e, "done", at)

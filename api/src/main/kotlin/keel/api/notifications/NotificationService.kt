@@ -123,15 +123,30 @@ class NotificationService(
      */
     fun markDone(threadId: String, upTo: Long? = null, read: Boolean = true): List<Long> {
         if (threadId.isBlank()) return emptyList()
+        // B3 also a step's failure from before notifications carried their thread (0.18.54 and older): its link is the job
+        val mine = "(thread_id = ? OR (thread_id IS NULL AND link IN (SELECT '/jobs/' || id FROM agent_calls WHERE thread_id = ?)))"
         val ids = if (upTo != null) {
-            jdbc.queryForList("SELECT id FROM notifications WHERE thread_id = ? AND done = 0 AND id <= ?", Long::class.java, threadId, upTo)
+            jdbc.queryForList("SELECT id FROM notifications WHERE $mine AND done = 0 AND id <= ?", Long::class.java, threadId, threadId, upTo)
         } else {
-            jdbc.queryForList("SELECT id FROM notifications WHERE thread_id = ? AND done = 0", Long::class.java, threadId)
+            jdbc.queryForList("SELECT id FROM notifications WHERE $mine AND done = 0", Long::class.java, threadId, threadId)
         }
         if (ids.isEmpty()) return ids
         jdbc.update("UPDATE notifications SET done = 1${if (read) ", read = 1" else ""} WHERE id IN (${ids.joinToString(",")})")
         val pid = jdbc.query("SELECT project_id FROM notifications WHERE id = ?", { rs, _ -> rs.getString(1) }, ids.first()).firstOrNull()
         hub.publish(pid, "notification.done", mapOf("thread_id" to threadId, "ids" to ids, "read" to read))
+        return ids
+    }
+
+    /**
+     * B3 notifications made before they carried a thread (0.18.54 and older: a task proposal's, a failed step's) that
+     * still point at [link]: done and read, so the bell's count goes down once what they were about is decided.
+     */
+    fun markDoneUnthreaded(link: String): List<Long> {
+        val ids = jdbc.queryForList("SELECT id FROM notifications WHERE thread_id IS NULL AND done = 0 AND link = ?", Long::class.java, link)
+        if (ids.isEmpty()) return ids
+        jdbc.update("UPDATE notifications SET done = 1, read = 1 WHERE id IN (${ids.joinToString(",")})")
+        val pid = jdbc.query("SELECT project_id FROM notifications WHERE id = ?", { rs, _ -> rs.getString(1) }, ids.first()).firstOrNull()
+        hub.publish(pid, "notification.done", mapOf("thread_id" to "", "ids" to ids, "read" to true))
         return ids
     }
 
