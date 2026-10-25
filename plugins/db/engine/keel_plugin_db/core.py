@@ -8,7 +8,7 @@ project's own or a global one (scope); one keel cannot reach now comes with `una
     classify(sql, kind)      read | change | schema | never, and why (sqlglot reads the SQL; no word search)
     query(conn, sql, ...)    a read runs in a read-only transaction (200 rows, 15 s); a change only on a local or test
                              database: without `confirm` it runs and rolls back to count the rows, with it for real
-    schema(conn)             tables, columns, primary and foreign keys
+    schema(conn)             tables, columns, primary and foreign keys (at most 300: truncated and total say so)
     test(conn)               can keel connect, which server, how many tables, in how many ms
     databases(conn)          the databases on the server (the editor's Default database)
     suggest(root)            connections the project names: docker compose, .env.example, Spring's config, SQLite files
@@ -648,14 +648,17 @@ def schema(conn: Conn, root: str = "") -> dict:
     except Exception as exc:
         raise _connect_error(conn, exc) from exc
     tables: dict[str, dict] = {}
+    total = 0
 
     def table(name: str) -> dict:
         return tables.setdefault(name, {"name": name, "columns": [], "fks": []})
 
     try:
         if conn.kind == "sqlite":
-            _, rows, _, _ = _run(c, conn, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
-                                          "ORDER BY name", MAX_TABLES)
+            user_tables = "FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            _, rows, _, _ = _run(c, conn, f"SELECT name {user_tables} ORDER BY name", MAX_TABLES)
+            _, n, _, _ = _run(c, conn, f"SELECT count(*) {user_tables}", 1)
+            total = int(n[0][0]) if n else len(rows)
             for (name,) in rows:
                 t = table(name)
                 q = name.replace('"', '""')
@@ -666,11 +669,25 @@ def schema(conn: Conn, root: str = "") -> dict:
         else:
             where = ("c.table_schema NOT IN ('pg_catalog', 'information_schema')" if conn.kind == "postgres"
                      else "c.table_schema = DATABASE()")
+            # keel 0.18.55: the project's own schemas first (PostgreSQL's search_path, `public`; MySQL reads only the
+            # connected database), so a cut at MAX_TABLES drops other schemas' tables, not the project's
+            path: list[str] = []
+            if conn.kind == "postgres":
+                _, sp, _, _ = _run(c, conn, "SELECT current_schemas(false)", 1)
+                path = [str(x) for x in (sp[0][0] if sp and sp[0] and sp[0][0] else [])] or ["public"]
+            first = ("array_position(current_schemas(false), c.table_schema::name) NULLS LAST, " if conn.kind == "postgres"
+                     else "")
             _, cols, _, _ = _run(c, conn, "SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable "
                                           "FROM information_schema.columns c JOIN information_schema.tables t "
                                           "ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
                                           f"WHERE {where} AND t.table_type = 'BASE TABLE' "
-                                          "ORDER BY c.table_schema, c.table_name, c.ordinal_position", 20_000)
+                                          f"ORDER BY {first}c.table_schema, c.table_name, c.ordinal_position", 20_000)
+            rank = {s_: i for i, s_ in enumerate(path)}
+            cols = sorted(cols, key=lambda r: (rank.get(r[0], len(rank)), r[0], r[1]))     # stable: column order stays
+            twhere = where.replace("c.table_schema", "t.table_schema")
+            _, n, _, _ = _run(c, conn, f"SELECT count(*) FROM information_schema.tables t WHERE {twhere} "
+                                       "AND t.table_type = 'BASE TABLE'", 1)
+            total = int(n[0][0]) if n else len({(r[0], r[1]) for r in cols})
 
             def tname(schema_name: str, name: str) -> str:
                 return name if conn.kind == "mysql" or schema_name == "public" else f"{schema_name}.{name}"
@@ -709,7 +726,9 @@ def schema(conn: Conn, root: str = "") -> dict:
         raise DbError(400, f"keel could not read the schema: {str(exc).splitlines()[0][:300]}") from exc
     finally:
         c.close()
-    return {"connection": conn.name, "kind": conn.kind, "tables": list(tables.values())}
+    total = max(total, len(tables))
+    return {"connection": conn.name, "kind": conn.kind, "tables": list(tables.values()), "truncated": total > len(tables),
+            "total": total}
 
 
 # ------------------------------------------------------------------ suggestions

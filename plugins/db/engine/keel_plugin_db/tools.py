@@ -78,7 +78,9 @@ def _schema_text(sch: dict, table: str = "") -> str:
             lines.append(f"- {c['name']}: {', '.join(bits)}")
         lines += [f"- foreign key {f['column']} → {f['table']}.{f['ref']}" for f in t["fks"]]
         return "\n".join(lines)
-    lines = [f"{len(tables)} tables in {sch['connection']} ({LABEL.get(sch['kind'], sch['kind'])}); name(columns, * = primary key) "
+    count = (f"showing {len(tables)} of {sch['total']} tables (the project's schema first)" if sch.get("truncated")
+             else f"{len(tables)} tables")
+    lines = [f"{count} in {sch['connection']} ({LABEL.get(sch['kind'], sch['kind'])}); name(columns, * = primary key) "
              "and foreign keys:"]
     for t in tables:
         cols = ", ".join(c["name"] + ("*" if c["pk"] else "") for c in t["columns"])

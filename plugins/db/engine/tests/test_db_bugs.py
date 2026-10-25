@@ -22,6 +22,49 @@ def _db(tmp_path, name="a.db", script=""):
     return core.Conn("x", "sqlite", f"sqlite:{name}")
 
 
+# ------------------------------------------------------------------ M1: more than 300 tables
+
+def test_a_long_postgres_schema_keeps_the_search_path_first_and_says_it_is_cut(monkeypatch):
+    monkeypatch.setattr(core, "MAX_TABLES", 2)
+    cols = [("aaa", f"t{i}", "id", "integer", "NO") for i in range(3)] + \
+           [("public", "users", "id", "integer", "NO"), ("public", "orders", "id", "integer", "NO")]
+    seen = []
+
+    class C:
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    def run(c, conn, sql, limit, **kw):
+        seen.append(sql)
+        if "current_schemas" in sql and "information_schema" not in sql:
+            return ["s"], [[["public"]]], False, 1
+        if "count(" in sql.lower():
+            return ["n"], [[5]], False, 1
+        if "information_schema.columns" in sql:
+            return [], cols, False, len(cols)
+        return [], [], False, 0
+
+    monkeypatch.setattr(core, "_connect", lambda *a, **k: C())
+    monkeypatch.setattr(core, "_run", run)
+    out = core.schema(core.Conn("pg", "postgres", "postgres://h/d"))
+    assert [t["name"] for t in out["tables"]] == ["orders", "users"]
+    assert out["truncated"] is True and out["total"] == 5
+    assert any("array_position" in s for s in seen)
+    assert "showing 2 of 5 tables" in tools._schema_text(out)
+
+
+def test_a_long_sqlite_schema_says_it_is_cut(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, "MAX_TABLES", 2)
+    c = _db(tmp_path, script="create table a(x); create table b(x); create table c(x);")
+    out = core.schema(c, str(tmp_path))
+    assert len(out["tables"]) == 2 and out["truncated"] is True and out["total"] == 3
+    full = core.schema(_db(tmp_path, "b.db", "create table a(x);"), str(tmp_path))
+    assert full["truncated"] is False and full["total"] == 1
+
+
 # ------------------------------------------------------------------ M3: a JDBC address's ?user=&password=
 
 def test_a_jdbc_address_gives_its_user_and_password(monkeypatch):
@@ -116,3 +159,4 @@ def test_an_update_or_delete_without_where_says_it_changes_every_row(tmp_path):
     some = core.query(c, "UPDATE players SET name = 'x' WHERE id = 1", root=str(tmp_path), allow_change=True)
     assert some["every_row"] is False
     assert core.query(c, "INSERT INTO players(name) VALUES ('C')", root=str(tmp_path), allow_change=True)["every_row"] is False
+
