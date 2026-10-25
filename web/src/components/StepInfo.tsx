@@ -5,6 +5,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type ExplainRequest, type StepExplanation, type StepRoute, type Workflow } from "../api";
 import { kfmt } from "../format";
+import { Markdown } from "./Markdown";
+import { listify } from "./prose";
 import { Drawer, ErrorBox, Loading, Pill } from "./ui";
 import { KIND } from "./workflow";
 
@@ -38,15 +40,17 @@ function Task({ x }: { x: StepExplanation }) {
     const now = a.model.now;
     return (
       <Section title="Task">
-        <div className="kv">
-          <span>Agent</span><b>{a.id}{a.custom ? " (custom)" : ""}</b>
-          <span>Model</span>
-          <b>{now ? `${now.provider} ${now.model ?? ""}${now.effort ? ` · ${now.effort}` : ""}` : a.model.step === "default" ? `the agent's model${a.model.agent_file ? ` (file: ${a.model.agent_file}${a.model.effort ? `, ${a.model.effort}` : ""})` : ""}` : a.model.step}</b>
-          {a.max_turns ? <><span>Turns at most</span><b>{a.max_turns}</b></> : null}
-          {a.knowledge ? <><span>Knowledge</span><b>{a.knowledge.sections.join(", ") || "none"}{a.knowledge.code_graph ? " · code graph" : ""}{a.knowledge.memory ? " · memory" : ""}</b></> : null}
-        </div>
+        {/* a definition list: the labels keep their width, a long value wraps under itself (never over its label) */}
+        <dl className="xkv" data-testid="explain-facts">
+          <dt>Agent</dt><dd>{a.id}{a.custom ? " (custom)" : ""}</dd>
+          <dt>Model</dt>
+          <dd>{now ? `${now.provider} ${now.model ?? ""}${now.effort ? ` · ${now.effort}` : ""}` : a.model.step === "default" ? `the agent's model${a.model.agent_file ? ` (file: ${a.model.agent_file}${a.model.effort ? `, ${a.model.effort}` : ""})` : ""}` : a.model.step}</dd>
+          {a.max_turns ? <><dt>Turns at most</dt><dd>{a.max_turns}</dd></> : null}
+          {a.knowledge ? <><dt>Knowledge</dt><dd>{a.knowledge.sections.join(", ") || "none"}{a.knowledge.code_graph ? " · code graph" : ""}{a.knowledge.memory ? " · memory" : ""}</dd></> : null}
+        </dl>
         {a.about && <p className="sub">{a.about}</p>}
-        {a.instructions && <><span className="lab">What this step asks</span><p className="xpre-line">{a.instructions}</p></>}
+        {a.instructions && <><span className="lab">What this step asks</span>
+          <div className="md xasks" data-testid="explain-asks"><Markdown text={listify(a.instructions)} breaks /></div></>}
         {a.markers.length > 0 && (
           <ul className="xlist">{a.markers.map((m) => <li key={m.name}><span className="mono">{m.name}</span>: {m.text}</li>)}</ul>
         )}
