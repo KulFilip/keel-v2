@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service
 import java.util.UUID
 
 data class DbConnectionBody(val name: String = "", val url: String? = null, val env: String? = null, val source: String? = null)
-/** mask: a model reads the rows (keel2 mcp), so columns named like a secret come back as •••. */
+/** mask: a model reads the rows, so columns that hold a secret come back as •••; an agent's call (keel2 mcp) is always masked. */
 data class DbQueryBody(val connection: String = "", val sql: String = "", val change: Boolean = false, val confirm: Boolean = false,
                        val mask: Boolean = false)
 
@@ -239,14 +239,15 @@ class DatabaseService(
     }
 
     /** The person's own query: a read, or a change on a local or test database (counted first, then `confirm`). An agent's
-     *  (keel2 mcp) also needs the connection's Access: none refuses all, a change needs "change after approval". */
+     *  (keel2 mcp) also needs the connection's Access: none refuses all, a change needs "change after approval"; and its
+     *  rows are always masked (keel 0.18.55: `"mask": false` from an MCP client no longer shows a secret column). */
     fun query(pid: String, body: DbQueryBody, agent: Boolean = false): JsonNode {
         plugins.require(pid, "db")
         if (body.sql.isBlank()) throw BadRequest("Write a query first")
         if (body.sql.length > 20_000) throw BadRequest("The query is too long")
         val name = body.connection.ifBlank { default(pid) }
         return engine.post("/plugins/db/query", mapOf("root" to projects.root(pid).toString(), "connection" to spec(pid, name, agent, body.change),
-            "sql" to body.sql, "change" to body.change, "confirm" to body.confirm, "mask" to body.mask), long = true)
+            "sql" to body.sql, "change" to body.change, "confirm" to body.confirm, "mask" to (body.mask || agent)), long = true)
     }
 
     /** The local connection, else the test one, else the first. */
