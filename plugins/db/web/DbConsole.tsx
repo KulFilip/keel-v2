@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBox, errorParts, Pill, useLoad } from "@keel/web-sdk";
 import { dbApi, type DbConnection, type DbResult } from "./dbApi";
 import { Icon } from "./icons";
-import { ResultTable } from "./QueryPanel";
-import { readStore, statementAt, writeStore } from "./dbModel";
+import { EveryRow, ResultTable } from "./QueryPanel";
+import { readStore, statementAt, statements, writeStore } from "./dbModel";
 
 export function useRun(pid: string) {
   const [busy, setBusy] = useState(false);
@@ -45,16 +45,28 @@ export function useRun(pid: string) {
   return { busy, result, err, run, setResult, clear };
 }
 
+/** keel 0.18.55: with several statements in the console, which one ran (or waits for Run it). */
+function Ran({ stmt, label }: { stmt: string; label: string }) {
+  return (
+    <p className="db-stmt">
+      <span className="sub">{label}</span> <code className="mono">{stmt}</code>
+    </p>
+  );
+}
+
 function ChangeConfirm({
   r,
   busy,
   onRun,
   onCancel,
+  stmt,
 }: {
   r: DbResult;
   busy: boolean;
   onRun: () => void;
   onCancel: () => void;
+  /** the statement under the cursor, shown when the console holds several */
+  stmt?: string;
 }) {
   if (r.kind !== "change") return null;
   if (r.done)
@@ -65,6 +77,7 @@ function ChangeConfirm({
     );
   return (
     <div className="qp-confirm" role="group" aria-label="Change data">
+      {stmt && <Ran stmt={stmt} label="Statement under the cursor:" />}
       <span>
         This changes{" "}
         <b>
@@ -73,6 +86,7 @@ function ChangeConfirm({
         in {r.connection} ({r.env}). keel ran it once and rolled it back to
         count.
       </span>
+      <EveryRow r={r} />
       <button
         type="button"
         className="btn sm primary"
@@ -126,6 +140,7 @@ export function ConsoleTab({
   const box = useRef<HTMLTextAreaElement>(null);
   const { busy, result, err, run, setResult, clear } = useRun(pid);
   const [last, setLast] = useState("");
+  const several = statements(sql).length > 1;
   const go_ = async () => {
     const el = box.current;
     const stmt = statementAt(
@@ -218,8 +233,10 @@ export function ConsoleTab({
             busy={busy}
             onRun={() => void run(conn, last, true)}
             onCancel={() => setResult(null)}
+            stmt={several ? last : undefined}
           />
         )}
+        {result?.kind === "read" && several && <Ran stmt={last} label="Ran the statement under the cursor:" />}
         {result?.kind === "read" && <ResultTable r={result} />}
         {!result && !err && <p className="sub">Results show here.</p>}
       </div>

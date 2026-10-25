@@ -95,3 +95,80 @@ describe("a long schema", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("a change in the console", () => {
+  async function openConsole() {
+    const user = userEvent.setup();
+    db.plugins.db = true;
+    db.dbConns = [local];
+    location.hash = "#/repo";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Database" }));
+    const tree = await screen.findByRole("tree", { name: "Databases" });
+    await user.click(
+      within(tree).getByRole("button", { name: "New console on local" }),
+    );
+    const box = await screen.findByLabelText("Console on local");
+    return {
+      user,
+      box,
+      sql: within(box).getByRole("textbox", { name: "SQL" }),
+    };
+  }
+
+  it("that changes every row says so in red before it runs", async () => {
+    server.use(
+      http.post("/api/projects/:pid/db/query", async ({ request }) => {
+        const b = (await request.json()) as { sql: string; confirm?: boolean };
+        return HttpResponse.json({
+          connection: "local",
+          env: "local",
+          kind: "change",
+          sql: b.sql,
+          changed: 7,
+          done: !!b.confirm,
+          every_row: true,
+        });
+      }),
+    );
+    const { user, box, sql } = await openConsole();
+    await user.clear(sql);
+    await user.type(sql, "update players set name = 'x'");
+    await user.click(within(box).getByRole("button", { name: /Run/ }));
+    const confirm = await within(box).findByRole("group", {
+      name: "Change data",
+    });
+    expect(within(confirm).getByRole("alert")).toHaveTextContent(
+      "No WHERE: this changes every row: 7 rows",
+    );
+  });
+
+  it("with several statements runs and confirms only the one under the cursor, labeled", async () => {
+    const { user, box, sql } = await openConsole();
+    await user.clear(sql);
+    await user.type(
+      sql,
+      "select 1;\nupdate players set name = 'x' where id = 1",
+    );
+    await user.click(within(box).getByRole("button", { name: /Run/ }));
+    const confirm = await within(box).findByRole("group", {
+      name: "Change data",
+    });
+    expect(
+      within(confirm).getByText("Statement under the cursor:"),
+    ).toBeInTheDocument();
+    expect(
+      within(confirm).getByText("update players set name = 'x' where id = 1"),
+    ).toBeInTheDocument();
+    expect(within(confirm).queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(within(confirm).getByRole("button", { name: /Run it/ }));
+    await waitFor(() =>
+      expect(
+        calls("POST", "/api/projects/ludus-engine/db/query").at(-1)?.body,
+      ).toMatchObject({
+        sql: "update players set name = 'x' where id = 1",
+        confirm: true,
+      }),
+    );
+  });
+});

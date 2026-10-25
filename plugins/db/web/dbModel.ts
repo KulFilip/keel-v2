@@ -50,6 +50,27 @@ export function quoteTable(name: string, kind: string): string {
 export const tableSelect = (name: string, kind: string, limit: number) =>
   `SELECT * FROM ${quoteTable(name, kind)} LIMIT ${limit}`;
 
+/** The text's statements (they end at `;` outside quotes), without the empty ones. */
+export function statements(text: string): string[] {
+  const out: string[] = [];
+  let start = 0,
+    quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`") quote = c;
+    else if (c === ";") {
+      out.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
 /** The statement under the cursor (statements end at `;` outside quotes), or the selection when there is one. */
 export function statementAt(
   text: string,

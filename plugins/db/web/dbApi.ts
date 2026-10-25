@@ -53,6 +53,8 @@ export type DbResult = {
   masked?: string[];
   changed?: number;
   done?: boolean;
+  /** an UPDATE or a DELETE without a WHERE: it changes every row of its table */
+  every_row?: boolean;
 };
 type Tested = {
   connection: DbConnection;
