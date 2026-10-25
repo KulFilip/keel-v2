@@ -93,6 +93,9 @@ data class StartThread(
     /** What the project's caps changed for this flow, in words (returned as cap_note; never sent to the engine). */
     @get:com.fasterxml.jackson.annotation.JsonIgnore
     val capNote: String? = null,
+    /** B14 the tokens the estimate gave at the start (threads.estimate: the Budget page's estimate column); never sent. */
+    @get:com.fasterxml.jackson.annotation.JsonIgnore
+    val estimate: Long? = null,
 )
 
 /** One agent's entry in StartThread.agents. */
@@ -197,7 +200,9 @@ class FlowService(
         // drawer gives: the Settings cap, raised to the estimate's high end + 30% when that is above it. The caps still bind.
         // B15 only keel's default cap is raised: a cap someone saved in Settings (General or this project) is the cap.
         val capSaved = settings.isSet(pid, "cap_tokens")
-        val wanted = if (cap?.capTokens == null) capForEstimate(pid, wf.yaml, acs?.size, s.capTokens) else null
+        // B14 one estimate per start: the Budget page compares it with what the flow used, and a cap may follow it
+        val est = estimateAtStart(pid, wf.yaml, acs?.size)
+        val wanted = if (cap?.capTokens == null) capForEstimate(est, s.capTokens) else null
         val raised = wanted?.takeIf { !capSaved }
         val limits = capPlanner.limits(pid, cap?.capTokens ?: raised, cap?.onCap, cheaperOk)
         limits.refused?.let { throw Conflict(it.error, it.hint) }
@@ -240,18 +245,25 @@ class FlowService(
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
+            estimate = est?.path("tokens")?.asLong(0)?.takeIf { it > 0 },
         )
+    }
+
+    /** The estimate of a flow that starts now, with the criteria given (none yet: 3, as the drawer); null when it fails. */
+    private fun estimateAtStart(pid: String, yaml: String, acs: Int?): JsonNode? {
+        if (yaml.isBlank()) return null
+        return runCatching { estimateYaml(pid, yaml, acs?.takeIf { it > 0 } ?: 3) }
+            .onFailure { log.warn("no estimate for the flow in {}: {}", pid, it.message) }.getOrNull()
     }
 
     /**
      * The cap a flow started without one should get (what web/src/components/StartFlow.tsx capForEstimate does): the
      * estimate's high end plus 30%, rounded up to 10k, when that is above the Settings cap; null when the Settings cap is
-     * enough, is off (0) or there is no estimate. `acs` is the number of criteria given (none yet: 3, as the drawer).
+     * enough, is off (0) or there is no estimate ([est]: estimateAtStart).
      */
-    private fun capForEstimate(pid: String, yaml: String, acs: Int?, settingsCap: Int): Int? {
-        if (settingsCap <= 0 || yaml.isBlank()) return null
-        val high = runCatching { estimateYaml(pid, yaml, acs?.takeIf { it > 0 } ?: 3).path("high").asLong() }
-            .onFailure { log.warn("no estimate for the flow's cap in {}: {}", pid, it.message) }.getOrNull() ?: return null
+    private fun capForEstimate(est: JsonNode?, settingsCap: Int): Int? {
+        if (settingsCap <= 0 || est == null) return null
+        val high = est.path("high").asLong(0)
         if (high <= 0) return null
         val want = Math.ceil(high * 1.3 / 10_000).toLong() * 10_000
         return if (want > settingsCap) want.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
@@ -307,7 +319,7 @@ class FlowService(
             tid, pid, workflowId, title, now, now,
         )
         jdbc.update("UPDATE threads SET workflow_id = ?, title = ?, project_id = ? WHERE id = ?", workflowId, title, pid, tid)
-        jdbc.update("UPDATE threads SET worktree = ?, branch = ? WHERE id = ?", wt?.name, wt?.branch, tid)
+        jdbc.update("UPDATE threads SET worktree = ?, branch = ?, estimate = COALESCE(?, estimate) WHERE id = ?", wt?.name, wt?.branch, start.estimate, tid)
         // v0.15.9 what this flow applied on top of the repo starts with where it works (DocHistoryService)
         runCatching {
             (wt?.branch ?: projects.branch(root))?.let { docs.add(pid, tid, "branch", it, "the flow's branch") }

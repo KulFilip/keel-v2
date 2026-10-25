@@ -221,6 +221,8 @@ class CapsApiTest : ApiTest() {
         assertThat(state["cap_note"].asText()).isEqualTo("keel raised this flow's cap from 500k (Settings) to 1.8M: the estimate's high end plus 30%.")
         assertThat(engine.lastBody("/workflows/estimate")!!["acs"].asInt()).isEqualTo(3)   // no criteria yet: 3, as the drawer
         assertThat(engine.lastBody("/threads")!!.has("cap_note")).isFalse()
+        // B14 the Budget page's estimate column: the estimate at the start
+        assertThat(get("/api/projects/$pid/budget").json()["recent"][0]["estimate"].asLong()).isEqualTo(1_340_000L * 10 / 16)
 
         // criteria given: the estimate counts them
         withEstimate(1_340_000) {
