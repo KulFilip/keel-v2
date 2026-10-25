@@ -240,3 +240,23 @@ def test_the_explorers_map_reaches_the_librarians_and_the_hand_over_says_what_ne
     assert "Setup ladder:" in w["detail"] and "Knowledge: wrote conventions" in w["detail"]
     assert "Not checked:" in w["detail"] and "- feature:" in w["detail"] and "- fix:" in w["detail"]
     assert "fast init" not in w["detail"]
+
+
+def test_an_unknown_architecture_follows_the_knowledge_base(tmp_path):
+    """init's config said architecture unknown while its knowledge base named a style with high confidence: the
+    knowledge check now writes that style to the config; a style a person set stays."""
+    from keel_engine.runtime import init_actions
+    root = tmp_path / "repo"
+    (root / ".keel").mkdir(parents=True)
+    (root / "docs" / "knowledge").mkdir(parents=True)
+    cfg = root / ".keel" / "config.yml"
+    cfg.write_text("version: 4\narchitecture: {style: unknown, confidence: low, source: detected}\n")
+    (root / "docs" / "knowledge" / "architecture.md").write_text("# Architecture\n\nStyle: **layered** (high, surveyed) — at `abc`.\n")
+    assert init_actions.arch_from_knowledge(str(root)).startswith("architecture: layered (high)")
+    assert yaml.safe_load(cfg.read_text())["architecture"] == {"style": "layered", "confidence": "high", "source": "knowledge"}
+    assert init_actions.arch_from_knowledge(str(root)) is None                    # known now: nothing more
+    cfg.write_text("version: 4\narchitecture: {style: unknown, source: person}\n")
+    assert init_actions.arch_from_knowledge(str(root)) is None                    # a person's choice stays
+    cfg.write_text("version: 4\narchitecture: {style: unknown, confidence: low, source: detected}\n")
+    (root / "docs" / "knowledge" / "architecture.md").write_text("Style: **{{ARCH_STYLE}}** (low, detected)\n")
+    assert init_actions.arch_from_knowledge(str(root)) is None                    # no known style named
