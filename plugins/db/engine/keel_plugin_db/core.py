@@ -545,9 +545,16 @@ def test(conn: Conn, root: str = "") -> dict:
         _, rows, _, _ = _run(c, conn, server, 1)
         version = str(rows[0][0]) if rows else ""
         c.rollback()
+    except Exception as exc:
+        return {"ok": False, "error": scrub(str(exc).strip().splitlines()[0][:300] if str(exc).strip() else type(exc).__name__,
+                                            conn.url), "hint": "", "ms": ms()}
     finally:
         c.close()
-    tables = len(schema(conn, root)["tables"])
+    try:
+        sch = schema(conn, root)                     # a broken SQLite file fails here, not on connect
+    except DbError as exc:
+        return {"ok": False, "error": str(exc), "hint": exc.hint, "ms": ms()}
+    tables = sch.get("total", len(sch["tables"]))
     label = {"postgres": "PostgreSQL", "mysql": "MySQL", "sqlite": "SQLite"}[conn.kind]
     if conn.kind == "mysql" and ("mariadb" in version.lower() or conn.driver == "mariadb"):
         label = "MariaDB"

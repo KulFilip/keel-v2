@@ -22,6 +22,14 @@ def _db(tmp_path, name="a.db", script=""):
     return core.Conn("x", "sqlite", f"sqlite:{name}")
 
 
+# ------------------------------------------------------------------ L2: a broken SQLite file
+
+def test_a_broken_sqlite_file_is_a_failed_test_not_an_error(tmp_path):
+    (tmp_path / "bad.db").write_bytes(b"this is not a database at all, just some text" * 20)
+    out = core.test(core.Conn("bad", "sqlite", "sqlite:bad.db"), str(tmp_path))
+    assert out["ok"] is False and out["error"]
+
+
 # ------------------------------------------------------------------ L4: the real statement's name
 
 @pytest.mark.parametrize("sql,word", [("LISTEN news", "LISTEN"), ("NOTIFY news", "NOTIFY"), ("DISCARD ALL", "DISCARD")])
