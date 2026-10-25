@@ -187,8 +187,12 @@ class HelperService(
 
     /** P1-2 the engine summarises the chat and goes on from the summary: {before, after} tokens. */
     fun compact(pid: String, sid: String): JsonNode {
-        get(pid, sid)
-        return engine.post("/helper/sessions/$sid/compact", emptyMap<String, Any>())
+        val s = get(pid, sid)
+        // 0.18.54 the summary runs the chat's model, so it needs the same login a turn sends (without it a Claude
+        // login saved in Connections was missing: "`claude` is not logged in inside the container")
+        val model = mapper.treeToValue(s.path("model"), Model::class.java)
+        val keys = secrets.engineKeys(model.provider, model.mode) + flows.contributedKeys(pid)
+        return engine.post("/helper/sessions/$sid/compact", if (keys.isEmpty()) emptyMap<String, Any>() else mapOf("keys" to keys))
     }
 
     /** P1-3 the chat as Markdown in the project's .keel/chats/: {path, messages}. */

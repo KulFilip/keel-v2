@@ -27,6 +27,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from keel_engine.app import AgentSettings, McpServerSpec, ModelSpec
+from keel_engine import models
 from keel_engine.runtime.service import EngineError
 
 from . import helper
@@ -220,6 +221,8 @@ async def post_helper_turn(sid: str, body: HelperTurn, request: Request):
         return await runner(request).turn(sid, body.model_dump(exclude_none=True))
     except helper.HelperError as exc:
         raise EngineError(exc.status, str(exc), exc.hint) from exc
+    except models.ModelError as exc:      # 0.18.54 the model's own words and hint, not a bare 500
+        raise EngineError(502, str(exc), exc.hint) from exc
 
 
 @router.post("/helper/sessions/{sid}/stop")
@@ -229,12 +232,15 @@ async def post_helper_stop(sid: str, request: Request):
 
 
 @router.post("/helper/sessions/{sid}/compact")
-async def post_helper_compact(sid: str, request: Request):
+async def post_helper_compact(sid: str, request: Request, body: dict | None = None):
     """Compacts the session on request, answering the tokens it had before and after."""
     if runner(request).busy(sid):
         raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then compact.")
     before = (await asyncio.to_thread(helper_call, helper.get, sid, False))["ctx_tokens"]
-    after = (await helper.compact(sid))["ctx_tokens"]
+    try:
+        after = (await helper.compact(sid, (body or {}).get("keys")))["ctx_tokens"]
+    except models.ModelError as exc:
+        raise EngineError(502, str(exc), exc.hint) from exc
     return {"before": before, "after": after}
 
 
