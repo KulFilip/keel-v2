@@ -456,6 +456,31 @@ data class JobStep(
     val tool: String? = null,
     val path: String? = null,
     val ok: Boolean? = null,
+    val diff: String? = null,
+    val output: String? = null,
+    val ms: Long? = null,
+    val server: String? = null,
+)
+
+/** One agent call of the jobs list (GET /api/jobs?project=), for a flow's activity when it is opened mid-run. */
+@Serializable
+data class JobRow(
+    val id: String,
+    val projectId: String? = null,
+    val threadId: String? = null,
+    val agent: String? = null,
+    val provider: String? = null,
+    val model: String? = null,
+    val step: String? = null,
+    val phase: String? = null,
+    val ac: String? = null,
+    val status: String = "",
+    val startedAt: String = "",
+    val endedAt: String? = null,
+    val tokensIn: Long = 0,
+    val tokensOut: Long = 0,
+    val costUsd: Double = 0.0,
+    val effort: String? = null,
 )
 
 @Serializable

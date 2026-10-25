@@ -164,7 +164,11 @@ class KeelApi(
     /** Keep: keel commits KeelBot's files after the checks. */
     suspend fun keep(pid: String, sid: String): HelperDone = call("POST", "${h(pid)}/sessions/${enc(sid)}/done", DoneBody())
 
-    suspend fun jobSteps(callId: String): JobSteps = call("GET", "/api/jobs/${enc(callId)}/steps")
+    suspend fun jobSteps(callId: String, after: Int = 0): JobSteps =
+        call("GET", "/api/jobs/${enc(callId)}/steps" + if (after > 0) "?after=$after" else "")
+
+    /** The project's recent agent calls (newest first). */
+    suspend fun jobs(pid: String, limit: Int = 50): List<JobRow> = call("GET", "/api/jobs?project=${enc(pid)}&limit=$limit")
 
     // ---------------------------------------------------------------- live stream
     /** The SSE url: this project's events plus the notifications of every project. */

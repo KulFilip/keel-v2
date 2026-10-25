@@ -37,6 +37,8 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
     private val detail = KeelUi.scrollStack().apply { border = JBUI.Borders.empty(10) }
     private val status = KeelUi.muted("")
     private var selected: String? = null
+    private val life = parent
+    private var activity: FlowActivity? = null
     private var pendingFocus = false
     private var pendingSpec = false
     private var loading = false
@@ -58,7 +60,10 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
         add(split, BorderLayout.CENTER)
         svc.onChange(parent) { reload() }
         svc.onEvent(parent) { ev ->
-            if (ev.threadId.isNotEmpty() && ev.threadId == selected && !ev.type.endsWith(".delta")) showFlow(ev.threadId, quiet = true)
+            if (ev.threadId.isEmpty() || ev.threadId != selected) return@onEvent
+            activity?.accept(ev)
+            // the flow view (steps, criteria, the gate) again only when a step, a gate or the flow changed, not per agent step
+            if (ev.type.startsWith("step.") || ev.type.startsWith("gate.") || ev.type.startsWith("thread.")) showFlow(ev.threadId, quiet = true)
         }
         reload()
     }
@@ -114,6 +119,10 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
     private fun showFlow(tid: String, quiet: Boolean = false) {
         val pid = svc.pid ?: return
         selected = tid
+        if (activity?.threadId != tid) {
+            activity?.let { com.intellij.openapi.util.Disposer.dispose(it) }
+            activity = FlowActivity(project, pid, tid, life)
+        }
         if (!quiet) {
             detail.removeAll()
             detail.add(KeelUi.muted("Loading…").full())
@@ -140,12 +149,6 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
         detail.add(KeelUi.row(*head.toTypedArray()).full())
         detail.add(KeelUi.gap(4))
         detail.add(KeelUi.title(t.title.ifBlank { t.threadId }).full())
-        detail.add(KeelUi.gap(6))
-        detail.add(stepBar(stepOf(t.phase, t.status), t.status).full())
-        t.error?.takeIf { it.isNotBlank() }?.let {
-            detail.add(KeelUi.gap(6))
-            detail.add(KeelUi.prose(it).apply { foreground = KeelUi.BAD }.full())
-        }
         val w = t.waiting
         if (w != null && waits) {
             detail.add(KeelUi.gap(10))
@@ -160,13 +163,28 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
                 SwingUtilities.invokeLater { gate.scrollRectToVisible(gate.bounds) }
             }
         }
-        if (t.acs.isNotEmpty()) {
+        detail.add(KeelUi.gap(8))
+        detail.add(stepBar(stepOf(t.phase, t.status), t.status).full())
+        t.error?.takeIf { it.isNotBlank() }?.let {
+            detail.add(KeelUi.gap(6))
+            detail.add(KeelUi.prose(it).apply { foreground = KeelUi.BAD }.full())
+        }
+        activity?.takeIf { it.threadId == t.threadId }?.let { a ->
+            a.setStep(t.current?.let { c -> v.workflow?.steps?.firstOrNull { it.id == c }?.name ?: c } ?: t.phase.ifBlank { null })
             detail.add(KeelUi.gap(10))
-            detail.add(KeelUi.bold("Acceptance criteria").full())
+            detail.add(a.full())
+        }
+        val links = mutableListOf<Component>()
+        specFile(t.title)?.let { f -> links += KeelUi.link("Open the spec") { KeelUi.openFile(project, f, 1) } }
+        row?.branch?.let { b -> links += KeelUi.muted("branch $b") }
+        if (t.acs.isNotEmpty() || links.isNotEmpty()) {
+            detail.add(KeelUi.gap(10))
+            detail.add(KeelUi.row(KeelUi.bold(if (t.acs.isEmpty()) "Links" else "Acceptance criteria"), *links.toTypedArray(), gap = 12).full())
             t.acs.forEach { ac ->
                 val mark = when (ac.status) {
                     "done", "green", "passed" -> KeelUi.chip("✓", KeelUi.OK, KeelUi.CARD_BG)
                     "red", "failed" -> KeelUi.chip("✗", KeelUi.BAD, KeelUi.CARD_BG)
+                    "doing", "running", "active", "in_progress" -> KeelUi.chip("◆", KeelUi.ACCENT, KeelUi.ACCENT_BG)
                     else -> KeelUi.chip(" ", UIUtil.getContextHelpForeground(), KeelUi.CARD_BG)
                 }
                 detail.add(KeelUi.line(mark, KeelUi.bold(ac.id), KeelUi.muted(ac.layer.lowercase()), text = KeelUi.prose(ac.title)).full())
@@ -174,7 +192,6 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
         }
         detail.add(KeelUi.gap(10))
         val actions = mutableListOf<Component>()
-        specFile(t.title)?.let { f -> actions += KeelUi.link("Open the spec") { KeelUi.openFile(project, f, 1) } }
         if (t.status in setOf("running", "waiting", "paused", "interrupted")) {
             actions += KeelUi.link("Stop the flow") { svc.io({ it.stop(t.threadId) }) { r -> after(r.exceptionOrNull(), "The flow stopped.", t.threadId) } }
         }

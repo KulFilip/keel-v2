@@ -105,7 +105,9 @@ class KeelBotPanel(private val project: Project, parent: Disposable) : JPanel(Bo
         bottom.add(box.full())
         add(bottom, BorderLayout.SOUTH)
         svc.onChange(this) { if (session == null) load() }
-        svc.onEvent(this) { ev -> if (ev.type.startsWith("helper") && session != null && !ev.type.endsWith(".delta")) reloadChat() }
+        svc.onEvent(this) { ev ->
+            if (ev.type.startsWith("helper") && session != null && !ev.type.endsWith(".delta") && !ev.type.endsWith(".step") && ev.type != "helper.tool") reloadChat()
+        }
         liveJob = svc.scope.launch { svc.live.liveText.collect { SwingUtilities.invokeLater { if (busy) render() } } }
         load()
     }

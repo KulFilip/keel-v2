@@ -100,7 +100,9 @@ class LiveHub(private val scope: CoroutineScope, private val pollSeconds: Long =
                     return
                 }
                 if (ev.type == "helper.finished" && callId != null) _liveText.value = _liveText.value - callId
-                if (ev.type.endsWith(".step") || ev.type.endsWith("thinking.delta")) return // frequent, nothing to reload
+                if (ev.type.endsWith("thinking.delta")) return // frequent, nothing to show
+                // agent.step, helper.step, tool.ran go on: the flow's activity feed reads them (listeners that reload
+                // filter by type, so a busy agent does not cause a reload per step)
                 _changes.tryEmit(if (ev.type.isEmpty()) ev.copy(type = name) else ev)
             }
 
