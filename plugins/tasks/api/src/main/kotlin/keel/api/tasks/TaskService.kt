@@ -171,6 +171,8 @@ class TaskService(
             throw e
         }
         val tid = state.get("thread_id")?.asText()?.takeIf { it.isNotBlank() } ?: throw Conflict("The engine did not say which flow it started")
+        // a flow runs now: keel's open proposal to run one is answered (it no longer waits in the Inbox)
+        closeItems(id, kind = TaskAutomations.PROPOSAL, stage = "flow")
         return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}", actor)), events = true)
     }
 

@@ -161,4 +161,16 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(sent["request"].asText()).startsWith("Payment step crashes\n\nThe cart page crashes.")
         assertThat(sent["title"].asText()).isEqualTo("Payment step crashes")
     }
+
+    @Test
+    fun `starting the task's flow answers keel's open proposal`() {
+        val (pid, _) = newProject("auto-pick-started")
+        val id = newTask(pid, "Checkout crashes")
+        post("/api/tasks/$id/pick").andExpect(status().isOk)
+        assertThat(proposals(pid)).hasSize(1)
+        engine.nextThreadIds += "t-started-1"
+        post("/api/tasks/$id/start", mapOf("workflow_id" to "feature", "allow_dirty" to true)).andExpect(status().isOk)
+        assertThat(proposals(pid)).isEmpty()
+        assertThat(unread(id)).isEmpty()
+    }
 }

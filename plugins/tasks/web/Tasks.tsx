@@ -276,6 +276,10 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
     if (t && t.project_id !== pid) setProjectId(t.project_id);
   }, [t, pid, setProjectId]);
   useEffect(() => setPicked(null), [id]);
+  // the proposal was answered (Start, Not now, here or in the Inbox): its "keel picked a flow" line goes too
+  useEffect(() => {
+    if (picked && !picked.busy && picked.item && t && !t.waiting.some((w) => w.id === picked.item!.id)) setPicked(null);
+  }, [t, picked]);
 
   const run = async (what: () => Promise<Task | unknown>, msg: string) => {
     setBusy(true);
