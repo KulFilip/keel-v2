@@ -45,7 +45,8 @@ def save_doc(a) -> ActionResult:
         teams = {r.get("id"): r for r in a.data.get("repos") or []}
         for r in a.data.get(f"{src}_results") or []:
             text = docs.extract(r.get("text") or "")
-            risk = str((r.get("markers") or {}).get("RISK") or "").strip().lower() or "unknown"
+            risk = str((r.get("markers") or {}).get("RISK") or "").strip().lower() or docs.risk_of(text) or "unknown"
+            risk = next((w for w in ("low", "medium", "high") if risk.startswith(w)), risk)
             repo = teams.get(r.get("item")) or {}
             repos.append({"repo": r.get("item"), "title": r.get("title"), "team": repo.get("team"), "risk": risk, "text": text[:8000]})
             parts += [f"## {r.get('title') or r.get('item')}", f"Team: {repo.get('team_title') or repo.get('team') or '?'} · Risk: {risk}", "", text, ""]
@@ -54,7 +55,12 @@ def save_doc(a) -> ActionResult:
     else:
         if kind == "brief" and ((a.state or {}).get("clarify") or {}).get("questions"):
             return ActionResult(True, "nothing to save yet: questions first")
-        text = docs.extract(_answer(a, src))
+        raw = _answer(a, src)
+        if kind == "brief" and docs.only_questions(raw):
+            # The product manager asked instead of writing (questions keel's clarify loop did not take: another form,
+            # or after its rounds). They are no brief: they go to the gate as questions, the answers back to the step.
+            return _hold_for_questions(a, src, raw)
+        text = docs.extract(raw)
         extra = {}
     if not text.strip():
         return ActionResult(True, f"nothing to save: the {kind} is empty")
@@ -62,6 +68,22 @@ def save_doc(a) -> ActionResult:
     if a.event:
         a.event("product.doc", {"initiative": ini["id"], "stage": a.data.get("stage"), **meta, "text": text[:EVENT_TEXT_MAX], **extra})
     return ActionResult(True, f"{kind} v{meta['version']} saved", detail=meta["path"])
+
+
+ASK_ROUNDS = 3
+
+
+def _hold_for_questions(a, src: str | None, raw: str) -> ActionResult:
+    rounds = int((a.state or {}).get("clarify_rounds") or 0)
+    if not src or rounds >= ASK_ROUNDS:
+        return ActionResult(False, "The brief step asked questions instead of writing the brief: nothing saved",
+                            detail="Send it back with the answers, or ask it to write the brief between BEGIN-DOC and END-DOC.\n\n"
+                            + raw.strip()[:1500])
+    asked = docs.questions(raw) or [{
+        "id": "q1", "question": "The product manager asked these before it writes the brief. Answer them in your own words.",
+        "why": raw.strip()[:1200], "options": []}]
+    return ActionResult(True, f"nothing to save yet: {len(asked)} question(s) first",
+                        update={"clarify": {"questions": asked, "step": src}})
 
 
 def plan(a) -> ActionResult:
@@ -89,7 +111,8 @@ def deck(a) -> ActionResult:
     ini = _ini(a)
     d = dict(a.data.get("docs") or {})
     memo = docs.extract(_answer(a, a.params.get("memo") or "memo")) or d.get("decision") or ""
-    recommend = str(((a.state or {}).get("markers") or {}).get("memo", {}).get("RECOMMEND") or d.get("recommend") or "").strip()
+    recommend = docs.option_letter(str(((a.state or {}).get("markers") or {}).get("memo", {}).get("RECOMMEND") or d.get("recommend") or ""),
+                                   memo)
     versions = dict(a.data.get("versions") or {})
     html = deck_mod.render(ini, brief=d.get("brief") or "", impact_repos=d.get("impact_repos") or [], impact=d.get("impact") or "",
                            memo=memo, recommend=recommend, plan=d.get("plan"), versions=versions)
@@ -104,7 +127,8 @@ def record_decision(a) -> ActionResult:
     gate = str(a.params.get("gate") or "decide")
     answer = dict(a.data.get(f"{gate}_answer") or {})
     payload = dict(answer.get("payload") or {})
-    recommend = str(((a.state or {}).get("markers") or {}).get("memo", {}).get("RECOMMEND") or "").strip()
+    recommend = docs.option_letter(str(((a.state or {}).get("markers") or {}).get("memo", {}).get("RECOMMEND") or ""),
+                                   docs.extract(_answer(a, "memo")))
     choice = str(answer.get("choice") or "")
     option = str(payload.get("option") or (recommend if choice == "go" else "")).strip()
     if a.event:

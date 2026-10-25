@@ -92,6 +92,7 @@ class JiraTasksApiTest : ApiTest() {
             assertThat(issue.comments.last()).isEqualTo("keel started the feature flow for this ticket. Follow it in keel: http://keel.test/#/tasks/$id")
             assertThat(engine.lastBody("/threads")!!["title"].asText()).isEqualTo("ABC-1: Rank players")
             assertThat(engine.lastBody("/threads")!!["request"].asText()).endsWith("Jira ticket: ABC-1 (${cloud.url}/browse/ABC-1)")
+            assertThat(engine.lastBody("/threads")!!["data"]["ticket"].asText()).isEqualTo("ABC-1")     // every commit names it
             assertThat(notes(task(id))).contains("Jira: moved ABC-1 from To Do to In Progress.")
 
             send(ev("step.finished", pid, "t-cloud-1", "open", mapOf("note" to "PR opened: $PR")))

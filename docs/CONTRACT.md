@@ -284,7 +284,8 @@ GET    /api/projects/{pid}/mcp-allow                  → { [agent]: string[] } 
 type McpServer = McpServerSpec & { enabled, builtin, status: "ok"|"off"|"error", tools: string[] }
 
 # control
-GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[] }
+GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[],
+                                                    projects: { project_id, name, tokens, cost_usd, api_cost_usd, calls }[], all: Spend }   // 0.18.55 every project this month (keel Product's own runs too), all = their sum
 GET    /api/projects/{pid}/budget/now                 → BudgetNow (v0.5.2, the budget bar; see "v0.5.2: the budget bar")
 GET    /api/projects/{pid}/graph                      → GraphOverview (v0.5.3, the code graph; see "v0.5.3: the Graph page")
 GET    /api/limits                                    → Limit[]      PUT /api/limits  Limit[]
@@ -1178,7 +1179,8 @@ type JiraSettings = { kind: cloud|server, base_url, email (cloud), project_key, 
                       reviewer_field, jira_reviewers: string[], github_reviewers: string[], poll_minutes (0 = only Sync now) }
 ```
 - **Start**: the workflow is `workflow_id`, else by type: bug → `fix`, story → `feature`, task → `change`. The flow's title is
-  `KEY: title`; its request is title + description + "Jira ticket: KEY (url)". A refused start (a used-up cap, uncommitted
+  `KEY: title`; its request is title + description + "Jira ticket: KEY (url)"; its data has `ticket: KEY` (0.18.55: every
+  keel commit of the flow ends with ` [KEY]`, `feat(AC-2): … [KEY]`, so the ticket scan links them). A refused start (a used-up cap, uncommitted
   files, the fake model, an unknown workflow) keeps the status and records `start_refused` with the api's error and hint;
   the error is returned as it was (409 / 404). A task whose flow runs or waits cannot start another (409).
 - **Inbox**: `InboxItem` gains `task: { id, item_id, key, url, title, status, stage, pr_url, actions: [{id, label, needs_note}] }`
@@ -1295,7 +1297,9 @@ GET /api/projects/{pid}/budget/now → {
   today: Spend,                 // this project since 00:00 UTC
   month: Spend,                 // this project since the 1st (UTC)
   flows: FlowSpend[],           // its running and waiting flows, newest first, at most 5
-  caps: CapLeft[]               // its day and month caps that keel checks (as in /caps/left)
+  caps: CapLeft[],              // its day and month caps that keel checks (as in /caps/left)
+  all_today: Spend,             // 0.18.55 every project together since 00:00 UTC (keel Product's own runs too)
+  all_month: Spend              // 0.18.55 every project together since the 1st (UTC)
 }
 Spend     = { tokens, cost_usd }   // tokens = in + out + a tenth of cached input; dollars at API prices
 FlowSpend = { thread_id, title, status, tokens, cost_usd, cap_tokens: number|null, cap_usd: number|null }

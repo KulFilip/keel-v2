@@ -425,15 +425,15 @@ describe("keel Product in keel's web", () => {
     expect(await main().findByText("Euro for the EU.")).toBeInTheDocument();
     const back = within(gateCard).getByRole("button", { name: "Send back" });
     expect(back).toBeDisabled();
-    await userEvent.type(
-      within(gateCard).getByLabelText("What to change"),
-      "Add the price rounding",
-    );
+    // the note is a box of several lines, not a one-line input
+    const what = within(gateCard).getByLabelText("What to change");
+    expect(what.tagName).toBe("TEXTAREA");
+    await userEvent.type(what, "Add the price rounding{enter}and the VAT line");
     await userEvent.click(back);
     await waitFor(() =>
       expect(
         calls.find((c) => c.path === "/api/initiatives/INI-2/send-back")?.body,
-      ).toEqual({ note: "Add the price rounding" }),
+      ).toEqual({ note: "Add the price rounding\nand the VAT line" }),
     );
     await userEvent.click(main().getByRole("tab", { name: "Questions" }));
     expect(main().getByRole("tabpanel")).toHaveTextContent(/Who sees euro\?.*keel asked · Brief.*EU and UK — you/);
@@ -518,6 +518,14 @@ describe("keel Product in keel's web", () => {
       .findByRole("region", { name: "Disagreements" })
       .catch(() => main().findByText(/Option A is cheaper/));
     expect(dis).toBeInTheDocument();
+    expect(
+      calls.find((c) => c.path === "/api/initiatives/INI-2/disagreements")?.body,
+    ).toMatchObject({ author: "Bo" });
+    // the next disagreement is someone else's: the form starts empty, not with "Bo"
+    await userEvent.click(main().getAllByRole("button", { name: "I disagree…" })[0]);
+    expect(main().getByLabelText("Who disagrees")).toHaveValue("");
+    expect(main().getByLabelText("Why you disagree")).toHaveValue("");
+    await userEvent.click(main().getByRole("button", { name: "Cancel" }));
     await userEvent.type(
       await main().findByLabelText("Decision on: Option A is cheaper"),
       "B stays: A can not do the UK",
@@ -1358,6 +1366,43 @@ describe("keel Product in keel's web", () => {
       ).toEqual({ epic: "PAY", title: "Rounding rule" }),
     );
     expect(await within(epic).findByText("Rounding rule")).toBeInTheDocument();
+  });
+
+  it("P5: each save of the plan is a version: the picker shows an older one as it was", async () => {
+    const d = () =>
+      detail(
+        { stage: "delivery", status: "ready" },
+        {
+          docs: {
+            plan: { kind: "plan", version: 2, versions: [1, 2], path: "initiatives/INI-2/plan-v2.json", text: "", created_at: "2026-10-08T10:00:00Z" },
+          },
+          plan: { ...draftPlan(), total_days: [8, 11], critical_days: 9, critical_path: ["PAY-S1", "PAY-S2"] },
+        },
+      );
+    await open("#/initiatives/INI-2", {
+      "GET /api/initiatives/INI-2": () => d(),
+      "GET /api/teams": [],
+      "GET /api/initiatives/INI-2/docs/plan/1": {
+        initiative_id: "INI-2", kind: "plan", version: 1, path: "initiatives/INI-2/plan-v1.json", text: "", created_at: "2026-10-08T09:00:00Z",
+        data: {
+          plan: { epics: [{ id: "PAY", title: "Prices API v2", team: "payments", stories: [
+            { id: "PAY-S1", title: "Prices in euro", repo: "payments-api", estimate_days: [2, 3], depends_on: [], criteria: ["AC-1 [API] currency"] },
+            { id: "PAY-S2", title: "Rates job", repo: "payments-api", estimate_days: [1, 2], depends_on: ["PAY-S1"], criteria: [] },
+          ] }] },
+          counts: { epics: 1, stories: 2, tasks: 1 }, total_days: [3, 5], critical_path: ["PAY-S1", "PAY-S2"], critical_days: 5, problems: [],
+        },
+      },
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Plan" }));
+    const tab = main().getByRole("tabpanel");
+    expect(within(tab).getByText(/keel checked it again/)).toBeInTheDocument();
+    const pick = within(tab).getByRole("combobox", { name: "Plan version" });
+    expect(within(pick).getAllByRole("option").map((o) => o.textContent)).toEqual(["v2 (latest)", "v1"]);
+    await userEvent.selectOptions(pick, "1");
+    expect(await within(tab).findByText(/3–5 d in total/)).toBeInTheDocument();
+    expect(within(tab).getByText(/Critical path: PAY-S1 → PAY-S2 \(5 days\)/)).toBeInTheDocument();
+    expect(within(tab).getByText("an older version, read only")).toBeInTheDocument();
+    expect(within(tab).queryByRole("button", { name: "Edit PAY-S2" })).toBeNull();
   });
 
   it("previews the Jira tickets, then sends the new ones after a confirm", async () => {

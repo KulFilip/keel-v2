@@ -51,6 +51,9 @@ class ProductApiTest : ApiTest() {
 
     private lateinit var productPid: String
 
+    @org.springframework.beans.factory.annotation.Autowired
+    lateinit var productStore: keel.product.ProductStore
+
     @BeforeEach
     fun setUp() {
         WORKFLOWS.forEach { id ->
@@ -584,6 +587,46 @@ class ProductApiTest : ApiTest() {
     }
 
     @Test
+    fun `P3 P5 every save of the plan is a new version, checked again, with its files in one commit`() {
+        val (webPid, payPid) = repos()
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Versions", "idea" to "Edit the plan.", "repos" to listOf(webPid, payPid))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+        assertThat(detail(id)["plan"]["version"].asInt()).isEqualTo(1)
+
+        // e2e 0.18.54: a hand edit of an estimate left total_days and critical_days as keel first wrote them
+        val v2 = patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("estimate_days" to listOf(4, 6))).andExpect(status().isOk).json()["plan"]
+        assertThat(v2["version"].asInt()).isEqualTo(2)
+        assertThat(v2["total_days"].map { it.asDouble() }).containsExactly(8.0, 11.0)          // PAY-S1 2–3, PAY-S2 4–6, WEB-S1 2
+        assertThat(v2["critical_days"].asDouble()).isEqualTo(9.0)                               // PAY-S1 (3) → PAY-S2 (6)
+        assertThat(v2["critical_path"].map { it.asText() }).containsExactly("PAY-S1", "PAY-S2")
+        assertThat(v2["teams"]["payments"].map { it.asDouble() }).containsExactly(6.0, 9.0)
+        assertThat(v2["edited"].asBoolean()).isTrue()
+
+        // README: every document is a versioned commit — plan-v2.json and .md, one commit; v1 is kept as it was
+        val root = java.nio.file.Paths.get(get("/api/product").json()["root"].asText())
+        val json = Files.readString(root.resolve("initiatives/$id/plan-v2.json"))
+        assertThat(mapper.readTree(json)["epics"].flatMap { it["stories"] }.single { it["id"].asText() == "PAY-S2" }["estimate_days"].map { it.asDouble() })
+            .containsExactly(4.0, 6.0)
+        assertThat(Files.readString(root.resolve("initiatives/$id/plan-v2.md"))).contains("8–11 developer days").contains("Critical path: PAY-S1 → PAY-S2 (9 days)")
+        val log = keel.api.common.Proc.run(listOf("git", "log", "--name-only", "--format=%s", "-1"), root, 10).out
+        assertThat(log).contains("$id: plan v2 (by hand: Changed the story PAY-S2)").contains("initiatives/$id/plan-v2.json").contains("initiatives/$id/plan-v2.md")
+        val d = detail(id)
+        assertThat(d["docs"]["plan"]["versions"].map { it.asInt() }).containsExactly(1, 2)       // the version picker
+        assertThat(get("/api/initiatives/$id/docs/plan/1").json()["data"]["total_days"].map { it.asDouble() }).containsExactly(5.0, 7.0)
+
+        // a refused edit makes no version; the next save is v3, and the stories go on from v2's
+        patch("/api/initiatives/$id/plan/stories/PAY-S2", mapOf("criteria" to listOf("not a criterion"))).andExpect(status().isBadRequest)
+        assertThat(detail(id)["plan"]["version"].asInt()).isEqualTo(2)
+        val v3 = delete("/api/initiatives/$id/plan/stories/PAY-S2").andExpect(status().isOk).json()["plan"]
+        assertThat(v3["version"].asInt()).isEqualTo(3)
+        assertThat(v3["total_days"].map { it.asDouble() }).containsExactly(4.0, 5.0)
+        assertThat(v3["critical_days"].asDouble()).isEqualTo(5.0)                               // PAY-S1 (3) → WEB-S1 (2)
+        assertThat(v3["epics"].flatMap { it["stories"] }.map { it["id"].asText() }).containsExactlyInAnyOrder("PAY-S1", "WEB-S1")
+        assertThat(get("/api/initiatives/$id/docs/plan/2").json()["data"]["counts"]["stories"].asInt()).isEqualTo(3)
+    }
+
+    @Test
     fun `B5 the Jira connections say which one is connected, and an initiative ticket uses a project's own when keel-wide has none`() {
         val (web, pay) = repos()
         put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "PAY"))
@@ -672,6 +715,52 @@ class ProductApiTest : ApiTest() {
         assertThat(delete("/api/initiatives/$id/tickets/SHOPS-1234").andExpect(status().isOk).json().map { it["key"].asText() }).containsExactly(local)
         delete("/api/initiatives/$id/tickets/SHOPS-1234").andExpect(status().isNotFound)
         assertThat(jira.issues.getValue("SHOPS-1234").status).isEqualTo("In Progress")
+    }
+
+    @Test
+    fun `P6 the stories an initiative sent to Jira or keel Tasks show that initiative on the Product map's board`() {
+        val (web, pay) = repos()
+        put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "SHOPS"))
+            .andExpect(status().isOk)
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Sent", "idea" to "Send, then look at the map.", "repos" to listOf(web, pay))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+        // the initiative's Jira send gave PAY-S1 its key (as TicketSender keeps it); Jira has the ticket, the board syncs it
+        val store = productStore
+        val version = detail(id)["plan"]["version"].asInt()
+        val s1 = store.items(id, version).single { it.id == "PAY-S1" }
+        store.saveItem(s1.copy(jiraKey = "SHOPS-1300"))
+        jira.add("SHOPS-1300", "PAY-S1 · Prices in euro", "To Do", "Story")
+        jira.add("SHOPS-1301", "Something else", "To Do", "Story")
+        post("/api/projects/$pay/tasks/sync").andExpect(status().isOk)
+        // and the web stories go to keel Tasks (local tasks, no Jira key)
+        post("/api/initiatives/$id/handoff", mapOf("target" to "tasks", "stories" to listOf("WEB-S1"))).andExpect(status().isOk)
+        val webTask = store.items(id, version).single { it.id == "WEB-S1" }.taskId!!
+
+        val board = get("/api/product/map").andExpect(status().isOk).json()["board"]
+        assertThat(board.single { it["key"].asText() == "SHOPS-1300" }["initiatives"].map { it.asText() }).containsExactly(id)
+        assertThat(board.single { it["key"].asText() == "SHOPS-1301" }["initiatives"]).isEmpty()
+        assertThat(board.single { it["key"].asText() == webTask }["initiatives"].map { it.asText() }).containsExactly(id)
+    }
+
+    @Test
+    fun `the team api reads camelCase fields too, not only snake_case`() {
+        // e2e 0.18.54: jiraProject, capacityDays and keyPattern were dropped without a word
+        val (_, pay) = repos()
+        delete("/api/teams/camel")
+        val t = post("/api/teams", mapOf("name" to "camel", "jiraProject" to "CML", "capacityDays" to 8, "keyPattern" to "(CML|OLD)-\\d+",
+            "owns" to listOf(mapOf("projectId" to pay, "glob" to "src/**")), "jira" to mapOf("epicType" to "Feature", "epicLinkField" to "customfield_1")))
+            .andExpect(status().isOk).json()
+        assertThat(t["jira_project"].asText()).isEqualTo("CML")
+        assertThat(t["capacity_days"].asDouble()).isEqualTo(8.0)
+        assertThat(t["keys"].asText()).isEqualTo("(CML|OLD)-\\d+")
+        assertThat(t["owns"].single()["project_id"].asText()).isEqualTo(pay)
+        assertThat(t["jira"]["epic_type"].asText()).isEqualTo("Feature")
+        assertThat(t["jira"]["epic_link_field"].asText()).isEqualTo("customfield_1")
+        val u = patch("/api/teams/camel", mapOf("capacityDays" to 3, "jira_project" to "CM2")).andExpect(status().isOk).json()
+        assertThat(u["capacity_days"].asDouble()).isEqualTo(3.0)
+        assertThat(u["jira_project"].asText()).isEqualTo("CM2")
+        delete("/api/teams/camel")
     }
 
     @Test

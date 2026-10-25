@@ -283,6 +283,19 @@ describe("ClarifyForm", () => {
     );
   });
 
+  it("a pick-any option says recommended only while it is ticked as keel's default", async () => {
+    // e2e 0.18.54: unticked knowledge sections still said "recommended"
+    const user = userEvent.setup();
+    render(<Form questions={INIT} />);
+    const domain = screen.getByRole("checkbox", { name: /domain/ });
+    expect(domain).toHaveTextContent("recommended");
+    await user.click(domain);
+    expect(domain).toHaveAttribute("aria-checked", "false");
+    expect(domain).not.toHaveTextContent("recommended");
+    expect(screen.getByRole("checkbox", { name: /architecture/ })).toHaveTextContent("recommended");
+    expect(screen.getByRole("checkbox", { name: /data/ })).not.toHaveTextContent("recommended");
+  });
+
   it("once touched, a multiple question keeps what the person ticked (even nothing)", async () => {
     const user = userEvent.setup();
     render(<Form questions={INIT} />);

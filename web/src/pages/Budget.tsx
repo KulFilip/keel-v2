@@ -352,6 +352,37 @@ function AccountsPanel({ limits, onEdit }: { limits: Loaded<Limit[]>; onEdit: (f
   );
 }
 
+/** 0.18.55 every project's runs this month, keel Product's own too (no project picker shows it), adding up to the total
+ *  the accounts count; the API-keys column sums to the "API keys (all)" account row. */
+function ProjectsPanel({ b }: { b: Loaded<Budget> }) {
+  const rows = b.data?.projects ?? [];
+  const all = b.data?.all;
+  if (!b.data || !rows.length) return null;
+  return (
+    <Panel title={<h3>Each project, this month</h3>} body={false}>
+      <div className="table-wrap rt-wrap"><table className="rt" aria-label="Each project, this month">
+        <thead><tr><th>Project</th><th>Tokens</th><th>At API prices</th><th>On API keys</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.project_id} data-testid={`project-spend-${r.project_id}`}>
+              <td className="rt-main"><b>{r.name}</b></td>
+              <td className="num mono" data-label="tokens">{kfmt(r.tokens)}</td>
+              <td className="num" data-label="at API prices">{usd(r.cost_usd)}</td>
+              <td className="num" data-label="on API keys">{r.api_cost_usd ? usd(r.api_cost_usd) : <span className="sub">none</span>}</td>
+            </tr>
+          ))}
+          {all && rows.length > 1 && (
+            <tr data-testid="project-spend-all"><td className="rt-main"><b>All projects</b></td>
+              <td className="num mono" data-label="tokens"><b>{kfmt(all.tokens)}</b></td>
+              <td className="num" data-label="at API prices"><b>{usd(all.cost_usd)}</b></td>
+              <td className="num" data-label="on API keys"><b>{usd(rows.reduce((n, r) => n + (r.api_cost_usd || 0), 0))}</b></td></tr>
+          )}
+        </tbody>
+      </table></div>
+    </Panel>
+  );
+}
+
 function MonthKpis({ b, name }: { b: Loaded<Budget>; name: string }) {
   if (b.error) return <ErrorBox error={b.error} onRetry={() => void b.reload()} />;
   const m = b.data?.month;
@@ -417,6 +448,7 @@ export function BudgetPage({ pid }: { pid: string }) {
           </Panel>
           <AccountsPanel limits={limits} onEdit={(focus) => setEditing({ focus })} />
         </div>
+        <ProjectsPanel b={budget} />
         <div className="grid bd-g">
           <Panel title={<h3>Biggest users this month</h3>} body={false}>
             {!b ? (!budget.error && <Skeleton lines={3} />) : !b.top.length ? <EmptyState compact title="No agent ran this month">The agents that used the most tokens show here.</EmptyState> : (

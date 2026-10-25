@@ -1,5 +1,6 @@
 package keel.product
 
+import com.fasterxml.jackson.annotation.JsonAlias
 import keel.api.common.BadRequest
 import keel.api.common.NotFound
 import keel.api.common.Slug
@@ -9,20 +10,22 @@ import org.springframework.stereotype.Service
 import java.nio.file.Files
 import java.nio.file.Paths
 
+// The api reads snake_case (jira_project); a client that sends camelCase (jiraProject) was ignored without a word
+// (e2e 0.18.54): both names are read.
 data class TeamBody(
     val name: String? = null,
     val lead: String? = null,
-    val jiraProject: String? = null,
-    val capacityDays: Double? = null,
+    @JsonAlias("jiraProject") val jiraProject: String? = null,
+    @JsonAlias("capacityDays") val capacityDays: Double? = null,
     val members: List<String>? = null,
     val owns: List<OwnsBody>? = null,
     /** The team's own Jira; null keeps it. */
     val jira: TeamJira? = null,
     /** The ticket-key pattern; null keeps it, "" goes back to the Jira project key's. */
-    val keyPattern: String? = null,
+    @JsonAlias("keyPattern") val keyPattern: String? = null,
 )
 
-data class OwnsBody(val projectId: String = "", val glob: String = "**")
+data class OwnsBody(@JsonAlias("projectId") val projectId: String = "", val glob: String = "**")
 
 data class ImportResult(val teams: List<String>, val paths: Int, val read: List<String>, val skipped: List<String>)
 

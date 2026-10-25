@@ -51,17 +51,23 @@ class ProductRepo(private val props: KeelProperties, private val projects: Proje
     fun read(rel: String): String? = safe(rel).takeIf { Files.isRegularFile(it) }?.let { Files.readString(it) }
 
     /** Writes a file and commits it; returns the commit, or null when nothing changed. */
+    fun write(rel: String, text: String, message: String): String? = writeAll(mapOf(rel to text), message)
+
+    /** Writes several files and commits them together (one commit); returns it, or null when nothing changed. */
     @Synchronized
-    fun write(rel: String, text: String, message: String): String? {
+    fun writeAll(files: Map<String, String>, message: String): String? {
         ensure()
-        val p = safe(rel)
-        Files.createDirectories(p.parent)
-        Files.writeString(p, if (text.endsWith("\n")) text else "$text\n")
+        for ((rel, text) in files) {
+            val p = safe(rel)
+            Files.createDirectories(p.parent)
+            Files.writeString(p, if (text.endsWith("\n")) text else "$text\n")
+        }
+        val rels = files.keys.toList()
         // A stage flow may commit in the engine at the same moment: git's index.lock makes one of them wait.
         repeat(6) { attempt ->
-            var c = Proc.run(listOf("git", "add", "--", rel), root, 30)
+            var c = Proc.run(listOf("git", "add", "--") + rels, root, 30)
             if (c.ok) c = Proc.run(listOf("git", "-c", "user.name=keel", "-c", "user.email=keel@localhost", "-c", "commit.gpgsign=false",
-                "commit", "-q", "-m", message, "--", rel), root, 30)
+                "commit", "-q", "-m", message, "--") + rels, root, 30)
             if (c.ok) return git("rev-parse", "HEAD").trim()
             if (!c.err.contains("index.lock")) return null
             Thread.sleep(250L * (attempt + 1))

@@ -720,11 +720,13 @@ function SendBack({
   onSend: () => void;
 }) {
   return (
-    <span className="pd-inline">
-      <input
-        type="text"
+    <span className="pd-inline pd-sendback">
+      {/* several lines: what to change is often more than a few words */}
+      <textarea
+        className="pd-text short"
+        rows={3}
         aria-label="What to change"
-        placeholder="what to change"
+        placeholder="what to change (one or more lines)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
@@ -1108,6 +1110,15 @@ function PlanTab({
     live: false,
   });
   const [adding, setAdding] = useState(false);
+  // P5 every save is a plan version: an older one is shown as it was, read only
+  const [version, setVersion] = useState<number | null>(null);
+  const versions = d.docs.plan?.versions ?? (p ? [p.version] : []);
+  const older = !!p && version != null && version !== p.version;
+  const old = useLoad(
+    older ? `doc:${d.initiative.id}:plan:${version}` : null,
+    () => productApi.doc(d.initiative.id, "plan", version!),
+    { live: false },
+  );
   if (!p)
     return (
       <Empty>
@@ -1118,10 +1129,39 @@ function PlanTab({
   const drafts: Drafts | undefined = canEdit
     ? { id: d.initiative.id, teams: teams.data ?? [], repos: d.repos, set }
     : undefined;
+  const picker = (
+    <label>
+      Version{" "}
+      <select
+        aria-label="Plan version"
+        value={version ?? p.version}
+        onChange={(e) => setVersion(Number(e.target.value))}
+      >
+        {[...versions].reverse().map((v) => (
+          <option key={v} value={v}>
+            v{v}
+            {v === p.version ? " (latest)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  if (older)
+    return (
+      <div className="pd-doc">
+        <div className="pd-doc-bar">
+          {picker}
+          <Pill tone="idle">an older version, read only</Pill>
+        </div>
+        <Async r={old} what="Loading the version">
+          {(doc) => <Markdown text={planMarkdown(doc.data)} />}
+        </Async>
+      </div>
+    );
   return (
     <div className="pd-doc">
       <div className="pd-doc-bar">
-        <span>Plan v{p.version}</span>
+        {versions.length > 1 ? picker : <span>Plan v{p.version}</span>}
         {p.ok ? (
           <Pill tone="ok">checked</Pill>
         ) : (
@@ -1141,8 +1181,8 @@ function PlanTab({
       </div>
       {p.edited && (
         <p className="sub">
-          The plan was changed by hand after keel checked it: the critical path
-          and the totals may be old.
+          Plan v{p.version} was changed by hand. keel checked it again: the
+          critical path and the totals are up to date.
         </p>
       )}
       {p.problems.length > 0 && (
@@ -1184,6 +1224,39 @@ function PlanTab({
         ))}
     </div>
   );
+}
+
+/** An older plan version as readable Markdown, from its stored check (as the engine writes plan-vN.md). */
+export function planMarkdown(data: unknown): string {
+  type S = { id?: string; title?: string; repo?: string; depends_on?: string[]; estimate_days?: number[] | number; criteria?: string[] };
+  type E = { id?: string; title?: string; team?: string; stories?: S[] };
+  const r = (data ?? {}) as {
+    plan?: { epics?: E[] };
+    counts?: { epics?: number; stories?: number; tasks?: number };
+    total_days?: number[];
+    critical_path?: string[];
+    critical_days?: number;
+    problems?: string[];
+  };
+  const c = r.counts ?? {};
+  const lines = [
+    "# Plan",
+    "",
+    `${c.epics ?? 0} epics · ${c.stories ?? 0} stories · ${c.tasks ?? 0} tasks · ${days(r.total_days)} in total`,
+  ];
+  if (r.critical_path?.length)
+    lines.push(`Critical path: ${r.critical_path.join(" → ")} (${r.critical_days ?? 0} days)`);
+  for (const e of r.plan?.epics ?? []) {
+    lines.push("", `## ${e.id} · ${e.title ?? ""} (${e.team ?? "?"})`);
+    for (const st of e.stories ?? []) {
+      const est = typeof st.estimate_days === "number" ? [st.estimate_days, st.estimate_days] : st.estimate_days;
+      const after = st.depends_on?.length ? ` · after ${st.depends_on.join(", ")}` : "";
+      lines.push(`- **${st.id}** ${st.title ?? ""} · ${st.repo ?? "?"} · ${days(est)}${after}`);
+      for (const cr of st.criteria ?? []) lines.push(`  - ${cr}`);
+    }
+  }
+  if (r.problems?.length) lines.push("", "## Problems", ...r.problems.map((x) => `- ${x}`));
+  return lines.join("\n");
 }
 
 const sameList = (a: (string | number)[], b: (string | number)[]) =>
@@ -1857,9 +1930,22 @@ function Disagree({
   const [proposal, setProposal] = useState("");
   const [author, setAuthor] = useState("");
   const act = useAct();
+  // each form starts empty: the name of whoever wrote the last one must not stick (empty = you, the signed-in person)
+  const reset = () => {
+    setReason("");
+    setProposal("");
+    setAuthor("");
+  };
   if (!open)
     return (
-      <button className="btn sm" type="button" onClick={() => setOpen(true)}>
+      <button
+        className="btn sm"
+        type="button"
+        onClick={() => {
+          reset();
+          setOpen(true);
+        }}
+      >
         I disagree…
       </button>
     );
@@ -1874,8 +1960,7 @@ function Disagree({
     );
     if (r) {
       setOpen(false);
-      setReason("");
-      setProposal("");
+      reset();
       onDone();
     }
   };
@@ -1884,7 +1969,7 @@ function Disagree({
       <input
         type="text"
         aria-label="Who disagrees"
-        placeholder="your name (optional)"
+        placeholder="your name (empty: you)"
         value={author}
         onChange={(e) => setAuthor(e.target.value)}
       />
@@ -1910,7 +1995,14 @@ function Disagree({
       >
         Write it down
       </button>
-      <button className="btn sm" type="button" onClick={() => setOpen(false)}>
+      <button
+        className="btn sm"
+        type="button"
+        onClick={() => {
+          setOpen(false);
+          reset();
+        }}
+      >
         Cancel
       </button>
       {act.box}

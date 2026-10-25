@@ -768,7 +768,7 @@ a.bb-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px;
 .bb-prov.t-warn, .bb-prov.t-bad { font-weight: 600; }
 /* a laptop: the flow title and the cost of today and this month give way first */
 @media (max-width: 1280px) { .bb-title { max-width: 14ch; } }
-@media (max-width: 1100px) { .bb-cost, .bb-title { display: none; } }
+@media (max-width: 1100px) { .bb-cost, .bb-all, .bb-title { display: none; } }
 /* a phone: under the sticky header, it scrolls away with the page and may take two lines */
 @media (max-width: 900px) {
   .app-col:has(> .bbar) { --bar-h: 0px; }

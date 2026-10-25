@@ -48,15 +48,20 @@ function Meter({ pct }: { pct: number | null }) {
 }
 
 /** Today or this month, with the fullest cap of that window (all of them in the tooltip). */
-function SpendSeg({ label, spend, caps, hint }: { label: string; spend: BudgetNow["today"]; caps: CapLeft[]; hint: string }) {
+function SpendSeg({ label, spend, all, caps, hint }: { label: string; spend: BudgetNow["today"]; all?: BudgetNow["today"]; caps: CapLeft[]; hint: string }) {
   const top = caps.map((c) => ({ c, pct: pctOf(c.used, c.limit) })).sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))[0];
   const capText = (c: CapLeft) => `${amount(c, c.used)} of ${amount(c, c.limit)}${c.window === "month" ? " API" : ""} (${c.action} when used up)`;
-  const title = [`${label}: ${kfmt(spend.tokens)} tokens, ${usd(spend.cost_usd)} at API prices (${hint}).`, ...caps.map((c) => `Cap: ${capText(c)}.`)].join("\n");
+  // 0.18.55 other projects spent too (keel Product's own runs have a project of their own): the total for all of them
+  const others = !!all && (all.tokens > spend.tokens || all.cost_usd > spend.cost_usd + 0.005);
+  const title = [`${label}: ${kfmt(spend.tokens)} tokens, ${usd(spend.cost_usd)} at API prices (${hint}).`,
+    ...(others && all ? [`All projects (keel Product too): ${kfmt(all.tokens)} tokens, ${usd(all.cost_usd)}.`] : []),
+    ...caps.map((c) => `Cap: ${capText(c)}.`)].join("\n");
   return (
     <a className={`bb-seg bb-${toneOf(top?.pct ?? null)}`} href="#/budget" title={title} data-testid={`bb-${label.toLowerCase().replace(/\W+/g, "-")}`}>
       <span className="bb-l">{label}</span>
       <b className="num">{kfmt(spend.tokens)}</b>
       <span className="bb-sub bb-cost num">{usd(spend.cost_usd)}</span>
+      {others && all && <span className="bb-sub bb-all num" data-testid={`bb-all-${label.toLowerCase().replace(/\W+/g, "-")}`}>· all {usd(all.cost_usd)}</span>}
       {top && <>
         <span className="bb-sub num">· {money(top.c) ? "" : "cap "}{amount(top.c, top.c.limit)}{top.c.window === "month" ? " API" : ""}</span>
         <Meter pct={top.pct} />
@@ -143,8 +148,8 @@ export function BudgetBar() {
       {((pid && !b && !now.error) || (!pid && !projectsLoaded)) && <span className="bb-seg bb-wait">Budget…</span>}
       {!pid && projectsLoaded && <a className="bb-seg bb-sub" href="#/projects">No project yet: the budget starts with the first one</a>}
       {pid && now.error && <a className="bb-seg bb-sub" href="#/budget" title={now.error.message}>Budget not loaded</a>}
-      {b && <SpendSeg label="Today" spend={b.today} caps={today} hint="since 00:00 UTC" />}
-      {b && <SpendSeg label="This month" spend={b.month} caps={month} hint="since the 1st, UTC" />}
+      {b && <SpendSeg label="Today" spend={b.today} all={b.all_today} caps={today} hint="since 00:00 UTC" />}
+      {b && <SpendSeg label="This month" spend={b.month} all={b.all_month} caps={month} hint="since the 1st, UTC" />}
       {b?.flows.length ? <FlowSeg flows={b.flows} /> : null}
       {provs.length > 0 && <Providers usage={provs} />}
     </div>

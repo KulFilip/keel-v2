@@ -1,5 +1,6 @@
 package keel.product
 
+import com.fasterxml.jackson.annotation.JsonAlias
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import keel.api.common.Time
@@ -182,12 +183,12 @@ data class Team(
 data class TeamJira(
     /** The keel project whose Jira connection the team uses; null = keel's keel-wide connection. */
     val connection: String? = null,
-    val initiativeType: String? = null,
-    val epicType: String? = null,
-    val storyType: String? = null,
-    val subtaskType: String? = null,
+    @JsonAlias("initiativeType") val initiativeType: String? = null,
+    @JsonAlias("epicType") val epicType: String? = null,
+    @JsonAlias("storyType") val storyType: String? = null,
+    @JsonAlias("subtaskType") val subtaskType: String? = null,
     /** Jira Server and Data Center: the Epic Link field (customfield_…) a story names its epic with; blank = found by name. */
-    val epicLinkField: String? = null,
+    @JsonAlias("epicLinkField") val epicLinkField: String? = null,
     val labels: List<String> = emptyList(),
     val component: String? = null,
 )
@@ -406,6 +407,12 @@ class ProductStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMap
         )
     }
 
+    /** The highest plan version any epic or story draft has (0 = none): a new version starts above it. */
+    fun planRowsVersion(id: String): Int = jdbc.queryForObject(
+        "SELECT MAX(v) FROM (SELECT COALESCE(MAX(version), 0) v FROM product_plan_items WHERE initiative_id = ? " +
+            "UNION ALL SELECT COALESCE(MAX(version), 0) FROM product_plan_epics WHERE initiative_id = ?)", Int::class.java, id, id,
+    ) ?: 0
+
     fun deleteItem(id: String, version: Int, sid: String) {
         jdbc.update("DELETE FROM product_plan_items WHERE initiative_id = ? AND version = ? AND id = ?", id, version, sid)
     }
@@ -509,6 +516,17 @@ class ProductStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMap
         jdbc.update("DELETE FROM product_initiative_tickets WHERE initiative_id = ? AND key = ?", initiativeId, key) > 0
 
     /** The linked tickets of one initiative (oldest first), or of every initiative. */
+    /**
+     * P6 the keys keel itself made for each initiative, as (initiative, key): its stories' Jira keys and keel tasks
+     * (any plan version) and its own Jira tickets (the initiative, its epics). A ticket a send made is the initiative's
+     * without a link by hand.
+     */
+    fun sentKeys(): List<Pair<String, String>> = jdbc.query(
+        "SELECT initiative_id, jira_key FROM product_plan_items WHERE jira_key IS NOT NULL " +
+            "UNION SELECT initiative_id, task_id FROM product_plan_items WHERE task_id IS NOT NULL " +
+            "UNION SELECT initiative_id, jira_key FROM product_tickets",
+    ) { rs, _ -> rs.getString(1) to rs.getString(2) }
+
     fun initiativeTickets(initiativeId: String? = null): List<InitiativeTicket> = if (initiativeId == null)
         jdbc.query("SELECT * FROM product_initiative_tickets ORDER BY added_at, key") { rs, _ -> initiativeTicket(rs) }
     else jdbc.query("SELECT * FROM product_initiative_tickets WHERE initiative_id = ? ORDER BY added_at, key", { rs, _ -> initiativeTicket(rs) }, initiativeId)

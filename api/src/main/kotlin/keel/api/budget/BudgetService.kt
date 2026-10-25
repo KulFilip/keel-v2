@@ -25,7 +25,21 @@ data class BudgetCap(
 )
 data class TopAgent(val agent: String, val provider: String?, val tokens: Long, val costUsd: Double)
 data class RecentFlow(val title: String, val estimate: Long?, val real: Long, val status: String)
-data class Budget(val month: Month, val days: List<Day>, val caps: List<BudgetCap>, val top: List<TopAgent>, val recent: List<RecentFlow>)
+/**
+ * 0.18.55 one project's agent runs this month, for the Budget page's list of every project: also the ones no project
+ * picker shows (keel Product's own product repo, a quality run's eval project), so the list adds up to what the
+ * accounts count. `apiCostUsd`: only the runs that billed an API key (the "API keys" account row sums the same).
+ */
+data class ProjectSpend(val projectId: String, val name: String, val tokens: Long, val costUsd: Double, val apiCostUsd: Double, val calls: Int)
+data class Budget(
+    val month: Month,
+    val days: List<Day>,
+    val caps: List<BudgetCap>,
+    val top: List<TopAgent>,
+    val recent: List<RecentFlow>,
+    val projects: List<ProjectSpend> = emptyList(),
+    val all: Spend = Spend(0, 0.0),
+)
 
 /** Tokens (cached input counts a tenth) and dollars at API prices. */
 data class Spend(val tokens: Long, val costUsd: Double)
@@ -40,7 +54,15 @@ data class FlowSpend(
     val capUsd: Double?,
 )
 /** The budget bar on every page: database only, so the web can ask often. `caps` = the day and month caps with what is left. */
-data class BudgetNow(val today: Spend, val month: Spend, val flows: List<FlowSpend>, val caps: List<CapLeft>)
+data class BudgetNow(
+    val today: Spend,
+    val month: Spend,
+    val flows: List<FlowSpend>,
+    val caps: List<CapLeft>,
+    // 0.18.55 every project together (keel Product's own runs too): the bar shows it beside this project's numbers
+    val allToday: Spend = Spend(0, 0.0),
+    val allMonth: Spend = Spend(0, 0.0),
+)
 
 data class Limit(
     val id: String = "",
@@ -111,8 +133,27 @@ class BudgetService(
                FROM threads t WHERE t.project_id = ? ORDER BY t.created_at DESC LIMIT 10""",
             { rs, _ -> RecentFlow(rs.getString(1), rs.getLong(2).takeIf { !rs.wasNull() }, rs.getLong(3), rs.getString(4)) }, pid,
         )
-        return Budget(Month(month.first, month.second, month.third, flows), days, caps, top, recent)
+        val perProject = projectsThisMonth(since)
+        val all = Spend(perProject.sumOf { it.tokens }, perProject.sumOf { it.costUsd })
+        return Budget(Month(month.first, month.second, month.third, flows), days, caps, top, recent, perProject, all)
     }
+
+    /** Every project with agent runs since `since`, the most expensive first, named as the projects table names it. */
+    private fun projectsThisMonth(since: String): List<ProjectSpend> = jdbc.query(
+        """SELECT c.project_id, MAX(p.name), COALESCE(SUM($TOKENS), 0), COALESCE(SUM(c.cost_usd), 0),
+                  COALESCE(SUM(CASE WHEN c.mode = 'api' THEN c.cost_usd ELSE 0 END), 0), COUNT(*)
+           FROM agent_calls c LEFT JOIN projects p ON p.id = c.project_id
+           WHERE c.started_at >= ? GROUP BY c.project_id""",
+        { rs, _ ->
+            val id = rs.getString(1) ?: ""
+            ProjectSpend(id, rs.getString(2)?.takeIf { it.isNotBlank() } ?: id, rs.getLong(3), rs.getDouble(4), rs.getDouble(5), rs.getInt(6))
+        }, since,
+    ).sortedWith(compareByDescending<ProjectSpend> { it.costUsd }.thenByDescending { it.tokens })
+
+    private fun allSpend(since: String): Spend = jdbc.queryForObject(
+        "SELECT COALESCE(SUM($TOKENS), 0), COALESCE(SUM(cost_usd), 0) FROM agent_calls WHERE started_at >= ?",
+        { rs, _ -> Spend(rs.getLong(1), rs.getDouble(2)) }, since,
+    )!!
 
     fun now(pid: String): BudgetNow {
         projects.require(pid)
@@ -139,7 +180,7 @@ class BudgetService(
             }, pid,
         )
         val caps = planner.left(pid).filter { it.checked && it.window in setOf("day", "month") }
-        return BudgetNow(spend(today), spend(monthStart()), flows, caps)
+        return BudgetNow(spend(today), spend(monthStart()), flows, caps, allSpend(today), allSpend(monthStart()))
     }
 
     // ---- account limits ---------------------------------------------------------------------

@@ -87,6 +87,8 @@
 .pd-form .bad, .pd-form .sub.bad { color: var(--bad); }
 .pd-form select, .pd-form input[type=text], .pd-form input[type=password] { border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 7px; padding: 6px 9px; min-width: 0; }
 .pd-text.short { min-height: 64px; }
+.pd-sendback { flex: 1 1 320px; align-items: flex-start; }
+.pd-sendback textarea { flex: 1 1 auto; min-width: 0; resize: vertical; }
 .pd-draft { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; background: var(--panel-2); }
 .pd-jira { display: grid; gap: 10px; }
 .pd-lv-initiative { font-weight: 600; }

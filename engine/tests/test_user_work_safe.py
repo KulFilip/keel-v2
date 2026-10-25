@@ -36,6 +36,33 @@ def test_preexisting_changes_stay_out_of_keel_commits(tmp_path):
     assert " M app.py" in status and "?? notes.md" in status          # still there, still uncommitted
 
 
+def test_a_flow_from_a_ticket_names_its_key_in_every_criterion_commit(tmp_path):
+    # e2e 0.18.54: feat(AC-2) commits of a task with a Jira key had no key, so the ticket scan did not link them
+    root = repo(tmp_path)
+    (root / "tests").mkdir()
+    (root / "tests" / "test_new.py").write_text("def test_x():\n    assert True\n")
+    a = ActionInput(root=str(root), phase="red", title="SHOPS-4: Coupons apply once", ac={"id": "AC-2", "title": "a coupon applies once"},
+                    acs=[{"id": "AC-2"}], fake=True, flow="feature")
+    res = asyncio.run(commit(a)) if asyncio.iscoroutinefunction(commit) else commit(a)
+    assert res.ok, res
+    assert sh(root, "log", "-1", "--format=%s").strip() == "test(AC-2): a coupon applies once [SHOPS-4]"
+    # the api passes the key as data.ticket; a long criterion is cut so the key still fits in 72 characters
+    (root / "tests" / "test_two.py").write_text("def test_y():\n    assert True\n")
+    long = "the coupon code is checked against the list of codes that are still valid today and in this shop"
+    b = ActionInput(root=str(root), phase="red", title="Coupons", ac={"id": "AC-3", "title": long}, acs=[{"id": "AC-3"}], fake=True,
+                    flow="feature", data={"ticket": "shops-77"})
+    res = asyncio.run(commit(b)) if asyncio.iscoroutinefunction(commit) else commit(b)
+    assert res.ok, res
+    subject = sh(root, "log", "-1", "--format=%s").strip()
+    assert subject.startswith("test(AC-3): the coupon") and subject.endswith(" [SHOPS-77]") and len(subject) <= 72
+    # no ticket: no tag
+    (root / "tests" / "test_three.py").write_text("def test_z():\n    assert True\n")
+    c = ActionInput(root=str(root), phase="red", title="Coupons", ac={"id": "AC-4", "title": "x"}, acs=[{"id": "AC-4"}], fake=True,
+                    flow="feature")
+    res = asyncio.run(commit(c)) if asyncio.iscoroutinefunction(commit) else commit(c)
+    assert sh(root, "log", "-1", "--format=%s").strip() == "test(AC-4): x"
+
+
 def test_a_preexisting_file_the_agent_changed_is_committed(tmp_path):
     root = repo(tmp_path)
     (root / "tests").mkdir()

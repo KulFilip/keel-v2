@@ -13,10 +13,16 @@ steps:
     phase: review
     asks: true
     keep: true
-    instructions: >-
+    instructions: |-
       Write the brief for the initiative in the request. First decide whether you can: when the goal, the users or how
-      success is measured is unclear, ask at most 4 short questions in a keel-questions block (each with 2 to 4
-      options, one recommended) and write nothing else. When you have what you need, write the brief between the lines
+      success is measured is unclear, ask at most 4 short questions and write nothing else. Ask them in exactly this
+      form, a fenced code block whose language is keel-questions and which holds a JSON list (never a Markdown heading
+      or a numbered list: keel shows the block as buttons):
+      ```keel-questions
+      [{"id": "users", "question": "Who should get it first?", "why": "it sets the scope",
+        "options": [{"label": "Every visitor", "recommended": true}, {"label": "Only logged-in visitors"}]}]
+      ```
+      Each question has 2 to 4 options and one of them is recommended. When you have what you need, write the brief between the lines
       BEGIN-DOC and END-DOC with these sections: ## Problem, ## Users, ## Outcome metric (the metric, from → to, how and
       when it is measured), ## Guardrails (what must not get worse), ## In scope, ## Not in scope, ## Open questions
       (each with who should answer it: PO, a lead, legal, or a named team). Short sentences. No solution design, no

@@ -72,6 +72,19 @@ describe("Budget", () => {
     expect(cells.map((c) => c.textContent)).toEqual(["add a logger", "—", "517k", "—", "waiting"]);
   });
 
+  it("lists every project this month, keel Product's own runs too, adding up to the total", async () => {
+    // e2e 0.18.54: the product model's 28 calls ($2.57) were in no total
+    server.use(http.get("/api/projects/:pid/budget", () => HttpResponse.json({ ...fx.budget,
+      projects: [{ project_id: "keel-product", name: "keel Product", tokens: 420000, cost_usd: 2.57, api_cost_usd: 2.57, calls: 28 },
+                 { project_id: "shop", name: "shop", tokens: 1900000, cost_usd: 7.2, api_cost_usd: 0, calls: 90 }],
+      all: { tokens: 2320000, cost_usd: 9.77 } })));
+    location.hash = "#/budget";
+    render(<App />);
+    const table = await main().findByRole("table", { name: "Each project, this month" });
+    expect(within(table).getByTestId("project-spend-keel-product")).toHaveTextContent("keel Product420k$2.57$2.57");
+    expect(within(table).getByTestId("project-spend-all")).toHaveTextContent("All projects2.32M$9.77$2.57");
+  });
+
   it("limitUsed splits the number from its unit", () => {
     expect(limitUsed(LIMITS[0])).toEqual(["123k", "tokens in the last 5 hours"]);
     expect(limitUsed(LIMITS[2])).toEqual(["$12.50", "spent this month"]);

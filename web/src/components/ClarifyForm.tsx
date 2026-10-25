@@ -56,7 +56,8 @@ export function ClarifyForm({ questions, picked, typed, onPick, onType }: {
                   <button key={o.label} type="button" role={q.multiple ? "checkbox" : "radio"} aria-checked={on} className={`clarify-opt${on ? " on" : ""}`}
                     aria-keyshortcuts={k < 4 ? String(k + 1) : undefined} onClick={() => press(o.label)}>
                     <b>{q.multiple ? (on ? "☑ " : "☐ ") : ""}{o.label}</b>
-                    {o.recommended && <span className="clarify-rec">recommended</span>}
+                    {/* a pick-any option says "recommended" only as keel's default (ticked): unticked, the word is gone */}
+                    {o.recommended && (!q.multiple || on) && <span className="clarify-rec">recommended</span>}
                     {o.why === "required" && <span className="sub"> · needs a reason</span>}
                     {o.description && <span className="sub">{o.description}</span>}
                   </button>

@@ -16,19 +16,64 @@ import json
 import re
 
 BLOCK = re.compile(r"```[ \t]*json[ \t]*\n(.*?)\n[ \t]*```", re.S | re.I)
+# any fenced block (```json, ```JSON, ``` alone, ~~~json): a real model does not always name the language
+FENCE = re.compile(r"(?:```|~~~)[ \t]*[\w-]*[ \t]*\n(.*?)\n[ \t]*(?:```|~~~)", re.S)
+TRAILING_COMMA = re.compile(r",(\s*[}\]])")
 CRITERION = re.compile(r"^AC-\d+\s*\[\w+]\s*\S")
 
 
-def parse(text: str) -> dict | None:
-    """The plan in the last ```json block of a text (or the text itself as JSON); None when there is none."""
-    for raw in reversed(BLOCK.findall(text or "") or [text or ""]):
+def _loads(raw: str):
+    try:
+        return json.loads(raw)
+    except ValueError:
         try:
-            data = json.loads(raw)
+            return json.loads(TRAILING_COMMA.sub(r"\1", raw))
         except ValueError:
-            continue
-        if isinstance(data, dict) and isinstance(data.get("epics"), list):
+            return None
+
+
+def find_json(text: str, key: str) -> dict | None:
+    """The last JSON object with a list under `key` in an agent's answer: in a fenced block (any or no language), the
+    answer itself, or an object written in the prose without a fence. A bare list of such entries counts as {key: list}."""
+    text = text or ""
+
+    def fit(data) -> dict | None:
+        if isinstance(data, dict) and isinstance(data.get(key), list):
             return data
-    return None
+        if isinstance(data, list) and data and all(isinstance(x, dict) for x in data):
+            return {key: data}
+        return None
+
+    for raw in reversed(FENCE.findall(text)):
+        found = fit(_loads(raw.strip()))
+        if found is not None:
+            return found
+    found = fit(_loads(text.strip()))
+    if found is not None:
+        return found
+    dec = json.JSONDecoder()
+    best, at = None, text.find("{")
+    while at >= 0:
+        try:
+            data, end = dec.raw_decode(text, at)
+        except ValueError:
+            at = text.find("{", at + 1)
+            continue
+        if isinstance(data, dict) and fit(data) is not None:
+            best = data
+        at = text.find("{", end)            # an object read whole: its inner objects are not read again
+    return best
+
+
+def parse(text: str) -> dict | None:
+    """The plan in the last ```json block of a text (or the text itself as JSON, or a bare object in its prose); None
+    when there is none."""
+    found = find_json(text, "epics")
+    if found is None:
+        return None
+    if not all(isinstance(e, dict) and ("stories" in e or "team" in e) for e in found["epics"]):
+        return None
+    return found
 
 
 def stories(plan: dict) -> list[dict]:

@@ -714,7 +714,13 @@ def commit(a: ActionInput) -> ActionResult:
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"
-    message, body = commit_message(rules.commit_prefix(ctype, ident), subject)
+    # 0.18.55 a flow started from a ticket (a task with a Jira key): every commit names the key, so the ticket scan of
+    # keel Product links the per-criterion commits too ("feat(AC-2): ... [SHOPS-4]")
+    ticket = ticket_key(a) if ctype != "setup" else None
+    tag = f" [{ticket}]" if ticket else ""
+    message, body = commit_message(rules.commit_prefix(ctype, ident), subject, 72 - len(tag))
+    if ticket and ticket not in message:
+        message += tag
     if found and ctype == "fix" and a.phase == "bug-fix":
         # keel v1 fix.md: the root cause goes in the body, not just the subject
         body = "\n\n".join(x for x in (body, bug_mod.commit_body(a)) if x)
@@ -810,6 +816,20 @@ def commit_args(root: str, settings: dict | None, cfg: dict) -> tuple[list[str],
     name, email = commit_ident(root, settings, cfg)
     coauthor = (settings or {}).get("commit_coauthor") is not False and email != KEELBOT[1]
     return ["-c", f"user.name={name}", "-c", f"user.email={email}"], (["-m", COAUTHOR] if coauthor else [])
+
+
+TICKET = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,29}-\d{1,9}$")
+_TITLE_TICKET = re.compile(r"^\s*([A-Z][A-Z0-9_]{0,29}-\d{1,9})\s*:\s")
+
+
+def ticket_key(a: ActionInput) -> str | None:
+    """The ticket a flow works on: data.ticket (the api passes a task's Jira key), else a "SHOPS-4: ..." flow title (how
+    a task names its flow). None when there is none."""
+    given = str((a.data or {}).get("ticket") or "").strip()
+    if TICKET.match(given):
+        return given.upper()
+    m = _TITLE_TICKET.match(a.title or "")
+    return m.group(1) if m else None
 
 
 def commit_message(prefix: str, subject: str, limit: int = 72) -> tuple[str, str]:
