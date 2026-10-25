@@ -240,7 +240,7 @@ def classify(sql: str, kind: str = "postgres") -> tuple[str, str]:
         return "schema", "Change the schema with the project's migrations (a db:migrate step), not with raw SQL."
     if isinstance(st, exp.TruncateTable):
         return "never", "keel never empties a table with TRUNCATE."
-    return "never", f"keel does not run {type(st).__name__.upper()} statements."
+    return "never", f"keel does not run {head} statements."
 
 
 def _dialect(kind: str) -> str:
