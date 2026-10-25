@@ -940,11 +940,13 @@ saved encrypted in keel's own database (the `keel-data` volume), so it survives 
 | Claude (subscription) | sign in on claude.com, paste the code it shows | `claude setup-token` on your computer |
 | Codex (ChatGPT) | open the device link, type the code | `~/.codex/auth.json` |
 | GitHub Copilot | open github.com/login/device, type the code | a token with "Copilot Requests" |
+| OpenCode (Copilot) | — (OpenCode keeps its own login) | `docker exec -it keel-v2 opencode auth login`, pick GitHub Copilot |
 
 From the terminal: `keel2 token <claude|codex|copilot|anthropic|openai|github>`, and `keel2 tokens` to list them. A long
 token is often shown over two lines; send it in one piece from the clipboard: `pbpaste | keel2 token claude` (Linux:
 `wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong. Connections shows a
-subscription as ready only when keel has its login. In native mode keel's agents use their own home, so your own
+subscription as ready only when keel has its login; OpenCode only when its own login file (`opencode auth login`, where
+keel's agents run) has a GitHub Copilot login. In native mode keel's agents use their own home, so your own
 Claude Code login is not used.
 
 ## Signing in

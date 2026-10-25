@@ -121,6 +121,11 @@ describe("Connections", () => {
     expect(connState({ ...p, modes: modes({ ready: false, need: "cli" }) })).toMatchObject({ need: "cli", text: "claude CLI not installed" });
     // an older api without need: not ready still means not installed
     expect(connState({ ...p, modes: modes({ ready: false, need: undefined }) })).toMatchObject({ need: "cli", text: "claude CLI not installed" });
+    // OpenCode keeps its own login: without one it is not ready, even when the Copilot token is saved
+    const copilot: typeof p = { ...p, id: "copilot", label: "GitHub Copilot", selected: "opencode", login_set: true,
+      modes: [{ id: "opencode", label: "OpenCode", ready: false, need: "login", detail: "OpenCode found — add your login" }] };
+    expect(connState(copilot)).toMatchObject({ tone: "warn", need: "opencode", text: "No OpenCode login" });
+    expect(connState({ ...copilot, modes: [{ ...copilot.modes[0], ready: true, need: null }] })).toMatchObject({ tone: "ok" });
   });
 });
 

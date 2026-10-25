@@ -159,7 +159,7 @@ function LoginHelper({ p, onClose, onSaved }: { p: Connections["providers"][numb
 }
 
 type Conn = Connections["providers"][number];
-type State = { tone: PillTone; text: string; need?: "login" | "key" | "cli" };
+type State = { tone: PillTone; text: string; need?: "login" | "key" | "cli" | "opencode" };
 const CLI: Record<string, string> = { claude: "claude CLI", codex: "codex CLI", copilot: "Copilot CLI" };
 
 /** Can this provider's agents run now, and if not, what is missing (a login, a key, the CLI)? */
@@ -168,6 +168,8 @@ export function connState(p: Conn): State {
   if (CONFIGURED.has(p.id)) return p.key_set ? { tone: "ok", text: p.id === "local" ? "Ready, on your machines" : "Ready" } : { tone: "warn", text: "Not set up", need: "key" };
   const m = p.modes.find((x) => x.id === p.selected);
   if (p.selected === "api") return p.key_set ? { tone: "ok", text: "API key saved" } : { tone: "warn", text: "No API key", need: "key" };
+  // OpenCode keeps its own login (opencode auth login), not keel's Copilot token: the api says whether it has one
+  if (p.selected === "opencode" && m && !m.ready && m.need === "login") return { tone: "warn", text: "No OpenCode login", need: "opencode" };
   if (m && !m.ready && m.need !== "login") return { tone: "bad", text: `${p.selected === "opencode" ? "OpenCode" : CLI[p.id] ?? "CLI"} not installed`, need: "cli" };
   if (p.login_secret && !p.login_set) return { tone: "warn", text: "No login saved", need: "login" };
   return { tone: "ok", text: p.login_set ? "Ready, logged in" : "Ready" };
@@ -257,6 +259,7 @@ function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
         </div>
       </header>
       {state.need === "login" && <p className="cn-need">keel has no {HELP[p.id]?.name ?? p.label} login yet, so its agents cannot use your subscription. <b>Set up login</b> signs in from here, or paste a token.</p>}
+      {state.need === "opencode" && <p className="cn-need">OpenCode has no GitHub Copilot login yet, so its agents cannot run. Run <code>opencode auth login</code> inside keel's container (for example <code>docker exec -it keel-v2 opencode auth login</code>), then press <b>Test</b>.</p>}
       {state.need === "cli" && <p className="cn-need">The {p.modes.find((x) => x.id === mode)?.label ?? "CLI"} is not installed in keel's image. Pick another way below, or build the image with INSTALL_CLIS=1.</p>}
       <div className="cn-body">
         <fieldset className="cn-modes">

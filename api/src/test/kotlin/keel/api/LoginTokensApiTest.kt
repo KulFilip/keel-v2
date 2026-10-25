@@ -96,6 +96,9 @@ class LoginTokensApiTest : ApiTest() {
     @Test
     fun `a subscription is ready only when keel has its login, not when the CLI is merely installed`() {
         val old = connectionService.tools
+        val oldAuth = connectionService.opencodeAuthFile
+        val auth = java.nio.file.Files.createTempDirectory("oc").resolve("opencode/auth.json")
+        connectionService.opencodeAuthFile = { auth }
         connectionService.tools = keel.api.connections.MachineTools(which = { n -> "/bin/$n" },
             run = { cmd, _ -> keel.api.common.ProcResult(0, "2.1.197 (${cmd[0].substringAfterLast('/')})", "") })
         try {
@@ -105,7 +108,19 @@ class LoginTokensApiTest : ApiTest() {
             assertThat(claude["need"].asText()).isEqualTo("login")
             assertThat(claude["detail"].asText()).isEqualTo("Claude Code found — add your login: claude setup-token, then Set up login.")
             assertThat(mode("codex", "subscription")["ready"].asBoolean()).isFalse()
-            assertThat(mode("copilot", "opencode")["ready"].asBoolean()).isTrue()     // OpenCode keeps its own login
+            // OpenCode keeps its own login: a brand-new volume has none, so it is not ready (it said "login saved" before)
+            val oc = mode("copilot", "opencode")
+            assertThat(oc["ready"].asBoolean()).isFalse()
+            assertThat(oc["need"].asText()).isEqualTo("login")
+            assertThat(oc["detail"].asText()).isEqualTo("OpenCode found — add your login: run opencode auth login (GitHub Copilot) inside keel's container.")
+            java.nio.file.Files.createDirectories(auth.parent)
+            java.nio.file.Files.writeString(auth, """{"openai":{"type":"api","key":"x"}}""")
+            assertThat(mode("copilot", "opencode")["ready"].asBoolean()).isFalse()     // another provider's login
+            java.nio.file.Files.writeString(auth, """{"github-copilot":{"type":"oauth","refresh":"r","access":"a","expires":0}}""")
+            assertThat(mode("copilot", "opencode")["ready"].asBoolean()).isTrue()
+            assertThat(mode("copilot", "opencode")["detail"].asText()).isEqualTo("2.1.197 (opencode) found, login saved.")
+            java.nio.file.Files.writeString(auth, "not json")
+            assertThat(mode("copilot", "opencode")["ready"].asBoolean()).isFalse()
             put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to claudeToken)).andExpect(status().isOk)
             val ready = mode("claude", "subscription")
             assertThat(ready["ready"].asBoolean()).isTrue()
@@ -115,7 +130,17 @@ class LoginTokensApiTest : ApiTest() {
             assertThat(mode("claude", "subscription")["need"].asText()).isEqualTo("cli")
         } finally {
             connectionService.tools = old
+            connectionService.opencodeAuthFile = oldAuth
         }
+    }
+
+    @Test
+    fun `OpenCode's login file is where keel's agents run it, never the person's home in native mode`() {
+        val path = keel.api.connections.ConnectionService::opencodeAuthPath
+        assertThat(path(mapOf("HOME" to "/home/keel")).toString()).isEqualTo("/home/keel/.local/share/opencode/auth.json")
+        assertThat(path(mapOf("HOME" to "/home/keel", "XDG_DATA_HOME" to "/x/data")).toString()).isEqualTo("/x/data/opencode/auth.json")
+        assertThat(path(mapOf("HOME" to "/Users/ana", "KEEL_NATIVE" to "1", "KEEL_DATA" to "/k2/data")).toString())
+            .isEqualTo("/k2/data/agent-home/home/.local/share/opencode/auth.json")
     }
 
     @Test
