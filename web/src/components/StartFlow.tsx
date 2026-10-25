@@ -53,6 +53,11 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const folderBusy = !!projects.find((x) => x.id === p)?.flow;
   const [where, setWhere] = useState<FlowWhere>("auto");
   const inWorktree = where === "worktree" || (where === "auto" && folderBusy);
+  // B8 the project folder is on a branch that is not the base (what init or another flow left checked out): the flow
+  // gets its own branch from the base unless the person keeps working on that one (a flow from a spec: its branch)
+  const onBranch = projects.find((x) => x.id === p)?.branch ?? "";
+  const offBase = !!onBranch && !BASES.has(onBranch) && !isDemo;
+  const [branchMode, setBranchMode] = useState<"new" | "continue">(spec ? "continue" : "new");
   const fakeRefused = !!err && /fake model/i.test(err.message);
   // keel 0.18.55 a project keel does not know yet: before another flow starts, ask once (Run init first / Start anyway)
   const proj = projects.find((x) => x.id === p);
@@ -176,6 +181,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
         ...(where !== "auto" ? { where } : {}),
+        ...(!inWorktree && offBase && branchMode === "continue" ? { branch: "continue" as const } : {}),
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
@@ -233,8 +239,19 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         </select>
         <span className="hint">{inWorktree
           ? "keel makes a copy of the project on a new branch from the base branch (.keel/worktrees). The project folder and its flow are not touched; the Flow page shows both, and the files they share."
-          : "The flow works in the project folder, on its own branch."}</span>
+          : offBase && branchMode === "continue" ? `The flow works in the project folder, on ${onBranch}.`
+            : "The flow works in the project folder, on its own branch."}</span>
       </div>
+      {!inWorktree && offBase && (
+        <div className="field">
+          <label htmlFor="sf-branch">Branch</label>
+          <select id="sf-branch" value={branchMode} onChange={(e) => setBranchMode(e.target.value as "new" | "continue")}>
+            <option value="new">A new branch from the base branch (recommended)</option>
+            <option value="continue">Continue {onBranch}</option>
+          </select>
+          <span className="hint">The project folder is on <b className="mono">{onBranch}</b>. A new branch starts from the base branch, so this flow's commits do not stack on that one.</span>
+        </div>
+      )}
       <div className="field">
         <label htmlFor="sf-what">{needsTitle ? "What to build" : "Title (optional)"}</label>
         <input type="text" id="sf-what" value={title} aria-invalid={titleErr && needsTitle ? true : undefined} aria-describedby={titleErr && needsTitle ? "sf-what-err" : undefined}
@@ -242,12 +259,12 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           placeholder={needsTitle ? "e.g. Players can see their rank next to the top 10" : `e.g. ${wid} of this branch`} />
         {titleErr && needsTitle && <span id="sf-what-err" className="hint amber" role="alert">Say in a few words what to build: it names the flow and its branch.</span>}
       </div>
-      <div className="field">
+      {needsTitle && <div className="field">
         <label htmlFor="sf-request">Describe it for the agents</label>
         <textarea id="sf-request" value={request} onChange={(e) => setRequest(e.target.value)} rows={4}
           placeholder="Who needs it, what should happen, what must not happen, where in the code if you know. The spec agent turns this into acceptance criteria." />
         {vague && title.trim() && <span className="hint amber">This is very short. The agents may not know what to build — a few sentences save a lot of tokens.</span>}
-      </div>
+      </div>}
       {showSizes && (
         <fieldset className="field sf-sizes">
           <legend>How big is it?</legend>
@@ -275,10 +292,10 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           {!suggested && <span className="hint">Say what to build, and keel suggests a size. {SIZE_FLOWS.find((s) => s.id === wid)?.about ?? ""}</span>}
         </fieldset>
       )}
-      <div className="field">
+      {needsTitle && <div className="field">
         <label htmlFor="sf-acs">About how many acceptance criteria</label>
         <div className="row"><input type="range" id="sf-acs" min={1} max={10} value={acs} onChange={(e) => setAcs(Number(e.target.value))} style={{ flex: "1 1 140px" }} /><b className="num">{acs}</b></div>
-      </div>
+      </div>}
       {model && (
         <div className={model.provider === "fake" && !isDemo ? "wbar warn" : "wbar"} role="note">
           <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}${model.effort ? ` · ${model.effort}` : ""}`}</b>
@@ -293,7 +310,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           <>
             <div className="est-big">
               <span className="num">{kfmt(est.tokens)}</span>
-              <span className="sub">tokens expected for about {acs} ACs · range {kfmt(est.low)} – {kfmt(est.high)}</span>
+              <span className="sub">tokens expected{needsTitle ? ` for about ${acs} ACs` : ""} · range {kfmt(est.low)} – {kfmt(est.high)}</span>
             </div>
             <div className="kv">
               <span>API cost if all on keys</span><b className="num">{usd(est.cost_usd)}</b>
@@ -362,6 +379,7 @@ function ProjectCaps({ left }: { left: CapsLeft }) {
 }
 
 /** Templates that build nothing, so "what to build" is optional for them. */
+const BASES = new Set(["main", "master"]);
 const NO_BUILD = new Set(["review", "cover", "ship", "lint", "hunt", "hunt-next", "init", "knowledge-refresh"]);
 
 /** The plan's use in words: the provider's own percentage when known, else against the cap you set, else just tokens.
