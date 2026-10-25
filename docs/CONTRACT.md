@@ -1733,7 +1733,12 @@ shows_in: [connections, map, workflows, keelbot, inbox]
   DESCRIBE, PRAGMA) runs in a read-only transaction, 200 rows, 15 s; `change` (INSERT, UPDATE, DELETE, MERGE) only on
   a `local` or `test` connection, first run and rolled back to count the rows, then for real with `confirm`; `schema`
   (CREATE, ALTER, DROP TABLE) and `never` (DROP DATABASE, TRUNCATE, GRANT, more than one statement, a read that also
-  writes, server functions like pg_terminate_backend) are refused. Columns named like a secret show as `•••` to models.
+  writes, server functions like pg_terminate_backend, also named inside a string another function runs as SQL such as
+  `query_to_xml`, `dblink`, the `pg_ls_*` and `lo_*` families, MySQL's `/*! … */` and `/*M! … */`, `INTO OUTFILE`,
+  `INTO DUMPFILE`, `LOAD DATA`) are refused. Columns that hold a secret (by name, or computed from one under an alias)
+  show as `•••` to models; the api masks every agent's query whatever it asks. A SQLite file must resolve inside the
+  project folder, never in keel's data folder. A least-privilege database role is still recommended: these rules are a
+  second line. A schema keeps at most 300 tables, the search_path's first (`truncated`, `total`).
   In Docker, `localhost` in an address means the person's computer (host.docker.internal).
 - **Git rules** (`plugins/git/core.py`; since step 3 the plugin folder `plugins/git`: engine `keel_plugin_git`, content
   `content/plugins/git`, api `keel-plugin-git.jar`, web `plugins/git/web`): never force, never push to the base branch, main or master; commit = every
