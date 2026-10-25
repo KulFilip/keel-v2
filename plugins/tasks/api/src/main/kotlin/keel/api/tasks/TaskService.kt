@@ -134,6 +134,7 @@ class TaskService(
 
     fun delete(id: String) {
         val t = store.require(id)
+        closeItems(id)                // its open Inbox items' notifications leave the unread count too
         store.delete(id)
         changed(t.projectId)
     }
@@ -232,7 +233,7 @@ class TaskService(
                 if (b.action != "done") throw BadRequest("action must be done")
                 synchronized(lock(item.taskId)) {
                     val t = store.require(item.taskId)
-                    store.closeItem(item.id)
+                    closeItem(item.id)
                     if (item.stage == "reviewers") {
                         store.event(t.id, "jira_manual", null, null, "You set the reviewers of ${t.label} in Jira by hand.", "user")
                     } else {
@@ -362,7 +363,7 @@ class TaskService(
         if (tr is Trigger.JiraMoved) next = next.copy(externalStatus = tr.to)
         next = store.update(next)
         store.event(id, plan.kind, t.status, plan.to, plan.note, plan.actor)
-        if (plan.to != t.status) store.closeItems(id, kind = "task")
+        if (plan.to != t.status) closeItems(id, kind = "task")
         plan.openItem?.let { openItem(next, "task", it.stage, it.title, it.detail) }
         return next to plan
     }
@@ -386,7 +387,7 @@ class TaskService(
                     store.event(t.id, "jira", null, null, if (m.moved) "Jira: moved $key from ${m.from ?: "?"} to ${m.to}." else "Jira: $key is already in ${m.to}.", "keel")
                     t = patch(t.id) { it.copy(externalStatus = m.to) }
                     // keel reached Jira this time: an older "move it by hand" is out of date
-                    store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { store.closeItem(it.id) }
+                    store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { closeItem(it.id) }
                 } catch (e: TicketException) {
                     store.event(t.id, "jira_error", null, null, "Jira: could not move $key to $target. ${e.message}", "keel")
                     byHand(t, target, e.message)
@@ -449,7 +450,7 @@ class TaskService(
 
     /** keel could not move the real ticket: the Inbox asks the user to do it (an older such item is replaced). */
     private fun byHand(t: Task, target: String, why: String) {
-        store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { store.closeItem(it.id) }
+        store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { closeItem(it.id) }
         openItem(t, "jira-manual", target, "Move ${t.externalKey} to $target in Jira (keel could not: ${why.trimEnd('.')})",
             "keel moved the task to ${TaskStatus.LABELS[t.status] ?: t.status}. Move the real ticket by hand, then press Done.")
         store.event(t.id, "jira_manual", null, null, "Asked you to move ${t.externalKey} to $target in Jira by hand.", "keel")
@@ -458,9 +459,23 @@ class TaskService(
     /** Opens an Inbox item and its notification (the phone, Muxy and the IDE follow the Inbox's notifications). */
     fun openItem(t: Task, kind: String, stage: String?, title: String, detail: String, data: Map<String, Any?>? = null): TaskItem {
         val item = store.openItem(t, kind, stage, title, detail, data)
-        runCatching { notifications.create("review", t.projectId, title, detail.take(200), "/tasks/${t.id}") }
+        runCatching { notifications.create("review", t.projectId, title, detail.take(200), "/tasks/${t.id}", threadId = itemRef(item.id)) }
         return item
     }
+
+    /**
+     * Closes one Inbox item; its bell notification is done and read (the unread count goes down), like a decided gate's.
+     * Every task item (proposal, review comment, confirm, Jira by hand) closes through here or [closeItems].
+     */
+    fun closeItem(id: Long): Boolean {
+        val closed = store.closeItem(id)
+        if (closed) runCatching { notifications.markDone(itemRef(id)) }
+        return closed
+    }
+
+    /** Closes the open items of a task ([kind]/[stage] null = any), with their notifications; returns how many. */
+    fun closeItems(taskId: String, kind: String? = null, stage: String? = null): Int =
+        store.openItems(taskId).filter { (kind == null || it.kind == kind) && (stage == null || it.stage == stage) }.count { closeItem(it.id) }
 
     private fun stopFlow(t: Task) {
         val tid = t.threadId ?: return
@@ -516,6 +531,8 @@ class TaskService(
     }
 
     companion object {
+        /** The key that ties an Inbox item's bell notification to it (the notification's thread_id, like an approval id's). */
+        fun itemRef(itemId: Long) = "task-item:$itemId"
         val PR_OPENED = Regex("^PR opened: (https?://\\S+)")
         private val CRITERIA = Regex("```[ \\t]*keel-criteria[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
         private val CRITERION = Regex("^[-*]?\\s*(AC-\\d+)\\s*\\[(\\w+)]\\s*(.+)$")

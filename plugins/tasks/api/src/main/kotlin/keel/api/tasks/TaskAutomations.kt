@@ -260,11 +260,11 @@ class TaskAutomations(
                         tasks.start(t.id, StartTask(wid, runMode, allowDirty = b.allowDirty, title = if (b.action == "start") d["title"]?.toString() else null,
                             request = request.ifBlank { null }, capTokens = cap))
                     }
-                    store.closeItem(item.id)
+                    tasks.closeItem(item.id)
                     store.event(t.id, "automation", null, null, "You started the $wid flow from keel's proposal${if (b.action == "other") " (another flow than keel's ${d["workflow_id"]})" else ""}.", "user")
                 }
                 "later" -> {
-                    store.closeItem(item.id)
+                    tasks.closeItem(item.id)
                     store.event(t.id, "automation", null, null, "Not now: you put keel's ${d["workflow_id"] ?: "flow"} proposal aside.${b.note?.let { " $it" } ?: ""}", "user")
                 }
                 else -> throw BadRequest("action must be start, other or later")
@@ -277,17 +277,17 @@ class TaskAutomations(
                         val text = b.note?.trim()?.ifEmpty { null } ?: d["reply"]?.toString()?.trim()?.ifEmpty { null }
                             ?: throw BadRequest("keel has no reply for this comment", "Write one in the note, or address it.")
                         judge().reply(t.projectId, pr, thread, text)
-                        store.closeItem(item.id)
+                        tasks.closeItem(item.id)
                         store.event(t.id, "automation", null, null, "You posted keel's reply to ${d["author"] ?: "the reviewer"} on the pull request.", "user")
                     }
                     "address" -> {
                         val tid = judge().address(t.projectId, pr, thread)
                         auto.addRun(tid, t.id, "address", null)
-                        store.closeItem(item.id)
+                        tasks.closeItem(item.id)
                         store.event(t.id, "automation", null, null, "You asked keel to address ${d["author"] ?: "the reviewer"}'s comment: a small flow works on the PR's branch (it pushes nothing).", "user")
                     }
                     "handle" -> {
-                        store.closeItem(item.id)
+                        tasks.closeItem(item.id)
                         store.event(t.id, "automation", null, null, "You handle ${d["author"] ?: "the reviewer"}'s comment yourself.", "user")
                     }
                     else -> throw BadRequest("action must be reply, address or handle")
@@ -440,7 +440,7 @@ class TaskAutomations(
     // ---- small helpers ----------------------------------------------------------------------------
 
     private fun close(t: Task, kind: String, stage: String) {
-        store.closeItems(t.id, kind = kind, stage = stage)
+        tasks.closeItems(t.id, kind = kind, stage = stage)
     }
 
     private fun note(t: Task, text: String) {

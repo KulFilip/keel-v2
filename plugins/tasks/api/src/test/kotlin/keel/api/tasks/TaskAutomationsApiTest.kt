@@ -21,6 +21,8 @@ class TaskAutomationsApiTest : ApiTest() {
 
     private fun task(id: String): JsonNode = get("/api/tasks/$id").andExpect(status().isOk).json()
     private fun proposals(pid: String) = get("/api/inbox?project=$pid").json()["items"].filter { it["kind"].asText() == "task-proposal" }
+    /** The bell's notifications that point at task [id] and are still unread. */
+    private fun unread(id: String) = get("/api/notifications?limit=500").json().filter { it["link"].asText() == "/tasks/$id" && !it["read"].asBoolean() }
     private fun newTask(pid: String, title: String, type: String = "bug") =
         post("/api/projects/$pid/tasks", mapOf("title" to title, "type" to type, "description" to "The cart page crashes.")).andExpect(status().isOk).json()["id"].asText()
 
@@ -61,12 +63,18 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(p["detail"].asText()).contains("no model is set up")
         assertThat(engine.calls.count { it.path == "/tasks/pick" }).isEqualTo(asked)       // no model call
 
-        // asking again replaces the open proposal
+        assertThat(unread(id)).hasSize(1)
+
+        // asking again replaces the open proposal, and its notification
         post("/api/tasks/$id/pick").andExpect(status().isOk)
         assertThat(proposals(pid)).hasSize(1)
+        assertThat(unread(id)).hasSize(1)
 
         post("/api/inbox/tasks/${proposals(pid).single()["task"]["item_id"].asLong()}/act", mapOf("action" to "later")).andExpect(status().isOk)
         assertThat(proposals(pid)).isEmpty()
+        // B3: the answered proposal's notification is done and read: the bell's count goes down
+        assertThat(unread(id)).isEmpty()
+        assertThat(get("/api/notifications?limit=500").json().filter { it["link"].asText() == "/tasks/$id" }).allMatch { it["done"].asBoolean() }
         assertThat(task(id)["events"].map { it["note"].asText() }).anyMatch { it.startsWith("Not now: you put keel's feature proposal aside.") }
         assertThat(task(id)["status"].asText()).isEqualTo("todo")
 
@@ -105,6 +113,7 @@ class TaskAutomationsApiTest : ApiTest() {
         assertThat(t["workflow_id"].asText()).isEqualTo("knowledge-refresh")
         assertThat(t["status"].asText()).isEqualTo("in_progress")
         assertThat(engine.lastBody("/threads")!!["request"].asText()).startsWith("Make CI green.")
+        assertThat(unread(id)).isEmpty()                                                                      // Start: read too
         post("/api/inbox/tasks/$item/act", mapOf("action" to "start")).andExpect(status().isConflict)           // answered already
     }
 }
