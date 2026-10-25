@@ -23,6 +23,33 @@ export const dbTabTitle = (path: string) => {
   return table ? `${table} · ${conn}` : `console · ${conn}`;
 };
 
+// keel 0.18.55: a name keel writes into SQL (the table tab, Map › Query) is quoted for its database when it needs it:
+// "…" on PostgreSQL and SQLite, `…` on MySQL. PostgreSQL folds plain names to lower case, so a capital needs quotes there.
+const RESERVED = new Set(
+  ("all and any as asc between by case check column constraint create cross current_user default delete desc distinct drop " +
+    "else end except exists false fetch for foreign from full grant group having in index inner insert intersect into is join " +
+    "key left like limit natural not null offset on or order outer primary references right select session_user set some " +
+    "table then to true union unique update user using values when where window with").split(" "),
+);
+
+export function quoteIdent(name: string, kind: string): string {
+  const plain = kind === "postgres" ? /^[a-z_][a-z0-9_$]*$/ : /^[A-Za-z_][A-Za-z0-9_$]*$/;
+  if (plain.test(name) && !RESERVED.has(name.toLowerCase())) return name;
+  return kind === "mysql" ? "`" + name.replace(/`/g, "``") + "`" : '"' + name.replace(/"/g, '""') + '"';
+}
+
+/** A table as keel's schema names it: PostgreSQL's tables outside `public` come as schema.table. */
+export function quoteTable(name: string, kind: string): string {
+  const dot = name.indexOf(".");
+  if (kind === "postgres" && dot > 0) {
+    return `${quoteIdent(name.slice(0, dot), kind)}.${quoteIdent(name.slice(dot + 1), kind)}`;
+  }
+  return quoteIdent(name, kind);
+}
+
+export const tableSelect = (name: string, kind: string, limit: number) =>
+  `SELECT * FROM ${quoteTable(name, kind)} LIMIT ${limit}`;
+
 /** The statement under the cursor (statements end at `;` outside quotes), or the selection when there is one. */
 export function statementAt(
   text: string,

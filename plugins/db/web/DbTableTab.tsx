@@ -6,6 +6,7 @@ import { dbApi } from "./dbApi";
 import { Icon } from "./icons";
 import { ResultTable } from "./QueryPanel";
 import { useRun } from "./DbConsole";
+import { quoteTable } from "./dbModel";
 
 export function TableTab({
   pid,
@@ -31,8 +32,8 @@ export function TableTab({
   const { busy, result, err, run } = useRun(pid);
   const sql = useMemo(
     () =>
-      `SELECT * FROM ${table}${where.trim() ? ` WHERE ${where.trim()}` : ""} LIMIT 100`,
-    [table, where],
+      `SELECT * FROM ${quoteTable(table, c?.kind ?? "postgres")}${where.trim() ? ` WHERE ${where.trim()}` : ""} LIMIT 100`,
+    [table, where, c?.kind],
   );
   useEffect(() => {
     if (c) void run(c, sql);

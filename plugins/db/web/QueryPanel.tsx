@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { ErrorBox, errorParts, useLoad } from "@keel/web-sdk";
 import { dbApi, type DbResult } from "./dbApi";
+import { tableSelect } from "./dbModel";
 
 export function ResultTable({ r }: { r: DbResult }) {
   if (r.kind === "change") return null;
@@ -110,7 +111,7 @@ export function QueryPanel({ pid }: { pid: string }) {
     }
   };
   const open = (table: string) => {
-    const text = `SELECT * FROM ${table} LIMIT 20`;
+    const text = tableSelect(table, current?.kind ?? "postgres", 20);
     setSql(text);
     void run(text);
   };
