@@ -30,6 +30,18 @@ describe("Budget bar on top of every page", () => {
     expect(document.getElementById("main")!.contains(b)).toBe(false);
   });
 
+  it("other projects' runs (keel Product's own) show as the total for all projects", async () => {
+    db.budgetNow.all_today = { tokens: 540000, cost_usd: 2.99 };
+    db.budgetNow.all_month = { tokens: 1900000, cost_usd: 24.1 };       // nothing else this month: no extra part
+    location.hash = "#/projects";
+    render(<App />);
+    const b = await bar();
+    const today = await within(b).findByTestId("bb-today");
+    expect(within(today).getByTestId("bb-all-today")).toHaveTextContent("· all $2.99");
+    expect(today).toHaveAttribute("title", expect.stringContaining("All projects (keel Product too): 540k tokens, $2.99."));
+    expect(within(b).queryByTestId("bb-all-this-month")).toBeNull();
+  });
+
   it("a day cap shows what is used of it; 95% turns the bar red", async () => {
     db.caps.push({ id: "c9", scope: "day", limit: 200000, unit: "tokens", action: "pause" });
     db.capUse.day.tokens = 190000;

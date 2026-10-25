@@ -745,7 +745,11 @@ export type Budget = {
   caps: Cap[];
   top: { agent: string; provider: Provider; tokens: number; cost_usd: number }[];
   recent: { title: string; estimate: number; real: number; status: string }[];
+  /** 0.18.55 every project with agent runs this month (keel Product's own runs too); `all` is their sum. */
+  projects?: ProjectSpend[];
+  all?: Spend;
 };
+export type ProjectSpend = { project_id: string; name: string; tokens: number; cost_usd: number; api_cost_usd: number; calls: number };
 /** Tokens (cached input counts a tenth) and dollars at API prices. */
 export type Spend = { tokens: number; cost_usd: number };
 /** A running or waiting flow and what it used against its own caps (null = no cap). */
@@ -816,7 +820,9 @@ export type HelperTurnStarted = { session: string; call_id: string; n: number; c
 export type GraphHit = { id: string; name: string; kind: string; file: string; line: number; unit: string; group: string };
 
 /** v0.5.2 `GET /api/projects/{pid}/budget/now`, for the budget bar on every page: caps = the day and month caps. */
-export type BudgetNow = { today: Spend; month: Spend; flows: FlowSpend[]; caps: CapLeft[] };
+export type BudgetNow = { today: Spend; month: Spend; flows: FlowSpend[]; caps: CapLeft[];
+  /** 0.18.55 every project together (keel Product's own runs too) */
+  all_today?: Spend; all_month?: Spend };
 export type Limit = {
   id: string; name: string; unit: string; used: number; cap: number; note: string;
   /** The provider's own numbers (usage dashboard); absent = only the manual cap and keel's own count. */

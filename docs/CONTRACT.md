@@ -284,7 +284,8 @@ GET    /api/projects/{pid}/mcp-allow                  → { [agent]: string[] } 
 type McpServer = McpServerSpec & { enabled, builtin, status: "ok"|"off"|"error", tools: string[] }
 
 # control
-GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[] }
+GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[],
+                                                    projects: { project_id, name, tokens, cost_usd, api_cost_usd, calls }[], all: Spend }   // 0.18.55 every project this month (keel Product's own runs too), all = their sum
 GET    /api/projects/{pid}/budget/now                 → BudgetNow (v0.5.2, the budget bar; see "v0.5.2: the budget bar")
 GET    /api/projects/{pid}/graph                      → GraphOverview (v0.5.3, the code graph; see "v0.5.3: the Graph page")
 GET    /api/limits                                    → Limit[]      PUT /api/limits  Limit[]
@@ -1291,7 +1292,9 @@ GET /api/projects/{pid}/budget/now → {
   today: Spend,                 // this project since 00:00 UTC
   month: Spend,                 // this project since the 1st (UTC)
   flows: FlowSpend[],           // its running and waiting flows, newest first, at most 5
-  caps: CapLeft[]               // its day and month caps that keel checks (as in /caps/left)
+  caps: CapLeft[],              // its day and month caps that keel checks (as in /caps/left)
+  all_today: Spend,             // 0.18.55 every project together since 00:00 UTC (keel Product's own runs too)
+  all_month: Spend              // 0.18.55 every project together since the 1st (UTC)
 }
 Spend     = { tokens, cost_usd }   // tokens = in + out + a tenth of cached input; dollars at API prices
 FlowSpend = { thread_id, title, status, tokens, cost_usd, cap_tokens: number|null, cap_usd: number|null }

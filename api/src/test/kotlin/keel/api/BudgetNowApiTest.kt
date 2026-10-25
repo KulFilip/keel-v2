@@ -19,11 +19,12 @@ class BudgetNowApiTest : ApiTest() {
 
     private val today: LocalDate = LocalDate.now(ZoneOffset.UTC)
 
-    private fun call(pid: String, at: Instant, tokensIn: Long, tokensOut: Long, cached: Long, cost: Double, thread: String? = null) {
+    private fun call(pid: String, at: Instant, tokensIn: Long, tokensOut: Long, cached: Long, cost: Double, thread: String? = null,
+                     mode: String = "subscription") {
         jdbc.update(
             """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, status, started_at, tokens_in, tokens_out, tokens_cached, cost_usd, mode)
-               VALUES (?, ?, ?, 'implementer', 'claude', 'done', ?, ?, ?, ?, ?, 'subscription')""",
-            "c-" + UUID.randomUUID(), pid, thread, at.toString(), tokensIn, tokensOut, cached, cost,
+               VALUES (?, ?, ?, 'implementer', 'claude', 'done', ?, ?, ?, ?, ?, ?)""",
+            "c-" + UUID.randomUUID(), pid, thread, at.toString(), tokensIn, tokensOut, cached, cost, mode,
         )
     }
 
@@ -74,6 +75,39 @@ class BudgetNowApiTest : ApiTest() {
         // only the caps a bar can show against a window: the day cap, not the per-flow one
         assertThat(res["caps"].map { it["window"].asText() }).containsExactly("day")
         assertThat(res["caps"][0]["limit"].asDouble()).isEqualTo(1_000_000.0)
+    }
+
+    @Test
+    fun `keel Product's own runs count in every project's totals and in Budget's list of projects`() {
+        // e2e 0.18.54: 28 product calls ($2.57) on the keel-product project showed nowhere (not Today, not Budget)
+        val (pid, _) = newProject("budget-all")
+        val product = "keel-product-" + UUID.randomUUID().toString().take(8)
+        jdbc.update("INSERT INTO projects(id, name, root, created_at, hidden) VALUES (?, 'keel Product', ?, ?, 0)", product, "/data/$product", Instant.now().toString())
+        val now = Instant.now()
+        call(pid, now, 10_000, 1_000, 0, 1.0)
+        call(product, now, 50_000, 5_000, 0, 2.0, mode = "api")
+        call(product, now, 5_000, 500, 0, 0.57, mode = "api")
+
+        val bar = get("/api/projects/$pid/budget/now").andExpect(status().isOk).json()
+        assertThat(bar["today"]["cost_usd"].asDouble()).isCloseTo(1.0, within(1e-9))                  // this project's own
+        val since = today.atStartOfDay().toInstant(ZoneOffset.UTC).toString()
+        val everything = jdbc.queryForObject("SELECT SUM(cost_usd) FROM agent_calls WHERE started_at >= ?", Double::class.java, since)!!
+        assertThat(bar["all_today"]["cost_usd"].asDouble()).isCloseTo(everything, within(1e-9))
+        assertThat(bar["all_today"]["cost_usd"].asDouble() - bar["today"]["cost_usd"].asDouble()).isGreaterThanOrEqualTo(2.57 - 1e-9)
+        assertThat(bar["all_month"]["cost_usd"].asDouble()).isGreaterThanOrEqualTo(bar["all_today"]["cost_usd"].asDouble() - 1e-9)
+
+        val b = get("/api/projects/$pid/budget").andExpect(status().isOk).json()
+        val rows = b["projects"].associateBy { it["project_id"].asText() }
+        assertThat(rows[product]!!["name"].asText()).isEqualTo("keel Product")
+        assertThat(rows[product]!!["cost_usd"].asDouble()).isCloseTo(2.57, within(1e-9))
+        assertThat(rows[product]!!["api_cost_usd"].asDouble()).isCloseTo(2.57, within(1e-9))
+        assertThat(rows[product]!!["calls"].asInt()).isEqualTo(2)
+        assertThat(rows[pid]!!["tokens"].asLong()).isEqualTo(11_000)
+        // the list adds up to the total, and its API-key column to the "API keys (all)" account row
+        assertThat(b["projects"].sumOf { it["cost_usd"].asDouble() }).isCloseTo(b["all"]["cost_usd"].asDouble(), within(1e-6))
+        assertThat(b["projects"].sumOf { it["tokens"].asLong() }).isEqualTo(b["all"]["tokens"].asLong())
+        val apiRow = get("/api/limits").andExpect(status().isOk).json().first { it["id"].asText() == "api" }
+        assertThat(b["projects"].sumOf { it["api_cost_usd"].asDouble() }).isCloseTo(apiRow["used"].asDouble(), within(1e-6))
     }
 
     @Test
