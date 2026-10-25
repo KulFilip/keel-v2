@@ -560,16 +560,15 @@ class DatabaseService(
         private val SECRET_PARAM = Regex("([?&;])(password|passwd|pwd|pass|secret|token|api_?key|access_?token|sslpassword)=([^&;#]*)", RegexOption.IGNORE_CASE)
         private val URL_IN_TEXT = Regex("""(?:jdbc:)?[A-Za-z][A-Za-z0-9+.\-]*://\S+""")
 
-        /** The address with every secret as •••: the password of user:pw@host (it may hold any character, up to the last @ of
-         *  the address) and the value of ?password=, &pwd=, ;secret=, token= … (any case). Same rules as the engine's masked_url. */
+        /** The address with every secret as •••: the password of user:pw@host (it may hold any character, up to the last @
+         *  before the host: [DbUrls.userinfoEnd]) and the value of ?password=, &pwd=, ;secret=, token= … (any case). Same
+         *  rules as the engine's masked_url. */
         fun shownOf(url: String): String {
             var out = url.trim()
             SCHEME.matchEntire(out)?.let { m ->
                 val head = m.groupValues[1]
                 val rest = m.groupValues[2]
-                val authority = rest.split('/', '?', '#', limit = 2)[0]
-                // a clean address has its @ before the first / ? #; a password with a / or ? makes the @ come later
-                val at = if ('@' in authority) authority.lastIndexOf('@') else rest.lastIndexOf('@')
+                val at = DbUrls.userinfoEnd(rest)
                 if (at >= 0 && ':' in rest.substring(0, at)) out = head + rest.substring(0, at).substringBefore(':') + ":$MASK@" + rest.substring(at + 1)
             }
             return SECRET_PARAM.replace(out) { "${it.groupValues[1]}${it.groupValues[2]}=$MASK" }
