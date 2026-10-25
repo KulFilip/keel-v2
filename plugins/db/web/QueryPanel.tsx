@@ -8,6 +8,15 @@ import { ErrorBox, errorParts, useLoad } from "@keel/web-sdk";
 import { dbApi, type DbResult } from "./dbApi";
 import { tableSelect } from "./dbModel";
 
+/** A schema keel cut at 300 tables says so. */
+export function TablesShown({ shown, total }: { shown: number; total?: number }) {
+  return (
+    <span className="sub">
+      showing {shown} of {total ?? shown} tables
+    </span>
+  );
+}
+
 export function ResultTable({ r }: { r: DbResult }) {
   if (r.kind === "change") return null;
   const cols = r.columns ?? [];
@@ -160,20 +169,28 @@ export function QueryPanel({ pid }: { pid: string }) {
           ) : !schema.data ? (
             <span className="sub">Reading the tables…</span>
           ) : (
-            <ul aria-label="Tables">
-              {tables.map((t) => (
-                <li key={t.name}>
-                  <button
-                    type="button"
-                    className="qp-table-btn"
-                    onClick={() => open(t.name)}
-                    title={t.columns.map((c) => c.name).join(", ")}
-                  >
-                    {t.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              {schema.data.truncated && (
+                <TablesShown
+                  shown={schema.data.tables.length}
+                  total={schema.data.total}
+                />
+              )}
+              <ul aria-label="Tables">
+                {tables.map((t) => (
+                  <li key={t.name}>
+                    <button
+                      type="button"
+                      className="qp-table-btn"
+                      onClick={() => open(t.name)}
+                      title={t.columns.map((c) => c.name).join(", ")}
+                    >
+                      {t.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
         <div className="qp-main">

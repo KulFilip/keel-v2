@@ -65,3 +65,33 @@ describe("a table's name in the SQL keel writes", () => {
     );
   });
 });
+
+describe("a long schema", () => {
+  it("says it shows 300 of N tables", async () => {
+    const user = userEvent.setup();
+    db.plugins.db = true;
+    db.dbConns = [local];
+    server.use(
+      http.get("/api/projects/:pid/db/schema", () =>
+        HttpResponse.json({
+          connection: "local",
+          kind: "postgres",
+          truncated: true,
+          total: 512,
+          tables: [
+            { name: "players", columns: [], fks: [] },
+            { name: "scores", columns: [], fks: [] },
+          ],
+        }),
+      ),
+    );
+    location.hash = "#/repo";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Database" }));
+    const tree = await screen.findByRole("tree", { name: "Databases" });
+    await user.click(within(tree).getByRole("button", { name: "Open local" }));
+    expect(
+      await within(tree).findByText(/showing 2 of 512 tables/),
+    ).toBeInTheDocument();
+  });
+});
