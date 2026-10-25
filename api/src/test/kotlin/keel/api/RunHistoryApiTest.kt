@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 /** v0.15.4 the Flow page's run history: each run's cost and whether it is the newest, delete (a mark), and its refusals. */
 class RunHistoryApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
+    @Autowired lateinit var refresh: keel.api.flow.ThreadStateRefresh
 
     private fun start(pid: String, title: String) =
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to title, "allow_fake" to true)).andExpect(status().isOk)
@@ -93,5 +94,34 @@ class RunHistoryApiTest : ApiTest() {
         delete("/api/projects/$pid/flows/t-rhf-2").andExpect(status().isConflict)
         delete("/api/projects/$pid/flows/t-rhf-1").andExpect(status().isOk)
         assertThat(runIds(pid)).containsExactly("t-rhf-2")
+    }
+
+    @Test
+    fun `a pause saves the engine's state, so the history counts the last criterion done (acs 6 of 6)`() {
+        val (pid, _) = newProject("runs-refresh")
+        engine.nextThreadIds += "t-refresh"
+        start(pid, "Refresh")
+        fun acs(n: Int, done: Int) = (1..n).map { mapOf("id" to "AC-$it", "layer" to "API", "title" to "t$it", "status" to if (it <= done) "done" else "green") }
+        // the resume answered with the old state (5 of 6): what the api saved
+        engine.overrides["t-refresh"] = mapOf("status" to "waiting", "acs" to acs(6, 5))
+        get("/api/projects/$pid/flows/t-refresh").andExpect(status().isOk)
+        assertThat(get("/api/projects/$pid/runs").json().single { it["thread_id"].asText() == "t-refresh" }["acs_done"].asInt()).isEqualTo(5)
+        // then the engine applied the answer and paused at "ready to ship?"
+        engine.overrides["t-refresh"] = mapOf("status" to "waiting", "acs" to acs(6, 6))
+        refresh.enabled = true
+        try {
+            post("/internal/events", listOf(mapOf("type" to "gate.waiting", "thread_id" to "t-refresh", "project_id" to pid, "step" to "ready_gate",
+                "at" to "2026-10-25T10:00:00Z", "data" to mapOf("title" to "Ready to ship?"))), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+            var done = 0
+            repeat(50) {
+                done = get("/api/projects/$pid/runs").json().single { it["thread_id"].asText() == "t-refresh" }["acs_done"].asInt()
+                if (done == 6) return@repeat
+                Thread.sleep(100)
+            }
+            assertThat(done).isEqualTo(6)
+        } finally {
+            refresh.enabled = false
+            engine.overrides.remove("t-refresh")
+        }
     }
 }
