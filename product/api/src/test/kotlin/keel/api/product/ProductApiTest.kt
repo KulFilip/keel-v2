@@ -584,6 +584,40 @@ class ProductApiTest : ApiTest() {
     }
 
     @Test
+    fun `B5 the Jira connections say which one is connected, and an initiative ticket uses a project's own when keel-wide has none`() {
+        val (web, pay) = repos()
+        put("/api/projects/$pay/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token, "project_key" to "PAY"))
+            .andExpect(status().isOk)
+        val c = get("/api/product/jira/connections").andExpect(status().isOk).json()
+        assertThat(c["keel_wide"]["connected"].asBoolean()).isFalse()
+        assertThat(c["keel_wide"]["project_id"].isNull).isTrue()
+        val own = c["projects"].single { it["project_id"].asText() == pay }
+        assertThat(own["connected"].asBoolean()).isTrue()
+        assertThat(own["base_url"].asText()).isEqualTo(jira.url)
+        assertThat(own["project_key"].asText()).isEqualTo("PAY")
+        assertThat(c["projects"].none { it["project_id"].asText() == web }).isTrue()        // no connection there
+        // keel-wide is not connected: a project's own connection is the default
+        assertThat(c["projects"].single { it["project_id"].asText() == c["suggested"].asText() }["connected"].asBoolean()).isTrue()
+        assertThat(c.toString()).doesNotContain(jira.token)
+
+        // "keel-wide" saved while it has no connection: the project's own connection makes the initiative ticket
+        jira.upperTypes += "Initiative"
+        put("/api/product/jira", mapOf("project" to "PORT")).andExpect(status().isOk)
+        nextTid("brief")
+        val id = post("/api/initiatives", mapOf("title" to "Own Jira", "idea" to "No keel-wide Jira.", "repos" to listOf(pay))).json()["initiative"]["id"].asText()
+        toDelivery(id)
+        val row = get("/api/initiatives/$id/tickets/preview").andExpect(status().isOk).json()["rows"].single { it["level"].asText() == "initiative" }
+        assertThat(row["action"].asText()).isEqualTo("create")
+        assertThat(row["site"].asText()).isEqualTo(jira.url)
+
+        // a keel-wide connection: it is the default again
+        put("/api/jira", mapOf("kind" to "cloud", "base_url" to jira.url, "email" to jira.email, "token" to jira.token)).andExpect(status().isOk)
+        val c2 = get("/api/product/jira/connections").json()
+        assertThat(c2["keel_wide"]["connected"].asBoolean()).isTrue()
+        assertThat(c2["suggested"].isNull).isTrue()
+    }
+
+    @Test
     fun `on Jira Server a story names its epic with the Epic Link field, and the team's own connection is used`() {
         val (_, pay) = repos()
         put("/api/projects/$pay/jira", mapOf("kind" to "server", "base_url" to server.url, "token" to server.token)).andExpect(status().isOk)

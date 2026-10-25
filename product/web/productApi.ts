@@ -258,6 +258,24 @@ export type InitiativeJira = {
   type?: string | null;
 };
 
+/** B5: a Jira connection a team or the initiatives can use (GET /api/product/jira/connections); no token. */
+export type JiraConnectionInfo = {
+  /** the keel project whose own connection it is; null = the keel-wide one */
+  project_id: string | null;
+  name: string;
+  connected: boolean;
+  kind?: string | null;
+  base_url?: string | null;
+  project_key?: string | null;
+};
+
+export type JiraConnections = {
+  keel_wide: JiraConnectionInfo;
+  projects: JiraConnectionInfo[];
+  /** null = keel-wide (connected, or no project is); else the project whose connection keel uses instead */
+  suggested: string | null;
+};
+
 export type RepoOwner = {
   project_id: string;
   name: string;
@@ -544,6 +562,7 @@ export const productApi = {
   ticketSend: (id: string, stories: string[] = []) =>
     post<SendResult>(`${I(id)}/tickets/send`, { stories }),
   initiativeJira: () => get<InitiativeJira>("/product/jira"),
+  jiraConnections: () => get<JiraConnections>("/product/jira/connections"),
   saveInitiativeJira: (b: InitiativeJira) =>
     put<InitiativeJira>("/product/jira", b),
   doc: (id: string, kind: string, version: number) =>

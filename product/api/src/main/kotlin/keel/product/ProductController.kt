@@ -174,6 +174,10 @@ class ProductController(
     @GetMapping("/product/jira")
     fun initiativeJira(): InitiativeJira = on { sender.initiativeJira() }
 
+    /** B5: the Jira connections a team or the initiatives can use, which are connected, and the default when keel-wide has none. */
+    @GetMapping("/product/jira/connections")
+    fun jiraConnections(): JiraConnections = on { sender.connections() }
+
     @PutMapping("/product/jira")
     fun saveInitiativeJira(@RequestBody b: InitiativeJira): InitiativeJira = on { sender.saveInitiativeJira(b) }
 

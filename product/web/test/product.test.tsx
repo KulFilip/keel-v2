@@ -1085,6 +1085,76 @@ describe("keel Product in keel's web", () => {
     expect(calls.some((c) => c.method === "POST" && c.path === "/api/product/tickets/scan")).toBe(true);
   });
 
+  it("B5: with no keel-wide Jira, a team and the initiatives default to a project's own connection, and no second token is asked", async () => {
+    const team: Team = {
+      id: "erp", name: "Orders", lead: "Sara", jira_project: "SHOPS", members: [], source: "manual",
+      owns: [{ team_id: "erp", project_id: "shop", glob: "**", source: "manual" }],
+      created_at: "", updated_at: "", jira: { connection: null, labels: [] }, key_pattern: null, keys: "SHOPS-\\d+", projects: ["shop"],
+    };
+    const conns = {
+      keel_wide: { project_id: null, name: "keel-wide (Jira for every project)", connected: false, kind: null, base_url: null, project_key: null },
+      projects: [{ project_id: "shop", name: "shop", connected: true, kind: "cloud", base_url: "https://shop.example.net", project_key: "SHOPS" }],
+      suggested: "shop",
+    };
+    const repos = [
+      { project_id: "shop", name: "shop", root: "/r/shop", teams: ["erp"] },
+      { project_id: "admin", name: "admin", root: "/r/admin", teams: [] },
+    ];
+    const notConnected: JiraView = { connected: false, settings: { kind: "cloud", base_url: "", email: null, project_key: null }, token_set: false, token_hint: null, me: null };
+    const calls = await open("#/teams", {
+      "GET /api/teams": [team],
+      "/api/initiatives/repos": repos,
+      "GET /api/jira": () => notConnected,
+      "GET /api/product/jira": { connection: null, project: null, type: null },
+      "PUT /api/product/jira": (b: unknown) => b,
+      "GET /api/product/jira/connections": conns,
+    });
+    // Jira for every project: the project's connection works, so no token form until asked
+    const card = (await main().findByRole("heading", { name: "Jira for every project" })).closest("section")!;
+    expect(await within(card).findByTestId("keel-jira-reuse")).toHaveTextContent("Not needed now: shop (https://shop.example.net) has a Jira connection");
+    expect(within(card).queryByLabelText("API token")).toBeNull();
+    // Initiatives in Jira: the project's own connection, not "keel-wide (not connected)"
+    const ini = main().getByRole("heading", { name: "Initiatives in Jira" }).closest("section")!;
+    const conn = await within(ini).findByLabelText("Connection");
+    await waitFor(() => expect(conn).toHaveValue("shop"));
+    expect(within(ini).getByRole("option", { name: "keel-wide (Jira for every project) · not connected" })).toBeInTheDocument();
+    expect(within(ini).queryByRole("option", { name: /admin/ })).toBeNull();          // no connection there
+    expect(within(ini).getByTestId("conn-note")).toHaveTextContent("keel picked shop's own connection (no second token)");
+    await userEvent.type(within(ini).getByLabelText("Initiative project key"), "PORT");
+    await userEvent.click(within(ini).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT" && c.path === "/api/product/jira")?.body).toEqual({ connection: "shop", project: "PORT", type: null }),
+    );
+    // asked anyway: the token form
+    await userEvent.click(within(card).getByRole("button", { name: "Set up a keel-wide connection" }));
+    expect(within(card).getByLabelText("API token")).toBeInTheDocument();
+  });
+
+  it("B5: a team's Jira defaults to its project's own connection when keel-wide has none", async () => {
+    const team: Team = {
+      id: "erp", name: "Orders", lead: "Sara", jira_project: "SHOPS", members: [], source: "manual",
+      owns: [{ team_id: "erp", project_id: "shop", glob: "**", source: "manual" }],
+      created_at: "", updated_at: "", jira: { connection: null, labels: [] }, key_pattern: null, keys: "SHOPS-\\d+", projects: ["shop"],
+    };
+    const calls = await open("#/teams/erp", {
+      "GET /api/teams/erp": { team, pages: [], suggestions: [] },
+      "/api/initiatives/repos": [{ project_id: "shop", name: "shop", root: "/r/shop", teams: ["erp"] }],
+      "GET /api/product/jira/connections": {
+        keel_wide: { project_id: null, name: "keel-wide", connected: false },
+        projects: [{ project_id: "shop", name: "shop", connected: true, base_url: "https://shop.example.net" }],
+        suggested: "shop",
+      },
+      "PATCH /api/teams/erp": (b: Partial<Team>) => ({ ...team, ...b }),
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Projects and Jira" }));
+    const jira = main().getByRole("heading", { name: "Jira" }).closest("section")!;
+    await waitFor(() => expect(within(jira).getByLabelText("Jira connection")).toHaveValue("shop"));
+    await userEvent.click(within(jira).getByRole("button", { name: "Save the Jira settings" }));
+    await waitFor(() =>
+      expect((calls.find((c) => c.method === "PATCH")?.body as { jira: { connection: string } }).jira.connection).toBe("shop"),
+    );
+  });
+
   it("saves the keel-wide Jira connection after a test, never shows its token, and where initiatives go", async () => {
     let view: JiraView = {
       connected: false,

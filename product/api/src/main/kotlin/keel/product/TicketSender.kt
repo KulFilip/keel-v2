@@ -19,6 +19,25 @@ data class InitiativeJira(
     val type: String? = null,
 )
 
+/** A Jira connection a team or the initiatives can use (the token never leaves keel). */
+data class JiraConnectionInfo(
+    /** The keel project whose own connection it is; null = the keel-wide one. */
+    val projectId: String?,
+    val name: String,
+    val connected: Boolean,
+    val kind: String?,
+    val baseUrl: String?,
+    val projectKey: String?,
+)
+
+/** B5: the keel-wide connection and every project's own; [suggested] is what a choice left at "keel-wide" really uses. */
+data class JiraConnections(
+    val keelWide: JiraConnectionInfo,
+    val projects: List<JiraConnectionInfo>,
+    /** null = the keel-wide one (it is connected, or no project is); else the first project with a connection. */
+    val suggested: String?,
+)
+
 /** One ticket of the tree as it will be (or was) sent. */
 data class TicketRow(
     /** initiative | epic | story | subtask */
@@ -83,6 +102,27 @@ class TicketSender(
         return initiativeJira()
     }
 
+    /** The Jira connections there are, which are connected, and the one keel uses for "keel-wide" when that has none. */
+    fun connections(): JiraConnections {
+        val wideView = jira.view(JiraService.KEEL_WIDE)
+        val wide = JiraConnectionInfo(null, "keel-wide (Jira for every project)", wideView.connected,
+            wideView.settings.kind.takeIf { wideView.connected }, wideView.settings.baseUrl.ifBlank { null }, wideView.settings.projectKey)
+        val names = projects.rows().associate { it.id to it.name }
+        val own = jira.connectedProjects().filter { it in names && !projects.hidden(it) }.mapNotNull { pid ->
+            val s = jira.settings(pid) ?: return@mapNotNull null
+            JiraConnectionInfo(pid, names.getValue(pid), jira.client(pid) != null, s.kind, s.baseUrl.ifBlank { null }, s.projectKey)
+        }.sortedBy { it.name.lowercase() }
+        return JiraConnections(wide, own, if (wide.connected) null else own.firstOrNull { it.connected }?.projectId)
+    }
+
+    /**
+     * The connection "keel-wide" ([conn] null) really uses: the keel-wide one, else the own connection of one of the
+     * initiative's repos ([prefer]), else of the first project that has one (B5).
+     */
+    private fun siteClient(conn: String?, prefer: List<String> = emptyList()): JiraClient? = jira.siteClient(conn)
+        ?: if (conn == null) (prefer + jira.connectedProjects().sorted()).distinct()
+            .firstNotNullOfOrNull { p -> jira.client(p)?.takeIf { projects.find(p) != null } } else null
+
     fun preview(i: Initiative, stories: List<String> = emptyList()): TicketPreview = plan(i, stories, dry = true).preview
 
     fun send(i: Initiative, stories: List<String> = emptyList()): SendResult {
@@ -146,7 +186,7 @@ class TicketSender(
         var initiativeKey: String? = null
         var initiativeSite: String? = null
         if (ij.project != null) {
-            val client = jira.siteClient(ij.connection)
+            val client = siteClient(ij.connection, i.repos)
             val type = client?.let { c -> ij.type ?: typesOf(c, ij.project)?.let { t -> t.firstOrNull { it.name.equals("Initiative", true) }?.name ?: t.firstOrNull { (it.level ?: 0) >= 2 }?.name } }
             val have = client?.let { store.ticket(i.id, "initiative", i.id, it.base, ij.project) }
             val row = TicketRow("initiative", i.id, "${i.id} · ${i.title}", null, ij.project, client?.base, type, null, have?.jiraKey,
