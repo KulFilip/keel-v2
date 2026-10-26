@@ -67,4 +67,10 @@ n="$(printf '%s\n' "$line" | grep -o -- "-v $common:$common " | wc -l | tr -d ' 
 if [ "$n" = 1 ]; then pass "two worktrees of one repository mount it once"; else fail "the git dir is mounted $n times: $line"; fi
 case "$line" in *"KEEL_FOLDERS=/workspace:$scratch/wt1:$scratch/wt2 "*) pass "KEEL_FOLDERS lists only the project folders" ;; *) fail "KEEL_FOLDERS: $line" ;; esac
 
+echo "keel2 tells keel where the project is on this computer (0.18.57: one project across plain and --docker)"
+start "$scratch/plain"
+case "$(run_line)" in *"KEEL_HOST_WORKSPACE=$scratch/plain "*"-v $scratch/plain:/workspace "*) pass "plain: /workspace is $scratch/plain" ;; *) fail "plain: no KEEL_HOST_WORKSPACE: $(run_line)" ;; esac
+start --docker "$scratch/plain"
+case "$(run_line)" in *"KEEL_HOST_WORKSPACE=$scratch/plain "*) pass "--docker: the same host path" ;; *) fail "--docker: no KEEL_HOST_WORKSPACE: $(run_line)" ;; esac
+
 [ "$fails" = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

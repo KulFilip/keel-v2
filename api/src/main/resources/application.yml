@@ -38,6 +38,7 @@ keel:
   allowed-hosts: ${KEEL_ALLOWED_HOSTS:}
   dev-origins: ${KEEL_DEV_ORIGINS:}
   name: ${KEEL_NAME:}
+  host-workspace: ${KEEL_HOST_WORKSPACE:}
 
 logging:
   level:

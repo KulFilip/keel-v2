@@ -31,6 +31,8 @@ data class KeelProperties(
     val devOrigins: String = "",
     /** This keel's name (KEEL_NAME, set by keel2): what a paired phone shows. Blank = "keel". */
     val name: String = "",
+    /** 0.18.57 the main project folder's path on the person's computer (KEEL_HOST_WORKSPACE, set by keel2); blank = unknown. */
+    val hostWorkspace: String = "",
 ) {
     /** The command for keel's builtin MCP server. */
     val mcpPythonCommand: String by lazy {
