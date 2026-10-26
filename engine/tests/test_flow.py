@@ -150,9 +150,8 @@ def test_fix_flow_and_init_flow(client, repo):
     # audit_now: its first choice (skip) hands over; the rung gate is not asked when the ladder is green
     assert [g for g, _ in gates] == ["questions", "plan_gate", "audit_now", "hand_over"]
     assert (Path(repo) / ".keel/config.yml").is_file()
-    # The defaults (approved questions): all five knowledge sections, one librarian each.
-    assert {p.name for p in (Path(repo) / "docs/knowledge").glob("*.md")} == \
-        {"architecture.md", "domain.md", "conventions.md", "data.md", "integrations.md"}
+    # The defaults (approved questions): 0.18.57 no project notes (opt-in), so no librarian wrote a section
+    assert not list((Path(repo) / "docs/knowledge").glob("*.md"))
     assert "chore(setup): keel init" in git_log(repo)
 
 

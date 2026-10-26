@@ -145,6 +145,7 @@ def clarify_questions(root: str, fast: bool = False, cost: str | None = None) ->
          "why": ("Off unless you tick something: keel's agents read the code itself, and in keel's own tests they "
                  "rarely opened the notes. Building them costs " + (cost or "a few dollars") + " (five librarians); they "
                  "help most in a large repo. You can build them later from the Wiki (Build them).")
+                + (" This is a fast init: it builds none unless you tick some." if fast else "")
                 + (" Sections that exist are kept as they are; tick one only to write it again." if have else ""),
          "options": [{"label": build_label(cost), "description": "all five sections: " + ", ".join(SECTIONS),
                       "recommended": False}]

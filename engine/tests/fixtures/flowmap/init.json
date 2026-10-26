@@ -209,7 +209,8 @@
    "phase": "setup",
    "choices": {
     "skip": "hand_over",
-    "hunt": "start_hunt"
+    "hunt": "start_hunt",
+    "notes": "start_notes"
    }
   },
   {
@@ -223,6 +224,18 @@
     "title": "Bug hunt after init",
     "mode": "semi",
     "scope": "all"
+   },
+   "then": "end"
+  },
+  {
+   "id": "start_notes",
+   "kind": "code",
+   "name": "build the project notes",
+   "phase": "setup",
+   "action": "start_flow",
+   "flow": "knowledge-refresh",
+   "seed": {
+    "title": "Build the project notes"
    },
    "then": "end"
   },
@@ -351,7 +364,8 @@
      {
       "step": "audit_now",
       "side": [
-       "start_hunt"
+       "start_hunt",
+       "start_notes"
       ]
      },
      {
@@ -363,7 +377,8 @@
   ],
   "orphans": [],
   "parent_of": {
-   "start_hunt": "audit_now"
+   "start_hunt": "audit_now",
+   "start_notes": "audit_now"
   }
  }
 }
