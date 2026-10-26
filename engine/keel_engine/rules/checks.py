@@ -46,6 +46,11 @@ def entropy(s: str) -> float:
     return -sum((n / len(s)) * math.log2(n / len(s)) for n in counts.values())
 
 
+# a value that only names where the secret comes from is not a secret: %env(X)% (Symfony), ${X} (compose, shell,
+# Spring), env("X") / process.env.X / os.environ (code). keel 0.18.56 flagged `$secret: '%env(WEBHOOK_SECRET)%'`.
+ENV_REFERENCE = re.compile(r"%env\([^)]*\)%|\$\{[A-Za-z_][\w.:-]*\}|\benv\(|process\.env\.|os\.environ|getenv\(", re.I)
+
+
 def scan_secrets(text: str, max_bytes: int = 512 * 1024) -> list[dict]:
     """[{line, why}] for content that should not be committed."""
     body = str(text or "")
@@ -58,7 +63,7 @@ def scan_secrets(text: str, max_bytes: int = 512 * 1024) -> list[dict]:
         why = next((w for rx, w in PATTERNS if rx.search(line)), None)
         if not why:
             m = ASSIGNMENT.search(line) or ENV_ASSIGNMENT.search(line)
-            if m and not PLACEHOLDER.match(m.group(1)) and entropy(m.group(1)) > 3.2:
+            if m and not PLACEHOLDER.match(m.group(1)) and not ENV_REFERENCE.search(m.group(1)) and entropy(m.group(1)) > 3.2:
                 why = "a high-entropy value assigned to a secret-looking name"
         if why:
             hits.append({"line": i + 1, "why": why})

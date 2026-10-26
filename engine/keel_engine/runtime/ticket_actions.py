@@ -261,38 +261,71 @@ AREAS = [
 ]
 AREA_ORDER = ["migrations", "deploy-config", "message-pipeline", "persistence", "api", "core", "web", "tests"]
 
-# What each lens looks for, given to the reviewer of an area it fits. Each one names the misses keel's reviews had.
-LENSES = {
+# The lenses: one file per lens in content/review-lenses/<name>.md; its "## Checklist" section goes into the job item of
+# a reviewer whose area needs it (the rest of the file is the longer reference). The built-in text below is used when the
+# content folder has no such file (an older image), and is the same measured wording.
+LENS_NAMES = ["data-migration", "idempotency-retry", "silent-failure", "config-secrets", "test-quality", "contract-types"]
+LENS_FALLBACK = {
     "data-migration": "Data migration and backfill: does each schema change work on the rows that already exist? Look "
                       "at defaults and NOT NULL on existing rows, a missing backfill, a new table that existing code "
                       "joins to (an INNER JOIN drops the old rows that have no row there yet), unique constraints and "
                       "indexes the code relies on (catching a duplicate-key error needs a UNIQUE index in the migration, "
                       "not only in the ORM mapping or the test schema), a down() that loses data, a lock on a big table.",
-    "concurrency-idempotency": "Concurrency and idempotency: what happens when a message is delivered twice, two "
-                               "workers or two cron runs overlap, or two requests race? Look for check-then-act without "
-                               "a lock or unique key, side effects (an external call, a booking, an e-mail) repeated on "
-                               "redelivery, a claim without SKIP LOCKED or a claim token, and status changes whose SQL "
-                               "WHERE clause does not enforce the allowed transitions and terminal states.",
-    "error-retry": "Error handling and retry: does one failure stop a whole batch (a throw inside a loop)? Is every "
-                   "retry bounded, with a terminal state (dead, failed) a person can see? Is an error swallowed by a "
-                   "catch-all that only logs? Is a permanent error retried forever? Does a failure leave rows stuck "
-                   "(claimed, locked, half written)?",
-    "secrets-config": "Secrets and config: compare every env or config key the code reads (git grep the name in the "
+    "idempotency-retry": "Concurrency and idempotency: what happens when a message is delivered twice, two workers or "
+                         "two cron runs overlap, or two requests race? Look for check-then-act without a lock or unique "
+                         "key, side effects (an external call, a booking, an e-mail) repeated on redelivery, a claim "
+                         "without SKIP LOCKED or a claim token, and status changes whose SQL WHERE clause does not "
+                         "enforce the allowed transitions and terminal states.",
+    "silent-failure": "Error handling and retry: does one failure stop a whole batch (a throw inside a loop)? Is every "
+                      "retry bounded, with a terminal state (dead, failed) a person can see? Is an error swallowed by a "
+                      "catch-all that only logs? Is a permanent error retried forever? Does a failure leave rows stuck "
+                      "(claimed, locked, half written)?",
+    "config-secrets": "Secrets and config: compare every env or config key the code reads (git grep the name in the "
                       "reviewed version) with the keys .env, .env.*, compose, deploy and CI files define: a renamed or "
                       "missing key breaks the boot. Look for wrong or unsafe defaults, committed secrets, and config "
                       "that differs between test and prod, so the tests pass while prod breaks. Every .env and deploy "
                       "change is read, even a one-line one.",
+    "test-quality": "Test quality: would each new or changed test fail if the code it covers broke? Look for assertions "
+                    "that are always true (>= 0, not null on a service), tests of the happy path only where the ticket "
+                    "names a failure case, mocks that replace the thing under test, a test schema or config that "
+                    "differs from production so the test passes while prod breaks, and weakened or deleted assertions.",
+    "contract-types": "Contract and types: does a changed public name, route, payload, status code, event or type still "
+                      "match every caller and the documented contract (git grep the name)? Look for a field renamed on "
+                      "one side only, a nullable value the other side treats as present, an enum value the consumer "
+                      "does not know, and a breaking change the PR does not call out.",
 }
+
+
+def lens_text(name: str) -> str:
+    """A lens's checklist: the "## Checklist" section of content/review-lenses/<name>.md, else the built-in text."""
+    try:
+        text = (config.content_dir() / "review-lenses" / f"{name}.md").read_text()
+        m = re.search(r"^## Checklist\s*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+        if m and m.group(1).strip():
+            return " ".join(m.group(1).split())
+    except OSError:
+        pass
+    return LENS_FALLBACK[name]
+
+
+class _Lenses(dict):
+    """LENSES[name] reads the lens file (so a content update needs no code change)."""
+    def __missing__(self, name):
+        return lens_text(name)
+
+
+LENSES = _Lenses({})
 LENS_FOR_AREA = {
-    "migrations": ["data-migration", "concurrency-idempotency"],
-    "persistence": ["data-migration", "concurrency-idempotency"],
-    "message-pipeline": ["concurrency-idempotency", "error-retry"],
-    "deploy-config": ["secrets-config"],
-    "api": ["error-retry"],
+    "migrations": ["data-migration", "idempotency-retry"],
+    "persistence": ["data-migration", "idempotency-retry"],
+    "message-pipeline": ["idempotency-retry", "silent-failure"],
+    "deploy-config": ["config-secrets"],
+    "api": ["silent-failure", "contract-types"],
+    "tests": ["test-quality"],
 }
 LENS_BY_NAME = [
-    (re.compile(r"lock|claim|idempot|outbox|dedup|unique|status|state", re.I), "concurrency-idempotency"),
-    (re.compile(r"retry|backoff|client|gateway|adapter|consumer|handler|publisher|webhook", re.I), "error-retry"),
+    (re.compile(r"lock|claim|idempot|outbox|dedup|unique|status|state", re.I), "idempotency-retry"),
+    (re.compile(r"retry|backoff|client|gateway|adapter|consumer|handler|publisher|webhook", re.I), "silent-failure"),
     (re.compile(r"schema|mapping|\.orm\.|entity|migration|\.sql$", re.I), "data-migration"),
 ]
 
@@ -312,7 +345,7 @@ def lenses_for(files: list[str]) -> list[str]:
         got.update(LENS_FOR_AREA.get(area_of(f), []))
         if area_of(f) not in ("tests", "docs", "web"):
             got.update(lens for rx, lens in LENS_BY_NAME if rx.search(f))
-    return [name for name in LENSES if name in got]
+    return [name for name in LENS_NAMES if name in got]
 
 
 def chunk_by_area(ranked: list[dict]) -> list[dict]:
@@ -805,7 +838,7 @@ CHECK_VERDICTS = ("confirmed", "rejected", "unverified", "met", "not-met")
 
 def _where(text: str) -> tuple[str | None, int | None]:
     """`src/A.kt:42`, `src/A.kt:36-50`, `src/A.kt:~35` or `src/A.kt` -> (file, first line)."""
-    m = re.match(r"^(.+?)(?::~?(\d+)(?:\s*-\s*\d+)?)?$", str(text or "").strip())
+    m = re.match(r"^(.+?)(?::~?(\d+)(?:\s*-\s*\d+)?)?$", str(text or "").strip().split(" (", 1)[0].split(" ", 1)[0])
     if not m or m.group(1) in ("-", ""):
         return None, None
     return m.group(1), int(m.group(2)) if m.group(2) else None
@@ -815,7 +848,7 @@ def parse_lines(text: str) -> dict:
     """`T1 | met | src/A.kt:42 | why`, `F | blocking | where | what | to do`, `Q | where | rule | what | to do`, `S | ...`,
     `READ | file` (a file the reviewer read), `GAP | file | why` (one it could not read), `CHECK | confirmed | why`
     (rejected, unverified; for an item to settle: met, not-met, unverified)."""
-    out: dict = {"items": [], "findings": [], "quality": [], "summary": [], "checks": [], "bad": [], "read": [], "gaps": []}
+    out: dict = {"items": [], "findings": [], "quality": [], "summary": [], "checks": [], "bad": [], "read": [], "gaps": [], "set_aside": []}
     for raw in str(text or "").splitlines():
         line = re.sub(r"^\s*[-*]\s+", "", raw).strip().strip("`")
         if "|" not in line:
@@ -824,7 +857,16 @@ def parse_lines(text: str) -> dict:
         head = p[0].upper()
         if head == "S":
             out["summary"].append(" | ".join(p[1:])[:300])
-        elif head == "READ":
+        elif head == "R" and len(p) > 2 and p[2].lower() == "skipped":
+            f, _n = _where(p[1])
+            if f:
+                out["gaps"].append({"file": f, "why": " | ".join(p[3:])[:300] or "skipped"})
+        elif head == "X":
+            f, _n = _where(p[1] if len(p) > 1 else "")
+            if f:
+                out["set_aside"].append({"file": f, "why": " | ".join(x for x in p[2:] if x)[:300]})
+        elif head in ("READ", "R"):
+            p = p[:2]
             out["read"] += [f.strip("`'\"") for x in p[1:] for f in re.split(r"[,\s]+", x) if f.strip("`'\"") not in ("", "-")]
         elif head == "GAP":
             f, _n = _where(p[1] if len(p) > 1 else "")
@@ -987,7 +1029,7 @@ def _claims(a):
     per_line = tokens_per_line(results, lines)
     warn = None if a.fake else coverage_warning(per_line, lines)
     review["coverage"] = {**cov, "tokens_per_line": round(per_line, 1) if per_line else None, "warning": warn}
-    review["partial"] = bool(cov["known"] and cov["unread"]) or bool(warn)
+    review["partial"] = bool(cov["known"] and cov["unread"]) or bool(warn) or (bool(results) and not cov["known"] and not a.fake)
     if results and cov["known"] is False and not a.fake and (warn or per_line is None):
         why = warn or "no reviewer said which files it read"
         return _stop(f"The review stopped: the change was not read ({why}). Nothing is reported as done.",

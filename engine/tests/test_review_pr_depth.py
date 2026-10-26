@@ -43,11 +43,12 @@ def test_areas_and_lenses_follow_the_changed_paths():
     assert ta.area_of("docs/adr/0006-outbox.md") == "docs"
     assert ta.area_of("backend/src/Shipping/Domain/ShipmentStatus.php") == "core"
 
-    assert ta.lenses_for(["backend/migrations/V2.php"]) == ["data-migration", "concurrency-idempotency"]
-    assert ta.lenses_for(["backend/.env"]) == ["secrets-config"]
-    assert set(ta.lenses_for(["src/Messaging/Handler/DispatchHandler.php"])) == {"concurrency-idempotency", "error-retry"}
+    assert ta.lenses_for(["backend/migrations/V2.php"]) == ["data-migration", "idempotency-retry"]
+    assert ta.lenses_for(["backend/.env"]) == ["config-secrets"]
+    assert set(ta.lenses_for(["src/Messaging/Handler/DispatchHandler.php"])) == {"idempotency-retry", "silent-failure"}
     assert ta.lenses_for(["frontend/src/App.tsx", "README.md"]) == []
-    assert ta.lenses_for(["tests/test_retry_status.py"]) == []           # a test file's name does not ask for a lens
+    assert ta.lenses_for(["tests/test_retry_status.py"]) == ["test-quality"]   # a test is judged as a test, not by its name
+    assert ta.lenses_for(["src/api/OrderController.kt"]) == ["silent-failure", "contract-types"]
 
 
 def test_a_large_change_gets_one_reviewer_per_area_and_every_file_exactly_once():
@@ -62,14 +63,21 @@ def test_a_large_change_gets_one_reviewer_per_area_and_every_file_exactly_once()
     assert sorted(files) == sorted(x["file"] for x in ranked if not x["file"].startswith("docs/"))
     assert len(files) == len(set(files))
     by_area = {" + ".join(c["areas"]): c for c in chunks}
-    assert by_area["deploy-config"]["lenses"] == ["secrets-config"]
+    assert by_area["deploy-config"]["lenses"] == ["config-secrets"]
     assert by_area["migrations"]["lenses"][0] == "data-migration"
     pipeline = [c for c in chunks if c["areas"] == ["message-pipeline"]]
     assert len(pipeline) == 2 and all(c["lines"] <= ta.CHUNK_LINES for c in pipeline)   # 1,200 lines: split in two
-    assert {"concurrency-idempotency", "error-retry"} <= set(pipeline[0]["lenses"])
+    assert {"idempotency-retry", "silent-failure"} <= set(pipeline[0]["lenses"])
 
     many = [f(f"src/area{n}/Thing{n}.py", 50) for n in range(30)] + [f(f"migrations/m{n}.sql", 800) for n in range(12)]
     assert len(ta.chunk_by_area(many)) == ta.MAX_CHUNKS                    # the smallest chunks are merged
+
+
+def test_each_lens_is_one_file_whose_checklist_reaches_the_reviewer():
+    for name in ta.LENS_NAMES:
+        text = ta.lens_text(name)
+        assert text == " ".join(ta.LENS_FALLBACK[name].split()), name     # the file holds the measured wording
+        assert len(text) < 700, name                                       # short enough for a job item
 
 
 def test_every_job_item_reaches_its_agent_whole():
@@ -239,7 +247,7 @@ def test_a_large_review_is_chunked_and_a_reviewer_that_skips_files_makes_it_part
     areas = sorted(j["area"] for j in jobs)
     assert areas == ["deploy-config", "message-pipeline", "migrations", "persistence", "tests"], areas
     deploy = next(j for j in jobs if j["area"] == "deploy-config")
-    assert any(x.startswith("backend/.env ") for x in deploy["files"]) and deploy["lenses"][0].startswith("secrets-config")
+    assert any(x.startswith("backend/.env ") for x in deploy["files"]) and deploy["lenses"][0].startswith("config-secrets: Secrets and config")
     detail = s["waiting"]["detail"]
     assert "PARTIAL - not every file was read" in detail
     assert "NOT READ - the review is partial" in detail
@@ -263,3 +271,26 @@ def test_a_read_only_flow_never_runs_the_stack_setup(client, repo, monkeypatch):
     assert s["waiting"]["step"] == "share" and on["runs"] == 0, s
     s = wait(client, start(client, repo, title="A feature"))            # a flow that builds still sets the stack up
     assert s["waiting"]["step"] == "__setup" and on["runs"] == 1, s
+
+
+def test_read_receipts_in_the_research_format_and_where_with_words():
+    p = ta.parse_lines("R | a.php | full\nR | b.php | hunks\nR | c.php | skipped | 3,000 lines\n"
+                       "X | d.php:4 | not judged | the config is outside the repo | ask the author\n"
+                       "F | blocking | m/V1.php (the status default) | old rows get label_generated | backfill")
+    assert p["read"] == ["a.php", "b.php"] and p["gaps"] == [{"file": "c.php", "why": "3,000 lines"}]
+    assert p["set_aside"][0]["file"] == "d.php"
+    assert p["findings"][0]["file"] == "m/V1.php"                         # dedupe compares the path, not the words
+
+
+def test_a_real_review_without_any_receipt_is_partial_not_done():
+    results = [{"item": "bugs-1", "text": "F | minor | a.php:1 | x | y\nTICKET-REVIEW: done",
+                "usage": {"tokens_in": 300_000, "tokens_cached": 0, "tokens_out": 10}}]
+    r = ta._claims(_claims_input(results))
+    assert not r.stop and r.update["data"]["ticket_review"]["partial"] is True
+
+
+def test_an_env_reference_is_not_a_secret():
+    from keel_engine.rules import checks
+    assert checks.scan_secrets("        $secret: '%env(CARRIER_WEBHOOK_SECRET)%'") == []
+    assert checks.scan_secrets("API_TOKEN=${API_TOKEN_FROM_VAULT}") == []
+    assert checks.scan_secrets("password = 'q8Zr2LkVx9PwT4mN'")                 # a literal still is
