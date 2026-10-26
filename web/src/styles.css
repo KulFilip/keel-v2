@@ -1146,7 +1146,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 /* v0.15.3 nested panels hand the wheel on to the parent at their end (no overscroll-behavior: contain) */
 /* keel 0.18.11 on a wide screen the canvas grows with the page (one scroll, the side panel stays in view) */
 .fl-scroll { min-width: 0; }
-.fl-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
+.fl-side { min-width: 0; position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
 .fl-side > .tabs { justify-self: start; max-width: 100%; overflow-x: auto; }
 .fl-waits { gap: 8px; }
 .fl-feed { max-height: 320px; overflow-y: auto; }
@@ -1227,7 +1227,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .dh { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 12px; }
 .dh-list { list-style: none; padding: 0; margin: 8px 0; }
 .dh-list li { margin: 4px 0; }
-.dh-diff { white-space: pre-wrap; overflow-x: auto; max-height: 420px; font-size: 13px; padding: 8px; border-radius: 6px; background: var(--term); }
+.dh-diff { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto; max-height: 420px; font-size: 13px; padding: 8px; border-radius: 6px; background: var(--term); }
 .dh-diff .dh-add { background: var(--add-bg); display: block; }
 .dh-diff .dh-del { background: var(--del-bg); display: block; }
 .dh-problems { list-style: none; padding: 0; margin: 12px 0; }
@@ -1258,3 +1258,32 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .xkv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .xasks { font-size: 13.5px; line-height: 1.6; max-width: 72ch; }
 .xasks ul, .xasks ol { display: grid; gap: 4px; }
+
+/* keel 0.18.56 the step panel ("What <step> does": the Flow page's side panel, its drawer on a narrow screen and in the
+   init flow, the builder's panel) is never wider than its column. A grid item's smallest width is, by default, its
+   longest word that cannot break, so one long path or URL in the prompt widened the whole panel and it was cut on both
+   sides. Now every grid child that holds text may shrink (min-width: 0), long words break anywhere, the facts stack
+   under their labels only in a very narrow panel (a phone), the title gets an ellipsis, and the prompt box wraps and
+   scrolls down inside. */
+.fl-side > *, .fl-side .grid > *, .fl-side .panel-body > *,
+.drawer .body > *, .drawer .body .grid > *,
+.xbody > *, .xsec > *, .xrun > *, .xaction > *, .xprompt > *, .fl-about > * { min-width: 0; }
+.xbody, .fl-about { overflow-wrap: anywhere; }
+/* the panel's own width decides how the facts sit, not the window's: side by side in the desktop column (320-400px,
+   a long value wraps under itself), label above value only at 300px or less */
+.xbody { container-type: inline-size; }
+@container (max-width: 300px) {
+  .xkv { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .xkv dt { white-space: normal; }
+  .xkv dd + dt { margin-top: 6px; }
+}
+.step-panel > .panel-head h2, .step-drawer header h2 { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-panel > .panel-head .fold-tools { flex: none; }
+/* a long monospace text in a box (components/PreBox.tsx): wraps, scrolls down inside the box, never sideways */
+.prebox { display: grid; gap: 4px; min-width: 0; }
+.prebox-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; min-width: 0; }
+pre.prebox-pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; max-width: 100%; min-width: 0; max-height: 360px; overflow-x: hidden; overflow-y: auto; }
+.xprompt .prebox { margin-top: 6px; }
+.xprompt pre.prebox-pre { margin-top: 0; }
+/* the approval card's details and command (inbox, KeelBot) wrap the same way */
+.inbox-detail, pre.inbox-cmd { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }

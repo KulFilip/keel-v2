@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type ExplainRequest, type StepExplanation, type StepRoute, type Workflow } from "../api";
 import { kfmt } from "../format";
 import { Markdown } from "./Markdown";
+import { PreBox } from "./PreBox";
 import { listify } from "./prose";
 import { Drawer, ErrorBox, Loading, Pill } from "./ui";
 import { KIND } from "./workflow";
@@ -57,13 +58,13 @@ function Task({ x }: { x: StepExplanation }) {
         {a.collect && <p className="sub">{a.collect.text}</p>}
         <details className="xprompt">
           <summary>The prompt keel sends{a.placeholders ? " (with «placeholders»: no flow running)" : ""}</summary>
-          <pre className="head" data-testid="explain-prompt">{a.prompt}</pre>
+          <PreBox text={a.prompt} label="The prompt keel sends" testId="explain-prompt" />
           {a.prompt_notes?.map((n, i) => <p key={i} className="hint">{n}</p>)}
         </details>
         {a.system && (
           <details className="xprompt">
             <summary>The agent's role (system prompt)</summary>
-            <pre className="head">{a.system}</pre>
+            <PreBox text={a.system} label="The agent's role" />
           </details>
         )}
         <p className="hint">How the model is picked: {a.model.rule}</p>
@@ -150,7 +151,7 @@ function LastRun({ x }: { x: StepExplanation }) {
           {r.tokens && <p className="sub">{kfmt(r.tokens.in)} in · {kfmt(r.tokens.out)} out</p>}
           {r.decided && <p className="sub">{r.decided.join(" · ")}</p>}
           {r.went_to && <p className="sub">Then: {r.went_to}</p>}
-          {(r.answer || r.output) && <pre className="head">{r.answer || r.output}</pre>}
+          {(r.answer || r.output) && <PreBox text={r.answer || r.output || ""} label={r.answer ? "What the agent answered" : "What the step printed"} />}
         </div>
       ))}
       {l.count > l.runs.length && <p className="hint">{l.count} runs in all; the newest {l.runs.length} are shown.</p>}
@@ -210,7 +211,7 @@ export function StepInfoDrawer({ pid, workflow, stepId, threadId, onClose }: {
   const { x, error } = useStepInfo(pid, infoRequest(stepId, workflow, threadId));
   const name = typeof workflow === "object" && workflow ? workflow.steps.find((s) => s.id === stepId)?.name : undefined;
   return (
-    <Drawer title={`What ${x?.name ?? name ?? stepId} does`} onClose={onClose}>
+    <Drawer title={`What ${x?.name ?? name ?? stepId} does`} onClose={onClose} className="step-drawer">
       {error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />}
     </Drawer>
   );

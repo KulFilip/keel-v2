@@ -41,7 +41,7 @@ export function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJ
   const live = showNow ? <StepNow pid={pid} thread={thread} workflow={workflow} step={step!} job={job} onJump={onJump} /> : null;
   if (drawer) {
     return (
-      <Drawer title={title} onClose={onClose}>
+      <Drawer title={title} onClose={onClose} className="step-drawer">
         {toggle}
         {showNow ? <><StepAbout step={step!} x={x} />{decided}{live}</> : details}
       </Drawer>
@@ -49,14 +49,14 @@ export function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJ
   }
   const head = (
     <div className="panel-head">
-      <h2>{title}</h2>
+      <h2 title={title}>{title}</h2>
       <div className="fold-tools">{toggle}<button className="btn sm ghost" type="button" onClick={onClose}>Close</button></div>
     </div>
   );
-  if (!showNow) return <section className="panel" aria-label={title}>{head}<div className="panel-body">{details}</div></section>;
+  if (!showNow) return <section className="panel step-panel" aria-label={title}>{head}<div className="panel-body">{details}</div></section>;
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <section className="panel" aria-label={title}>{head}<div className="panel-body grid" style={{ gap: 12 }}><StepAbout step={step!} x={x} />{decided}</div></section>
+      <section className="panel step-panel" aria-label={title}>{head}<div className="panel-body grid" style={{ gap: 12 }}><StepAbout step={step!} x={x} />{decided}</div></section>
       {live}
     </div>
   );

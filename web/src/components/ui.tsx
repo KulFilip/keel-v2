@@ -117,15 +117,19 @@ export function Since({ from, to }: { from: string; to?: string | null }) {
 }
 
 /** Side drawer: Escape or the scrim closes it, focus goes to the first field and back on close. */
-export function Drawer({ title, onClose, children, footer, id }: {
+export function Drawer({ title, onClose, children, footer, id, className }: {
   title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; id?: string;
+  /** an extra class on the drawer (e.g. step-drawer: a one-line title cut with an ellipsis) */
+  className?: string;
 }) {
   const ref = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>(".body input, .body select, .body textarea, .body button");
+    // the first field or button you can see: not one inside a folded <details> (it cannot take the focus)
+    const first = [...(ref.current?.querySelectorAll<HTMLElement>(".body input, .body select, .body textarea, .body button") ?? [])]
+      .find((el) => { const d = el.closest("details"); return !d || d.open || !!el.closest("summary"); });
     (first ?? ref.current?.querySelector<HTMLElement>("header button"))?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeRef.current();
@@ -139,9 +143,9 @@ export function Drawer({ title, onClose, children, footer, id }: {
   return createPortal(
     <>
       <div className="scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={ref} id={id}>
+      <aside className={className ? `drawer ${className}` : "drawer"} role="dialog" aria-modal="true" aria-label={title} ref={ref} id={id}>
         <header>
-          <h2>{title}</h2>
+          <h2 title={title}>{title}</h2>
           <button className="btn sm ghost" type="button" onClick={onClose} aria-label="Close">Close</button>
         </header>
         <div className="body">{children}</div>
