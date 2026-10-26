@@ -257,6 +257,10 @@ def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: s
     if question_id or w.get("id"):
         payload["question_id"] = question_id or w.get("id")
     st = api.post(f"/inbox/{_q(thread_id)}/act", {"decision": decision, "why": why, "payload": payload or None}) or {}
+    again = st.get("waiting") or {}
+    if st.get("status") == "waiting" and again.get("step") == w.get("step") and again.get("title") != w.get("title"):
+        # 0.18.57 the gate refused the whole answer and asks again (a skip without its reason): say so, nothing ran
+        return f"refused, nothing was done: {again.get('title')}. Answer again (keel_answer)."
     return f"answered thread {thread_id} ({decision}). The flow is {st.get('status')} at {st.get('current') or '-'}."
 
 

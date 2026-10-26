@@ -384,6 +384,7 @@ class GateMixin:
             title = f"{step.name}: {problem}"
         loop = ship_mod.has_loop(self.wf.steps, i)
         names = [u["name"] for u in units]
+        refused: list[str] = []
         while True:
             ask = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": ["approve"],
                    "labels": {"approve": "Run these steps"}}
@@ -398,9 +399,18 @@ class GateMixin:
             got = answer.get("payload") or {}
             if ship_mod.gate_mode_of(got):
                 mode_payload = got
+            said = (answer.get("why") or "").strip()
+            if said and not got.get("reason"):
+                got = {**got, "reason": said}           # 0.18.57 the answer's why is the shared reason of its skips
             skips, lenses, problem = ship_mod.parse_skips(ship_mod.skip_payload(got, names), units)
+            if not problem and refused and ship_mod.names_skip(got) is None:
+                # 0.18.57 an answer refused for a skip without a reason, then one that says nothing about skipping:
+                # never read as "run every step" (an approve with no payload ran the steps the person wanted skipped)
+                problem = (f"you asked to skip {', '.join(refused)} without a reason. Give the reason (why), or answer "
+                           "with skip: [] to run every step")
             if not problem:
                 break
+            refused = refused or sorted(ship_mod.names_skip(got) or [])
             title = f"{step.name}: {problem}"
         why = (answer.get("why") or "").strip()
         data = dict(state.get("data") or {})
