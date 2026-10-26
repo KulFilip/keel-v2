@@ -70,12 +70,14 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     if not type:
         return first + mcp_flows.startable(api, p["id"])
     idea = (request or idea or "").strip()
-    if not idea and not (ticket or pr):
-        raise ApiError("the request is empty: say in a sentence or two what the flow should build or fix "
-                       "(or give the ticket / pr a flow like review-pr reads).")
-    known = [w.get("id") for w in mcp_flows.catalog(api, p["id"])]
+    flows = mcp_flows.catalog(api, p["id"])
+    known = [w.get("id") for w in flows]
     if known and type not in known:
         raise ApiError(f'no flow type "{type}".\n' + mcp_flows.startable(api, p["id"]))
+    wf = next((w for w in flows if w.get("id") == type), None)
+    if not idea and not (ticket or pr) and mcp_flows.reads_request(wf, type):
+        raise ApiError("the request is empty: say in a sentence or two what the flow should build or fix "
+                       "(or give the ticket / pr a flow like review-pr reads).")
     body = mcp_flows.start_body(type, title, idea, ticket, pr, inputs)
     title = body["title"]
     if allow_fake:
@@ -665,7 +667,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
-        and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out;
+        and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
+        nothing reads none: init, knowledge-refresh, review, ship, cover, lint, hunt, hunt-next);
         title: its name (default the request's first line); ticket / pr: the ticket text or key and the pull request a
         flow like review-pr reviews (review-pr also reads the PR number or URL, or `branch: <name>`, from the request's
         first line, and the ticket from the lines after it); inputs: any other input the flow lists (e.g. lens for
