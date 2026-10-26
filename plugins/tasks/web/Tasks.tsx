@@ -1,7 +1,8 @@
 // Tasks (Run): the work of this project as a board — from Jira (synced) or your own list. A task starts a flow only
 // when you press Start; keel then moves it (and its Jira ticket) to In review when the PR opens, to Testing (PP) when the
 // PR is approved, and waits for you to confirm PP and the release. #/tasks/<id> opens one task's drawer.
-// The Tasks plugin's page and its launcher results; index.tsx registers them (plugins/tasks).
+// The Tasks plugin's classic page (0.18.57: behind "Classic view" for one release; the new page is TaskBoard.tsx) and its
+// launcher results; index.tsx registers them (plugins/tasks).
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -66,7 +67,7 @@ function TaskCard({ t, onOpen }: { t: Task; onOpen: () => void }) {
 
 // ---------- New task ----------
 
-function NewTaskDrawer({ pid, onClose, onMade }: { pid: string; onClose: () => void; onMade: (t: Task) => void }) {
+export function NewTaskDrawer({ pid, onClose, onMade }: { pid: string; onClose: () => void; onMade: (t: Task) => void }) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState<TaskType>("task");
   const [description, setDescription] = useState("");
@@ -483,7 +484,8 @@ function SyncLine({ data, busy }: { data: TaskList; busy: boolean }) {
   );
 }
 
-export function TasksPage({ pid }: { pid: string }) {
+/** The classic Tasks page (0.18.56): kept for one release behind "Classic view"; [onNewView] goes back to the new page. */
+export function ClassicTasksPage({ pid, onNewView }: { pid: string; onNewView?: () => void }) {
   const { toast, reloadProjects } = useApp();
   const { arg } = useRoute();
   const r = useLoad(`tasks:${pid}`, () => tasksApi.list(pid));
@@ -530,6 +532,7 @@ export function TasksPage({ pid }: { pid: string }) {
     <>
       <PageHead title="Tasks" sub="Your tickets as a board. Start a flow for one; keel moves it through review, PP testing and production, and asks you at PP and release."
         actions={<>
+          {onNewView && <button className="btn ghost" type="button" onClick={onNewView}>New view</button>}
           <button className="btn" type="button" onClick={() => setAutomations(true)}>Automations</button>
           <button className="btn" type="button" onClick={() => void sync()} disabled={syncing}>{syncing ? "Syncing…" : "Sync now"}</button>
           <button className="btn primary" type="button" onClick={() => setMaking(true)}>New task</button>
