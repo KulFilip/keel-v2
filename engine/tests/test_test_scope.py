@@ -246,3 +246,18 @@ def test_the_heads_up_names_only_frozen_files(tmp_path):
     assert note.startswith("Heads-up: this criterion names `tests/Integration/OrderHandlerTest.php`, which keel's rules "
                            "freeze in phase green (test code is frozen while making tests pass).")
     assert "`FROZEN: <file>`" in note
+
+
+def test_a_refused_read_does_not_count_as_a_frozen_file():
+    from keel_engine.runtime import compiler_agent
+    assert compiler_agent.READ_TOOLS.match("read_file") and compiler_agent.READ_TOOLS.match("Read")
+    assert not compiler_agent.READ_TOOLS.match("write_file") and not compiler_agent.READ_TOOLS.match("Edit")
+
+
+def test_production_code_frozen_in_red_is_never_offered_to_allow(tmp_path):
+    root = repo_with(tmp_path, {"tests/Integration/OrderHandlerTest.php": "<?php\n", "src/Orders/OrderHandler.php": "<?php\n"})
+    texts = ["OrderHandler.php returns the total; see tests/Integration/OrderHandlerTest.php"]
+    assert test_scope.frozen_named(str(root), "red", texts, []) == []      # RED may change the test, never the code
+    cfg = rules.load_config(str(root))
+    assert not test_scope.unlockable("red", "src/Orders/OrderHandler.php", cfg)
+    assert test_scope.unlockable("green", "tests/Integration/OrderHandlerTest.php", cfg)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import tempfile
 import time
 import uuid
@@ -22,6 +23,9 @@ from langgraph.graph import END
 from pathlib import Path
 
 from . import compiler as _c      # the compiler module's own names (looked up when called: tests patch some)
+
+# the tools whose refusal is a read, not a write: they never count toward the guard loop (CodeMixin._guard_loop)
+READ_TOOLS = re.compile(r"^(read_file|read|grep|glob|ls|list_files|search|webfetch|websearch)$", re.I)
 
 
 class AgentMixin:
@@ -57,7 +61,7 @@ class AgentMixin:
         refused_paths: list[str] = []      # the guard-loop count (CodeMixin._guard_loop) reads the files refused here
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
-            if path:
+            if path and not READ_TOOLS.match(tool or ""):       # a refused read (a file read twice) is not a frozen file
                 refused_paths.append(path)
             data = {"tool": tool, "path": path or "", "reason": reason, "agent": agent, "phase": phase}
             if command:
@@ -573,7 +577,8 @@ class AgentMixin:
         # every file keel kept from changing in this step: put back by the diff guard, refused by the ToolBox, or by the
         # PreToolUse hook of a CLI agent
         kept = [r["path"] for r in refused] + [p for _res, _m, tb in agent_results for p in getattr(tb, "refused_paths", [])] \
-            + [str(r.get("path")) for res, _m, _tb in agent_results for r in res.data.get("refusals") or [] if r.get("path")]
+            + [str(r.get("path")) for res, _m, _tb in agent_results for r in res.data.get("refusals") or []
+               if r.get("path") and not READ_TOOLS.match(str(r.get("tool") or ""))]
         streak = self._guard_streak(step, state, ac, kept, upd)
         if streak is not None:
             upd["data"] = streak

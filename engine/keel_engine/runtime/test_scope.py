@@ -168,9 +168,11 @@ def resolve(root: str, names: list[str], tracked: list[str] | None = None) -> li
 
 
 def unlockable(phase: str, rel: str, cfg: dict) -> bool:
-    """Is this file refused in this phase only by the phase matrix, so an unlock of it for the phase would let it pass?
-    (A secret file, keel's rules, an existing migration stay refused whatever is unlocked.)"""
-    if rules.check_edit(phase, rel, cfg, exists=True).ok:
+    """Is this a test file refused in this phase only by the phase matrix, so an unlock of it for the phase would let it
+    pass? Only test code counts: a change to a test is what a test-frozen phase (GREEN) cannot make, while production
+    code frozen in RED is the rule working (the person is never asked to allow it). A secret file, keel's rules or an
+    existing migration stay refused whatever is unlocked."""
+    if not is_test_file(cfg, rel) or rules.check_edit(phase, rel, cfg, exists=True).ok:
         return False
     return rules.check_edit(phase, rel, cfg, exists=True, unlocks=[{"path": rel, "phase": phase}]).ok
 
