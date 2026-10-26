@@ -65,12 +65,13 @@ def test_prompt_block_lists_exactly_the_allowed_files_that_exist(tmp_path):
     assert "codegraph" not in block and "Memory:" not in block
 
 
-def test_prompt_block_says_so_in_one_line_when_no_section_exists(tmp_path):
+def test_prompt_block_says_nothing_when_no_section_exists(tmp_path):
+    # 0.18.57 no knowledge paths at all unless the notes exist and are on: the old "none of your sections exist" line
+    # went into every call and the agent could do nothing with it
     root = tmp_path / "p"
     root.mkdir()
     k = {**ak.for_agent("test-author", {}), "code_graph": False, "memory": False}
-    block = ak.prompt_block(str(root), k, False)
-    assert block.count("\n") == 0 and "none of your sections (domain, conventions) exist" in block
+    assert ak.prompt_block(str(root), k, False) == ""
     assert ak.prompt_block(str(root), {**k, "sections": []}, False) == ""
 
 

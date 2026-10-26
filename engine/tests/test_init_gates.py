@@ -13,7 +13,7 @@ def test_questions_plan_and_answers_reach_the_config(client, repo):
     while s["status"] == "waiting" and s["waiting"]["step"] != "questions":
         s = decide(client, tid)
     w = s["waiting"]
-    assert w["title"] == "four questions" and "1. Where does the app run" in w["detail"] and "3. Which knowledge sections" in w["detail"]
+    assert w["title"] == "four questions" and "1. Where does the app run" in w["detail"] and "3. Build project notes" in w["detail"]
     # 0.19.0 a clarify form with fixed ids; an old client's typed answer (send back with words) still works
     # 0.18.22 the layout is asked too while the config names none
     assert w["kind"] == "clarify" and [q["id"] for q in w["questions"]] == ["run", "services", "knowledge", "layout"]
@@ -32,7 +32,8 @@ def test_questions_plan_and_answers_reach_the_config(client, repo):
 def test_answers_are_read_from_free_text(tmp_path):
     (tmp_path / "docker-compose.yml").write_text("services: {}\n")
     d = init_gates.defaults(str(tmp_path))
-    assert d["services"] == "use docker-compose.yml" and d["knowledge_sections"] == init_gates.SECTIONS
+    # 0.18.57 the project notes are opt-in: a new project's defaults write none
+    assert d["services"] == "use docker-compose.yml" and d["knowledge_sections"] == []
     a = init_gates.answers(str(tmp_path), "later; I run them myself; sections: none")
     assert a["runs_on"] == "decide later" and a["services"] == "I run them myself" and a["knowledge_sections"] == []
     assert "docker-compose.yml exists" in init_gates.questions(str(tmp_path))
@@ -95,7 +96,7 @@ def test_clarify_questions_recommend_the_defaults(tmp_path):
     assert [o["label"] for o in qs["run"]["options"] if o["recommended"]] == ["this machine"]
     assert [o["label"] for o in qs["services"]["options"] if o["recommended"]] == ["use docker-compose.yml"]
     assert qs["knowledge"]["multiple"] is True
-    assert [o["label"] for o in qs["knowledge"]["options"] if o["recommended"]] == init_gates.SECTIONS
+    assert [o["label"] for o in qs["knowledge"]["options"] if o["recommended"]] == []      # 0.18.57 notes opt-in
     fast = {q["id"]: q for q in init_gates.clarify_questions(str(tmp_path), fast=True)}
     assert not any(o["recommended"] for o in fast["knowledge"]["options"])
     bare = {q["id"]: q for q in init_gates.clarify_questions(str(tmp_path / "none"))}
@@ -216,7 +217,7 @@ def test_the_layout_is_asked_and_written(tmp_path):
     qs = {q["id"]: q for q in init_gates.clarify_questions(root)}
     opts = qs["layout"]["options"]
     assert [o["label"] for o in opts] == ["keel", "repo"] and opts[0]["recommended"] and all(o["description"] for o in opts)
-    a = init_gates.from_answers(root, {"layout": "repo"})
+    a = init_gates.from_answers(root, {"layout": "repo", "knowledge": ["data"]})
     assert a["layout"] == "repo"
     assert init_gates.answers(root, "1 this machine · 4 repo")["layout"] == "repo"
     text = init_gates.plan(root, a)

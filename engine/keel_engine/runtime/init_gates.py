@@ -8,6 +8,9 @@ the answers map to the config with from_answers; an old client's typed answer st
 A re-run keeps what exists (keel v1: confirming again adds): a knowledge section that is there already is not
 recommended and not rebuilt unless it is ticked. init's `knowledge_sections` is the whole selection (kept + written),
 `write_sections` the ones the librarians write this run (not stored in the config).
+
+0.18.57 the project notes are opt-in (runtime/knowledge.py enabled): a new project's init recommends none; the knowledge
+question offers "Build project notes" (all five) with the expected cost, and the sections one by one.
 """
 from __future__ import annotations
 
@@ -68,9 +71,12 @@ def _previous_choice(root: str) -> list[str] | None:
 
 
 def to_write(root: str, fast: bool = False) -> list[str]:
-    """The sections keel writes when the user says nothing: none in a fast init; else the ones still missing (of an
-    earlier init's choice, when there was one). A section that exists is kept, not rebuilt."""
-    if fast:
+    """The sections keel writes when the user says nothing: none in a fast init, none while the project notes are off
+    (0.18.57: a new project, or knowledge.build: off); else the ones still missing (of an earlier init's choice, when
+    there was one). A section that exists is kept, not rebuilt."""
+    from . import knowledge
+
+    if fast or not knowledge.enabled(root):
         return []
     have = set(existing_sections(root))
     before = _previous_choice(root)
@@ -95,14 +101,23 @@ def defaults(root: str, fast: bool = False) -> dict:
     return with_kept(root, d)
 
 
+# 0.18.57 the knowledge question's first option: all five sections at once
+BUILD_ALL = "Build project notes"
+
+
+def build_label(cost: str | None) -> str:
+    return f"{BUILD_ALL} ({cost + ', ' if cost else ''}recommended for large repos)"
+
+
 RUNS_ON = {"this machine": "the app and its tools run on this computer",
            "dev container": "the app runs in the project's dev container (.devcontainer)",
            "decide later": "keel sets up nothing for this now"}
 
 
-def clarify_questions(root: str, fast: bool = False) -> list[dict]:
+def clarify_questions(root: str, fast: bool = False, cost: str | None = None) -> list[dict]:
     """0.19.0 the three questions as a clarify form (runtime/clarify.py's shape, fixed ids run / services / knowledge).
-    The recommended options are keel's defaults: approving without answers takes them."""
+    The recommended options are keel's defaults: approving without answers takes them. `cost`: what building the notes
+    costs (knowledge.build_estimate's label, "≈$3–7"), shown in the knowledge question."""
     d = defaults(root, fast)
     have = existing_sections(root)
     comp = compose_file(root)
@@ -126,12 +141,15 @@ def clarify_questions(root: str, fast: bool = False) -> list[dict]:
          "why": "keel runs the build, the tests and the services there.",
          "options": [{"label": k, "description": v, "recommended": d["runs_on"] == k} for k, v in RUNS_ON.items()]},
         services,
-        {"id": "knowledge", "question": "Which knowledge sections should keel write?",
-         "why": "More sections cost more tokens now and make the agents better later"
-                + (" (a fast init writes none unless you tick some; conventions and data help agents most)." if fast else ".")
+        {"id": "knowledge", "question": "Build project notes (a knowledge base keel's agents can read)?",
+         "why": ("Off unless you tick something: keel's agents read the code itself, and in keel's own tests they "
+                 "rarely opened the notes. Building them costs " + (cost or "a few dollars") + " (five librarians); they "
+                 "help most in a large repo. You can build them later from the Wiki (Build them).")
                 + (" Sections that exist are kept as they are; tick one only to write it again." if have else ""),
-         "options": [{"label": sec, "description": SECTION_HELP[sec] + (" (exists: kept; tick to write it again)" if sec in have else ""),
-                      "recommended": sec in d["write_sections"]} for sec in SECTIONS],
+         "options": [{"label": build_label(cost), "description": "all five sections: " + ", ".join(SECTIONS),
+                      "recommended": False}]
+                    + [{"label": sec, "description": SECTION_HELP[sec] + (" (exists: kept; tick to write it again)" if sec in have else ""),
+                        "recommended": sec in d["write_sections"]} for sec in SECTIONS],
          "multiple": True},
     ]
     if "layout" in d:
@@ -178,7 +196,9 @@ def from_answers(root: str, given: dict | None, fast: bool = False) -> dict:
     if "knowledge" in given:
         k = given["knowledge"]
         if isinstance(k, list):
-            a["knowledge_sections"] = [sec for sec in SECTIONS if sec in {str(x).strip().lower() for x in k}]
+            picked = {str(x).strip().lower() for x in k}
+            every = any(x.startswith(BUILD_ALL.lower()) for x in picked)
+            a["knowledge_sections"] = [sec for sec in SECTIONS if every or sec in picked]
         elif isinstance(k, str) and k.strip():
             a["knowledge_sections"] = [] if re.search(r"\b(no|none)\b", k.lower()) else \
                 answers(root, k, fast)["knowledge_sections"]
@@ -207,7 +227,7 @@ def _layout(t: str) -> str | None:
     return None
 
 
-def questions(root: str, fast: bool = False) -> str:
+def questions(root: str, fast: bool = False, cost: str | None = None) -> str:
     d = defaults(root, fast)
     have = existing_sections(root)
     lines = [("Four" if "layout" in d else "Three") + " questions before keel sets this project up. Approve to use the defaults (in brackets), or answer "
@@ -219,9 +239,10 @@ def questions(root: str, fast: bool = False) -> str:
         lines.append(f"2. {comp} exists. Use it for services (databases, queues)?  use it / I run them myself   [use it]")
     else:
         lines.append("2. No compose file found. Services?  none / I run them myself / generate one   [none]")
-    lines.append("3. Which knowledge sections should keel write?  (more sections = more tokens now, better agents later)   "
-                 + ("[none: this is a fast init; name the ones you want, conventions and data help agents most]" if fast
-                    else "[all five]"))
+    picked = d["write_sections"]
+    lines.append(f"3. Build project notes (a knowledge base the agents can read; {cost or 'a few dollars'} for all five, "
+                 "recommended for large repos)? Say “all” or name sections   "
+                 + (f"[{', '.join(picked)}]" if picked else "[none: off, build them later from the Wiki]"))
     for s in SECTIONS:
         lines.append(f"   - {s}: {SECTION_HELP[s]}" + ("  (exists: kept unless you name it)" if s in have else ""))
     if "layout" in d:
@@ -293,7 +314,7 @@ def answers(root: str, text: str | None, fast: bool = False) -> dict:
         a["knowledge_sections"] = []
     elif named:
         a["knowledge_sections"] = named
-    elif parts is not None and re.match(r"\s*all\b", sec_t):
+    elif (parts is not None and re.match(r"\s*all\b", sec_t)) or re.search(r"\bbuild (the |project )?notes\b", sec_t):
         a["knowledge_sections"] = list(SECTIONS)
     lay_t = (parts or {}).get("4") or next(iter(re.findall(r"layout:?\s*(\w+)", t)), "")
     if "layout" in a and lay_t and _layout(lay_t):
@@ -393,7 +414,7 @@ def plan(root: str, init: dict) -> str:
     kept = [s for s in existing_sections(root) if s not in (write or [])]
     lay_name = init.get("layout") if init.get("layout") in layout.LAYOUTS else None
     lay = layout.resolve(root, {**layout.raw_config(root), "layout": lay_name}) if lay_name else layout.resolve(root)
-    stored = {k: v for k, v in init.items() if k not in ("said", "write_sections", "layout")}
+    stored = {k: v for k, v in init.items() if k not in ("said", "write_sections", "layout", "notes_cost")}
     lines = ["keel will do this, in this order. Approve to start; send back to change it.", "",
              f"Layout: {lay.name} — " + (LAYOUTS.get(lay.name) or "keel's files sit behind the .keel link, outside the clone") + ".", ""]
     if cfg_exists:
@@ -430,12 +451,15 @@ def plan(root: str, init: dict) -> str:
                      + (f" … and {len(env) - 40} more" if len(env) > 40 else ""))
     else:
         lines.append("   environment variables: no .env.example and no environment in a compose file")
+    cost = init.get("notes_cost")
     lines.append(f"3. Write the knowledge sections {', '.join(write)} under {lay.knowledge}/ (one librarian each, every claim "
                  "with a file:line citation), at the same time as the ladder." if write else
-                 "3. Write no knowledge section" + (" (you chose none)." if not kept else "."))
+                 "3. Write no knowledge section" + (" (you chose none)." if not kept else ".")
+                 + ("" if kept else f" Project notes stay off; build them later from the Wiki{f' ({cost})' if cost else ''}."))
     if kept:
         lines.append(f"   Kept as they are (they exist): {', '.join(kept)}.")
-    lines += [f"4. Check that every citation in {lay.knowledge}/ points at a real line.",
+    lines += [f"4. Check that every citation in {lay.knowledge}/ points at a real line." if write or kept else
+              "4. No knowledge check: there are no project notes.",
               ("5. Commit it all as chore(setup): keel init. Nothing is pushed." if not lay.hidden else
                f"5. Record it (layout {lay.name}: keel's files stay out of git, so there is no commit). Nothing is pushed."),
               "Nothing is deployed, published or deleted."]

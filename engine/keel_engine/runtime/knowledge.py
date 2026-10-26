@@ -11,6 +11,12 @@ Nothing here can tell whether a claim is true. It refuses the claims that cannot
 
 Which sections count: the ones chosen at init (.keel/config.yml init.knowledge_sections), plus every section that
 exists (it is read back as project authority either way). Never chosen and nothing on disk is its own state.
+
+0.18.57 the project notes are opt-in (`knowledge.build: on | off` in .keel/config.yml, see enabled): a real-model
+evaluation (0.18.55) found that agents given only the knowledge file paths opened them twice in 46 runs and answered
+no better, while building them cost about $4.60 per project. Off, keel's flows run no librarian, agents get no
+knowledge paths and ship skips its knowledge step; the knowledge-refresh flow (the Wiki's Build them) still builds
+them on request and turns them on.
 """
 
 from __future__ import annotations
@@ -18,6 +24,8 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+
+import yaml
 
 from .. import layout, rules
 from ..tools import git
@@ -77,6 +85,107 @@ def resolve(root: str, rel: str, files: list[str] | None) -> tuple[str | None, s
 
 def built(root: str) -> list[str]:
     return [n for n in SECTIONS if section_file(root, n).is_file()]
+
+
+# ---------------------------------------------------------------- 0.18.57 project notes: on or off
+
+def build_setting(cfg: dict | None) -> str | None:
+    """`knowledge.build` as "on" / "off", or None when the config does not say. YAML 1.1 reads a bare on/off as a
+    boolean, so both spellings count."""
+    v = ((cfg or {}).get("knowledge") or {}).get("build") if isinstance((cfg or {}).get("knowledge"), dict) else None
+    if v is True or str(v).strip().lower() in ("on", "true", "yes"):
+        return "on"
+    if v is False or str(v).strip().lower() in ("off", "false", "no"):
+        return "off"
+    return None
+
+
+def enabled(root: str, cfg: dict | None = None) -> bool:
+    """Do keel's agents use the project notes, and do its flows keep them up to date? The config's `knowledge.build`
+    when it says; else on only for a project that already has them (a section on disk, or sections an earlier init
+    chose): a new project starts with them off."""
+    cfg = cfg if cfg is not None else rules.load_config(root)
+    said = build_setting(cfg)
+    if said:
+        return said == "on"
+    chosen = (cfg.get("init") or {}).get("knowledge_sections")
+    return bool(built(root)) or (isinstance(chosen, list) and bool(chosen))
+
+
+def set_build(root: str, on: bool) -> bool:
+    """Writes `knowledge.build` into .keel/config.yml (only that block; the other lines stay). False when the project
+    has no config yet (nothing is created) or it already says so."""
+    f = Path(root) / ".keel" / "config.yml"
+    if not f.is_file():
+        return False
+    from . import rules_view
+
+    try:
+        raw = yaml.safe_load(f.read_text()) or {}
+    except yaml.YAMLError:
+        return False
+    if not isinstance(raw, dict) or build_setting(raw) == ("on" if on else "off"):
+        return False
+    rules_view.set_config(root, {"knowledge": {"build": "on" if on else "off"}})
+    return True
+
+
+# What a librarian reads besides its default (catalog.AGENT_DEFAULTS): calibrated on the 0.18.55 evaluation (five
+# librarians, about $4.60 on Sonnet for a small Spring and a small PHP project), growing with the code it has to read.
+READ_BASE, READ_MAX = 100_000, 600_000
+TEXT_SKIP = re.compile(r"\.(png|jpe?g|gif|webp|ico|svg|pdf|zip|gz|tgz|jar|war|class|so|dylib|dll|exe|bin|woff2?|ttf|otf|"
+                       r"eot|mp[34]|mov|lock)$|(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|"
+                       r"poetry\.lock|uv\.lock|Cargo\.lock|go\.sum)$", re.I)
+FILE_MAX = 512 * 1024
+
+
+def repo_tokens(root: str) -> int:
+    """The size of the project's tracked text files in tokens (bytes / 4): what a librarian may have to read. Lock
+    files, binaries and files over 512 KB are left out."""
+    if not git.is_repo(root):
+        return 0
+    total = 0
+    for rel in git.tracked(root):
+        if TEXT_SKIP.search(rel):
+            continue
+        try:
+            n = (Path(root) / rel).stat().st_size
+        except OSError:
+            continue
+        if n <= FILE_MAX:
+            total += n
+    return total // 4
+
+
+def librarian_read_tokens(root: str) -> int:
+    """Extra input tokens per librarian call for this project: a base plus its code, capped (a librarian reads what
+    its section needs, and its turns send what it read again)."""
+    return max(READ_BASE, min(READ_BASE + repo_tokens(root), READ_MAX))
+
+
+def cost_label(est: dict) -> str:
+    """"≈$3–7" from an estimate's cost (low 0.7x, high 1.6x, as its tokens), or "≈900k–2.1M tokens" when the models
+    are paid by a plan."""
+    cost = float(est.get("cost_usd") or 0)
+    if cost > 0:
+        lo, hi = cost * 0.7, cost * 1.6
+        fmt = (lambda x: f"{x:.2f}".rstrip("0").rstrip(".")) if hi < 1 else (lambda x: f"{round(x):d}")
+        a, b = fmt(lo), fmt(hi)
+        return f"≈${a}" if a == b else f"≈${a}–{b}"
+
+    def k(n: int) -> str:
+        return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{round(n / 1000)}k"
+    return f"≈{k(int(est.get('low') or 0))}–{k(int(est.get('high') or 0))} tokens"
+
+
+def build_estimate(root: str, models: dict | None = None, history: list[dict] | None = None) -> dict:
+    """What building the five notes costs (the knowledge-refresh flow's librarians), with the same estimate as Start a
+    flow plus what the librarians read of this project's code: {tokens, low, high, cost_usd, label}."""
+    from ..workflows.estimate import estimate
+    from ..workflows.templates import get_template
+
+    e = estimate(get_template("knowledge-refresh"), 0, history, models or {}, {"librarian": librarian_read_tokens(root)})
+    return {"tokens": e["tokens"], "low": e["low"], "high": e["high"], "cost_usd": e["cost_usd"], "label": cost_label(e)}
 
 
 def selection(root: str, cfg: dict | None = None) -> list[str] | None:

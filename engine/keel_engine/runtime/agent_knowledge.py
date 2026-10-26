@@ -4,7 +4,7 @@
 
 The default is the `knowledge:` block in the agent's front matter (content/agents/<agent>.md); the API sends the
 project's value (its override merged over that default) in StartThread.agents. The task prompt lists the allowed
-sections that exist; the code graph MCP server is only handed to agents with code_graph on; memory off means a
+sections that exist while the project's notes are on (knowledge.enabled, 0.18.57: opt-in); the code graph MCP server is only handed to agents with code_graph on; memory off means a
 repeated step starts fresh; strict makes the guard refuse other sections (rules.check_knowledge), else the agent is
 only told; hints (off by default, see FALLBACK) gives the agent keel's own "where to look" lookups in the code graph
 (the Graph plugin, plugins/graph: its prompt_context hook), which cost no tool call.
@@ -107,17 +107,16 @@ def filter_mcp(specs: list[dict] | None, allow: list[str] | None, k: dict) -> tu
 
 def prompt_block(root: str, k: dict, graph: bool) -> str:
     """The "Knowledge you can use" lines of the task prompt. Short on purpose: it is in every call."""
+    from . import knowledge
+
     lines = []
-    have = files(root, k["sections"])
+    # 0.18.57 the paths only when the project's notes exist and are on (knowledge.enabled); else nothing at all, not
+    # even "none of your sections exist": a line the agent reads in every call and can do nothing with
+    have = files(root, k["sections"]) if k["sections"] and knowledge.enabled(root) else []
     if have:
         lines.append("Knowledge you can use (keel's notes on this project; read only the part you need and trust its "
                      "file:line citations):")
         lines += [f"- {f}: {PURPOSE[f.stem]}" for f in have]
-    elif k["sections"]:
-        from .knowledge import knowledge_dir
-
-        lines.append(f"Knowledge you can use: none of your sections ({', '.join(k['sections'])}) exist in "
-                     f"{knowledge_dir(root)}/ yet, so read the code.")
     if graph and k["code_graph"]:
         # how to use the code graph's tools: the code graph part says it (keel_engine/extensions.py, mcp.prompt)
         told = extensions.server_prompt(CODEGRAPH)
