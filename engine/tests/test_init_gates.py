@@ -237,5 +237,94 @@ def test_the_plan_shows_ports_env_names_and_every_rung(tmp_path):
     assert "db (5433:5432)" in text and "api (no published port)" in text
     assert "DATABASE_URL, STRIPE_KEY, POSTGRES_PASSWORD, API_KEY, PORT" in text
     assert "secret" not in text and "sk_live" not in text and "abc" not in text, "names only, never values"
-    assert " 1. Toolchain: $ check: git" in text and "12. Hook self-test" in text and "8. Services up and healthy: skipped" in text
+    assert " 1. Toolchain: $ check: git" in text and "12. Hook self-test" in text
+    # 0.18.57 the default answer "use compose.yml" starts the services (it was skipped as "no commands.services")
+    assert "8. Services up and healthy: $ docker compose up -d --wait" in text
     assert "Nothing is deployed, published or deleted." in text
+
+
+# 0.18.57 e2e: a PHP project whose README says the tests run only in the app container got a plan with a bare
+# vendor/bin/phpunit, "Where does the app run?" had no compose-service answer, and "services: use compose.yml" was
+# skipped by the ladder as "no commands.services"
+COMPOSE = ("services:\n  app:\n    build: .\n    volumes:\n      - .:/var/www/html\n"
+           "  db:\n    image: postgres:16\n    ports: ['5432:5432']\n")
+
+
+def _php_shop(tmp_path, readme: str | None = None):
+    (tmp_path / "compose.yml").write_text(COMPOSE)
+    (tmp_path / "composer.json").write_text('{"require-dev": {"phpunit/phpunit": "^11"}}\n')
+    if readme is not None:
+        (tmp_path / "README.md").write_text(readme)
+    return str(tmp_path)
+
+
+def _write(root, init):
+    from keel_engine.runtime.actions import ActionInput, _write_config
+
+    _write_config(ActionInput(root=root, phase="setup", title="keel init", ac=None, acs=[], fake=True, flow="init",
+                              init=init))
+    return yaml.safe_load((Path(root) / ".keel" / "config.yml").read_text())
+
+
+def test_docs_that_run_the_tests_in_a_container_make_init_run_them_there(tmp_path):
+    from keel_engine.runtime import container, ladder
+
+    root = _php_shop(tmp_path, "# Shop\n\nThe tests run only in the app container:\n\n"
+                               "    docker compose exec app vendor/bin/phpunit\n")
+    hint = init_gates.container_hint(root)
+    assert hint["service"] == "app" and hint["from_docs"] and hint["source"] == "README.md:3"
+    qs = {q["id"]: q for q in init_gates.clarify_questions(root)}
+    run = qs["run"]["options"]
+    assert run[0]["label"] == "compose service app" and run[0]["recommended"] and "README.md:3" in run[0]["description"]
+    d = init_gates.defaults(root)
+    assert d["runs_on"] == "compose service app" and d["services"] == "use compose.yml"
+    plan = init_gates.plan(root, d)
+    assert "api_test_module: docker compose exec -T app vendor/bin/phpunit" in plan
+    assert "$ docker compose exec -T app vendor/bin/phpunit" in plan and "$ docker compose up -d --wait" in plan
+    assert "$ vendor/bin/phpunit\n" not in plan + "\n" and "no commands.services" not in plan
+    cfg = _write(root, init_gates.from_answers(root, {}))
+    cmds = cfg["commands"]
+    assert cmds["api_test_module"] == "docker compose exec -T app vendor/bin/phpunit"
+    assert cmds["api_test_ac"] == "docker compose exec -T app vendor/bin/phpunit --filter '{AC_ID}'"
+    assert cmds["services"] == "docker compose up -d --wait" and cfg["init"]["runs_on"] == "compose service app"
+    assert container.in_container(root) and container.preflight_commands(root)
+    # the services start before the first command that needs the container; the toolchain is docker, not php
+    rungs = ladder.plan(root)
+    order = [r["n"] for r in rungs]
+    assert order.index(8) < order.index(2) and order.index(8) < order.index(6)
+    assert next(r for r in rungs if r["n"] == 8)["cmd"] == "docker compose up -d --wait"
+    assert "docker" in rungs[0]["cmd"]
+
+
+def test_the_compose_answer_is_read_from_labels_and_own_words(tmp_path):
+    root = _php_shop(tmp_path, "Run everything inside the `app` container (php is not installed on the host).\n")
+    assert init_gates.container_hint(root)["service"] == "app"
+    assert init_gates.from_answers(root, {"run": "compose service app"})["runs_on"] == "compose service app"
+    assert init_gates.from_answers(root, {"run": "in the app container"})["runs_on"] == "compose service app"
+    assert init_gates.answers(root, "1 the db container · 2 use it")["runs_on"] == "compose service db"
+    assert init_gates.answers(root, "1 dev container")["runs_on"] == "dev container"
+    assert "compose service app" in init_gates.questions(root)
+
+
+def test_a_compose_app_service_is_offered_but_not_recommended_without_docs(tmp_path):
+    root = _php_shop(tmp_path)
+    hint = init_gates.container_hint(root)
+    assert hint["service"] == "app" and not hint["from_docs"]
+    run = {q["id"]: q for q in init_gates.clarify_questions(root)}["run"]["options"]
+    assert [o["label"] for o in run if o["recommended"]] == ["this machine"] and "compose service app" in [o["label"] for o in run]
+    cfg = _write(root, init_gates.from_answers(root, {}))
+    assert cfg["commands"]["api_test_module"] == "vendor/bin/phpunit"
+    assert cfg["commands"]["services"] == "docker compose up -d --wait"
+
+
+def test_services_use_compose_is_honoured_by_an_existing_config(tmp_path):
+    from keel_engine.runtime import ladder
+
+    root = _php_shop(tmp_path)
+    (tmp_path / ".keel").mkdir()
+    (tmp_path / ".keel" / "config.yml").write_text("commands:\n  unit_tests: 'true'\ninit:\n  services: use compose.yml\n")
+    rung8 = next(r for r in ladder.plan(root) if r["n"] == 8)
+    assert rung8["status"] == "waiting" and rung8["cmd"] == "docker compose up -d --wait"
+    # a re-run that chose the compose service moves the existing bare test commands into it
+    cfg = _write(root, init_gates.from_answers(root, {"run": "compose service app"}))
+    assert cfg["commands"]["unit_tests"] == "docker compose exec -T app true"

@@ -2504,8 +2504,10 @@ Plan: `docs/plans/0.17.5.md`.
   Plan windows (`usage`): continue "Continue anyway" (default), wait "Wait for the reset", cheaper "Use the cheaper
   model", stop "Stop the flow".
 - **init's `questions` pause** is `kind: "clarify"` with three questions (ids fixed): `run` "Where does the app run while
-  you develop?" (this machine / dev container / decide later), `services` (a compose file: `use <file>` / `I run them
-  myself`; none: `none` / `I run them myself` / `generate a compose file`), `knowledge` (`multiple: true`: architecture,
+  you develop?" (this machine / dev container / decide later, and `compose service <name>` first when the docs say the
+  tools run in a compose service's container or one compose service builds the project and mounts its folder; that
+  answer writes the backend commands as `docker compose exec -T <name> ...`), `services` (a compose file: `use <file>`,
+  written as `commands.services: docker compose up -d --wait` / `I run them myself`; none: `none` / `I run them myself` / `generate a compose file`), `knowledge` (`multiple: true`: architecture,
   domain, conventions, data, integrations). The recommended options are keel's defaults (a fast init recommends no
   section). `init_gates.from_answers(root, answers)` maps the answers to `init:`; approving without answers takes the
   defaults; options `approve` ("Use these answers") and `reject` ("Use my answers": an old client's typed words, read
