@@ -24,7 +24,8 @@ parts:
 per_project: true
 # keel TUI (docs/plugins/25-tui-plugins.md): /review prs | branch outside the mode, and the review mode (/review, or
 # /review <pr number>): the changed files, each file's diff with its threads, drafts and keel's findings under the lines,
-# and keys for line comments, replies, resolve, viewed, keel's explain and findings, and submit. Data only: each key
+# and keys for line comments, replies, resolve, viewed, keel's explain and findings, the overview's diagrams in ASCII
+# (d: the database change and the system, read from git), and submit. Data only: each key
 # calls this plugin's own api routes; a key that changes something asks first (a yes/no, or the words you type).
 contributes:
   tui:
@@ -112,6 +113,10 @@ contributes:
             call: { path: "/projects/{pid}/review/ai?key={view.key}" }
             show: { title: "keel's findings · {findings.status}", items: findings.result.findings, line: "{severity}  {path}:{line}  {title} ({check})", empty: "no findings yet: f asks keel for them" }
             reload: true
+          - key: d
+            label: diagrams
+            call: { path: "/projects/{pid}/review/diagrams?key={view.key}" }
+            show: { title: "the change's database and system (read from git, no model)", text: "{text}" }
           - key: s
             label: submit
             pick: { title: "Submit your review as", choices: [{ label: Approve, value: APPROVE }, { label: Request changes, value: REQUEST_CHANGES }, { label: Comment, value: COMMENT }] }

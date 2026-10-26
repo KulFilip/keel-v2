@@ -734,11 +734,12 @@ function OneReview({
         )}
         {tab === "overview" && (
           <OverviewTab
+            pid={pid}
             view={v}
             ai={r.ai}
             busy={r.busy}
             onStart={(k) => void R.startAi(pid, reviewKey, k)}
-            onOpen={(p) => open(p)}
+            onOpen={(p, line) => open(p, line)}
             blocking={
               findings.filter(
                 (f) =>

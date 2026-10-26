@@ -222,6 +222,17 @@
           "reload": true
         },
         {
+          "key": "d",
+          "label": "diagrams",
+          "call": {
+            "path": "/projects/{pid}/review/diagrams?key={view.key}"
+          },
+          "show": {
+            "title": "the change's database and system (read from git, no model)",
+            "text": "{text}"
+          }
+        },
+        {
           "key": "s",
           "label": "submit",
           "pick": {

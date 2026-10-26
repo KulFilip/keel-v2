@@ -172,7 +172,7 @@ def test_its_tui_part_passes_lint_and_is_the_one_keel_tuis_tests_use():
     assert json.loads((ROOT / "cli" / "test" / "review-tui.json").read_text()) == MANIFEST["contributes"]["tui"]
     mode = MANIFEST["contributes"]["tui"]["modes"][0]
     assert mode["name"] == "review" and list(mode["state"]) == ["view", "ai"]
-    assert {k["key"] for k in mode["keys"]} == set("crxvefoFspg")
+    assert {k["key"] for k in mode["keys"]} == set("crxvefoFdspg")
     # every key that changes something asks first: a yes / no, or the person's own words
     assert all(k.get("confirm") or k.get("ask") for k in mode["keys"] if (k.get("call") or {}).get("method") == "POST")
 

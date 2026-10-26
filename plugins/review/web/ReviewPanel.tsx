@@ -4,6 +4,8 @@
 
 import { useState } from "react";
 import { ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
+import { DiagramPart } from "./Diagrams";
+import { useDiagrams } from "./diagramStore";
 import { type AiState, type Finding, type ReviewView } from "./reviewApi";
 
 export type PanelTab = "changes" | "pending" | "commits" | "overview" | "findings" | "threads" | "checklist";
@@ -65,7 +67,62 @@ function Running({
   );
 }
 
+type OverviewPart = "overview" | "database" | "system";
+
 export function OverviewTab({
+  pid,
+  view,
+  ai,
+  busy,
+  onStart,
+  onOpen,
+  blocking,
+}: {
+  /** the project: the Database and System tabs load their diagrams with it */
+  pid?: string;
+  view: ReviewView;
+  ai: AiState | null;
+  busy: string | null;
+  blocking: number;
+  onStart: (k: "overview" | "findings") => void;
+  onOpen: (path: string, line?: number | null) => void;
+}) {
+  const [part, setPart] = useState<OverviewPart>("overview");
+  const dg = useDiagrams(pid, view.key, view.head_sha);
+  const db = dg?.status === "done" ? dg.d.database : null;
+  const parts: [OverviewPart, string, number | null][] = [["overview", "Overview", null]];
+  if (db?.shown) parts.push(["database", "Database", db.count]);
+  if (pid) parts.push(["system", "System", null]);
+  const shown = parts.some(([k]) => k === part) ? part : "overview";
+  const files = new Set(view.files.map((f) => f.path));
+  return (
+    <div className="rv-stack">
+      {parts.length > 1 && (
+        <div className="rv-tabs rv-subtabs" role="tablist" aria-label="Overview parts">
+          {/* the inner Overview is "keel's overview" for a screen reader: the panel's own tab is Overview */}
+          {parts.map(([k, label, n]) => (
+            <button key={k} type="button" role="tab" id={`rv-ov-${k}`} aria-selected={shown === k} aria-controls={`rv-ov-panel-${k}`}
+              className={shown === k ? "on" : ""} onClick={() => setPart(k)}
+              aria-label={n != null ? `${label}, ${n} change${n === 1 ? "" : "s"}` : k === "overview" ? "keel's overview" : undefined}>
+              {label}
+              {n != null && <span className="rv-n">{n}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown !== "overview" && (
+        <div role="tabpanel" id={`rv-ov-panel-${shown}`} aria-labelledby={`rv-ov-${shown}`}>
+          {pid && <DiagramPart pid={pid} reviewKey={view.key} view={view} part={shown} onOpen={onOpen} />}
+        </div>
+      )}
+      {shown === "overview" && (
+        <OverviewBody view={view} ai={ai} busy={busy} blocking={blocking} onStart={onStart} onOpen={onOpen} />
+      )}
+    </div>
+  );
+}
+
+function OverviewBody({
   view,
   ai,
   busy,

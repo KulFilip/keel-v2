@@ -21,6 +21,7 @@ import {
   type KeysAreaItem,
   type SettingsSectionItem,
 } from "@keel/web-sdk";
+import { registerDiagramTabs } from "./DiagramTabs";
 import { GitLabSection } from "./GitLabConnection";
 import { ACTIONS } from "./keymap";
 import { reviewLauncher } from "./launcher";
@@ -121,6 +122,8 @@ export const REVIEW_KEYS: KeysAreaItem = {
 /** Connections › GitLab, Code › Review, the review tabs and the pull requests in ⌘K: the same ids, titles and places
  *  as keel 0.15.1; and (0.15.4) its keys in the key cheat sheet. */
 export function setup(sdk: KeelSdk) {
+  // 0.18.57 the overview's Database and System tabs in the new view's pull request (the classic overview has them too)
+  registerDiagramTabs();
   sdk.registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
     id: "gitlab",
     title: "GitLab",

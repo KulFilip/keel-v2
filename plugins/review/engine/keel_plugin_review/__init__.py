@@ -1,8 +1,8 @@
 """The Code Review plugin's engine part (plugins/review): its content (the Tools › Plugins entry and KeelBot's
 /review-branch and /explain-pr commands, content/plugins/review/plugin.yml) and the fake model's answers for its runs
 (fake.py: the overview, the findings and the check of findings that the api's ReviewAiService asks KeelBot for). The
-review itself (pull requests, diffs, threads, Submit) is the plugin's api part; the engine has no actions or routes
-for it.
+review itself (pull requests, diffs, threads, Submit) is the plugin's api part. The engine has one route for it: the
+overview's diagrams (diagrams/, routes.py: the Database and System tabs, read from git with no model).
 
 keel loads it as an add-on (KEEL_PLUGIN_ADDONS=keel_plugin_review, written by `keel-engine plugins resolve`). Its PART
 has one key, keel_mcp (keel 0.18.6): the review's tools in keel's own MCP server (mcp_tools.py), each through the plugin's
@@ -37,8 +37,15 @@ ADDON = {
     "fake": fake_answer,
 }
 
+def _router():
+    from .routes import router
+
+    return router
+
+
 PART = {
     "name": "review",
     "title": "Code Review",
     "keel_mcp": _keel_mcp,
+    "router": _router,
 }

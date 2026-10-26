@@ -228,6 +228,10 @@ function reviewServer() {
     http.get(`${R}/view`, ({ request }) =>
       HttpResponse.json(views[keyOf(request)]),
     ),
+    // 0.18.57 the overview's diagrams (test/diagrams.test.tsx tests the tabs)
+    http.get(`${R}/diagrams`, () =>
+      HttpResponse.json({ database: { shown: false, count: 0 }, system: { nodes: [], edges: [], groups: [], externals: [] } }),
+    ),
     http.get(`${R}/diff`, ({ request }) => {
       const p = new URL(request.url).searchParams.get("path");
       return HttpResponse.json({
