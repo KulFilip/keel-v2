@@ -6,7 +6,7 @@
 //              sets (GET /api/plugins/sets: Developer, Review, Knowledge, Tickets) and what core does by itself
 //   the brand  the tag next to the logo says "core"
 //
-// A set's "Install N" opens Control › Plugins with that set (#/plugins?set=<id>): the same offer and confirm as there,
+// A set's "Install N" opens Control › Plugins with that set (#/settings/plugins?set=<id>): the same offer and confirm as there,
 // so nothing installs without the person's click there. N counts what the set adds: the plugins keel does not have
 // (downloaded) and the image's plugins that are off (turned on, not downloaded).
 
@@ -48,9 +48,9 @@ export function useCoreOnly(): { coreOnly: boolean; bare: boolean } {
 }
 
 /** The link that opens Control › Plugins on its Marketplace tab. */
-export const MARKETPLACE_HASH = "#/plugins?tab=market";
+export const MARKETPLACE_HASH = "#/settings/plugins?tab=market";
 /** The link that offers a set in Control › Plugins (its confirm installs it). */
-export const setHash = (id: string) => `#/plugins?set=${encodeURIComponent(id)}`;
+export const setHash = (id: string) => `#/settings/plugins?set=${encodeURIComponent(id)}`;
 
 // ---------- the menu ----------
 

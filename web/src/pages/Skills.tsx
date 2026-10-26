@@ -251,7 +251,7 @@ export function SkillsPage({ pid }: { pid: string }) {
     <>
       <PageHead title="Skill hub" sub={`Skills the agents of ${project?.name ?? pid} load: keel's skills for its stacks, packs, Claude skills, and skills only this project has.`}
         actions={<>
-          <a className="btn" href="#/plugins?tab=market&kind=skills" style={{ textDecoration: "none" }}>Find in the marketplace</a>
+          <a className="btn" href="#/settings/plugins?tab=market&kind=skills" style={{ textDecoration: "none" }}>Find in the marketplace</a>
           <button className="btn" type="button" onClick={() => setImporting(true)}>Import</button>
           <button className="btn primary" type="button" id="newSkill" onClick={() => setCreating(true)}>New skill</button>
         </>} />

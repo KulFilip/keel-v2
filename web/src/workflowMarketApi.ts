@@ -154,9 +154,9 @@ export function refusalOf(err: unknown): InstallRefusal | null {
 
 /** A workflow's page in Control › Plugins. */
 export const workflowHref = (name: string) =>
-  `#/plugins/workflow/${encodeURIComponent(name)}`;
+  `#/settings/plugins/workflow/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Workflows view. */
-export const MARKET_WORKFLOWS = "#/plugins?tab=market&kind=workflows";
+export const MARKET_WORKFLOWS = "#/settings/plugins?tab=market&kind=workflows";
 
 /** The categories a workflow can have, for the Publish dialog (the catalog may list more). */
 export const WORKFLOW_CATEGORIES = [

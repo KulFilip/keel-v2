@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
+  agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor, settingsHash,
   InitAsk, isInitFlow, linkAction, Loading, needsInit, PageHead, Pill, RunModePicker, Tabs, Ticks, useApp, useLoad, useRoute, useStartInit,
   WorkspaceDoctor,
   type LauncherCtx as Ctx, type LauncherItem as Item, type LauncherSourceItem, type PillTone, type RunMode, type Workflow,
@@ -469,7 +469,7 @@ function SyncLine({ data, busy }: { data: TaskList; busy: boolean }) {
     return (
       <p className="tk-sync" data-testid="sync-line">
         <span className="sub">Not connected to Jira: tasks stay in keel, with their history.</span>{" "}
-        <a className="btn sm ghost" href={hashFor("connections")}>Connect Jira</a>
+        <a className="btn sm ghost" href={settingsHash("connections")}>Connect Jira</a>
       </p>
     );
   }
@@ -553,7 +553,7 @@ export function TasksPage({ pid }: { pid: string }) {
               <EmptyState title="No task yet" action={<>
                 <button className="btn primary" type="button" onClick={() => setMaking(true)}>New task</button>
                 {r.data.sync.connected ? <button className="btn" type="button" onClick={() => void sync()}>Sync now</button>
-                  : <a className="btn" href={hashFor("connections")}>Connect Jira</a>}
+                  : <a className="btn" href={settingsHash("connections")}>Connect Jira</a>}
               </>}>
                 Create one, or connect Jira to bring in your tickets. You can still start a flow directly on the Flow page.
               </EmptyState>

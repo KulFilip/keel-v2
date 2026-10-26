@@ -223,7 +223,7 @@ function Elsewhere({
   return (
     <a
       className="sub mk-place-hint"
-      href={`#/plugins/${encodeURIComponent(name)}?at=projects`}
+      href={`#/settings/plugins/${encodeURIComponent(name)}?at=projects`}
     >
       {shown === "off" ? "on" : "also on"} in {count} other project
       {count === 1 ? "" : "s"}
@@ -323,7 +323,7 @@ type Row = { id: string; name: string; plugin: Plugin | undefined; error?: strin
 
 /**
  * The plugin's page: every project with the same control as Installed. Nothing shows for a plugin no project
- * switches. #/plugins/<name>?at=projects (Installed's "on in 2 other projects") scrolls here.
+ * switches. #/settings/plugins/<name>?at=projects (Installed's "on in 2 other projects") scrolls here.
  */
 export function PluginProjects({
   name,

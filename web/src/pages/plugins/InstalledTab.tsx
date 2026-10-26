@@ -139,7 +139,7 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                       <div className="mk-pname">
                         <PluginIcon name={p.name} title={p.title} size="sm" />
                         <div>
-                          <a className="mk-plink" href={`#/plugins/${encodeURIComponent(p.name)}`}>
+                          <a className="mk-plink" href={`#/settings/plugins/${encodeURIComponent(p.name)}`}>
                             {titleOf(p)}
                           </a>
                           <span className="sub">

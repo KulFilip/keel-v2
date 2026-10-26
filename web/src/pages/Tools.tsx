@@ -47,7 +47,7 @@ function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: (
       <div className="field"><label htmlFor="ms-cmd">Command</label><input type="text" id="ms-cmd" value={command} onChange={(e) => setCommand(e.target.value)} placeholder="e.g. docker" /></div>
       <div className="field"><label htmlFor="ms-args">Arguments</label><input type="text" id="ms-args" value={args} onChange={(e) => setArgs(e.target.value)} placeholder="run -i ghcr.io/github/github-mcp-server" /></div>
       <div className="field"><label htmlFor="ms-env">Environment (NAME=value, one per line)</label><textarea id="ms-env" value={env} onChange={(e) => setEnv(e.target.value)} style={{ minHeight: 70 }} />
-        <span className="hint">For secrets, save a key in Connections and refer to its name.</span></div>
+        <span className="hint">For secrets, save a key in Settings › Models &amp; logins and refer to its name.</span></div>
       {err && <ErrorBox error={err} />}
     </Drawer>
   );
@@ -149,7 +149,7 @@ export function ToolsPage({ pid }: { pid: string }) {
 
   return (
     <>
-      <PageHead title="Tools (MCP servers)" sub="Programs your agents can call for extra tools, and which agent may use which. Plugins are turned on in Control › Plugins."
+      <PageHead title="Tools (MCP servers)" sub="Programs your agents can call for extra tools, and which agent may use which. Plugins are turned on in Settings › Plugins."
         actions={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>} />
       <div className="tl-top">
         <Section title="Servers" sub="Test a server to see its tools. A turned-off server gives no agent anything.">

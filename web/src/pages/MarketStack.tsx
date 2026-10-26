@@ -4,7 +4,7 @@
 //   Marketplace › Stacks      search, the category chips, keel's own stacks ("From keel": used where detected, a keel
 //                             pack installs with its skills) and the catalogs' (Install / Installed here (+ "edited") /
 //                             Update to x). No catalog: a note that says so; keel's own still show
-//   #/plugins/stacks/<name>   a stack's page: its YAML (as published, verified), keel's review (lane, what detects it,
+//   #/settings/plugins/stacks/<name>   a stack's page: its YAML (as published, verified), keel's review (lane, what detects it,
 //                             layers, every command and tool it runs, skills), keel's check against this project,
 //                             versions, checks; Install into this project, Update (asks before it replaces a copy
 //                             changed here), Remove, Open in Stacks
@@ -215,7 +215,7 @@ export function StacksMarket() {
               Sources and rules, or write one for this project on Build › Stacks (keel reads your build files and helps).
               {data.catalog_error && <span className="sub" style={{ display: "block" }}>{refusedText(data.catalog_error)}</span>}
               <span className="row" style={{ marginTop: 8 }}>
-                <a className="btn sm" href="#/plugins?tab=sources" style={{ textDecoration: "none" }}>Sources and rules</a>
+                <a className="btn sm" href="#/settings/plugins?tab=sources" style={{ textDecoration: "none" }}>Sources and rules</a>
                 <a className="btn sm" href="#/stacks" style={{ textDecoration: "none" }}>Build › Stacks</a>
               </span>
             </div>
@@ -315,7 +315,7 @@ export function MarketStackPage({ name }: { name: string }) {
   const w: MarketStack | null = r.data;
   const crumb = (
     <nav className="mk-crumb" aria-label="Breadcrumb">
-      <a href="#/plugins">Plugins</a><span aria-hidden="true">›</span>
+      <a href="#/settings/plugins">Plugins</a><span aria-hidden="true">›</span>
       <a href={MARKET_STACKS}>Stacks</a><span aria-hidden="true">›</span>
       <span aria-current="page">{w?.title ?? name}</span>
     </nav>

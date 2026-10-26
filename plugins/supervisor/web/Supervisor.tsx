@@ -48,7 +48,7 @@ const tri = (v: boolean | null | undefined) => (v === true ? "on" : v === false 
 const untri = (v: string) => (v === "on" ? true : v === "off" ? false : null);
 const OFF_BY: Record<string, string> = {
   keel: "it is off keel-wide",
-  plugin: "the plugin is off for this project (Control › Plugins)",
+  plugin: "the plugin is off for this project (Settings › Plugins)",
   project: "it is off for this project",
   flow: "it is off for this flow",
 };

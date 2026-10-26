@@ -83,7 +83,7 @@ function ConnectionNote({ value, saved, conns }: { value: string; saved: string;
   if (value && value !== saved && !saved && !conns.keel_wide.connected)
     return <span className="sub" data-testid="conn-note">The keel-wide connection is not set up, so keel picked {name}'s own connection (no second token). Save to keep it.</span>;
   if (!value && !conns.keel_wide.connected && !conns.projects.some((c) => c.connected))
-    return <span className="sub bad" data-testid="conn-note">No Jira connection yet: connect a project's Jira in Connections › Jira.</span>;
+    return <span className="sub bad" data-testid="conn-note">No Jira connection yet: connect a project's Jira in Settings › Connections › Jira.</span>;
   return null;
 }
 

@@ -57,7 +57,7 @@ function SpendSeg({ label, spend, all, caps, hint }: { label: string; spend: Bud
     ...(others && all ? [`All projects (keel Product too): ${kfmt(all.tokens)} tokens, ${usd(all.cost_usd)}.`] : []),
     ...caps.map((c) => `Cap: ${capText(c)}.`)].join("\n");
   return (
-    <a className={`bb-seg bb-${toneOf(top?.pct ?? null)}`} href="#/budget" title={title} data-testid={`bb-${label.toLowerCase().replace(/\W+/g, "-")}`}>
+    <a className={`bb-seg bb-${toneOf(top?.pct ?? null)}`} href="#/settings/budget" title={title} data-testid={`bb-${label.toLowerCase().replace(/\W+/g, "-")}`}>
       <span className="bb-l">{label}</span>
       <b className="num">{kfmt(spend.tokens)}</b>
       <span className="bb-sub bb-cost num">{usd(spend.cost_usd)}</span>
@@ -92,7 +92,7 @@ function FlowSeg({ flows }: { flows: FlowSpend[] }) {
 
 function Providers({ usage }: { usage: ProviderUsage[] }) {
   return (
-    <a className="bb-seg bb-provs" href="#/budget" data-testid="bb-providers">
+    <a className="bb-seg bb-provs" href="#/settings/budget" data-testid="bb-providers">
       {usage.map((u) => {
         const c = providerChip(u);
         return (
@@ -147,7 +147,7 @@ export function BudgetBar() {
     <div className={`bbar bb-${tone}`} role="region" aria-label="Budget at a glance">
       {((pid && !b && !now.error) || (!pid && !projectsLoaded)) && <span className="bb-seg bb-wait">Budget…</span>}
       {!pid && projectsLoaded && <a className="bb-seg bb-sub" href="#/projects">No project yet: the budget starts with the first one</a>}
-      {pid && now.error && <a className="bb-seg bb-sub" href="#/budget" title={now.error.message}>Budget not loaded</a>}
+      {pid && now.error && <a className="bb-seg bb-sub" href="#/settings/budget" title={now.error.message}>Budget not loaded</a>}
       {b && <SpendSeg label="Today" spend={b.today} all={b.all_today} caps={today} hint="since 00:00 UTC" />}
       {b && <SpendSeg label="This month" spend={b.month} all={b.all_month} caps={month} hint="since the 1st, UTC" />}
       {b?.flows.length ? <FlowSeg flows={b.flows} /> : null}

@@ -116,6 +116,6 @@ export function stackShort(r: StackReview | null | undefined): string {
 }
 
 /** A stack's page in Control › Plugins. */
-export const stackHref = (name: string) => `#/plugins/stacks/${encodeURIComponent(name)}`;
+export const stackHref = (name: string) => `#/settings/plugins/stacks/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Stacks view. */
-export const MARKET_STACKS = "#/plugins?tab=market&kind=stacks";
+export const MARKET_STACKS = "#/settings/plugins?tab=market&kind=stacks";
