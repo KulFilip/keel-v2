@@ -1,0 +1,1145 @@
+/* 0.18.57 the new Review view (the redesign's Work › Review): the list in the Code page's Review side bar, a pull
+   request in an editor tab. keel's theme tokens only (light and dark follow keel's theme). Classes start with rvn-. */
+
+/* ---- shared */
+.rvn-dim {
+  color: var(--dim);
+}
+.rvn-fg {
+  color: var(--fg);
+}
+.rvn-mono {
+  font-family: var(--f-mono);
+  font-size: 0.92em;
+}
+.rvn-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.rvn-grow {
+  flex: 1;
+  min-width: 0;
+}
+.rvn-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.rvn-pad {
+  display: block;
+  padding: 8px 14px;
+}
+.rvn-lead {
+  margin: -4px 0 0;
+  font-size: 13px;
+}
+.rvn-empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--dim);
+}
+.rvn-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.rvn-add {
+  color: var(--ok);
+}
+.rvn-del {
+  color: var(--bad);
+}
+.rvn-h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rvn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: 500 13px var(--f-body);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rvn-btn:hover:not(:disabled) {
+  background: var(--ide-hover, var(--panel-2));
+}
+.rvn-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.rvn-btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+.rvn-btn.soft {
+  align-self: flex-start;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rvn-btn.ghost {
+  border-color: transparent;
+}
+.rvn-btn.accent {
+  color: var(--accent);
+  border-color: var(--border);
+}
+.rvn-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.rvn-btn:focus-visible,
+.rvn-link:focus-visible,
+.rvn-chip:focus-visible,
+.rvn-pr:focus-visible,
+.rvn-mark:focus-visible,
+.rvn-thread-h:focus-visible,
+.rvn-tabs [role="tab"]:focus-visible,
+.rvn-fpick:focus-visible,
+.rvn-dl-n button:focus-visible,
+.rvn-switch button:focus-visible,
+.rvn-hint-b:focus-visible,
+.rvn-x:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rvn-link {
+  border: 0;
+  background: none;
+  padding: 4px 2px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: left;
+}
+.rvn-link:hover {
+  text-decoration: underline;
+}
+.rvn-link.quiet {
+  color: var(--dim);
+}
+.rvn-x {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rvn-x:hover {
+  background: var(--panel-2);
+  color: var(--fg);
+}
+
+.rvn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: 13px var(--f-body);
+  cursor: pointer;
+}
+.rvn-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rvn-n {
+  min-width: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+.rvn-chip .rvn-n {
+  background: none;
+  padding: 0;
+  min-width: 0;
+}
+.rvn-n.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* the status pill: a dot and a word; the colour is the state */
+.rvn-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.rvn-tag-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 3px;
+  background: currentColor;
+  display: inline-block;
+}
+.t-ok.rvn-tag,
+.t-ok.rvn-verdict {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.t-run.rvn-tag {
+  background: var(--run-soft);
+  color: var(--run);
+}
+.t-warn.rvn-tag,
+.t-warn.rvn-verdict {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.t-bad.rvn-tag,
+.t-bad.rvn-verdict {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.t-accent.rvn-tag {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.rvn-tone.t-ok,
+.rvn-pt.t-ok {
+  color: var(--ok);
+}
+.rvn-tone.t-run {
+  color: var(--run);
+}
+.rvn-tone.t-warn,
+.rvn-pt.t-warn {
+  color: var(--warn);
+}
+.rvn-tone.t-bad,
+.rvn-pt.t-bad {
+  color: var(--bad);
+}
+
+/* ---- the switch and the classic view's hint */
+.rvn-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.rvn-switch button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dim);
+  font: 500 12px var(--f-body);
+  cursor: pointer;
+}
+.rvn-switch button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.rvn-hint {
+  flex: none;
+  padding: 4px 10px;
+  border-top: 1px solid var(--ide-line, var(--border));
+}
+.rvn-hint-b {
+  border: 0;
+  background: none;
+  padding: 4px;
+  color: var(--accent);
+  font: 12.5px var(--f-body);
+  cursor: pointer;
+}
+.rvn-hint-b:hover {
+  text-decoration: underline;
+}
+
+/* ---- the list (the Code page's Review side bar) */
+.rvn-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.rvn-side-in {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 14px 12px 16px;
+  scrollbar-width: thin;
+}
+.rvn-side-in > * {
+  flex-shrink: 0;
+}
+.rvn-shead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rvn-shead-1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rvn-shead-1 h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.rvn-shead p {
+  margin: 0;
+  font-size: 13px;
+}
+.rvn-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rvn-search input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--fg);
+  font: 13px var(--f-body);
+}
+.rvn-search input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.rvn-prs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.rvn-prs li + li {
+  border-top: 1px solid var(--border);
+}
+.rvn-pr {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px 12px 11px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rvn-pr:hover {
+  background: var(--panel-2);
+}
+.rvn-pr.on {
+  background: var(--panel-2);
+  border-left-color: var(--accent);
+}
+.rvn-pr-1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.rvn-pr-1 b {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.rvn-pr-2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.rvn-foot {
+  padding: 0 2px;
+  font-size: 12px;
+}
+.rvn-branch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+/* ---- one pull request (an editor tab) */
+.rvn-review {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+.rvn-review-in {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1180px;
+  padding: 24px clamp(16px, 3vw, 32px) 48px;
+}
+.rvn-prhead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.rvn-prhead-1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.rvn-prhead-1 h2 {
+  flex: 1 1 280px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.rvn-prhead-1 h2 .rvn-dim {
+  font-weight: 500;
+}
+.rvn-prhead-1 .rvn-grow {
+  display: none;
+}
+.rvn-prmeta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--dim);
+  font-size: 13px;
+}
+.rvn-overview summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+.rvn-overview summary::before {
+  content: "▸";
+  margin-right: 6px;
+}
+.rvn-overview[open] summary::before {
+  content: "▾";
+}
+.rvn-overview p {
+  margin: 0;
+}
+.rvn-overview .rvn-btn {
+  align-self: flex-start;
+}
+
+.rvn-tabs {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+.rvn-tabs [role="tab"] {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--dim);
+  font: 500 14px var(--f-body);
+  cursor: pointer;
+}
+.rvn-tabs [role="tab"][aria-selected="true"] {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+.rvn-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.rvn-tbar {
+  gap: 6px;
+}
+
+/* comments */
+.rvn-thread {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.rvn-thread.open {
+  border-color: var(--rail);
+}
+.rvn-thread-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rvn-thread-h:hover {
+  background: var(--panel-2);
+}
+.rvn-thread-h b {
+  font-weight: 600;
+}
+.rvn-thread-t {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rvn-thread-b {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+.rvn-thread-f {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.rvn-snip {
+  margin: 0;
+  padding: 6px 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font: 12px/20px var(--f-mono);
+}
+.rvn-snip-l {
+  display: block;
+  min-width: max-content;
+  padding-right: 16px;
+  white-space: pre;
+}
+.rvn-snip-l.on {
+  background: var(--warn-soft);
+}
+.rvn-snip-n {
+  display: inline-block;
+  width: 44px;
+  padding-right: 10px;
+  color: var(--dim);
+  text-align: right;
+}
+.rvn-msg {
+  display: flex;
+  gap: 10px;
+}
+.rvn-av {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+.rvn-msg-b {
+  min-width: 0;
+  flex: 1;
+}
+.rvn-msg-b .rvn-dim {
+  font-size: 12px;
+}
+.rvn-msg-t > :first-child {
+  margin-top: 0;
+}
+.rvn-msg-t > :last-child {
+  margin-bottom: 0;
+}
+.rvn-checking {
+  margin: 0;
+  color: var(--dim);
+}
+.rvn-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: var(--fg);
+}
+.rvn-verdict .rvn-verdict-h {
+  font-weight: 600;
+}
+.rvn-verdict ul {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--fg);
+}
+.rvn-verdict li b {
+  font-weight: 500;
+}
+.rvn-pt {
+  font-weight: 600;
+}
+.rvn-verdict .rvn-btn:not(.primary) {
+  background: var(--panel);
+}
+.rvn-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+}
+.rvn-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.rvn-field textarea,
+.rvn-ta,
+.rvn-confirm select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 var(--f-body);
+  resize: vertical;
+}
+.rvn-ta:focus,
+.rvn-field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.rvn-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--run-soft);
+  color: var(--run);
+  font-size: 13px;
+  text-decoration: none;
+}
+.rvn-conv summary {
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 13px;
+  padding: 4px 0;
+}
+.rvn-conv[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* files */
+.rvn-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.rvn-flist-w {
+  flex: 1 1 200px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rvn-flist-h {
+  margin: 0;
+  font-size: 12px;
+}
+.rvn-flist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.rvn-flist li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+  background: var(--panel);
+}
+.rvn-flist li + li {
+  border-top: 1px solid var(--border);
+}
+.rvn-flist li.on {
+  background: var(--panel-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.rvn-fpick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 4px 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rvn-fname {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rvn-fmeta {
+  font-size: 11px;
+  color: var(--dim);
+}
+.rvn-viewed {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.rvn-diff {
+  flex: 999 1 360px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.rvn-diff-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+}
+.rvn-diff-p {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: 13px;
+}
+.rvn-diff-h input {
+  accent-color: var(--accent);
+}
+.rvn-code {
+  overflow-x: auto;
+  padding: 6px 0;
+  font: 13px/20px var(--f-mono);
+}
+.rvn-dl {
+  display: flex;
+  min-width: max-content;
+}
+.rvn-dl.add {
+  background: var(--add-bg);
+}
+.rvn-dl.del {
+  background: var(--del-bg);
+}
+.rvn-dl.hunk {
+  color: var(--dim);
+  background: var(--panel-2);
+  padding: 0 12px 0 64px;
+  font-size: 12px;
+}
+.rvn-dl-n {
+  width: 48px;
+  flex: none;
+}
+.rvn-dl-n button {
+  width: 100%;
+  padding: 0 10px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: 12px/20px var(--f-mono);
+  text-align: right;
+  cursor: pointer;
+}
+.rvn-dl-n button:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.rvn-dl-m {
+  width: 16px;
+  flex: none;
+}
+.rvn-dl.add .rvn-dl-m {
+  color: var(--ok);
+}
+.rvn-dl.del .rvn-dl-m {
+  color: var(--bad);
+}
+.rvn-dl-t {
+  white-space: pre;
+  padding-right: 20px;
+}
+.rvn-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 80px);
+  margin: 4px 16px 6px 64px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--fg);
+  font: 13px var(--f-body);
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.rvn-mark.pending {
+  cursor: default;
+  border-style: dashed;
+}
+.rvn-mark b {
+  font-weight: 600;
+}
+.rvn-mark-t {
+  flex: 1;
+  min-width: 0;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rvn-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 16px 8px 64px;
+  font: 14px var(--f-body);
+}
+.rvn-compose .rvn-ta {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+
+/* problems */
+.rvn-call {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+.rvn-pgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rvn-pgroup h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.rvn-pgroup h3 .rvn-dim {
+  font-weight: 400;
+}
+.rvn-gdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--dim);
+}
+.rvn-gdot.t-bad {
+  background: var(--bad);
+}
+.rvn-gdot.t-warn {
+  background: var(--warn);
+}
+.rvn-problem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.rvn-problem.dim {
+  opacity: 0.6;
+}
+.rvn-problem b {
+  font-weight: 600;
+}
+.rvn-where {
+  padding: 0;
+  font-size: 12px;
+}
+.rvn-done {
+  color: var(--dim);
+  font-size: 13px;
+}
+.rvn-done.ok {
+  color: var(--ok);
+}
+.rvn-warnline {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 13px;
+}
+
+/* commits, checklist */
+.rvn-commits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.rvn-commits li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 16px;
+  background: var(--panel);
+}
+.rvn-commits li + li {
+  border-top: 1px solid var(--border);
+}
+.rvn-commits .rvn-grow {
+  flex: 1 1 240px;
+}
+.rvn-commits .rvn-dim {
+  font-size: 13px;
+}
+.rvn-check {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rvn-check label {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.rvn-check label.on {
+  border-color: var(--accent);
+}
+.rvn-check input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.rvn-check .rvn-dim {
+  font-size: 13px;
+}
+
+/* the submit drawer */
+.rvn-drawer > .body {
+  flex: 1;
+}
+.rvn-drawer .rvn-drawer-f {
+  justify-content: flex-end;
+}
+.rvn-pending {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.rvn-pending-b {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.rvn-pending-b .rvn-mono {
+  font-size: 12px;
+}
+.rvn-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rvn-event {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.rvn-event input {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+.rvn-event.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rvn-event.off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.rvn-event .rvn-dim {
+  font-size: 13px;
+}
+
+/* phone and touch: bigger targets, the file list above the lines */
+@media (pointer: coarse) {
+  .rvn-btn,
+  .rvn-chip,
+  .rvn-switch button {
+    min-height: 44px;
+  }
+  .rvn-dl-n button {
+    min-height: 32px;
+  }
+}
+@media (max-width: 720px) {
+  .rvn-review-in {
+    padding: 16px 16px 40px;
+    gap: 12px;
+  }
+  .rvn-prhead {
+    padding: 14px;
+  }
+  .rvn-flist-w {
+    max-width: none;
+    flex-basis: 100%;
+  }
+  .rvn-mark,
+  .rvn-compose {
+    margin-left: 16px;
+    width: calc(100% - 32px);
+  }
+  .rvn-dl.hunk {
+    padding-left: 16px;
+  }
+}
+
+/* The Code page on a phone shows the side bar or the editor, one column. Its "own width" rule for a 1100 px screen
+   (Review, Source control) is more specific and wins there too, which squeezes the side bar: one column again while
+   the new view is in the side bar. */
+.ide.phone.side-own:not(.side-closed):not(.help-open):has(.rvn-side) {
+  grid-template-columns: minmax(0, 1fr);
+}

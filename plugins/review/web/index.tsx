@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import {
   definePlugin,
+  readStored,
   SLOTS,
   type CodeActivityItem,
   type CodeActivityProps,
@@ -28,7 +29,12 @@ import { ReviewLayer } from "./ReviewLayer";
 import { openReview, ReviewSide } from "./ReviewSide";
 import { setOpener } from "./store";
 import { ThreadSettings } from "./ThreadSettings";
+import { isMode, keyLabel, MODE_KEY, type ReviewMode } from "./next/model";
+import { NextReview } from "./next/NextReview";
+import { linkToNext, NextSide } from "./next/NextSide";
+import { TryNewHint, useReviewMode } from "./next/Switch";
 import "./review.css";
+import "./next/next.css";
 
 /** A review file tab's path: "<review key>|<file>" (pr:7|src/a.kt, branch:feat/x|src/a.kt). */
 const splitReview = (p: string): [string, string] => {
@@ -45,7 +51,16 @@ function reviewOf(
 ): { key: string; path: string; view: "code" | "diff" } | null {
   if (active?.kind !== "review") return null;
   const [key, path] = splitReview(active.path);
+  // 0.18.57 a review tab with no file is a pull request in the new view (next/NextReview), not a file
+  if (!path) return null;
   return { key, path, view: active.view === "code" ? "code" : "diff" };
+}
+
+/** The pull request the new view's editor tab shows now ("pr:42|"), or null. */
+function nextOf(active: CodeTabRef | null): string | null {
+  if (active?.kind !== "review") return null;
+  const [key, path] = splitReview(active.path);
+  return path ? null : key;
 }
 
 /** Code › Review: the pull requests and one review; its files open as editor tabs. */
@@ -57,12 +72,19 @@ function ReviewActivity({ pid, active, open }: CodeActivityProps) {
     );
     return () => setOpener(null);
   }, [open]);
+  // 0.18.57 the classic view (the default) or the new one, as this browser chose
+  const [mode, setMode] = useReviewMode();
+  if (mode === "next")
+    return <NextSide pid={pid} open={open} activeKey={nextOf(active)} mode={mode} onMode={setMode} />;
   const f = reviewOf(active);
   return (
-    <ReviewSide
-      pid={pid}
-      activeFile={f ? { key: f.key, path: f.path } : null}
-    />
+    <>
+      <ReviewSide
+        pid={pid}
+        activeFile={f ? { key: f.key, path: f.path } : null}
+      />
+      <TryNewHint onTry={() => setMode("next")} />
+    </>
   );
 }
 
@@ -74,6 +96,8 @@ function ReviewKeys({ pid, active }: CodeActivityProps) {
 /** One file of a review: its diff, or the whole file. */
 function ReviewEditorTab({ pid, tab, mode }: CodeTabProps) {
   const [key, file] = splitReview(tab.path);
+  // 0.18.57 no file: the pull request in the new view
+  if (!file) return <NextReview pid={pid} reviewKey={key} />;
   return (
     <ReviewFileTab
       pid={pid}
@@ -113,7 +137,11 @@ export function setup(sdk: KeelSdk) {
     plugin: "review",
     component: ReviewActivity,
     layer: ReviewKeys,
-    onLink: openReview,
+    // 0.18.57 the new view (when this browser chose it) opens the link's review as its editor tab
+    onLink: (pid, value) => {
+      openReview(pid, value);
+      if (readStored<ReviewMode>(MODE_KEY, "classic", "local", isMode) === "next") linkToNext(pid, value);
+    },
     // its own width on the Code page (the threads need room); the key is the one 0.18.38's first draft kept
     sideWidth: { key: "keel2.review.sideW", default: 440, min: 280 },
   });
@@ -123,6 +151,7 @@ export function setup(sdk: KeelSdk) {
     icon: "review",
     tabTitle: (path) => {
       const [key, file] = splitReview(path);
+      if (!file) return `Review ${keyLabel(key)}`;
       return `${nameOf(file)} (${key.startsWith("pr:") ? key.slice(3) : key.slice(7)})`;
     },
     component: ReviewEditorTab,
