@@ -12,6 +12,10 @@ def test_code_and_fence_keep_code_out_of_markdown():
     assert f.startswith("````diff\n") and f.endswith("\n````"), "a longer fence than the one inside"
     assert md.fence("{}", "json") == "```json\n{}\n```"
     assert md.safe_words("send vat_updated_at now") == "send `vat_updated_at` now"
+    # 0.18.57 a criterion's own `code` stays code (it showed as 'wins'); a stray backtick still becomes a quote
+    assert md.safe_words("the rank orders by `wins`, then `last_seen`") == "the rank orders by `wins`, then `last_seen`"
+    assert md.safe_words("a lone ` tick and vat_x") == "a lone ' tick and `vat_x`"
+    assert md.safe_words("``a ` b`` stays") == "``a ` b`` stays"
     assert md.table(["a", "b"], [["x|y", "z"]]) == "| a | b |\n|---|---|\n| x\\|y | z |"
     assert md.verdict("safe for a rolling deploy") == "**Verdict: safe for a rolling deploy.**"
 

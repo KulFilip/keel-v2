@@ -115,6 +115,23 @@ describe("Flow page: long flows (0.18.11)", () => {
 });
 
 describe("Flow page: the gate card (0.18.11)", () => {
+  it("a criterion's `code` shows as code in the gate card, the criteria list and its row (0.18.57)", async () => {
+    const t = db.flows["ludus-engine"].thread!;
+    t.acs = t.acs.map((a) => (a.id === "AC-002" ? { ...a, title: "Refuse a `score` below 0 with 400" } : a));
+    render(<App />);
+    const card = await screen.findByRole("region", { name: "Gate waits for you" });
+    const codes = (el: Element | null) => [...(el?.querySelectorAll("code") ?? [])].map((c) => c.textContent);
+    expect(codes(card.querySelector("h3"))).toEqual(["score"]);
+    expect(card.querySelector("h3")).not.toHaveTextContent("`");
+    expect(card.querySelector("dl.gc-lines")).toHaveTextContent("You approveAC-002 “Refuse a score below 0 with 400”");
+    expect(codes(card.querySelector("dl.gc-lines dd"))).toEqual(["score"]);
+    const list = (await screen.findByText("Acceptance criteria")).closest(".panel");
+    expect(codes(list)).toContain("score");
+    expect(list).not.toHaveTextContent("`score`");
+    const row = (await screen.findByLabelText("Each criterion")).querySelector('[data-ac-row="AC-002"]');
+    expect(codes(row)).toEqual(["score"]);
+  });
+
   it("says what you approve, what it cost so far, and what each button does; A approves, R goes to the reason", async () => {
     const user = userEvent.setup();
     render(<App />);
