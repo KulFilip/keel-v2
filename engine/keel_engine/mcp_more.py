@@ -51,6 +51,7 @@ def flows(api: KeelApi, project: str | None = None, limit: int = 10) -> str:
         + (f" at {r['current']}" if r.get("current") else "") + f" · criteria {r.get('acs_done', 0)}/{r.get('acs_total', 0)}"
         + f" · {_n(r.get('tokens'))} tokens · ${float(r.get('cost_usd') or 0):.2f} · {r.get('where') or 'folder'}"
         + (f" · branch {r['branch']}" if r.get("branch") else "") + (f" · error: {r['error']}" if r.get("error") else "")
+        + (f" · replaced by {r['replaced_by']} (same {r.get('source') or 'change'}, started again)" if r.get("replaced_by") else "")
         for r in rows) + can
 
 

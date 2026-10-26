@@ -90,6 +90,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Thread ids the next POST /threads answer, in order (empty: "t-stub-1"). */
     val nextThreadIds = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
+    /** 0.18.57 What a started thread works on (review-pr: "pr:20"), answered with its POST /threads as the engine does. */
+    val threadSources = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** Helper sessions (POST /helper/sessions), like the engine keeps them; a test can set "project" to another one. */
     val helperSessions = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, Any?>>()
 
@@ -286,7 +289,9 @@ class StubEngine private constructor(private val server: HttpServer) {
             git(root, "worktree", "remove", "--force", root.resolve(".keel/worktrees").resolve(body["name"].asText()).toString())
             200 to mapOf("ok" to true)
         }
-        path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to (nextThreadIds.poll() ?: "t-stub-1"))
+        path == "/threads" && method == "POST" -> (nextThreadIds.poll() ?: "t-stub-1").let { id ->
+            200 to (mapOf("thread_id" to id) + (threadSources[id]?.let { mapOf("source" to it) } ?: emptyMap()))
+        }
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
         path.endsWith("/mode") && method == "POST" -> {
             val id = path.split('/')[2]

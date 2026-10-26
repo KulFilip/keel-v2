@@ -137,6 +137,10 @@ data class RunRow(
     val costUsd: Double = 0.0,
     /** v0.15.4 the project's newest flow (by start): only this one, when it was stopped, can be resumed from the history */
     val latest: Boolean = false,
+    /** 0.18.57 what it works on, when its start named it (review-pr: pr:20, branch:feature/x) */
+    val source: String? = null,
+    /** 0.18.57 the newer run of the same source that replaced this failed or stopped one */
+    val replacedBy: String? = null,
 )
 /** A file two or more flows change: their merges will meet there. */
 data class FlowOverlap(val file: String, val flows: List<String>)
@@ -320,6 +324,7 @@ class FlowService(
         )
         jdbc.update("UPDATE threads SET workflow_id = ?, title = ?, project_id = ? WHERE id = ?", workflowId, title, pid, tid)
         jdbc.update("UPDATE threads SET worktree = ?, branch = ?, estimate = COALESCE(?, estimate) WHERE id = ?", wt?.name, wt?.branch, start.estimate, tid)
+        res.get("source")?.asText()?.takeIf { it.isNotBlank() }?.let { markReplaced(pid, workflowId, tid, it) }
         // v0.15.9 what this flow applied on top of the repo starts with where it works (DocHistoryService)
         runCatching {
             (wt?.branch ?: projects.branch(root))?.let { docs.add(pid, tid, "branch", it, "the flow's branch") }
@@ -330,6 +335,17 @@ class FlowService(
         hub.publish(pid, "project.changed", mapOf("id" to pid))
         val note = start.capNote
         return if (note != null && state is com.fasterxml.jackson.databind.node.ObjectNode) state.deepCopy().put("cap_note", note) else state
+    }
+
+    /**
+     * 0.18.57 The new run [tid] works on [source] (the engine's start names it: review-pr's pr:20). Earlier failed or
+     * stopped runs of the same workflow and source are marked replaced by it: they stay in the history, marked, instead
+     * of piling up as look-alike failures.
+     */
+    fun markReplaced(pid: String, workflowId: String, tid: String, source: String) {
+        jdbc.update("UPDATE threads SET source = ? WHERE id = ?", source.take(300), tid)
+        jdbc.update("UPDATE threads SET replaced_by = ? WHERE project_id = ? AND workflow_id = ? AND source = ? AND id <> ? " +
+            "AND status IN ('failed','stopped') AND replaced_by IS NULL", tid, pid, workflowId, source.take(300), tid)
     }
 
     private fun isDemo(root: Path) = root.toAbsolutePath().normalize() == props.dataDir.resolve("demo").toAbsolutePath().normalize()
@@ -662,7 +678,8 @@ class FlowService(
         val wf = workflow?.takeIf { it.isNotBlank() }
         val sql = "SELECT t.id, t.title, t.workflow_id, t.status, t.phase, t.current, t.state_json, t.worktree, t.branch, t.error, " +
             "t.created_at, t.updated_at, (SELECT COALESCE(SUM(c.tokens_in + c.tokens_out + c.tokens_cached / 10), 0) " +
-            "FROM agent_calls c WHERE c.thread_id = t.id), (SELECT COALESCE(SUM(c.cost_usd), 0) FROM agent_calls c WHERE c.thread_id = t.id) " +
+            "FROM agent_calls c WHERE c.thread_id = t.id), (SELECT COALESCE(SUM(c.cost_usd), 0) FROM agent_calls c WHERE c.thread_id = t.id), " +
+            "t.source, t.replaced_by " +
             "FROM threads t WHERE t.project_id = ? AND ${SHOWN.replace("status", "t.status").replace("hidden_at", "t.hidden_at")}" +
             (if (wf != null) " AND t.workflow_id = ?" else "") + " ORDER BY t.updated_at DESC LIMIT ?"
         val args = listOfNotNull(pid, wf, limit.coerceIn(1, 100)).toTypedArray()
@@ -677,7 +694,7 @@ class FlowService(
                 if (rs.getString(8) != null) "worktree" else "folder", rs.getString(9), rs.getString(10)?.take(300),
                 rs.getString(11), rs.getString(12),
                 state?.path("usage")?.path("cost_usd")?.takeIf { it.isNumber && it.asDouble() > 0 }?.asDouble() ?: rs.getDouble(14),
-                rs.getString(1) == latest)
+                rs.getString(1) == latest, rs.getString(15), rs.getString(16))
         }, *args)
     }
 

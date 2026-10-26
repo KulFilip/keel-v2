@@ -89,12 +89,44 @@ def test_the_tickets_checklist_is_its_done_section_or_its_checkboxes():
 
 # ------------------------------------------------------------------ stop rules
 
+def refused(client, repo, request, **extra):
+    """A start review-pr refuses before any run exists: (status, error)."""
+    before = thread_count(client)
+    body = {"project_id": "demo", "root": str(repo), "workflow": get_template("review-pr").model_dump(), "title": "Review",
+            "models": {"default": {"provider": "fake", "mode": "api", "model": "fake"}},
+            "settings": {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause"}, "mcp": [], "skills": {},
+            "request": request, **extra}
+    r = client.post("/threads", json=body)
+    assert r.status_code >= 400, r.text
+    assert thread_count(client) == before                  # no run was created
+    return r.status_code, r.json()["error"]
+
+
+def thread_count(client) -> int:
+    eng = client.app.state.engine
+
+    async def count():
+        cur = await eng.conn.execute("select count(*) from keel_threads")
+        return (await cur.fetchone())[0]
+
+    return client.portal.call(count)
+
+
+def test_a_start_without_a_reachable_change_is_refused_before_a_run_exists(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {})
+    code, err = refused(client, repo, "please review")
+    assert code == 400 and err == "Which change should keel review? Name a PR or a branch."
+    code, err = refused(client, repo, "branch: nope\n")
+    assert code == 409 and 'No branch "nope"' in err
+    gh_recorder(monkeypatch, {"state": "OPEN", "isDraft": True, "baseRefName": "main", "headRefName": "x"})
+    assert "PR #7 is a draft" in refused(client, repo, "#7\n")[1]
+    gh_recorder(monkeypatch, {"state": "MERGED", "isDraft": False, "baseRefName": "main"})
+    assert "PR #7 is merged" in refused(client, repo, "#7\n")[1]
+    assert seen == []
+
+
 def test_prep_stops_before_any_agent(client, repo, monkeypatch):
     seen = answers(monkeypatch, {})
-    s = wait(client, review(client, repo, request="please review"))
-    assert s["status"] == "stopped" and "Name a PR or a branch" in s["error"]
-    s = wait(client, review(client, repo, request="branch: nope\n"))
-    assert s["status"] == "stopped" and 'No branch "nope"' in s["error"]
     git(repo, "branch", "same")
     s = wait(client, review(client, repo, request="branch: same\n"))
     assert s["status"] == "stopped" and "diff is empty" in s["error"]
@@ -104,12 +136,6 @@ def test_prep_stops_before_any_agent(client, repo, monkeypatch):
     on_branch(repo, "locks", {"uv.lock": "x = 1\n"})
     s = wait(client, review(client, repo, request="branch: locks\n"))
     assert s["status"] == "stopped" and "Only lockfile files changed" in s["error"]
-    gh_recorder(monkeypatch, {"state": "OPEN", "isDraft": True, "baseRefName": "main", "headRefName": "x"})
-    s = wait(client, review(client, repo, request="#7\n"))
-    assert s["status"] == "stopped" and "PR #7 is a draft" in s["error"]
-    gh_recorder(monkeypatch, {"state": "MERGED", "isDraft": False, "baseRefName": "main"})
-    s = wait(client, review(client, repo, request="#7\n"))
-    assert s["status"] == "stopped" and "PR #7 is merged" in s["error"]
     assert seen == []
 
 

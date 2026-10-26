@@ -194,6 +194,11 @@ export function RunHistory({
                       {r.thread_id === latest && !isCurrent && (
                         <span className="tag">newest</span>
                       )}
+                      {r.replaced_by && (
+                        <span className="tag" title={`Started again as ${r.replaced_by}`}>
+                          replaced by a newer run
+                        </span>
+                      )}
                     </div>
                     <div className="rh-facts sub">
                       <span className="mono">{r.workflow_id ?? "—"}</span>
