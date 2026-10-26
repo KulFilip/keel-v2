@@ -23,6 +23,35 @@ class FlowBranchApiTest : ApiTest() {
     }
 
     @Test
+    fun `a read-only review never makes or checks out a branch and leaves the folder as it was`() {
+        val review = mapOf("id" to "review-pr", "name" to "review a PR (keel)", "based_on" to null, "keel_rules" to true, "version" to 1,
+            "steps" to listOf(
+                mapOf("id" to "prep", "kind" to "code", "name" to "prepare the review", "action" to "ticket_prep", "phase" to "review"),
+                mapOf("id" to "reviewers", "kind" to "parallel", "name" to "one reviewer per job", "agent" to "pr-reviewer", "phase" to "review"),
+                mapOf("id" to "share", "kind" to "gate", "name" to "the review", "phase" to "review")),
+            "yaml" to "")
+        engine.extraTemplates += review
+        try {
+            val (pid, root) = newProject("review-folder")
+            git(root, "checkout", "-q", "-b", "feat/my-work")
+            java.nio.file.Files.writeString(root.resolve("wip.txt"), "not committed\n")      // the person's own work
+            fun snapshot() = listOf(git(root, "rev-parse", "--abbrev-ref", "HEAD"), git(root, "rev-parse", "HEAD"),
+                git(root, "status", "--porcelain"), git(root, "branch", "--list"), git(root, "worktree", "list", "--porcelain"))
+            val before = snapshot()
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "review-pr", "title" to "Review the dispatch PR",
+                "request" to "branch: feat/x")).andExpect(status().isOk)   // no allow_dirty: a review does not mind wip.txt
+            assertThat(snapshot()).isEqualTo(before)
+            val row = jdbc.queryForMap("SELECT worktree, branch FROM threads WHERE project_id = ?", pid)
+            assertThat(row["worktree"]).isNull()
+            // a second review while the first one waits in the folder: still no worktree and no branch of its own
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "review-pr", "title" to "Review it again")).andExpect(status().isOk)
+            assertThat(snapshot()).isEqualTo(before)
+        } finally {
+            engine.extraTemplates -= review
+        }
+    }
+
+    @Test
     fun `a fix started on main gets a fix branch`() {
         val fix = engine.featureTemplate + mapOf("id" to "fix", "name" to "fix (keel)")
         engine.extraTemplates += fix

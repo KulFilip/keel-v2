@@ -71,6 +71,9 @@ data class ThreadSettings(
     fun tail(): Map<String, Any?> = contributed + linkedMapOf("push_pr" to pushPr, "branch_pattern" to branchPattern)
 }
 
+/** The phases in which nothing may be edited (the engine's rules.read_only: every action denied). */
+val READ_ONLY_PHASES = setOf("review")
+
 /** The engine's StartThread (CONTRACT "Shared types"). */
 data class StartThread(
     val projectId: String,
@@ -288,10 +291,17 @@ class FlowService(
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
         if (force == false) refuseOwners(pid, root, title, request, options, if (branch == "continue") projects.branch(root) else null)
+        // 0.18.57 a read-only flow (review, review-pr: every step in a phase that may edit nothing) reads refs and works
+        // in throwaway worktrees the engine removes: it never gets a branch or a worktree of its own, never checks
+        // anything out in the person's folder and does not mind their uncommitted files (keel 0.18.56 made and checked
+        // out feat/review-<title> in the folder of a PR review)
+        val readOnly = readOnly(start.workflow)
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
-        val wt = if (inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId) else null
+        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId) else null
         var madeBranch: MadeBranch? = null
-        if (wt == null) {
+        if (readOnly) {
+            // nothing to do: the folder keeps its branch, its HEAD and its files
+        } else if (wt == null) {
             refuseDirty(root, allowDirty)
             // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on
             if (ownBranch) madeBranch = ownBranch(pid, root, title, workflowId, branch)
@@ -530,6 +540,10 @@ class FlowService(
         jdbc.update("UPDATE threads SET worktree = (SELECT worktree FROM threads WHERE id = ?), branch = (SELECT branch FROM threads WHERE id = ?) " +
             "WHERE id = ? AND worktree IS NULL", parent, parent, child)
     }
+
+    /** A flow whose every step is in a read-only phase (the engine's rules: review): it changes nothing in the repo. */
+    internal fun readOnly(wf: keel.api.workflows.Workflow): Boolean =
+        wf.steps.isNotEmpty() && wf.steps.all { it.phase in READ_ONLY_PHASES }
 
     /** Never work on main/master: a flow gets its own branch from the branch pattern in Settings (feat/{slug}). */
     /** The branch [ownBranch] made in the person's checkout, with where it came from (to undo it if the start fails). */
