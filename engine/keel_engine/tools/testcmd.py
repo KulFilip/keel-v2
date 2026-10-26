@@ -257,6 +257,34 @@ def ac_test_passed(output: str, ac: str) -> bool | None:
     return False
 
 
+def run_split(root: str, command: str, timeout: int = 120, env: dict | None = None,
+              limit: int = 50_000_000) -> tuple[int, str, str]:
+    """A command whose stdout is data (gh's JSON): (exit code, stdout, stderr), kept apart and never cut at the front
+    (run() keeps the tail of both mixed, which cuts a long JSON answer in the middle). Output past `limit` is an error
+    (exit 125), not half a document. A timeout is exit 124."""
+    posix = os.name == "posix"
+    proc = subprocess.Popen(command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            errors="replace", env=env, start_new_session=posix)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            if posix:
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                proc.kill()
+        except OSError:
+            pass
+        try:
+            _out, err = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            err = ""
+        return 124, "", f"timed out after {timeout}s\n{(err or '')[-5000:]}"
+    if len(stdout or "") > limit:
+        return 125, "", f"the answer is larger than {limit} characters"
+    return proc.returncode, stdout or "", (stderr or "")[-20000:]
+
+
 def run(root: str, command: str, timeout: int = 600, env: dict | None = None) -> tuple[int, str]:
     """Run a shell command in the repo. Returns (exit code, combined output trimmed to the tail).
 

@@ -42,7 +42,7 @@ class CiService(
     private fun call(pid: String, op: String, extra: Map<String, Any?> = emptyMap(), long: Boolean = false): JsonNode {
         plugins.require(pid, "ci")
         val body = mapOf("root" to projects.root(pid).toString(),
-            "keys" to (plugins.githubToken()?.let { mapOf("github" to it) } ?: emptyMap())) + extra
+            "keys" to plugins.githubKeys()) + extra
         return engine.post("/plugins/ci/$op", body, long = long)
     }
 

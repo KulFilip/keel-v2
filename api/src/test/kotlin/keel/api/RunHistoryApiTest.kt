@@ -124,4 +124,44 @@ class RunHistoryApiTest : ApiTest() {
             engine.overrides.remove("t-refresh")
         }
     }
+
+    @Test
+    fun `a review of the same PR started again replaces its failed or stopped run and the history marks it`() {
+        val (pid, _) = newProject("run-history-source")
+        fun review(tid: String, source: String?) {
+            engine.nextThreadIds.add(tid)
+            source?.let { engine.threadSources[tid] = it }
+            start(pid, "Review export")
+        }
+        review("t-src-1", "pr:20")
+        end("t-src-1", "stopped")
+        review("t-src-2", "branch:feature/SHOPS-1234-export")      // another source: not replaced
+        end("t-src-2", "failed")
+        review("t-src-3", "pr:20")
+        val runs = get("/api/projects/$pid/runs").json().associateBy { it["thread_id"].asText() }
+        assertThat(runs.keys).contains("t-src-1", "t-src-2", "t-src-3")             // the history keeps every run
+        assertThat(runs["t-src-1"]!!["replaced_by"].asText()).isEqualTo("t-src-3")
+        assertThat(runs["t-src-1"]!!["source"].asText()).isEqualTo("pr:20")
+        assertThat(runs["t-src-2"]!!["replaced_by"].isNull).isTrue()
+        assertThat(runs["t-src-3"]!!["replaced_by"].isNull).isTrue()
+        // a run that is done, runs or waits is never replaced; nor one of another workflow
+        end("t-src-3", "done")
+        review("t-src-4", "pr:20")
+        assertThat(jdbc.queryForObject("SELECT replaced_by FROM threads WHERE id = 't-src-3'", String::class.java)).isNull()
+        assertThat(jdbc.queryForObject("SELECT replaced_by FROM threads WHERE id = 't-src-1'", String::class.java)).isEqualTo("t-src-3")
+    }
+
+    @Test
+    fun `a start the engine refuses (review-pr with no reachable PR) leaves no run behind`() {
+        val (pid, _) = newProject("run-history-refused")
+        engine.threadRefusal = 409 to mapOf("error" to "Could not fetch PR #20: GitHub is not connected in keel (Connections › GitHub)")
+        try {
+            val r = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Review", "allow_fake" to true))
+                .andExpect(status().isConflict).json()
+            assertThat(r["error"].asText()).contains("GitHub is not connected in keel")
+        } finally {
+            engine.threadRefusal = null
+        }
+        assertThat(runIds(pid)).isEmpty()
+    }
 }

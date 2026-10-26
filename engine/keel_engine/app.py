@@ -483,7 +483,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         data["agents"] = {k: v.model_dump(exclude_none=True) for k, v in body.agents.items()}
         provider_usage.absorb(data["settings"].pop("provider_windows", None))
         tid = await engine(request).start_thread(data)
-        return {"thread_id": tid}
+        source = engine(request).sources.pop(tid, None)
+        return {"thread_id": tid, **({"source": source} if source else {})}
 
     @app.get("/threads/{tid}")
     async def get_thread(tid: str, request: Request):

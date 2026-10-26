@@ -33,7 +33,7 @@ from pathlib import Path
 
 from .. import config, rules
 from ..rules import checks
-from ..tools import git, testcmd
+from ..tools import git, git_auth, testcmd
 from ..tools.agent_tools import command_env
 from . import md
 from . import run_mode as run_modes
@@ -41,6 +41,7 @@ from . import tools as tool_runner
 from . import verdict_actions as va
 
 KEY = "ticket_review"
+FETCH_TIMEOUT = 90           # seconds: the start waits for prep's preflight fetch
 DOD = ".keel/dod.md"
 ONE_AGENT_LINES = 400        # at or under this many changed lines, one agent does every job
 BUG_GROUP_LINES = 800        # a larger diff splits the bug job into groups of about this size
@@ -72,13 +73,17 @@ def _review(a) -> dict:
 
 
 def _env(a) -> dict:
-    token = va.github_token(a.keys)
-    return {**command_env(), **({"GH_TOKEN": token} if token else {})}
+    """gh's environment: keel's GitHub login, for its own host only (tools/git_auth.py)."""
+    return git_auth.gh_env(a.root, va.github_token(a.keys))
 
 
 def _gh(root: str, args: str, env: dict, timeout: int = 60) -> tuple[int, str]:
-    """One `gh` call in the project folder (tests replace it)."""
-    return testcmd.run(root, f"gh {args}", timeout, env)
+    """One `gh` call in the project folder (tests replace it): (0, its whole stdout) or (code, what gh said: stderr
+    first, its upgrade notices left out, the login masked)."""
+    code, out, err = testcmd.run_split(root, f"gh {args}", timeout, env)
+    if code == 0:
+        return code, out
+    return code, git_auth.gh_message(code, out, err, env.get("GH_TOKEN"), env.get("GH_ENTERPRISE_TOKEN"))
 
 
 # ------------------------------------------------------------------ the input
@@ -370,28 +375,83 @@ def _ref_ok(root: str, ref: str) -> bool:
     return git.git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").returncode == 0
 
 
-def _source_pr(a, n: int, force: bool) -> tuple[dict | None, str | None]:
+def _fetch(a, refspecs: list[str]) -> tuple[bool, str]:
+    """`git fetch` of these refspecs from origin, with keel's GitHub login when origin is on its host (an ssh remote
+    there is fetched over https). (ok, what git said, the token masked)."""
+    login = va.github_token(a.keys)
+    with git_auth.remote(a.root, login) as r:
+        f = git.git(a.root, *r.args, "fetch", "-q", "--no-tags", r.target, "--", *refspecs, env=r.env, timeout=FETCH_TIMEOUT)
+    said = (f.stderr or f.stdout or "").strip()
+    return f.returncode == 0, git_auth.mask(said, login)
+
+
+def _first(text: str, n: int = 200) -> str:
+    return ((text or "").strip().splitlines() or [""])[0][:n]
+
+
+def _no_fetch(a, what: str, said: str, how: str) -> str:
+    """Why the fetch failed, in words the person can act on: without a GitHub login that is the likely cause."""
+    if not va.github_token(a.keys):
+        return f"could not fetch {what}: {git_auth.NOT_CONNECTED}: {how}." + (f" git said: {_first(said)}" if said else "")
+    return f"could not fetch {what} from origin: {_first(said) or 'git fetch failed'}. Or fetch it on the host first: {how}."
+
+
+def _local(root: str, refs: list[str]) -> str | None:
+    """The first of these refs that exists here (the person fetched it on the host)."""
+    return next((r for r in refs if r and _ref_ok(root, r)), None)
+
+
+def _source_pr(a, n: int, force: bool, cfg: dict | None = None, base: str | None = None) -> tuple[dict | None, str | None]:
     code, out = _gh(a.root, f"pr view {n} --json title,url,headRefName,baseRefName,author,state,isDraft", _env(a))
+    gh_said = None
     if code != 0:
-        return None, f"gh could not read PR {n}: {(out.strip().splitlines() or ['no output'])[0][:200]}"
-    try:
-        m = json.loads(out[out.find("{"):]) if "{" in out else {}
-    except ValueError:
+        # gh could not read it (not logged in, a private repo): refs fetched on the host can still be reviewed
+        gh_said = git_auth.mask(_first(out) or "no output", va.github_token(a.keys))
         m = {}
+    else:
+        try:
+            m = json.loads(out[out.find("{"):]) if "{" in out else {}
+        except ValueError:
+            m = {}
     src = {"pr": n, "url": m.get("url"), "title": m.get("title"), "head": m.get("headRefName"),
-           "base": m.get("baseRefName"), "author": (m.get("author") or {}).get("login"), "state": m.get("state"),
-           "draft": bool(m.get("isDraft"))}
+           "base": m.get("baseRefName") or (base if gh_said else None), "author": (m.get("author") or {}).get("login"),
+           "state": m.get("state"), "draft": bool(m.get("isDraft"))}
     if not force and src["state"] and str(src["state"]).upper() != "OPEN":
         return None, f"PR #{n} is {str(src['state']).lower()}: nothing to review (data force: true reviews it anyway)."
     if not force and src["draft"]:
         return None, f"PR #{n} is a draft: review it when it is ready (data force: true reviews it anyway)."
     ref, base_ref = f"refs/keel/review-pr/{n}", f"refs/keel/review-pr/{n}-base"
-    specs = [f"+pull/{n}/head:{ref}"] + ([f"+{src['base']}:{base_ref}"] if src["base"] else [])
-    f = git.git(a.root, "fetch", "-q", "origin", "--", *specs)
-    if f.returncode != 0 or not _ref_ok(a.root, ref):
-        return None, f"could not fetch PR #{n} from origin: {(f.stderr or f.stdout or '').strip()[:200]}"
-    if not src["base"] or not _ref_ok(a.root, base_ref):
-        return None, f"could not fetch the base branch of PR #{n} ({src['base'] or 'unknown'})."
+    specs = [f"+refs/pull/{n}/head:{ref}"] + ([f"+refs/heads/{src['base']}:{base_ref}"] if src["base"] else [])
+    ok, said = _fetch(a, specs)
+    if ok and _ref_ok(a.root, ref) and (not src["base"] or _ref_ok(a.root, base_ref)):
+        if not src["base"]:
+            src["base"] = base or va.base_ref(a.root, cfg or {})
+            if not src["base"] or not _ref_ok(a.root, src["base"]):
+                return None, f"keel fetched PR #{n} but does not know its base branch: pass base: <branch>."
+            git.git(a.root, "update-ref", base_ref, f"{src['base']}^{{commit}}")
+        if gh_said:
+            src["fallback"] = f"gh could not read PR #{n} ({gh_said}): its state was not checked."
+        return {**src, "ref": ref, "base_ref": base_ref}, None
+    # the fetch failed: the PR's refs may be here already, fetched on the host
+    head = _local(a.root, [f"refs/keel/pr-{n}", f"refs/pull/{n}/head", f"refs/remotes/origin/pull/{n}/head",
+                           f"refs/remotes/origin/pr/{n}",
+                           *([f"refs/remotes/origin/{src['head']}", f"refs/heads/{src['head']}"] if src["head"] else [])])
+    b = src["base"] or base or va.base_ref(a.root, cfg or {})
+    base_local = _local(a.root, [f"refs/remotes/origin/{b}", f"refs/heads/{b}", b]) if b and not b.startswith("-") else None
+    how = (f"`git fetch origin pull/{n}/head:refs/keel/pr-{n}`, then start review-pr again "
+           f"(or with branch: refs/keel/pr-{n})")
+    if not head or not base_local:
+        why = _no_fetch(a, f"PR #{n}", said, how)
+        if gh_said and va.github_token(a.keys):
+            why += f" gh said: {gh_said}"
+        return None, why
+    git.git(a.root, "update-ref", ref, f"{head}^{{commit}}")
+    git.git(a.root, "update-ref", base_ref, f"{base_local}^{{commit}}")
+    short = head.removeprefix("refs/")
+    src["base"] = src["base"] or b
+    src["fallback"] = (f"keel could not fetch PR #{n} ({_first(said, 120) or 'git fetch failed'}): it reviews {short} and "
+                       f"{base_local.removeprefix('refs/')} as they are here (fetched on the host)."
+                       + (f" gh could not read the PR ({gh_said}): its state was not checked." if gh_said else ""))
     return {**src, "ref": ref, "base_ref": base_ref}, None
 
 
@@ -400,15 +460,44 @@ def _source_branch(a, cfg: dict, branch: str, base: str | None) -> tuple[dict | 
     if str(branch).startswith("-"):
         return None, f'"{branch}" is not a branch name (it starts with "-", which git would read as an option).'
     if not _ref_ok(a.root, ref):
-        git.git(a.root, "fetch", "-q", "origin", "--", branch)
+        ok, said = _fetch(a, [f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
         ref = f"origin/{branch}"
         if not _ref_ok(a.root, ref):
+            if not ok and git_auth.origin_url(a.root):
+                return None, _no_fetch(a, f'the branch "{branch}"', said,
+                                       f"`git fetch origin {branch}`, then start review-pr again")
             return None, f'No branch "{branch}" here or on origin.'
     base = base or va.base_ref(a.root, cfg)
     if not base or not _ref_ok(a.root, base):
         return None, f"The base ref {base or '(none)'} does not exist: pass base: <branch or commit>."
     head = git.git(a.root, "rev-parse", "--short", ref).stdout.strip()
     return {"pr": None, "branch": branch, "ref": ref, "base": base, "base_ref": base, "head": head, "title": None}, None
+
+
+def preflight(root: str, body: dict) -> str:
+    """Before a review-pr run exists (engine start_thread): the change to review must be named and reachable, so a
+    start without one, or with a PR keel cannot fetch (no GitHub login, refs not fetched on the host), a closed or
+    draft PR or a branch that is not there, is refused and leaves no run behind. Gives the source's key ("pr:20",
+    "branch:feature/x"): the api marks an earlier failed run of the same source as replaced."""
+    from types import SimpleNamespace
+
+    from .service import EngineError
+
+    data = dict(body.get("data") or {})
+    want = parse_input(body.get("request") or "", data)
+    if not want["pr"] and not want["branch"]:
+        raise EngineError(400, "Which change should keel review? Name a PR or a branch.",
+                          "Put the PR on the first line (a number, #12, PR 12 or its URL) or `branch: <name>`, then the "
+                          "ticket text; or pass pr / branch.")
+    if not git.is_repo(root):
+        raise EngineError(400, "Not a git repository: there is no PR or branch to review.")
+    a = SimpleNamespace(root=root, keys=dict(body.get("keys") or {}), data=data, request=body.get("request") or "")
+    cfg = rules.load_config(root)
+    src, err = _source_pr(a, want["pr"], want["force"], cfg, want["base"]) if want["pr"] else \
+        _source_branch(a, cfg, want["branch"], want["base"])
+    if err:
+        raise EngineError(409, err[:1].upper() + err[1:])
+    return f"pr:{want['pr']}" if want["pr"] else f"branch:{want['branch']}"
 
 
 def _prep(a):
@@ -420,7 +509,7 @@ def _prep(a):
         return _stop("Which change should keel review? Name a PR or a branch.",
                      "Start the flow with the PR on the first line (a number, #12, PR 12 or its URL) or `branch: <name>`, "
                      "then the ticket text; or pass data pr / branch / ticket.")
-    src, err = _source_pr(a, want["pr"], want["force"]) if want["pr"] else \
+    src, err = _source_pr(a, want["pr"], want["force"], cfg, want["base"]) if want["pr"] else \
         _source_branch(a, cfg, want["branch"], want["base"])
     if err:
         return _stop(err)
@@ -480,7 +569,8 @@ def _prep(a):
     pack = render_pack(review, jobs)
     note = (f"Review of {_what(src)}: {len(ranked)} file(s), +{review['added']} -{review['removed']}; "
             f"{len(from_ticket)} ticket item(s), {len(team)} from {dod_source}; "
-            f"{len(jobs)} reviewer job(s): {', '.join(j['job'] for j in jobs)}.")
+            f"{len(jobs)} reviewer job(s): {', '.join(j['job'] for j in jobs)}."
+            + (f" {src['fallback']}" if src.get("fallback") else ""))
     return _result(True, note, pack, {"data": {**a.data, KEY: review, "ticket_jobs": job_items, "ticket_pack": pack}})
 
 
@@ -517,6 +607,8 @@ def render_pack(review: dict, jobs: list[dict]) -> str:
     """What prep found, in about a screen: shown in the step's detail."""
     src = review["source"]
     out = [f"{review['title']}", f"code      {_what(src)}: {len(review['files'])} file(s), +{review['added']} -{review['removed']}"]
+    if src.get("fallback"):
+        out.append(f"source    {src['fallback']}")
     if review["skipped"]:
         out.append(f"skipped   {len(review['skipped'])} file(s): " + ", ".join(f"{s['file']} ({s['why']})" for s in review["skipped"][:4]))
     out.append(f"checklist {review['ticket_items']} from the ticket, {review['team_items']} from {review['dod_source']}")
@@ -1024,7 +1116,8 @@ def _comment(a):
         except OSError:
             pass
     if code != 0:
-        return _result(True, f"gh pr comment failed; nothing posted. {copy}", f"{out.strip()[-1500:]}\n\n{text}")
+        fix = git_auth.gh_fix(out, va.github_token(a.keys))
+        return _result(True, f"gh pr comment failed ({fix}); nothing posted. {copy}", f"{out.strip()[-1500:]}\n\n{text}")
     url = next((ln.strip() for ln in out.splitlines() if ln.strip().startswith("http")), "")
     return _result(True, f"Posted the review on PR #{pr}" + (f": {url}" if url else "."), out[-1000:],
                    {"data": {**a.data, "review_posted": url or f"PR #{pr}"}})

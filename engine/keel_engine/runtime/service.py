@@ -68,6 +68,7 @@ class Engine:
         self._resuming: dict[str, asyncio.Lock] = {}   # one resume at a time per thread (web + MCP, a double click)
         self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
+        self.sources: dict[str, str] = {}     # thread -> what a started flow works on ("pr:20"), until POST /threads answers
 
     # ------------------------------------------------------------ lifecycle
 
@@ -292,7 +293,10 @@ class Engine:
         root = str(Path(body["root"]).resolve())
         if not Path(root).is_dir():
             raise EngineError(400, f"The project folder {root} does not exist.")
+        source = await self._preflight(wf, root, body)       # refused here, no run exists
         tid = uuid.uuid4().hex
+        if source:
+            self.sources[tid] = source
         stored = {k: v for k, v in body.items() if k not in ("keys",)}
         stored["workflow"] = {**wf.model_dump(exclude_none=True)}
         stored["root"] = root
@@ -337,6 +341,16 @@ class Engine:
         ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid
+
+    async def _preflight(self, wf: Workflow, root: str, body: dict) -> str | None:
+        """A workflow whose first step checks its input before anything runs (review-pr's ticket_prep: the PR or
+        branch must be named and reachable) refuses the start with an EngineError; else the source's key, or None."""
+        first = wf.steps[0] if wf.steps else None
+        if first is None or first.kind != "code" or first.action != "ticket_prep":
+            return None
+        from . import ticket_actions
+
+        return await asyncio.to_thread(ticket_actions.preflight, root, body)
 
     async def _hunt_link(self, ctx, values: dict, status: str) -> None:
         """A flow hunt-next started has ended: close its bug group (done) or open it again (failed / stopped)."""

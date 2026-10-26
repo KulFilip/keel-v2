@@ -63,6 +63,7 @@ class PluginsApiTest : ApiTest() {
         assertThat(body["settings"]["plugins"].map { it.asText() }).containsExactly("db", "git")
         assertThat(body["settings"]["push_pr"].asText()).isEqualTo("ask")
         assertThat(body["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
+        assertThat(body["keys"]["github_host"].asText()).isEqualTo("github.com")     // the only host the engine gives it to
         assertThat(body["settings"].toString()).doesNotContain("ghp_exampletoken")    // secrets never in the saved settings
         // KeelBot's turns carry them too (plugins/keelbot/api tests that)
         del("/api/secrets/GITHUB_REPO_TOKEN").andExpect(status().isOk)

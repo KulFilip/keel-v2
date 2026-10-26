@@ -20,8 +20,7 @@ import re
 import time
 
 from keel_engine.extensions import PartError as PluginError
-from keel_engine.tools import git, testcmd
-from keel_engine.tools.agent_tools import command_env
+from keel_engine.tools import git, git_auth, testcmd
 
 __all__ = ["CiError", "PluginError", "for_head", "github_token", "rerun", "run", "runs", "wait"]
 
@@ -49,21 +48,25 @@ def _gh(root: str, token: str | None, cmd: str, timeout: int = 60) -> str:
         raise CiError(400, "There is no GitHub token.", "Add one in Connections › GitHub (it needs repo and actions access).")
     if not git.is_repo(root):
         raise CiError(400, "This project is not a git repository.")
-    code, out = testcmd.run(root, cmd, timeout, {**command_env(), "GH_TOKEN": token, "GH_PROMPT_DISABLED": "1"})
+    # the login for its own host only (github.com, or the Enterprise origin of that host): engine tools/git_auth.py
+    code, out, err = testcmd.run_split(root, cmd, timeout, git_auth.gh_env(root, token))
     if code != 0:
-        low = out.lower()
+        said = git_auth.gh_message(code, out, err, token)
+        low = said.lower()
         if "no default remote" in low or "not a git repository" in low or "could not determine" in low:
             raise CiError(400, "This project has no GitHub remote.", "keel reads pipelines from the repository's origin on GitHub.")
-        raise CiError(502, f"gh failed: {out.strip()[-400:]}")
+        raise CiError(502, f"gh failed: {said}", git_auth.gh_fix(said, token))
     return out
 
 
 def _json(out: str):
-    start = min([i for i in (out.find("["), out.find("{")) if i >= 0] or [0])
+    if not (out or "").strip():
+        return []
     try:
-        return json.loads(out[start:])
-    except json.JSONDecodeError as exc:
-        raise CiError(502, "gh gave an answer keel cannot read.") from exc
+        return json.loads(out)
+    except json.JSONDecodeError:
+        said = git_auth.gh_message(0, out, "")
+        raise CiError(502, f"gh's answer is not what keel expects: {said}", f"gh: {said}") from None
 
 
 def _run(d: dict) -> dict:
@@ -83,6 +86,8 @@ def run(root: str, token: str | None, run_id: int) -> dict:
     """One run with its jobs; a failed job carries its failed steps and, for the run, the tail of the failed log."""
     rid = int(run_id)
     d = _json(_gh(root, token, f"gh run view {rid} --json {RUN_FIELDS},jobs"))
+    if not isinstance(d, dict):
+        raise CiError(502, f"gh gave no run {rid}.", "Try again; the run may have been deleted.")
     out = _run(d)
     jobs = []
     for j in d.get("jobs") or []:

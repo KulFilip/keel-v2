@@ -88,6 +88,8 @@ export type RunRow = {
   error: string | null; created_at: string; updated_at: string;
   /** v0.15.4 what it cost, and whether it is the project's newest flow (only that one, when stopped, can be resumed) */
   cost_usd?: number; latest?: boolean;
+  /** 0.18.57 what it works on (review-pr: pr:20), and the newer run of the same source that replaced this failed one */
+  source?: string | null; replaced_by?: string | null;
 };
 /** v0.9.0: keel's check of a workflow YAML that is not saved yet (KeelBot's new workflow). */
 export type WorkflowCheck = {

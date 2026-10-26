@@ -18,7 +18,6 @@ action passes with that reason and the verdict row says ok false, available fals
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import shlex
 import tempfile
@@ -986,11 +985,12 @@ def _pr(a):
     return _result(True, f"PR body ready ({len(body.splitlines())} lines); it is shown at the next gate.", body, {"pr_body": body})
 
 
-def github_token(keys: dict) -> str | None:
-    for k in ("github", "copilot", "gh"):
-        if (keys or {}).get(k):
-            return keys[k]
-    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or None
+def github_token(keys: dict):
+    """The GitHub login of a call (a str with .host: tools/git_auth.py), or None. keys["github"] (Connections ›
+    GitHub, its host keys["github_host"]), else the Copilot login, else GH_TOKEN / GITHUB_TOKEN."""
+    from ..tools import git_auth
+
+    return git_auth.login(keys)
 
 
 async def open_pr(a):
@@ -1028,7 +1028,9 @@ def _open_pr(a):
         f.write(body)
         path = f.name
     try:
-        env = {**command_env(), "GH_TOKEN": token}
+        from ..tools import git_auth
+
+        env = git_auth.gh_env(a.root, token)
         cmd = f"gh pr create --title {shlex.quote(title)} --body-file {shlex.quote(path)}"
         code, out = testcmd.run(a.root, cmd, 120, env)
     finally:
