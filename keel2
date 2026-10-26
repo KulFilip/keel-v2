@@ -433,7 +433,7 @@ cmd_start() {
   local args=(-d --name "$NAME" --restart unless-stopped --stop-timeout "$(stop_secs)" -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
               --label "keel2.project=$project" --label "keel2.docker=$docker_mode" --label "keel2.keelv1=$keel_v1"
               --label "keel2.core=$core"
-              -e KEEL_PROJECT_NAME="$(basename "$project")")
+              -e KEEL_PROJECT_NAME="$(basename "$project")" -e KEEL_HOST_WORKSPACE="$project")
   # host.docker.internal reaches this computer from inside keel (a local model server: Ollama, LM Studio); Docker
   # Desktop knows the name, Linux needs it added.
   args+=(--add-host host.docker.internal:host-gateway)
@@ -2159,7 +2159,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   tok="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   (umask 077; printf '%s' "$tok" > "$ND/run/token")
   info "Starting keel natively for ${B}$project${N}…"
-  KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" \
+  KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" KEEL_HOST_WORKSPACE="$project" \
     KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
     KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" \
     nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
