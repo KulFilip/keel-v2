@@ -379,6 +379,13 @@ POST /api/projects/{pid}/skills/import { url } | { body }   → Skill   (a SKILL
 GET  /api/providers/models                                  → engine /providers/models
 POST /api/projects/{pid}/flows       + { cap_tokens?, on_cap? }          (per-flow cap instead of Settings' for that thread; v0.4.2: the project's caps still apply, the smallest left binds)
 POST /api/projects/{pid}/flows       + { options? }                       (v0.4: flow inputs → StartThread.data, e.g. review {lens, base}, fix {no_gates})
+POST /api/projects/{pid}/flows       + { force? }                         (0.18.57: start although another flow or side agent works on the same ticket, branch or files; else 409 { error, hint, owners: [{kind: flow|side, id, who, why}] })
+POST /api/projects/{pid}/flows       409 for uncommitted files            (0.18.57: + { dirty: [paths], ignorable: [untracked paths] }; tool folders never block)
+GET  /api/projects/{pid}/start-check                                      (0.18.57: { worktree: {ok, reason, service}, base: drift line | null }; engine GET /start-check?root=)
+POST /api/projects/{pid}/doctor/workspace/exclude { path }               (0.18.57: one untracked path → .git/info/exclude → Applied)
+GET  /api/projects/{pid}/doctor/config                                    (0.18.57: { stale: [{key, command, problem, file, line, missing_in}], lines }; engine GET /config-check?root=)
+POST /api/projects/{pid}/helper/sessions + { force? }                     (0.18.57: a side session on a task someone works on is 409 with owners unless force)
+POST /api/tasks/{id}/start           + { force? }                         (0.18.57: as above)
 GET  /api/projects/{pid}/estimate    + POST variant { yaml, acs }         (estimate unsaved workflow YAML)
 Agent                                + lane: "follow"|"api"|"web"          (PUT accepts it; passed to the engine as Step metadata)
 Agent (v0.4)                         + knowledge: Knowledge, knowledge_tokens: int, knowledge_files: {section: tokens}

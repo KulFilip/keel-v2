@@ -76,12 +76,14 @@ def test_a_preexisting_file_the_agent_changed_is_committed(tmp_path):
     assert sh(root, "show", "--name-only", "--format=", "HEAD").split() == ["tests/test_a.py"]
 
 
-def test_commit_subject_is_short_and_body_keeps_the_criterion():
+def test_commit_subject_is_short_and_body_keeps_the_rest_of_the_criterion():
     from keel_engine.runtime.actions import commit_message
     long = "For a playerId with at least one recorded score, `rankOf` returns the 1-based rank of that player's best score"
     subject, body = commit_message("feat(AC-2)", long)
     assert len(subject) <= 72 and subject.startswith("feat(AC-2): For a playerId") and subject.endswith("…")
-    assert body == long
+    # 0.18.57 the body never repeats the subject: it holds only the words that did not fit
+    assert body.startswith("…") and subject[len("feat(AC-2): "):-1] not in body
+    assert (subject[len("feat(AC-2): "):-1] + " " + body[1:]).replace(", ", " ").split() == long.replace(",", "").split()
     assert commit_message("test(AC-1)", "rankOf is exported") == ("test(AC-1): rankOf is exported", "")
 
 

@@ -698,6 +698,21 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         except worktrees.WorktreeError as exc:
             raise EngineError(409, str(exc), exc.hint) from exc
 
+    # 0.18.57 what Start a flow says before a start: can a worktree flow run the tests, is the base behind its remote
+    @app.get("/start-check")
+    async def get_start_check(root: str):
+        from .runtime import container
+
+        return await asyncio.to_thread(container.start_check, project_root(root))
+
+    # 0.18.57 the configured commands that cannot run as written (keel2 doctor, the project's doctor)
+    @app.get("/config-check")
+    async def get_config_check(root: str):
+        from .runtime import config_check
+
+        found = await asyncio.to_thread(config_check.stale, project_root(root))
+        return {"stale": found, "lines": config_check.lines(found)}
+
     @app.post("/worktrees/remove")
     async def post_worktree_remove(body: WorktreeRemove):
         root = project_root(body.root)

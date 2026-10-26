@@ -187,6 +187,40 @@ class WorkspaceDoctor(
         return Applied(results, remaining, remaining.isEmpty())
     }
 
+    /**
+     * 0.18.57 "Ignore this path" at a refused start: one untracked path (a file, or a folder as git shows it) goes to
+     * .git/info/exclude, on this computer only; nothing else changes (the index stays as it is). A tracked file cannot
+     * be hidden this way (stash or commit it).
+     */
+    fun exclude(pid: String, path: String): Applied {
+        val root = projects.root(pid)
+        val p = path.trim().removePrefix("./")
+        if (p.isBlank() || p.startsWith("/") || p.split('/').any { it == ".." })
+            throw BadRequest("Give a path inside the project", "For example notes/ or scratch.txt")
+        val untracked = workspace.git(root, "status", "--porcelain", "--untracked-files=normal").out.lines()
+            .filter { it.startsWith("?? ") }.map { it.substring(3).trim().removeSurrounding("\"") }
+        val dir = p.trimEnd('/') + "/"
+        if (untracked.none { it == p || it == dir || it.startsWith(dir) || p.startsWith(it.trimEnd('/') + "/") }) {
+            val tracked = workspace.git(root, "ls-files", "--error-unmatch", "--", p).ok
+            throw Conflict(if (tracked) "$p is tracked by git, so an ignore rule cannot hide it" else "$p is not an untracked path here",
+                if (tracked) "Stash or commit it instead, or start anyway." else "Ask again: the folder may have changed.")
+        }
+        val pattern = if (untracked.any { it == dir } || java.nio.file.Files.isDirectory(root.resolve(p))) dir else p
+        val where = workspace.git(root, "rev-parse", "--git-path", "info/exclude").out.trim().ifBlank { ".git/info/exclude" }
+        val f = root.resolve(where)
+        Files.createDirectories(f.parent)
+        val have = if (Files.exists(f)) Files.readAllLines(f).map { it.trim() }.toSet() else emptySet()
+        if (pattern !in have) {
+            val prefix = if (Files.exists(f) && Files.readString(f).let { it.isNotEmpty() && !it.endsWith("\n") }) "\n" else ""
+            Files.writeString(f, prefix + "# ignored on this computer at a flow start (keel)\n" + pattern + "\n",
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)
+        }
+        val remaining = dirty(root).map { it.path }.filterNot { isToolFile(it) }
+        return Applied(listOf(ApplyResult("exclude", listOf(pattern), true,
+            if (pattern in have) "already ignored on this computer" else "ignored on this computer (.git/info/exclude): $pattern")),
+            remaining, remaining.isEmpty())
+    }
+
     // ---- rules ----
 
     fun rulesPlan(files: List<DirtyFile>): List<PlanItem> {
@@ -289,6 +323,10 @@ class WorkspaceDoctor(
         /** keel's own files in a project (the engine's ENGINE_FILES, engine/keel_engine/tools/git.py): never the user's work. */
         private val ENGINE_FILES = listOf(".keel/ladder.json", ".keel/agents/")
         fun isEngineFile(p: String) = ENGINE_FILES.any { p == it || p.startsWith(it) }
+
+        /** 0.18.57 an editor's or a tool's own files, never the person's work: they do not block a flow's start. */
+        private val TOOL_FILES = Regex("""^(\.serena|\.idea|\.vscode|\.fleet)(/|$)|(^|/)\.DS_Store$|^\.claude/settings\.local\.json$""")
+        fun isToolFile(p: String) = TOOL_FILES.containsMatchIn(p.trim().removeSurrounding("\""))
 
         private val SECRET = Regex("""(^|/)(\.env(\..*)?|.*\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|ed25519|ecdsa)(\.pub)?|.*credentials.*|.*secret.*|\.npmrc|\.pypirc|\.netrc)$""", RegexOption.IGNORE_CASE)
         private val LOCAL = Regex("""(^|/)(build|dist|out|target|node_modules|\.gradle|\.kotlin|__pycache__|\.pytest_cache|\.venv|\.idea|coverage|\.next|\.cache|\.serena)(/|$)|(\.log|\.iml|\.DS_Store|\.swp|\.class|\.pyc)$""")

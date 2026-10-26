@@ -103,6 +103,8 @@ def test_an_ac_test_that_already_passes_asks_at_once_and_can_be_marked_met(clien
     assert s["acs"][0]["status"] == "already-met"
     subjects = subprocess.run(["git", "log", "--format=%s"], cwd=root, capture_output=True, text=True).stdout.splitlines()
     assert subjects[0].startswith("test(AC-1)")
+    body = subprocess.run(["git", "log", "-1", "--format=%b"], cwd=root, capture_output=True, text=True).stdout
+    assert "Keel-Path: already-met" in body          # 0.18.57 the ship audit reads it as keel's own path
     started = [e["data"]["agent"] for e in client.bus.of(tid, "agent.started")]
     assert started == ["test-author"]                                    # green and the AC gate were skipped
 

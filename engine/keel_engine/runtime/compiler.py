@@ -45,9 +45,10 @@ from ..rules import checks as rule_checks
 from .findings import REVIEWERS, blocking, nonblocking, unique
 from .findings import key as finding_key
 from . import finding_decisions, security_actions
-from ..tools import git, guard, mcp
-from ..tools.agent_tools import ToolBox
+from ..tools import git, guard, mcp, testcmd
+from ..tools.agent_tools import ToolBox, command_env
 from ..workflows.model import Loop, Step, Workflow
+from . import container
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check, stack_setup, stacks
 from . import blockers as push_gates
 from . import choices as choices_mod
@@ -70,6 +71,9 @@ log = logging.getLogger(__name__)
 AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 SETUP, SETUP_GATE = "__setup", "__setup_gate"      # keel 0.18.22 the stack's setup before the first step
 SETUP_NAME = "set up the stack"
+PREFLIGHT, PREFLIGHT_GATE = "__preflight", "__preflight_gate"   # 0.18.57 the toolchain answers (runtime/container.py)
+PREFLIGHT_NAME = "check the toolchain"
+PREFLIGHT_TIMEOUT = 120
 END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
@@ -341,6 +345,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         g.add_node(FINISH, self.finish)
         g.add_node(SETUP, self.setup_step)
         g.add_node(SETUP_GATE, self.setup_gate)
+        g.add_node(PREFLIGHT, self.preflight_step)
+        g.add_node(PREFLIGHT_GATE, self.preflight_gate)
         g.add_edge(START, SETUP)
         return g.compile(checkpointer=checkpointer)
 
@@ -350,7 +356,6 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         """Before the first step: the system packages the project's stacks need (keel waits for its background install)
         and each stack's setup.each_worktree in a new worktree or a folder without its installed dependencies. Shown as
         a step with its own job; nothing at all when there is nothing to do. A failure goes to the setup gate."""
-        first = self.nav.enter(0)
         if state.get("status") in ("stopped", "failed"):
             return Command(goto=END)
         ctx = self.ctx
@@ -359,9 +364,9 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             system, jobs = await asyncio.to_thread(stack_setup.flow_needs, ctx.root)
         except Exception:                                   # a broken check never stops a flow
             log.exception("stack setup check for %s", ctx.root)
-            return Command(goto=first)
+            return Command(goto=PREFLIGHT)
         if not system and not jobs:
-            return Command(goto=first)
+            return Command(goto=PREFLIGHT)
         prev = state.get("phase") or "none"
         step = Step(id=SETUP, kind="code", name=SETUP_NAME, action="stack_setup")
         ctx.emit("step.started", step=SETUP, data={"name": SETUP_NAME, "kind": "code", "phase": prev, "ac": None,
@@ -381,7 +386,7 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                                                     "ok": job.ok, "note": r["note"]})
         data["setup"] = {"ok": job.ok, "note": r["note"], "detail": str(r.get("detail") or "")[-4000:],
                          "jobs": [{k: j[k] for k in ("stack", "dir", "commands", "why", "key")} for j in r.get("jobs") or []]}
-        return Command(update={"data": data, "note": r["note"]}, goto=first if job.ok else SETUP_GATE)
+        return Command(update={"data": data, "note": r["note"]}, goto=PREFLIGHT if job.ok else SETUP_GATE)
 
     async def setup_gate(self, state: FlowState):
         """The stack's setup failed: retry (after the person fixed it), skip (go on; recorded so it is not asked again
@@ -408,8 +413,93 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             await asyncio.to_thread(stack_setup.skip_jobs, ctx.root, jobs)
             note = "stack setup skipped" + (f": {answer['why']}" if answer.get("why") else "")
             data["setup"] = {**last, "skipped": note}
-            return Command(update={**extra, "data": data, "note": note}, goto=self.nav.enter(0))
+            return Command(update={**extra, "data": data, "note": note}, goto=PREFLIGHT)
         note = f"stopped at the stack setup: {last.get('note') or ''}".rstrip(": ")
+        return Command(update={**extra, "status": "stopped", "note": note, "error": note}, goto=END)
+
+    async def preflight_step(self, state: FlowState):
+        """0.18.57 before the first step: the project's toolchain answers. commands.preflight, else the test runner's
+        --version through the container the test commands exec into (runtime/container.py). Nothing to check, a
+        simulated run or init: straight on. A failure goes to the preflight gate (only a person answers it)."""
+        first = self.nav.enter(0)
+        if state.get("status") in ("stopped", "failed"):
+            return Command(goto=END)
+        ctx = self.ctx
+        data = dict(state.get("data") or {})
+        if ctx.simulate_checks or self.wf.flow == "init" or (data.get("preflight") or {}).get("ok"):
+            return Command(goto=first)
+        try:
+            checks = await asyncio.to_thread(container.preflight_commands, ctx.root)
+        except Exception:                                   # a broken check never stops a flow
+            log.exception("preflight for %s", ctx.root)
+            return Command(goto=first)
+        if not checks:
+            return Command(goto=first)
+        prev = state.get("phase") or "none"
+        step = Step(id=PREFLIGHT, kind="code", name=PREFLIGHT_NAME, action="preflight")
+        ctx.emit("step.started", step=PREFLIGHT, data={"name": PREFLIGHT_NAME, "kind": "code", "phase": prev, "ac": None,
+                                                       "from": prev, "flow": self.wf.flow, "phase_changed": False,
+                                                       "transition_ok": True})
+        job = _CodeJob(ctx, step, state, name=PREFLIGHT_NAME, actions=["preflight"])
+        job.start()
+        failed = None
+        for what, cmd, rel in checks:
+            folder = str(Path(ctx.root) / rel) if rel else ctx.root
+            job.progress(f"$ {cmd}", tool="preflight", command=cmd)
+            t0 = time.monotonic()
+            code, out = await asyncio.to_thread(testcmd.run, folder, cmd, PREFLIGHT_TIMEOUT, command_env())
+            job.progress(f"{what}: {'answers' if code == 0 else f'failed (exit {code})'}", tool="preflight", command=cmd,
+                         ok=code == 0, ms=int((time.monotonic() - t0) * 1000), output=(out or "").strip()[-2000:] or None)
+            if code != 0:
+                failed = {"what": what, "command": cmd, "exit": code, "output": (out or "").strip()[-1500:]}
+                break
+        job.ok = failed is None
+        note = (f"the toolchain answers ({len(checks)} check{'s' if len(checks) != 1 else ''})" if job.ok else
+                f"{failed['what']} does not answer: `{failed['command']}` failed (exit {failed['exit']})")
+        job.progress(note, tool="preflight", ok=job.ok)
+        job.finish("done" if job.ok else "failed")
+        ctx.emit("step.finished", step=PREFLIGHT, data={"name": PREFLIGHT_NAME, "kind": "code", "phase": prev, "ac": None,
+                                                        "ok": job.ok, "note": note})
+        data["preflight"] = {"ok": job.ok, "note": note, **({"failed": failed} if failed else {})}
+        return Command(update={"data": data, "note": note}, goto=first if job.ok else PREFLIGHT_GATE)
+
+    async def preflight_gate(self, state: FlowState):
+        """The preflight failed: retry (the person started the container), folder (a worktree flow: start it again in
+        the project folder), skip (go on; recorded) or stop."""
+        ctx = self.ctx
+        data = dict(state.get("data") or {})
+        last = data.get("preflight") or {}
+        failed = last.get("failed") or {}
+        in_worktree = await asyncio.to_thread(stack_setup.is_worktree, ctx.root)
+        names = ["retry", *(["folder"] if in_worktree else []), "skip", "stop"]
+        lines = [f"What failed: {failed.get('what') or 'the preflight'}.",
+                 f"The command: {failed.get('command') or '-'} (exit {failed.get('exit')})",
+                 "", (failed.get("output") or "").strip(), "",
+                 "retry: start the container (docker compose up -d, in the project folder), then keel checks again."]
+        if in_worktree:
+            lines.append("folder: this flow runs in a worktree; the container sees only the project folder. Stop here "
+                         "and start the flow again with Where it runs: the project folder.")
+        lines += ["skip: go on without the check; the tests fail until the toolchain answers.", "stop: end the flow here."]
+        question = {"step": PREFLIGHT, "kind": "gate", "title": f"The toolchain does not answer: {last.get('note') or ''}"[:300],
+                    "detail": "\n".join(lines), "options": OPTIONS, "choices": names,
+                    "choice_info": choices_mod.choice_info(names, context="preflight")}
+        answer, extra = self._ask(state, question, gate="failure")
+        payload = answer.get("payload") or {}
+        choice = payload.get("choice") or ("retry" if answer.get("decision") == "approve" else "stop")
+        ctx.emit("gate.decided", step=PREFLIGHT, data={"gate": "preflight", "decision": answer.get("decision"),
+                                                       "choice": choice, "why": answer.get("why")})
+        if choice == "retry":
+            data.pop("preflight", None)
+            return Command(update={**extra, "data": data}, goto=PREFLIGHT)
+        if choice == "skip":
+            note = "preflight skipped" + (f": {answer['why']}" if answer.get("why") else "")
+            data["preflight"] = {**last, "ok": True, "skipped": note}
+            return Command(update={**extra, "data": data, "note": note}, goto=self.nav.enter(0))
+        if choice == "folder":
+            note = ("stopped: start this flow again in the project folder (Start a flow › Where it runs: the project "
+                    "folder); the container sees only the project folder")
+            return Command(update={**extra, "status": "stopped", "note": note, "error": note}, goto=END)
+        note = f"stopped at the preflight: {last.get('note') or ''}".rstrip(": ")
         return Command(update={**extra, "status": "stopped", "note": note, "error": note}, goto=END)
 
     def _wrap(self, i: int, step: Step, fn):

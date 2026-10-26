@@ -31,6 +31,8 @@ data class StartFlow(
     /** B8: new (default: its own branch from the base branch, also when the folder is on another branch) | continue
      *  (stay on the branch the project folder is on; on the base branch it still gets its own). */
     val branch: String? = null,
+    /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files. */
+    val force: Boolean = false,
 )
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
@@ -48,7 +50,12 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
         flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
-            body.request, body.options, body.where, branch = if (body.branch == "continue") "continue" else "new")
+            body.request, body.options, body.where, branch = if (body.branch == "continue") "continue" else "new", force = body.force)
+
+    /** 0.18.57 what Start a flow shows first: whether a worktree flow can run the tests, and the base branch's drift. */
+    @GetMapping("/projects/{pid}/start-check")
+    fun startCheck(@PathVariable pid: String): JsonNode =
+        flows.startCheck(pid) ?: com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
 
     /** v0.7.x: the project's flows side by side (folder and worktrees), the files they share, conflicts, a merge order. */
     @GetMapping("/projects/{pid}/flows")

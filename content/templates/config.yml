@@ -64,6 +64,10 @@ commands:
   api_health_check: ''        # e.g. curl -fsS http://localhost:8080/actuator/health
   web_health_check: ''        # e.g. curl -fsS http://localhost:5173
   smoke: ''                   # a single smoke command for the run ladder
+  # 0.18.57 checked before a flow's first step; on failure keel stops at a plain gate (start the
+  # container / run in the project folder / skip). Empty: when the test commands run through
+  # `docker compose exec <service>`, keel checks the test runner's --version in that service.
+  preflight: ''               # e.g. docker compose exec -T app php -v
 
 # Who keel's commits are by when Settings > Commit author is empty: a bot identity of your own,
 # for example. Empty here too: the project's git name, else KeelBot. Settings > KeelBot as
@@ -72,6 +76,14 @@ commands:
 commit:
   author_name: ''
   author_email: ''
+
+# How keel's commit subjects read. Placeholders: {ticket} (the flow's ticket, else the one in the
+# branch name), {type} (test, refactor, fix, docs or feat, from what changed), {scope} (the criterion,
+# AC-2) and {subject}. Empty: keel follows the ticket style of the branch's recent commits
+# ("SHOPS-12: feat: ...") when most of them share one, else its own "feat(AC-2): ...". With another
+# style keel adds a Keel-Ref: line, so the trace still finds each criterion's commits.
+git:
+  commit_template: ''         # e.g. '{ticket}: {type}: {subject}'
 
 # Programs for this project: formatters, linters, CI probes. They merge over the matched stacks'
 # `tools:` blocks: a block here overrides the keys it names, `<name>: false` turns one off.

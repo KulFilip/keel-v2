@@ -30,6 +30,7 @@ from ..tools.agent_tools import command_env
 from . import run_mode as run_modes
 from . import tools, verdicts
 from . import bug
+from . import commit_style
 
 GAP = 8               # uncovered lines closer than this belong to one group (one test can cover them)
 TEST_FILE = checks.TEST_FILE
@@ -67,13 +68,71 @@ def _tail(text: str, limit: int = 3000) -> str:
 
 # ------------------------------------------------------------------ git scope
 
+def _exists(root: str, ref: str) -> bool:
+    return git.git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").returncode == 0
+
+
+def remote_of(root: str, name: str) -> str | None:
+    """0.18.57 the remote-tracking ref of a plain local branch name: its upstream (main@{upstream}), else origin/<name>;
+    None for an explicit ref (origin/main, refs/..., a tag or a sha) or a branch with no remote copy."""
+    if not name or "/" in name or not git.git(root, "show-ref", "--verify", "-q", f"refs/heads/{name}").returncode == 0:
+        return None
+    up = git.git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{name}@{{upstream}}")
+    if up.returncode == 0 and up.stdout.strip() and _exists(root, up.stdout.strip()):
+        return up.stdout.strip()
+    return f"origin/{name}" if _exists(root, f"origin/{name}") else None
+
+
 def base_ref(root: str, cfg: dict, fallback: str | None = None) -> str | None:
-    """The branch the work is compared with: base_branch from the config, else main or master, else the thread's start."""
+    """The branch the work is compared with: base_branch from the config, else main or master, else the thread's start.
+
+    0.18.57 a plain branch name is compared through its remote-tracking ref when there is one (origin/main): a local
+    main that is behind or diverged made commits merged upstream through a PR look like this branch's own work (the
+    audit refused them, and every retry refused them again). An explicit ref in the config (origin/x, a tag) is kept."""
     for ref in [cfg.get("base_branch"), "main", "master"]:
-        if ref and git.git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").returncode == 0:
+        if not ref:
+            continue
+        ref = remote_of(root, ref) or ref
+        if _exists(root, ref):
             if git.git(root, "rev-parse", ref).stdout.strip() != git.head(root) or not fallback:
                 return ref
     return fallback
+
+
+FETCH_TIMEOUT = 30
+
+
+def fetch_base(root: str, cfg: dict) -> str:
+    """Bring the base's remote-tracking ref up to date before the ship checks read it (no prompt, FETCH_TIMEOUT s). A
+    failed fetch (offline, no access) is a note, never a failure. Returns the note ("" when nothing was fetched)."""
+    name = str(cfg.get("base_branch") or "main")
+    remote = remote_of(root, name) if git.is_repo(root) else None
+    if not remote:
+        return ""
+    where, _, branch = remote.partition("/")
+    r = git.git(root, "fetch", "--quiet", "--no-tags", where, branch, timeout=FETCH_TIMEOUT)
+    return "" if r.returncode == 0 else f"could not fetch {remote} ({(r.stderr or r.stdout).strip()[:120]}); compared with the last fetched copy"
+
+
+def base_drift(root: str, cfg: dict) -> str | None:
+    """'main is 3 behind origin/main — keel compares with origin/main' (or 'diverged from', with the counts) when the
+    local base branch differs from its remote-tracking ref; None when they agree or there is no remote copy."""
+    name = str(cfg.get("base_branch") or "main").removeprefix("refs/heads/")
+    if not git.is_repo(root):
+        return None
+    remote = remote_of(root, name)
+    if not remote:
+        return None
+    r = git.git(root, "rev-list", "--left-right", "--count", f"{name}...{remote}")
+    try:
+        ahead, behind = (int(x) for x in r.stdout.split())
+    except ValueError:
+        return None
+    if not ahead and not behind:
+        return None
+    how = (f"diverged from {remote} ({ahead} local-only commit(s), {behind} behind)" if ahead and behind else
+           f"{behind} behind {remote}" if behind else f"{ahead} ahead of {remote} (local-only commits)")
+    return f"{name} is {how} — keel compares with {remote}"
 
 
 def branch_files(root: str, base: str | None) -> list[str]:
@@ -575,22 +634,30 @@ async def audit(a):
     return await asyncio.to_thread(_audit, a)
 
 
-def audit_problems(root: str, cfg: dict, base: str | None, unlocks: list[dict]) -> list[str]:
+def audit_problems(root: str, cfg: dict, base: str | None, unlocks: list[dict], upstream: str | None = None) -> list[str]:
     """keel v1 verify.audit: test commits hold no production code, feat/fix commits no tests (paired style), no new
-    skip/only/disabled markers, every unlock has a reason, spike branches do not ship."""
+    skip/only/disabled markers, every unlock has a reason, spike branches do not ship.
+
+    0.18.57 a commit keel made on its own paths is read as keel meant it: its Keel-Ref trailer stands for the subject
+    (a project's commit style), a commit with Keel-Path: already-met (or skip) is accepted as it is, and test files a
+    Keel-Unlocked trailer names were opened for that phase by an unlock (which has its own reason, checked below)."""
     problems = []
     single = (cfg.get("loops") or {}).get("commit_style") == "single" or (cfg.get("commit") or {}).get("commit_style") == "single"
-    log = git.git(root, "log", f"{base}..HEAD", "--format=%H%x09%s").stdout.splitlines() if base else []
-    for line in log:
-        sha, _, subject = line.partition("\t")
+    for sha, subject, body in reversed(_branch_log(root, base) if base else []):
+        if upstream and upstream != base and git.git(root, "merge-base", "--is-ancestor", sha, upstream).returncode == 0:
+            continue            # 0.18.57 already on the remote base (merged upstream): not this branch's work
+        ref = commit_style.ref_of(subject, body)
+        own = commit_style.trailers(body).get(commit_style.PATH) in commit_style.OWN_PATHS
         files = [f for f in git.git(root, "show", "--name-only", "--format=", sha).stdout.splitlines() if f.strip()]
         buckets = [rules.classify(cfg, f) for f in files]
-        if subject.startswith("test(") and any(b in ("api-main", "web-src") for b in buckets):
+        if ref.startswith("test(") and any(b in ("api-main", "web-src") for b in buckets):
             problems.append(f"{sha[:7]} {subject}: a test commit contains production code")
         # Repair phases (review-fix, coverage-fix, security, ship) may change code and tests together, like the guard
         # allows there; the paired separation only applies to criterion and bug commits.
-        repair = re.match(r"^fix\((review|coverage|security|ship)\)", subject)
-        if re.match(r"^(feat|fix)\(", subject) and not repair and not single and any(b in ("api-test", "web-test") for b in buckets):
+        repair = re.match(r"^fix\((review|coverage|security|ship)\)", ref)
+        opened = commit_style.unlocked_files(body)
+        tests = [f for f, b in zip(files, buckets) if b in ("api-test", "web-test") and f not in opened]
+        if re.match(r"^(feat|fix)\(", ref) and not repair and not single and not own and tests:
             problems.append(f"{sha[:7]} {subject}: an implementation commit contains test files")
         diff = git.git(root, "show", "--format=", sha).stdout
         found = [name for rx, name in DISABLED if rx.search(diff)]
@@ -600,8 +667,11 @@ def audit_problems(root: str, cfg: dict, base: str | None, unlocks: list[dict]) 
         if not u.get("reason") and u.get("by") != "settings":
             problems.append(f"unlock of {u.get('path')} in {u.get('phase')} has no reason")
     if (git.branch(root) or "").startswith("spike/"):
-        problems.append("spike branches cannot be shipped")
+        problems.append(SPIKE)
     return problems
+
+
+SPIKE = "spike branches cannot be shipped"
 
 
 def _audit(a):
@@ -609,14 +679,57 @@ def _audit(a):
         record_verdict(a.key, "audit", None, {"reason": "not a git repository"})
         return _result(None, "Audit not available: not a git repository.")
     cfg = rules.load_config(a.root)
-    base = base_ref(a.root, cfg, a.base)
-    problems = audit_problems(a.root, cfg, base, a.unlocks)
+    fetched = fetch_base(a.root, cfg)
+    name = str(cfg.get("base_branch") or "main").removeprefix("refs/heads/")
+    upstream = remote_of(a.root, name)
+    base = (a.data or {}).get("audit_base") or base_ref(a.root, cfg, a.base)
+    found = audit_problems(a.root, cfg, base, a.unlocks, upstream)
+    # 0.18.57 the problems a person accepted at this gate (with their reason) are not asked again: the history the
+    # audit reads cannot change by running it again, so "approve" has to change what it checks
+    accepted = (a.data or {}).get("audit_accepted") or {}
+    problems = [p for p in found if p not in accepted]
     n = len(git.git(a.root, "log", f"{base}..HEAD", "--format=%H").stdout.split()) if base else 0
+    kept = [p for p in found if p in accepted]
     record_verdict(a.key, "audit", not problems, {"base": base, "commits": n, "problems": problems,
-                                                  "summary": f"{len(problems)} problem(s)" if problems else f"{n} commit(s) clean"}, root=a.root)
+                                                  **({"accepted": {p: accepted[p] for p in kept}} if kept else {}),
+                                                  "summary": f"{len(problems)} problem(s)" if problems else
+                                                  f"{n} commit(s) clean" + (f", {len(kept)} accepted" if kept else "")},
+                   root=a.root)
     if problems:
-        return _result(False, f"Audit: {len(problems)} problem(s) on the branch.", "\n".join(problems))
-    return _result(True, f"Audit: {n} commit(s) since {base or 'the start'}, no problems.")
+        from .actions import ActionResult
+
+        note = f"Audit: {len(problems)} problem(s) on the branch."
+        listed = "\n".join(problems)
+        # Another run of the audit, or another round of an agent, cannot rewrite the branch's history: the person
+        # accepts these exact problems (with a reason, recorded and shown in the PR body) or stops the flow
+        only_stop = SPIKE in problems
+        detail = (f"{listed}\n\nThese are in the branch's history: running the audit again finds them again.\n"
+                  + ("A spike branch is never shipped: stop, and build it again in a feature flow." if only_stop else
+                     "Accept them to go on (your reason is recorded with the audit verdict), or stop the flow and fix "
+                     "the commits yourself (git rebase), then resume."))
+        drift = base_drift(a.root, cfg)
+        ask = {"type": "audit", "kind": "fix", "title": f"The audit found {len(problems)} problem(s) in the branch's commits",
+               "detail": detail, "problems": problems, "base": base,
+               "labels": {"approve": "Accept these and go on", "reject": "Stop the flow"}}
+        if fetched:
+            ask["detail"] += f"\n\nNote: {fetched}."
+        if upstream and base != upstream and not only_stop:
+            # the base it compared with is not the remote one: the commits may be upstream work, not this branch's
+            ask["detail"] = (f"The audit compared with {base}, not {upstream}" + (f" ({drift})" if drift else "")
+                             + f": commits already merged on {upstream} look like this branch's own work.\n\n" + ask["detail"])
+            ask.update(choices=["remote", "accept", "stop"], upstream=upstream, choice_info=[
+                {"name": "remote", "label": f"Compare with {upstream} instead (recommended)", "why": "none", "default": True,
+                 "description": f"run the audit again against {upstream}: commits already there are not checked"},
+                {"name": "accept", "label": "Accept these and go on", "why": "optional",
+                 "description": "these exact problems are accepted with your reason (recorded with the verdict)"},
+                {"name": "stop", "label": "Stop the flow", "why": "optional", "description": "fix the commits yourself, then resume"}])
+        elif drift:
+            ask["detail"] += f"\n\nNote: {drift}."
+        if only_stop:
+            ask.update(options=["reject"], labels={"reject": "Stop the flow"})
+        return ActionResult(False, note, listed, ask=ask)
+    tail = f" ({len(kept)} accepted at the audit gate)" if kept else ""
+    return _result(True, f"Audit: {n} commit(s) since {base or 'the start'}, no problems{tail}.")
 
 
 # ------------------------------------------------------------------ trace
@@ -638,7 +751,7 @@ def ac_commits(root: str, ac_id: str, base: str | None = None) -> dict:
     there is none). The AC reviewer is given these two (content/agents/criterion-reviewer.md)."""
     if not ac_id or not git.is_repo(root):
         return {"red": None, "green": None}
-    log = _branch_log(root, base)
+    log = [(sha, commit_style.ref_of(s, b), b) for sha, s, b in _branch_log(root, base)]
     return {"red": next((sha for sha, s, _b in log if f"test({ac_id})" in s), None),
             "green": next((sha for sha, s, _b in log if f"feat({ac_id})" in s or f"fix({ac_id})" in s), None)}
 
@@ -658,7 +771,7 @@ def trace_rows(root: str, acs: list[dict], base: str | None = None) -> list[dict
     """AC -> test commit (test(AC-n)) -> implementation commit (feat(AC-n) / fix(AC-n)), from the commit subjects.
     An [E2E] or [SMOKE] criterion: the e2e / smoke commit whose "Covers:" line names it, and the test file under the
     e2e / smoke folder that names its id (that file is what makes it complete)."""
-    log = _branch_log(root, base)
+    log = [(sha, commit_style.ref_of(s, b), b) for sha, s, b in _branch_log(root, base)]
     cfg = None
     rows = []
     for ac in acs or []:

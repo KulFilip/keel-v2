@@ -2,7 +2,7 @@
 
 import type { Device } from "../devicesApi";
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, StartCheck, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
@@ -48,6 +48,10 @@ export function createDb() {
     focus: { project: null as string | null, chats: {} as Record<string, string>, by: null as string | null, client: null as string | null },
     /** keel 0.18.54 each flow's stored decision events (GET .../flows/:tid/decisions) */
     decisions: {} as Record<string, EngineEvent[]>,
+    /** 0.18.57 GET /projects/:pid/start-check per project (none: a worktree flow fits, the base is current) */
+    startCheck: {} as Record<string, StartCheck>,
+    /** 0.18.57 the paths POST .../doctor/workspace/exclude was given */
+    excluded: [] as string[],
     flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
     /** v0.7.x: each project's board (GET /flows) and the flows in worktrees by id (GET /flows/:tid) */
     boards: {} as Record<string, FlowBoard>,
@@ -228,6 +232,13 @@ export function handlers(db: Db) {
       await log(request);
       for (const b of Object.values(db.boards)) b.flows = b.flows.filter((f) => f.thread_id !== params.tid);
       return HttpResponse.json({ ok: true, worktree: `flow-${params.tid}` });
+    }),
+    http.get("/api/projects/:pid/start-check", ({ params }) =>
+      HttpResponse.json(db.startCheck[String(params.pid)] ?? { worktree: { ok: true, reason: "", service: null }, base: null })),
+    http.post("/api/projects/:pid/doctor/workspace/exclude", async ({ request }) => {
+      const b = await log(request);
+      db.excluded.push(String(b.path));
+      return HttpResponse.json({ results: [{ action: "exclude", files: [b.path], ok: true, detail: "ignored" }], remaining: [], clean: true });
     }),
     http.post("/api/projects/:pid/flows", async ({ request, params }) => {
       const b = await log(request);

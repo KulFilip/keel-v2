@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
+  ApiError, agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
   InitAsk, isInitFlow, linkAction, Loading, needsInit, PageHead, Pill, RunModePicker, Tabs, Ticks, useApp, useLoad, useRoute, useStartInit,
   WorkspaceDoctor,
   type LauncherCtx as Ctx, type LauncherItem as Item, type LauncherSourceItem, type PillTone, type RunMode, type Workflow,
@@ -195,6 +195,9 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
   const [allowDirty, setAllowDirty] = useState(false);
   const [allowFake, setAllowFake] = useState(false);
   const [doctor, setDoctor] = useState(false);
+  // 0.18.57 one owner per task: who already works on it (a refused start's owners), and Start anyway (force)
+  const [owners, setOwners] = useState<{ id: string; who: string; why: string }[]>([]);
+  const [force, setForce] = useState(false);
   // keel 0.18.55 a project keel does not know yet: ask once before the flow starts (Run init first / Start anyway)
   const { projects } = useApp();
   const proj = projects.find((x) => x.id === pid);
@@ -221,9 +224,12 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
     setBusy(true);
     setErr(null);
     try {
-      onStarted(await tasksApi.start(t.id, { workflow_id: wid || undefined, run_mode: mode, ...(allowDirty ? { allow_dirty: true } : {}), ...(allowFake ? { allow_fake: true } : {}) }));
+      onStarted(await tasksApi.start(t.id, { workflow_id: wid || undefined, run_mode: mode, ...(allowDirty ? { allow_dirty: true } : {}),
+        ...(allowFake ? { allow_fake: true } : {}), ...(force ? { force: true } : {}) }));
     } catch (e) {
       setErr(errorParts(e));
+      const found = e instanceof ApiError ? (e.body ?? {}).owners : undefined;
+      setOwners(Array.isArray(found) ? (found as { id: string; who: string; why: string }[]) : []);
     } finally {
       setBusy(false);
     }
@@ -245,6 +251,13 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
       {doctor && <WorkspaceDoctor pid={pid} onClean={() => { setErr(null); setDoctor(false); }} />}
       {(dirty || allowDirty) && <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>}
       {(fake || allowFake) && <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway</label>}
+      {owners.length > 0 && (
+        <div className="field" data-testid="tk-owners">
+          <span className="hint amber">Someone already works on this:</span>
+          <ul>{owners.map((o) => <li key={o.id}><b>{o.who}</b> — {o.why}</li>)}</ul>
+          <label className="chk"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> Start anyway — two agents on one task write over each other</label>
+        </div>
+      )}
       {err && <ErrorBox error={err} />}
       {asking && proj && (
         <InitAsk name={proj.name || proj.id} busy={init.busy} onInit={() => void init.start()}

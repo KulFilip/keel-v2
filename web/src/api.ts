@@ -315,6 +315,11 @@ export type BoardFlow = {
 export type FlowBoard = { flows: BoardFlow[]; overlaps: { file: string; flows: string[] }[]; conflicts: { a: string; b: string; files: string[] }[];
   order: string[] };
 export type FlowWhere = "folder" | "worktree" | "auto";
+/** 0.18.57 what a start should know first (GET /projects/{pid}/start-check): can a worktree flow run the tests (no when
+ *  they run in a container that sees only the project folder), and how the local base branch differs from its remote. */
+export type StartCheck = { worktree?: { ok: boolean; reason?: string; service?: string | null }; base?: string | null };
+/** 0.18.57 who already works on a task (a refused start's `owners`) */
+export type TaskOwner = { kind: "flow" | "side"; id: string; who: string; why: string };
 
 /** v0.8.0 quality runs: an eval set (content/evals) and its cases. */
 export type EvalSet = { name: string; description: string; project: string; problems: string[];
@@ -1128,8 +1133,13 @@ export const api = {
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;
     /** B8 continue: stay on the branch the project folder is on (default: a new branch from the base branch) */
     branch?: "new" | "continue";
+    /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files */
+    force?: boolean;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
+  startCheck: (pid: string) => get<StartCheck>(`/projects/${e(pid)}/start-check`),
+  /** 0.18.57 "Ignore this path": an untracked path into .git/info/exclude (this computer only) */
+  excludePath: (pid: string, path: string) => post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/exclude`, { path }),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>
     post<ThreadState>(`/threads/${e(tid)}/resume`, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}) }),
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),

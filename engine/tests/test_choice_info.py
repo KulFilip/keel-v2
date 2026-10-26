@@ -123,7 +123,7 @@ def test_the_skip_menu_as_a_question_and_its_answers():
     payload = ship.skip_payload({"answers": {"skip": ["cover"]}, "reasons": {"cover": "CI covers it"}})
     assert ship.parse_skips(payload, units)[0] == [{"step": "cover", "band": "deferred", "reason": "CI covers it"}]
     no_reason = ship.skip_payload({"answers": {"skip": ["lint"]}})
-    assert ship.parse_skips(no_reason, units)[2] == "skipping lint needs a reason"
+    assert ship.parse_skips(no_reason, units)[2].startswith("skipping lint needs a reason: nothing was skipped")
     old = {"skip": {"lint": "no linter yet"}}
     assert ship.skip_payload(old) is old and ship.parse_skips(old, units)[0][0]["reason"] == "no linter yet"
 

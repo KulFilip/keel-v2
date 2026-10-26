@@ -1,7 +1,7 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useRef, useState } from "react";
-import { api, errorParts, type CapsLeft, type Estimate, type FlowWhere, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
+import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FlowWhere, type Limit, type OnCap, type RunMode, type StartCheck, type TaskOwner, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { RunModePicker } from "./RunMode";
@@ -54,7 +54,14 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   // v0.7.x: a flow already runs or waits in the project folder: this one runs next to it, in a worktree of its own
   const folderBusy = !!projects.find((x) => x.id === p)?.flow;
   const [where, setWhere] = useState<FlowWhere>("auto");
-  const inWorktree = where === "worktree" || (where === "auto" && folderBusy);
+  // 0.18.57 the tests run in a container that sees only the project folder: flows run there, one at a time
+  const [check, setCheck] = useState<StartCheck | null>(null);
+  const unfit = check?.worktree?.ok === false;
+  const inWorktree = where === "worktree" || (where === "auto" && folderBusy && !unfit);
+  // 0.18.57 what a refused start says beyond its words: paths that can be ignored, who already works on the task
+  const [ignorable, setIgnorable] = useState<string[]>([]);
+  const [owners, setOwners] = useState<TaskOwner[]>([]);
+  const [force, setForce] = useState(false);
   // B8 the project folder is on a branch that is not the base (what init or another flow left checked out): the flow
   // gets its own branch from the base unless the person keeps working on that one (a flow from a spec: its branch)
   const onBranch = projects.find((x) => x.id === p)?.branch ?? "";
@@ -72,6 +79,17 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   }, [p, wid]);
   const init = useStartInit(proj, onClose);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
+
+  useEffect(() => {
+    setCheck(null);
+    setIgnorable([]);
+    setOwners([]);
+    setForce(false);
+    if (!p) return;
+    let gone = false;
+    api.startCheck(p).then((c) => { if (!gone) setCheck(c); }).catch(() => undefined);
+    return () => { gone = true; };
+  }, [p]);
 
   useEffect(() => {
     if (!p) return;
@@ -185,6 +203,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
         ...(where !== "auto" ? { where } : {}),
         ...(!inWorktree && offBase && branchMode === "continue" ? { branch: "continue" as const } : {}),
+        ...(force ? { force: true } : {}),
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
@@ -195,8 +214,21 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       else go("flow");
     } catch (e) {
       setErr(errorParts(e));
+      const body = e instanceof ApiError ? e.body ?? {} : {};
+      setIgnorable(Array.isArray(body.ignorable) ? (body.ignorable as string[]) : []);
+      setOwners(Array.isArray(body.owners) ? (body.owners as TaskOwner[]) : []);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const ignore = async (path: string) => {
+    try {
+      await api.excludePath(p, path);
+      setIgnorable((xs) => xs.filter((x) => x !== path));
+      toast(`${path} is ignored on this computer (.git/info/exclude). Press Start flow.`);
+    } catch (e) {
+      setErr(errorParts(e));
     }
   };
 
@@ -237,9 +269,15 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       <div className="field">
         <label htmlFor="sf-where">Where it runs</label>
         <select id="sf-where" value={inWorktree ? "worktree" : "folder"} onChange={(e) => setWhere(e.target.value as FlowWhere)}>
-          <option value="folder" disabled={folderBusy}>The project folder{folderBusy ? " (a flow runs there)" : ""}</option>
-          <option value="worktree">A worktree of its own, next to other flows</option>
+          <option value="folder" disabled={folderBusy && !unfit}>The project folder{folderBusy ? " (a flow runs there)" : ""}</option>
+          <option value="worktree">A worktree of its own, next to other flows{unfit ? " (its tests cannot run there)" : ""}</option>
         </select>
+        {unfit && (
+          <span className="hint amber" data-testid="sf-container">
+            Runs in the project folder: {check?.worktree?.reason}.{folderBusy ? " A flow runs there now: this one can start when it ends." : ""}
+          </span>
+        )}
+        {check?.base && <span className="hint amber" data-testid="sf-base">{check.base}.</span>}
         <span className="hint">{inWorktree
           ? "keel makes a copy of the project on a new branch from the base branch (.keel/worktrees). The project folder and its flow are not touched; the Flow page shows both, and the files they share."
           : offBase && branchMode === "continue" ? `The flow works in the project folder, on ${onBranch}.`
@@ -356,6 +394,25 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         <button className="btn" type="button" onClick={() => setDoctor(true)}>Ask the Doctor what to do with these files</button>
       )}
       {doctor && <WorkspaceDoctor pid={p} onClean={() => { setErr(null); toast("The working tree is clean. Press Start flow."); }} />}
+      {ignorable.length > 0 && (
+        <div className="field" data-testid="sf-ignorable">
+          <span className="hint">Not your work (a tool's folder, notes)? Ignore it on this computer only:</span>
+          {ignorable.map((path) => (
+            <div key={path} className="row">
+              <span className="mono">{path}</span>{" "}
+              <button className="btn" type="button" onClick={() => void ignore(path)}
+                title="adds it to .git/info/exclude (this computer only; the project's .gitignore stays)">Ignore this path</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {owners.length > 0 && (
+        <div className="field" data-testid="sf-owners">
+          <span className="hint amber">Someone already works on this:</span>
+          <ul>{owners.map((o) => <li key={o.id}><b>{o.who}</b> — {o.why}</li>)}</ul>
+          <label className="chk"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> Start anyway — two agents on one task write over each other</label>
+        </div>
+      )}
       {(dirtyRefused || allowDirty) && (
         <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>
       )}
