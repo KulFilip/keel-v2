@@ -18,6 +18,8 @@ import { FlowBoardView, showBoard } from "../../components/FlowBoard";
 import { FlowRuns } from "../../components/FlowRuns";
 import { ResumeRow } from "../../components/ResumeRow";
 import { RunHistory } from "../../components/RunHistory";
+import { CiteLinks } from "../../components/Markdown";
+import { hasPage } from "../../sdk/registry";
 import { StartFlowDrawer } from "../../components/StartFlow";
 import { initOffered, isInitFlow, markInitOffered, needsInit } from "../../components/InitAsk";
 import { InitBanner, SetupCard } from "../../components/InitSetup";
@@ -242,8 +244,11 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   const waiting = !readOnly && thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
   // v0.15.4 an earlier run changes nothing, except Resume of the last stopped one: then the page shows it live
   const done = readOnly ? readOnly.onResumed : reload;
+  // 0.18.57 the flow's file:line citations open the Code page at the branch or ref the flow looked at (its worktree's
+  // branch, the reviewed PR's head), not the project folder's checkout
+  const cites = useMemo(() => (hasPage("repo") ? { ref: thread.source_ref ?? null } : null), [thread.source_ref]);
   return (
-    <>
+    <CiteLinks.Provider value={cites}>
       <div ref={barRef}>
         <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump}
           readOnly={!!readOnly} branch={readOnly?.branch} />
@@ -262,7 +267,7 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
         <AcsPanel thread={thread} />
         <BeforeShipPanel blockers={thread.blockers} />
       </div>
-    </>
+    </CiteLinks.Provider>
   );
 }
 

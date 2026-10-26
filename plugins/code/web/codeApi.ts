@@ -129,6 +129,28 @@ export type UpdateFromBase = {
   output: string;
 };
 export type Unlock = { path: string; phase: string };
+/** A file as another branch, review ref or commit has it (GET /repo/file-at): the link of an answer made there. */
+export type RefFile = {
+  path: string;
+  ref: string;
+  sha: string;
+  kind: "branch" | "remote" | "review" | "commit" | "ref";
+  /** the local branch "Check out" switches to; null: not a branch (a review ref, a commit) */
+  branch?: string | null;
+  /** the ref is the checked-out branch: the editor shows the work tree's file */
+  current: boolean;
+  checked_out?: string | null;
+  /** a worktree (a side session's, a flow's) that has this branch checked out */
+  worktree?: { branch: string | null; path: string } | null;
+  source: "ref" | "worktree";
+  size: number;
+  binary: boolean;
+  text?: string | null;
+  /** uncommitted changes in the project folder */
+  dirty: number;
+};
+export type FoundRef = { ref: string; label: string; kind: "branch" | "remote" | "review"; sha: string; at: string };
+export type FoundFile = { path: string; in_work_tree: boolean; checked_out?: string | null; refs: FoundRef[] };
 /** Control › Plugins: a plugin, and whether it is on for this project (the Code page reads only these two). */
 export type PluginOn = { name: string; enabled?: boolean };
 
@@ -151,6 +173,12 @@ export const codeApi = {
     get<TreeNode[]>(`/projects/${e(pid)}/repo/tree${q({ depth, dir })}`),
   file: (pid: string, path: string) =>
     get<RepoFile>(`/projects/${e(pid)}/repo/file${q({ path })}`),
+  /** a file at a branch, review ref or commit, without checking it out; from "worktree": that branch's worktree */
+  fileAt: (pid: string, path: string, ref: string, from?: "worktree") =>
+    get<RefFile>(`/projects/${e(pid)}/repo/file-at${q({ path, ref, from })}`),
+  /** the branches and review refs keel knows that have this file */
+  find: (pid: string, path: string) =>
+    get<FoundFile>(`/projects/${e(pid)}/repo/find${q({ path })}`),
   commits: (pid: string, limit = 30, range?: "branch") =>
     get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit, range })}`),
   rawUrl: (pid: string, path: string) =>

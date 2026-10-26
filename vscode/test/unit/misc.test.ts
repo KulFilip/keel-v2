@@ -76,3 +76,27 @@ describe("format", () => {
     expect(askText("src/a.ts", 1, 2, "a\nb\n")).toBe("@src/a.ts:1-2\n```\na\nb\n```\n");
   });
 });
+
+describe("0.18.57 KeelBot's path:line links name the ref the answer was made from", () => {
+  it("adds data-ref from the answer's source: the ref a file was read from, else the answer's own", async () => {
+    const { renderMarkdown, withFileRefs, sourceRef } = await import("../../src/logic/markdown");
+    const html = renderMarkdown("See src/Orders/ExportService.php:13 and api/ScoreController.kt:9.");
+    const src = { ref: "feature/SHOPS-1234-export", paths: { "src/Orders/ExportService.php": "refs/keel/review-pr/7" } };
+    const out = withFileRefs(html, src);
+    expect(out).toMatch(/data-open="src\/Orders\/ExportService\.php" data-ref="refs\/keel\/review-pr\/7" data-line="13"/);
+    expect(out).toMatch(/data-open="api\/ScoreController\.kt" data-ref="feature\/SHOPS-1234-export" data-line="9"/);
+    expect(withFileRefs(html, null)).toBe(html);
+    expect(sourceRef({ ref: null, paths: {} }, "a.kt")).toBeNull();
+  });
+
+  it("reads a file at a ref from the Code plugin's api", async () => {
+    const { KeelApi } = await import("../../src/api/client");
+    const { fakeFetch, json } = await import("./fakeFetch");
+    const f = fakeFetch([json(200, { path: "src/Orders/ExportService.php", ref: "feature/SHOPS-1234-export", sha: "3f2a9c1", kind: "branch",
+      current: false, binary: false, text: "<?php\n" })]);
+    const api = new KeelApi({ baseUrl: "http://keel.test:8088", token: () => "kd_t", fetch: f.fetch });
+    const got = await api.fileAt("shop", "src/Orders/ExportService.php", "feature/SHOPS-1234-export");
+    expect(got.text).toBe("<?php\n");
+    expect(f.seen[0].url).toBe("http://keel.test:8088/api/projects/shop/repo/file-at?path=src%2FOrders%2FExportService.php&ref=feature%2FSHOPS-1234-export");
+  });
+});

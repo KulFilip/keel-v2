@@ -249,7 +249,8 @@ export type AssistantProps = {
   /** lines the person chose to ask about */
   selection?: HelperSelection | null;
   onClearSelection?: () => void;
-  onOpenFile: (path: string, line?: number) => void;
+  /** 0.18.57 `ref`: the branch, review ref or commit the answer was made from (the file as that ref has it) */
+  onOpenFile: (path: string, line?: number, ref?: string | null) => void;
   onOpenDiff?: (path: string) => void;
   onClose: () => void;
   /** grows each time the page wants the input focused (⌘I) */
@@ -329,6 +330,7 @@ export type LauncherSourceItem = SlotItem & {
   recent?: (ctx: Ctx, r: Recent) => Item | null;
   /** actions it adds (after keel's own) */
   actions?: (ctx: Ctx) => Item[];
-  /** the link that opens a file at a line (KeelBot's answers in the launcher's Ask) */
-  fileHash?: (path: string, line?: number) => string;
+  /** the link that opens a file at a line (KeelBot's answers in the launcher's Ask); 0.18.57 `ref`: as that branch,
+   *  review ref or commit has it */
+  fileHash?: (path: string, line?: number, ref?: string | null) => string;
 };

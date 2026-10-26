@@ -6,10 +6,10 @@ import type {
   JobStep,
   Model,
 } from "../api/models";
-import { openPath } from "../core/files";
+import { openPath, openPathAt } from "../core/files";
 import type { KeelState } from "../core/state";
 import { ktokens, toolSummary, usd } from "../logic/format";
-import { renderMarkdown } from "../logic/markdown";
+import { renderMarkdown, withFileRefs } from "../logic/markdown";
 import { relativeTo } from "../logic/paths";
 import { webviewHtml } from "./html";
 import type { ChatVm, FromChat, ToChat } from "./protocol";
@@ -152,7 +152,8 @@ export class KeelBotView
         await this.pickModel();
         break;
       case "open":
-        await openPath(this.state, m.path, m.line);
+        if (m.ref) await openPathAt(this.state, m.path, m.line, m.ref);
+        else await openPath(this.state, m.path, m.line);
         break;
       case "undoAll":
         await this.undoAll();
@@ -412,7 +413,7 @@ export class KeelBotView
       return {
         n: m.n,
         role: m.role,
-        html: isUser ? "" : renderMarkdown(m.text ?? ""),
+        html: isUser ? "" : withFileRefs(renderMarkdown(m.text ?? ""), m.data?.source),
         text: isUser ? (m.text ?? "") : undefined,
         tools,
         toolLines: lines,

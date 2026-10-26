@@ -20,7 +20,7 @@ from langgraph.types import Command
 
 from .. import config, extensions, layout, rules
 from ..events import EventBus
-from ..tools import git
+from ..tools import git, source_ref
 from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import bug, hunt, ladder as ladder_mod
@@ -448,6 +448,8 @@ class Engine:
             "blockers": list(v.get("blockers") or []),
             "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in merge_unlocks(list(v.get("unlocks") or []), ctx_now.api_unlocks)],
             "run_mode": run_mode.normalize((ctx_now.settings or {}).get("run_mode")),
+            # 0.18.57 the branch or ref the flow's file:line citations are about (the Code page opens them there)
+            "source_ref": await asyncio.to_thread(source_ref.flow_source_ref, row["root"], v.get("data")),
         }
         ctx = await self._context(tid)
         rungs = v.get("ladder")

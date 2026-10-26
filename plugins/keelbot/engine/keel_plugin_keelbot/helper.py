@@ -58,6 +58,10 @@ from keel_engine.runtime.blockers import for_agents as push_blockers_for
 from keel_engine.runtime import agent_knowledge, db, doc_history, guard_ctx, permissions, plugins, prompts, repeats
 from keel_engine.tools import guard
 from keel_engine.tools.agent_tools import ToolBox
+try:                                    # keel 0.18.57: the ref an answer was made from (an older core: links stay plain)
+    from keel_engine.tools import source_ref
+except ImportError:                     # pragma: no cover
+    source_ref = None                   # type: ignore[assignment]
 
 from . import ASK_PATH as PART_ASK_PATH
 
@@ -402,6 +406,10 @@ class HelperRunner:
         # (runtime/repeats.py, in the turn's scratch folder) lets the hook and the ToolBox refuse an exact repeat
         failures: list[dict] = []
         scratch: dict = {"dir": None}
+        # 0.18.57 what the answer is made from: the branch (or commit) of the folder it works in, and the files it read at
+        # another ref (`git show <ref>:<path>`); stored with the answer, its file:line links open the file there
+        source: dict = {}
+        read_at: dict[str, str] = {}
 
         def note_failure(kind: str, text: str, extra: dict):
             if extra.get("ok") is not False:
@@ -441,6 +449,11 @@ class HelperRunner:
             # never in the next turn's history)
             if kind in TOOL_KINDS:
                 ev("helper.tool", tool_event(counter["n"], kind, str(text), extra))
+                if source_ref is not None and kind == "tool":
+                    try:
+                        read_at.update(source_ref.read_refs(str(extra.get("command") or text)))
+                    except Exception:  # noqa: BLE001  (where a file was read from: never the turn's failure)
+                        log.debug("KeelBot could not read the refs of a command", exc_info=True)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
             emit("guard", reason, tool=tool, path=path or None, ok=False, command=command)
@@ -508,6 +521,8 @@ class HelperRunner:
                                   "phase": f"helper-{mode}", "session": sid, "n": n})
             docs_before = doc_history.before_step(doc_emit, root, None, "helper")
             before = await asyncio.to_thread(guard.snapshot, root)
+            if source_ref is not None:
+                source = await asyncio.to_thread(source_ref.checkout_ref, root)
             # the parts' own servers (the code graph's: the project's index, same paths), keel_engine/extensions.py
             specs, allow = await asyncio.to_thread(extensions.with_part_servers, list(body.get("mcp") or []),
                                                    list(body.get("tools_allow") or []), extensions.Agent(AGENT, know),
@@ -600,6 +615,7 @@ class HelperRunner:
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
                           # 0.18.20 the files this answer changed (keel TUI lists only these after it), and its turn
                           "turn": n, "files": turn_files,
+                          **({"source": {**source, **({"paths": dict(read_at)} if read_at else {})}} if source or read_at else {}),
                           **({"failed": failures[-10:]} if failures else {}),
                           **_thinking_data(thought, t0)})
         cur = get(sid, messages=False)

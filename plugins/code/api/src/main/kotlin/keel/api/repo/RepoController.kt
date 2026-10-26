@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 @RequestMapping("/api/projects/{pid}/repo")
-class RepoController(private val repo: RepoService, private val search: RepoSearch, private val hub: EventHub) {
+class RepoController(private val repo: RepoService, private val search: RepoSearch, private val hub: EventHub, private val refs: RepoRefs) {
 
     @GetMapping
     fun info(@PathVariable pid: String): RepoInfo = repo.info(pid)
@@ -27,6 +27,16 @@ class RepoController(private val repo: RepoService, private val search: RepoSear
 
     @GetMapping("/file")
     fun file(@PathVariable pid: String, @RequestParam path: String): FileView = repo.file(pid, path)
+
+    /** A file as another branch, review ref or commit has it (a link from an answer made there); nothing is checked out.
+     *  `from=worktree` reads the worktree that has that branch checked out (a side session's, a flow's). */
+    @GetMapping("/file-at")
+    fun fileAt(@PathVariable pid: String, @RequestParam path: String, @RequestParam ref: String, @RequestParam(required = false) from: String?): RefFile =
+        refs.fileAt(pid, path, ref, from)
+
+    /** The refs keel knows (branches, review refs, remote branches) that have this file: "Found on <branch>". */
+    @GetMapping("/find")
+    fun find(@PathVariable pid: String, @RequestParam path: String): FoundFile = refs.find(pid, path)
 
     /** The file's bytes (text, or an image). A sandbox CSP and nosniff: an SVG or HTML file never runs as keel's page. */
     @GetMapping("/raw")
