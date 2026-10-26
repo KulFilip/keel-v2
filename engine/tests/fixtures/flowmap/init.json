@@ -102,6 +102,13 @@
    "action": "arch_set"
   },
   {
+   "id": "project_rules",
+   "kind": "code",
+   "name": "project rules and skills",
+   "phase": "setup",
+   "action": "project_rules"
+  },
+  {
    "id": "lanes",
    "kind": "parallel",
    "name": "ladder + knowledge",
@@ -239,6 +246,7 @@
    "plan_gate",
    "write_config",
    "arch_set",
+   "project_rules",
    "lanes",
    "doctor",
    "rung_report",
@@ -298,6 +306,10 @@
      },
      {
       "step": "arch_set",
+      "side": []
+     },
+     {
+      "step": "project_rules",
       "side": []
      },
      {

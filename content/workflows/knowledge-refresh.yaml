@@ -10,6 +10,8 @@ version: 1
 # files and keep every claim that is still true.
 steps:
   - { id: stale_scan, kind: code, name: which sections are stale, action: knowledge_scan, phase: memory }
+  # 0.18.57 the repo's own rules for coding agents, found again (a new skill, a changed AGENTS.md)
+  - { id: project_rules, kind: code, name: project rules and skills, action: project_rules, phase: memory }
   - id: librarians
     kind: parallel
     name: librarian per section

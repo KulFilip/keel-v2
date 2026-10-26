@@ -399,6 +399,12 @@ DOCS: dict[str, dict] = {
         "summary": "quick: the change comes with a test, or the agent's UNTESTABLE: line says why not; neither leads "
                    "the look gate's diff with a warning (the person decides, nothing is refused).",
     },
+    "project_rules": {
+        "summary": "init and knowledge-refresh: finds the repo's own rules for coding agents (AGENTS.md, CLAUDE.md, "
+                   ".github/copilot-instructions.md, an onboarding doc, .cursor/rules, .claude/skills, .opencode/skills), "
+                   "writes the knowledge page project-rules.md and .keel/project-rules.json (which skill goes to which "
+                   "agents: the api loads a test skill for test-author and the implementer).",
+    },
     "thread_view": {
         "summary": "address: the look gate shows the review thread (every reply, the person's answer, the code it is on) "
                    "next to the diff, with the intent check's verdict; a change that does not do what the reviewer "

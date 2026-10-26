@@ -32,6 +32,9 @@ steps:
   - { id: plan_gate, kind: gate, name: setup plan, back: discover, lock: true, phase: setup }
   - { id: write_config, kind: code, name: write config, action: write_config, lock: true, phase: setup }
   - { id: arch_set, kind: code, name: record the architecture, action: arch_set, phase: setup }
+  # 0.18.57 the repo's own rules for coding agents (AGENTS.md, CLAUDE.md, .claude/skills, ...): the knowledge page
+  # project-rules.md, and .keel/project-rules.json (the api loads a test skill for the agents that write tests)
+  - { id: project_rules, kind: code, name: project rules and skills, action: project_rules, phase: setup }
   - id: lanes
     kind: parallel
     name: ladder + knowledge

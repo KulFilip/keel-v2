@@ -32,7 +32,7 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_after_green", "verify_rele
 # the hunt and hunt-next flows (runtime/hunt_actions.py), init's extra steps (runtime/init_actions.py), review-pr's and clarify's
 FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
                 "hunt_commit", "hunt_close", "hunt_take", "hunt_map", "hunt_stack", "hunt_preview", "arch_detect", "arch_set",
-                "ladder_soft", "ladder_retry", "rung_apply", "rung_report", "git_check", "git_init", "init_summary",
+                "ladder_soft", "ladder_retry", "rung_apply", "rung_report", "git_check", "git_init", "init_summary", "project_rules",
                 # review-pr (runtime/ticket_actions.py)
                 "ticket_prep", "ticket_build", "ticket_claims", "ticket_record", "ticket_share", "ticket_comment",
                 # clarify (runtime/clarify_flow.py)

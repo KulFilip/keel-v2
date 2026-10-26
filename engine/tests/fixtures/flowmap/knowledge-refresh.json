@@ -10,6 +10,13 @@
    "action": "knowledge_scan"
   },
   {
+   "id": "project_rules",
+   "kind": "code",
+   "name": "project rules and skills",
+   "phase": "memory",
+   "action": "project_rules"
+  },
+  {
    "id": "librarians",
    "kind": "parallel",
    "name": "librarian per section",
@@ -39,6 +46,7 @@
  "expect": {
   "main": [
    "stale_scan",
+   "project_rules",
    "librarians",
    "memory_check",
    "commit"
@@ -50,6 +58,10 @@
     "nodes": [
      {
       "step": "stale_scan",
+      "side": []
+     },
+     {
+      "step": "project_rules",
       "side": []
      },
      {
