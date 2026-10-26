@@ -74,6 +74,15 @@ sleep 30 & s=$!
 wait $s
 EOF
 
+# java: logs its options, then acts as the api stub (the cases without KEEL_API_CMD: keel-start's own java line)
+cat > "$BIN/java" << 'EOF'
+#!/bin/sh
+opts=""
+for a in "$@"; do case "$a" in -cp) break ;; -D*) ;; *) opts="$opts $a" ;; esac; done
+echo "java opts:$opts" >> "$KEEL_TEST_DIR/log"
+exec "$(dirname "$0")/api"
+EOF
+
 # keel-start asks a mounted Docker for its version; these tests never talk to a real one.
 printf '#!/bin/sh\necho "docker: stub"\n' > "$BIN/docker"
 chmod +x "$BIN"/*
@@ -247,6 +256,17 @@ wait_exit
 check "exit code 1" is "$code" 1
 check "it says so" says "engine failed to start"
 check "the api never started" is "$(count 'api start')" 0
+
+new_case "the api's JVM: a quarter of the memory and Serial GC by default; JAVA_OPTS replaces them"
+plan "up 3"
+start_bg KEEL_API_CMD=
+wait_exit
+check "default heap cap and GC" logs "java opts: -XX:MaxRAMPercentage=25 -XX:+UseSerialGC$"
+new_case "JAVA_OPTS set: used as they are"
+plan "up 3"
+start_bg KEEL_API_CMD= JAVA_OPTS="-Xmx512m"
+wait_exit
+check "the person's options" logs "java opts: -Xmx512m$"
 
 echo
 if [ "$failures" != 0 ]; then

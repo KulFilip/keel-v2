@@ -999,11 +999,14 @@ cmd_doctor() {
   if command -v docker >/dev/null 2>&1; then ok "docker command: $(docker --version 2>/dev/null | sed 's/,.*//')"
   else bad "Docker is not installed. $(docker_install_hint)"; problems=$((problems + 1)); fi
   if command -v docker >/dev/null 2>&1; then
-    if docker info >/dev/null 2>&1; then ok "Docker engine is running ($(docker info -f '{{.ServerVersion}}' 2>/dev/null), $(docker info -f '{{.NCPU}}' 2>/dev/null) CPUs, $(( $(docker info -f '{{.MemTotal}}' 2>/dev/null || echo 0) / 1073741824 )) GB memory)"
-      local mem; mem="$(docker info -f '{{.MemTotal}}' 2>/dev/null || echo 0)"
+    if docker info >/dev/null 2>&1; then
+      local mem; mem="$(docker info -f '{{.MemTotal}}' 2>/dev/null)"; case "$mem" in ''|*[!0-9]*) mem=0 ;; esac
+      ok "Docker engine is running ($(docker info -f '{{.ServerVersion}}' 2>/dev/null), $(docker info -f '{{.NCPU}}' 2>/dev/null) CPUs, $(( mem / 1073741824 )) GB memory)"
       [ "$mem" -ge 3500000000 ] 2>/dev/null || warn "Docker has less than 4 GB memory. Agents and builds are faster with more (Docker Desktop › Settings › Resources)."
       if docker image inspect "$IMAGE" >/dev/null 2>&1; then ok "image: $IMAGE"
       else warn "image $IMAGE is not downloaded yet (keel2 start gets it)"; fi
+      check_image_arch
+      check_other_keels
       if container_running; then ok "keel is running on http://localhost:$(running_port) for $(label project)"
         curl -fs "$(api)/health" >/dev/null 2>&1 && ok "keel answers" || { bad "keel's container runs but does not answer. See: keel2 logs"; problems=$((problems + 1)); }
       elif container_exists; then warn "keel's container exists but is stopped (keel2 restart)"
@@ -1044,6 +1047,29 @@ for line in json.load(sys.stdin).get("lines") or []:
     fi
   fi
   if [ "$problems" = 0 ]; then info "${G}All good.${N}"; else info "${R}$problems problem(s) found.${N} Fix them and run keel2 doctor again."; return 1; fi
+}
+
+# arch_norm <arch>: Docker says aarch64 or arm64, x86_64 or amd64 for the same CPU
+arch_norm() { case "$1" in aarch64|arm64) echo arm64 ;; x86_64|amd64) echo amd64 ;; *) echo "$1" ;; esac; }
+
+# check_image_arch: an image built for another CPU runs under emulation (QEMU or Rosetta) and needs several times the
+# CPU for the same work, which a laptop feels as heat. The running keel's image when keel runs, else $IMAGE.
+check_image_arch() {
+  local img="$IMAGE" ia da
+  if container_running; then img="$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || echo "$IMAGE")"; fi
+  ia="$(arch_norm "$(docker image inspect --format '{{.Architecture}}' "$img" 2>/dev/null)")"
+  da="$(arch_norm "$(docker info -f '{{.Architecture}}' 2>/dev/null)")"
+  [ -n "$ia" ] && [ -n "$da" ] || return 0
+  if [ "$ia" = "$da" ]; then ok "image runs natively ($ia)"
+  else warn "image $img is built for $ia, but Docker runs on $da: it runs under emulation and uses several times the CPU. Get the $da image: docker pull --platform linux/$da $img, then keel2 restart"; fi
+}
+
+# check_other_keels: every keel container costs memory and some CPU, and a forgotten test keel keeps working
+check_other_keels() {
+  local others
+  others="$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | awk -v me="$NAME" '$1 != me && $2 ~ /keel-v2/ {print $1}' | tr '\n' ' ')"
+  others="${others% }"
+  [ -z "$others" ] || warn "other keels run on this Docker too: $others. Each one uses memory and CPU; stop those you do not use (KEEL_NAME=<name> keel2 stop)."
 }
 
 # A local image (built here, like keel-v2:dev) has no registry in its name: there is nothing to download.

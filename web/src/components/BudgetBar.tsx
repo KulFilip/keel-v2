@@ -123,6 +123,7 @@ export function BudgetBar() {
   }, [tick, reload]);
   useEffect(() => {
     const t = window.setInterval(() => {
+      if (document.hidden) return; // a background tab asks nothing; the live events catch it up when it is shown
       last.current = Date.now();
       void reload();
       void usage.reload();

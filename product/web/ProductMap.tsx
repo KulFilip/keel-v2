@@ -37,7 +37,9 @@ export default function ProductMap() {
   // while the analysts run, look again every few seconds
   useEffect(() => {
     if (!running) return;
-    const t = window.setInterval(() => void reload(), 4000);
+    const t = window.setInterval(() => {
+      if (!document.hidden) void reload(); // not while the tab is in the background
+    }, 4000);
     return () => window.clearInterval(t);
   }, [running, reload]);
   const findFlows = async () => {

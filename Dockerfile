@@ -168,7 +168,11 @@ WORKDIR /opt/engine
 COPY engine/pyproject.toml engine/uv.lock* ./
 RUN uv sync --no-dev --no-install-project --python /usr/bin/python3 $( [ -f uv.lock ] && echo --frozen )
 COPY engine/ ./
-RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --frozen )
+# keel_engine is installed as the project itself (editable), so UV_COMPILE_BYTECODE compiles only its dependencies, and
+# keel's user cannot write /opt/engine: every Python start compiled keel_engine from source again. That is ~0.15 s of
+# CPU for each agent tool call (the PreToolUse hook, python -m keel_engine.hook) and ~3 s at each start. Compile it here.
+RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --frozen ) \
+    && /opt/engine/.venv/bin/python -m compileall -q -j 0 /opt/engine/keel_engine
 
 # The api (built above) and the start script
 COPY --from=api /app.jar /opt/api/app.jar
@@ -184,6 +188,8 @@ ENV KEEL_EDITION=${EDITION}
 # Product with EDITION=product; none with EDITION=core). keel-start resolves them at every start, together with the
 # ones a person installed (/data/plugins/store).
 COPY --from=plugins /out /opt/keel-v2/plugins
+# the plugins' engine parts are read-only for keel's user too (see the engine above): their bytecode is made here
+RUN /opt/engine/.venv/bin/python -m compileall -q -j 0 /opt/keel-v2/plugins
 ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
 # keel 0.18.22 a stack's setup: block (PHP, Go, ... are not in this image): the engine installs setup.apt in the

@@ -47,7 +47,7 @@ export function useJobSteps(id: string | null) {
         }
         setRunning(r.running);
         setError(null);
-        if (r.running) timer = window.setTimeout(poll, 2000);
+        if (r.running) timer = window.setTimeout(poll, document.hidden ? 15000 : 2000); // slower in a background tab
       } catch (e) {
         if (gone) return;
         setError(errorParts(e));
@@ -190,6 +190,7 @@ export function LivePage({ pid }: { pid: string }) {
   // keep both lists fresh even when no event arrives
   useEffect(() => {
     const t = window.setInterval(() => {
+      if (document.hidden) return; // not while the tab is in the background
       void running.reload();
       if (runningList.length) fin.reload();
     }, 5000);

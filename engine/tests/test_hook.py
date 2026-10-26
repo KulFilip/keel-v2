@@ -566,3 +566,15 @@ async def test_an_older_helper_table_gets_its_new_columns(tmp_path):
         await migrate.migrate(conn)
         async with conn.execute("select grants_json, phase from helper_sessions where id = 'h_old'") as cur:
             assert await cur.fetchone() == ("[]", None)
+
+
+def test_the_hook_does_not_import_the_http_client_stack():
+    """The hook starts once per agent tool call: urllib.request (with http.client, ssl and email) was about a quarter
+    of its start-up CPU, and only an ask to the person needs it (permissions.ask_engine imports it then)."""
+    import subprocess
+    import sys
+
+    code = ("import sys, keel_engine.hook; "
+            "print(','.join(m for m in ('urllib.request', 'http.client', 'ssl', 'email.parser') if m in sys.modules))")
+    out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True).stdout.strip()
+    assert out == ""

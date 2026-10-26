@@ -91,7 +91,9 @@ export function UsageCard({ u, onRefreshed }: { u: ProviderUsage; onRefreshed: (
 export function UsageStrip({ empty, loading }: { empty?: ReactNode; loading?: ReactNode }) {
   const usage = useLoad("usage:providers", () => api.usageProviders(), { live: false });
   useEffect(() => {
-    const t = window.setInterval(() => void usage.reload(), REFRESH_MS);
+    const t = window.setInterval(() => {
+      if (!document.hidden) void usage.reload(); // not while the tab is in the background
+    }, REFRESH_MS);
     return () => window.clearInterval(t);
   }, [usage.reload]);
   const cards = usage.data ?? [];

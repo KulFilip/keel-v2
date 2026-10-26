@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import re
 import shlex
-import urllib.error
-import urllib.request
 
 from . import run_mode
 
@@ -237,6 +235,11 @@ def ask_engine(ask: dict | None, kind: str, command: str, path: str = "") -> tup
     url, key, sid = a.get("url"), a.get("key"), a.get("session")
     if not (url and key and sid):
         return True, ""
+    # imported here, not at the top: the hook imports this module on every tool call, and urllib.request (with http,
+    # ssl and email) was a quarter of its start-up time; only an ask needs it
+    import urllib.error
+    import urllib.request
+
     body = json.dumps({"session": sid, "key": key, "kind": kind, "command": str(command)[:4000], "path": path}).encode()
     req = urllib.request.Request(url, data=body,
                                  headers={"content-type": "application/json"}, method="POST")

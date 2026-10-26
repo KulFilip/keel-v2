@@ -32,6 +32,7 @@ class EventBus:
         self._pending: deque[dict] = deque(maxlen=MAX_BUFFER)
         self._open_step: dict[str, tuple] = {}
         self._wake: asyncio.Event | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._down_logged = False
         self._listeners: list = []     # in-process listeners (listen): plugins that react to a flow, like the Supervisor
@@ -55,8 +56,7 @@ class EventBus:
                 ev["call_id"] = call_id
             self.recent.append(ev)
             self._pending.append(ev)
-            if self._wake:
-                self._wake.set()
+            self._poke()
             for fn in list(self._listeners):
                 try:
                     fn(ev)
@@ -84,8 +84,27 @@ class EventBus:
 
     def start(self):
         if self._task is None:
+            self._loop = asyncio.get_running_loop()
             self._wake = asyncio.Event()
             self._task = asyncio.create_task(self._run())
+
+    def _poke(self) -> None:
+        """Wake the sender. emit() runs on the event loop and in worker threads (asyncio.to_thread, the stack setup,
+        the code graph's syncs); an asyncio.Event is not thread-safe, so another thread hands the set() to the loop."""
+        wake, loop = self._wake, self._loop
+        if wake is None or loop is None or loop.is_closed():
+            return
+        try:
+            here = asyncio.get_running_loop()
+        except RuntimeError:
+            here = None
+        if here is loop:
+            wake.set()
+        else:
+            try:
+                loop.call_soon_threadsafe(wake.set)
+            except RuntimeError:   # the loop closed meanwhile (keel stops): stop() sends what is left
+                pass
 
     async def stop(self):
         if self._task:
@@ -101,8 +120,10 @@ class EventBus:
         delay = 0.25
         async with httpx.AsyncClient(timeout=5.0) as client:
             while True:
+                # Nothing to send: sleep until emit() wakes us (an idle keel used to wake 4 times a second for
+                # nothing). Something left (more than one batch, or the api was down): try again after `delay`.
                 try:
-                    await asyncio.wait_for(self._wake.wait(), timeout=delay)
+                    await asyncio.wait_for(self._wake.wait(), timeout=delay if self._pending else None)
                 except asyncio.TimeoutError:
                     pass
                 self._wake.clear()

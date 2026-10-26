@@ -28,10 +28,16 @@ st = json.load(open(path)) if os.path.exists(path) else {}
 def save():
     json.dump(st, open(path, "w"))
 cmd = args[0] if args else ""
+if cmd == "info" and "{{.Architecture}}" in args:   # KEEL_TEST_DOCKER_ARCH: the Docker engine's CPU
+    print(os.environ.get("KEEL_TEST_DOCKER_ARCH", "")); sys.exit(0)
 if cmd in ("info", "pull"):
     sys.exit(0)
-if cmd == "image":                       # image inspect <image>: every image is there
+if cmd == "image":                       # image inspect <image>: every image is there (KEEL_TEST_IMAGE_ARCH: its CPU)
+    if "{{.Architecture}}" in args:
+        print(os.environ.get("KEEL_TEST_IMAGE_ARCH", ""))
     sys.exit(0)
+if cmd == "ps" and "{{.Names}} {{.Image}}" in args:  # KEEL_TEST_PS: the running containers, "name image" per line
+    print(os.environ.get("KEEL_TEST_PS", "")); sys.exit(0)
 if cmd == "port":
     print("127.0.0.1:" + st.get("port", "8080")) if st.get("running") else sys.exit(1)
     sys.exit(0)
@@ -142,6 +148,19 @@ reset
 : > "$WORK/log"
 "$KEEL2" update > "$WORK/out" 2>&1 || true
 check "update: a full keel gets :latest" pulled "ghcr.io/miladnalbandi/keel-v2:latest"
+
+echo "keel2 doctor"
+reset
+KEEL_TEST_DOCKER_ARCH=aarch64 KEEL_TEST_IMAGE_ARCH=amd64 "$KEEL2" doctor > "$WORK/out" 2>&1 || true
+check "doctor: an amd64 image on an arm64 Docker is emulation" grep -q "built for amd64, but Docker runs on arm64: it runs under emulation" "$WORK/out"
+check "doctor: and how to get the native one" grep -q "docker pull --platform linux/arm64" "$WORK/out"
+reset
+KEEL_TEST_DOCKER_ARCH=aarch64 KEEL_TEST_IMAGE_ARCH=arm64 KEEL_TEST_PS="keel-v2 ghcr.io/miladnalbandi/keel-v2:latest
+keel-e2e ghcr.io/miladnalbandi/keel-v2:0.18.55
+db postgres:16" "$KEEL2" doctor > "$WORK/out" 2>&1 || true
+check "doctor: aarch64 and arm64 are the same CPU" grep -q "image runs natively (arm64)" "$WORK/out"
+check "doctor: no emulation warning then" sh -c "! grep -q emulation '$WORK/out'"
+check "doctor: names the other keels, not itself or other containers" grep -q "other keels run on this Docker too: keel-e2e\. " "$WORK/out"
 
 echo "keel2 help"
 check "help names start --core" sh -c "'$KEEL2' help | grep -q 'keel2 start --core'"

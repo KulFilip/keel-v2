@@ -368,7 +368,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   useEffect(() => { if (tick && !runningCall) void flow.reload(); }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!runningCall) return;
-    const t = window.setInterval(() => void sess.reload(), 5000);
+    const t = window.setInterval(() => {
+      if (!document.hidden) void sess.reload(); // not while the tab is in the background
+    }, 5000);
     return () => window.clearInterval(t);
   }, [runningCall]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
