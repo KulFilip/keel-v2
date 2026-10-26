@@ -73,6 +73,14 @@ commit:
   author_name: ''
   author_email: ''
 
+# How keel's commit subjects read. Placeholders: {ticket} (the flow's ticket, else the one in the
+# branch name), {type} (test, refactor, fix, docs or feat, from what changed), {scope} (the criterion,
+# AC-2) and {subject}. Empty: keel follows the ticket style of the branch's recent commits
+# ("SHOPS-12: feat: ...") when most of them share one, else its own "feat(AC-2): ...". With another
+# style keel adds a Keel-Ref: line, so the trace still finds each criterion's commits.
+git:
+  commit_template: ''         # e.g. '{ticket}: {type}: {subject}'
+
 # Programs for this project: formatters, linters, CI probes. They merge over the matched stacks'
 # `tools:` blocks: a block here overrides the keys it names, `<name>: false` turns one off.
 #
