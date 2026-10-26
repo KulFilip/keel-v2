@@ -378,7 +378,7 @@ class Engine:
         for n, a in enumerate(seed.get("acs") or []):
             a = a if isinstance(a, dict) else {"title": str(a)}
             acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or ""),
-                        **({"status": a["status"]} if a.get("status") else {})})
+                        **({"status": a["status"]} if a.get("status") else {}), **({"kind": a["kind"]} if a.get("kind") else {})})
         child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
         request = request.strip()
         if len(request) > prompts.REQUEST_MAX:
@@ -422,7 +422,8 @@ class Engine:
         out = {
             "thread_id": tid, "project_id": row["project_id"], "workflow_id": row["workflow_id"], "title": row["title"],
             "status": status, "current": now.get("current"), "phase": now.get("phase") or "none", "ac": v.get("ac"),
-            "acs": [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
+            "acs": [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo"),
+                     **({"kind": a["kind"]} if a.get("kind") else {})}
                     for a in v.get("acs") or []],
             # 0.18.17 with the usage so far of the agents that still run (they book it only when they finish)
             "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0, "cap_usd": 0.0},

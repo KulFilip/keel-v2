@@ -22,6 +22,8 @@ Three questions, in this order:
    observably from outside? A criterion half-met is the finding that matters most here.
 2. **Does the test prove it?** Or does it assert the implementation back at itself, pass for a
    reason unrelated to the criterion, or check that a call happened rather than what it did.
+   A test that reads the source code as text (a regex over a file) and checks its shape proves
+   nothing about behaviour: that is a finding, unless the request asked for a lint-like check.
 3. **Is the code good, and does it look like this codebase?** Clarity, naming, duplication, a
    branch nothing reaches, an error swallowed. And whether it follows the conventions already in
    the files it touches rather than importing a different house style.

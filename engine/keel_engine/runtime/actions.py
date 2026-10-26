@@ -30,6 +30,7 @@ from . import blockers as push_gates
 from . import choices as choices_mod
 from . import bug as bug_mod
 from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
+from . import test_scope
 from . import tools as tool_runner
 from . import ladder as run_ladder
 
@@ -200,11 +201,18 @@ async def verify_red(a: ActionInput) -> ActionResult:
     if not a.ac and bug_mod.of(a.acs):
         return await verify_bug_red(a, bug_mod.current(a))
     ac_id = (a.ac or {}).get("id") or "the bug"
+    if a.fake and a.ac and test_scope.is_refactor(a.ac):
+        return await _refactor_baseline(a)
     if a.fake:
         out = f"FAILED tests for {ac_id}\nAssertionError: expected '{ac_id} done' but was None"
         kind = rules.classify_failure(out)
         return ActionResult(True, f"{ac_id}: red confirmed ({kind['kind']} failure, simulated).", out,
                             {"acs": _with_ac_status(a.acs, (a.ac or {}).get("id"), "red")})
+    if a.ac and test_scope.is_refactor(a.ac):
+        return await _refactor_baseline(a)
+    reads = _source_reads(a)
+    if reads:
+        return reads
     cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)
@@ -236,6 +244,61 @@ async def verify_red(a: ActionInput) -> ActionResult:
                             f"$ {cmd}\n{tail(out, 3000)}")
     return ActionResult(True, f"{ac_id}: red confirmed (assertion failure).", f"$ {cmd}\n{tail(out, 3000)}",
                         {"acs": _with_ac_status(a.acs, (a.ac or {}).get("id"), "red")})
+
+
+def _source_reads(a: ActionInput) -> ActionResult | None:
+    """A RED test that reads a source file as text (a regex over the code under test) proves its shape, not its
+    behaviour: the red check sends it back to the test-author, unless the request asks for a lint-like check."""
+    if not git.is_repo(a.root) or test_scope.asks_for_source_check((a.ac or {}).get("title"), a.request):
+        return None
+    cfg = rules.load_config(a.root)
+    mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
+    changed = [f for f in git.dirty(a.root) if f not in mine and test_scope.is_test_file(cfg, f)]
+    hits = test_scope.source_reads(a.root, changed)
+    if not hits:
+        return None
+    ac_id = (a.ac or {}).get("id") or "the criterion"
+    where = ", ".join(f"{h['file']}:{h['line']}" for h in hits[:3])
+    detail = (test_scope.SOURCE_READ_NOTE.format(where=where) + "\n\n"
+              + "\n".join(f"  {h['file']}:{h['line']}: {h['text']}" for h in hits[:10]))
+    return ActionResult(False, f"{ac_id}'s test reads source code as text ({where}); write a behaviour test instead.", detail)
+
+
+async def _refactor_baseline(a: ActionInput) -> ActionResult:
+    """A refactor criterion has no red test: its proof is that the existing tests pass before the change (this run) and
+    after it (verify_green). A suite that fails before the change cannot prove "no behaviour change": the person
+    chooses (recheck after a fix, skip the criterion, stop)."""
+    ac_id = a.ac["id"]
+    data = dict(a.data or {})
+    seen = dict(data.get("refactor_baseline") or {})
+    if a.fake:
+        seen[ac_id] = {"ok": True, "simulated": True}
+        return ActionResult(True, f"{ac_id} is a refactor: no red test; the existing tests pass before the change (simulated).",
+                            "", {"acs": _with_ac_status(a.acs, ac_id, "red"), "data": {**data, "refactor_baseline": seen}})
+    ran, shown = [], []
+    for layer in _module_layers(a.root):
+        cmd, code, out = await _tests(a, whole_suite=True, layer=layer)
+        if cmd is None:
+            return ActionResult(False, out, out)
+        if testcmd.cannot_run(code, out):
+            return cannot_run(a, cmd, out, "the tests before the refactor")
+        if code != 0:
+            detail = await failure_detail(a, cmd, code, out, layer)
+            lines = [f"{ac_id} is a refactor: its proof is that the existing tests pass before and after the change. They "
+                     "fail before it, so keel cannot prove that nothing changed.", "", detail, "", choices_mod.how_to(),
+                     "- recheck: run the tests again (after you fixed them)",
+                     f"- skip: move {ac_id} to the end of the list and go on with the next criterion",
+                     "- stop: stop the flow here (the commits so far stay)"]
+            return ActionResult(False, f"{ac_id}: the existing tests fail before the refactor.", detail,
+                                ask=choices_mod.for_question({"type": "refactor-baseline", "kind": "fix",
+                                                              "title": f"The tests fail before {ac_id}'s refactor",
+                                                              "detail": "\n".join(lines),
+                                                              "choices": ["recheck", "skip", "stop"]}, context="refactor-baseline"))
+        ran.append(cmd)
+        shown.append(f"$ {cmd}\n{tail(out, 1000)}")
+    seen[ac_id] = {"ok": True, "command": " && ".join(ran)}
+    return ActionResult(True, f"{ac_id} is a refactor: no red test; the existing tests pass before the change.",
+                        "\n".join(shown), {"acs": _with_ac_status(a.acs, ac_id, "red"), "data": {**data, "refactor_baseline": seen}})
 
 
 async def verify_bug_red(a: ActionInput, bug: dict) -> ActionResult:
@@ -318,6 +381,13 @@ async def verify_green(a: ActionInput) -> ActionResult:
                             {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
     if not ac_id:
         return await _whole_suite_green(a)
+    if test_scope.is_refactor(a.ac):
+        # a refactor's proof: the existing tests pass after the change too (they passed before it, verify_red)
+        whole = await _whole_suite_green(a)
+        if not whole.ok:
+            return replace(whole, note=f"{ac_id} is a refactor, and the existing tests fail after it: {whole.note}")
+        return ActionResult(True, f"{ac_id} (refactor): the existing tests pass after the change too.", whole.detail,
+                            {**whole.update, "acs": _with_ac_status(a.acs, ac_id, "green")})
     cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)

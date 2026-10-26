@@ -25,6 +25,12 @@ You write the failing tests for exactly one acceptance criterion, from the AC te
    each test.
 4. Run the tests once yourself. They must fail with an assertion failure. If they fail on setup (compile error, context, Docker), fix the test setup. If the tests pass, say so instead of weakening them: the behaviour may already exist. keel runs them again after you and makes the commit.
 5. Never touch production code; keel blocks or puts back any change to it anyway.
+6. **Never test the source code's text.** A test that reads a source file (`file_get_contents`, `readFileSync`,
+   `Files.readString`, `open(...).read()`, reflection's `getFileName()`) and matches it with a regex or a "contains"
+   check proves how the code is written today, not what it does, and breaks on any harmless edit. keel's red check
+   sends such a test back. The only exception: the request explicitly asks for a lint-like check of the code.
+7. **A criterion that changes no behaviour** (a refactor, an extract, a rename, a change to test code only) has no
+   failing test to write: write none, and say so in one line. Its proof is that the existing tests pass before and after.
 
 Report the test files, the test names, and the failure message in at most 15 lines.
 

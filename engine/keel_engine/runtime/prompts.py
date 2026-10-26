@@ -10,7 +10,7 @@ from ..tools import testcmd
 from functools import lru_cache
 
 from .. import addons, agent_names, config, extensions, rules
-from . import agent_knowledge, spec_check, stacks
+from . import agent_knowledge, spec_check, stacks, test_scope
 
 # Roles for agents that have no file in content/agents.
 BUILTIN_ROLES = {
@@ -177,6 +177,10 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "not a step of the work: \"imports are updated\" or \"all calls use the new name\" are steps, and so "
                      "is \"behaviour stays the same\" when the existing tests already prove it. A small change usually "
                      "needs one to three criteria.")
+        lines.append("When the work changes no behaviour at all (a refactor, an extract, a rename, test code only), tag "
+                     "its criterion [refactor] after the layer (\"- **AC-1** [API] [refactor] ...\"): keel writes no new "
+                     "test for it and proves it by the existing tests passing before and after. Never ask for a test that "
+                     "reads the source code as text.")
         nnn = next_spec_number(root, lay.specs)
         where = (f"Write the spec under {lay.specs}/ as {nnn}-<kebab-name>.md (its id {nnn}: the next free number there) "
                  f"with numbered criteria" if phase == "spec"
@@ -204,9 +208,12 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     if phase == "red":
         lines.append("Write the failing test for the current criterion only. "
                      + testcmd.name_hint(root, (ac or {}).get("id", "AC-1")) + " Do not write production code.")
+        lines.append(SOURCE_TEST_RULE)
         if test_cmd:
             lines.append(f"The engine runs it with: {test_cmd}  (run it once yourself to see it fail for the right reason).")
-    if phase == "green":
+    if phase == "green" and ac and test_scope.is_refactor(ac):
+        lines.append(test_scope.REFACTOR_NOTE.format(id=ac["id"]) + " Tests are frozen.")
+    elif phase == "green":
         lines.append("Write the minimum production code that makes the current criterion's test pass. Tests are frozen.")
         later = [a["id"] for a in acs or [] if ac and a.get("status") in (None, "todo") and a["id"] != ac["id"]
                  and rules.in_ac_loop(a)]
@@ -228,6 +235,14 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
     return "\n".join(lines)
+
+
+# item 3 of keel's test rules: a test proves behaviour, never the source text (the red check refuses one that does)
+SOURCE_TEST_RULE = ("Test behaviour, never the source code's text: do not write a test that reads a source file "
+                    "(file_get_contents, readFileSync, Files.readString, open(...).read(), reflection's getFileName) and "
+                    "matches it with a regex or a contains check. keel's red check sends such a test back, unless the "
+                    "request explicitly asks for a lint-like check of the code. If the criterion changes no behaviour (a "
+                    "refactor, an extract, a rename), write no test and say so: the existing tests are its proof.")
 
 
 REQUEST_MAX = 8_000         # a started flow's request (start_flow's seed): every agent of that flow reads it
@@ -407,5 +422,8 @@ def parse_acs(text: str) -> list[dict]:
         if aid in seen or PLACEHOLDER.search(title) or len(title) < 3:
             continue
         seen.add(aid)
-        out.append({"id": aid, "layer": m.group(2).upper(), "title": title, "status": "todo"})
+        ac = {"id": aid, "layer": m.group(2).upper(), "title": title, "status": "todo"}
+        # a refactor criterion (tagged [refactor], or worded as one with nothing new to see): no RED test, its proof is
+        # the existing tests before and after (runtime/test_scope.py)
+        out.append({**ac, "kind": "refactor"} if test_scope.is_refactor(ac) else ac)
     return out
