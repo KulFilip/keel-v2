@@ -362,6 +362,36 @@ class FlowService(
         )
     }
 
+    /** 0.18.57 a KeelBot chat that answered this recently still reads the project folder (folderActivity). */
+    private val ACTIVE_CHAT_MINUTES = 30L
+
+    /**
+     * 0.18.57 who else reads the project folder now: Start a flow warns before a flow on its own branch checks it out
+     * there (a chat would silently read other code). KeelBot's Ask and Edit chats that answer now or answered in the
+     * last [ACTIVE_CHAT_MINUTES] minutes (a side session has its own worktree), the flow that runs or waits there, and
+     * whether a worktree flow can run the tests: the engine's start check when this keel has one (the container-only
+     * detection), else null (not known).
+     */
+    fun folderActivity(pid: String): Map<String, Any?> {
+        val project = projects.require(pid)
+        val since = java.time.Instant.now().minus(java.time.Duration.ofMinutes(ACTIVE_CHAT_MINUTES))
+        val sessions = runCatching { engine.get("/helper/sessions?project={pid}", mapOf("pid" to pid)) }.getOrNull()
+        val chats = sessions?.filter { s ->
+            val mode = s.path("mode").asText()
+            val at = s.path("updated_at").asText().let { t ->
+                runCatching { java.time.OffsetDateTime.parse(t).toInstant() }.getOrNull() ?: runCatching { java.time.Instant.parse(t) }.getOrNull()
+            }
+            s.path("project").asText(pid) == pid && mode in setOf("ask", "edit") && (s.path("worktree").isNull || s.path("worktree").isMissingNode || s.path("worktree").asText().isBlank()) &&
+                (s.path("status").asText() == "running" || (at != null && at.isAfter(since)))
+        }?.map { s ->
+            mapOf("id" to s.path("id").asText(), "title" to s.path("title").asText(), "mode" to s.path("mode").asText(),
+                "status" to s.path("status").asText(), "updated_at" to s.path("updated_at").asText(null))
+        }.orEmpty()
+        val worktreeOk = runCatching { engine.get("/start-check?root={root}", mapOf("root" to project.root)) }.getOrNull()
+            ?.path("worktree")?.path("ok")?.takeIf { it.isBoolean }?.asBoolean()
+        return mapOf("chats" to chats, "flow" to folderFlow(pid), "worktree_ok" to worktreeOk)
+    }
+
     /** The flow that runs or waits in the project folder itself (not in a worktree), if one does. */
     fun folderFlow(pid: String): String? = jdbc.query(
         "SELECT id FROM threads WHERE project_id = ? AND worktree IS NULL AND status IN ('running','waiting') ORDER BY updated_at DESC LIMIT 1",

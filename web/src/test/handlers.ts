@@ -586,6 +586,8 @@ export function handlers(db: Db) {
     http.put("/api/projects/:pid/mcp-allow", async ({ request }) => HttpResponse.json(await log(request))),
 
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
+    // 0.18.57 who else reads the project folder (Start a flow warns about KeelBot chats): nobody, unless a test says
+    http.get("/api/projects/:pid/folder-activity", () => HttpResponse.json({ chats: [], flow: null, worktree_ok: null })),
     http.get("/api/projects/:pid/helper/sessions", () => HttpResponse.json(db.helper.sessions.map(({ messages: _m, ...x }) => x))),
     http.post("/api/projects/:pid/helper/sessions", async ({ request, params }) => {
       const b = (await log(request)) as { mode?: "ask" | "fix" | "side"; title?: string } | null;

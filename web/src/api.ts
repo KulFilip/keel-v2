@@ -313,6 +313,10 @@ export type BoardFlow = {
 export type FlowBoard = { flows: BoardFlow[]; overlaps: { file: string; flows: string[] }[]; conflicts: { a: string; b: string; files: string[] }[];
   order: string[] };
 export type FlowWhere = "folder" | "worktree" | "auto";
+/** 0.18.57 who else reads the project folder (GET /projects/{pid}/folder-activity): KeelBot's Ask and Edit chats that
+ *  answer now or did lately, the flow there, and whether a worktree flow can run the tests (null: not known). */
+export type FolderActivity = { chats: { id: string; title: string; mode: string; status: string; updated_at?: string | null }[];
+  flow?: string | null; worktree_ok?: boolean | null };
 
 /** v0.8.0 quality runs: an eval set (content/evals) and its cases. */
 export type EvalSet = { name: string; description: string; project: string; problems: string[];
@@ -803,9 +807,14 @@ export type HelperMessage = {
     /** 0.18.19 part of an answer /undo took back (kept, shown dim); final: a newer message came, /redo cannot bring it back */
     reverted?: boolean; final?: boolean;
     /** 0.18.23 an answer: the mode it ran in, and the model's thinking (kept for a reload, never sent to the model) */
-    mode?: string; thinking?: string; thinking_ms?: number };
+    mode?: string; thinking?: string; thinking_ms?: number;
+    /** 0.18.57 Ask and Edit: the branch of the project folder this answer read, and a switch since the last answer
+     *  (during: while it ran) — the chat's banner "a flow switched this folder to <branch> at <time>" */
+    folder_branch?: string; branch_switch?: FolderSwitch };
   at: string;
 };
+/** 0.18.57 the project folder moved to another branch (a flow on its own branch checked it out) */
+export type FolderSwitch = { from: string; to: string; at?: string | null; by?: string; during?: boolean };
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
@@ -824,6 +833,8 @@ export type HelperSession = {
   /** P1-3 in the session list only: its last user or KeelBot message as one short line ("" when none), and how many
    *  messages it stores (plugins/keelbot helper.py list_sessions) */
   last_message?: string; message_count?: number;
+  /** 0.18.57 Ask and Edit chats: the branch the project folder is on now (the panel compares it with the last answer's) */
+  folder_branch?: string | null;
 };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };
@@ -1127,6 +1138,7 @@ export const api = {
   doctorWorkspace: (pid: string) => post<Diagnosis>(`/projects/${e(pid)}/doctor/workspace`),
   applyDoctor: (pid: string, plan: { action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null; title?: string }[]) =>
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
+  folderActivity: (pid: string) => get<FolderActivity>(`/projects/${e(pid)}/folder-activity`),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;

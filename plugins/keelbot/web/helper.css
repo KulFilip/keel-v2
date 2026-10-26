@@ -54,6 +54,8 @@
 .hp-user { justify-self: safe end; min-width: 0; max-width: 92%; background: var(--accent-soft); border-radius: 10px 10px 2px 10px; padding: 8px 11px; }
 .hp-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 .hp-note .hp-text { color: var(--dim); font-style: italic; }
+/* 0.18.57 the project folder moved to another branch while this chat reads it */
+.hp-branch { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
 .hp-answer { font-size: 13px; line-height: 1.55; min-width: 0; overflow-wrap: anywhere; }
 .hp-answer p { margin: 0 0 8px; }
 .hp-answer p:last-child { margin-bottom: 0; }

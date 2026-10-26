@@ -1,7 +1,7 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useRef, useState } from "react";
-import { api, errorParts, type CapsLeft, type Estimate, type FlowWhere, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
+import { api, errorParts, type CapsLeft, type Estimate, type FolderActivity, type FlowWhere, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { RunModePicker } from "./RunMode";
@@ -54,12 +54,19 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   // v0.7.x: a flow already runs or waits in the project folder: this one runs next to it, in a worktree of its own
   const folderBusy = !!projects.find((x) => x.id === p)?.flow;
   const [where, setWhere] = useState<FlowWhere>("auto");
-  const inWorktree = where === "worktree" || (where === "auto" && folderBusy);
   // B8 the project folder is on a branch that is not the base (what init or another flow left checked out): the flow
   // gets its own branch from the base unless the person keeps working on that one (a flow from a spec: its branch)
   const onBranch = projects.find((x) => x.id === p)?.branch ?? "";
   const offBase = !!onBranch && !BASES.has(onBranch) && !isDemo;
   const [branchMode, setBranchMode] = useState<"new" | "continue">(spec ? "continue" : "new");
+  // 0.18.57 a KeelBot Ask or Edit chat reads the project folder: a flow on its own branch would check that branch out
+  // under it. Its own copy (a worktree) is recommended, unless the tests cannot run there (the engine's start check)
+  const [activity, setActivity] = useState<FolderActivity | null>(null);
+  const chats = activity?.chats ?? [];
+  const switchesBranch = !(offBase && branchMode === "continue");
+  const worktreeOk = activity?.worktree_ok !== false;
+  const chatBusy = chats.length > 0 && switchesBranch;
+  const inWorktree = where === "worktree" || (where === "auto" && (folderBusy || (chatBusy && worktreeOk)));
   const fakeRefused = !!err && /fake model/i.test(err.message);
   // keel 0.18.55 a project keel does not know yet: before another flow starts, ask once (Run init first / Start anyway)
   const proj = projects.find((x) => x.id === p);
@@ -107,6 +114,14 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   useEffect(() => {
     api.limits().then(setLimits, () => undefined);
   }, []);
+
+  useEffect(() => {
+    setActivity(null);
+    if (!p) return;
+    let gone = false;
+    api.folderActivity(p).then((a) => !gone && setActivity(a), () => undefined);
+    return () => { gone = true; };
+  }, [p]);
 
   useEffect(() => {
     if (!p || !wid) return;
@@ -183,7 +198,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         run_mode: runMode,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
-        ...(where !== "auto" ? { where } : {}),
+        // 0.18.57 auto with a chat in the folder: the worktree this form recommends (the api's auto knows only flows)
+        ...(where !== "auto" ? { where } : inWorktree && !folderBusy ? { where: "worktree" as const } : {}),
         ...(!inWorktree && offBase && branchMode === "continue" ? { branch: "continue" as const } : {}),
       });
       if (p !== pid) setProjectId(p);
@@ -244,6 +260,17 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           ? "keel makes a copy of the project on a new branch from the base branch (.keel/worktrees). The project folder and its flow are not touched; the Flow page shows both, and the files they share."
           : offBase && branchMode === "continue" ? `The flow works in the project folder, on ${onBranch}.`
             : "The flow works in the project folder, on its own branch."}</span>
+        {chatBusy && (
+          <span className={`hint${inWorktree ? "" : " amber"}`} role={inWorktree ? undefined : "alert"} data-testid="sf-chat-busy">
+            {chats.length === 1 ? <>KeelBot's chat “{chats[0].title}” ({chats[0].mode})</> : <>{chats.length} KeelBot chats</>} read the project folder now.{" "}
+            {inWorktree
+              ? "This flow runs in its own copy (a worktree), so the chat keeps reading the code it reads now (recommended)."
+              : <>This flow checks out its own branch there, so the chat would read other code (KeelBot says so in its next answer).{" "}
+                {worktreeOk
+                  ? <>Use its own copy (worktree) instead? <button type="button" className="btn sm" onClick={() => setWhere("worktree")}>Use a worktree</button></>
+                  : "Its own copy cannot run this project's tests here, so it runs in the folder."}</>}
+          </span>
+        )}
       </div>
       {!inWorktree && offBase && (
         <div className="field">

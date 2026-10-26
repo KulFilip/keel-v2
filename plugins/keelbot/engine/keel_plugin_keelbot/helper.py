@@ -81,6 +81,7 @@ from .chat.prompt import (  # noqa: F401 - re-exported: the routes and the tests
     summary_prompt, SUMMARY_RULES, SUMMARY_TEMPLATE, TRANSCRIPT_CHARS, _failed_block, _flow_block, _images_block,
     _pointing, _shell_block, _transcript,
 )
+from .chat import folder_branch
 from .chat.toolevents import (  # noqa: F401 - re-exported: the routes and the tests reach them through helper
     commands, FILE_TOOL, SHELL_TOOLS, THINKING_MAX, tool_event, TOOL_KINDS, TOOL_OUTPUT_MAX, TOOL_SUMMARY_MAX,
     _first_line, _line_count, _MORE_LINES, _STAT, _thinking_data,
@@ -492,6 +493,7 @@ class HelperRunner:
         t0 = time.monotonic()
         effort = catalog.effort_for(model)       # what the runner passes on (None: the engine's own default)
         docs_before: dict | None = None      # None: the turn failed before the setup read the docs
+        read_branch, branch_moved = "", None    # 0.18.57 the folder's branch this answer reads, and a switch to show
 
         def on_session(new: str):
             update(sid, engine_session=new)
@@ -522,13 +524,20 @@ class HelperRunner:
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             before_failed = await asyncio.to_thread(last_failures, sid, n)
             was = await asyncio.to_thread(last_mode, sid, n)
+            # 0.18.57 the branch the project folder is on now, and whether a flow moved it since the last answer
+            if folder_branch.watched(s):
+                read_branch = await asyncio.to_thread(folder_branch.current, root)
+                seen = await asyncio.to_thread(folder_branch.last_seen, sid, n)
+                branch_moved = await asyncio.to_thread(folder_branch.switch, root, seen, read_branch, body.get("keel"))
+                if branch_moved:
+                    ev("helper.branch", {**branch_moved, "session": sid, "n": n})
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
                                   shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed, was=was,
-                                  title=bool(auto))
+                                  title=bool(auto), folder=folder_branch.prompt_lines(read_branch, branch_moved))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 scratch["dir"] = tmp
                 toolbox.no_repeat = tmp
@@ -587,6 +596,13 @@ class HelperRunner:
             # 0.18.16 Copilot costs premium requests, not tokens (it showed $0 before)
             cost = catalog.premium_cost(provider, model.get("model", ""), int(used.get("premium_requests", 0)))
         answer = (res.text if res else "") or ("" if status == "done" else err or "")
+        if read_branch:
+            # 0.18.57 the folder moved while this answer ran: the answer may mix both branches (the next turn says so)
+            now_branch = await asyncio.to_thread(folder_branch.current, root)
+            if now_branch and now_branch != read_branch:
+                during = await asyncio.to_thread(folder_branch.switch, root, read_branch, now_branch, body.get("keel"))
+                branch_moved = {**(during or {}), "during": True}
+                ev("helper.branch", {**branch_moved, "session": sid, "n": n})
         named = ""
         if auto and status == "done":
             answer, named = split_title(answer)
@@ -601,6 +617,9 @@ class HelperRunner:
                           # 0.18.20 the files this answer changed (keel TUI lists only these after it), and its turn
                           "turn": n, "files": turn_files,
                           **({"failed": failures[-10:]} if failures else {}),
+                          # 0.18.57 the branch this answer read, and the switch the chat's banner shows
+                          **({"folder_branch": read_branch} if read_branch else {}),
+                          **({"branch_switch": branch_moved} if branch_moved else {}),
                           **_thinking_data(thought, t0)})
         cur = get(sid, messages=False)
         update(sid, status="idle" if status != "failed" else "failed", error=err if status == "failed" else None,
