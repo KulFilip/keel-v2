@@ -111,6 +111,9 @@ export { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 // keel 0.18.55 a project keel does not know yet (no .keel/config.yml): the ask before a flow starts on it (Run init
 // first / Start anyway), the test, and starting init (the Tasks Start box asks it)
 export { InitAsk, isInitFlow, needsInit, startInit, useStartInit } from "../components/InitAsk";
+// 0.18.57 the flows a request can be sized into (one line each), and "only test code changes" (the address flow): the
+// Tasks plugin's "keel suggests" card names the flow and its steps with them
+export { SIZE_FLOWS, testOnlyFiles } from "../flowSize";
 
 // keel's workflow pictures (the Flow page and the builder draw with them; the Wiki plugin shows a workflow read only):
 // the blocks, the step table, the graph with zoom, the Blocks / Table / Graph choice, the tokens per step, and the
