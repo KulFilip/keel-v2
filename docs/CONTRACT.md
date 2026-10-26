@@ -2797,3 +2797,57 @@ Project += {configured: boolean}   (the project has a .keel/config.yml: keel kno
 - keel TUI: the start box and `/project` say `/flow init`; `/flow <other>` asks the same once; `/flow init` needs no idea.
 - MCP: `keel_start_flow` (with or without a type) puts one line about `init` first for such a project; it starts
   what it was asked to start, as before.
+
+## keel 0.18.57: project notes opt-in, KeelBot's graph default, Where to look, the folder's branch (feat/knowledge-opt-in)
+
+```
+.keel/config.yml   knowledge: { build: on | off }      (YAML 1.1 bare on/off are booleans: both read the same)
+Notes            = { on: boolean, setting: "on" | "off" | null, written: int }
+Memory          += { notes?: Notes }                    (GET /api/projects/{pid}/memory)
+Wiki            += { notes?: Notes }                    (GET /api/projects/{pid}/wiki; the Wiki plugin)
+FolderActivity   = { chats: {id, title, mode, status, updated_at}[], flow: string | null, worktree_ok: boolean | null }
+HelperMessage.data += { folder_branch?: string, branch_switch?: {from, to, at: string | null, by: string, during?: true} }
+HelperSession   += { folder_branch?: string }           (GET one session, Ask and Edit chats only: live)
+```
+- **The switch** (engine `runtime/knowledge.py` `enabled`, api `KnowledgeService.notes`, the same rule): the config's
+  `knowledge.build` when it says; else on only when a section exists or `init.knowledge_sections` is not empty. A new
+  project starts off. Off: no knowledge paths in any agent prompt (`agent_knowledge.prompt_block` gives no
+  "Knowledge you can use" lines, and no "none of your sections exist" line either; `task_prompt` names no knowledge
+  folder), ship's `memory_plan` answers `{state: "off", ask: "no", run: "no", check: "no"}` with `memory_choice
+  {choice: "off"}` (PR body: "off: the project notes are off"). `project_rules` (project-rules.md / .json) runs at
+  init and knowledge-refresh either way.
+- **Writing it**: `PUT /api/projects/{pid}/rules/config { knowledge: { build: "on" | "off" } }` (the engine's
+  `rules_view.OWNED` gains `knowledge`; any other key or value → 400). init's `write_config` writes `build: on` when
+  the person ticked sections (`write_sections`), else `off` in a new config (a re-run leaves a value that is there).
+  knowledge-refresh's `knowledge_scan` turns it on (the memory commit takes the config along; `.keel/` is a memory
+  path).
+- **init**: the knowledge question is `{id: "knowledge", question: "Build project notes (…)?", multiple: true,
+  options: ["Build project notes (<cost>, recommended for large repos)", architecture, domain, conventions, data,
+  integrations]}`, none recommended unless the notes are on; the first option means all five. `<cost>` is
+  `knowledge.build_estimate(root, ctx.models).label` ("≈$3–7", or "≈900k–2.1M tokens" for plan-paid models), kept as
+  `init.notes_cost` for the plan and the hand-over (never in the config). `audit_now` gains the choice `notes`
+  ("Build project notes") → step `start_notes` (`start_flow` knowledge-refresh, then end).
+- **Estimate**: engine `POST /workflows/estimate` takes `root?`; for the `knowledge-refresh` workflow a librarian with
+  no history then also reads `librarian_read_tokens(root)` = clamp(100k + the repo's tracked text / 4, 100k, 600k)
+  input tokens per call (lock files, binaries and files over 512 KB left out). The api's estimate sends the project
+  folder. Web: `notesCostLabel(estimate)` writes it as the engine does.
+- **Web**: `ProjectNotesOff` (`@keel/web-sdk`, with `notesCostLabel`, `setNotes`, `NOTE_SECTIONS`): the Wiki shows
+  it instead of Refresh stale and the "not written" row with Write them; **Build them (<cost>)** posts
+  `/wiki/refresh {sections: the five}`; notes that exist but are off get **Turn on**; on, the Wiki head has **Turn
+  notes off**. A knowledge page while off: `meta.status: "off"`. The Map's Journeys tab and the init page say the
+  notes are off.
+- **KeelBot**: `plugins/keelbot/content/agents/helper.md` `knowledge.code_graph: false` (was true). The index, the
+  Graph plugin and its page stay.
+- **Where to look**: the engine's `AgentKnowledge` model (StartThread.agents, KeelBot's turn) now has `hints`; before,
+  pydantic dropped it, so the Graph plugin's `prompt_context` hook always saw hints off. Default stays off.
+- **The folder's branch**: an Ask or Edit chat (no worktree) records `folder_branch` with each answer; the next turn
+  compares it with the folder's branch now and, when it moved, its prompt says so ("moved from branch X to Y (the flow
+  "T" checked it out at <time>)"; `by` is the project's flow on that branch from the api's keel view, `at` from git's
+  reflog) and the answer's data carries `branch_switch`. A move while the answer runs: `branch_switch.during`. Event
+  `helper.branch {from, to, at, by, during?, session, n}`. The panel's banner reads `branch_switch`, or compares the
+  session's live `folder_branch` with the last answer's.
+- **`GET /api/projects/{pid}/folder-activity` → FolderActivity**: KeelBot's Ask and Edit chats of the project with no
+  worktree that run now or were updated in the last 30 minutes (from the engine's `/helper/sessions`), the folder's
+  flow, and `worktree_ok` from the engine's `GET /start-check` when the engine has it (else null). Start a flow: a
+  chat there and a flow that takes its own branch → `where: "worktree"` (recommended), unless `worktree_ok` is false;
+  the project folder picked anyway shows a warning with **Use a worktree**.

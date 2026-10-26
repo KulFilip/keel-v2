@@ -122,7 +122,11 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     from .. import layout
 
     lay = layout.resolve(root)
-    kdir = next((d for d in lay.knowledge_dirs if (Path(root) / d).is_dir()), None)
+    # 0.18.57 the project notes are opt-in (knowledge.enabled): off, no prompt names their folder
+    from . import knowledge as knowledge_mod
+
+    notes_on = knowledge_mod.enabled(root)
+    kdir = next((d for d in lay.knowledge_dirs if (Path(root) / d).is_dir()), None) if notes_on else None
     if knowledge is not None and agent != "librarian" and not section:
         # The agent's own knowledge setting (agent_knowledge.py): the sections it was given, the graph, its memory.
         block = agent_knowledge.prompt_block(root, knowledge, graph)
@@ -174,7 +178,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
                      "file to answer the note. Read only what the note needs; do not explore the project again.")
     if spec_phase and not acs:
-        lines.append(f"Keep the reading short: the request, the README, {kdir or lay.knowledge}/ if it exists, and the files the "
+        lines.append(f"Keep the reading short: the request, the README, {f'{kdir}/, ' if kdir else ''}and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
                      "a spec that exists beats a perfect map of the code.")
         lines.append("Before the criteria: if something the code cannot answer would change them (what \"user\" means, where a "

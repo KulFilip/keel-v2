@@ -2,6 +2,8 @@ id: init
 name: init (keel)
 keel_rules: true
 version: 1
+# 0.18.57 the project notes (knowledge base) are opt-in: the questions recommend none for a new project, and audit_now
+# offers to build them (notes: the knowledge-refresh flow).
 # Options (StartThread.settings): fast (no knowledge base unless the user names sections, a rung that passed before
 # with the same command is re-used, no arch-surveyor).
 # A failing rung: one read-only setup-doctor diagnoses it and proposes a fix, then the rung gate shows the DIAGNOSIS
@@ -57,6 +59,8 @@ steps:
   - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: setup }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: setup }
   - { id: summary, kind: code, name: hand-over summary, action: init_summary, phase: setup }
-  - { id: audit_now, kind: gate, name: audit now, phase: setup, choices: { skip: hand_over, hunt: start_hunt } }
+  # 0.18.57 notes: the project notes are opt-in; this starts the knowledge-refresh flow (five librarians), which turns them on
+  - { id: audit_now, kind: gate, name: audit now, phase: setup, choices: { skip: hand_over, hunt: start_hunt, notes: start_notes } }
   - { id: start_hunt, kind: code, name: start a bug hunt, action: start_flow, flow: hunt, seed: { title: Bug hunt after init, mode: semi, scope: all }, then: end, phase: setup }
+  - { id: start_notes, kind: code, name: build the project notes, action: start_flow, flow: knowledge-refresh, seed: { title: Build the project notes }, then: end, phase: setup }
   - { id: hand_over, kind: gate, name: hand over, phase: setup }

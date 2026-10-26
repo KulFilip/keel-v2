@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
+  ApiError, clock, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
   UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX, sourceRef,
   type AnswerSource, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
@@ -18,7 +18,7 @@ import {
 import { AgentCard, CiCard, FlowCard, QuestionsCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
-import { answerModel, fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
+import { answerModel, fileLink, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
 import { ChatList, ConfirmRow } from "./ChatList";
 import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
 import { markSeen, useKeelBotUnread, useSeen } from "./unread";
@@ -849,6 +849,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             </ul>
           </div>
         )}
+        <FolderBranchBanner s={s} messages={messages} />
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
             {m.role === "helper" && m.data.thinking && <ThinkingBlock text={m.data.thinking} ms={m.data.thinking_ms} answering />}
@@ -932,5 +933,25 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       </>}
     </aside>
     </>
+  );
+}
+
+
+/** 0.18.57 a flow on its own branch checked it out in the project folder this chat reads (Ask, Edit): the person
+ *  sees it here, and KeelBot is told in its next answer. */
+function FolderBranchBanner({ s, messages }: { s: HelperSession | null | undefined; messages: HelperMessage[] }) {
+  const b = folderBanner(s, messages);
+  if (!b) return null;
+  const who = b.by ? <> (“{b.by}”)</> : null;
+  const when = b.at ? <> at {clock(b.at, false)}</> : null;
+  return (
+    <div className="hp-branch" role="status" data-testid="hp-branch">
+      {b.kind === "live"
+        ? <>This folder is now on <b className="mono">{b.to}</b>; KeelBot's last answer read <b className="mono">{b.from}</b>. A flow may have switched it. The next answer reads the code on <b className="mono">{b.to}</b>.</>
+        : b.kind === "during"
+          ? <>A flow switched this folder to <b className="mono">{b.to}</b>{when}{who} while KeelBot answered: this answer may mix <b className="mono">{b.from}</b> and <b className="mono">{b.to}</b>.</>
+          : <>A flow switched this folder to <b className="mono">{b.to}</b>{when}{who}. KeelBot read the code on that branch for its last answer.</>}
+      {" "}<span className="sub">A side session (its own copy) keeps its branch.</span>
+    </div>
   );
 }

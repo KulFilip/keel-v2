@@ -973,7 +973,7 @@ def _detect(root: str) -> dict:
     return cfg
 
 
-INIT_RUN_ONLY = ("said", "write_sections", "layout")   # init answers that are not kept in the config's init: block
+INIT_RUN_ONLY = ("said", "write_sections", "layout", "notes_cost")   # init answers not kept in the config's init: block
 
 
 def write_config(a: ActionInput) -> ActionResult:
@@ -992,6 +992,17 @@ def write_config(a: ActionInput) -> ActionResult:
     return ActionResult(r.ok, f"{r.note} Added a setup: block to {', '.join(added)}.", r.detail, r.update)
 
 
+def _notes_build(a: ActionInput, cfg: dict | None) -> str | None:
+    """0.18.57 the project notes' switch (knowledge.build) init writes: on when the person ticked sections to write;
+    else a new config says off, and a re-run leaves what the config says (someone may have turned them off)."""
+    from . import knowledge
+
+    said = knowledge.build_setting(cfg) if cfg is not None else None
+    if (a.init or {}).get("write_sections"):
+        return None if said == "on" else "on"
+    return None if said else ("on" if knowledge.enabled(a.root) else "off")
+
+
 def _write_config(a: ActionInput) -> ActionResult:
     f = Path(a.root) / ".keel" / "config.yml"
     stored = {k: v for k, v in (a.init or {}).items() if k not in INIT_RUN_ONLY}
@@ -999,10 +1010,13 @@ def _write_config(a: ActionInput) -> ActionResult:
         # 0.18.22 a re-run records the new answers (init: block only; the rest of the file is left as it is)
         text = f.read_text()
         cfg = yaml.safe_load(text) or {}
-        if not a.init or not isinstance(cfg, dict) or cfg.get("init") == stored:
+        build = _notes_build(a, cfg if isinstance(cfg, dict) else None) if a.init else None
+        if not a.init or not isinstance(cfg, dict) or (cfg.get("init") == stored and not build):
             return ActionResult(True, ".keel/config.yml already exists; left as it is.")
         head = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
         cfg["init"] = stored
+        if build:
+            cfg["knowledge"] = {**(cfg.get("knowledge") if isinstance(cfg.get("knowledge"), dict) else {}), "build": build}
         f.write_text(head + yaml.safe_dump(cfg, sort_keys=False))
         return ActionResult(True, ".keel/config.yml exists; its init: block now has your answers.", f.read_text())
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -1013,6 +1027,8 @@ def _write_config(a: ActionInput) -> ActionResult:
             cfg.pop("specs", None)
     if a.init:
         cfg["init"] = stored
+    # 0.18.57 the project notes: off unless the person asked for them (Wiki › Build them turns them on later)
+    cfg["knowledge"] = {"build": _notes_build(a, None) or "off"}
     f.write_text("# Written by keel v2 init. Edit freely.\n"
                  "# layout: where keel keeps its files: keel (.keel/, out of git), repo (docs/, committed) or external.\n"
                  + yaml.safe_dump(cfg, sort_keys=False))

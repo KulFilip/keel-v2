@@ -94,6 +94,10 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/threads/{tid}/rewind")
     fun rewind(@PathVariable tid: String, @RequestBody body: Rewind): JsonNode = flows.rewind(tid, body.checkpointId)
 
+    /** 0.18.57 who else reads the project folder (KeelBot's Ask and Edit chats, the folder's flow): Start a flow warns. */
+    @GetMapping("/projects/{pid}/folder-activity")
+    fun folderActivity(@PathVariable pid: String): Map<String, Any?> = flows.folderActivity(pid)
+
     @GetMapping("/projects/{pid}/estimate")
     fun estimate(
         @PathVariable pid: String,

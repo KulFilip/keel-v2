@@ -74,6 +74,11 @@ The [README](../README.md) is the short version. This page has the details.
   Inbox groups their gates by flow. On top of the Flow page, a tab for each flow that runs or waits switches between
   them, and **History** lists every flow of the project (all, or one workflow's); **Open** shows any of them with all
   its details.
+- **A KeelBot chat in the project folder** (0.18.57): a flow on its own branch checks that branch out in the project
+  folder. When a KeelBot Ask or Edit chat read the folder in the last 30 minutes, **Start a flow** says so and runs
+  the new flow in its own copy (a worktree) instead — unless the project's tests cannot run in a worktree; then it
+  says why. Pick **The project folder** to run there anyway: the chat then shows a banner ("a flow switched this
+  folder to `feat/…` at 14:02") and KeelBot's next answer says the branch changed.
 - When something needs you, keel plays a sound, shows a pop-up and its mascot jumps.
 - keel v2 has its own guard, rules, agents, skills and MCP server. [keel v1](https://github.com/MiladNalbandi/keel) is a
   separate project and is not in the image.
@@ -369,13 +374,15 @@ The rule: never start any coding task without answering these questions first.
    ─◆ audit now: hunt │ skip ─◆ hand over
 ```
 
-- **Questions**: where the app runs while you develop, how services run (when there is no compose file), and which
-  knowledge sections keel writes (tick several). The defaults are pre-selected.
+- **Questions**: where the app runs while you develop, how services run (when there is no compose file), and whether
+  keel builds the **project notes** (0.18.57: off unless you tick **Build project notes (≈$4–6, recommended for large
+  repos)**, or single sections; the cost comes from your models and the size of the repo). The other defaults are
+  pre-selected. See [Project notes](#project-notes-opt-in).
 - **Setup plan**: the commands keel will use, before it writes `.keel/config.yml`.
 - **A rung keeps failing**: **fix**, **exclude** it, or **accept** it. One setup-doctor looks at all failing rungs and
   first looks for a cause they share; its next round continues the same session.
   <!-- 0.18.21: the init doctor fix -->
-- **Audit now**: start a bug hunt, or skip.
+- **Audit now**: start a bug hunt, **build the project notes** (starts knowledge-refresh), or skip.
 
 ### knowledge-refresh
 
@@ -384,6 +391,26 @@ The rule: never start any coding task without answering these questions first.
 ```
 
 - No gate. The check accepts a citation like `.../owner/Pet.java:46`; real problems go back to the writer.
+- Starting it is a request for the notes: it turns them on (`knowledge.build: on`).
+
+### Project notes (opt-in)
+
+The project notes are the knowledge base the librarians write (`architecture`, `domain`, `conventions`, `data`,
+`integrations` under `.keel/knowledge/` or `docs/knowledge/`). Since 0.18.57 they are **off for a new project**: in a
+test with real models, agents that were given the notes rarely opened them and answered no better, while writing
+them cost about $4–6 per project.
+
+- **Off** (`knowledge: {build: off}` in `.keel/config.yml`): no flow runs a librarian, agents get no knowledge paths,
+  and ship skips its knowledge step (the PR body says "off"). The Wiki and the Map say **Project notes are off —
+  Build them** with the expected cost.
+- **Build them** (Wiki, or **notes** at the end of init, or the knowledge-refresh flow): five librarians write the
+  notes, and they are on from then.
+- **On**: agents get the paths of the sections they are given (Agents page), and ship asks to update a section when
+  a file it cites changed. **Turn notes off** in the Wiki stops both; the notes stay where they are (**Turn on** gives
+  them back).
+- A project that already had notes keeps using them until you turn them off.
+- The repo's own rules for coding agents (`project-rules.md`, `.keel/project-rules.json`: AGENTS.md, CLAUDE.md,
+  `.claude/skills`) are found at init and knowledge-refresh either way: that is cheap and uses no model.
 
 ### plugin
 
@@ -484,7 +511,7 @@ the step), how well the running engine is checked, and the last command an agent
 
 Open the Code page and press **⌘I** (or the KeelBot button at the bottom of the left bar), or open **KeelBot** in the
 menu. In the terminal, KeelBot is the main view of [keel TUI](#keel-tui-keel2-tui). Ask about the project in plain
-words. KeelBot reads the code, the knowledge pages, the map and the code graph, and every answer links to the lines
+words. KeelBot reads the code, the map and the project notes (when they are on), and every answer links to the lines
 (`file:line` opens the editor there). Answers stream in as they are written (Claude CLI, API keys; Codex, OpenCode and
 Copilot send the answer when it is done).
 
@@ -508,6 +535,14 @@ newest jobs. It gives you buttons; nothing starts, stops or is saved until you p
 - **Type while it answers**: your message waits, shown dim ("will send after this answer"), and goes when the answer
   ends. **Esc** stops the answer and sends your message now (in keel TUI also **Ctrl+C** while a message waits).
 - **A start button with a run mode**: ask "start it in important mode" and the button carries it.
+- **The code graph tools are off for KeelBot** (0.18.57): they added about 2.3k tokens to every call and the answers
+  were no better. The graph index and the Graph page stay; turn the tools on in **Agents › KeelBot (helper) › Code
+  graph tools**. **Where to look** (the same drawer) gives KeelBot keel's own lookups in the graph at no tool call;
+  it is off by default too (before 0.18.57 the switch did not reach KeelBot).
+- **The folder's branch** (0.18.57): an Ask or Edit chat knows which branch the project folder is on. When a flow
+  switches it (a flow on its own branch, started in the project folder), the chat shows a banner ("a flow switched
+  this folder to `feat/euro-prices` at 14:02") and KeelBot's next answer starts by saying so. A side session has its
+  own copy and branch.
 
 - **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (in
   the status bar at the bottom, or ⇧⌘\) hides everything but the code; ⤢ in the panel (or **KeelBot** in the menu)

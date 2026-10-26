@@ -234,11 +234,12 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
                  branch: str = "", pid: str = "", keel: dict | None = None, shell: dict | None = None,
                  images: list[str] | None = None, failed: list[dict] | None = None, was: str = "",
-                 title: bool = False) -> str:
+                 title: bool = False, folder: list[str] | None = None) -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" or (mode == "ask" and branch) else \
         f"The project folder: {root}"
     note = mode_note(was, mode)            # 0.18.19 the mode changed since the last answer: say so first
-    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), READING, FAILURES, STYLE, where]
+    parts = [*([note] if note else []), MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), READING, FAILURES, STYLE, where,
+             *(folder or [])]           # 0.18.57 the folder's branch, and a switch since the last answer (folder_branch.py)
     if mode == "edit":
         busy = flows_in_folder(keel)
         if busy:

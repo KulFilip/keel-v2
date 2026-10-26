@@ -1065,7 +1065,8 @@ def memory_section(data: dict) -> list[str]:
         return []
     said = {"update": "updated: " + ", ".join(m.get("sections") or []) if m.get("sections") else "updated",
             "skip": f"skipped: {m.get('reason') or 'no reason given'}",
-            "current": "current: no file a section cites changed", "none": "none: the project has no knowledge base"}
+            "current": "current: no file a section cites changed", "none": "none: the project has no knowledge base",
+            "off": "off: the project notes are off (knowledge.build: off)"}
     return ["## Knowledge base", "", said.get(m.get("choice"), str(m.get("choice"))), ""]
 
 

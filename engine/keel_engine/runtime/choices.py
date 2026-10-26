@@ -126,6 +126,8 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("init:rung_gate", "stop"): ("Stop init", OPTIONAL, "end init here; no knowledge check and no commit"),
     ("init:audit_now", "skip"): ("Hand over now", NONE, "hand over now; nothing checked behaviour"),
     ("init:audit_now", "hunt"): ("Start a bug hunt", NONE, "start a bug hunt now (semi mode, whole project); it changes no code"),
+    ("init:audit_now", "notes"): ("Build project notes", NONE, "start the knowledge-refresh flow: five librarians write "
+                                  "the project notes and turn them on (it costs tokens; recommended for large repos)"),
     # review-pr: nothing reaches the author unless the person shares and then posts
     ("review-pr:share", "done"): ("Keep it here", NONE, "the review stays here; nothing is shared with the author"),
     ("review-pr:share", "share"): ("Make a text for the author", NONE,

@@ -155,6 +155,10 @@ async def get_helper_session(sid: str, request: Request):
     s = await asyncio.to_thread(helper_call, helper.get, sid)
     s["busy"] = runner(request).busy(sid)
     s["queued"] = runner(request).queue_of(sid)        # 0.18.28 the messages that go after this answer
+    # 0.18.57 the branch the project folder is on now (Ask and Edit chats): the panel compares it with the branch the
+    # last answer read and says when a flow moved the folder in between
+    if helper.folder_branch.watched(s):
+        s["folder_branch"] = await asyncio.to_thread(helper.folder_branch.current, s["root"])
     return s
 
 

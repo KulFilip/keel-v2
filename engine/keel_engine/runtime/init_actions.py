@@ -131,16 +131,29 @@ DOCTOR_ASK = ("These setup ladder rungs fail. First look for a cause they share 
               "the person sees them and decides. End with DIAGNOSIS: fixable | needs-you | unknown.")
 
 
-def _audit_detail(rungs: list[dict]) -> str:
+def _audit_detail(rungs: list[dict], notes_cost: str | None = None, notes_on: bool = False) -> str:
     ran = [r for r in rungs if r.get("status") == "pass"]
+    notes = ("**notes**: build the project notes now (the knowledge-refresh flow: five librarians"
+             + (f", {notes_cost}" if notes_cost else "") + "; recommended for large repos). "
+             + ("They are already on: this writes them again." if notes_on else
+                "They are off: agents read the code itself; you can also build them later from the Wiki."))
     return md.doc(
         md.section("What the ladder checked", f"The ladder checked liveness only: {len(ran)} of {len(rungs)} steps passed, and "
                    "none of them asked whether an endpoint behaves correctly. A bug hunt takes about 10-20 minutes and costs tokens."),
         md.section("Your choice", md.bullets([
             "**skip**: hand over now; the backlog stays empty and nothing checked behaviour.",
             "**hunt**: start a bug hunt now (semi mode, whole project). It changes no code: hunters propose, provers "
-            "reproduce against the running stack, and only what reproduces is reported."]),
+            "reproduce against the running stack, and only what reproduces is reported.", notes]),
             "Only you can answer this: keel never decides it by itself, in any run mode."))
+
+
+def _notes_on(root: str) -> bool:
+    from . import knowledge
+
+    try:
+        return knowledge.enabled(root)
+    except Exception:  # noqa: BLE001 - a broken config must not hide the gate's text
+        return False
 
 
 async def _ladder_state(a: ActionInput, step: str, extra: dict | None = None) -> ActionResult:
@@ -153,7 +166,8 @@ async def _ladder_state(a: ActionInput, step: str, extra: dict | None = None) ->
     for x in failed:
         attempts[str(x["n"])] = attempts.get(str(x["n"]), 0) + 1
     data = {**base, "rung_attempts": attempts, "rung_question": None, "rung_fix": [],
-            "audit_now_detail": _audit_detail(rungs)}
+            "audit_now_detail": _audit_detail(rungs, (a.init or {}).get("notes_cost"),
+                                              bool((a.init or {}).get("write_sections")) or _notes_on(a.root))}
     data["failed_rungs"] = [{"id": f"rung-{x['n']}", "n": x["n"], "name": x["name"], "cmd": x["cmd"], "detail": x.get("detail"),
                              "attempts": attempts.get(str(x["n"]), 0)} for x in failed]
     # 0.18.15 ONE setup-doctor for all failing rungs, always the same item id: failing rungs often share one cause (a
@@ -402,7 +416,7 @@ def _git_init(a: ActionInput) -> ActionResult:
 
 NEXT_FLOWS = [("change", "a small change to existing behaviour"), ("feature", "a new feature, spec first"),
               ("fix", "a bug: a failing test first, then the fix"),
-              ("knowledge-refresh", "write the knowledge sections again after the code changed")]
+              ("knowledge-refresh", "build the project notes, or write them again after the code changed")]
 
 
 async def init_summary(a: ActionInput) -> ActionResult:
@@ -432,6 +446,11 @@ def _init_summary(a: ActionInput) -> ActionResult:
         lines.append(f"  failing: rung {r['n']} {r['name']} ($ {r.get('cmd')})")
     lines.append("Knowledge: " + (f"wrote {', '.join(written)}" if written else "wrote no section")
                  + (f"; kept {', '.join(kept)} as they were" if kept else "") + f" (in {lay.knowledge}/).")
+    if not written and not kept:
+        # 0.18.57 the project notes are opt-in: say they are off and how to build them
+        cost = init.get("notes_cost")
+        lines.append("Project notes: off. Agents read the code itself. Build them later (Wiki › Build them, or the "
+                     f"knowledge-refresh flow){f', {cost}' if cost else ''}; recommended for large repos.")
     from . import project_rules as rules_mod
 
     lines += rules_mod.hand_over_lines(a.data.get("project_rules"), a.root)

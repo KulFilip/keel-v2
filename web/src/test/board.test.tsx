@@ -237,6 +237,53 @@ describe("where a new flow runs", () => {
   });
 });
 
+// 0.18.57 a KeelBot Ask or Edit chat reads the project folder: a flow on its own branch would check that branch out
+// under it, so Start a flow says so and recommends the flow's own copy (a worktree), unless its tests cannot run there
+describe("a KeelBot chat in the project folder", () => {
+  const chat = { id: "h_1", title: "Cart total", mode: "ask", status: "idle", updated_at: new Date().toISOString() };
+  const open = async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("keel2.project", "yegi");
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Start a flow" }));
+    const dlg = await screen.findByRole("dialog", { name: "Start a flow" });
+    return { user, dlg };
+  };
+
+  it("recommends a worktree and sends it", async () => {
+    server.use(http.get("/api/projects/:pid/folder-activity", () => HttpResponse.json({ chats: [chat], flow: null, worktree_ok: null })));
+    const { user, dlg } = await open();
+    const warn = await within(dlg).findByTestId("sf-chat-busy");
+    expect(warn).toHaveTextContent("KeelBot's chat “Cart total” (ask) read the project folder now");
+    expect(warn).toHaveTextContent("own copy (a worktree)");
+    expect(within(dlg).getByLabelText("Where it runs")).toHaveValue("worktree");
+    await user.type(within(dlg).getByLabelText("What to build"), "Euro prices");
+    await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/projects/yegi/flows")).toBe(true));
+    expect((db.calls.find((c) => c.path === "/api/projects/yegi/flows")!.body as Record<string, unknown>).where).toBe("worktree");
+  });
+
+  it("the project folder picked anyway: a warning with Use a worktree", async () => {
+    server.use(http.get("/api/projects/:pid/folder-activity", () => HttpResponse.json({ chats: [chat], flow: null })));
+    const { user, dlg } = await open();
+    await within(dlg).findByTestId("sf-chat-busy");
+    await user.selectOptions(within(dlg).getByLabelText("Where it runs"), "folder");
+    const warn = within(dlg).getByTestId("sf-chat-busy");
+    expect(warn).toHaveAttribute("role", "alert");
+    expect(warn).toHaveTextContent("the chat would read other code");
+    await user.click(within(warn).getByRole("button", { name: "Use a worktree" }));
+    expect(within(dlg).getByLabelText("Where it runs")).toHaveValue("worktree");
+  });
+
+  it("tests that cannot run in a worktree keep the flow in the folder, and say why", async () => {
+    server.use(http.get("/api/projects/:pid/folder-activity", () => HttpResponse.json({ chats: [chat], flow: null, worktree_ok: false })));
+    const { dlg } = await open();
+    const warn = await within(dlg).findByTestId("sf-chat-busy");
+    expect(within(dlg).getByLabelText("Where it runs")).toHaveValue("folder");
+    expect(warn).toHaveTextContent("cannot run this project's tests");
+  });
+});
+
 describe("the Inbox with several flows of one project", () => {
   it("groups the gates under each flow", async () => {
     const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();

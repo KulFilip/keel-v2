@@ -7,5 +7,5 @@ import { checkPluginImports } from "../../../../web/src/test/pluginImports";
 checkPluginImports(
   join(__dirname, ".."),
   "Wiki",
-  ["RefreshStaleButton", "StepInfoDrawer", "Blocks", "useRoute", "definePlugin"],
+  ["RefreshStaleButton", "StepInfoDrawer", "Blocks", "useRoute", "definePlugin", "ProjectNotesOff", "setNotes"],
 );

@@ -28,7 +28,8 @@ from . import explain
 
 ENGINES = ["claude", "opencode", "codex", "copilot", "api"]
 CONFIG = ".keel/config.yml"
-OWNED = ("guards", "mcp", "rules", "boundaries")      # the top-level blocks the Rules page may rewrite
+# the top-level blocks the Rules page may rewrite; 0.18.57 knowledge: the project notes on or off (the Wiki's switch)
+OWNED = ("guards", "mcp", "rules", "boundaries", "knowledge")
 
 
 class RulesError(Exception):
@@ -217,6 +218,10 @@ def _boundaries(raw: dict) -> list[dict]:
 def _check_patch(patch: dict) -> dict:
     if not isinstance(patch, dict) or not patch or set(patch) - set(OWNED):
         raise RulesError(400, f"Only these parts of .keel/config.yml change here: {', '.join(OWNED)}.")
+    k = patch.get("knowledge")
+    if k is not None and (not isinstance(k, dict) or set(k) - {"build"} or
+                          str(k.get("build")).strip().lower() not in ("on", "off")):
+        raise RulesError(400, "knowledge.build is on or off (the project notes).")
     g = patch.get("guards")
     if g is not None:
         if not isinstance(g, dict):

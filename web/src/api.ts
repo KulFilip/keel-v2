@@ -323,6 +323,10 @@ export type FlowWhere = "folder" | "worktree" | "auto";
 export type StartCheck = { worktree?: { ok: boolean; reason?: string; service?: string | null }; base?: string | null };
 /** 0.18.57 who already works on a task (a refused start's `owners`) */
 export type TaskOwner = { kind: "flow" | "side"; id: string; who: string; why: string };
+/** 0.18.57 who else reads the project folder (GET /projects/{pid}/folder-activity): KeelBot's Ask and Edit chats that
+ *  answer now or did lately, the flow there, and whether a worktree flow can run the tests (null: not known). */
+export type FolderActivity = { chats: { id: string; title: string; mode: string; status: string; updated_at?: string | null }[];
+  flow?: string | null; worktree_ok?: boolean | null };
 
 /** v0.8.0 quality runs: an eval set (content/evals) and its cases. */
 export type EvalSet = { name: string; description: string; project: string; problems: string[];
@@ -409,9 +413,13 @@ export type Unlock = { path: string; phase: string };
 export type KeelDoc = { path: string; what: string; by: string; updated: string; status: "ok" | "live" | "check" };
 export type FactKind = "fact" | "rule" | "flaky" | "unlock";
 export type Fact = { id: string; title: string; text: string; kind: FactKind; source: string; at: string };
+/** 0.18.57 the project notes' switch (knowledge.build in .keel/config.yml): on = the agents get them and the flows keep
+ *  them up to date; setting = what the config says (null: nothing, then on only for a project that has notes). */
+export type Notes = { on: boolean; setting: "on" | "off" | null; written: number };
 export type Memory = {
   facts: Fact[];
   knowledge: { id: string; status: "written" | "stale" | "missing"; words: number; cites: number }[];
+  notes?: Notes | null;
 };
 
 // keel v1 .keel/map.json (lib/map.js). Only the parts the Map page draws are typed.
@@ -493,6 +501,8 @@ export type WikiTree = {
   notice?: string | null;
   /** v0.15.8 where keel keeps the project's files: repo | keel | external */
   layout?: string | null;
+  /** 0.18.57 the project notes' switch: off, the menu says so with Build them */
+  notes?: Notes | null;
 };
 export type WikiPage = { id: string; title: string; markdown: string; meta: Record<string, unknown> };
 /** 0.17.3 a spec's build status (the Wiki plugin's GET /projects/{pid}/specs/status). */
@@ -809,7 +819,10 @@ export type HelperMessage = {
     /** 0.18.23 an answer: the mode it ran in, and the model's thinking (kept for a reload, never sent to the model) */
     mode?: string; thinking?: string; thinking_ms?: number;
     /** 0.18.57 an answer: what it was made from (its file:line links open the file as that ref has it) */
-    source?: AnswerSource };
+    source?: AnswerSource;
+    /** 0.18.57 Ask and Edit: the branch of the project folder this answer read, and a switch since the last answer
+     *  (during: while it ran) — the chat's banner "a flow switched this folder to <branch> at <time>" */
+    folder_branch?: string; branch_switch?: FolderSwitch };
   at: string;
 };
 /** 0.18.57 The branch (or commit) an answer was made from, the side session's worktree, and the refs it read files of
@@ -818,6 +831,8 @@ export type AnswerSource = { ref?: string | null; sha?: string | null; worktree?
 /** The ref a `path` cited in an answer belongs to: the ref it was read from, else the answer's own. */
 export const sourceRef = (s: AnswerSource | null | undefined, path: string): string | null =>
   s?.paths?.[path] ?? s?.paths?.[path.replace(/^\.\//, "")] ?? s?.ref ?? null;
+/** 0.18.57 the project folder moved to another branch (a flow on its own branch checked it out) */
+export type FolderSwitch = { from: string; to: string; at?: string | null; by?: string; during?: boolean };
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
@@ -836,6 +851,8 @@ export type HelperSession = {
   /** P1-3 in the session list only: its last user or KeelBot message as one short line ("" when none), and how many
    *  messages it stores (plugins/keelbot helper.py list_sessions) */
   last_message?: string; message_count?: number;
+  /** 0.18.57 Ask and Edit chats: the branch the project folder is on now (the panel compares it with the last answer's) */
+  folder_branch?: string | null;
 };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };
@@ -1139,6 +1156,7 @@ export const api = {
   doctorWorkspace: (pid: string) => post<Diagnosis>(`/projects/${e(pid)}/doctor/workspace`),
   applyDoctor: (pid: string, plan: { action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null; title?: string }[]) =>
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
+  folderActivity: (pid: string) => get<FolderActivity>(`/projects/${e(pid)}/folder-activity`),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;

@@ -50,3 +50,19 @@ export function starters(opts: { flowWaits: boolean; openFile?: string | null })
   if (opts.flowWaits) out.unshift("/gate");
   return out.slice(0, 4);
 }
+
+
+/** 0.18.57 the chat's banner about the project folder's branch: the folder is on another branch now than the last
+ *  answer read (live: the session's folder_branch), or the last answer came after a switch (or during one). */
+export type FolderBanner = { kind: "live" | "switched" | "during"; to: string; from: string; at?: string | null; by?: string };
+
+export function folderBanner(s: Pick<HelperSession, "folder_branch"> | null | undefined, messages: HelperMessage[]): FolderBanner | null {
+  const answers = messages.filter((m) => m.role !== "user" && m.data?.folder_branch);
+  const last = answers[answers.length - 1];
+  if (!last) return null;
+  const read = last.data.folder_branch!;
+  if (s?.folder_branch && s.folder_branch !== read) return { kind: "live", to: s.folder_branch, from: read };
+  const sw = last.data.branch_switch;
+  if (!sw) return null;
+  return { kind: sw.during ? "during" : "switched", to: sw.to, from: sw.from, at: sw.at, by: sw.by };
+}

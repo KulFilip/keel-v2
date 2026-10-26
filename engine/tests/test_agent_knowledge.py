@@ -65,12 +65,13 @@ def test_prompt_block_lists_exactly_the_allowed_files_that_exist(tmp_path):
     assert "codegraph" not in block and "Memory:" not in block
 
 
-def test_prompt_block_says_so_in_one_line_when_no_section_exists(tmp_path):
+def test_prompt_block_says_nothing_when_no_section_exists(tmp_path):
+    # 0.18.57 no knowledge paths at all unless the notes exist and are on: the old "none of your sections exist" line
+    # went into every call and the agent could do nothing with it
     root = tmp_path / "p"
     root.mkdir()
     k = {**ak.for_agent("test-author", {}), "code_graph": False, "memory": False}
-    block = ak.prompt_block(str(root), k, False)
-    assert block.count("\n") == 0 and "none of your sections (domain, conventions) exist" in block
+    assert ak.prompt_block(str(root), k, False) == ""
     assert ak.prompt_block(str(root), {**k, "sections": []}, False) == ""
 
 
@@ -140,6 +141,15 @@ def test_start_thread_knowledge_reaches_the_agent(client, repo, seen):
     assert [s["name"] for s in req.mcp_specs] == []          # code graph off: its server is not handed over
     assert ctx["knowledge_allowed"] == ["data"] and ctx["knowledge_strict"] is True
     assert req.toolbox.read_file("docs/knowledge/domain.md").startswith("REFUSED: knowledge section domain")
+
+
+def test_hints_on_survive_the_start_and_reach_the_agent(client, repo, seen):
+    """0.18.57 the engine's AgentKnowledge model had no `hints` field, so pydantic dropped it at the door: an agent with
+    hints on in the Agents drawer never got the "where to look" list (the RAG evaluation of 0.18.55 found it dead)."""
+    tid = start(client, repo, agents={"explorer": {"knowledge": {"sections": [], "hints": True}}})
+    wait(client, tid)
+    req = next(r for r, _ in seen if r.agent == "explorer")
+    assert req.knowledge["hints"] is True
 
 
 def test_unknown_sections_are_refused_at_start(client, repo):

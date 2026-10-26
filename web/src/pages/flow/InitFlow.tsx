@@ -33,6 +33,8 @@ export function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread
   const kb = memory.data?.knowledge ?? [];
   const writing = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && /librarian/.test(j.agent));
   const written = kb.filter((k) => k.status === "written").length;
+  // 0.18.57 the project notes are opt-in: off and no librarian at work, the lane and the panel say so
+  const notesOff = !!memory.data?.notes && !memory.data.notes.on && !writing.length;
   const [explain, setExplain] = useState<string | null>(null);
   const canvas = useRef<BlocksHandle>(null);
   const waiting = thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
@@ -51,9 +53,10 @@ export function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread
               <span className="sub">plain code · each rung must pass before the next</span>
             </div>
             <div className="lane">
-              <div className="lane-h"><b>Knowledge build</b><span className="sub num">{written} / {kb.length || "?"} sections</span></div>
-              <div className="meter m-ok"><i style={{ width: `${kb.length ? (written / kb.length) * 100 : 0}%`, background: "var(--run)" }} /></div>
-              <span className="sub">{writing.length ? `librarian × ${writing.length} in parallel` : "librarians"} · writes the wiki</span>
+              <div className="lane-h"><b>Knowledge build</b><span className="sub num">{notesOff ? "off" : `${written} / ${kb.length || "?"} sections`}</span></div>
+              {!notesOff && <div className="meter m-ok"><i style={{ width: `${kb.length ? (written / kb.length) * 100 : 0}%`, background: "var(--run)" }} /></div>}
+              <span className="sub">{notesOff ? "project notes are off · agents read the code itself"
+                : `${writing.length ? `librarian × ${writing.length} in parallel` : "librarians"} · writes the wiki`}</span>
             </div>
       </div>
       <div className="grid g2" style={{ marginTop: 16 }}>
@@ -76,7 +79,9 @@ export function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread
           {thread.status !== "waiting" && <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={reload} />}
           <Panel title="Knowledge base → wiki" body="grid">
             <div className="grid" style={{ gap: 8 }}>
-              {memory.error ? <ErrorBox error={memory.error} /> : !kb.length ? <span className="sub">No section yet.</span> : kb.map((k) => {
+              {memory.error ? <ErrorBox error={memory.error} /> : notesOff ? (
+                <span className="sub" data-testid="init-notes-off">Project notes are off: keel's agents read the code itself. Build them at the end of init (<b>Build project notes</b>) or later from the Wiki; they help most in a large repo.</span>
+              ) : !kb.length ? <span className="sub">No section yet.</span> : kb.map((k) => {
                 const live = writing.some((j) => j.agent.includes(k.id) || j.step.includes(k.id));
                 const [tone, lab] = live ? KB_PILL.writing : KB_PILL[k.status] ?? ["idle", k.status];
                 return <div key={k.id} className="row" style={{ justifyContent: "space-between" }}><span><b>{k.id}</b> <span className="sub">{k.words} words · {k.cites} citations</span></span><Pill tone={tone}>{lab}</Pill></div>;

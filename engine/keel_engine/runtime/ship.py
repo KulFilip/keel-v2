@@ -157,6 +157,13 @@ def _memory_plan(a):
     stale (no file a section cites changed since the last knowledge check, else since the branch started): the
     librarian does not run, the check does. Stale: the gate asks update / skip (update recommended), with the sections
     and the files that made them stale. data.memory_plan {state, ask, run, check, text}; data.memory_choice for the PR."""
+    if not knowledge.enabled(a.root):
+        # 0.18.57 the project notes are off (knowledge.build: off, or a new project that never built them): no
+        # librarian, no question, no check
+        plan = {"state": "off", "ask": "no", "run": "no", "check": "no", "text": ""}
+        choice = {"choice": "off", "reason": "project notes are off (knowledge.build: off)"}
+        return _result(True, "Project notes are off: the knowledge step is skipped (the Wiki's Build them turns them on).",
+                       update={"data": {**a.data, "memory_plan": plan, "memory_choice": choice}})
     sel = knowledge.selection(a.root)
     if sel is None:
         plan = {"state": "none", "ask": "no", "run": "no", "check": "no", "text": ""}
@@ -192,7 +199,11 @@ async def knowledge_scan(a):
 def _knowledge_scan(a):
     """knowledge-refresh: which sections are stale (a file they cite changed since the last knowledge check, else since
     the base branch) and which chosen ones are not written yet. data.knowledge_stale {sections, text}: the librarians
-    are told the changed files, and a refresh started without a list refreshes only these sections."""
+    are told the changed files, and a refresh started without a list refreshes only these sections.
+
+    0.18.57 the refresh is a request for the notes: it turns them on (knowledge.build: on in .keel/config.yml, which
+    the memory commit takes along), so agents read what the librarians write."""
+    turned_on = knowledge.set_build(a.root, True)
     v = verdicts.latest(a.key, "memory")
     since = (v or {}).get("commit") if v and v.get("ok") else None
     if not since and git.is_repo(a.root):
@@ -204,6 +215,8 @@ def _knowledge_scan(a):
         [f"- {n}: not written yet (write it from the code)" for n in missing]
     names = [s["name"] for s in found] + missing
     note = (f"stale: {', '.join(names)}" if names else "no section is stale (no file a section cites changed)")
+    if turned_on:
+        note += "; project notes turned on (knowledge.build: on)"
     return _result(True, note, update={"data": {**a.data, "knowledge_stale": {"sections": names, "text": "\n".join(lines)
                                                                               or "(no section is stale: refresh only what you were given)"}}})
 

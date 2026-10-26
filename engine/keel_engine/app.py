@@ -129,6 +129,9 @@ class AgentKnowledge(BaseModel):
     code_graph: bool | None = None
     memory: bool | None = None
     strict: bool | None = None
+    # 0.18.57 the "where to look" lookups (agent_knowledge.py): without this field pydantic dropped it, so hints on in
+    # the Agents drawer never reached a flow's agent or KeelBot
+    hints: bool | None = None
 
 
 class AgentSettings(BaseModel):
@@ -268,6 +271,9 @@ class EstimateBody(BaseModel):
     history: list[dict[str, Any]] | None = None
     models: dict[str, ModelSpec] | None = None   # optional: agent -> model, for cost and by_provider
     knowledge_tokens: dict[str, int] | None = None   # optional: agent -> tokens of the knowledge it is given
+    # 0.18.57 optional: the project folder; for the knowledge-refresh flow (building the project notes) a librarian
+    # with no history then also counts what it reads of the code (runtime/knowledge.py librarian_read_tokens)
+    root: str | None = None
 
 
 class ExplainBody(BaseModel):
@@ -444,7 +450,12 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         if r.get("workflow") is None:
             return _err(400, "The workflow does not parse.", "; ".join(r["errors"]), r["errors"])
         m = {k: v.model_dump() for k, v in (body.models or {}).items()}
-        return estimate(r["workflow"], body.acs, body.history, m, body.knowledge_tokens)
+        kt = dict(body.knowledge_tokens or {})
+        if body.root and os.path.isdir(body.root) and r["workflow"].id == "knowledge-refresh":
+            from .runtime import knowledge as knowledge_mod
+
+            kt["librarian"] = kt.get("librarian", 0) + await asyncio.to_thread(knowledge_mod.librarian_read_tokens, body.root)
+        return estimate(r["workflow"], body.acs, body.history, m, kt)
 
     @app.post("/diagrams/ascii")
     async def post_diagram(body: DiagramBody):

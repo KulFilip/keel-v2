@@ -115,7 +115,7 @@ def test_audit_now_can_start_a_hunt(client, repo, monkeypatch):
     answers(monkeypatch, {})
     tid = start(client, repo, workflow="init", title="keel init", settings=SETTINGS)
     s = to(client, tid, wait(client, tid), "audit_now")
-    assert s["waiting"]["choices"] == ["skip", "hunt"] and "liveness only" in s["waiting"]["detail"]
+    assert s["waiting"]["choices"] == ["skip", "hunt", "notes"] and "liveness only" in s["waiting"]["detail"]
     s = decide(client, tid, "approve", payload={"choice": "hunt"})
     assert s["status"] == "done"
     child = s["children"][0]

@@ -349,8 +349,9 @@ def test_ship_end_to_end_with_skips_a_verify_fix_and_a_routed_review_fix(client,
     s = decide(client, tid, "approve")
     assert s["status"] == "done", s
     assert "No GitHub token" in finished(client, tid, "open_pr")[-1]["note"]
-    # the demo has no knowledge base: no librarian, no knowledge question; the docs step ran first (it changed nothing)
-    assert not any(r.agent == "librarian" for r in seen) and values(client, tid)["data"]["memory_choice"]["choice"] == "none"
+    # the demo has no knowledge base (0.18.57: so its notes are off): no librarian, no knowledge question; the docs step
+    # ran first (it changed nothing)
+    assert not any(r.agent == "librarian" for r in seen) and values(client, tid)["data"]["memory_choice"]["choice"] == "off"
     assert [r.phase for r in seen if r.agent == "implementer"][0] == "close"
     v = values(client, tid)
     assert [x["step"] for x in v["data"]["ship_skipped"]] == ["release", "spec_walk"]

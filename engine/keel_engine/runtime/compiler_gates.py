@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from . import choices as choices_mod, clarify, flow_actions, init_gates, markers, md, notice, prompts, ship as ship_mod, spec_check
+from . import choices as choices_mod, clarify, flow_actions, init_gates, knowledge, markers, md, notice, prompts, ship as ship_mod, spec_check
 from .. import rules
 from ..workflows.model import Loop, Step
 from .gate_state import deep_gates
@@ -596,7 +596,13 @@ class GateMixin:
         config; approving without answers takes the recommended options (keel's defaults). An old client's "Use my
         answers" (a send-back with typed words) still goes through the keyword parser."""
         root, fast = self.ctx.root, bool(self.ctx.settings.get("fast"))
-        asked = init_gates.clarify_questions(root, fast=fast)
+        # 0.18.57 the project notes are opt-in: the question says what building them costs (this project's models,
+        # what the librarians read of its code); a failing estimate never hides the question
+        try:
+            cost = knowledge.build_estimate(root, self.ctx.models)["label"]
+        except Exception:  # noqa: BLE001
+            cost = None
+        asked = init_gates.clarify_questions(root, fast=fast, cost=cost)
         answer, extra = self._ask(state, {
             "step": step.id, "kind": "clarify", "title": f"{_c._COUNT.get(len(asked), len(asked))} questions",
             "detail": clarify.describe(asked),
@@ -611,8 +617,10 @@ class GateMixin:
         else:
             init = init_gates.answers(root, why if mine else None, fast=fast)
             said = "answered: " + why if mine else "defaults"
+        if cost:
+            init["notes_cost"] = cost          # run only (the plan and the hand-over say it), never in the config
         gates["log"].append(f"gate questions: {said}"[:300] + (f" ({why})" if answer.get("auto") else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve",
                                                           "why": said if said != "defaults" else "defaults"})
         return {"gates": gates, **extra, "init": init,
-                "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k not in ("said", "write_sections"))[:300]}
+                "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k not in ("said", "write_sections", "notes_cost"))[:300]}
