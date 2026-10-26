@@ -131,7 +131,7 @@ export function ChatList({ pid, chats, folders, current, unread, onOpen, onNew, 
               title={s.title}>
               <span className="hp-chat-t">{s.title}</span>
               <span className="hp-chat-m">
-                <span className={`hp-chat-mode ${s.mode}`}>{MODE_TAG[s.mode] ?? s.mode}</span>
+                <span className={`hp-chat-mode hp-${s.mode}`}>{MODE_TAG[s.mode] ?? s.mode}</span>
                 {running ? <span className="hp-chat-run">answering…</span> : <span>{ago(s.updated_at)}</span>}
               </span>
               {n > 0 && <span className="hp-chat-new" aria-label={n === 1 ? "1 new answer" : `${n} new answers`}>{n}</span>}

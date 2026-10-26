@@ -103,7 +103,7 @@ export function SideBar({ s, handover, busy, onTask, onFlow, onThrow }: {
 }) {
   if (!s) {
     return (
-      <div className="hp-fixbar side">
+      <div className="hp-fixbar hp-side">
         <p>A side session works in its own copy of the project: a git worktree on a new branch. Nothing it does touches the
           project folder or a flow running there.</p>
       </div>
@@ -111,14 +111,14 @@ export function SideBar({ s, handover, busy, onTask, onFlow, onThrow }: {
   }
   if (!s.worktree) {
     return (
-      <div className="hp-fixbar side">
+      <div className="hp-fixbar hp-side">
         <p><b>Handed over.</b> Branch <code>{s.branch}</code> stays; its worktree is gone. Start a new chat to go on.</p>
       </div>
     );
   }
   const kept = handover?.commits ?? [];
   return (
-    <div className="hp-fixbar side">
+    <div className="hp-fixbar hp-side">
       <p>Side session on branch <b className="mono">{s.branch}</b>, in its own copy of the project. The project folder and
         any flow in it are untouched.</p>
       {kept.length > 0 && (

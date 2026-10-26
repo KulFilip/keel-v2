@@ -734,7 +734,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             : editMode
               ? <span className="hp-mode fix" title="Edit mode: KeelBot changes files in the project folder; keel's always-on rules apply">Edit · project folder</span>
             : side
-              ? <span className="hp-mode side" title={s?.branch ? `Branch ${s.branch}` : "Its own worktree and branch"}>Side{s?.branch ? ` · ${s.branch.split("/").pop()}` : ""}</span>
+              ? <span className="hp-mode hp-side" title={s?.branch ? `Branch ${s.branch}` : "Its own worktree and branch"}>Side{s?.branch ? ` · ${s.branch.split("/").pop()}` : ""}</span>
               : <span className="hp-mode" title="Ask mode: KeelBot reads and answers; it changes no file">Ask · read only</span>}
         </div>
         <div className="hp-tools">
