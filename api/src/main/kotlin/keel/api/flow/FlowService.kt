@@ -269,17 +269,23 @@ class FlowService(
         return if (want > settingsCap) want.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
     }
 
+    /**
+     * [force] 0.18.57 one owner per task: null (keel's own starts: a review child, a hand-over) checks nothing; false (the
+     * dashboard, MCP keel_start_flow, Tasks › Start) refuses while another flow or side agent of the project works on
+     * the same ticket, branch or files; true starts anyway.
+     */
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
               allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
               options: Map<String, Any?>? = null, where: String? = null, model: Model? = null,
-              ownBranch: Boolean = true, branch: String? = null): JsonNode {
+              ownBranch: Boolean = true, branch: String? = null, force: Boolean? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap, model)
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
+        if (force == false) refuseOwners(pid, root, title, request, options, if (branch == "continue") projects.branch(root) else null)
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
-        val wt = if (inWorktree(pid, where)) worktreeFor(pid, root, title, workflowId) else null
+        val wt = if (inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId) else null
         var madeBranch: MadeBranch? = null
         if (wt == null) {
             refuseDirty(root, allowDirty)
@@ -346,19 +352,81 @@ class FlowService(
         )
     }
 
-    /** keel commits only what its agents change; uncommitted work in the tree is a reason to stop and ask first. */
+    /** 0.18.57 one owner per task: the flows and side agents of the project that already work on the same ticket, branch
+     *  or files as a new start, each as "flow <title> at <step>" / "side agent <id>" with why. */
+    fun owners(pid: String, root: Path, title: String, request: String?, options: Map<String, Any?>?, branch: String? = null,
+               exceptSession: String? = null): List<Map<String, String>> {
+        val ticket = ticketOf(options?.get("ticket")?.toString(), title, request)
+        val wanted = pathsIn("$title\n${request.orEmpty()}")
+        val out = mutableListOf<Map<String, String>>()
+        val base = workspace.base(root)
+        jdbc.query("SELECT id, title, current, worktree, branch, state_json FROM threads WHERE project_id = ? AND status IN ('running','waiting') ORDER BY created_at",
+            { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6)) }, pid,
+        ).forEach { row ->
+            val (id, t, current, wt, br) = row
+            val json = row[5]
+            val st = runCatching { mapper.readTree(json ?: "{}") }.getOrNull()
+            val theirTicket = ticketOf(st?.path("data")?.path("ticket")?.asText(null), t.orEmpty(), null)
+            val dir = if (wt.isNullOrBlank()) root else root.resolve(".keel/worktrees").resolve(wt)
+            val why = when {
+                ticket != null && ticket == theirTicket -> "the same ticket $ticket"
+                branch != null && br != null && branch == br -> "the same branch $branch"
+                else -> sharedFiles(wanted, changedFiles(dir, base) + pathsIn(t.orEmpty()))?.let { "the same files: ${it.take(5).joinToString()}" }
+            } ?: return@forEach
+            out += mapOf("kind" to "flow", "id" to id, "who" to "flow ${t ?: id.take(8)} at ${current ?: "its start"}", "why" to why)
+        }
+        val sessions = runCatching { engine.get("/helper/sessions?project={pid}", mapOf("pid" to pid)) }.getOrNull()
+        sessions?.forEach { s ->
+            val sid = s.path("id").asText()
+            if (s.path("mode").asText() != "side" || sid == exceptSession) return@forEach
+            val path = s.path("worktree").asText("")
+            if (path.isBlank() || !java.nio.file.Files.isDirectory(Paths.get(path))) return@forEach
+            val t = s.path("title").asText("")
+            val why = when {
+                ticket != null && ticket == ticketOf(null, t, null) -> "the same ticket $ticket"
+                branch != null && branch == s.path("branch").asText("") -> "the same branch $branch"
+                else -> sharedFiles(wanted, changedFiles(Paths.get(path), s.path("base_sha").asText(null)) + pathsIn(t))
+                    ?.let { "the same files: ${it.take(5).joinToString()}" }
+            } ?: return@forEach
+            out += mapOf("kind" to "side", "id" to sid, "who" to "side agent $sid (${t.take(60)})", "why" to why)
+        }
+        return out
+    }
+
+    /** The owners as a refusal (409 with `owners`): who works on it, and how to start anyway. */
+    fun refuseOwners(pid: String, root: Path, title: String, request: String?, options: Map<String, Any?>?, branch: String? = null,
+                     exceptSession: String? = null) {
+        val found = owners(pid, root, title, request, options, branch, exceptSession)
+        if (found.isEmpty()) return
+        val lines = found.joinToString("; ") { "${it["who"]} works on ${it["why"]}" }
+        throw ApiException(HttpStatus.CONFLICT, "Someone already works on this: $lines",
+            "Two agents on one task write over each other. Wait for it, stop it, or start anyway (force).",
+            mapOf("owners" to found))
+    }
+
+    /** keel commits only what its agents change; uncommitted work in the tree is a reason to stop and ask first.
+     *  0.18.57 tool folders that are nobody's work (.serena/, .idea/, .vscode/, .fleet/, .DS_Store,
+     *  .claude/settings.local.json) never block; the refusal lists the untracked paths that can be ignored instead
+     *  (`ignorable`: Ignore this path adds it to .git/info/exclude, POST /projects/{pid}/doctor/workspace/exclude). */
     private fun refuseDirty(root: Path, allowDirty: Boolean) {
         if (allowDirty) return
         val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
         // v0.15.8 layout keel / external: .keel/ holds keel's own files, outside git (the engine hides it at flow start)
         val hidden = keel.api.knowledge.Layout.resolve(root).hidden
-        val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
-            .filterNot { WorkspaceDoctor.isEngineFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
+        val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim().removeSurrounding("\"") }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
         if (files.isEmpty()) return
-        throw Conflict(
+        // the untracked entries as git shows them by default (a new folder once, not every file in it)
+        val ignorable = workspace.git(root, "status", "--porcelain", "--untracked-files=normal").out.lines()
+            .filter { it.startsWith("?? ") }.map { it.substring(3).trim().removeSurrounding("\"") }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel/" || it.startsWith(".keel/"))) }
+        val ignoreHint = if (ignorable.isEmpty()) "" else
+            " A path that is not your work (a tool's folder, notes): Ignore this path adds it to .git/info/exclude (this computer only) — ${ignorable.take(5).joinToString()}."
+        throw ApiException(HttpStatus.CONFLICT,
             "This project has uncommitted changes (${files.size} file${if (files.size == 1) "" else "s"}): ${files.take(5).joinToString()}${if (files.size > 5) ", …" else ""}",
-            "Commit or stash them first, so keel's commits hold only what its agents wrote. Or tick \"Start anyway\": your files then stay out of keel's commits.",
+            "Commit or stash them first, so keel's commits hold only what its agents wrote. Or tick \"Start anyway\": your files then stay out of keel's commits.$ignoreHint",
+            mapOf("dirty" to files.take(50), "ignorable" to ignorable.take(50)),
         )
     }
 
@@ -368,10 +436,29 @@ class FlowService(
         { rs, _ -> rs.getString(1) }, pid,
     ).firstOrNull()
 
-    /** Where a new flow runs: auto = the project folder when it is free, else a worktree of its own next to that flow. */
-    private fun inWorktree(pid: String, where: String?): Boolean {
+    /** 0.18.57 what a start should know (engine GET /start-check): can a worktree flow reach the tests, is the base
+     *  branch behind its remote. Null when the engine cannot say (an older engine, the engine down). */
+    fun startCheck(pid: String): JsonNode? {
+        val root = projects.root(pid)
+        return runCatching { engine.get("/start-check?root={root}", mapOf("root" to root.toString())) }
+            .onFailure { log.debug("no start check for {}: {}", pid, it.message) }.getOrNull()
+    }
+
+    /** Where a new flow runs: auto = the project folder when it is free, else a worktree of its own next to that flow.
+     *  0.18.57 a project whose tests run in a container that sees only the project folder: auto never picks a
+     *  worktree (its tests would run on the folder's code), and a second flow waits until the folder is free. */
+    private fun inWorktree(pid: String, where: String?, root: Path? = null): Boolean {
         val busy = folderFlow(pid) != null
-        return when (where?.trim()?.lowercase()) {
+        val choice = where?.trim()?.lowercase()
+        if (busy && (choice == null || choice == "" || choice == "auto")) {
+            val fit = startCheck(pid)?.path("worktree")
+            if (fit != null && fit.path("ok").isBoolean && !fit.path("ok").asBoolean()) {
+                val reason = fit.path("reason").asText("its tests cannot run in a worktree")
+                throw Conflict("A flow already runs in the project folder, and this project's flows run there: $reason",
+                    "Wait until that flow ends (or stop it), then start this one. Only one flow at a time can test this project.")
+            }
+        }
+        return when (choice) {
             null, "", "auto" -> busy
             "worktree" -> true
             "folder" -> if (busy) throw Conflict("A flow already runs in the project folder",

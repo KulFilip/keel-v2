@@ -72,6 +72,8 @@ class StubApi:
         self.thread = thread
         self.posts: list[tuple[str, dict]] = []
         self.fake_keel = False
+        self.dirty: list[str] = []          # 0.18.57 untracked paths that refuse a start until ignored
+        self.owner: dict | None = None      # 0.18.57 who already works on the task
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         path = req.url.path
@@ -82,10 +84,21 @@ class StubApi:
         if req.method == "POST" and path == "/api/projects/shop/flows":
             body = json.loads(req.content)
             self.posts.append((path, body))
+            if self.dirty and not body.get("allow_dirty"):
+                return httpx.Response(409, json={"error": f"This project has uncommitted changes (1 file): {self.dirty[0]}notes.md",
+                                                 "hint": "Commit or stash them first.", "dirty": [f"{self.dirty[0]}notes.md"],
+                                                 "ignorable": list(self.dirty)})
+            if self.owner and not body.get("force"):
+                return httpx.Response(409, json={"error": "Someone already works on this", "owners": [self.owner]})
             if self.fake_keel and not body.get("allow_fake"):
                 return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
                                                           "files, not real code.", "hint": "Pick a real model."})
             return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
+        if req.method == "POST" and path == "/api/projects/shop/doctor/workspace/exclude":
+            body = json.loads(req.content)
+            self.posts.append((path, body))
+            self.dirty = [d for d in self.dirty if d != body["path"]]
+            return httpx.Response(200, json={"results": [], "remaining": [], "clean": True})
         routes = {
             "/api/projects": PROJECTS,
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
@@ -647,3 +660,22 @@ def test_read_actions_match_the_api():
     assert {n for n, lv in ACTION_LEVELS.items() if lv == "read"} == {
         "audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope", "lint_report", "review_lenses"}
     assert {n for n, lv in ACTION_LEVELS.items() if lv == "admin"} == {"arch_set", "open_pr"}
+
+
+def test_a_refused_start_says_how_on_ignore_a_path_allow_dirty_or_force(stub):
+    """0.18.57 a start refused for an untracked folder names it and keel_start_flow(ignore=[...]) adds it to
+    .git/info/exclude first; a start on a task another flow owns names it and force=true starts anyway."""
+    import pytest as _pytest
+
+    stub.dirty = ["meeting/"]
+    with _pytest.raises(mcp_server.ApiError) as err:
+        mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0)
+    assert "ignore=['meeting/']" in str(err.value) and "allow_dirty=true" in str(err.value)
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0, ignore=["meeting/"])
+    assert ("/api/projects/shop/doctor/workspace/exclude", {"path": "meeting/"}) in stub.posts
+    assert text.startswith("ignored on this computer (.git/info/exclude): meeting/")
+    stub.owner = {"kind": "flow", "id": "t-1", "who": "flow SHOPS-1234: Euro prices at red", "why": "the same ticket SHOPS-1234"}
+    with _pytest.raises(mcp_server.ApiError, match="flow SHOPS-1234: Euro prices at red .*force=true"):
+        mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0)
+    mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0, force=True)
+    assert stub.posts[-1][1]["force"] is True

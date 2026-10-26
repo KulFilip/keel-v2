@@ -165,7 +165,7 @@ class TaskService(
                 FlowCap(capTokens = b.capTokens, runMode = b.runMode?.trim()?.ifEmpty { null }),
                 allowFake = b.allowFake, allowDirty = b.allowDirty, request = request, branch = "new",
                 // the engine names the ticket in every commit of the flow (data.ticket), so the ticket scan links them
-                options = t.externalKey?.let { mapOf("ticket" to it) })
+                options = t.externalKey?.let { mapOf("ticket" to it) }, force = b.force)
         } catch (e: ApiException) {
             // A used-up cap, uncommitted files, the fake model, an unknown workflow: the task stays where it is and its history says why.
             store.event(id, "start_refused", t.status, t.status, "The $wid flow did not start: ${e.message}${e.hint?.let { " $it" } ?: ""}", "keel")

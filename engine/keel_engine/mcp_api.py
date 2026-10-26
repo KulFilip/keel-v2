@@ -17,9 +17,10 @@ MCP_TOKEN_HEADER = "X-Keel-Mcp-Token"
 
 
 class ApiError(Exception):
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, body: dict | None = None):
         super().__init__(message)
         self.status = status     # the api's HTTP status, when it answered
+        self.body = body or {}   # 0.18.57 the error's other fields (a refused start: ignorable paths, owners)
 
 
 def internal_token() -> str:
@@ -98,14 +99,15 @@ class KeelApi:
         except httpx.HTTPError as exc:
             raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}). Is keel running? (keel2 status)") from exc
         if res.status_code >= 400:
+            body = None
             try:
                 body = res.json()
                 msg = body.get("error") or res.text
                 if body.get("hint"):
                     msg += f" ({body['hint']})"
-            except ValueError:
+            except (ValueError, AttributeError):
                 msg = res.text[:300]
-            raise ApiError(f"{method} {path}: {res.status_code} {msg}", res.status_code)
+            raise ApiError(f"{method} {path}: {res.status_code} {msg}", res.status_code, body if isinstance(body, dict) else None)
         return res
 
     def _send(self, method: str, path: str, **kw) -> Any:

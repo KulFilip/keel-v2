@@ -57,7 +57,8 @@ START_POLL = 2
 def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | None = None, sleep=time.sleep,
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
-               run_mode: str | None = None) -> str:
+               run_mode: str | None = None, allow_dirty: bool = False, ignore: list[str] | None = None,
+               force: bool = False) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -78,6 +79,15 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     title = body["title"]
     if allow_fake:
         body["allow_fake"] = True        # v0.17.5 like the web's "Run with the fake model anyway" box
+    if allow_dirty:
+        body["allow_dirty"] = True       # 0.18.57 like the web's "Start anyway" box
+    if force:
+        body["force"] = True             # 0.18.57 although another flow or side agent works on the same task
+    ignored = []
+    for path in ignore or []:
+        # 0.18.57 "Ignore this path": an untracked path that is not the person's work goes to .git/info/exclude
+        api.post(f"/projects/{p['id']}/doctor/workspace/exclude", {"path": path})
+        ignored.append(path)
     if run_mode:
         # 0.18.28 the run mode the person asked for, from the first gate on (a keel_run_mode call after the start came
         # too late for the gates before it, and without a thread id could set another flow's mode)
@@ -90,6 +100,18 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         if exc.status == 409 and "fake model" in str(exc) and not allow_fake:
             raise ApiError(f"{exc}\nTo run it on the fake model anyway (example files, committed on the flow's branch), "
                            "call keel_start_flow again with allow_fake=true.", exc.status) from exc
+        if exc.status == 409 and exc.body.get("dirty") is not None:
+            paths = [str(x) for x in exc.body.get("ignorable") or []]
+            ways = ([f"ignore a path that is not the person's work (it goes to .git/info/exclude, this computer only): "
+                     f"keel_start_flow(..., ignore={paths[:5]!r})"] if paths else []) + \
+                ["start anyway, their files stay out of keel's commits: keel_start_flow(..., allow_dirty=true)",
+                 "or ask the person to commit or stash them"]
+            raise ApiError(f"{exc}\nWays forward (ask the person which):\n" + "\n".join(f"- {w}" for w in ways), exc.status, exc.body) from exc
+        if exc.status == 409 and exc.body.get("owners"):
+            who = "; ".join(f"{o.get('who')} ({o.get('why')})" for o in exc.body["owners"])
+            raise ApiError(f"refused: someone already works on this: {who}. Wait for it or stop it; to start anyway "
+                           "(two agents on one task write over each other) call keel_start_flow again with force=true.",
+                           exc.status, exc.body) from exc
         raise
     tid = state.get("thread_id")
     deadline = time.monotonic() + wait
@@ -104,6 +126,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
            else "The flow is starting: it has not reached its first step yet.")
     out = [f'started {type} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
            "recorded as started via MCP.", now]
+    if ignored:
+        out.insert(0, "ignored on this computer (.git/info/exclude): " + ", ".join(ignored))
     if first:
         out.insert(0, first.rstrip("\n"))
     if state.get("waiting"):
@@ -632,6 +656,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               allow_fake: bool = False, title: str | None = None, request: str | None = None,
                               ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
+                              allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
                               ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
@@ -642,12 +667,16 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         review, scope for lint, branch and base for review-pr). It runs under keel's guard, budget and records, and
         stops at its first human gate. allow_fake: start it even though agents use the fake model (it writes example
         files), like the dashboard's checkbox. run_mode: manual, important, auto or readonly for this flow (default the
-        project's setting); pass it here when the person names one, not with keel_run_mode afterwards."""
+        project's setting); pass it here when the person names one, not with keel_run_mode afterwards. A refused start
+        says why and how on: allow_dirty starts with the person's uncommitted files left out of keel's commits; ignore
+        lists untracked paths that are not their work (added to .git/info/exclude first); force starts although another
+        flow or side agent works on the same ticket, branch or files. Use them only when the person said so."""
         if not type:
             from . import mcp_flows
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
-                         time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode)
+                         time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode,
+                         allow_dirty, ignore, force)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
@@ -771,10 +800,12 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_agent_start(task: str, mode: Literal["side", "ask"] = "side", project: str | None = None,
-                               ctx: Context | None = None) -> str:
+                               force: bool = False, ctx: Context | None = None) -> str:
         """Start an agent of the person's own on a task: side works in its own git worktree and branch (the project's
-        folder stays as it is), ask only reads. It works on its own; keel_agent shows how it does."""
-        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project)
+        folder stays as it is), ask only reads. It works on its own; keel_agent shows how it does. A side agent on what a
+        flow or another side agent already works on (the same ticket or files) is refused, naming it; force starts it
+        anyway (only when the person said so)."""
+        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project, force)
 
     @reg(rw)
     async def keel_keelbot_ask(text: str, chat: str | None = None, mode: Literal["ask", "edit", "fix", "side"] = "ask", wait: int = 120,
