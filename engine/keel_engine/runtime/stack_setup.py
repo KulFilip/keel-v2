@@ -914,8 +914,15 @@ def prepare(root: str, progress: Callable[..., None] | None = None, runner=None)
 
 
 def prepare_in_background(root: str) -> threading.Thread | None:
-    """A side session's new worktree (no flow, no gate): each_worktree in a daemon thread, logged and recorded."""
+    """A side session's new worktree (no flow, no gate): each_worktree in a daemon thread, logged and recorded. 0.18.57
+    nothing when the project's commands run in a container: `docker compose exec` from the worktree reaches the project
+    folder's container, not this copy."""
     try:
+        from . import container
+
+        if container.in_container(root):
+            log.info("stack setup for %s skipped: the project's commands run in a container", root)
+            return None
         jobs = worktree_jobs(root)
     except Exception:       # noqa: BLE001
         log.exception("stack setup for %s", root)

@@ -142,3 +142,10 @@ def test_the_start_check_endpoint(client, tmp_path):
     r = client.get("/start-check", params={"root": str(root)})
     assert r.status_code == 200, r.text
     assert r.json()["worktree"]["ok"] is False and r.json()["base"] is None
+
+
+def test_a_side_session_worktree_runs_nothing_when_the_commands_run_in_a_container(tmp_path, monkeypatch):
+    root = shop(tmp_path)
+    _stack(root)
+    monkeypatch.setattr(stack_setup, "needs_approval", lambda d: False)
+    assert stack_setup.prepare_in_background(str(root)) is None

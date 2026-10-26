@@ -81,4 +81,18 @@ class FlowStartChecksApiTest : ApiTest() {
         engine.nextThreadIds.add("t-own-c")
         start(pid, "title" to "Prices in euros", "options" to mapOf("ticket" to "SHOPS-1234"), "force" to true).andExpect(status().isOk)
     }
+
+    @Test
+    fun `the project's doctor lists stale commands from the engine's config check`() {
+        val (pid, root) = newProject("stale")
+        engine.extraRoutes["/config-check"] = { _ -> 200 to mapOf("stale" to listOf(mapOf("key" to "smoke", "line" to 3)),
+            "lines" to listOf(".keel/config.yml:3 commands.smoke: the Makefile has no target 'smoke' (make smoke)")) }
+        try {
+            val res = get("/api/projects/$pid/doctor/config").andExpect(status().isOk).json()
+            assertThat(res["lines"][0].asText()).startsWith(".keel/config.yml:3 commands.smoke")
+            assertThat(engine.calls.last { it.path == "/config-check" }.query).contains("root=")
+        } finally {
+            engine.extraRoutes.remove("/config-check")
+        }
+    }
 }

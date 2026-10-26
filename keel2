@@ -1020,10 +1020,28 @@ cmd_doctor() {
   if [ -n "${1:-}" ]; then
     local p; p="$(project_path "$1")"
     if [ -d "$p/.git" ] || ls -d "$p"/*/.git >/dev/null 2>&1; then ok "project: $p is a git repository"
-      local dirty; dirty="$(git -C "$p" status --porcelain 2>/dev/null | grep -v '^?? .keel/' | wc -l | tr -d ' ')"
+      local dirty; dirty="$(git -C "$p" status --porcelain 2>/dev/null | { grep -v '^?? .keel/' || true; } | wc -l | tr -d ' ')"
       [ "$dirty" = 0 ] || warn "project has $dirty uncommitted change(s); keel will ask (or its Doctor helps) before a flow starts"
     else bad "project: $p is not a git repository (keel2 start offers git init)"; problems=$((problems + 1)); fi
     check_shared "$p"
+    # 0.18.57 commands in .keel/config.yml that cannot run as written (a compose service, script or target that is gone)
+    if [ -f "$p/.keel/config.yml" ] && container_running; then
+      local pid stale
+      pid="$(kcurl -fs -m 10 "$(api)/projects" 2>/dev/null | kpy -c 'import json, sys
+p = sys.argv[1]
+print(next((x.get("id", "") for x in json.load(sys.stdin) if x.get("root") == p), ""))' "$p" 2>/dev/null || true)"
+      if [ -n "$pid" ]; then
+        if stale="$(kcurl -fs -m 20 "$(api)/projects/$pid/doctor/config" 2>/dev/null | kpy -c 'import json, sys
+for line in json.load(sys.stdin).get("lines") or []:
+    print(line)' 2>/dev/null)"; then
+          if [ -z "$stale" ]; then ok "the commands in .keel/config.yml are runnable as written"
+          else
+            while IFS= read -r line; do bad "stale command: $line"; problems=$((problems + 1)); done <<< "$stale"
+            info "  ${D}Fix them in .keel/config.yml (or run keel's init again).${N}"
+          fi
+        fi
+      fi
+    fi
   fi
   if [ "$problems" = 0 ]; then info "${G}All good.${N}"; else info "${R}$problems problem(s) found.${N} Fix them and run keel2 doctor again."; return 1; fi
 }

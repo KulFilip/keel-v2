@@ -126,6 +126,9 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await asyncio.to_thread(knowledge_check, a)
     if action == "push_check":
         return await asyncio.to_thread(push_check, a)
+    if action == "config_check":
+        from . import config_check
+        return await asyncio.to_thread(config_check.action, a)
     if action.startswith("run:"):
         return await run_command(action[4:].strip(), a)
     if extensions.owner(action):
