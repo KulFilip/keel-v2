@@ -355,6 +355,8 @@ button.sb-i:disabled:hover { background: none; }
   .repo-page .top p { display: none; }
 }
 .ide.phone { grid-template-columns: minmax(0, 1fr); border-radius: 8px; }
+/* a view with its own width (Source control, Review) is one column on a phone too, not squeezed beside a 44 px bar */
+.ide.phone.side-own:not(.side-closed):not(.help-open) { grid-template-columns: minmax(0, 1fr); }
 .ide.phone.s-side { grid-template-rows: auto minmax(0, 1fr) 24px; grid-template-areas: "act" "side" "sb"; }
 .ide.phone.s-editor { grid-template-rows: minmax(0, 1fr) 24px; grid-template-areas: "main" "sb"; }
 .ide.phone.s-side .ide-main, .ide.phone.s-editor .ide-side, .ide.phone.s-editor .ide-act { display: none; }
