@@ -11,7 +11,7 @@
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorLines, errorParts, type Agent, type Estimate, type OnCap, type Step, type StepKind, type Workflow } from "../api";
-import { Blocks, BlocksLegend, Palette, StepTable, type BlocksHandle } from "../components/Blocks";
+import { afterStep, Blocks, BlocksLegend, Palette, StepTable, type BlocksHandle } from "../components/Blocks";
 import { useBuilder, type BuilderApi } from "../components/Builder";
 import { clone, same, updateStep } from "../components/builderOps";
 import { CodeEditor, type LineError } from "../components/CodeEditor";
@@ -435,7 +435,7 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
             </section>
           ) : (
             <section className="wf-canvas" aria-label="Blocks">
-              <Palette onAdd={addFromPalette} where={step ? `after ${step.name}` : "at the end"} />
+              <Palette onAdd={addFromPalette} where={afterStep(step)} />
               <Blocks ref={canvas} steps={w.steps} tokens={tokens} acCount={acs} customAgents={customAgents} keel={w.keel_rules} selected={sel}
                 onOpenStep={(id) => { select(id); b.closeInsert(); }}
                 edit={{
@@ -696,7 +696,7 @@ function Inspector({ w, s, agents, onChange, onMove, onRemove, onPick, onClose, 
         </span>
       </div>
       <div className="panel-body grid" style={{ gap: 12 }}>
-        <div className="field"><label htmlFor="wn">Name</label><input type="text" id="wn" value={s.name} onChange={(e) => onChange({ name: e.target.value })} /></div>
+        <div className="field"><label htmlFor="wn">Name</label><input type="text" id="wn" value={s.name ?? ""} onChange={(e) => onChange({ name: e.target.value })} /></div>
         <div className="field"><span className="lab">Kind</span>
           <span className={`sx-kind k-${s.kind} insp-kind`}>{KIND[s.kind].replace("◆ ", "")}{s.included_from ? <span className="sub"> · from the {s.included_from.split("/")[0]} flow</span> : null}{locked ? <span className="sub"> · 🔒 keel rule</span> : null}</span>
         </div>

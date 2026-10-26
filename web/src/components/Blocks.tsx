@@ -509,16 +509,17 @@ function factsLine(f: StepFacts, inLoop: boolean): string {
 function Tools({ ctx, s, row }: { ctx: Ctx; s: Step; row: Row }) {
   const edit = ctx.p.edit!;
   const locked = !!s.lock && ctx.p.keel !== false;
+  const label = stepLabel(s);
   return (
-    <span className="sb-tools" role="group" aria-label={`Move or remove ${s.name}`}>
-      <button type="button" className="sb-tool" aria-label={`Move ${s.name} earlier`} disabled={row.index === 0} onClick={() => edit.onMove(s.id, -1)}>↑</button>
-      <button type="button" className="sb-tool" aria-label={`Move ${s.name} later`} disabled={row.index === ctx.p.steps.length - 1} onClick={() => edit.onMove(s.id, 1)}>↓</button>
+    <span className="sb-tools" role="group" aria-label={`Move or remove ${label}`}>
+      <button type="button" className="sb-tool" aria-label={`Move ${label} earlier`} disabled={row.index === 0} onClick={() => edit.onMove(s.id, -1)}>↑</button>
+      <button type="button" className="sb-tool" aria-label={`Move ${label} later`} disabled={row.index === ctx.p.steps.length - 1} onClick={() => edit.onMove(s.id, 1)}>↓</button>
       {locked ? (
-        <button type="button" className="sb-tool is-lock" aria-label={`${s.name} is a keel rule`} onClick={() => edit.onRemove(s.id)}>
+        <button type="button" className="sb-tool is-lock" aria-label={`${label} is a keel rule`} onClick={() => edit.onRemove(s.id)}>
           <span aria-hidden="true">🔒</span>
         </button>
       ) : (
-        <button type="button" className="sb-tool is-del" aria-label={`Remove ${s.name}`} onClick={() => edit.onRemove(s.id)}>×</button>
+        <button type="button" className="sb-tool is-del" aria-label={`Remove ${label}`} onClick={() => edit.onRemove(s.id)}>×</button>
       )}
     </span>
   );
@@ -835,7 +836,7 @@ function IncludeBlock({ ctx, nd }: { ctx: Ctx; nd: Extract<Node, { t: "include" 
 
 function Gap({ ctx, after, gk, loop, always }: { ctx: Ctx; after: number; gk: string; loop: LoopCtx; always?: boolean }) {
   const edit = ctx.p.edit!;
-  const name = after >= 0 ? ctx.p.steps[after]?.name ?? "" : "";
+  const where = after >= 0 ? afterStep(ctx.p.steps[after]) : "";
   if (edit.insertAt === after && (edit.insertLoop ?? null) === (loop ?? null)) {
     return <li className="sx-gap is-open"><AddPicker ctx={ctx} after={after >= 0 ? ctx.p.steps[after] : null} /></li>;
   }
@@ -856,7 +857,7 @@ function Gap({ ctx, after, gk, loop, always }: { ctx: Ctx; after: number; gk: st
       onDragEnter={(e) => { e.preventDefault(); ctx.setDragging(true); }}
       onDragLeave={() => { if (over) ctx.setDragOver(null); }}
       onDrop={onDrop}>
-      <button type="button" className="sx-add" aria-label={after >= 0 ? `Add a block after ${name}` : "Add a block at the start"}
+      <button type="button" className="sx-add" aria-label={after >= 0 ? `Add a block ${where}` : "Add a block at the start"}
         onClick={() => edit.onInsert(after, loop)}>
         <span aria-hidden="true">+</span>{always ? " add a block" : ""}
       </button>
@@ -869,9 +870,9 @@ function AddPicker({ ctx, after }: { ctx: Ctx; after: Step | null }) {
   const first = useRef<HTMLButtonElement>(null);
   useEffect(() => { first.current?.focus(); }, []);
   return (
-    <div className="sx-picker" role="group" aria-label={after ? `Add a block after ${after.name}` : "Add a block at the start"}
+    <div className="sx-picker" role="group" aria-label={after ? `Add a block ${afterStep(after)}` : "Add a block at the start"}
       onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); edit.onCancelInsert(); } }}>
-      <span className="sx-picker-t">{after ? <>Add after <b>{after.name}</b>:</> : "Add a block:"}</span>
+      <span className="sx-picker-t">{after ? (after.name ?? "").trim() ? <>Add after <b>{after.name}</b>:</> : "Add after this step:" : "Add a block:"}</span>
       {ADD_KINDS.map((k, i) => (
         <button key={k.kind} ref={i ? undefined : first} className={`pal k-${k.kind}`} type="button" onClick={() => edit.onAdd(k.kind)}>
           <KindIcon kind={k.kind} /> {k.label}
@@ -880,6 +881,18 @@ function AddPicker({ ctx, after }: { ctx: Ctx; after: Step | null }) {
       <button className="btn sm ghost" type="button" onClick={edit.onCancelInsert}>Cancel</button>
     </div>
   );
+}
+
+/** A step's name for a label; a step with no name yet is "<kind> step <id>". */
+export function stepLabel(s: Pick<Step, "name" | "id" | "kind">): string {
+  return (s.name ?? "").trim() || `${s.kind} step ${s.id}`;
+}
+
+/** "after <name>" for the palette and the add buttons; a step with no name yet is "this step", never "undefined". */
+export function afterStep(s: Pick<Step, "name"> | null | undefined): string {
+  if (!s) return "at the end";
+  const name = (s.name ?? "").trim();
+  return name ? `after ${name}` : "after this step";
 }
 
 /** The block palette of the builder: drag a block into the stack, or click to add it after the selected block. */
