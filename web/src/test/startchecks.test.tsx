@@ -37,16 +37,16 @@ describe("Start a flow: what it checks first (0.18.57)", () => {
     server.use(http.post("/api/projects/:pid/flows", () => {
       if (refused) return undefined;
       refused = true;
-      return HttpResponse.json({ error: "This project has uncommitted changes (1 file): meeting/notes.md", hint: "Commit or stash them first.",
-        dirty: ["meeting/notes.md"], ignorable: ["meeting/"] }, { status: 409 });
+      return HttpResponse.json({ error: "This project has uncommitted changes (1 file): scratch/notes.md", hint: "Commit or stash them first.",
+        dirty: ["scratch/notes.md"], ignorable: ["scratch/"] }, { status: 409 });
     }));
     await openStart();
     await user.type(screen.getByLabelText("What to build"), "Players can see their rank next to the top 10");
     await user.click(screen.getByRole("button", { name: "Start flow" }));
     const box = await screen.findByTestId("sf-ignorable");
-    expect(box).toHaveTextContent("meeting/");
+    expect(box).toHaveTextContent("scratch/");
     await user.click(screen.getByRole("button", { name: "Ignore this path" }));
-    await waitFor(() => expect(db.excluded).toEqual(["meeting/"]));
+    await waitFor(() => expect(db.excluded).toEqual(["scratch/"]));
     await waitFor(() => expect(screen.queryByTestId("sf-ignorable")).toBeNull());
   });
 

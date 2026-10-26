@@ -88,12 +88,12 @@ describe("commands", () => {
     const { core: c, stub } = core();
     await c.start();
     const ctx = { core: c, width: 100 };
-    stub.state.dirty = ["meeting/"];
+    stub.state.dirty = ["scratch/"];
     const r = await run(ctx, "/flow feature Add a /health endpoint");
-    expect(r.pick?.choices.map((x) => x.label)).toEqual(["Ignore meeting/ (adds it to .git/info/exclude)",
+    expect(r.pick?.choices.map((x) => x.label)).toEqual(["Ignore scratch/ (adds it to .git/info/exclude)",
       "Start anyway (my files stay out of keel's commits)", "No"]);
-    const r2 = await r.pick!.then("ignore:meeting/");
-    expect(stub.calls.some((x) => x.path === "/api/projects/demo/doctor/workspace/exclude" && (x.body as { path: string }).path === "meeting/")).toBe(true);
+    const r2 = await r.pick!.then("ignore:scratch/");
+    expect(stub.calls.some((x) => x.path === "/api/projects/demo/doctor/workspace/exclude" && (x.body as { path: string }).path === "scratch/")).toBe(true);
     expect(r2.blocks[0].kind).toBe("ok");
     stub.state.owner = { kind: "flow", id: "t1", who: "flow SHOPS-1234: Euro prices at red", why: "the same ticket SHOPS-1234" };
     const r3 = await run(ctx, "/flow feature SHOPS-1234 rounding");

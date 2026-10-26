@@ -667,13 +667,13 @@ def test_a_refused_start_says_how_on_ignore_a_path_allow_dirty_or_force(stub):
     .git/info/exclude first; a start on a task another flow owns names it and force=true starts anyway."""
     import pytest as _pytest
 
-    stub.dirty = ["meeting/"]
+    stub.dirty = ["scratch/"]
     with _pytest.raises(mcp_server.ApiError) as err:
         mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0)
-    assert "ignore=['meeting/']" in str(err.value) and "allow_dirty=true" in str(err.value)
-    text = mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0, ignore=["meeting/"])
-    assert ("/api/projects/shop/doctor/workspace/exclude", {"path": "meeting/"}) in stub.posts
-    assert text.startswith("ignored on this computer (.git/info/exclude): meeting/")
+    assert "ignore=['scratch/']" in str(err.value) and "allow_dirty=true" in str(err.value)
+    text = mcp_server.start_flow(stub.api, "feature", "Player scores", sleep=lambda s: None, wait=0, ignore=["scratch/"])
+    assert ("/api/projects/shop/doctor/workspace/exclude", {"path": "scratch/"}) in stub.posts
+    assert text.startswith("ignored on this computer (.git/info/exclude): scratch/")
     stub.owner = {"kind": "flow", "id": "t-1", "who": "flow SHOPS-1234: Euro prices at red", "why": "the same ticket SHOPS-1234"}
     with _pytest.raises(mcp_server.ApiError, match="flow SHOPS-1234: Euro prices at red .*force=true"):
         mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0)

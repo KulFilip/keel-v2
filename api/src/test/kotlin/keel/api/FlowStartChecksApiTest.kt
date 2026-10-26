@@ -26,16 +26,16 @@ class FlowStartChecksApiTest : ApiTest() {
         Files.writeString(root.resolve(".DS_Store"), "x")
         Files.createDirectories(root.resolve(".claude"))
         Files.writeString(root.resolve(".claude/settings.local.json"), "{}")
-        Files.createDirectories(root.resolve("meeting"))
-        Files.writeString(root.resolve("meeting/notes.md"), "my notes\n")
+        Files.createDirectories(root.resolve("scratch"))
+        Files.writeString(root.resolve("scratch/notes.md"), "my notes\n")
         val res = start(pid).andExpect(status().isConflict).json()
-        assertThat(res["error"].asText()).contains("meeting/notes.md").doesNotContain(".serena").doesNotContain(".idea")
-        assertThat(res["ignorable"].map { it.asText() }).containsExactly("meeting/")
+        assertThat(res["error"].asText()).contains("scratch/notes.md").doesNotContain(".serena").doesNotContain(".idea")
+        assertThat(res["ignorable"].map { it.asText() }).containsExactly("scratch/")
         assertThat(res["hint"].asText()).contains("Ignore this path adds it to .git/info/exclude")
 
-        val done = post("/api/projects/$pid/doctor/workspace/exclude", mapOf("path" to "meeting/")).andExpect(status().isOk).json()
+        val done = post("/api/projects/$pid/doctor/workspace/exclude", mapOf("path" to "scratch/")).andExpect(status().isOk).json()
         assertThat(done["clean"].asBoolean()).isTrue()
-        assertThat(Files.readString(root.resolve(".git/info/exclude"))).contains("meeting/")
+        assertThat(Files.readString(root.resolve(".git/info/exclude"))).contains("scratch/")
         start(pid).andExpect(status().isOk)
     }
 
