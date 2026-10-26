@@ -59,7 +59,7 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
                run_mode: str | None = None, allow_dirty: bool = False, ignore: list[str] | None = None,
-               force: bool = False) -> str:
+               force: bool = False, branch: str | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -86,6 +86,11 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         body["allow_dirty"] = True       # 0.18.57 like the web's "Start anyway" box
     if force:
         body["force"] = True             # 0.18.57 although another flow or side agent works on the same task
+    if branch:
+        # B7 none: the api picks (ship, cover, review, lint, address continue the folder's branch; others get a new one)
+        if branch not in ("new", "continue"):
+            raise ApiError("branch is new (a new branch from the base branch) or continue (the branch the folder is on).")
+        body["branch"] = branch
     ignored = []
     for path in ignore or []:
         # 0.18.57 "Ignore this path": an untracked path that is not the person's work goes to .git/info/exclude
@@ -664,7 +669,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
-                              ctx: Context | None = None) -> str:
+                              branch: Literal["new", "continue"] | None = None, ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
         and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
@@ -678,13 +683,15 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         project's setting); pass it here when the person names one, not with keel_run_mode afterwards. A refused start
         says why and how on: allow_dirty starts with the person's uncommitted files left out of keel's commits; ignore
         lists untracked paths that are not their work (added to .git/info/exclude first); force starts although another
-        flow or side agent works on the same ticket, branch or files. Use them only when the person said so."""
+        flow or side agent works on the same ticket, branch or files. Use them only when the person said so.
+        branch: continue (the branch the project folder is on) or new (a new branch from the base branch); default:
+        continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others."""
         if not type:
             from . import mcp_flows
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode,
-                         allow_dirty, ignore, force)
+                         allow_dirty, ignore, force, branch)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,

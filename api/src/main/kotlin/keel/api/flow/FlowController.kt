@@ -28,8 +28,9 @@ data class StartFlow(
     val runMode: String? = null,
     /** v0.7.x: folder | worktree | auto (default: the project folder when it is free, else a worktree of its own). */
     val where: String? = null,
-    /** B8: new (default: its own branch from the base branch, also when the folder is on another branch) | continue
-     *  (stay on the branch the project folder is on; on the base branch it still gets its own). */
+    /** B8: new (its own branch from the base branch, also when the folder is on another branch) | continue (stay on the
+     *  branch the project folder is on; on the base branch it still gets its own). B7 none: continue for the flows that
+     *  finish the folder's branch (ship, cover, review, lint, address), new for every other one. */
     val branch: String? = null,
     /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files. */
     val force: Boolean = false,
@@ -50,7 +51,7 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
         flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
-            body.request, body.options, body.where, branch = if (body.branch == "continue") "continue" else "new", force = body.force)
+            body.request, body.options, body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH }, force = body.force)
 
     /** 0.18.57 what Start a flow shows first: whether a worktree flow can run the tests, and the base branch's drift. */
     @GetMapping("/projects/{pid}/start-check")

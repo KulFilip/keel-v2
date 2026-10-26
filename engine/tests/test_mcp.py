@@ -513,6 +513,17 @@ async def test_start_flow_needs_no_request_for_a_flow_that_reads_none(stub, monk
     assert len(stub.posts) == n
 
 
+async def test_start_flow_leaves_the_branch_to_the_api_unless_one_is_named(stub):
+    """B7 keel_start_flow sent nothing and the api made every flow a new branch from the (stale) base, so a ship lost
+    the work. It still sends nothing by default (the api continues the branch for ship, cover, review, lint, address),
+    and passes branch new or continue when the person named one."""
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores"})
+    assert "branch" not in stub.posts[-1][1]
+    await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "branch": "continue"})
+    assert stub.posts[-1][1]["branch"] == "continue"
+
+
 # ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit
 
 async def test_admin_level_has_every_tool_and_read_only_wins(stub, monkeypatch):

@@ -21,7 +21,7 @@ async function openStart() {
 }
 
 describe("Start a flow: the branch (B8)", () => {
-  it("on another branch it offers a new branch from the base (the default) and sends no continue", async () => {
+  it("on another branch it offers a new branch from the base (the default) and sends it", async () => {
     const user = userEvent.setup();
     await openStart();
     const pick = await screen.findByLabelText("Branch");
@@ -30,7 +30,30 @@ describe("Start a flow: the branch (B8)", () => {
     await user.type(screen.getByLabelText("What to build"), "Players can see their rank next to the top 10");
     await user.click(screen.getByRole("button", { name: "Start flow" }));
     await waitFor(() => expect(starts()).toHaveLength(1));
-    expect((starts()[0].body as Record<string, unknown>).branch).toBeUndefined();
+    expect((starts()[0].body as Record<string, unknown>).branch).toBe("new");
+  });
+
+  it("B7 ship (and the other flows that finish the branch) continue it by default", async () => {
+    const user = userEvent.setup();
+    db.workflows.push({ ...db.workflows[0], id: "ship", name: "ship (keel)" });
+    await openStart();
+    await user.selectOptions(await screen.findByLabelText("Workflow"), "ship");
+    expect(screen.getByLabelText("Branch")).toHaveValue("continue");
+    expect(screen.getByRole("option", { name: "Continue feat/init-2026-10-25 (recommended)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start flow" }));
+    await waitFor(() => expect(starts()).toHaveLength(1));
+    expect((starts()[0].body as Record<string, unknown>).branch).toBe("continue");
+  });
+
+  it("B7 ship can still start on a new branch from the base", async () => {
+    const user = userEvent.setup();
+    db.workflows.push({ ...db.workflows[0], id: "ship", name: "ship (keel)" });
+    await openStart();
+    await user.selectOptions(await screen.findByLabelText("Workflow"), "ship");
+    await user.selectOptions(screen.getByLabelText("Branch"), "new");
+    await user.click(screen.getByRole("button", { name: "Start flow" }));
+    await waitFor(() => expect(starts()).toHaveLength(1));
+    expect((starts()[0].body as Record<string, unknown>).branch).toBe("new");
   });
 
   it("Continue <branch> sends branch continue", async () => {

@@ -1604,9 +1604,13 @@ in a git worktree of its own at `<project>/.keel/worktrees/flow-<slug>-<id>` on 
 - **Where a flow starts** (`where` on `POST /api/projects/{pid}/flows`): `auto` (default) = the project folder when no
   flow runs or waits there, else a worktree; `folder` (409 while the folder is busy); `worktree`. A worktree flow skips
   the folder's dirty check and branch switch. Tasks' Start uses `auto`, so three tasks start three flows side by side.
-- **The folder flow's branch** (`branch` on the same call, 0.18.55): `new` (default) = its own branch, made from the
+- **The folder flow's branch** (`branch` on the same call, 0.18.55): `new` = its own branch, made from the
   base branch also when the folder is on another branch (what init or another flow left checked out); `continue` =
   stay on the branch the folder is on (Start a flow's "Continue <branch>"; on the base branch it still gets its own).
+  No `branch` (0.18.57, B7): `continue` for the flows that finish the folder's branch (ship, cover, review, lint,
+  address, and a flow `based_on` one of them), `new` for every other flow. A new branch (and a worktree's) starts from
+  `origin/<base>` when the local base is only behind it; a local base with commits of its own on both sides is a 409
+  (pull or rebase it first). Nothing is fetched.
   Parts that put the branch there themselves (CI fix, review address) keep it. An init that ends (done, failed,
   stopped) with no commit on its branch puts the folder back on the base branch and drops that branch.
 - The api keeps `threads.worktree` (its folder name) and `threads.branch` (V8 migration); every resume, rewind and
