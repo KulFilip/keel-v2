@@ -36,6 +36,7 @@ class ReviewApi:
     def __init__(self, on=("review",)):
         self.on = on
         self.calls: list[tuple[str, str, dict]] = []
+        self.ai: dict | None = None
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         path = req.url.path.removeprefix("/api")
@@ -55,6 +56,8 @@ class ReviewApi:
                 {"number": 7, "title": "Save the page size", "author": "ana", "branch": "feat/paging", "base": "main", "review_requested": True}]})
         if r == "/diff":
             return httpx.Response(200, json={"diff": f"--- a/{q['path']}\n+++ b/{q['path']}\n@@ -1 +1 @@\n-a\n+b\n"})
+        if r == "/ai" and self.ai is not None:
+            return httpx.Response(200, json=self.ai)
         if r == "/ai":
             return httpx.Response(200, json={"overview": {"status": "done", "result": {"summary": "Saves the size.", "risk": "low", "risk_why": "small",
                                                                                          "effort": 1, "files": [{"path": "src/Prefs.kt", "what": "a map"}]}},
@@ -186,3 +189,15 @@ def test_a_partial_ai_run_says_which_files_it_did_not_read():
     assert line.startswith("  PARTIAL: read 24 of 70 changed file(s); not read: m/V0.php, m/V1.php") and line.endswith("… 26 more")
     assert mcp_tools._coverage({"coverage": {"files": 3, "read": None, "known": False}}) == []
     assert mcp_tools._coverage({}) == []
+
+
+def test_notes_list_what_nobody_could_check_apart_from_the_findings():
+    s = ReviewApi()
+    api = api_on(s)
+    s.ai = {"findings": {"status": "done", "result": {
+        "findings": [{"severity": "blocking", "path": "src/A.kt", "line": 3, "title": "drops rows", "check": "confirmed", "why": "x"}],
+        "not_checked": [{"path": "src/B.kt", "line": 9, "title": "callers may pass null",
+                         "check_why": "its reviewer could not see the code it is about"}]}}}
+    notes = mcp_tools.review_notes(api, "shop", pr=7)
+    assert "findings: done · 1 found" in notes
+    assert "not checked (1): no proof either way" in notes and "src/B.kt:9  callers may pass null - its reviewer" in notes

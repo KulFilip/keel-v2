@@ -80,7 +80,8 @@ class ReviewAiService(
         val KINDS = setOf("overview", "findings")
         val SEVERITIES = listOf("blocking", "should_fix", "nit")
         val CATEGORIES = setOf("correctness", "security", "tests", "ticket", "performance", "design")
-        const val MAX_CHECKED = 12
+        /** keel 0.18.57: every finding but a nit is checked (it was 12); the rest are listed as not checked, never as findings */
+        const val MAX_CHECKED = 40
         const val PER_VERIFY = 4
         const val MAX_NITS = 5
         const val JUDGE = "judge:"
@@ -98,6 +99,28 @@ class ReviewAiService(
             "secrets and config: every env or config key the code reads against the keys .env, compose and deploy files define (a renamed key breaks the boot), unsafe defaults, test config that hides a prod break",
             "tests that assert nothing (always-true assertions, a test that only checks a service exists)",
         )
+
+        private val COMMON = setOf("this", "that", "with", "from", "when", "which", "would", "could", "never", "every", "only", "line",
+            "file", "code", "change", "changes", "does", "into", "than", "then", "also", "after", "before", "still", "same", "missing")
+        /** "I could not check X" written as a finding: a question, not a bug (it goes to not checked). */
+        val NOT_SEEN = Regex("\\b(I )?(could not|cannot|can't|did not|didn't) (see|check|verify|read|confirm)\\b|not in (the|this) diff|outside (the|this) repo",
+            RegexOption.IGNORE_CASE)
+
+        fun titleWords(s: Any?): Set<String> =
+            s.toString().lowercase().split(Regex("[^a-z0-9_]+")).filter { it.length > 3 && it !in COMMON }.toSet()
+
+        /**
+         * Two findings about the same problem: the same file and (keel 0.18.57) titles that share two telling words,
+         * whatever their lines say (a finder's line numbers are not reliable: one gave 1474 for a 95-line file), or
+         * lines within 2 and one shared word.
+         */
+        fun sameProblem(a: Map<String, Any?>, b: Map<String, Any?>): Boolean {
+            if (a["path"] != b["path"]) return false
+            val shared = (titleWords(a["title"]) intersect titleWords(b["title"])).size
+            val la = a["line"] as Int?
+            val lb = b["line"] as Int?
+            return shared >= 2 || (shared >= 1 && la != null && lb != null && kotlin.math.abs(la - lb) <= 2)
+        }
 
         /** The changed files a review must read: everything but docs and lockfiles. */
         fun reviewable(v: ReviewView): List<String> = v.files.filter { !it.binary && it.status != "D" && !DOCS.containsMatchIn(it.path) }.map { it.path }
@@ -313,19 +336,19 @@ class ReviewAiService(
             )
         }
         val notes = mapOf("security" to b.path("security").asText().take(400), "tests" to b.path("tests").asText().take(400),
-            "read" to b.path("read").joinToString("\n") { it.asText() })
+            "read" to b.path("read").joinToString("\n") { it.asText() },
+            "set_aside" to mapper.writeValueAsString(b.path("set_aside").take(20).map {
+                mapOf("path" to it.path("path").asText(""), "title" to it.path("what").asText("").take(300),
+                    "check_why" to it.path("why").asText("").take(400), "reviewer" to reviewer, "check" to "not checked")
+            }))
         return list to notes
     }
 
-    /** Same file, lines close, words alike: one finding (the higher severity wins). */
-    private fun merge(all: List<MutableMap<String, Any?>>): List<MutableMap<String, Any?>> {
+    /** One finding per problem (sameProblem: path and title words, not only the line); the higher severity wins. */
+    internal fun merge(all: List<MutableMap<String, Any?>>): List<MutableMap<String, Any?>> {
         val out = mutableListOf<MutableMap<String, Any?>>()
-        fun words(s: Any?) = s.toString().lowercase().split(Regex("[^a-z0-9]+")).filter { it.length > 3 }.toSet()
         for (f in all.sortedBy { SEVERITIES.indexOf(it["severity"]) }) {
-            val same = out.firstOrNull { o ->
-                o["path"] == f["path"] && (o["line"] as Int? ?: -99).let { l -> (f["line"] as Int? ?: -99).let { kotlin.math.abs(it - l) <= 2 } } &&
-                    (words(o["title"]) intersect words(f["title"])).size >= 2
-            }
+            val same = out.firstOrNull { o -> sameProblem(o, f) }
             if (same == null) out += f else same["reviewer"] = "${same["reviewer"]}+${f["reviewer"]}"
         }
         return out
@@ -340,13 +363,22 @@ class ReviewAiService(
         if (read.isEmpty() && parsed.all { it.first.isEmpty() }) {
             return fail(runId, "No reviewer read the change (neither listed a file it read, and neither found anything): keel does not report it as reviewed. Ask again, or review a smaller part.")
         }
-        val notes = parsed.flatMap { (it.second - "read").entries }.groupBy({ it.key }, { it.value }).mapValues { (_, v) -> v.filter { it.isNotBlank() }.joinToString(" ") }
+        val notes = parsed.flatMap { (it.second - "read" - "set_aside").entries }.groupBy({ it.key }, { it.value }).mapValues { (_, v) -> v.filter { it.isNotBlank() }.joinToString(" ") }
+        @Suppress("UNCHECKED_CAST")
+        val setAside = parsed.flatMap { p ->
+            runCatching { mapper.readValue(p.second["set_aside"] ?: "[]", List::class.java) as List<Map<String, Any?>> }.getOrDefault(emptyList())
+        }
         val merged = merge(parsed.flatMap { it.first })
         val pre = merged.filter { it["pre_existing"] == true }
         val main = merged.filter { it["pre_existing"] != true }
-        val toCheck = main.filter { it["severity"] != "nit" }.take(MAX_CHECKED)
+        // a "finding" that says its finder could not see the code is a question: not checked, never a finding
+        val unseen = main.filter { it["severity"] != "nit" && NOT_SEEN.containsMatchIn("${it["title"]} ${it["why"]}") }
+            .map { it + mapOf("check" to "not checked", "check_why" to "its reviewer could not see the code it is about") }
+        val checkable = main.filter { it["severity"] != "nit" && unseen.none { u -> u["id"] == it["id"] } }
+        val toCheck = checkable.take(MAX_CHECKED)
         val nits = main.filter { it["severity"] == "nit" }
-        val unchecked = main.filter { it["severity"] != "nit" }.drop(MAX_CHECKED)
+        val unchecked = checkable.drop(MAX_CHECKED).map { it + mapOf("check_why" to "more than $MAX_CHECKED findings: no second look") } +
+            unseen + setAside
         val result = mutableMapOf<String, Any?>(
             "stage" to "verify", "candidates" to toCheck, "nits" to nits.take(MAX_NITS), "more_nits" to (nits.size - MAX_NITS).coerceAtLeast(0),
             "pre_existing" to pre.take(10), "unchecked" to unchecked, "security" to notes["security"], "tests" to notes["tests"],
@@ -367,7 +399,8 @@ class ReviewAiService(
             block(s["answer"] as String, "keel-review-verify")?.path("verdicts")?.forEach { v ->
                 val id = v.path("id").asText()
                 val verdict = v.path("verdict").asText().lowercase()
-                if (verdict in setOf("confirmed", "rejected", "unverified")) verdicts[id] = verdict to v.path("why").asText().take(600)
+                val word = if (verdict == "unproven") "unverified" else verdict
+                if (word in setOf("confirmed", "rejected", "unverified")) verdicts[id] = word to v.path("why").asText().take(600)
             }
         }
         @Suppress("UNCHECKED_CAST")
@@ -375,28 +408,34 @@ class ReviewAiService(
         done(runId, finalFindings(result, verdicts))
     }
 
-    /** confirmed → findings; unverified → findings, marked with what could not be read; rejected → kept with the
-     *  reason; not answered → "not checked" (shown, marked). */
-    private fun finalFindings(r: Map<String, Any?>, verdicts: Map<String, Pair<String, String>>): Map<String, Any?> {
+    /**
+     * keel 0.18.57: findings are only what a second look confirmed. Unproven (unverified), unanswered, over the cap and
+     * "could not see" ones go to not_checked, with why: shown apart, never as findings, never counted. Rejected ones are
+     * kept with the reason.
+     */
+    internal fun finalFindings(r: Map<String, Any?>, verdicts: Map<String, Pair<String, String>>): Map<String, Any?> {
         @Suppress("UNCHECKED_CAST")
         val cands = (r["candidates"] as? List<Map<String, Any?>>).orEmpty()
         val confirmed = mutableListOf<Map<String, Any?>>()
         val rejected = mutableListOf<Map<String, Any?>>()
+        val notChecked = mutableListOf<Map<String, Any?>>()
         for (c in cands) {
             when (val v = verdicts[c["id"]]) {
-                null -> confirmed += c + mapOf("check" to "not checked")
+                null -> notChecked += c + mapOf("check" to "not checked", "check_why" to "the second look gave no answer")
                 else -> when (v.first) {
                     "confirmed" -> confirmed += c + mapOf("check" to "confirmed", "check_why" to v.second)
-                    "unverified" -> confirmed += c + mapOf("check" to "unverified", "check_why" to v.second)
+                    "unverified" -> notChecked += c + mapOf("check" to "not checked", "check_why" to "unproven: ${v.second}")
                     else -> rejected += c + mapOf("check" to "rejected", "check_why" to v.second)
                 }
             }
         }
         @Suppress("UNCHECKED_CAST")
-        val unchecked = (r["unchecked"] as? List<Map<String, Any?>>).orEmpty().map { it + mapOf("check" to "not checked") }
-        val findings = (confirmed + unchecked).sortedBy { SEVERITIES.indexOf(it["severity"]) }
-        val counts = SEVERITIES.associateWith { s -> findings.count { it["severity"] == s } } + mapOf("nit" to ((r["nits"] as? List<*>)?.size ?: 0))
-        return r + mapOf("stage" to "done", "findings" to findings, "rejected" to rejected, "counts" to counts) - "candidates" - "unchecked"
+        notChecked += (r["unchecked"] as? List<Map<String, Any?>>).orEmpty().map { it + mapOf("check" to "not checked") }
+        val findings = confirmed.sortedBy { SEVERITIES.indexOf(it["severity"]) }
+        val counts = SEVERITIES.associateWith { s -> findings.count { it["severity"] == s } } +
+            mapOf("nit" to ((r["nits"] as? List<*>)?.size ?: 0), "not_checked" to notChecked.size)
+        return r + mapOf("stage" to "done", "findings" to findings, "rejected" to rejected, "not_checked" to notChecked,
+            "counts" to counts) - "candidates" - "unchecked"
     }
 
     // ---------------------------------------------------------------- prompts
@@ -447,6 +486,10 @@ class ReviewAiService(
             |${scope(v)}
             |Rules:
             |- Report only real problems introduced by this change, with file:line at the head commit. Read the code around a hunk before you claim.
+            |- Follow one step before you report: open the one place that would make the finding false (the caller that
+            |  already checks it, the allow-list, the migration or mapping that creates the index, the file that defines the
+            |  env key, the test that covers it). If it shows the code is right, drop the finding. If you could not open it,
+            |  do not report a finding that says "I could not check": put it in "set_aside" with what would settle it.
             |- Do not report style a linter catches, personal taste, or "might fail if" guesses without evidence.
             |- A problem that was already there before this change: pre_existing true (it never blocks).
             |- severity: blocking (must be fixed before merge), should_fix, nit (at most 3 nits).
@@ -461,6 +504,7 @@ class ReviewAiService(
             |{"read": ["every changed file whose diff you read"],
             | "findings": [{"title": "short", "severity": "blocking|should_fix|nit", "category": "correctness|security|tests|ticket|performance|design",
             |  "path": "file", "line": 12, "side": "RIGHT", "why": "why it matters, with evidence", "suggestion": "", "fix": "", "pre_existing": false}],
+            | "set_aside": [{"path": "file", "what": "what you could not judge", "why": "what would settle it"}],
             | "security": "one line: what you checked for security (reviewer A) or empty",
             | "tests": "one line: are the tests enough (reviewer B) or empty"}
             |```
@@ -480,13 +524,14 @@ class ReviewAiService(
             |$claims
             |
             |For each claim, read the code at the head commit (the lines it names and what they call; git grep for the
-            |rest): confirmed only when the code shows the problem (quote the line), rejected when the code handles it or
-            |the claim is wrong. Never leave a question open: when the code that decides it cannot be read (generated,
-            |outside the repo), the verdict is unverified and "why" says what could not be read. Say why in one or two
-            |sentences.
+            |rest), and the one place that would make the claim false: confirmed only when the code shows the problem
+            |(quote the line), rejected when the code handles it, the claim is wrong, or it duplicates another claim here
+            |("duplicate of <id>"). When the code that decides it cannot be read (generated, outside the repo), the verdict
+            |is unproven and "why" says what would settle it: keel lists it as not checked, never as a finding. Say why in
+            |one or two sentences.
             |End your answer with exactly one fenced block named keel-review-verify with this JSON:
             |```keel-review-verify
-            |{"verdicts": [{"id": "the claim's id", "verdict": "confirmed|rejected|unverified", "why": "the evidence"}]}
+            |{"verdicts": [{"id": "the claim's id", "verdict": "confirmed|rejected|unproven", "why": "the evidence"}]}
             |```
         """.trimMargin()
     }

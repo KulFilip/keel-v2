@@ -122,6 +122,10 @@ def review_notes(api: KeelApi, project: str | None = None, pr: int | None = None
         out += _coverage(r)
         out += [f"  {x.get('severity')}  {x.get('path') or '-'}:{x.get('line') or '-'}  {x.get('title')} ({x.get('check', '')})\n    {x.get('why', '')}"
                 for x in found]
+        unproven = r.get("not_checked") or []
+        if unproven:   # keel 0.18.57: nobody could prove or disprove these; they are not findings
+            out.append(f"not checked ({len(unproven)}): no proof either way, not counted as findings")
+            out += [f"  {x.get('path') or '-'}:{x.get('line') or '-'}  {x.get('title')} - {x.get('check_why') or ''}" for x in unproven[:20]]
     return "\n".join(out)
 
 

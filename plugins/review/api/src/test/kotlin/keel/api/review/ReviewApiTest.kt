@@ -474,12 +474,13 @@ class ReviewApiTest : ApiTest() {
         finish(pid, b, "```keel-review-findings\n{\"read\": [], \"findings\": []}\n```")
         val mid = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
         val vsid = mid["sessions"].first { it["role"].asText() == "verify-1" }["sid"].asText()
-        assertThat(turnText(vsid)).contains("confirmed|rejected|unverified").contains("Never leave a question open")
+        assertThat(turnText(vsid)).contains("confirmed|rejected|unproven").contains("keel lists it as not checked")
         val claim = Regex("- id (f_[0-9a-f]+):").find(turnText(vsid))!!.groupValues[1]
         finish(pid, vsid, "```keel-review-verify\n{\"verdicts\": [{\"id\": \"$claim\", \"verdict\": \"unverified\", \"why\": \"the cache class is generated\"}]}\n```")
         val f = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
         assertThat(f["status"].asText()).isEqualTo("done")
-        assertThat(f["result"]["findings"].single()["check"].asText()).isEqualTo("unverified")      // kept, and marked
+        assertThat(f["result"]["findings"].size()).isZero()                                       // unproven: not a finding
+        assertThat(f["result"]["not_checked"].single()["check_why"].asText()).isEqualTo("unproven: the cache class is generated")
         assertThat(f["result"]["partial"].asBoolean()).isTrue()
         assertThat(f["result"]["coverage"]["unread"].map { it.asText() }).contains("src/PrefsTest.kt").doesNotContain("src/Prefs.kt")
 
@@ -491,6 +492,46 @@ class ReviewApiTest : ApiTest() {
         val f2 = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
         assertThat(f2["status"].asText()).isEqualTo("failed")
         assertThat(f2["error"].asText()).contains("No reviewer read the change")
+    }
+
+    @Test
+    fun `every finding but a nit is checked, duplicates merge by path and title words, and only confirmed ones are findings`() {
+        val (pid, _) = githubPr()
+        view(pid, "pr:7")
+        val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+        val (a, b) = s1["findings"]["sessions"].map { it["sid"].asText() }
+        assertThat(turnText(a)).contains("Follow one step before you report").contains("set_aside")
+        // 14 should_fix findings (more than keel 0.18.56's 12), one duplicate with a wrong line, one "could not check"
+        val many = (1..14).joinToString(", ") { n ->
+            "{\"title\": \"alpha$n gamma$n\", \"severity\": \"should_fix\", \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": ${n * 10}, \"why\": \"w\"}"
+        }
+        finish(pid, a, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\", \"src/PrefsTest.kt\"], \"findings\": [$many," +
+            " {\"title\": \"callers may pass null\", \"severity\": \"blocking\", \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 3," +
+            " \"why\": \"I could not check the callers\"}]," +
+            " \"set_aside\": [{\"path\": \"src/Prefs.kt\", \"what\": \"the cache size\", \"why\": \"set in the deploy values\"}]}\n```")
+        finish(pid, b, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": [{\"title\": \"the alpha3 gamma3 again\"," +
+            " \"severity\": \"blocking\", \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 1474, \"why\": \"same\"}]}\n```")
+        val mid = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+        val verifiers = mid["sessions"].filter { it["role"].asText().startsWith("verify") }.map { it["sid"].asText() }
+        val claims = verifiers.flatMap { sid -> Regex("- id (f_[0-9a-f]+):").findAll(turnText(sid)).map { it.groupValues[1] to sid }.toList() }
+        assertThat(claims).hasSize(14)                               // all 14 (the duplicate merged, "could not check" left out)
+        assertThat(verifiers).hasSize(4)
+        val bySid = claims.groupBy({ it.second }, { it.first })
+        // the first verifier confirms its first claim and rejects one; the others never answer
+        val first = verifiers.first()
+        finish(pid, first, "```keel-review-verify\n{\"verdicts\": [{\"id\": \"${bySid[first]!![0]}\", \"verdict\": \"confirmed\", \"why\": \"line 30\"}," +
+            " {\"id\": \"${bySid[first]!![1]}\", \"verdict\": \"rejected\", \"why\": \"duplicate of ${bySid[first]!![0]}\"}," +
+            " {\"id\": \"${bySid[first]!![2]}\", \"verdict\": \"unproven\", \"why\": \"the limit is a deploy value\"}]}\n```")
+        verifiers.drop(1).forEach { finish(pid, it, "I looked.") }
+        val r = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]["result"]
+        assertThat(r["findings"].map { it["check"].asText() }).containsExactly("confirmed")
+        assertThat(r["findings"][0]["reviewer"].asText()).isEqualTo("B+A")          // the line-1474 twin merged by its title
+        assertThat(r["rejected"].single()["check_why"].asText()).startsWith("duplicate of")
+        val notChecked = r["not_checked"].map { it["check_why"].asText() }
+        assertThat(notChecked).contains("unproven: the limit is a deploy value", "its reviewer could not see the code it is about",
+            "set in the deploy values").contains("the second look gave no answer")
+        assertThat(r["not_checked"].size()).isEqualTo(1 + 11 + 1 + 1)   // unproven, 11 unanswered, could-not-check, set aside
+        assertThat(r["counts"]["not_checked"].asInt()).isEqualTo(14)
     }
 
     // ---------------------------------------------------------------- the review threads: is the reviewer right? and Address it

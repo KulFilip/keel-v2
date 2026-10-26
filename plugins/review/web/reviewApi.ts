@@ -190,6 +190,8 @@ export type FindingsResult = {
   stage: string;
   findings?: Finding[];
   rejected?: Finding[];
+  /** keel 0.18.57: claims nobody could prove or disprove (unproven, unanswered, over the cap): never findings */
+  not_checked?: Finding[];
   nits?: Finding[];
   more_nits?: number;
   pre_existing?: Finding[];
