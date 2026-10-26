@@ -816,8 +816,11 @@ class AgentMixin:
                 if why:
                     f["BLOCKED"] = why
         if step.items_from:
+            # usage per item (keel 0.18.57): review-pr compares the reviewers' tokens with the size of the diff
             data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "title": item_of[n].get("title") or item_of[n]["id"],
-                                           "text": (r.text or "")[:16000], "markers": found[n]} for n, r in enumerate(results)]
+                                           "text": (r.text or "")[:16000], "markers": found[n],
+                                           "usage": {"tokens_in": r.tokens_in, "tokens_cached": r.tokens_cached,
+                                                     "tokens_out": r.tokens_out}} for n, r in enumerate(results)]
         elif step.keep and results:
             data[f"{step.id}_text"] = (results[-1].text or "")[:_c.KEEP_MAX]
         if step.markers:

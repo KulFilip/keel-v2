@@ -362,6 +362,11 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             return Command(goto=first)
         if not system and not jobs:
             return Command(goto=first)
+        if self.wf.steps and all(rules.read_only(s.phase) for s in self.wf.steps):
+            # a read-only flow (review, review-pr) builds and changes nothing: it never installs packages into the
+            # person's folder (keel 0.18.56 ran composer install in the folder of a PR review and stopped at its gate)
+            data["setup"] = {"ok": True, "note": "skipped: a read-only flow needs no stack setup"}
+            return Command(update={"data": data}, goto=first)
         prev = state.get("phase") or "none"
         step = Step(id=SETUP, kind="code", name=SETUP_NAME, action="stack_setup")
         ctx.emit("step.started", step=SETUP, data={"name": SETUP_NAME, "kind": "code", "phase": prev, "ac": None,

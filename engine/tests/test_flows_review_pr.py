@@ -158,6 +158,8 @@ def test_problems_are_checked_again_and_the_verdict_follows_the_checks(client, r
         if req.item["job"] == "check":
             verdict = "rejected" if "blocking bug" in req.item["claim"] else "confirmed"
             return f"CHECK | {verdict} | read the lines\nTICKET-REVIEW: done"
+        if req.item["job"] == "settle":     # the item nobody judged: the second look cannot read what decides it
+            return "CHECK | unverified | the config it needs is not in the repo\nTICKET-REVIEW: done"
         ids = [i["id"] for i in req.item["items"]]
         lines = [f"{i} | met | src/scores/ranks.py:1 | fine" for i in ids if i not in ("T2", "D1")]
         lines += ["T2 | not-met | src/scores/ranks.py:2 | sorted() with reverse keeps ties but the test is missing | add a test",
@@ -169,12 +171,13 @@ def test_problems_are_checked_again_and_the_verdict_follows_the_checks(client, r
     s = wait(client, tid)
     checks = [r.item for r in seen if r.item and r.item.get("job") == "check"]
     assert sorted(c["kind"] for c in checks) == ["finding", "item"]
+    settles = [r.item for r in seen if r.item and r.item.get("job") == "settle"]
+    assert [c["target"] for c in settles] == ["D1"]                      # nobody judged D1: a second look reads the code
     detail = s["waiting"]["detail"]
     assert "NOT DONE" in detail and "MISSING" in detail and "T2 Ties keep the input order" in detail
     assert "MUST FIX" not in detail                                      # the check rejected the blocking finding
-    assert "D1" in detail and "no reviewer gave a verdict" in detail     # an item nobody judged: unclear, named
-    log = " ".join(graph_values(client, tid)["data"]["ticket_review"]["missing"])
-    assert log == "D1"
+    assert "D1" in detail and "unverified: the code that decides it could not be read" in detail   # said, not a shrug
+    assert graph_values(client, tid)["data"]["ticket_review"]["missing"] == []
     assert "D7" in detail and "src/scores/ranks.py:2" in detail and "(script)" in detail   # the TODO, proven by the script
     assert not any(c["claim"].startswith("D7") for c in checks)          # a script's not-met is not checked again
     labels = {o["label"]: o for o in s["waiting"]["questions"][0]["options"]}
