@@ -433,10 +433,11 @@ class FlowService(
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim().removeSurrounding("\"") }
             .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
         if (files.isEmpty()) return
-        // the untracked entries as git shows them by default (a new folder once, not every file in it)
+        // the untracked entries as git shows them by default (a new folder once, not every file in it); a folder only
+        // when a file that blocks is in it (.claude/ holding only settings.local.json is a tool's folder)
         val ignorable = workspace.git(root, "status", "--porcelain", "--untracked-files=normal").out.lines()
             .filter { it.startsWith("?? ") }.map { it.substring(3).trim().removeSurrounding("\"") }
-            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel/" || it.startsWith(".keel/"))) }
+            .filter { entry -> if (entry.endsWith("/")) files.any { it.startsWith(entry) } else entry in files }
         val ignoreHint = if (ignorable.isEmpty()) "" else
             " A path that is not your work (a tool's folder, notes): Ignore this path adds it to .git/info/exclude (this computer only) — ${ignorable.take(5).joinToString()}."
         throw ApiException(HttpStatus.CONFLICT,
