@@ -125,9 +125,12 @@ start_api() {
     # shellcheck disable=SC2086
     KEEL_SUPERVISED=1 $KEEL_API_CMD &
   else
-    # keel's plain jar; PropertiesLauncher adds the plugin jars (loader.path) and finds Start-Class by itself
+    # keel's plain jar; PropertiesLauncher adds the plugin jars (loader.path) and finds Start-Class by itself.
+    # The heap: a quarter of the container's memory, not 60%. The api uses 70-300 MB; 60% of Docker Desktop's VM
+    # (4.6 GB of 7.6 GB) let each keel's heap grow, and the projects' own builds and tests run in the same VM. Serial
+    # GC: one GC thread instead of one per CPU (9 on an 11-core Mac), the smallest footprint for a heap this size.
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
-    KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=60} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+    KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
       -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi
   api=$!
