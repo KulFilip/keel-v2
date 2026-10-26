@@ -62,7 +62,7 @@ export type { StoredOptions, StoreKind } from "../storage";
 
 // links to screens, keel's own and the add-ons' (#/initiatives/INI-3); the link the page shows now (#/wiki/kb:domain
 // is { page: "wiki", arg: "kb:domain" }), go(screen, arg) to open another, useRoute() to read the link
-export { hashForScreen } from "../routes";
+export { hashForScreen, settingsHash } from "../routes";
 export { go, useRoute } from "../state";
 // keel 0.18.6 the shared focus: the project and KeelBot chat every keel front end shows (api ui/UiFocus.kt)
 export { shareFocus, UI_FOCUS_EVENT, FOCUS_CLIENT, type UiFocus } from "../state";
@@ -94,6 +94,9 @@ export {
   useNarrow,
 } from "../components/page";
 export { Markdown } from "../components/Markdown";
+// keel 0.18.57 the Settings page's small pieces (a plugin's settings tab or connection uses the same look)
+export { Fold, Knob, Note, RadioCards, Seg, Steps, Switch, SwitchRow, Tile, TonePill } from "../components/settingsUi";
+export type { StepItem, StepState, Tone } from "../components/settingsUi";
 // a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
 export { CodeBlock } from "../components/Code";
 // keel 0.18.9 a failed button's "Ask KeelBot to fix it" (KeelBot's chat provides AskKeelBot)
@@ -193,6 +196,7 @@ export type {
   SettingsBrowserItem,
   SettingsSectionItem,
   SettingsSectionProps,
+  SettingsTabItem,
   ShellWatchItem,
   ToolsCardItem,
   WorkflowActionsItem,

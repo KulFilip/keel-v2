@@ -29,6 +29,8 @@ import "./styles/marketplace.css";
 import "./styles/corehome.css";
 // v0.16.1 Control › Plugins in the look of docs/plugins/mockup.html.
 import "./styles/plugins-page.css";
+// keel 0.18.57 the Settings page (General · Models & logins · Connections · Budget · Plugins · Databases · Devices).
+import "./styles/settings.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.
