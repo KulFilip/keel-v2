@@ -943,6 +943,50 @@ def test_check(a):
     return _ok("no test added or changed", update={"show": f"{head}\n\n{shown}".strip()})
 
 
+# 0.18.57 address: the review thread in the request (plugins/review ReviewAddressService.request), and the intent check
+_THREAD = re.compile(r"<<<\n(.*?)\n>>>", re.S)
+_THREAD_CODE = re.compile(r"^(The code the thread is on[^\n]*):\n(`{3,}[^\n]*\n.*?\n`{3,})", re.S | re.M)
+_THREAD_ANSWER = re.compile(r"^The person's answer[^\n]*:\n(.+?)(?:\n\n|\Z)", re.S | re.M)
+INTENT_LINE = re.compile(r"^\W*INTENT\W*:\W*(met|missed)\b[\s\u2014:\-]*(.*)$", re.M | re.I)
+
+
+def thread_view(a):
+    """address (0.18.57): the look gate shows the review thread next to the diff (the reviewer's words, every reply, the
+    person's answer, the code the thread is on) and the intent check's verdict; a miss leads the text. Without a thread
+    in the request (a test-only change started by hand) it shows the request. Runs after the intent check, on the diff
+    the diff step prepared (state.show)."""
+    req = str(a.request or "")
+    shown = str(a.state.get("show") or "")
+    said = INTENT_LINE.findall(str(a.state.get("last_answer") or ""))
+    verdict, why = (said[-1][0].lower(), said[-1][1].strip().rstrip(".")) if said else (None, "")
+    thread = _THREAD.search(req)
+    if thread:
+        parts = [md.fence(thread.group(1).strip(), "text")]
+        answer = _THREAD_ANSWER.search(req)
+        if answer:
+            parts.append("The person's answer: " + md.safe_words(answer.group(1).strip()[:1500]))
+        code = _THREAD_CODE.search(req)
+        if code:
+            parts += [code.group(1) + ":", code.group(2)]
+        asked = md.section("What the reviewer asked", "The thread, oldest first, as it is on the pull request:", *parts)
+    else:
+        asked = md.section("What was asked", md.fence(md.cut(req.strip(), 3000), "text")) if req.strip() else ""
+    if verdict == "missed":
+        head = (f"DOES NOT DO WHAT THE REVIEWER ASKED: {why or 'see the check below'}. Send it back with what to "
+                "change, or approve if the change is right anyway.")
+        check = md.section("keel's check against the thread", f"Does not do what the reviewer asked: {why or '(no reason given)'}.")
+    elif verdict == "met":
+        head = ""
+        check = md.section("keel's check against the thread", f"Does what the reviewer asked: {why or '(no detail given)'}.")
+    else:
+        head = ""
+        check = md.section("keel's check against the thread", "The check gave no INTENT line: compare the change with the "
+                           "thread yourself.")
+    text = md.doc(head, asked, check, shown)
+    note = {"missed": "intent: missed", "met": "intent: met"}.get(verdict or "", "intent: not said")
+    return _ok(note, update={"show": md.cut(text, 16000)})
+
+
 def _contract_files(a, dirty: dict) -> list[str]:
     cfg = rules.load_config(a.root)
     named = str((cfg.get("contract") or {}).get("file") or "")
@@ -1286,7 +1330,7 @@ def close_flow(a):
 ACTIONS = {"preflight": preflight, "explore_areas": explore_areas, "spec_sync": spec_sync, "spec_freeze": spec_freeze,
            "spec_restart": spec_restart, "amend_start": amend_start, "spec_amendment": spec_amendment,
            "spec_amend_commit": spec_amend_commit, "amend_reorder": amend_reorder, "amend_with_note": amend_with_note, "stuck": stuck,
-           "amend_stop": amend_stop, "show_diff": show_diff, "test_check": test_check, "security_scope": security_scope,
+           "amend_stop": amend_stop, "show_diff": show_diff, "test_check": test_check, "thread_view": thread_view, "security_scope": security_scope,
            "e2e_scope": e2e_scope, "e2e_unrun": e2e_unrun, "verify_e2e": verify_e2e, "smoke_scope": smoke_scope,
            "verify_smoke": verify_smoke, "close_flow": close_flow, "full_review": full_review, "ship_ready": ship_ready,
            "ship_stop": ship_stop, "contract_check": contract_check, "stack_up": stack_up}

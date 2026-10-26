@@ -399,6 +399,11 @@ DOCS: dict[str, dict] = {
         "summary": "quick: the change comes with a test, or the agent's UNTESTABLE: line says why not; neither leads "
                    "the look gate's diff with a warning (the person decides, nothing is refused).",
     },
+    "thread_view": {
+        "summary": "address: the look gate shows the review thread (every reply, the person's answer, the code it is on) "
+                   "next to the diff, with the intent check's verdict; a change that does not do what the reviewer "
+                   "asked leads the text with the reason.",
+    },
     "security_scope": {
         "summary": "Makes the security items: the auditor always, the dependency triager only when verify deps found "
                    "something.",

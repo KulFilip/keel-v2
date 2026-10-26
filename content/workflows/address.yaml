@@ -9,6 +9,11 @@ version: 1
 # test when behaviour changes, and writes no test of the source text. keel runs the project's tests (a failure goes back
 # to the agent, up to 2 rounds, then keel asks), you look at the diff once, keel commits. Nothing is pushed. A bigger
 # comment (a new page, a migration, the API contract): pick the small, change or feature flow instead.
+# keel 0.18.57 the reviewer's intent: a comment "maybe a factory would fit here?" came back as a private method, then as
+# a factory in the wrong folder. The request holds the thread verbatim (every reply, the person's own too, file:line and
+# the code); the agent builds the structure or behaviour the thread names, where this project keeps code of that kind;
+# a check (intent lens) compares the diff with the thread and sends a miss back once with the reason; the look gate
+# shows the thread next to the diff, and the check's verdict first.
 steps:
   - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
   - id: change
@@ -19,15 +24,42 @@ steps:
     phase: ac
     instructions: >-
       Make the change the request asks for, and only that, in the files it needs, following how this project already
-      does things. Code and test files may both change here. When the change alters behaviour, add or adjust the test
-      that proves it. When it changes no behaviour (a refactor, an extract into a helper, a rename, test code only),
-      write no new test (the existing tests passing is the proof) and end with one line "NO-BEHAVIOUR-CHANGE: <what
-      changed>". Never write a test that reads source code as text.
+      does things. Code and test files may both change here. When the request is a reviewer's thread, implement what
+      the reviewer asked for: the structure or behaviour the thread names (a factory, a class, a check, a rename),
+      not a smaller stand-in for it (a private method where a factory was asked for). Every reply counts, and the
+      person's own reply in the thread (or their answer under it) is the decision ("yes, a reusable factory class").
+      Put new code where this project keeps code of that kind: find where its existing code of that kind lives (grep
+      for a few of them) and follow that folder, naming and registration, not the file the comment is on.
+      When the change alters behaviour, add or adjust the test that proves it. When it changes no behaviour (a
+      refactor, an extract into a helper, a rename, test code only), write no new test (the existing tests passing is
+      the proof) and end with one line "NO-BEHAVIOUR-CHANGE: <what changed>". Never write a test that reads source
+      code as text.
       Run the tests you touched before you stop. If the change cannot be tested (a text, a comment), end with one line
       "UNTESTABLE: <why>". When it is bigger than the request (a new page, a migration, the API contract, several
       parts), stop and say so: it needs the small or the feature flow.
   - { id: verify, kind: code, name: run the tests, action: verify_green, phase: ac, back: change, rounds: 2, lock: true }
   - { id: diff, kind: code, name: the diff for your look, action: show_diff+test_check, phase: ac }
+  - id: intent
+    kind: agent
+    name: "check: does it do what the reviewer asked?"
+    agent: lens-reviewer
+    model: default
+    phase: ac
+    back: change
+    rounds: 1
+    markers: [INTENT]
+    instructions: >-
+      Lens: intent. Compare the uncommitted change (git diff HEAD, and the new files git status lists) with what was
+      asked: the reviewer's thread in the request, every reply in it, and the person's answer when there is one (the
+      person's own reply is the decision). Read only the changed files and, to judge where code belongs, a few files
+      of the same kind in this project. Blocking, one line each, starting with "Does not do what the reviewer asked:",
+      then what was asked and what the change does instead: the change builds a different or smaller thing than the
+      structure or behaviour the thread names (a private method where a factory class was asked for, a rename where
+      an extraction was asked for); or it puts the new code where this project does not keep code of that kind (name
+      where it does). Nothing else is blocking here: not style, not more than the thread asks. End with one line
+      "INTENT: met — <what the change does, in one sentence>" or "INTENT: missed — <the reason>", then the BLOCKING
+      line.
+  - { id: thread, kind: code, name: the thread next to the diff, action: thread_view, phase: ac }
   - { id: look, kind: gate, name: look at the change, back: change, lock: true, phase: gate }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: ac }
   - { id: close, kind: code, name: done, action: close_flow, then: end, phase: close }
