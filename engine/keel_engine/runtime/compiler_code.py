@@ -6,7 +6,7 @@ import datetime
 import hashlib
 import time
 
-from . import choices as choices_mod, flow_actions, run_mode, suite_failure
+from . import choices as choices_mod, flow_actions, prompts, run_mode, spec_check, suite_failure, test_scope
 from .. import extensions, rules
 from ..rules import checks as rule_checks
 from ..workflows.model import Step
@@ -263,6 +263,61 @@ class CodeMixin:
         seen = ((state.get("data") or {}).get("already_met") or {}).get(ac["id"])
         return bool(seen) and not seen.get("auto")
 
+    def _guard_loop(self, step: Step, state: FlowState, ac: dict | None, target: str | None) -> dict | None:
+        """The guard-loop question, or None: the agent step this check sends work back to had the same file(s) put back
+        by keel's phase rule in two rounds in a row and the criterion, its plan or the request names them; or the agent
+        said FROZEN: <file> for a file the phase freezes. Choices: allow the file(s) in this phase (recommended, the
+        existing unlock), skip the criterion, stop."""
+        if not target or target not in self.nav.index:
+            return None
+        tstep = self.wf.steps[self.nav.index[target]]
+        if tstep.kind not in ("agent", "parallel"):
+            return None
+        phase = tstep.phase or state.get("phase") or "none"
+        data = state.get("data") or {}
+        skey = f"{tstep.id}:{(ac or {}).get('id')}"
+        streak = (data.get("guard_streak") or {}).get(skey) or {}
+        texts = [(ac or {}).get("title"), data.get("plan_text"), self.ctx.request,
+                 prompts.plan_row(spec_check.read_spec(self.ctx.root, state.get("spec")), ac["id"]) if ac and state.get("spec") else ""]
+        files = [f for f in streak.get("paths") or [] if test_scope.named_in(f, texts)] if streak.get("count", 0) >= 2 else []
+        said = test_scope.frozen_said(state.get("last_answer"))
+        if said:
+            cfg = rules.load_config(self.ctx.root)
+            files += [f for f in test_scope.resolve(self.ctx.root, said) if test_scope.unlockable(phase, f, cfg)]
+        files = [f for f in dict.fromkeys(files) if not rules.unlocked(state.get("unlocks"), f, phase)]
+        if not files:
+            return None
+        cfg = rules.load_config(self.ctx.root)
+        why = "; ".join(dict.fromkeys(test_scope.frozen_why(phase, rules.classify(cfg, f)) for f in files))
+        shown = ", ".join(f"`{f}`" for f in files)
+        lp = self.nav.loop_of(self.nav.index[tstep.id])
+        can_skip = bool(ac and lp and lp.per_ac)
+        rounds = int(streak.get("count") or 0)
+        how = (f"keel's guard put {'it' if len(files) == 1 else 'them'} back after the last {rounds} rounds of "
+               f"{tstep.name}" if rounds >= 2 else f"{tstep.agent or 'the agent'} says it cannot do {tstep.name} without "
+               f"{'it' if len(files) == 1 else 'them'}")
+        allow_label = f"Allow {shown} in this phase (recommended)" if len(files) == 1 else "Allow these files in this phase (recommended)"
+        info = [{"name": "allow", "label": allow_label, "why": choices_mod.OPTIONAL,
+                 "description": f"keel lets {shown} change in phase {phase}, for this flow only; the same round runs again"}]
+        if can_skip:
+            info.append({"name": "skip", "label": "Skip this criterion", "why": choices_mod.NONE,
+                         "description": f"move {ac['id']} to the end of the list and go on with the next criterion"})
+        info.append({"name": "stop", "label": "Stop the flow", "why": choices_mod.OPTIONAL,
+                     "description": "stop the flow here (the commits so far stay)"})
+        info = [{**c, "default": k == 0} for k, c in enumerate(info)]
+        lines = [f"keel's rule for this phase blocks changes to {shown} ({why}); the change needs "
+                 f"{'that file' if len(files) == 1 else 'those files'}. {how}, so another round, an investigator or a "
+                 "stronger model cannot help: the rule decides, not the agent.", "",
+                 f"Allow {'it' if len(files) == 1 else 'them'} if the change is meant to touch "
+                 f"{'it' if len(files) == 1 else 'them'} (a change to test code only, a refactor of a test).", "",
+                 "Choose one:", *[f"- {c['name']}: {c['description']}" for c in info]]
+        q = {"type": "guard-loop", "kind": "fix", "step": step.id,
+             "title": f"keel's rules block {shown} in {phase}"[:200], "detail": "\n".join(lines),
+             "choices": [c["name"] for c in info], "choice_info": info, "retry_to": tstep.id, "streak_key": skey,
+             "allow": [{"path": f, "phase": phase, "reason": f"the change needs it ({why})"} for f in files]}
+        q["plain"] = choices_mod.plain_effects(q)
+        return q
+
     def _stuck_question(self, step: Step, ac: dict, r: ActionResult, rounds: int, attempts: int) -> dict:
         """The question after the stall ladder: retry with a note / skip the criterion / edit the spec / stop."""
         edit = any(s.id == "amend" for s in self.wf.steps)
@@ -292,7 +347,9 @@ class CodeMixin:
         who = (ac or {}).get("id") or step.id
         tries, limit = flow_actions.stuck_tries(state, who), flow_actions.sendback_limit(self.ctx.settings)
         if tries >= limit:
-            names = flow_actions.past_limit(names, bool(ac and lp and lp.per_ac and self._others_open(state, ac)))
+            # "allow" is not one more try of the same: it lifts the rule that made the tries fail, so it stays
+            names = (["allow"] if "allow" in names else []) + \
+                flow_actions.past_limit(names, bool(ac and lp and lp.per_ac and self._others_open(state, ac)))
             detail = flow_actions.limit_note(tries, limit, who) + "\n\n" + flow_actions.offered(detail, names)
         question = {"step": step.id, "kind": "fix", "title": q["title"], "detail": detail, "options": _c.OPTIONS,
                     "choices": names}
@@ -315,6 +372,26 @@ class CodeMixin:
             base.update(flow_actions.stuck_counted({**state, **upd}, who, tries + 1))
         if choice == "recheck":
             return {**base, "note": f"{step.name}: checked again"}, step.id
+        if choice == "allow" and q.get("allow"):
+            # the guard-loop gate: the person allows the files keel's phase rule kept putting back, for this flow, this
+            # phase and these paths only (state.unlocks, the dashboard's "Allow this file in this phase"); the same round
+            # runs again with the files open
+            opened = normalize_unlocks(q["allow"], state.get("phase") or "none", "user")
+            for u in opened:
+                self.ctx.emit("gate.decided", step=step.id, data={
+                    "gate": "unlock", "decision": "approve", "unlock": {"path": u["path"], "phase": u["phase"]},
+                    "why": f"{u['path']} in {u['phase']}" + (f": {why}" if why else "")})
+            files = ", ".join(u["path"] for u in opened)
+            data = dict(base.get("data") or state.get("data") or {})
+            streaks = dict(data.get("guard_streak") or {})
+            streaks.pop(q.get("streak_key"), None)
+            data["guard_streak"] = streaks
+            feedback = (f"The person allowed {files} in phase {opened[0]['phase']} for this flow: keel no longer puts "
+                        "changes to it back. Make the change the criterion needs." + (f"\n\nFrom the person: {why}" if why else ""))
+            target = self.nav.jump(q["retry_to"], i) if q.get("retry_to") else self.nav.retry_target(i)
+            return {**base, "data": data, "unlocks": merge_unlocks(list(state.get("unlocks") or []), opened),
+                    "feedback": feedback, "last_failure": r.note[:300],
+                    "note": f"allowed {files} in {opened[0]['phase']}; the round runs again"[:300]}, target or step.id
         if choice == "retry":
             feedback = f"{r.note}\n{r.detail[-2000:]}".strip() + (f"\n\nFrom the user: {why}" if why else "")
             target = self.nav.jump(q["retry_to"], i) if q.get("retry_to") else self.nav.retry_target(i)
@@ -551,6 +628,13 @@ class CodeMixin:
         attempts = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
         lp = self.nav.loop_of(i)
+        blocked = self._guard_loop(step, state, ac, target)
+        if blocked:
+            # the guard put the same file(s) back in two rounds (or the agent said it needs them): another round, an
+            # investigator or a stronger model cannot change a rule, so the person decides now
+            retries[key] = count
+            return self._choice_answer(i, step, state, ActionResult(False, r.note, r.detail, ask=blocked),
+                                       {**base, "retries": retries})
         ladder = bool(step.per_ac and lp and lp.per_ac and ac and target and not step.after_rounds)
         if target and count <= attempts and not r.final:
             retries[key] = count

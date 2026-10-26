@@ -88,3 +88,27 @@ def test_the_review_kind_says_so_in_the_prompt():
     prompt = task_pick.build_prompt("review", {**TICKET, "pr_url": "https://github.com/shop/app/pull/7"}, WORKFLOWS, "review-pr")
     assert "review workflow" in prompt and "pr_url: https://github.com/shop/app/pull/7" in prompt
     assert "default is: review-pr" in prompt
+
+
+def test_a_ticket_that_changes_only_test_code_takes_the_address_flow_without_a_model(client, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("keel decides a test-only ticket without a model call")
+    monkeypatch.setattr(task_pick.models, "ask", boom)
+    ticket = {"key": "SHOP-7", "type": "task", "title": "Tidy the order handler test",
+              "description": "In tests/Integration/OrderHandlerTest.php the setUp() inserts its rows inline; "
+                           "maybe a factory would fit here?"}
+    flows = WORKFLOWS + [{"id": "address", "name": "address", "about": "a review comment or test code only"}]
+    j = client.post("/tasks/pick", json={**body(), "ticket": ticket, "workflows": flows, "default": "small"}).json()
+    assert j["pick"]["workflow"] == "address" and j["pick"]["rule"] == "test-only" and j["pick"]["fallback"] is False
+    assert j["pick"]["why"].startswith("Only test code changes (tests/Integration/OrderHandlerTest.php)")
+    assert j["tokens_in"] == 0
+
+
+def test_a_ticket_that_names_production_code_too_is_left_to_the_model(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(task_pick.models, "ask", fake_ask(block({"workflow": "small", "why": "w"}), seen))
+    ticket = {"title": "Order totals", "description": "Change src/Orders/OrderTotal.php and tests/Unit/OrderTotalTest.php"}
+    flows = WORKFLOWS + [{"id": "address", "name": "address", "about": "x"}]
+    j = client.post("/tasks/pick", json={**body(), "ticket": ticket, "workflows": flows}).json()
+    assert j["pick"]["workflow"] == "small" and "rule" not in j["pick"]
+    assert "A change to test code only" in seen["system"] and "address" in seen["system"]

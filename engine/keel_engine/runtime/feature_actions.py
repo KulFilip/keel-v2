@@ -911,6 +911,8 @@ def show_diff(a):
 
 
 UNTESTABLE = re.compile(r"^\W*UNTESTABLE:\s*(.+)$", re.M | re.I)
+# address (0.18.56): a change that alters no behaviour (a refactor, an extract, test code only) needs no new test
+NO_BEHAVIOUR = re.compile(r"^\W*NO-BEHAVIOUR-CHANGE:\s*(.+)$", re.M | re.I)
 TEST_BUCKETS = ("api-test", "web-test", "e2e")
 
 
@@ -928,6 +930,11 @@ def test_check(a):
         return _ok(f"tests changed: {', '.join(tests[:5])}" + (f" (+{len(tests) - 5})" if len(tests) > 5 else ""))
     said = UNTESTABLE.search(str(a.state.get("last_answer") or ""))
     shown = str(a.state.get("show") or "")
+    same = NO_BEHAVIOUR.search(str(a.state.get("last_answer") or ""))
+    if same and not said:
+        head = (f"No test added or changed. The agent says no behaviour changes: {same.group(1).strip()[:300]}. The "
+                "existing tests passed after the change.")
+        return _ok("no test: no behaviour changes", update={"show": f"{head}\n\n{shown}".strip()})
     if said:
         head = f"No test added or changed. The agent says it cannot be tested: {said.group(1).strip()[:300]}"
         return _ok("no test: the agent says it cannot be tested", update={"show": f"{head}\n\n{shown}".strip()})

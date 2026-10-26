@@ -208,7 +208,7 @@ def dependency_name(line: str) -> str:
 
 # The flows a commit checks the triggers in (keel v1 small.md: on every commit of a small change). quick and small
 # are v2's own small flows: a migration, the contract or auth stops them the same way.
-ESCALATING_FLOWS = ("change", "quick", "small")
+ESCALATING_FLOWS = ("change", "quick", "small", "address")
 _LOGGED = re.compile(r"^escalation-(override|suggest) \[([^\]]*)\]")
 
 

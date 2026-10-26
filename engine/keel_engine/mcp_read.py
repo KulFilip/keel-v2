@@ -130,7 +130,9 @@ def status(api: KeelApi, project: str | None = None) -> str:
     thread, workflow = _flow(api, p["id"])
     head = f"project   {p['id']} · branch {p.get('branch') or '-'}"
     if not thread:
-        return f"{head}\nflow      none. Start one in the dashboard (Flow › Start a flow)."
+        out = f"{head}\nflow      none. Start one in the dashboard (Flow › Start a flow)."
+        other = None if project else _waiting_elsewhere(api, p["id"])
+        return f"{out}\nelsewhere {other}" if other else out
     out = [head, f"flow      {_flow_name(thread, workflow)} · \"{thread.get('title', '')}\" · {thread.get('status')} · thread {thread.get('thread_id')}",
            f"step      {thread.get('current') or '-'} · phase {thread.get('phase') or 'none'}" + (f" · {thread['ac']}" if thread.get("ac") else "")
            + (f" · run mode {thread['run_mode']}" if thread.get("run_mode") not in (None, "", "manual") else "")]
@@ -155,6 +157,25 @@ def status(api: KeelApi, project: str | None = None) -> str:
     for b in thread.get("blockers") or []:
         out.append(f"blocker   {b.get('gate')}: {b.get('why')} -> {b.get('fix')}")
     return "\n".join(out)
+
+
+def _waiting_elsewhere(api: KeelApi, default: str) -> str | None:
+    """When the default project (none named) has no flow: the first other project whose flow waits for a person, as
+    "no flow in <default>; <other> has a flow waiting at <gate>", so a caller in the wrong folder is not told "none"."""
+    try:
+        rows = api.get("/projects") or []
+    except ApiError:
+        return None
+    for row in rows:
+        if row.get("id") == default or not row.get("waiting"):
+            continue
+        try:
+            thread, _ = _flow(api, row["id"])
+        except ApiError:
+            thread = None
+        gate = ((thread or {}).get("waiting") or {}).get("title") or (thread or {}).get("current") or "a gate"
+        return f"no flow in {default}; {row['id']} has a flow waiting at {gate} (keel_status project={row['id']})"
+    return None
 
 
 def projects(api: KeelApi) -> str:

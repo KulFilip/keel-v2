@@ -58,7 +58,7 @@ function specRank(i: NavItem): number {
  *  Product is on (keel lists them only then); a workflow keel does not have is "Yours"; one of keel's this list does not
  *  name (a plugin's) goes to Other. */
 export const WORKFLOW_PARTS: { id: string; title: string; ids?: string[] }[] = [
-  { id: "build", title: "Build", ids: ["feature", "change", "implement", "small", "quick", "spike", "clarify"] },
+  { id: "build", title: "Build", ids: ["feature", "change", "implement", "small", "quick", "address", "spike", "clarify"] },
   { id: "fix", title: "Fix", ids: ["fix", "diagnose"] },
   { id: "check", title: "Check & ship", ids: ["review", "review-pr", "cover", "lint", "ship", "hunt", "hunt-next"] },
   { id: "setup", title: "Set up & learn", ids: ["init", "knowledge-refresh"] },

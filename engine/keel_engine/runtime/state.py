@@ -144,7 +144,8 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
     cap = int(s.get("cap_tokens") or (ctx.workflow.budget.max_tokens if ctx.workflow.budget and ctx.workflow.budget.max_tokens else 0) or 0)
     return FlowState(
         flow=ctx.workflow.flow, workflow_id=ctx.workflow.id, title=ctx.title, status="running", phase="none",
-        current=None, acs=[{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": _start_status(a)} for a in acs or []],
+        current=None, acs=[{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": _start_status(a),
+              **({"kind": a["kind"]} if a.get("kind") else {})} for a in acs or []],
         ac=None, gates={"mode": s.get("gates_mode", "every-ac"), "log": [], "skipped": {}},
         stall={"fingerprint": None, "count": 0, "step": 0},
         usage={"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap,

@@ -19,6 +19,7 @@ from .mcp_server import ApiError, KeelApi, _flow, _project, cut
 # web/src/flowSize.ts); any other flow says it in its YAML (`about:`, else its first comment line)
 ABOUT = {
     "quick": "one agent, the tests, one look, one commit: a typo, a small bug, a config value",
+    "address": "a review comment or a change to test code only: one agent, code and tests, the tests run, one look",
     "implement": "the code, then its tests; done when they pass",
     "small": "a short plan with 1-3 criteria, test-first, one review",
     "change": "work without a spec: 1-3 criteria, test-first, then ship",

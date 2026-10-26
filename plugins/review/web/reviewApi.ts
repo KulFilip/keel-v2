@@ -249,6 +249,8 @@ export type ThreadConfig = {
     agent: string;
   };
   address_workflow?: string;
+  /** keel 0.18.56 the flows the Address it confirmation offers, the configured one first */
+  address_flows?: { id: string; name: string }[];
   buttons?: ThreadButtonInfo[];
 };
 export type AiRun<R> = {
@@ -396,8 +398,8 @@ export const reviewApi = {
     post<AiState>(`${R(pid)}/threads/${e(threadId)}/judge`, { key, ...opts }),
   judgeAll: (pid: string, key: string, opts: { again?: boolean; harder?: boolean } = {}) =>
     post<AiState>(`${R(pid)}/threads/judge`, { key, ...opts }),
-  address: (pid: string, key: string, threadId: string, note?: string) =>
-    post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note }),
+  address: (pid: string, key: string, threadId: string, note?: string, workflow?: string) =>
+    post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note, workflow }),
   button: (pid: string, key: string, threadId: string, buttonId: string, opts: { again?: boolean; harder?: boolean } = {}) =>
     post<AiState>(`${R(pid)}/threads/${e(threadId)}/buttons/${e(buttonId)}`, { key, ...opts }),
   threadSettings: (pid: string | null) =>

@@ -687,7 +687,12 @@ export function ThreadBox({
   const ta = useRef<HTMLTextAreaElement>(null);
   const cfg = ai?.config;
   const quick = (cfg?.judge?.mode ?? "quick") === "quick";
-  const flowName = cfg?.address_workflow ?? "small";
+  const flowName = cfg?.address_workflow ?? "address";
+  // 0.18.56 the confirmation may pick another flow (a feature flow for a big comment); the configured one first
+  const flowChoices = cfg?.address_flows?.length
+    ? cfg.address_flows
+    : [{ id: flowName, name: flowName }];
+  const [pickedFlow, setPickedFlow] = useState<string>(flowName);
   const judge = ai?.judges?.[t.id] ?? null;
   const addressed = ai?.addressed?.[t.id];
   const judging =
@@ -736,7 +741,13 @@ export function ThreadBox({
   };
   const startAddress = async (note?: string) => {
     setErr(null);
-    const r = await R.address(pid, reviewKey, t.id, note);
+    const r = await R.address(
+      pid,
+      reviewKey,
+      t.id,
+      note,
+      pickedFlow !== flowName ? pickedFlow : undefined,
+    );
     setConfirm(null);
     if (r) setStarted(r.note);
     else failed("keel could not start the flow");
@@ -932,10 +943,26 @@ export function ThreadBox({
           aria-label="Confirm Address it"
         >
           <span>
-            keel checks out {view.branch} in the project folder and starts a{" "}
-            {flowName} flow there with this thread as its request. It pushes and
-            posts nothing.
+            keel checks out {view.branch} in the project folder and starts the{" "}
+            {pickedFlow} flow there with this thread as its request. It pushes
+            and posts nothing.
           </span>
+          {flowChoices.length > 1 && (
+            <label className="rv-row">
+              <span>Flow</span>
+              <select
+                aria-label="Flow for Address it"
+                value={pickedFlow}
+                onChange={(x) => setPickedFlow(x.target.value)}
+              >
+                {flowChoices.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="rv-row">
             <button
               type="button"

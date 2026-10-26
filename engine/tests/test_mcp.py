@@ -187,6 +187,14 @@ async def test_status(stub):
 async def test_status_of_a_project_without_a_flow(stub):
     text = await call(mcp_server.build_server(api=stub.api), "keel_status", {"project": "blog"})
     assert "flow      none" in text
+    assert "elsewhere" not in text          # the caller named the project: no hint about the others
+
+
+async def test_status_of_the_default_project_without_a_flow_names_the_one_that_waits(stub, monkeypatch):
+    monkeypatch.setenv("KEEL_PROJECT", "blog")      # the default project (none named) has no flow; shop waits at a gate
+    text = await call(mcp_server.build_server(api=stub.api), "keel_status")
+    assert "flow      none" in text
+    assert "no flow in blog; shop has a flow waiting at Approve the spec (keel_status project=shop)" in text
 
 
 async def test_project_defaults(stub, monkeypatch):

@@ -36,7 +36,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, agent_names, extensions, models, rules
-from . import doc_history, md
+from . import doc_history, md, test_scope
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
@@ -477,6 +477,11 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             # 0.18.28 a person approved "already passes" with the test in front of them: listed for the full-diff review
             return (f"{state.get('ac')}: already met (a person approved it); not reviewed per AC, the full-diff review "
                     "reads its test", self.nav.after(i))
+        if step.per_ac and step.kind in ("agent", "parallel") and step.phase == "red" and test_scope.is_refactor(_ac(state)):
+            # a refactor criterion has no test of its own: its proof is the existing tests, run before (verify_red) and
+            # after (verify_green). A RED agent here could only write a test of the source text.
+            return (f"{state.get('ac')} is a refactor: no new test; its proof is the existing tests, before and after",
+                    self.nav.after(i))
         if step.retry_only and not (state.get("last_failure") or state.get("feedback")):
             return f"{step.name}: nothing was sent back; not needed", self.nav.after(i)
         if step.when and step.kind in ("agent", "parallel", "code"):

@@ -4,6 +4,10 @@
 /** The flows a request can be sized into, smallest first, with what each is for in one line. */
 export const SIZE_FLOWS: { id: string; about: string }[] = [
   { id: "quick", about: "one agent, the tests, one look, one commit" },
+  {
+    id: "address",
+    about: "a review comment or test code only: one agent, the tests, one look",
+  },
   { id: "implement", about: "the code, then its tests; done when they pass" },
   { id: "small", about: "a short plan, test-first, one review" },
   { id: "change", about: "1–3 criteria, test-first, then ship" },
@@ -18,6 +22,30 @@ const BUG =
   /\b(bugs?|broken|break(s|ing)?|crash\w*|errors?|fails?|failing|wrong|regression|exception|doesn'?t work|not working)\b/i;
 const TINY =
   /\b(typos?|wording|spelling|renam\w+|labels?|texts?|colou?rs?|spacing|margins?|padding|icons?|tooltips?|config\w*|settings?|bump|versions?|comments?|readme|docs?|log messages?|translations?|titles?)\b/i;
+
+// 0.18.56 a change to test code only (every file the request names is a test, by keel's path roles: engine
+// rules._TEST_PATH) has no new behaviour for a failing test to describe: the address flow, not a test-first one
+const CODE_FILE =
+  /(?<![\w@.-])((?:[\w@.-]+\/)*[\w@-]+(?:\.[\w-]+)*\.(?:php|kt|kts|java|ts|tsx|js|jsx|mjs|cjs|py|go|rb|cs|scala|swift|rs|vue|svelte|ex|exs|dart|groovy))(?![\w-])/g;
+const TEST_PATH = [
+  /(^|\/)(test|tests|__tests__|spec)\//,
+  /(^|\/)test_[^/]+\.py$/,
+  /_test\.(py|go|rb|exs?)$/,
+  /_spec\.rb$/,
+  /\.(test|spec)\.(ts|tsx|js|jsx)$/,
+  /Test\.(kt|java|php)$/,
+  /Tests\.(kt|java)$/,
+  /(^|\/)src\/test\//,
+  /(^|\/)src\/integrationTest\//,
+];
+
+/** The code files a request names, when every one of them is a test file (else []). */
+export function testOnlyFiles(text: string): string[] {
+  const files = [...new Set([...text.matchAll(CODE_FILE)].map((m) => m[1]))];
+  return files.length && files.every((f) => TEST_PATH.some((re) => re.test(f)))
+    ? files
+    : [];
+}
 
 /** The flow that fits these words (only one of `available`), and why; null when there are no words yet. */
 export function suggestFlow(
@@ -35,6 +63,8 @@ export function suggestFlow(
     .split("\n")
     .filter((l) => /^\s*([-*•]|\d+[.)])\s+/.test(l)).length;
   const word = (re: RegExp) => (re.exec(text)?.[0] ?? "").toLowerCase();
+  if (testOnlyFiles(text).length)
+    return pick(["address", "quick"], "only test code changes");
   if (NO_TEST_FIRST.test(text))
     return pick(
       ["implement", "small"],

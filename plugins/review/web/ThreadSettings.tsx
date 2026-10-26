@@ -306,10 +306,10 @@ export function ThreadSettings({ pid, scope }: SettingsSectionProps) {
       {row(
         "address_workflow",
         "Workflow",
-        "Runs on the pull request's branch with the thread as its request. It never pushes.",
+        "Runs on the pull request's branch with the thread as its request. It never pushes. address (the default): one agent changes the code and its tests, keel runs the tests, you look once; no test-first loop.",
         <select
           id={id("address_workflow")}
-          value={e.address_workflow ?? "small"}
+          value={e.address_workflow ?? "address"}
           onChange={(x) =>
             void save(
               { address_workflow: x.target.value },

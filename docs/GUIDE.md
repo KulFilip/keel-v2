@@ -85,6 +85,7 @@ The [README](../README.md) is the short version. This page has the details.
 | **feature** | web check (and web docs when needed) → spec (with questions) ◆ → plan → contract ◆ → per criterion: failing test, code, review ◆ → integration, security, full review, e2e, smoke → ship |
 | **change** | small change without a spec: trivial (one commit) or 1–3 criteria; too big → hands over to feature |
 | **quick** | one agent makes the change and a test → keel runs the tests (2 fix rounds) → your one look ◆ → one commit; no spec, no ship |
+| **address** | a reviewer's comment ("Address it") or a change to test code only: one agent changes the code and its tests → keel runs the tests (2 fix rounds) → your one look ◆ → one commit; no test-first loop |
 | **implement** | the usual order, not test-first: the code → its tests → keel runs them; pass → one commit, done; fail → a fix and the tests again (2 rounds); no gate |
 | **small** | a short plan with 1–3 criteria ◆ → per criterion a failing test and the code → one review (its blocking findings fixed, 2 rounds) → your one look ◆; no ship |
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
@@ -206,6 +207,16 @@ browser is tagged `[E2E]`; a check that must also pass after a deploy, `[SMOKE]`
 ```
 
 - **Look**: you see the diff once; approve, or send it back with a reason.
+
+### address
+
+```
+ preflight ─ change (code and tests) ─ run the tests (2 fix rounds) ─ diff ─◆ look ─ commit ─ done
+```
+
+- What "Address it" on a review thread starts (Settings › Code Review › Address it picks another flow), and what keel
+  suggests when every file a request names is a test: there is no new behaviour for a failing test to describe.
+- A change with no behaviour change (an extract into a helper, a rename) adds no test: the tests passing is the proof.
 
 ### implement
 

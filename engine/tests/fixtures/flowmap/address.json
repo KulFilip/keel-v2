@@ -1,0 +1,136 @@
+{
+ "workflow": "address",
+ "name": "address (keel)",
+ "steps": [
+  {
+   "id": "preflight",
+   "kind": "code",
+   "name": "preflight + own branch",
+   "phase": "preflight",
+   "action": "preflight"
+  },
+  {
+   "id": "change",
+   "kind": "agent",
+   "name": "make the change",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "ac",
+   "instructions": "Make the change the request asks for, and only that, in the files it needs, following how this project already does things. Code and test files may both change here. When the change alters behaviour, add or adjust the test that proves it. When it changes no behaviour (a refactor, an extract into a helper, a rename, test code only), write no new test (the existing tests passing is the proof) and end with one line \"NO-BEHAVIOUR-CHANGE: <what changed>\". Never write a test that reads source code as text. Run the tests you touched before you stop. If the change cannot be tested (a text, a comment), end with one line \"UNTESTABLE: <why>\". When it is bigger than the request (a new page, a migration, the API contract, several parts), stop and say so: it needs the small or the feature flow."
+  },
+  {
+   "id": "verify",
+   "kind": "code",
+   "name": "run the tests",
+   "phase": "ac",
+   "action": "verify_green",
+   "back": "change",
+   "lock": true,
+   "rounds": 2
+  },
+  {
+   "id": "diff",
+   "kind": "code",
+   "name": "the diff for your look",
+   "phase": "ac",
+   "action": "show_diff+test_check"
+  },
+  {
+   "id": "look",
+   "kind": "gate",
+   "name": "look at the change",
+   "phase": "gate",
+   "back": "change",
+   "lock": true
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit",
+   "phase": "ac",
+   "action": "commit",
+   "lock": true
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "action": "close_flow",
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "preflight",
+   "change",
+   "verify",
+   "diff",
+   "look",
+   "commit",
+   "close"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "preflight",
+    "nodes": [
+     {
+      "step": "preflight",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "change",
+      "side": []
+     },
+     {
+      "step": "verify",
+      "side": []
+     },
+     {
+      "step": "diff",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "look",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "commit",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "close",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

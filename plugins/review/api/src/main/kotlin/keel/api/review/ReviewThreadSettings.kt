@@ -66,6 +66,14 @@ class ReviewThreadSettings(
         const val MIN_CAP = 200
         const val MAX_CAP = 1_000_000
         val PLACEHOLDERS = setOf("thread", "file", "lines", "diff", "pr")
+        /**
+         * keel 0.18.56 what "Address it" runs by default: implement, then test (one agent changes the code and its tests,
+         * keel runs the tests, one look, one commit). A test-first flow (small) had no behaviour to test for a comment on a
+         * test file, and keel's "tests are frozen in GREEN" put the change back.
+         */
+        const val ADDRESS_FLOW = "address"
+        /** The flows Address it offers to pick from when the project has them (Settings may name any other). */
+        val ADDRESS_CHOICES = listOf("address", "quick", "small", "change", "feature", "implement", "fix")
     }
 
     override val id = "review-threads"
@@ -79,7 +87,7 @@ class ReviewThreadSettings(
         SettingKey("plugins.$NAME.judge_token_cap", "int", 25_000),
         SettingKey("plugins.$NAME.judge_allow_harder", "bool", true),
         SettingKey("plugins.$NAME.judge_workflow", "text", "review"),
-        SettingKey("plugins.$NAME.address_workflow", "text", "small"),
+        SettingKey("plugins.$NAME.address_workflow", "text", ADDRESS_FLOW),
         SettingKey("plugins.$NAME.thread_buttons", "list", emptyList<Any>()),
     )
     private val names = keys.map { it.key.removePrefix("plugins.$NAME.") }.toSet()
@@ -101,7 +109,7 @@ class ReviewThreadSettings(
         judgeTokenCap = (values["judge_token_cap"] as? Number)?.toInt()?.coerceIn(MIN_CAP, MAX_CAP) ?: 25_000,
         judgeAllowHarder = values["judge_allow_harder"] as? Boolean ?: true,
         judgeWorkflow = (values["judge_workflow"] as? String)?.trim()?.ifEmpty { null } ?: "review",
-        addressWorkflow = (values["address_workflow"] as? String)?.trim()?.ifEmpty { null } ?: "small",
+        addressWorkflow = (values["address_workflow"] as? String)?.trim()?.ifEmpty { null } ?: ADDRESS_FLOW,
         buttons = buttons(values["thread_buttons"]),
     )
 
@@ -207,6 +215,16 @@ class ReviewThreadSettings(
         return out
     }
 
+    /** [{id, name}] of the flows Address it may start here: the configured one first, then [ADDRESS_CHOICES] the project has. */
+    fun addressFlows(pid: String, configured: String): List<Map<String, String>> {
+        val have = runCatching { workflows.list(pid).associate { it.id to it.name } }.getOrDefault(emptyMap())
+        return (listOf(configured) + ADDRESS_CHOICES).distinct().filter { have.isEmpty() || it in have }
+            .map { mapOf("id" to it, "name" to (have[it] ?: it)) }
+    }
+
+    /** Does this project have a workflow with this id? (true when keel cannot list them now: the start says so) */
+    fun hasFlow(pid: String, id: String): Boolean = workflowIds(pid)?.contains(id) ?: true
+
     /** What the threads view needs to draw its buttons. */
     fun client(pid: String): Map<String, Any?> {
         val c = effective(pid)
@@ -214,6 +232,8 @@ class ReviewThreadSettings(
             "judge" to mapOf("mode" to c.judgeMode, "workflow" to c.judgeWorkflow, "allow_harder" to c.judgeAllowHarder, "token_cap" to c.judgeTokenCap,
                 "agent" to c.judgeAgent),
             "address_workflow" to c.addressWorkflow,
+            // the flows the Address it confirmation offers (the default first): a big comment may want a feature flow
+            "address_flows" to addressFlows(pid, c.addressWorkflow),
             "buttons" to c.buttons.map { mapOf("id" to it.id, "label" to it.label, "mode" to it.mode, "agent" to AgentNames.canonicalOrNull(it.agent), "workflow" to it.workflow) },
         )
     }
