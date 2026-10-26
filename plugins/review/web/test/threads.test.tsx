@@ -552,6 +552,33 @@ describe("the review threads", () => {
     expect(within(t1).getByText(/It pushes nothing/)).toBeInTheDocument();
   });
 
+  it("Address it asks \"What should the fix be?\" when the thread has no reply of yours, the reviewer's words above it", async () => {
+    // keel 0.18.57 a review comment's intent: without your reply the flow guessed (a private method for "a factory?")
+    const { calls } = api();
+    show();
+    // T1 has your reply: nothing more to ask
+    const t1 = card(/line 2–3/);
+    await userEvent.click(within(t1).getByRole("button", { name: "✦ Address it" }));
+    expect(
+      within(within(t1).getByRole("group", { name: "Confirm Address it" })).queryByRole("textbox", { name: "What should the fix be?" }),
+    ).toBeNull();
+    // T4: only the reviewer wrote
+    const t4 = card(/line 40/);
+    await userEvent.click(within(t4).getByRole("button", { name: "✦ Address it" }));
+    const confirm = within(t4).getByRole("group", { name: "Confirm Address it" });
+    const fix = within(confirm).getByRole("textbox", { name: "What should the fix be?" });
+    expect(fix).toHaveValue("> ana: one\n> \n> two\n> \n> three\n> \n> four\n> \n> five\n> \n> six\n\n");
+    expect(confirm).toHaveTextContent("You have not replied in this thread");
+    await userEvent.type(fix, "A reusable factory class next to the others.");
+    await userEvent.click(within(confirm).getByRole("button", { name: "Start the flow" }));
+    await waitFor(() =>
+      expect(calls.find((x) => x.path.endsWith("/threads/T4/address"))?.body).toMatchObject({
+        key: KEY,
+        fix: expect.stringMatching(/^> ana: one\n[\s\S]*\n\nA reusable factory class next to the others\.$/),
+      }),
+    );
+  });
+
   it("Address it runs the address flow by default and lets you pick another flow", async () => {
     const ai = AI({
       config: {

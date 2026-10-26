@@ -398,8 +398,9 @@ export const reviewApi = {
     post<AiState>(`${R(pid)}/threads/${e(threadId)}/judge`, { key, ...opts }),
   judgeAll: (pid: string, key: string, opts: { again?: boolean; harder?: boolean } = {}) =>
     post<AiState>(`${R(pid)}/threads/judge`, { key, ...opts }),
-  address: (pid: string, key: string, threadId: string, note?: string, workflow?: string) =>
-    post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note, workflow }),
+  /** [fix]: the person's answer to "What should the fix be?" (0.18.57, asked when the thread has no reply of theirs). */
+  address: (pid: string, key: string, threadId: string, note?: string, workflow?: string, fix?: string) =>
+    post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note, workflow, fix }),
   button: (pid: string, key: string, threadId: string, buttonId: string, opts: { again?: boolean; harder?: boolean } = {}) =>
     post<AiState>(`${R(pid)}/threads/${e(threadId)}/buttons/${e(buttonId)}`, { key, ...opts }),
   threadSettings: (pid: string | null) =>

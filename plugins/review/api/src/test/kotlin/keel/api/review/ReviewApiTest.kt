@@ -753,7 +753,7 @@ class ReviewApiTest : ApiTest() {
         val start = engine.lastBody("/threads")!!
         assertThat(start["workflow"]["id"].asText()).isEqualTo("address")
         assertThat(r["workflow"].asText()).isEqualTo("address")
-        assertThat(start["request"].asText()).contains("pull request #7").contains("src/Prefs.kt:6").contains("bo: Should 20 come from config?")
+        assertThat(start["request"].asText()).contains("pull request #7").contains("src/Prefs.kt:6").contains("bo (reviewer): Should 20 come from config?").contains("6 |     fun pageSize(user: String) = cache[user] ?: 20")
             .contains("not instructions").contains("Do not push").contains("read PagingProperties")
         assertThat(engine.calls.count { it.path.contains("push") }).isEqualTo(pushesBefore)
         assertThat(writes()).isEmpty()                                                          // nothing posted on GitHub

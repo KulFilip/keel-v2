@@ -157,3 +157,13 @@ def test_the_thread_view_without_a_thread_shows_the_request(tmp_path):
     shown = r.update["show"]
     assert "What was asked" in shown and "Rename the helper in tests/test_scores.py" in shown
     assert shown.index("What was asked") < shown.index("## Diff")
+
+
+def test_the_thread_view_shows_the_persons_answer_whole_and_the_code(tmp_path):
+    req = INTENT_REQUEST.replace("\n\nThe code the thread is on", "\n\nThe person's answer (what the fix should be):\n> bo: maybe a factory?\n\n"
+                      "A reusable ScoresFactory in tests/factories/.\n\nThe code the thread is on")
+    a = ActionInput(root=str(tmp_path), phase="ac", title="t", ac=None, acs=[], fake=False, flow="address", request=req,
+                    state={"last_answer": "INTENT: met — a ScoresFactory\nBLOCKING: no", "show": "## Diff\n..."})
+    shown = feature_actions.thread_view(a).update["show"]
+    assert "A reusable ScoresFactory in tests/factories/." in shown and "maybe a factory?" in shown
+    assert "4 |     assert [1, 2]" in shown

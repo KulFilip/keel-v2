@@ -946,7 +946,8 @@ def test_check(a):
 # 0.18.57 address: the review thread in the request (plugins/review ReviewAddressService.request), and the intent check
 _THREAD = re.compile(r"<<<\n(.*?)\n>>>", re.S)
 _THREAD_CODE = re.compile(r"^(The code the thread is on[^\n]*):\n(`{3,}[^\n]*\n.*?\n`{3,})", re.S | re.M)
-_THREAD_ANSWER = re.compile(r"^The person's answer[^\n]*:\n(.+?)(?:\n\n|\Z)", re.S | re.M)
+_THREAD_ANSWER = re.compile(r"^The person's answer[^\n]*:\n(.+?)\n*(?=^The code the thread is on|^keel's check of the thread|\Z)",
+                            re.S | re.M)
 INTENT_LINE = re.compile(r"^\W*INTENT\W*:\W*(met|missed)\b[\s\u2014:\-]*(.*)$", re.M | re.I)
 
 
