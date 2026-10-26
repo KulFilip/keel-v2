@@ -4,20 +4,17 @@
 //   Run      Flow 10 · Tasks 20 · Inbox 30 · Live agents 40 · Jobs 50
 //   Project  Code 10 · KeelBot 20 · Map 30 · Graph 40 · Wiki 50
 //   Build    Workflows 10 · Rules 15 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
-//   Control  Budget 10 · Settings 20 · Connections 30 · Plugins 40
+//   Control  Settings 20 (its tabs: General · Models & logins · Connections · Budget · Plugins · Databases · Devices)
 //
-// And keel's own piece in a part's place: Connections › GitHub (slot connections.kind, order 20: after Jira, before
-// GitLab and Databases). Its token is core: the Git plugin pushes with it, and a flow's ship step opens the pull request.
+// And keel's own piece in a part's place: Settings › Connections › GitHub (slot connections.kind, order 5: first, then
+// GitLab and Jira). Its token is core: the Git plugin pushes with it, and a flow's ship step opens the pull request.
 
 import { AgentsPage } from "./pages/Agents";
-import { BudgetPage } from "./pages/Budget";
-import { ConnectionsPage } from "./pages/Connections";
 import { GitHubSection } from "./components/GitHubToken";
 import { FlowPage } from "./pages/Flow";
 import { InboxPage } from "./pages/Inbox";
 import { JobsPage } from "./pages/Jobs";
 import { LivePage } from "./pages/Live";
-import { PluginsPage } from "./pages/Plugins";
 import { QualityPage } from "./pages/Quality";
 import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
@@ -114,15 +111,9 @@ registerPage({
   component: QualityPage,
 });
 
-registerPage({
-  id: SCREEN.budget,
-  label: "Budget",
-  group: "control",
-  order: 10,
-  product: true,
-  component: BudgetPage,
-});
-// Connections and General settings work without a project too
+// keel 0.18.57 one Settings page with its own menu: General, Models & logins, Connections, Budget, Plugins, (the
+// Database plugin's) Databases and Devices are its tabs (#/settings/<tab>). Budget, Connections and Plugins were pages
+// of their own before; their old links (#/budget, #/connections, #/plugins/<name>) open the tab (routes.ts).
 registerPage({
   id: SCREEN.settings,
   label: "Settings",
@@ -132,30 +123,10 @@ registerPage({
   product: true,
   component: SettingsPage,
 });
-registerPage({
-  id: SCREEN.connections,
-  label: "Connections",
-  group: "control",
-  order: 30,
-  needsProject: "optional",
-  product: true,
-  component: ConnectionsPage,
-});
-
-// v0.16.0 the plugins of this keel and the marketplace: keel-wide, with or without a project
-registerPage({
-  id: SCREEN.plugins,
-  label: "Plugins",
-  group: "control",
-  order: 40,
-  needsProject: false,
-  product: true,
-  component: PluginsPage,
-});
 
 registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
   id: "github",
   title: "GitHub",
-  order: 20,
+  order: 5,
   component: GitHubSection,
 });

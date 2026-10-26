@@ -16,7 +16,7 @@ import type {
 } from "../api";
 import { ModelPicker, normalizeCatalog } from "../components/ModelPicker";
 import { connState } from "../pages/Connections";
-import { SECTIONS } from "../pages/Settings";
+import { MODEL_ROWS } from "../pages/Settings";
 import { providerModels } from "./fixtures";
 import { server } from "./setup";
 
@@ -361,10 +361,8 @@ describe("model picker: local and Vertex AI models", () => {
 });
 
 describe("Settings: Local models only", () => {
-  it("is a row of the Models section", () => {
-    const row = SECTIONS.find((s) => s.id === "models")!.rows.find(
-      (r) => r.key === "local_only",
-    )!;
+  it("is a row of Models & logins › Models", () => {
+    const row = MODEL_ROWS.find((r) => r.key === "local_only")!;
     expect(row.label).toBe("Local models only");
     expect(row.kind.t).toBe("bool");
   });

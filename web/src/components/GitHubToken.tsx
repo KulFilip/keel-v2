@@ -4,15 +4,15 @@
 // v0.18.30 "Sign in with GitHub": a one-time code and a link (the device flow, like the Copilot login) instead of a
 // pasted token; the result is who is connected (login, scopes, host). Pasting a token stays as the second way.
 // v0.18.31 the sign-in opens the same right-side panel as the providers' logins (LoginDrawer); the card shows only state.
+// keel 0.18.57 Settings › Connections › GitHub: one card — its state and Sign in / Sign out, then "or paste a token".
 
 import { useState } from "react";
 import { api, errorParts, type GitHubLoginView } from "../api";
 import { useApp, useLoad } from "../state";
 import { LoginDrawer, type LoginAdapter } from "./LoginDrawer";
-import { Section } from "./page";
-import { Pill } from "./ui";
+import { TonePill } from "./settingsUi";
 
-/** The drawer for "Sign in with GitHub": the shared login panel with the GitHub host field and the SSO hint. */
+/** The drawer for "Sign in with GitHub": the shared login steps with the GitHub host field and the SSO hint. */
 function GitHubLoginHelper({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [host, setHost] = useState("github.com");
   const adapter: LoginAdapter<GitHubLoginView> = {
@@ -26,15 +26,16 @@ function GitHubLoginHelper({ onClose, onSaved }: { onClose: () => void; onSaved:
       intro="keel asks GitHub for a one-time code. You open the link, type the code and allow access. keel saves the token by itself. A GitHub Enterprise host works too."
       note="If your organisation uses SSO, authorize it when GitHub asks."
       adapter={adapter}
+      titles={["Start the login", "Open this page and sign in", "Type this code on that page", "Saved"]}
       doneText={(v) => `connected as ${v.login ?? "GitHub"}${v.scopes.length ? ` · ${v.scopes.join(", ")}` : ""} · ${v.host}`}
       onDone={onSaved}
       onClose={onClose}
       before={(login) => (
-        <div className="field">
-          <label htmlFor="gh-host">GitHub host</label>
-          <input id="gh-host" className="inline-input" placeholder="github.com" autoComplete="off" value={host}
+        <label className="ss-label" htmlFor="gh-host">
+          GitHub host
+          <input id="gh-host" className="ss-input mono" placeholder="github.com" autoComplete="off" value={host}
             disabled={!!login && !["failed", "cancelled"].includes(login.status)} onChange={(e) => setHost(e.target.value)} />
-        </div>
+        </label>
       )}
     />
   );
@@ -78,66 +79,37 @@ export function GitHubSection() {
       toast(errorParts(e).message);
     }
   };
-  const who = gh.data?.login;
+  const d = gh.data;
+  const who = d?.login;
+  const detail = !d ? "Checking…"
+    : who ? `connected as ${who}${d.scopes?.length ? ` · ${d.scopes.join(", ")}` : ""} · ${d.host ?? "github.com"}`
+      : d.set ? `token set${d.hint ? ` ${d.hint}` : ""}${d.from === "env" ? " (from the environment)" : ""}`
+        : "Flows cannot push or open pull requests yet.";
   return (
-    <Section
-      title="GitHub"
-      sub="The token keel pushes branches and opens pull requests with (Git plugin, and a flow's PR step). It needs repo access."
-    >
+    <section className="ss-cardp" aria-labelledby="c-gh" data-testid="github">
       {helper && <GitHubLoginHelper onClose={() => setHelper(false)} onSaved={() => void gh.reload()} />}
-      <div className="panel">
-        <div className="panel-body gh-box">
-          <div className="gh-row">
-            {gh.data?.set ? (
-              <Pill tone="ok">
-                {who
-                  ? `connected as ${who}${gh.data.scopes?.length ? ` · ${gh.data.scopes.join(", ")}` : ""} · ${gh.data.host ?? "github.com"}`
-                  : `token set${gh.data.hint ? ` ${gh.data.hint}` : ""}${gh.data.from === "env" ? " (from the environment)" : ""}`}
-              </Pill>
-            ) : (
-              <Pill tone="idle">no token</Pill>
-            )}
-            {gh.data?.from === "keel" && who && (
-              <button type="button" className="btn sm ghost" onClick={() => void signOut()}>Sign out</button>
-            )}
-          </div>
-          <div className="gh-row">
-            <button type="button" className="btn sm primary" onClick={() => setHelper(true)}>
-              Sign in with GitHub
-            </button>
-          </div>
-          <div className="gh-row">
-            <label htmlFor="gh-token" className="sub">or paste a token</label>
-            <input
-              type="password"
-              className="inline-input"
-              id="gh-token"
-              aria-label="GitHub token"
-              placeholder="ghp_… or github_pat_…"
-              autoComplete="off"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn sm primary"
-              disabled={busy || !value.trim()}
-              onClick={() => void save()}
-            >
-              Save
-            </button>
-            {gh.data?.from === "keel" && !who && (
-              <button
-                type="button"
-                className="btn sm ghost"
-                onClick={() => void remove()}
-              >
-                Remove
-              </button>
-            )}
-          </div>
+      <div className="ss-sechead">
+        <div>
+          <h2 id="c-gh" className="ss-h2 ss-title-row">GitHub <span className="ss-tag acc">every project</span></h2>
+          <p className="ss-sub">The token keel pushes branches and opens pull requests with (Git plugin, and a flow's PR step). It needs repo access.</p>
         </div>
       </div>
-    </Section>
+      <div className="ss-inline" style={{ gap: "8px 12px" }}>
+        {d && (d.set ? <TonePill tone="ok">connected</TonePill> : <TonePill tone="off">no token</TonePill>)}
+        <span className="ss-meta" style={{ flex: "1 1 240px", minWidth: 0 }} data-testid="github-state">{detail}</span>
+        {d?.from === "keel" && who && <button type="button" className="ss-btn sm q" onClick={() => void signOut()}>Sign out</button>}
+        {d && !who && (
+          <button type="button" className={`ss-btn sm${d.set ? "" : " p"}`} onClick={() => setHelper(true)}>Sign in with GitHub</button>
+        )}
+      </div>
+      <div className="ss-inline" style={{ paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+        <label htmlFor="gh-token" className="ss-meta">or paste a token</label>
+        <input type="password" className="ss-input mono" id="gh-token" aria-label="GitHub token" placeholder="ghp_… or github_pat_…" autoComplete="off"
+          value={value} onChange={(e) => setValue(e.target.value)} style={{ flex: "1 1 220px", maxWidth: 360 }}
+          onKeyDown={(e) => e.key === "Enter" && value.trim() && void save()} />
+        <button type="button" className="ss-btn sm" style={{ minHeight: 40 }} disabled={busy || !value.trim()} onClick={() => void save()}>Save</button>
+        {d?.from === "keel" && !who && <button type="button" className="ss-btn sm q" onClick={() => void remove()}>Remove</button>}
+      </div>
+    </section>
   );
 }

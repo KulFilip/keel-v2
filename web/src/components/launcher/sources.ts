@@ -12,9 +12,9 @@ import {
 import type { NavGroup } from "../../addons";
 import { copyText as copyToClipboard } from "../../clipboard";
 import { inboxApi, type InboxItem } from "../../inboxApi";
-import { hashFor, hashForScreen } from "../../routes";
+import { CORE_SETTINGS_TABS, hashFor, hashForScreen, settingsHash } from "../../routes";
 import { hasPage, slotItems } from "../../sdk/registry";
-import { SLOTS, type LauncherSourceItem } from "../../sdk/slots";
+import { SLOTS, type LauncherSourceItem, type SettingsTabItem } from "../../sdk/slots";
 import { OWN_KINDS, SCOPES, type Action, type Item, type Kind, type Query, type Recent, type Scope } from "./model";
 
 export type Data = {
@@ -429,6 +429,19 @@ function pageItems(ctx: Ctx): Item[] {
         ],
       });
     }
+  // keel 0.18.57 each Settings tab is a place of its own: "Settings › Budget", "Settings › Devices" (pair a phone)
+  const tabs = [
+    ...CORE_SETTINGS_TABS.map((t) => ({ id: t.id as string, label: t.label, order: t.order })),
+    ...slotItems<SettingsTabItem>(SLOTS.settingsTab).map((t) => ({ id: t.id, label: t.title, order: t.order ?? 60 })),
+  ].sort((x, y) => x.order - y.order);
+  for (const t of tabs)
+    out.push({
+      id: `page:settings/${t.id}`,
+      kind: "page",
+      title: `Settings › ${t.label}`,
+      sub: t.id === "devices" ? "Pair a phone" : "Settings",
+      actions: [{ id: "open", label: `Go to Settings › ${t.label}`, keys: "enter", run: goHash(ctx, settingsHash(t.id)) }],
+    });
   return out;
 }
 

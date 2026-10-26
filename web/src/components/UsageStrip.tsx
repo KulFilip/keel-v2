@@ -67,17 +67,21 @@ export function UsageCard({ u, onRefreshed }: { u: ProviderUsage; onRefreshed: (
     }
   };
   const label = u.id === "claude" ? "Refresh (one tiny Haiku call)" : `Refresh ${u.name}`;
+  const t = tone(top);
   return (
-    <div className="ucard" data-testid={`usage-${u.id}`}>
-      <div className="ucard-h">
-        <span className="prov"><i className={`c-${u.id === "api" ? "fake" : u.id}`} /><b>{u.name}</b></span>
+    <div className="ss-ucard" data-testid={`usage-${u.id}`}>
+      <span className="ss-ucard-h">
+        <span className={`ss-swatch sw-${u.id === "api" ? "api" : u.id}`} aria-hidden="true" />
+        <b>{u.name}</b>
         {u.can_refresh && (
-          <button className="btn sm ghost" type="button" onClick={refresh} disabled={busy} aria-label={label} title={label}>{busy ? "…" : "↻"}</button>
+          <button className="ss-arrow" style={{ width: 32, height: 32 }} type="button" onClick={refresh} disabled={busy} aria-label={label} title={label}>{busy ? "…" : "↻"}</button>
         )}
-      </div>
-      <span className="ucard-line">{usageLine(u)}</span>
-      {top != null && <div className={`meter m-${tone(top)}`} aria-label={`${u.name} ${top}% used`}><i style={{ width: `${Math.min(100, top)}%` }} /></div>}
-      <span className="hint">{sourceText(u)}{u.error ? ` · ${u.error}` : ""}</span>
+      </span>
+      <span className="ucard-line" style={{ fontVariantNumeric: "tabular-nums" }}>{usageLine(u)}</span>
+      {top != null && (
+        <span className={`ss-bar t-${t === "ok" ? "ok" : t}`} role="img" aria-label={`${u.name} ${top}% used`}><i style={{ width: `${Math.min(100, top)}%` }} /></span>
+      )}
+      <span className="ss-meta ss-small">{sourceText(u)}{u.error ? ` · ${u.error}` : ""}</span>
     </div>
   );
 }
@@ -95,7 +99,7 @@ export function UsageStrip({ empty, loading }: { empty?: ReactNode; loading?: Re
   if (!cards.length) return usage.data && empty ? <>{empty}</> : null;
   const put = (n: ProviderUsage) => usage.setData((l) => (l ? l.map((x) => (x.id === n.id ? n : x)) : [n]));
   return (
-    <div className="ustrip" aria-label="Provider usage">
+    <div className="ss-ucards" aria-label="Provider usage">
       {cards.map((u) => <UsageCard key={u.id} u={u} onRefreshed={put} />)}
     </div>
   );
