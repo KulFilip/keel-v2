@@ -5,6 +5,9 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 // keel's own app and test harness: this test runs Product inside keel's web, as keel loads it
 import { setAddonImporter } from "../../../web/src/addons";
 import { App } from "../../../web/src/App";
@@ -80,6 +83,13 @@ const loadProduct = (url: string) =>
     : Promise.reject(new Error(`no module at ${url}`));
 
 const main = () => within(document.getElementById("main")!);
+const productCss = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "product.css"), "utf8");
+/** The declarations of the first rule whose selector is exactly `sel` (outside media queries: the first one). */
+const rule = (sel: string) => {
+  const at = productCss.indexOf(`\n${sel} {`);
+  expect(at, `no rule for ${sel}`).toBeGreaterThanOrEqual(0);
+  return productCss.slice(productCss.indexOf("{", at) + 1, productCss.indexOf("}", at));
+};
 
 const board: BoardItem[] = [
   {
@@ -1284,6 +1294,40 @@ describe("keel Product in keel's web", () => {
         ],
       },
     ],
+  });
+
+  it("keeps the plan table inside its column at 1280 px: it scrolls in its own box and Edit stays clickable", async () => {
+    // keel 0.18.57 at 1280 px the plan table ran under the side panel and its Edit buttons could not be clicked
+    await open("#/initiatives/INI-2", {
+      "GET /api/initiatives/INI-2": () =>
+        detail(
+          { stage: "plan", status: "waiting" },
+          {
+            stage: { stage: "plan", status: "waiting", next: "The leads agree the plan", waiting: { kind: "gate", title: "Agree the plan" } },
+            plan: draftPlan(),
+          },
+        ),
+      "GET /api/teams": [],
+    });
+    await userEvent.click(await main().findByRole("tab", { name: "Plan" }));
+    const epic = within(main().getByRole("tabpanel")).getByRole("region", { name: "Epic PAY" });
+    const table = epic.querySelector("table.pd-table")!;
+    expect(table.parentElement).toHaveClass("pd-table-wrap");
+    const edit = within(epic).getByRole("button", { name: "Edit PAY-S2" });
+    expect(edit.closest("td")).toHaveClass("pd-act");
+    expect(table.querySelector("thead th:last-child")).toHaveClass("pd-act");
+    // the plan's column may shrink below the table's width (grid items default to min-width: auto)
+    expect(rule(".pd-main")).toMatch(/grid-template-columns: minmax\(0, 1fr\) 320px/);
+    expect(rule(".pd-tab")).toMatch(/min-width: 0/);
+    expect(rule(".pd-doc")).toMatch(/grid-template-columns: minmax\(0, 1fr\)/);
+    expect(rule(".pd-epic")).toMatch(/min-width: 0/);
+    // the table scrolls in its own box, and the actions stay at its right edge
+    expect(rule(".pd-table-wrap")).toMatch(/overflow-x: auto/);
+    expect(rule(".pd-table-wrap")).toMatch(/max-width: 100%/);
+    expect(rule(".pd-table .pd-act")).toMatch(/position: sticky;.*right: 0/);
+    expect(rule(".pd-table .pd-act")).toMatch(/background: var\(--panel\)/);
+    await userEvent.click(edit);
+    expect(within(epic).getByRole("group", { name: "Edit PAY-S2" })).toBeInTheDocument();
   });
 
   it("edits the plan's drafts while the leads look at it; a sent story stays as it is", async () => {

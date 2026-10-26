@@ -1631,7 +1631,11 @@ function Stories({
                         <th>Estimate</th>
                         <th>Waits for</th>
                         <th>Criteria</th>
-                        {drafts && <th />}
+                        {drafts && (
+                          <th className="pd-act">
+                            <span className="sr-only">Actions</span>
+                          </th>
+                        )}
                       </>
                     )}
                   </tr>
@@ -1684,7 +1688,7 @@ function Stories({
                               </ul>
                             </td>
                             {drafts && (
-                              <td>
+                              <td className="pd-act">
                                 {sent ? (
                                   <span
                                     className="chip mono"
