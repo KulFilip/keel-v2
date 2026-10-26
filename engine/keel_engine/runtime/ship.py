@@ -148,7 +148,8 @@ async def memory_plan(a):
 MEMORY_CHOICES = [
     "- update: update the stale sections (recommended: a file they cite changed). A librarian re-reads the cited code "
     "and rewrites only the claims that cite the changed files: it costs tokens",
-    "- skip: keep the knowledge base as it is this time; say why (the PR body records it, and the knowledge check still runs)",
+    "- skip: keep the knowledge base as it is this time; say why (the PR body records it). Neither the librarian nor "
+    "the knowledge check runs",
 ]
 
 
@@ -213,10 +214,12 @@ async def memory_skip(a):
 
 
 def _memory_skip(a):
-    """The knowledge gate's skip: the reason goes to data.memory_choice (the PR body prints it); the check still runs."""
+    """The knowledge gate's skip: the reason goes to data.memory_choice (the PR body prints it). The knowledge check does
+    not run either (0.18.57): on a stale knowledge base it fails, and its librarian fix rounds are the update the person
+    just skipped (a real run spent $0.64 and 3.5 minutes there after "skip")."""
     ans = next((v for k, v in a.data.items() if k.endswith("memory_gate_answer") and isinstance(v, dict)), {})
     why = str(ans.get("why") or "").strip() or "no reason given"
-    plan = {**(a.data.get("memory_plan") or {}), "run": "no"}
+    plan = {**(a.data.get("memory_plan") or {}), "run": "no", "check": "no"}
     return _result(True, f"Knowledge update skipped: {why}",
                    update={"data": {**a.data, "memory_plan": plan, "memory_choice": {"choice": "skip", "reason": why}}})
 
