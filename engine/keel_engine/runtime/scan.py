@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 
 from .. import extensions
@@ -29,6 +30,10 @@ STACKS = [("build.gradle.kts", "kotlin (gradle)"), ("build.gradle", "java/kotlin
           ("Gemfile", "ruby"), ("docker-compose.yml", "docker compose"), ("compose.yml", "docker compose")]
 # The scan's result when no part builds a code index (the code graph part is not loaded).
 NO_INDEX = {"ok": False, "error": "No part of keel builds a code index here (agents use grep instead)."}
+# How many projects are scanned at the same time. A first code graph index (codegraph init) takes 1.5-2 CPU cores and
+# about 2 GB of memory for minutes; adding 7 projects at once ran 7 of them side by side in Docker Desktop's small VM.
+# The others wait their turn (their row says indexing).
+PARALLEL = max(1, int(os.environ.get("KEEL_SCAN_PARALLEL", "1") or 1))
 
 
 def detect_stack(root: str) -> list[str]:
@@ -94,9 +99,11 @@ def ready(root: str) -> bool:
 class Scanner:
     """One scan per project at a time; a second request while one runs returns the running one's status."""
 
-    def __init__(self, bus: EventBus):
+    def __init__(self, bus: EventBus, parallel: int = PARALLEL):
         self.bus = bus
         self.tasks: dict[str, asyncio.Task] = {}
+        self.parallel = parallel
+        self._turns: asyncio.Semaphore | None = None   # made on first use, on the loop that runs the scans
 
     def _emit(self, type_: str, project: str, data: dict):
         self.bus.emit(type_, "", project, data=data)
@@ -114,6 +121,12 @@ class Scanner:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
 
     async def run(self, project: str, root: str, rebuild: bool = False) -> dict:
+        if self._turns is None:
+            self._turns = asyncio.Semaphore(self.parallel)
+        async with self._turns:
+            return await self._run(project, root, rebuild)
+
+    async def _run(self, project: str, root: str, rebuild: bool = False) -> dict:
         try:
             self._emit("index.progress", project, {"status": "indexing", "step": "stack"})
             stack = await asyncio.to_thread(detect_stack, root)
