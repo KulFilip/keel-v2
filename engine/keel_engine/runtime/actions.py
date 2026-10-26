@@ -650,6 +650,12 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
         _m, r = await asyncio.to_thread(verdict_actions.coverage_from_reports, a)
         return r
     if not cmd:
+        if not a.fake:
+            # 0.18.57 the step ran and could measure nothing: a "not available" verdict, so the final review and the PR
+            # body say why instead of "not run" / "No coverage verdict" (they read like a skipped cover)
+            why = "no coverage command in .keel/config.yml (commands.coverage)"
+            await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", None, {"reason": why, "summary": why},
+                                    None, a.root)
         return ActionResult(True, "No coverage command in .keel/config.yml (commands.coverage); coverage is not checked.")
     if a.fake:
         return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
