@@ -111,7 +111,7 @@ class TuiPluginsApiTest : ApiTest() {
             assertThat(m["detail"]["diff"].asText()).isEqualTo("diff")
             assertThat(m["detail"]["notes"].map { it["items"].asText() }).containsExactly("view.threads", "view.drafts", "ai.findings.result.findings")
             val keys = m["keys"].associateBy { it["key"].asText() }
-            assertThat(keys.keys).containsExactly("c", "r", "x", "v", "e", "f", "o", "F", "s", "p", "g")
+            assertThat(keys.keys).containsExactly("c", "r", "x", "v", "e", "f", "o", "F", "d", "s", "p", "g")
             assertThat(keys["c"]!!["view"].asText()).isEqualTo("detail")
             assertThat(keys["c"]!!["call"]["body"]["line"].asText()).isEqualTo("{line}")
             assertThat(keys["s"]!!["pick"]["choices"].map { it["value"].asText() }).containsExactly("APPROVE", "REQUEST_CHANGES", "COMMENT")

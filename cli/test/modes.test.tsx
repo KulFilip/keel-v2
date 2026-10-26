@@ -45,7 +45,7 @@ describe("a plugin's mode, UI-free", () => {
     expect(t).toContain("▸ M  src/Prefs.kt  +6 −1");
     expect(t).toContain("  A  src/PrefsTest.kt  +3 −0");
     expect(t).toContain("Save the page size · feat/paging → main · +9 −1 · 0 draft(s) · 1 thread(s)");
-    expect(t).toContain("↑↓ move · Enter open · r x v e f o F s p g · ? keys · Esc leave");     // too long with the words: ? lists them
+    expect(t).toContain("↑↓ move · Enter open · r x v e f o F d s p g · ? keys · Esc leave");     // too long with the words: ? lists them
     expect(s.keyHints()).toContain("↑↓ move · Enter open · r reply · x resolve · v viewed · e explain · f findings · o overview");
     await s.press("enter");
     t = text(s, 20);
